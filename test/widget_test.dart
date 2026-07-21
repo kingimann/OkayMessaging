@@ -7,6 +7,7 @@ import 'package:okay_messaging/app_state.dart';
 import 'package:okay_messaging/main.dart';
 import 'package:okay_messaging/models/message.dart';
 import 'package:okay_messaging/state/chat_store.dart';
+import 'package:okay_messaging/widgets/heart_burst.dart';
 
 void main() {
   // Singletons persist across tests; reset them so each starts clean.
@@ -449,11 +450,19 @@ void main() {
     await tester.tap(find.text('Did you see the game last night?'));
     await tester.pump(const Duration(milliseconds: 50));
     await tester.tap(find.text('Did you see the game last night?'));
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 100));
 
+    // A heart bursts over the tap point...
+    expect(find.byType(HeartBurst), findsOneWidget);
+
+    // ...and the reaction is recorded on the message.
     expect(ChatStore.instance.chatById('c_bob')!.messages
         .firstWhere((m) => m.id == firstId)
         .reactions
         .contains('❤️'), isTrue);
+
+    // Let the burst animation finish and remove its overlay.
+    await tester.pumpAndSettle();
+    expect(find.byType(HeartBurst), findsNothing);
   });
 }

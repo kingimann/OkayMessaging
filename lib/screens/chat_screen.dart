@@ -9,6 +9,7 @@ import '../theme/app_theme.dart';
 import '../utils/date_formatter.dart';
 import '../widgets/chat_input_bar.dart';
 import '../widgets/emoji_data.dart';
+import '../widgets/heart_burst.dart';
 import '../widgets/message_bubble.dart';
 import '../widgets/typing_indicator.dart';
 import '../widgets/user_avatar.dart';
@@ -42,6 +43,9 @@ class _ChatScreenState extends State<ChatScreen> {
 
   final Set<String> _selectedIds = {};
   bool get _selectionMode => _selectedIds.isNotEmpty;
+
+  /// Where the most recent double-tap landed, used to place the heart burst.
+  Offset? _lastDoubleTapPos;
 
   String get _chatId => widget.chat.id;
 
@@ -266,8 +270,9 @@ class _ChatScreenState extends State<ChatScreen> {
         starred: _store.isStarred(_chatId, m.id),
         onLongPress: _selectionMode ? null : () => _showMessageActions(m),
         onTap: m.isImage && !_selectionMode ? () => _openImage(m) : null,
-        onDoubleTap:
-            _selectionMode ? null : () => _store.toggleReaction(_chatId, m.id, '❤️'),
+        onDoubleTapDown:
+            _selectionMode ? null : (d) => _lastDoubleTapPos = d.globalPosition,
+        onDoubleTap: _selectionMode ? null : () => _quickReact(m),
       );
 
       if (_selectionMode) {
@@ -406,6 +411,35 @@ class _ChatScreenState extends State<ChatScreen> {
         );
       },
     );
+  }
+
+  /// Toggles a ❤️ reaction; when one is added, pops a heart at the tap point.
+  void _quickReact(Message message) {
+    _store.toggleReaction(_chatId, message.id, '❤️');
+    final added = _store
+            .chatById(_chatId)
+            ?.messages
+            .firstWhere((m) => m.id == message.id)
+            .reactions
+            .contains('❤️') ??
+        false;
+    if (added && _lastDoubleTapPos != null) {
+      _showHeartBurst(_lastDoubleTapPos!);
+    }
+  }
+
+  void _showHeartBurst(Offset globalPosition) {
+    final overlay = Overlay.of(context);
+    final box = overlay.context.findRenderObject() as RenderBox?;
+    final local = box?.globalToLocal(globalPosition) ?? globalPosition;
+    late final OverlayEntry entry;
+    entry = OverlayEntry(
+      builder: (_) => HeartBurst(
+        position: local,
+        onDone: () => entry.remove(),
+      ),
+    );
+    overlay.insert(entry);
   }
 
   void _openImage(Message message) {

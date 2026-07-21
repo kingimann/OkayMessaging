@@ -15,6 +15,9 @@ class MessageBubble extends StatelessWidget {
 
   /// Double-tapped to quick-react with a heart (WhatsApp-style).
   final VoidCallback? onDoubleTap;
+
+  /// Records where the double-tap landed, so a heart can burst there.
+  final GestureTapDownCallback? onDoubleTapDown;
   final bool starred;
 
   const MessageBubble({
@@ -23,6 +26,7 @@ class MessageBubble extends StatelessWidget {
     this.onLongPress,
     this.onTap,
     this.onDoubleTap,
+    this.onDoubleTapDown,
     this.starred = false,
   });
 
@@ -60,6 +64,7 @@ class MessageBubble extends StatelessWidget {
       child: GestureDetector(
         onLongPress: onLongPress,
         onDoubleTap: onDoubleTap,
+        onDoubleTapDown: onDoubleTapDown,
         child: Container(
           constraints: BoxConstraints(
             maxWidth: MediaQuery.of(context).size.width * 0.78,
