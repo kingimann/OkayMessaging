@@ -254,6 +254,9 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Ada Lovelace'), findsOneWidget);
+
+    // The edit is persisted to the on-device identity, not just in memory.
+    expect(Session.instance.user.value?.name, 'Ada Lovelace');
   });
 
   testWidgets('Swiping a chat row archives it', (tester) async {

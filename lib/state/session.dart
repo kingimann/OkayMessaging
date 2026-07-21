@@ -52,6 +52,27 @@ class Session {
     AppState.profile.value = me;
   }
 
+  /// Updates the signed-in user's name/about and persists it on the device,
+  /// keeping the phone number (identity) and avatar color.
+  Future<void> updateProfile({
+    required String name,
+    required String about,
+  }) async {
+    final current = user.value;
+    if (current == null) return;
+    final updated = AppUser(
+      id: current.id,
+      name: name.trim().isEmpty ? current.name : name.trim(),
+      avatarColor: current.avatarColor,
+      about: about.trim().isEmpty ? current.about : about.trim(),
+      phone: current.phone,
+    );
+    _prefs ??= await SharedPreferences.getInstance();
+    await _prefs!.setString(_key, jsonEncode(updated.toJson()));
+    user.value = updated;
+    AppState.profile.value = updated;
+  }
+
   /// Signs out and forgets the local identity (chats stay on the device).
   Future<void> signOut() async {
     _prefs ??= await SharedPreferences.getInstance();

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../app_state.dart';
+import '../state/session.dart';
 import '../widgets/user_avatar.dart';
 
 /// Lets the current user edit their display name and about text.
@@ -30,10 +31,17 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     super.dispose();
   }
 
-  void _save() {
-    AppState.updateProfile(name: _name.text, about: _about.text);
+  Future<void> _save() async {
     final messenger = ScaffoldMessenger.of(context);
-    Navigator.of(context).pop();
+    final navigator = Navigator.of(context);
+    if (Session.instance.isSignedIn) {
+      // Persist to the on-device identity so edits survive a reload.
+      await Session.instance
+          .updateProfile(name: _name.text, about: _about.text);
+    } else {
+      AppState.updateProfile(name: _name.text, about: _about.text);
+    }
+    navigator.pop();
     messenger.showSnackBar(
       const SnackBar(content: Text('Profile updated')),
     );
@@ -74,6 +82,20 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
               border: OutlineInputBorder(),
             ),
           ),
+          if (AppState.profile.value.phone.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            TextField(
+              enabled: false,
+              controller:
+                  TextEditingController(text: AppState.profile.value.phone),
+              decoration: const InputDecoration(
+                labelText: 'Phone number',
+                helperText: 'Your login number — stays on this device',
+                prefixIcon: Icon(Icons.phone_outlined),
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
           const SizedBox(height: 24),
           FilledButton.icon(
             onPressed: _save,
