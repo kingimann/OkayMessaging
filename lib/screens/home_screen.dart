@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-import '../data/mock_data.dart';
 import '../tabs/calls_tab.dart';
 import '../tabs/chats_tab.dart';
 import '../tabs/status_tab.dart';
@@ -71,7 +70,7 @@ class _HomeScreenState extends State<HomeScreen>
             icon: const Icon(Icons.search),
             onPressed: () => showSearch(
               context: context,
-              delegate: ChatSearchDelegate(MockData.chats()),
+              delegate: ChatSearchDelegate(),
             ),
           ),
           PopupMenuButton<String>(

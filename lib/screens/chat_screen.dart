@@ -3,14 +3,16 @@ import 'package:flutter/services.dart';
 
 import '../models/chat.dart';
 import '../models/message.dart';
+import '../state/chat_store.dart';
 import '../theme/app_theme.dart';
 import '../utils/date_formatter.dart';
 import '../widgets/chat_input_bar.dart';
+import '../widgets/emoji_data.dart';
 import '../widgets/message_bubble.dart';
 import '../widgets/user_avatar.dart';
 import 'contact_info_screen.dart';
 
-/// The conversation screen for a single [Chat].
+/// The conversation screen for a single [Chat], backed by [ChatStore].
 class ChatScreen extends StatefulWidget {
   final Chat chat;
 
@@ -21,15 +23,24 @@ class ChatScreen extends StatefulWidget {
 }
 
 class _ChatScreenState extends State<ChatScreen> {
-  late List<Message> _messages;
   final ScrollController _scrollController = ScrollController();
+  final ChatStore _store = ChatStore.instance;
+
+  ReplyInfo? _replyTo;
+  bool _isTyping = false;
   int _autoReplyCounter = 0;
+
+  String get _chatId => widget.chat.id;
 
   @override
   void initState() {
     super.initState();
-    _messages = List<Message>.from(widget.chat.messages);
-    WidgetsBinding.instance.addPostFrameCallback((_) => _jumpToBottom());
+    // Make sure a store entry exists (e.g. for a freshly started chat).
+    _store.upsert(widget.chat);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _store.markRead(_chatId);
+      _jumpToBottom();
+    });
   }
 
   @override
@@ -37,6 +48,8 @@ class _ChatScreenState extends State<ChatScreen> {
     _scrollController.dispose();
     super.dispose();
   }
+
+  List<Message> get _messages => _store.chatById(_chatId)?.messages ?? const [];
 
   void _jumpToBottom() {
     if (!_scrollController.hasClients) return;
@@ -54,20 +67,23 @@ class _ChatScreenState extends State<ChatScreen> {
 
   void _handleSend(String text) {
     final now = DateTime.now();
-    setState(() {
-      _messages.add(Message(
+    _store.addMessage(
+      _chatId,
+      Message(
         id: 'local_${now.microsecondsSinceEpoch}',
         text: text,
         time: now,
         isMe: true,
         status: MessageStatus.sent,
-      ));
-    });
+        replyTo: _replyTo,
+      ),
+    );
+    setState(() => _replyTo = null);
     WidgetsBinding.instance.addPostFrameCallback((_) => _animateToBottom());
     _scheduleAutoReply();
   }
 
-  /// Simulates the other person replying so the demo feels alive.
+  /// Simulates the other person typing then replying so the demo feels alive.
   void _scheduleAutoReply() {
     _autoReplyCounter++;
     const replies = [
@@ -79,35 +95,36 @@ class _ChatScreenState extends State<ChatScreen> {
     ];
     final reply = replies[_autoReplyCounter % replies.length];
 
-    Future.delayed(const Duration(milliseconds: 1200), () {
+    setState(() => _isTyping = true);
+    Future.delayed(const Duration(milliseconds: 1400), () {
       if (!mounted) return;
-      setState(() {
-        // Mark my last message as read once a reply arrives.
-        for (var i = _messages.length - 1; i >= 0; i--) {
-          if (_messages[i].isMe) {
-            final m = _messages[i];
-            _messages[i] = Message(
-              id: m.id,
-              text: m.text,
-              time: m.time,
-              isMe: true,
-              status: MessageStatus.read,
-            );
-            break;
-          }
-        }
-        _messages.add(Message(
+      setState(() => _isTyping = false);
+
+      // Mark my messages as read now that a reply has arrived.
+      final updated = _messages
+          .map((m) => m.isMe ? m.copyWith(status: MessageStatus.read) : m)
+          .toList()
+        ..add(Message(
           id: 'reply_${DateTime.now().microsecondsSinceEpoch}',
           text: reply,
           time: DateTime.now(),
           isMe: false,
         ));
-      });
+      _store.replaceMessages(_chatId, updated);
       WidgetsBinding.instance.addPostFrameCallback((_) => _animateToBottom());
     });
   }
 
-  /// Builds a flat list of widgets with day-separator headers inserted.
+  void _startReply(Message message) {
+    setState(() {
+      _replyTo = ReplyInfo(
+        senderName: widget.chat.contact.name,
+        text: message.text,
+        isMe: message.isMe,
+      );
+    });
+  }
+
   List<Widget> _buildItems() {
     final items = <Widget>[];
     DateTime? lastDay;
@@ -133,6 +150,21 @@ class _ChatScreenState extends State<ChatScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              _ReactionRow(
+                onSelected: (emoji) {
+                  _store.toggleReaction(_chatId, message.id, emoji);
+                  Navigator.of(sheetContext).pop();
+                },
+              ),
+              const Divider(height: 1),
+              ListTile(
+                leading: const Icon(Icons.reply),
+                title: const Text('Reply'),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  _startReply(message);
+                },
+              ),
               ListTile(
                 leading: const Icon(Icons.copy),
                 title: const Text('Copy'),
@@ -145,21 +177,56 @@ class _ChatScreenState extends State<ChatScreen> {
                 },
               ),
               ListTile(
-                leading: const Icon(Icons.reply),
-                title: const Text('Reply'),
-                onTap: () => Navigator.of(sheetContext).pop(),
-              ),
-              ListTile(
                 leading: const Icon(Icons.delete_outline, color: Colors.red),
                 title:
                     const Text('Delete', style: TextStyle(color: Colors.red)),
                 onTap: () {
-                  setState(
-                      () => _messages.removeWhere((m) => m.id == message.id));
+                  _store.deleteMessage(_chatId, message.id);
                   Navigator.of(sheetContext).pop();
                 },
               ),
             ],
+          ),
+        );
+      },
+    );
+  }
+
+  void _showAttachmentSheet() {
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (sheetContext) {
+        const options = [
+          (Icons.insert_drive_file, 'Document', Color(0xFF7F66FF)),
+          (Icons.camera_alt, 'Camera', Color(0xFFEF5DA8)),
+          (Icons.photo, 'Gallery', Color(0xFFC861F9)),
+          (Icons.headphones, 'Audio', Color(0xFFF97052)),
+          (Icons.location_on, 'Location', Color(0xFF1FA855)),
+          (Icons.person, 'Contact', Color(0xFF009DE2)),
+        ];
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: GridView.count(
+              crossAxisCount: 3,
+              shrinkWrap: true,
+              mainAxisSpacing: 20,
+              children: [
+                for (final (icon, label, color) in options)
+                  Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      CircleAvatar(
+                        radius: 28,
+                        backgroundColor: color,
+                        child: Icon(icon, color: Colors.white),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(label, style: const TextStyle(fontSize: 12)),
+                    ],
+                  ),
+              ],
+            ),
           ),
         );
       },
@@ -200,10 +267,15 @@ class _ChatScreenState extends State<ChatScreen> {
                       ),
                     ),
                     Text(
-                      contact.isOnline ? 'online' : 'last seen recently',
-                      style: const TextStyle(
+                      _isTyping
+                          ? 'typing…'
+                          : (contact.isOnline
+                              ? 'online'
+                              : 'last seen recently'),
+                      style: TextStyle(
                         fontSize: 12.5,
-                        color: Colors.white70,
+                        color:
+                            _isTyping ? AppColors.lightGreen : Colors.white70,
                       ),
                     ),
                   ],
@@ -237,13 +309,21 @@ class _ChatScreenState extends State<ChatScreen> {
       body: Column(
         children: [
           Expanded(
-            child: ListView(
-              controller: _scrollController,
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              children: _buildItems(),
+            child: ListenableBuilder(
+              listenable: _store,
+              builder: (context, _) => ListView(
+                controller: _scrollController,
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                children: _buildItems(),
+              ),
             ),
           ),
-          ChatInputBar(onSend: _handleSend),
+          ChatInputBar(
+            onSend: _handleSend,
+            onAttach: _showAttachmentSheet,
+            replyTo: _replyTo,
+            onCancelReply: () => setState(() => _replyTo = null),
+          ),
         ],
       ),
     );
@@ -252,6 +332,33 @@ class _ChatScreenState extends State<ChatScreen> {
   void _showComingSoon(BuildContext context, String feature) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('$feature is not available in this demo')),
+    );
+  }
+}
+
+class _ReactionRow extends StatelessWidget {
+  final ValueChanged<String> onSelected;
+
+  const _ReactionRow({required this.onSelected});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceAround,
+        children: [
+          for (final emoji in EmojiData.quickReactions)
+            InkWell(
+              onTap: () => onSelected(emoji),
+              borderRadius: BorderRadius.circular(24),
+              child: Padding(
+                padding: const EdgeInsets.all(6),
+                child: Text(emoji, style: const TextStyle(fontSize: 28)),
+              ),
+            ),
+        ],
+      ),
     );
   }
 }

@@ -1,19 +1,18 @@
 import 'package:flutter/material.dart';
 
 import '../models/chat.dart';
+import '../state/chat_store.dart';
 import '../widgets/chat_list_tile.dart';
 import 'chat_screen.dart';
 
 /// Search across conversations by contact name and message content.
 class ChatSearchDelegate extends SearchDelegate<void> {
-  final List<Chat> chats;
-
-  ChatSearchDelegate(this.chats) : super(searchFieldLabel: 'Search...');
+  ChatSearchDelegate() : super(searchFieldLabel: 'Search...');
 
   List<Chat> _matches() {
     final q = query.trim().toLowerCase();
     if (q.isEmpty) return const [];
-    return chats.where((c) {
+    return ChatStore.instance.allChats.where((c) {
       if (c.contact.name.toLowerCase().contains(q)) return true;
       return c.messages.any((m) => m.text.toLowerCase().contains(q));
     }).toList();

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../data/mock_data.dart';
 import '../models/chat.dart';
 import '../models/user.dart';
+import '../state/chat_store.dart';
 import '../widgets/user_avatar.dart';
 import 'chat_screen.dart';
 
@@ -11,11 +12,21 @@ class NewChatScreen extends StatelessWidget {
   const NewChatScreen({super.key});
 
   void _startChat(BuildContext context, AppUser contact) {
-    final chat = Chat(
-      id: 'new_${contact.id}',
-      contact: contact,
-      messages: const [],
-    );
+    final store = ChatStore.instance;
+    // Reuse an existing conversation with this contact if there is one.
+    final existing = store.chatWithContact(contact.id);
+    final Chat chat;
+    if (existing != null) {
+      if (existing.isArchived) store.setArchived(existing.id, false);
+      chat = existing;
+    } else {
+      chat = Chat(
+        id: 'new_${contact.id}',
+        contact: contact,
+        messages: const [],
+      );
+      store.upsert(chat);
+    }
     // Replace this screen so back returns to the chats list, not the picker.
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(builder: (_) => ChatScreen(chat: chat)),

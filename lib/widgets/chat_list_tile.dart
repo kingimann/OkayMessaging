@@ -11,8 +11,14 @@ import 'user_avatar.dart';
 class ChatListTile extends StatelessWidget {
   final Chat chat;
   final VoidCallback onTap;
+  final VoidCallback? onLongPress;
 
-  const ChatListTile({super.key, required this.chat, required this.onTap});
+  const ChatListTile({
+    super.key,
+    required this.chat,
+    required this.onTap,
+    this.onLongPress,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -23,6 +29,7 @@ class ChatListTile extends StatelessWidget {
 
     return InkWell(
       onTap: onTap,
+      onLongPress: onLongPress,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         child: Row(
@@ -81,6 +88,12 @@ class ChatListTile extends StatelessWidget {
                           padding: EdgeInsets.only(left: 4),
                           child: Icon(Icons.volume_off,
                               size: 16, color: Colors.grey),
+                        ),
+                      if (chat.isPinned && !hasUnread)
+                        const Padding(
+                          padding: EdgeInsets.only(left: 4),
+                          child: Icon(Icons.push_pin,
+                              size: 15, color: Colors.grey),
                         ),
                       if (hasUnread) ...[
                         const SizedBox(width: 6),

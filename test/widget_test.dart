@@ -2,16 +2,17 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:okay_messaging/main.dart';
+import 'package:okay_messaging/state/chat_store.dart';
 
 void main() {
+  // The store is a singleton; reset it so each test starts from clean data.
+  setUp(() => ChatStore.instance.reset());
+
   testWidgets('App boots and shows the three main tabs', (tester) async {
     await tester.pumpWidget(const OkayMessagingApp());
     await tester.pumpAndSettle();
 
-    // App bar title.
     expect(find.text('Okay Messaging'), findsOneWidget);
-
-    // The three tabs are present.
     expect(find.text('Chats'), findsOneWidget);
     expect(find.text('Status'), findsOneWidget);
     expect(find.text('Calls'), findsOneWidget);
@@ -36,8 +37,7 @@ void main() {
     expect(find.text('Message'), findsOneWidget);
   });
 
-  testWidgets('Sending a message adds it to the conversation',
-      (tester) async {
+  testWidgets('Sending a message adds it to the conversation', (tester) async {
     await tester.pumpWidget(const OkayMessagingApp());
     await tester.pumpAndSettle();
 
@@ -51,12 +51,12 @@ void main() {
 
     expect(find.text('Hello from a test'), findsOneWidget);
 
-    // Let the simulated auto-reply timer fire and settle.
+    // Let the simulated typing + auto-reply timer fire and settle.
     await tester.pump(const Duration(seconds: 2));
     await tester.pumpAndSettle();
   });
 
-  testWidgets('Long-pressing a message shows Copy and Delete actions',
+  testWidgets('Long-pressing a message shows reaction + action options',
       (tester) async {
     await tester.pumpWidget(const OkayMessagingApp());
     await tester.pumpAndSettle();
@@ -67,8 +67,27 @@ void main() {
     await tester.longPress(find.text('Did you see the game last night?'));
     await tester.pumpAndSettle();
 
+    expect(find.text('Reply'), findsOneWidget);
     expect(find.text('Copy'), findsOneWidget);
     expect(find.text('Delete'), findsOneWidget);
+  });
+
+  testWidgets('Reacting to a message shows the reaction on the bubble',
+      (tester) async {
+    await tester.pumpWidget(const OkayMessagingApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Bob Carter'));
+    await tester.pumpAndSettle();
+
+    await tester.longPress(find.text('Did you see the game last night?'));
+    await tester.pumpAndSettle();
+
+    // Tap the ❤️ quick reaction.
+    await tester.tap(find.text('❤️'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('❤️'), findsOneWidget);
   });
 
   testWidgets('FAB on the Chats tab opens the new-chat contact picker',
@@ -95,5 +114,26 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Erin Foster'), findsOneWidget);
+  });
+
+  testWidgets('Archiving a chat moves it into the Archived section',
+      (tester) async {
+    await tester.pumpWidget(const OkayMessagingApp());
+    await tester.pumpAndSettle();
+
+    // Long-press Carol's chat and archive it.
+    await tester.longPress(find.text('Carol Diaz'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Archive chat'));
+    await tester.pumpAndSettle();
+
+    // Carol is gone from the main list; an Archived row appears.
+    expect(find.text('Carol Diaz'), findsNothing);
+    expect(find.text('Archived'), findsOneWidget);
+
+    // Opening Archived shows Carol again.
+    await tester.tap(find.text('Archived'));
+    await tester.pumpAndSettle();
+    expect(find.text('Carol Diaz'), findsOneWidget);
   });
 }
