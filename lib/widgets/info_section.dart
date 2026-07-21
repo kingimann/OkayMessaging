@@ -11,11 +11,10 @@ class InfoSection extends StatelessWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
-      child: Container(
-        decoration: BoxDecoration(
-          color: isDark ? const Color(0xFF1B262C) : const Color(0xFFF4F6F7),
-          borderRadius: BorderRadius.circular(16),
-        ),
+      child: Material(
+        color: isDark ? const Color(0xFF1B262C) : const Color(0xFFF4F6F7),
+        borderRadius: BorderRadius.circular(16),
+        clipBehavior: Clip.antiAlias,
         child: Column(children: children),
       ),
     );

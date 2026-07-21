@@ -33,7 +33,13 @@ class GroupInfoScreen extends StatelessWidget {
       body: ListView(
         children: [
           const SizedBox(height: 8),
-          Center(child: UserAvatar(user: group, radius: 56)),
+          Center(
+            child: UserAvatar(
+              user: group,
+              radius: 56,
+              heroTag: 'chatHeaderAvatar',
+            ),
+          ),
           const SizedBox(height: 14),
           Center(
             child: Text(

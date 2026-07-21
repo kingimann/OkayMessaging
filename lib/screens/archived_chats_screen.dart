@@ -50,7 +50,28 @@ class ArchivedChatsScreen extends StatelessWidget {
         builder: (context, _) {
           final archived = store.archivedChats;
           if (archived.isEmpty) {
-            return const Center(child: Text('No archived chats'));
+            return Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.archive_outlined,
+                      size: 72, color: Colors.grey.shade400),
+                  const SizedBox(height: 12),
+                  const Text('No archived chats',
+                      style:
+                          TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 6),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 40),
+                    child: Text(
+                      'Swipe a chat left, or long-press it, to archive it here.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Colors.grey.shade600),
+                    ),
+                  ),
+                ],
+              ),
+            );
           }
           return ListView.separated(
             itemCount: archived.length,

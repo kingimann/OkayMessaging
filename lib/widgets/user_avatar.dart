@@ -8,7 +8,15 @@ class UserAvatar extends StatelessWidget {
   final AppUser user;
   final double radius;
 
-  const UserAvatar({super.key, required this.user, this.radius = 26});
+  /// When set, the avatar animates between screens as a shared element.
+  final String? heroTag;
+
+  const UserAvatar({
+    super.key,
+    required this.user,
+    this.radius = 26,
+    this.heroTag,
+  });
 
   Color get _color {
     var hex = user.avatarColor.replaceFirst('#', '');
@@ -19,7 +27,7 @@ class UserAvatar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return CircleAvatar(
+    final avatar = CircleAvatar(
       radius: radius,
       backgroundColor: _color,
       child: Text(
@@ -30,6 +38,11 @@ class UserAvatar extends StatelessWidget {
           fontWeight: FontWeight.w600,
         ),
       ),
+    );
+    if (heroTag == null) return avatar;
+    return Hero(
+      tag: heroTag!,
+      child: Material(type: MaterialType.transparency, child: avatar),
     );
   }
 }

@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
 
 import '../app_state.dart';
+import '../widgets/info_section.dart';
 import '../widgets/user_avatar.dart';
 import 'edit_profile_screen.dart';
 import 'wallpaper_screen.dart';
 
-/// App settings, including the profile row and light/dark theme switch.
+/// App settings, redesigned with grouped rounded cards (modern style).
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
 
@@ -15,60 +16,59 @@ class SettingsScreen extends StatelessWidget {
       appBar: AppBar(title: const Text('Settings')),
       body: ListView(
         children: [
-          ValueListenableBuilder(
-            valueListenable: AppState.profile,
-            builder: (context, me, _) => ListTile(
-              leading: UserAvatar(user: me, radius: 32),
-              title: Text(me.name,
-                  style: const TextStyle(
-                      fontSize: 18, fontWeight: FontWeight.w600)),
-              subtitle: Text(me.about),
-              trailing: const Icon(Icons.qr_code, color: Colors.grey),
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const EditProfileScreen()),
+          const SizedBox(height: 6),
+          _ProfileCard(),
+          InfoSection(
+            children: [
+              _buildThemeTile(),
+              InfoTile(
+                leading: const Icon(Icons.chat_outlined),
+                title: 'Chats',
+                subtitle: 'Wallpaper, theme, chat history',
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const WallpaperScreen()),
+                ),
               ),
-            ),
+            ],
           ),
-          const Divider(),
-          _buildThemeTile(context),
-          const _SettingsItem(
-            icon: Icons.key,
-            title: 'Account',
-            subtitle: 'Security notifications, change number',
+          const InfoSection(
+            children: [
+              InfoTile(
+                leading: Icon(Icons.key_outlined),
+                title: 'Account',
+                subtitle: 'Security notifications, change number',
+              ),
+              InfoTile(
+                leading: Icon(Icons.lock_outline),
+                title: 'Privacy',
+                subtitle: 'Block contacts, disappearing messages',
+              ),
+              InfoTile(
+                leading: Icon(Icons.notifications_outlined),
+                title: 'Notifications',
+                subtitle: 'Message, group & call tones',
+              ),
+              InfoTile(
+                leading: Icon(Icons.data_usage_outlined),
+                title: 'Storage and data',
+                subtitle: 'Network usage, auto-download',
+              ),
+            ],
           ),
-          const _SettingsItem(
-            icon: Icons.lock,
-            title: 'Privacy',
-            subtitle: 'Block contacts, disappearing messages',
+          const InfoSection(
+            children: [
+              InfoTile(
+                leading: Icon(Icons.help_outline),
+                title: 'Help',
+                subtitle: 'Help center, contact us, privacy policy',
+              ),
+              InfoTile(
+                leading: Icon(Icons.group_outlined),
+                title: 'Invite a friend',
+              ),
+            ],
           ),
-          _SettingsItem(
-            icon: Icons.chat,
-            title: 'Chats',
-            subtitle: 'Wallpaper, theme, chat history',
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const WallpaperScreen()),
-            ),
-          ),
-          const _SettingsItem(
-            icon: Icons.notifications,
-            title: 'Notifications',
-            subtitle: 'Message, group & call tones',
-          ),
-          const _SettingsItem(
-            icon: Icons.data_usage,
-            title: 'Storage and data',
-            subtitle: 'Network usage, auto-download',
-          ),
-          const _SettingsItem(
-            icon: Icons.help_outline,
-            title: 'Help',
-            subtitle: 'Help center, contact us, privacy policy',
-          ),
-          const _SettingsItem(
-            icon: Icons.group,
-            title: 'Invite a friend',
-          ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 20),
           Center(
             child: Text(
               'Okay Messaging • UI demo',
@@ -81,7 +81,7 @@ class SettingsScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildThemeTile(BuildContext context) {
+  Widget _buildThemeTile() {
     return ValueListenableBuilder<ThemeMode>(
       valueListenable: AppState.themeMode,
       builder: (context, mode, _) {
@@ -91,6 +91,9 @@ class SettingsScreen extends StatelessWidget {
           title: const Text('Dark theme'),
           subtitle: Text(isDark ? 'On' : 'Off'),
           value: isDark,
+          shape: const RoundedRectangleBorder(
+            borderRadius: BorderRadius.all(Radius.circular(16)),
+          ),
           onChanged: (on) {
             AppState.themeMode.value = on ? ThemeMode.dark : ThemeMode.light;
           },
@@ -100,26 +103,31 @@ class SettingsScreen extends StatelessWidget {
   }
 }
 
-class _SettingsItem extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String? subtitle;
-  final VoidCallback? onTap;
-
-  const _SettingsItem({
-    required this.icon,
-    required this.title,
-    this.subtitle,
-    this.onTap,
-  });
-
+class _ProfileCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    return ListTile(
-      leading: Icon(icon, color: Colors.grey.shade600),
-      title: Text(title),
-      subtitle: subtitle == null ? null : Text(subtitle!),
-      onTap: onTap ?? () {},
+    return ValueListenableBuilder(
+      valueListenable: AppState.profile,
+      builder: (context, me, _) => InfoSection(
+        children: [
+          ListTile(
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+            leading: UserAvatar(user: me, radius: 30),
+            title: Text(me.name,
+                style:
+                    const TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
+            subtitle: Text(me.about),
+            trailing: const Icon(Icons.qr_code, color: Colors.grey),
+            shape: const RoundedRectangleBorder(
+              borderRadius: BorderRadius.all(Radius.circular(16)),
+            ),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const EditProfileScreen()),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

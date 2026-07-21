@@ -482,7 +482,11 @@ class _ChatScreenState extends State<ChatScreen> {
                       ),
                       child: Row(
                         children: [
-                          UserAvatar(user: contact, radius: 18),
+                          UserAvatar(
+                            user: contact,
+                            radius: 18,
+                            heroTag: 'chatHeaderAvatar',
+                          ),
                           const SizedBox(width: 10),
                           Expanded(
                             child: Column(
