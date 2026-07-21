@@ -242,6 +242,34 @@ void main() {
     expect(find.text('Ada Lovelace'), findsOneWidget);
   });
 
+  testWidgets('Swiping a chat row archives it', (tester) async {
+    await tester.pumpWidget(const OkayMessagingApp());
+    await tester.pumpAndSettle();
+
+    await tester.drag(find.text('Bob Carter'), const Offset(-500, 0));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Bob Carter'), findsNothing);
+    expect(find.text('Archived'), findsOneWidget);
+  });
+
+  testWidgets('Chat wallpaper picker is reachable from Settings',
+      (tester) async {
+    await tester.pumpWidget(const OkayMessagingApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.more_vert));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Settings'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Chats'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Chat wallpaper'), findsOneWidget);
+    expect(find.text('Default'), findsOneWidget);
+  });
+
   testWidgets('Archiving a chat moves it into the Archived section',
       (tester) async {
     await tester.pumpWidget(const OkayMessagingApp());

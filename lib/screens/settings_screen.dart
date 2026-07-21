@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../app_state.dart';
 import '../widgets/user_avatar.dart';
 import 'edit_profile_screen.dart';
+import 'wallpaper_screen.dart';
 
 /// App settings, including the profile row and light/dark theme switch.
 class SettingsScreen extends StatelessWidget {
@@ -40,10 +41,13 @@ class SettingsScreen extends StatelessWidget {
             title: 'Privacy',
             subtitle: 'Block contacts, disappearing messages',
           ),
-          const _SettingsItem(
+          _SettingsItem(
             icon: Icons.chat,
             title: 'Chats',
-            subtitle: 'Theme, wallpapers, chat history',
+            subtitle: 'Wallpaper, theme, chat history',
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const WallpaperScreen()),
+            ),
           ),
           const _SettingsItem(
             icon: Icons.notifications,
@@ -100,11 +104,13 @@ class _SettingsItem extends StatelessWidget {
   final IconData icon;
   final String title;
   final String? subtitle;
+  final VoidCallback? onTap;
 
   const _SettingsItem({
     required this.icon,
     required this.title,
     this.subtitle,
+    this.onTap,
   });
 
   @override
@@ -113,7 +119,7 @@ class _SettingsItem extends StatelessWidget {
       leading: Icon(icon, color: Colors.grey.shade600),
       title: Text(title),
       subtitle: subtitle == null ? null : Text(subtitle!),
-      onTap: () {},
+      onTap: onTap ?? () {},
     );
   }
 }

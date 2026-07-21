@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../app_state.dart';
 import '../models/chat.dart';
 import '../models/message.dart';
 import '../state/chat_store.dart';
@@ -313,115 +314,119 @@ class _ChatScreenState extends State<ChatScreen> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final contact = widget.chat.contact;
 
-    return Scaffold(
-      backgroundColor: isDark ? AppColors.chatBgDark : AppColors.chatBgLight,
-      appBar: AppBar(
-        titleSpacing: 0,
-        title: InkWell(
-          onTap: () => Navigator.of(context).push(
-            MaterialPageRoute(
-              builder: (_) => contact.isGroup
-                  ? GroupInfoScreen(group: contact)
-                  : ContactInfoScreen(user: contact),
-            ),
-          ),
-          child: Row(
-            children: [
-              UserAvatar(user: contact, radius: 18),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      contact.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 17,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    Text(
-                      _isTyping
-                          ? 'typing…'
-                          : (contact.isOnline
-                              ? 'online'
-                              : 'last seen recently'),
-                      style: TextStyle(
-                        fontSize: 12.5,
-                        color: _isTyping
-                            ? AppColors.tealGreenDark
-                            : (isDark ? Colors.white70 : Colors.black54),
-                      ),
-                    ),
-                  ],
-                ),
+    return ValueListenableBuilder<Color?>(
+      valueListenable: AppState.chatWallpaper,
+      builder: (context, wallpaper, _) => Scaffold(
+        backgroundColor: wallpaper ??
+            (isDark ? AppColors.chatBgDark : AppColors.chatBgLight),
+        appBar: AppBar(
+          titleSpacing: 0,
+          title: InkWell(
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => contact.isGroup
+                    ? GroupInfoScreen(group: contact)
+                    : ContactInfoScreen(user: contact),
               ),
-            ],
-          ),
-        ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.videocam),
-            onPressed: () => _showComingSoon(context, 'Video call'),
-          ),
-          IconButton(
-            icon: const Icon(Icons.call),
-            onPressed: () => _showComingSoon(context, 'Voice call'),
-          ),
-          PopupMenuButton<String>(
-            onSelected: (_) {},
-            itemBuilder: (context) => const [
-              PopupMenuItem(value: 'view', child: Text('View contact')),
-              PopupMenuItem(
-                  value: 'media', child: Text('Media, links, and docs')),
-              PopupMenuItem(value: 'search', child: Text('Search')),
-              PopupMenuItem(value: 'mute', child: Text('Mute notifications')),
-              PopupMenuItem(value: 'wallpaper', child: Text('Wallpaper')),
-            ],
-          ),
-        ],
-      ),
-      body: Column(
-        children: [
-          Expanded(
-            child: Stack(
+            ),
+            child: Row(
               children: [
-                ListenableBuilder(
-                  listenable: _store,
-                  builder: (context, _) => ListView(
-                    controller: _scrollController,
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    children: _buildItems(),
+                UserAvatar(user: contact, radius: 18),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        contact.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      Text(
+                        _isTyping
+                            ? 'typing…'
+                            : (contact.isOnline
+                                ? 'online'
+                                : 'last seen recently'),
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          color: _isTyping
+                              ? AppColors.tealGreenDark
+                              : (isDark ? Colors.white70 : Colors.black54),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                if (_showScrollToBottom)
-                  Positioned(
-                    right: 12,
-                    bottom: 12,
-                    child: FloatingActionButton.small(
-                      heroTag: 'scrollToBottom',
-                      backgroundColor:
-                          isDark ? AppColors.darkAppBar : Colors.white,
-                      foregroundColor: AppColors.tealGreenDark,
-                      elevation: 2,
-                      onPressed: _animateToBottom,
-                      child: const Icon(Icons.keyboard_arrow_down),
-                    ),
-                  ),
               ],
             ),
           ),
-          ChatInputBar(
-            onSend: _handleSend,
-            onAttach: _showAttachmentSheet,
-            onSendVoice: _handleSendVoice,
-            replyTo: _replyTo,
-            onCancelReply: () => setState(() => _replyTo = null),
-          ),
-        ],
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.videocam),
+              onPressed: () => _showComingSoon(context, 'Video call'),
+            ),
+            IconButton(
+              icon: const Icon(Icons.call),
+              onPressed: () => _showComingSoon(context, 'Voice call'),
+            ),
+            PopupMenuButton<String>(
+              onSelected: (_) {},
+              itemBuilder: (context) => const [
+                PopupMenuItem(value: 'view', child: Text('View contact')),
+                PopupMenuItem(
+                    value: 'media', child: Text('Media, links, and docs')),
+                PopupMenuItem(value: 'search', child: Text('Search')),
+                PopupMenuItem(value: 'mute', child: Text('Mute notifications')),
+                PopupMenuItem(value: 'wallpaper', child: Text('Wallpaper')),
+              ],
+            ),
+          ],
+        ),
+        body: Column(
+          children: [
+            Expanded(
+              child: Stack(
+                children: [
+                  ListenableBuilder(
+                    listenable: _store,
+                    builder: (context, _) => ListView(
+                      controller: _scrollController,
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      children: _buildItems(),
+                    ),
+                  ),
+                  if (_showScrollToBottom)
+                    Positioned(
+                      right: 12,
+                      bottom: 12,
+                      child: FloatingActionButton.small(
+                        heroTag: 'scrollToBottom',
+                        backgroundColor:
+                            isDark ? AppColors.darkAppBar : Colors.white,
+                        foregroundColor: AppColors.tealGreenDark,
+                        elevation: 2,
+                        onPressed: _animateToBottom,
+                        child: const Icon(Icons.keyboard_arrow_down),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            ChatInputBar(
+              onSend: _handleSend,
+              onAttach: _showAttachmentSheet,
+              onSendVoice: _handleSendVoice,
+              replyTo: _replyTo,
+              onCancelReply: () => setState(() => _replyTo = null),
+            ),
+          ],
+        ),
       ),
     );
   }

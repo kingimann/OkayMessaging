@@ -16,11 +16,16 @@ class AppState {
   static final ValueNotifier<AppUser> profile =
       ValueNotifier<AppUser>(MockData.me);
 
+  /// The chat background color; null uses the default wallpaper.
+  static final ValueNotifier<Color?> chatWallpaper =
+      ValueNotifier<Color?>(null);
+
   /// Resets global state; used by tests to isolate cases.
   @visibleForTesting
   static void resetForTest() {
     themeMode.value = ThemeMode.light;
     profile.value = MockData.me;
+    chatWallpaper.value = null;
   }
 
   /// Updates the current user's name and about text.

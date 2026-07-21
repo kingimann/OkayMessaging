@@ -123,10 +123,33 @@ class _ChatsTabState extends State<ChatsTab> {
                           return _ArchivedRow(count: store.archivedCount);
                         }
                         final chat = chats[index - (showArchived ? 1 : 0)];
-                        return ChatListTile(
-                          chat: chat,
-                          onTap: () => _openChat(chat),
-                          onLongPress: () => _showChatActions(chat),
+                        return Dismissible(
+                          key: ValueKey('chatrow_${chat.id}'),
+                          direction: DismissDirection.endToStart,
+                          background: Container(
+                            color: AppColors.tealGreenDark,
+                            alignment: Alignment.centerRight,
+                            padding: const EdgeInsets.only(right: 24),
+                            child:
+                                const Icon(Icons.archive, color: Colors.white),
+                          ),
+                          onDismissed: (_) {
+                            final messenger = ScaffoldMessenger.of(context);
+                            store.setArchived(chat.id, true);
+                            messenger.showSnackBar(SnackBar(
+                              content: const Text('Chat archived'),
+                              action: SnackBarAction(
+                                label: 'Undo',
+                                onPressed: () =>
+                                    store.setArchived(chat.id, false),
+                              ),
+                            ));
+                          },
+                          child: ChatListTile(
+                            chat: chat,
+                            onTap: () => _openChat(chat),
+                            onLongPress: () => _showChatActions(chat),
+                          ),
                         );
                       },
                     ),
