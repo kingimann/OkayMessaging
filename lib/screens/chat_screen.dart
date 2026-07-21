@@ -38,6 +38,9 @@ class _ChatScreenState extends State<ChatScreen> {
   String _searchQuery = '';
   final TextEditingController _searchController = TextEditingController();
 
+  final Set<String> _selectedIds = {};
+  bool get _selectionMode => _selectedIds.isNotEmpty;
+
   String get _chatId => widget.chat.id;
 
   @override
@@ -171,6 +174,52 @@ class _ChatScreenState extends State<ChatScreen> {
     });
   }
 
+  void _enterSelection(String id) => setState(() => _selectedIds
+    ..clear()
+    ..add(id));
+
+  void _toggleSelect(String id) {
+    setState(() {
+      if (!_selectedIds.remove(id)) _selectedIds.add(id);
+    });
+  }
+
+  void _exitSelection() => setState(_selectedIds.clear);
+
+  List<Message> get _selectedMessages =>
+      _messages.where((m) => _selectedIds.contains(m.id)).toList();
+
+  void _deleteSelected() {
+    for (final id in _selectedIds) {
+      _store.deleteMessage(_chatId, id);
+    }
+    _exitSelection();
+  }
+
+  void _starSelected() {
+    for (final id in _selectedIds) {
+      if (!_store.isStarred(_chatId, id)) _store.toggleStar(_chatId, id);
+    }
+    _exitSelection();
+  }
+
+  void _copySelected() {
+    final text = _selectedMessages.map((m) => m.text).join('\n');
+    Clipboard.setData(ClipboardData(text: text));
+    _exitSelection();
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Messages copied')),
+    );
+  }
+
+  void _forwardSelected() {
+    final text = _selectedMessages.map((m) => m.text).join('\n');
+    _exitSelection();
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => ForwardScreen(text: text)),
+    );
+  }
+
   List<Message> get _visibleMessages {
     final q = _searchQuery.trim().toLowerCase();
     if (!_searching || q.isEmpty) return _messages;
@@ -186,27 +235,44 @@ class _ChatScreenState extends State<ChatScreen> {
         items.add(_DayHeader(label: DateFormatter.messageDayHeader(m.time)));
         lastDay = day;
       }
-      items.add(Dismissible(
-        key: ValueKey('msg_${m.id}'),
-        direction: DismissDirection.startToEnd,
-        dismissThresholds: const {DismissDirection.startToEnd: 0.25},
-        confirmDismiss: (_) async {
-          _startReply(m);
-          return false; // snap back; we only use the swipe to trigger reply
-        },
-        background: const Padding(
-          padding: EdgeInsets.only(left: 24),
-          child: Align(
-            alignment: Alignment.centerLeft,
-            child: Icon(Icons.reply, color: Colors.grey),
+      final bubble = MessageBubble(
+        message: m,
+        starred: _store.isStarred(_chatId, m.id),
+        onLongPress: _selectionMode ? null : () => _showMessageActions(m),
+      );
+
+      if (_selectionMode) {
+        final selected = _selectedIds.contains(m.id);
+        items.add(GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () => _toggleSelect(m.id),
+          onLongPress: () => _toggleSelect(m.id),
+          child: Container(
+            color: selected
+                ? AppColors.tealGreenDark.withValues(alpha: 0.16)
+                : null,
+            child: bubble,
           ),
-        ),
-        child: MessageBubble(
-          message: m,
-          starred: _store.isStarred(_chatId, m.id),
-          onLongPress: () => _showMessageActions(m),
-        ),
-      ));
+        ));
+      } else {
+        items.add(Dismissible(
+          key: ValueKey('msg_${m.id}'),
+          direction: DismissDirection.startToEnd,
+          dismissThresholds: const {DismissDirection.startToEnd: 0.25},
+          confirmDismiss: (_) async {
+            _startReply(m);
+            return false; // snap back; we only use the swipe to trigger reply
+          },
+          background: const Padding(
+            padding: EdgeInsets.only(left: 24),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Icon(Icons.reply, color: Colors.grey),
+            ),
+          ),
+          child: bubble,
+        ));
+      }
     }
     return items;
   }
@@ -245,6 +311,14 @@ class _ChatScreenState extends State<ChatScreen> {
                         builder: (_) => ForwardScreen(text: message.text),
                       ),
                     );
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.check_circle_outline),
+                  title: const Text('Select'),
+                  onTap: () {
+                    Navigator.of(sheetContext).pop();
+                    _enterSelection(message.id);
                   },
                 ),
                 ListTile(
@@ -338,110 +412,142 @@ class _ChatScreenState extends State<ChatScreen> {
       builder: (context, wallpaper, _) => Scaffold(
         backgroundColor: wallpaper ??
             (isDark ? AppColors.chatBgDark : AppColors.chatBgLight),
-        appBar: _searching
+        appBar: _selectionMode
             ? AppBar(
                 leading: IconButton(
-                  icon: const Icon(Icons.arrow_back),
-                  onPressed: _exitSearch,
+                  icon: const Icon(Icons.close),
+                  onPressed: _exitSelection,
                 ),
-                titleSpacing: 0,
-                title: TextField(
-                  controller: _searchController,
-                  autofocus: true,
-                  decoration: const InputDecoration(
-                    hintText: 'Search messages',
-                    border: InputBorder.none,
-                  ),
-                  onChanged: (v) => setState(() => _searchQuery = v),
-                ),
+                title: Text('${_selectedIds.length}'),
                 actions: [
-                  if (_searchQuery.isNotEmpty)
+                  IconButton(
+                    icon: const Icon(Icons.star_border),
+                    tooltip: 'Star',
+                    onPressed: _starSelected,
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.delete_outline),
+                    tooltip: 'Delete',
+                    onPressed: _deleteSelected,
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.shortcut),
+                    tooltip: 'Forward',
+                    onPressed: _forwardSelected,
+                  ),
+                  if (_selectedIds.length == 1)
                     IconButton(
-                      icon: const Icon(Icons.close),
-                      onPressed: () => setState(() {
-                        _searchQuery = '';
-                        _searchController.clear();
-                      }),
+                      icon: const Icon(Icons.copy),
+                      tooltip: 'Copy',
+                      onPressed: _copySelected,
                     ),
                 ],
               )
-            : AppBar(
-                titleSpacing: 0,
-                title: InkWell(
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => contact.isGroup
-                          ? GroupInfoScreen(group: contact)
-                          : ContactInfoScreen(user: contact),
+            : _searching
+                ? AppBar(
+                    leading: IconButton(
+                      icon: const Icon(Icons.arrow_back),
+                      onPressed: _exitSearch,
                     ),
-                  ),
-                  child: Row(
-                    children: [
-                      UserAvatar(user: contact, radius: 18),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Text(
-                              contact.name,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontSize: 17,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                            Text(
-                              _isTyping
-                                  ? 'typing…'
-                                  : (contact.isOnline
-                                      ? 'online'
-                                      : 'last seen recently'),
-                              style: TextStyle(
-                                fontSize: 12.5,
-                                color: _isTyping
-                                    ? AppColors.tealGreenDark
-                                    : (isDark
-                                        ? Colors.white70
-                                        : Colors.black54),
-                              ),
-                            ),
-                          ],
+                    titleSpacing: 0,
+                    title: TextField(
+                      controller: _searchController,
+                      autofocus: true,
+                      decoration: const InputDecoration(
+                        hintText: 'Search messages',
+                        border: InputBorder.none,
+                      ),
+                      onChanged: (v) => setState(() => _searchQuery = v),
+                    ),
+                    actions: [
+                      if (_searchQuery.isNotEmpty)
+                        IconButton(
+                          icon: const Icon(Icons.close),
+                          onPressed: () => setState(() {
+                            _searchQuery = '';
+                            _searchController.clear();
+                          }),
                         ),
+                    ],
+                  )
+                : AppBar(
+                    titleSpacing: 0,
+                    title: InkWell(
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => contact.isGroup
+                              ? GroupInfoScreen(group: contact)
+                              : ContactInfoScreen(user: contact),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          UserAvatar(user: contact, radius: 18),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Text(
+                                  contact.name,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontSize: 17,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                Text(
+                                  _isTyping
+                                      ? 'typing…'
+                                      : (contact.isOnline
+                                          ? 'online'
+                                          : 'last seen recently'),
+                                  style: TextStyle(
+                                    fontSize: 12.5,
+                                    color: _isTyping
+                                        ? AppColors.tealGreenDark
+                                        : (isDark
+                                            ? Colors.white70
+                                            : Colors.black54),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    actions: [
+                      IconButton(
+                        icon: const Icon(Icons.search),
+                        onPressed: () => setState(() => _searching = true),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.videocam),
+                        onPressed: () => _showComingSoon(context, 'Video call'),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.call),
+                        onPressed: () => _showComingSoon(context, 'Voice call'),
+                      ),
+                      PopupMenuButton<String>(
+                        onSelected: (_) {},
+                        itemBuilder: (context) => const [
+                          PopupMenuItem(
+                              value: 'view', child: Text('View contact')),
+                          PopupMenuItem(
+                              value: 'media',
+                              child: Text('Media, links, and docs')),
+                          PopupMenuItem(
+                              value: 'mute', child: Text('Mute notifications')),
+                          PopupMenuItem(
+                              value: 'wallpaper', child: Text('Wallpaper')),
+                        ],
                       ),
                     ],
                   ),
-                ),
-                actions: [
-                  IconButton(
-                    icon: const Icon(Icons.search),
-                    onPressed: () => setState(() => _searching = true),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.videocam),
-                    onPressed: () => _showComingSoon(context, 'Video call'),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.call),
-                    onPressed: () => _showComingSoon(context, 'Voice call'),
-                  ),
-                  PopupMenuButton<String>(
-                    onSelected: (_) {},
-                    itemBuilder: (context) => const [
-                      PopupMenuItem(value: 'view', child: Text('View contact')),
-                      PopupMenuItem(
-                          value: 'media',
-                          child: Text('Media, links, and docs')),
-                      PopupMenuItem(
-                          value: 'mute', child: Text('Mute notifications')),
-                      PopupMenuItem(
-                          value: 'wallpaper', child: Text('Wallpaper')),
-                    ],
-                  ),
-                ],
-              ),
         body: Column(
           children: [
             Expanded(
@@ -472,13 +578,14 @@ class _ChatScreenState extends State<ChatScreen> {
                 ],
               ),
             ),
-            ChatInputBar(
-              onSend: _handleSend,
-              onAttach: _showAttachmentSheet,
-              onSendVoice: _handleSendVoice,
-              replyTo: _replyTo,
-              onCancelReply: () => setState(() => _replyTo = null),
-            ),
+            if (!_selectionMode)
+              ChatInputBar(
+                onSend: _handleSend,
+                onAttach: _showAttachmentSheet,
+                onSendVoice: _handleSendVoice,
+                replyTo: _replyTo,
+                onCancelReply: () => setState(() => _replyTo = null),
+              ),
           ],
         ),
       ),

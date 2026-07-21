@@ -329,6 +329,34 @@ void main() {
     expect(ChatStore.instance.isStarred('c_bob', 'persist_1'), isTrue);
   });
 
+  testWidgets('Multi-select lets you delete several messages at once',
+      (tester) async {
+    await tester.pumpWidget(const OkayMessagingApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Bob Carter'));
+    await tester.pumpAndSettle();
+
+    // Enter selection via the message actions sheet.
+    await tester.longPress(find.text('Did you see the game last night?'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Select'));
+    await tester.pumpAndSettle();
+    expect(find.text('1'), findsOneWidget); // selection count
+
+    // Tap the other message to add it to the selection.
+    await tester.tap(find.textContaining('What a finish'));
+    await tester.pumpAndSettle();
+    expect(find.text('2'), findsOneWidget);
+
+    // Delete both.
+    await tester.tap(find.byIcon(Icons.delete_outline));
+    await tester.pumpAndSettle();
+
+    final bob = ChatStore.instance.chatWithContact('u_bob');
+    expect(bob!.messages, isEmpty);
+  });
+
   testWidgets('Archiving a chat moves it into the Archived section',
       (tester) async {
     await tester.pumpWidget(const OkayMessagingApp());
