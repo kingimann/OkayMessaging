@@ -28,6 +28,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   ReplyInfo? _replyTo;
   bool _isTyping = false;
+  bool _showScrollToBottom = false;
   int _autoReplyCounter = 0;
 
   String get _chatId => widget.chat.id;
@@ -37,10 +38,21 @@ class _ChatScreenState extends State<ChatScreen> {
     super.initState();
     // Make sure a store entry exists (e.g. for a freshly started chat).
     _store.upsert(widget.chat);
+    _scrollController.addListener(_onScroll);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _store.markRead(_chatId);
       _jumpToBottom();
     });
+  }
+
+  void _onScroll() {
+    if (!_scrollController.hasClients) return;
+    final distance =
+        _scrollController.position.maxScrollExtent - _scrollController.offset;
+    final show = distance > 320;
+    if (show != _showScrollToBottom) {
+      setState(() => _showScrollToBottom = show);
+    }
   }
 
   @override
@@ -136,6 +148,7 @@ class _ChatScreenState extends State<ChatScreen> {
       }
       items.add(MessageBubble(
         message: m,
+        starred: _store.isStarred(_chatId, m.id),
         onLongPress: () => _showMessageActions(m),
       ));
     }
@@ -174,6 +187,17 @@ class _ChatScreenState extends State<ChatScreen> {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(content: Text('Message copied')),
                   );
+                },
+              ),
+              ListTile(
+                leading: Icon(_store.isStarred(_chatId, message.id)
+                    ? Icons.star
+                    : Icons.star_border),
+                title: Text(
+                    _store.isStarred(_chatId, message.id) ? 'Unstar' : 'Star'),
+                onTap: () {
+                  _store.toggleStar(_chatId, message.id);
+                  Navigator.of(sheetContext).pop();
                 },
               ),
               ListTile(
@@ -309,13 +333,31 @@ class _ChatScreenState extends State<ChatScreen> {
       body: Column(
         children: [
           Expanded(
-            child: ListenableBuilder(
-              listenable: _store,
-              builder: (context, _) => ListView(
-                controller: _scrollController,
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                children: _buildItems(),
-              ),
+            child: Stack(
+              children: [
+                ListenableBuilder(
+                  listenable: _store,
+                  builder: (context, _) => ListView(
+                    controller: _scrollController,
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    children: _buildItems(),
+                  ),
+                ),
+                if (_showScrollToBottom)
+                  Positioned(
+                    right: 12,
+                    bottom: 12,
+                    child: FloatingActionButton.small(
+                      heroTag: 'scrollToBottom',
+                      backgroundColor:
+                          isDark ? AppColors.darkAppBar : Colors.white,
+                      foregroundColor: AppColors.tealGreenDark,
+                      elevation: 2,
+                      onPressed: _animateToBottom,
+                      child: const Icon(Icons.keyboard_arrow_down),
+                    ),
+                  ),
+              ],
             ),
           ),
           ChatInputBar(

@@ -7,6 +7,7 @@ import '../theme/app_theme.dart';
 import 'chat_search_delegate.dart';
 import 'new_chat_screen.dart';
 import 'settings_screen.dart';
+import 'starred_messages_screen.dart';
 
 /// The top-level screen hosting the Chats / Status / Calls tabs.
 class HomeScreen extends StatefulWidget {
@@ -78,6 +79,11 @@ class _HomeScreenState extends State<HomeScreen>
               if (value == 'settings') {
                 Navigator.of(context).push(
                   MaterialPageRoute(builder: (_) => const SettingsScreen()),
+                );
+              } else if (value == 'starred') {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                      builder: (_) => const StarredMessagesScreen()),
                 );
               }
             },

@@ -47,6 +47,7 @@ class MockData {
     avatarColor: '#4DB6AC',
     about: 'Group • 6 members',
     phone: '',
+    isGroup: true,
   );
 
   static const AppUser _erin = AppUser(

@@ -9,8 +9,14 @@ import 'message_status_icon.dart';
 class MessageBubble extends StatelessWidget {
   final Message message;
   final VoidCallback? onLongPress;
+  final bool starred;
 
-  const MessageBubble({super.key, required this.message, this.onLongPress});
+  const MessageBubble({
+    super.key,
+    required this.message,
+    this.onLongPress,
+    this.starred = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -82,6 +88,10 @@ class MessageBubble extends StatelessWidget {
                     Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
+                        if (starred) ...[
+                          Icon(Icons.star, size: 13, color: metaColor),
+                          const SizedBox(width: 3),
+                        ],
                         Text(
                           DateFormatter.messageTime(message.time),
                           style: TextStyle(color: metaColor, fontSize: 11),

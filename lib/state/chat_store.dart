@@ -16,11 +16,15 @@ class ChatStore extends ChangeNotifier {
 
   late List<Chat> _chats;
 
+  /// Ids of messages the user has starred.
+  final Set<String> _starred = {};
+
   /// Reloads the initial sample data. Intended for tests to isolate state
   /// between cases (the store is otherwise a long-lived singleton).
   @visibleForTesting
   void reset() {
     _chats = MockData.chats();
+    _starred.clear();
     notifyListeners();
   }
 
@@ -138,6 +142,32 @@ class ChatStore extends ChangeNotifier {
     if (i == -1) return;
     final msgs = _chats[i].messages.where((m) => m.id != messageId).toList();
     _replace(i, _chats[i].copyWith(messages: msgs));
+  }
+
+  // Message ids are only unique within a chat, so star keys are composite.
+  String _starKey(String chatId, String messageId) => '$chatId::$messageId';
+
+  bool isStarred(String chatId, String messageId) =>
+      _starred.contains(_starKey(chatId, messageId));
+
+  void toggleStar(String chatId, String messageId) {
+    final key = _starKey(chatId, messageId);
+    if (!_starred.remove(key)) _starred.add(key);
+    notifyListeners();
+  }
+
+  /// All starred messages paired with the conversation they belong to.
+  List<({Chat chat, Message message})> starredMessages() {
+    final out = <({Chat chat, Message message})>[];
+    for (final c in _chats) {
+      for (final m in c.messages) {
+        if (_starred.contains(_starKey(c.id, m.id))) {
+          out.add((chat: c, message: m));
+        }
+      }
+    }
+    out.sort((a, b) => b.message.time.compareTo(a.message.time));
+    return out;
   }
 
   /// Toggles [emoji] on a message: adds it if absent, removes it if present.

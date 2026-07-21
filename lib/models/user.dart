@@ -7,6 +7,9 @@ class AppUser {
   final String phone;
   final bool isOnline;
 
+  /// True for group conversations rather than a single person.
+  final bool isGroup;
+
   const AppUser({
     required this.id,
     required this.name,
@@ -14,6 +17,7 @@ class AppUser {
     this.about = 'Hey there! I am using Okay Messaging.',
     this.phone = '',
     this.isOnline = false,
+    this.isGroup = false,
   });
 
   /// Initials used for the placeholder avatar (e.g. "John Doe" -> "JD").

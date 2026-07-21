@@ -116,6 +116,41 @@ void main() {
     expect(find.text('Erin Foster'), findsOneWidget);
   });
 
+  testWidgets('Groups filter shows only group chats', (tester) async {
+    await tester.pumpWidget(const OkayMessagingApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Groups'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Team Standup'), findsOneWidget);
+    expect(find.text('Alice Bennett'), findsNothing);
+  });
+
+  testWidgets('Starring a message surfaces it in Starred messages',
+      (tester) async {
+    await tester.pumpWidget(const OkayMessagingApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Bob Carter'));
+    await tester.pumpAndSettle();
+
+    await tester.longPress(find.text('Did you see the game last night?'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Star'));
+    await tester.pumpAndSettle();
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.more_vert));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Starred messages'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Did you see the game last night?'), findsOneWidget);
+  });
+
   testWidgets('Archiving a chat moves it into the Archived section',
       (tester) async {
     await tester.pumpWidget(const OkayMessagingApp());

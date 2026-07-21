@@ -4,18 +4,40 @@ import '../models/chat.dart';
 import '../screens/archived_chats_screen.dart';
 import '../screens/chat_screen.dart';
 import '../state/chat_store.dart';
+import '../theme/app_theme.dart';
 import '../widgets/chat_list_tile.dart';
 
-/// The primary "Chats" tab showing all (non-archived) conversations.
-class ChatsTab extends StatelessWidget {
+enum ChatFilter { all, unread, groups }
+
+/// The primary "Chats" tab showing all (non-archived) conversations,
+/// with All / Unread / Groups filter chips.
+class ChatsTab extends StatefulWidget {
   const ChatsTab({super.key});
 
-  void _openChat(BuildContext context, Chat chat) {
+  @override
+  State<ChatsTab> createState() => _ChatsTabState();
+}
+
+class _ChatsTabState extends State<ChatsTab> {
+  ChatFilter _filter = ChatFilter.all;
+
+  List<Chat> _apply(List<Chat> chats) {
+    switch (_filter) {
+      case ChatFilter.all:
+        return chats;
+      case ChatFilter.unread:
+        return chats.where((c) => c.unreadCount > 0).toList();
+      case ChatFilter.groups:
+        return chats.where((c) => c.contact.isGroup).toList();
+    }
+  }
+
+  void _openChat(Chat chat) {
     Navigator.of(context)
         .push(MaterialPageRoute(builder: (_) => ChatScreen(chat: chat)));
   }
 
-  void _showChatActions(BuildContext context, Chat chat) {
+  void _showChatActions(Chat chat) {
     final store = ChatStore.instance;
     showModalBottomSheet<void>(
       context: context,
@@ -75,30 +97,95 @@ class ChatsTab extends StatelessWidget {
     return ListenableBuilder(
       listenable: store,
       builder: (context, _) {
-        final chats = store.chats;
-        if (chats.isEmpty && store.archivedCount == 0) {
-          return const Center(child: Text('No chats yet'));
-        }
-        return ListView.separated(
-          itemCount: chats.length + (store.archivedCount > 0 ? 1 : 0),
-          separatorBuilder: (_, __) => const Divider(
-            height: 1,
-            indent: 84,
-            thickness: 0.4,
-          ),
-          itemBuilder: (context, index) {
-            if (store.archivedCount > 0 && index == 0) {
-              return _ArchivedRow(count: store.archivedCount);
-            }
-            final chat = chats[index - (store.archivedCount > 0 ? 1 : 0)];
-            return ChatListTile(
-              chat: chat,
-              onTap: () => _openChat(context, chat),
-              onLongPress: () => _showChatActions(context, chat),
-            );
-          },
+        final chats = _apply(store.chats);
+        final showArchived =
+            _filter == ChatFilter.all && store.archivedCount > 0;
+        return Column(
+          children: [
+            _FilterBar(
+              selected: _filter,
+              onSelected: (f) => setState(() => _filter = f),
+            ),
+            Expanded(
+              child: (chats.isEmpty && !showArchived)
+                  ? Center(child: Text(_emptyLabel()))
+                  : ListView.separated(
+                      itemCount: chats.length + (showArchived ? 1 : 0),
+                      separatorBuilder: (_, __) => const Divider(
+                        height: 1,
+                        indent: 84,
+                        thickness: 0.4,
+                      ),
+                      itemBuilder: (context, index) {
+                        if (showArchived && index == 0) {
+                          return _ArchivedRow(count: store.archivedCount);
+                        }
+                        final chat = chats[index - (showArchived ? 1 : 0)];
+                        return ChatListTile(
+                          chat: chat,
+                          onTap: () => _openChat(chat),
+                          onLongPress: () => _showChatActions(chat),
+                        );
+                      },
+                    ),
+            ),
+          ],
         );
       },
+    );
+  }
+
+  String _emptyLabel() {
+    switch (_filter) {
+      case ChatFilter.unread:
+        return 'No unread chats';
+      case ChatFilter.groups:
+        return 'No groups';
+      case ChatFilter.all:
+        return 'No chats yet';
+    }
+  }
+}
+
+class _FilterBar extends StatelessWidget {
+  final ChatFilter selected;
+  final ValueChanged<ChatFilter> onSelected;
+
+  const _FilterBar({required this.selected, required this.onSelected});
+
+  @override
+  Widget build(BuildContext context) {
+    Widget chip(String label, ChatFilter filter) {
+      final active = selected == filter;
+      return Padding(
+        padding: const EdgeInsets.only(right: 8),
+        child: ChoiceChip(
+          label: Text(label),
+          selected: active,
+          showCheckmark: false,
+          selectedColor: AppColors.tealGreenDark.withValues(alpha: 0.18),
+          labelStyle: TextStyle(
+            color: active ? AppColors.tealGreenDark : null,
+            fontWeight: active ? FontWeight.w600 : FontWeight.normal,
+          ),
+          onSelected: (_) => onSelected(filter),
+        ),
+      );
+    }
+
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+        child: Row(
+          children: [
+            chip('All', ChatFilter.all),
+            chip('Unread', ChatFilter.unread),
+            chip('Groups', ChatFilter.groups),
+          ],
+        ),
+      ),
     );
   }
 }
