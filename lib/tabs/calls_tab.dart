@@ -3,9 +3,18 @@ import 'package:flutter/material.dart';
 import '../data/mock_data.dart';
 import '../models/call.dart';
 import '../models/user.dart';
+import '../screens/call_screen.dart';
 import '../theme/app_theme.dart';
 import '../utils/date_formatter.dart';
 import '../widgets/user_avatar.dart';
+
+void _startCall(BuildContext context, AppUser user, {required bool video}) {
+  Navigator.of(context).push(
+    MaterialPageRoute(
+      builder: (_) => CallScreen(user: user, video: video),
+    ),
+  );
+}
 
 /// The "Calls" tab: a modern layout with a search pill, favourites, and the
 /// recent call log.
@@ -86,15 +95,20 @@ class _FavouriteTile extends StatelessWidget {
       leading: UserAvatar(user: user, radius: 24),
       title:
           Text(user.name, style: const TextStyle(fontWeight: FontWeight.w600)),
-      trailing: const Row(
+      trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.call, color: AppColors.tealGreenDark),
-          SizedBox(width: 22),
-          Icon(Icons.videocam, color: AppColors.tealGreenDark),
+          IconButton(
+            icon: const Icon(Icons.call, color: AppColors.tealGreenDark),
+            onPressed: () => _startCall(context, user, video: false),
+          ),
+          IconButton(
+            icon: const Icon(Icons.videocam, color: AppColors.tealGreenDark),
+            onPressed: () => _startCall(context, user, video: true),
+          ),
         ],
       ),
-      onTap: () {},
+      onTap: () => _startCall(context, user, video: false),
     );
   }
 }
@@ -134,11 +148,16 @@ class _CallTile extends StatelessWidget {
           Text(DateFormatter.callLabel(record.time)),
         ],
       ),
-      trailing: Icon(
-        record.type == CallType.video ? Icons.videocam : Icons.call,
-        color: AppColors.tealGreenDark,
+      trailing: IconButton(
+        icon: Icon(
+          record.type == CallType.video ? Icons.videocam : Icons.call,
+          color: AppColors.tealGreenDark,
+        ),
+        onPressed: () =>
+            _startCall(context, record.user, video: record.type == CallType.video),
       ),
-      onTap: () {},
+      onTap: () =>
+          _startCall(context, record.user, video: record.type == CallType.video),
     );
   }
 }

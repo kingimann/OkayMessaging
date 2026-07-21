@@ -13,6 +13,7 @@ import '../widgets/heart_burst.dart';
 import '../widgets/message_bubble.dart';
 import '../widgets/typing_indicator.dart';
 import '../widgets/user_avatar.dart';
+import 'call_screen.dart';
 import 'contact_info_screen.dart';
 import 'forward_screen.dart';
 import 'group_info_screen.dart';
@@ -442,6 +443,18 @@ class _ChatScreenState extends State<ChatScreen> {
     overlay.insert(entry);
   }
 
+  void _startCall({required bool video}) {
+    if (widget.chat.contact.isGroup) {
+      _showComingSoon(context, 'Group calls');
+      return;
+    }
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => CallScreen(user: widget.chat.contact, video: video),
+      ),
+    );
+  }
+
   void _openImage(Message message) {
     Navigator.of(context).push(
       MaterialPageRoute(
@@ -634,11 +647,11 @@ class _ChatScreenState extends State<ChatScreen> {
                       ),
                       IconButton(
                         icon: const Icon(Icons.videocam),
-                        onPressed: () => _showComingSoon(context, 'Video call'),
+                        onPressed: () => _startCall(video: true),
                       ),
                       IconButton(
                         icon: const Icon(Icons.call),
-                        onPressed: () => _showComingSoon(context, 'Voice call'),
+                        onPressed: () => _startCall(video: false),
                       ),
                       PopupMenuButton<String>(
                         onSelected: (_) {},

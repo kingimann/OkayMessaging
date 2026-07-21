@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:okay_messaging/app_state.dart';
 import 'package:okay_messaging/main.dart';
+import 'package:okay_messaging/screens/call_screen.dart';
 import 'package:okay_messaging/models/message.dart';
 import 'package:okay_messaging/state/chat_store.dart';
 import 'package:okay_messaging/widgets/heart_burst.dart';
@@ -484,5 +485,31 @@ void main() {
     await tester.tapOnText(find.textRange.ofSubstring('okaydocs.example'));
     await tester.pump(const Duration(milliseconds: 400));
     expect(find.textContaining('Link copied'), findsOneWidget);
+  });
+
+  testWidgets('Tapping the call button opens the call screen', (tester) async {
+    await tester.pumpWidget(const OkayMessagingApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Bob Carter'));
+    await tester.pumpAndSettle();
+
+    // Start a voice call from the chat header.
+    await tester.tap(find.byIcon(Icons.call));
+    await tester.pumpAndSettle();
+
+    // The call screen shows the contact and a ringing status.
+    expect(find.byType(CallScreen), findsOneWidget);
+    expect(find.text('Ringing…'), findsOneWidget);
+
+    // After connecting, a running timer replaces the ringing status.
+    await tester.pump(const Duration(milliseconds: 2300));
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.text('Ringing…'), findsNothing);
+
+    // Ending the call returns to the conversation.
+    await tester.tap(find.byIcon(Icons.call_end));
+    await tester.pumpAndSettle();
+    expect(find.byType(CallScreen), findsNothing);
   });
 }
