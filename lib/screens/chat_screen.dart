@@ -2,10 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../app_state.dart';
-import '../config/backend_config.dart';
 import '../models/chat.dart';
 import '../models/message.dart';
-import '../services/supabase_chat_service.dart';
 import '../state/chat_store.dart';
 import '../theme/app_theme.dart';
 import '../utils/date_formatter.dart';
@@ -107,14 +105,6 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   void _handleSend(String text) {
-    if (BackendConfig.isConfigured) {
-      // Real backend: persist to Supabase; realtime brings it back into the
-      // store (and delivers the other person's actual replies).
-      SupabaseChatService.instance.sendText(_chatId, text);
-      setState(() => _replyTo = null);
-      WidgetsBinding.instance.addPostFrameCallback((_) => _animateToBottom());
-      return;
-    }
     final now = DateTime.now();
     _store.addMessage(
       _chatId,

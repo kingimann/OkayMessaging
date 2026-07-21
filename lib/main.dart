@@ -1,21 +1,17 @@
 import 'package:flutter/material.dart';
 
 import 'app_state.dart';
-import 'config/backend_config.dart';
 import 'screens/auth/auth_gate.dart';
-import 'services/supabase_service.dart';
 import 'state/persistence.dart';
+import 'state/session.dart';
 import 'theme/app_theme.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  // Real backend when configured; otherwise the local demo data is used.
-  await SupabaseService.instance.init();
-  if (!BackendConfig.isConfigured) {
-    await Persistence.init();
-  } else {
-    await Persistence.initPreferencesOnly();
-  }
+  // Everything lives on the device: the phone-number identity and all chats
+  // are loaded from (and saved to) local storage. No server is involved.
+  await Session.instance.load();
+  await Persistence.init();
   runApp(const OkayMessagingApp());
 }
 

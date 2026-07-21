@@ -2,23 +2,28 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:okay_messaging/app_state.dart';
-import 'package:okay_messaging/config/backend_config.dart';
 import 'package:okay_messaging/main.dart';
-import 'package:okay_messaging/screens/auth/login_screen.dart';
+import 'package:okay_messaging/screens/auth/phone_login_screen.dart';
 import 'package:okay_messaging/screens/call_screen.dart';
 import 'package:okay_messaging/screens/media_gallery_screen.dart';
 import 'package:okay_messaging/models/message.dart';
 import 'package:okay_messaging/state/chat_store.dart';
+import 'package:okay_messaging/state/session.dart';
 import 'package:okay_messaging/widgets/heart_burst.dart';
 import 'package:okay_messaging/widgets/linkable_text.dart';
 
 void main() {
-  // Singletons persist across tests; reset them so each starts clean.
+  // Singletons persist across tests; reset them so each starts clean. Most
+  // tests assume a signed-in user so they land on the home screen; the
+  // phone-login test signs out first.
   setUp(() {
+    SharedPreferences.setMockInitialValues({});
     ChatStore.instance.reset();
     AppState.resetForTest();
+    Session.instance.signInForTest();
   });
 
   testWidgets('App boots with Chats and Calls tabs (no Status)',
@@ -538,16 +543,27 @@ void main() {
     expect(find.textContaining('okaydocs.example'), findsOneWidget);
   });
 
-  testWidgets('Without backend config the app runs in demo mode (no login)',
+  testWidgets('Signed out, the phone login screen gates the app then signs in',
       (tester) async {
-    // No SUPABASE_URL / SUPABASE_ANON_KEY dart-defines are set under test.
-    expect(BackendConfig.isConfigured, isFalse);
+    Session.instance.resetForTest();
 
     await tester.pumpWidget(const OkayMessagingApp());
     await tester.pumpAndSettle();
 
-    // The auth gate goes straight to the chat list, not a sign-in screen.
-    expect(find.byType(LoginScreen), findsNothing);
+    // With no local identity, the phone login screen is shown, not the chats.
+    expect(find.byType(PhoneLoginScreen), findsOneWidget);
+    expect(find.text('Alice Bennett'), findsNothing);
+
+    // Enter a name and phone number and continue.
+    await tester.enterText(find.widgetWithText(TextFormField, 'Your name'),
+        'Ada');
+    await tester.enterText(
+        find.widgetWithText(TextFormField, 'Phone number'), '5550123');
+    await tester.tap(find.text('Continue'));
+    await tester.pumpAndSettle();
+
+    // Now signed in: the chat list is shown.
+    expect(find.byType(PhoneLoginScreen), findsNothing);
     expect(find.text('Alice Bennett'), findsOneWidget);
   });
 }
