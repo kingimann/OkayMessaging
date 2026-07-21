@@ -20,6 +20,26 @@ class AppUser {
     this.isGroup = false,
   });
 
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'name': name,
+        'avatarColor': avatarColor,
+        'about': about,
+        'phone': phone,
+        'isOnline': isOnline,
+        'isGroup': isGroup,
+      };
+
+  factory AppUser.fromJson(Map<String, dynamic> json) => AppUser(
+        id: json['id'] as String,
+        name: json['name'] as String,
+        avatarColor: json['avatarColor'] as String,
+        about: json['about'] as String? ?? '',
+        phone: json['phone'] as String? ?? '',
+        isOnline: json['isOnline'] as bool? ?? false,
+        isGroup: json['isGroup'] as bool? ?? false,
+      );
+
   /// Initials used for the placeholder avatar (e.g. "John Doe" -> "JD").
   String get initials {
     final parts = name.trim().split(RegExp(r'\s+'));

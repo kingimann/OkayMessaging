@@ -2,9 +2,14 @@ import 'package:flutter/material.dart';
 
 import 'app_state.dart';
 import 'screens/home_screen.dart';
+import 'state/persistence.dart';
 import 'theme/app_theme.dart';
 
-void main() => runApp(const OkayMessagingApp());
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Persistence.init();
+  runApp(const OkayMessagingApp());
+}
 
 class OkayMessagingApp extends StatelessWidget {
   const OkayMessagingApp({super.key});

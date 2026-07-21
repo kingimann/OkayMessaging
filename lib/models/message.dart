@@ -12,6 +12,15 @@ class ReplyInfo {
     required this.text,
     required this.isMe,
   });
+
+  Map<String, dynamic> toJson() =>
+      {'senderName': senderName, 'text': text, 'isMe': isMe};
+
+  factory ReplyInfo.fromJson(Map<String, dynamic> json) => ReplyInfo(
+        senderName: json['senderName'] as String,
+        text: json['text'] as String,
+        isMe: json['isMe'] as bool,
+      );
 }
 
 /// A single chat message.
@@ -49,6 +58,35 @@ class Message {
     this.isVoice = false,
     this.voiceSeconds = 0,
   });
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'text': text,
+        'time': time.toIso8601String(),
+        'isMe': isMe,
+        'status': status.index,
+        'reactions': reactions,
+        'replyTo': replyTo?.toJson(),
+        'forwarded': forwarded,
+        'isVoice': isVoice,
+        'voiceSeconds': voiceSeconds,
+      };
+
+  factory Message.fromJson(Map<String, dynamic> json) => Message(
+        id: json['id'] as String,
+        text: json['text'] as String,
+        time: DateTime.parse(json['time'] as String),
+        isMe: json['isMe'] as bool,
+        status: MessageStatus.values[json['status'] as int? ?? 3],
+        reactions: (json['reactions'] as List?)?.cast<String>() ?? const [],
+        replyTo: json['replyTo'] == null
+            ? null
+            : ReplyInfo.fromJson(
+                Map<String, dynamic>.from(json['replyTo'] as Map)),
+        forwarded: json['forwarded'] as bool? ?? false,
+        isVoice: json['isVoice'] as bool? ?? false,
+        voiceSeconds: json['voiceSeconds'] as int? ?? 0,
+      );
 
   Message copyWith({
     MessageStatus? status,

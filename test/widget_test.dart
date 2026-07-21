@@ -1,8 +1,11 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:okay_messaging/app_state.dart';
 import 'package:okay_messaging/main.dart';
+import 'package:okay_messaging/models/message.dart';
 import 'package:okay_messaging/state/chat_store.dart';
 
 void main() {
@@ -268,6 +271,62 @@ void main() {
 
     expect(find.text('Chat wallpaper'), findsOneWidget);
     expect(find.text('Default'), findsOneWidget);
+  });
+
+  testWidgets('In-chat search filters the conversation', (tester) async {
+    await tester.pumpWidget(const OkayMessagingApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Bob Carter'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.search));
+    await tester.pumpAndSettle();
+
+    final searchField = find.descendant(
+      of: find.byType(AppBar),
+      matching: find.byType(TextField),
+    );
+    await tester.enterText(searchField, 'finish');
+    await tester.pumpAndSettle();
+
+    expect(find.text('Did you see the game last night?'), findsNothing);
+    expect(find.textContaining('What a finish'), findsOneWidget);
+  });
+
+  test('Chat store survives a JSON serialization round-trip', () {
+    ChatStore.instance.addMessage(
+      'c_bob',
+      Message(
+        id: 'persist_1',
+        text: 'persist me',
+        time: DateTime(2020, 1, 1, 9, 30),
+        isMe: true,
+      ),
+    );
+    ChatStore.instance.toggleStar('c_bob', 'persist_1');
+
+    final snapshot = jsonDecode(jsonEncode(ChatStore.instance.toJson()))
+        as Map<String, dynamic>;
+
+    ChatStore.instance.reset();
+    expect(
+      ChatStore.instance
+          .chatById('c_bob')!
+          .messages
+          .any((m) => m.id == 'persist_1'),
+      isFalse,
+    );
+
+    ChatStore.instance.hydrate(snapshot);
+    expect(
+      ChatStore.instance
+          .chatById('c_bob')!
+          .messages
+          .any((m) => m.text == 'persist me'),
+      isTrue,
+    );
+    expect(ChatStore.instance.isStarred('c_bob', 'persist_1'), isTrue);
   });
 
   testWidgets('Archiving a chat moves it into the Archived section',

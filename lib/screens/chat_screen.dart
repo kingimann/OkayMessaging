@@ -34,6 +34,10 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _showScrollToBottom = false;
   int _autoReplyCounter = 0;
 
+  bool _searching = false;
+  String _searchQuery = '';
+  final TextEditingController _searchController = TextEditingController();
+
   String get _chatId => widget.chat.id;
 
   @override
@@ -61,7 +65,16 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   void dispose() {
     _scrollController.dispose();
+    _searchController.dispose();
     super.dispose();
+  }
+
+  void _exitSearch() {
+    setState(() {
+      _searching = false;
+      _searchQuery = '';
+      _searchController.clear();
+    });
   }
 
   List<Message> get _messages => _store.chatById(_chatId)?.messages ?? const [];
@@ -158,10 +171,16 @@ class _ChatScreenState extends State<ChatScreen> {
     });
   }
 
+  List<Message> get _visibleMessages {
+    final q = _searchQuery.trim().toLowerCase();
+    if (!_searching || q.isEmpty) return _messages;
+    return _messages.where((m) => m.text.toLowerCase().contains(q)).toList();
+  }
+
   List<Widget> _buildItems() {
     final items = <Widget>[];
     DateTime? lastDay;
-    for (final m in _messages) {
+    for (final m in _visibleMessages) {
       final day = DateTime(m.time.year, m.time.month, m.time.day);
       if (lastDay == null || day != lastDay) {
         items.add(_DayHeader(label: DateFormatter.messageDayHeader(m.time)));
@@ -319,75 +338,110 @@ class _ChatScreenState extends State<ChatScreen> {
       builder: (context, wallpaper, _) => Scaffold(
         backgroundColor: wallpaper ??
             (isDark ? AppColors.chatBgDark : AppColors.chatBgLight),
-        appBar: AppBar(
-          titleSpacing: 0,
-          title: InkWell(
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) => contact.isGroup
-                    ? GroupInfoScreen(group: contact)
-                    : ContactInfoScreen(user: contact),
-              ),
-            ),
-            child: Row(
-              children: [
-                UserAvatar(user: contact, radius: 18),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisAlignment: MainAxisAlignment.center,
+        appBar: _searching
+            ? AppBar(
+                leading: IconButton(
+                  icon: const Icon(Icons.arrow_back),
+                  onPressed: _exitSearch,
+                ),
+                titleSpacing: 0,
+                title: TextField(
+                  controller: _searchController,
+                  autofocus: true,
+                  decoration: const InputDecoration(
+                    hintText: 'Search messages',
+                    border: InputBorder.none,
+                  ),
+                  onChanged: (v) => setState(() => _searchQuery = v),
+                ),
+                actions: [
+                  if (_searchQuery.isNotEmpty)
+                    IconButton(
+                      icon: const Icon(Icons.close),
+                      onPressed: () => setState(() {
+                        _searchQuery = '';
+                        _searchController.clear();
+                      }),
+                    ),
+                ],
+              )
+            : AppBar(
+                titleSpacing: 0,
+                title: InkWell(
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => contact.isGroup
+                          ? GroupInfoScreen(group: contact)
+                          : ContactInfoScreen(user: contact),
+                    ),
+                  ),
+                  child: Row(
                     children: [
-                      Text(
-                        contact.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 17,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      Text(
-                        _isTyping
-                            ? 'typing…'
-                            : (contact.isOnline
-                                ? 'online'
-                                : 'last seen recently'),
-                        style: TextStyle(
-                          fontSize: 12.5,
-                          color: _isTyping
-                              ? AppColors.tealGreenDark
-                              : (isDark ? Colors.white70 : Colors.black54),
+                      UserAvatar(user: contact, radius: 18),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(
+                              contact.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 17,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            Text(
+                              _isTyping
+                                  ? 'typing…'
+                                  : (contact.isOnline
+                                      ? 'online'
+                                      : 'last seen recently'),
+                              style: TextStyle(
+                                fontSize: 12.5,
+                                color: _isTyping
+                                    ? AppColors.tealGreenDark
+                                    : (isDark
+                                        ? Colors.white70
+                                        : Colors.black54),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ],
                   ),
                 ),
-              ],
-            ),
-          ),
-          actions: [
-            IconButton(
-              icon: const Icon(Icons.videocam),
-              onPressed: () => _showComingSoon(context, 'Video call'),
-            ),
-            IconButton(
-              icon: const Icon(Icons.call),
-              onPressed: () => _showComingSoon(context, 'Voice call'),
-            ),
-            PopupMenuButton<String>(
-              onSelected: (_) {},
-              itemBuilder: (context) => const [
-                PopupMenuItem(value: 'view', child: Text('View contact')),
-                PopupMenuItem(
-                    value: 'media', child: Text('Media, links, and docs')),
-                PopupMenuItem(value: 'search', child: Text('Search')),
-                PopupMenuItem(value: 'mute', child: Text('Mute notifications')),
-                PopupMenuItem(value: 'wallpaper', child: Text('Wallpaper')),
-              ],
-            ),
-          ],
-        ),
+                actions: [
+                  IconButton(
+                    icon: const Icon(Icons.search),
+                    onPressed: () => setState(() => _searching = true),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.videocam),
+                    onPressed: () => _showComingSoon(context, 'Video call'),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.call),
+                    onPressed: () => _showComingSoon(context, 'Voice call'),
+                  ),
+                  PopupMenuButton<String>(
+                    onSelected: (_) {},
+                    itemBuilder: (context) => const [
+                      PopupMenuItem(value: 'view', child: Text('View contact')),
+                      PopupMenuItem(
+                          value: 'media',
+                          child: Text('Media, links, and docs')),
+                      PopupMenuItem(
+                          value: 'mute', child: Text('Mute notifications')),
+                      PopupMenuItem(
+                          value: 'wallpaper', child: Text('Wallpaper')),
+                    ],
+                  ),
+                ],
+              ),
         body: Column(
           children: [
             Expanded(

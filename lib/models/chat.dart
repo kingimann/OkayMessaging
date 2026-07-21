@@ -27,6 +27,29 @@ class Chat {
   /// Preview text shown in the chat list.
   String get preview => lastMessage?.text ?? '';
 
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'contact': contact.toJson(),
+        'messages': messages.map((m) => m.toJson()).toList(),
+        'unreadCount': unreadCount,
+        'isPinned': isPinned,
+        'isMuted': isMuted,
+        'isArchived': isArchived,
+      };
+
+  factory Chat.fromJson(Map<String, dynamic> json) => Chat(
+        id: json['id'] as String,
+        contact:
+            AppUser.fromJson(Map<String, dynamic>.from(json['contact'] as Map)),
+        messages: (json['messages'] as List)
+            .map((m) => Message.fromJson(Map<String, dynamic>.from(m as Map)))
+            .toList(),
+        unreadCount: json['unreadCount'] as int? ?? 0,
+        isPinned: json['isPinned'] as bool? ?? false,
+        isMuted: json['isMuted'] as bool? ?? false,
+        isArchived: json['isArchived'] as bool? ?? false,
+      );
+
   Chat copyWith({
     List<Message>? messages,
     int? unreadCount,

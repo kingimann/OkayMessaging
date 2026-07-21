@@ -19,6 +19,31 @@ class ChatStore extends ChangeNotifier {
   /// Ids of messages the user has starred.
   final Set<String> _starred = {};
 
+  /// Invoked after every change so a persistence layer can save.
+  void Function()? onChanged;
+
+  @override
+  void notifyListeners() {
+    super.notifyListeners();
+    onChanged?.call();
+  }
+
+  Map<String, dynamic> toJson() => {
+        'chats': _chats.map((c) => c.toJson()).toList(),
+        'starred': _starred.toList(),
+      };
+
+  /// Replaces all state from a previously-saved [json] snapshot.
+  void hydrate(Map<String, dynamic> json) {
+    _chats = (json['chats'] as List)
+        .map((c) => Chat.fromJson(Map<String, dynamic>.from(c as Map)))
+        .toList();
+    _starred
+      ..clear()
+      ..addAll((json['starred'] as List? ?? const []).map((e) => '$e'));
+    notifyListeners();
+  }
+
   /// Reloads the initial sample data. Intended for tests to isolate state
   /// between cases (the store is otherwise a long-lived singleton).
   @visibleForTesting
