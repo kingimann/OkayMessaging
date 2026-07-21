@@ -33,6 +33,8 @@ class AppTheme {
   static ThemeData get light {
     final base = ThemeData.light(useMaterial3: true);
     return base.copyWith(
+      textTheme: base.textTheme.apply(fontFamily: 'Roboto'),
+      primaryTextTheme: base.primaryTextTheme.apply(fontFamily: 'Roboto'),
       colorScheme: base.colorScheme.copyWith(
         primary: AppColors.tealGreen,
         secondary: AppColors.accent,
@@ -70,6 +72,8 @@ class AppTheme {
   static ThemeData get dark {
     final base = ThemeData.dark(useMaterial3: true);
     return base.copyWith(
+      textTheme: base.textTheme.apply(fontFamily: 'Roboto'),
+      primaryTextTheme: base.primaryTextTheme.apply(fontFamily: 'Roboto'),
       colorScheme: base.colorScheme.copyWith(
         primary: AppColors.tealGreenDark,
         secondary: AppColors.accent,
