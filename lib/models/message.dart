@@ -30,6 +30,9 @@ class Message {
   /// The quoted message this one replies to, if any.
   final ReplyInfo? replyTo;
 
+  /// True when this message was forwarded from another chat.
+  final bool forwarded;
+
   const Message({
     required this.id,
     required this.text,
@@ -38,6 +41,7 @@ class Message {
     this.status = MessageStatus.read,
     this.reactions = const [],
     this.replyTo,
+    this.forwarded = false,
   });
 
   Message copyWith({
@@ -52,6 +56,7 @@ class Message {
       status: status ?? this.status,
       reactions: reactions ?? this.reactions,
       replyTo: replyTo,
+      forwarded: forwarded,
     );
   }
 }

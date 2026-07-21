@@ -8,14 +8,15 @@ void main() {
   // The store is a singleton; reset it so each test starts from clean data.
   setUp(() => ChatStore.instance.reset());
 
-  testWidgets('App boots and shows the three main tabs', (tester) async {
+  testWidgets('App boots with Chats and Calls tabs (no Status)',
+      (tester) async {
     await tester.pumpWidget(const OkayMessagingApp());
     await tester.pumpAndSettle();
 
     expect(find.text('Okay Messaging'), findsOneWidget);
     expect(find.text('Chats'), findsOneWidget);
-    expect(find.text('Status'), findsOneWidget);
     expect(find.text('Calls'), findsOneWidget);
+    expect(find.text('Status'), findsNothing);
   });
 
   testWidgets('At least one conversation is listed on the Chats tab',
@@ -149,6 +150,48 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Did you see the game last night?'), findsOneWidget);
+  });
+
+  testWidgets('Forwarding a message opens the chat picker and sends it',
+      (tester) async {
+    await tester.pumpWidget(const OkayMessagingApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Bob Carter'));
+    await tester.pumpAndSettle();
+
+    await tester.longPress(find.text('Did you see the game last night?'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Forward'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Forward to...'), findsOneWidget);
+
+    // Pick Erin's chat and send.
+    await tester.tap(find.text('Erin Foster'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.send));
+    await tester.pumpAndSettle();
+
+    // The forwarded message now exists in Erin's conversation.
+    final erin = ChatStore.instance.chatWithContact('u_erin');
+    expect(erin!.messages.any((m) => m.forwarded), isTrue);
+  });
+
+  testWidgets('Tapping a group header opens group info with members',
+      (tester) async {
+    await tester.pumpWidget(const OkayMessagingApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Team Standup'));
+    await tester.pumpAndSettle();
+
+    // Tap the header to open group info.
+    await tester.tap(find.text('Team Standup'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('6 members'), findsOneWidget);
+    expect(find.text('Group admin'), findsOneWidget);
   });
 
   testWidgets('Archiving a chat moves it into the Archived section',

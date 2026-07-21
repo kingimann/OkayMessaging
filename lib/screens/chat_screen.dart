@@ -11,6 +11,8 @@ import '../widgets/emoji_data.dart';
 import '../widgets/message_bubble.dart';
 import '../widgets/user_avatar.dart';
 import 'contact_info_screen.dart';
+import 'forward_screen.dart';
+import 'group_info_screen.dart';
 
 /// The conversation screen for a single [Chat], backed by [ChatStore].
 class ChatScreen extends StatefulWidget {
@@ -146,10 +148,26 @@ class _ChatScreenState extends State<ChatScreen> {
         items.add(_DayHeader(label: DateFormatter.messageDayHeader(m.time)));
         lastDay = day;
       }
-      items.add(MessageBubble(
-        message: m,
-        starred: _store.isStarred(_chatId, m.id),
-        onLongPress: () => _showMessageActions(m),
+      items.add(Dismissible(
+        key: ValueKey('msg_${m.id}'),
+        direction: DismissDirection.startToEnd,
+        dismissThresholds: const {DismissDirection.startToEnd: 0.25},
+        confirmDismiss: (_) async {
+          _startReply(m);
+          return false; // snap back; we only use the swipe to trigger reply
+        },
+        background: const Padding(
+          padding: EdgeInsets.only(left: 24),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: Icon(Icons.reply, color: Colors.grey),
+          ),
+        ),
+        child: MessageBubble(
+          message: m,
+          starred: _store.isStarred(_chatId, m.id),
+          onLongPress: () => _showMessageActions(m),
+        ),
       ));
     }
     return items;
@@ -160,56 +178,71 @@ class _ChatScreenState extends State<ChatScreen> {
       context: context,
       builder: (sheetContext) {
         return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _ReactionRow(
-                onSelected: (emoji) {
-                  _store.toggleReaction(_chatId, message.id, emoji);
-                  Navigator.of(sheetContext).pop();
-                },
-              ),
-              const Divider(height: 1),
-              ListTile(
-                leading: const Icon(Icons.reply),
-                title: const Text('Reply'),
-                onTap: () {
-                  Navigator.of(sheetContext).pop();
-                  _startReply(message);
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.copy),
-                title: const Text('Copy'),
-                onTap: () {
-                  Clipboard.setData(ClipboardData(text: message.text));
-                  Navigator.of(sheetContext).pop();
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Message copied')),
-                  );
-                },
-              ),
-              ListTile(
-                leading: Icon(_store.isStarred(_chatId, message.id)
-                    ? Icons.star
-                    : Icons.star_border),
-                title: Text(
-                    _store.isStarred(_chatId, message.id) ? 'Unstar' : 'Star'),
-                onTap: () {
-                  _store.toggleStar(_chatId, message.id);
-                  Navigator.of(sheetContext).pop();
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.delete_outline, color: Colors.red),
-                title:
-                    const Text('Delete', style: TextStyle(color: Colors.red)),
-                onTap: () {
-                  _store.deleteMessage(_chatId, message.id);
-                  Navigator.of(sheetContext).pop();
-                },
-              ),
-            ],
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _ReactionRow(
+                  onSelected: (emoji) {
+                    _store.toggleReaction(_chatId, message.id, emoji);
+                    Navigator.of(sheetContext).pop();
+                  },
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.reply),
+                  title: const Text('Reply'),
+                  onTap: () {
+                    Navigator.of(sheetContext).pop();
+                    _startReply(message);
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.shortcut),
+                  title: const Text('Forward'),
+                  onTap: () {
+                    Navigator.of(sheetContext).pop();
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => ForwardScreen(text: message.text),
+                      ),
+                    );
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.copy),
+                  title: const Text('Copy'),
+                  onTap: () {
+                    Clipboard.setData(ClipboardData(text: message.text));
+                    Navigator.of(sheetContext).pop();
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Message copied')),
+                    );
+                  },
+                ),
+                ListTile(
+                  leading: Icon(_store.isStarred(_chatId, message.id)
+                      ? Icons.star
+                      : Icons.star_border),
+                  title: Text(_store.isStarred(_chatId, message.id)
+                      ? 'Unstar'
+                      : 'Star'),
+                  onTap: () {
+                    _store.toggleStar(_chatId, message.id);
+                    Navigator.of(sheetContext).pop();
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.delete_outline, color: Colors.red),
+                  title:
+                      const Text('Delete', style: TextStyle(color: Colors.red)),
+                  onTap: () {
+                    _store.deleteMessage(_chatId, message.id);
+                    Navigator.of(sheetContext).pop();
+                  },
+                ),
+              ],
+            ),
           ),
         );
       },
@@ -269,7 +302,9 @@ class _ChatScreenState extends State<ChatScreen> {
         title: InkWell(
           onTap: () => Navigator.of(context).push(
             MaterialPageRoute(
-              builder: (_) => ContactInfoScreen(user: contact),
+              builder: (_) => contact.isGroup
+                  ? GroupInfoScreen(group: contact)
+                  : ContactInfoScreen(user: contact),
             ),
           ),
           child: Row(

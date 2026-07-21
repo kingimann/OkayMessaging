@@ -46,13 +46,4 @@ class DateFormatter {
     if (diff == 1) return 'Yesterday, $t';
     return '${DateFormat('dd MMM').format(time)}, $t';
   }
-
-  static String statusLabel(DateTime time) {
-    final minutes = DateTime.now().difference(time).inMinutes;
-    if (minutes < 1) return 'Just now';
-    if (minutes < 60) return '$minutes minutes ago';
-    final hours = minutes ~/ 60;
-    if (hours < 24) return 'Today, ${DateFormat('HH:mm').format(time)}';
-    return DateFormat('dd/MM/yyyy').format(time);
-  }
 }

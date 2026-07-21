@@ -1,7 +1,6 @@
 import '../models/call.dart';
 import '../models/chat.dart';
 import '../models/message.dart';
-import '../models/status.dart';
 import '../models/user.dart';
 
 /// In-memory sample data that powers the UI-only clone.
@@ -204,37 +203,6 @@ class MockData {
             status: MessageStatus.read,
           ),
         ],
-      ),
-    ];
-  }
-
-  static List<StatusUpdate> statuses() {
-    return [
-      StatusUpdate(
-        id: 's_alice',
-        user: _alice,
-        time: _ago(const Duration(minutes: 25)),
-        frameCount: 3,
-      ),
-      StatusUpdate(
-        id: 's_erin',
-        user: _erin,
-        time: _ago(const Duration(hours: 1, minutes: 10)),
-        frameCount: 1,
-      ),
-      StatusUpdate(
-        id: 's_bob',
-        user: _bob,
-        time: _ago(const Duration(hours: 4)),
-        viewed: true,
-        frameCount: 2,
-      ),
-      StatusUpdate(
-        id: 's_carol',
-        user: _carol,
-        time: _ago(const Duration(hours: 8)),
-        viewed: true,
-        frameCount: 1,
       ),
     ];
   }

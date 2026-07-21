@@ -2,14 +2,13 @@ import 'package:flutter/material.dart';
 
 import '../tabs/calls_tab.dart';
 import '../tabs/chats_tab.dart';
-import '../tabs/status_tab.dart';
 import '../theme/app_theme.dart';
 import 'chat_search_delegate.dart';
 import 'new_chat_screen.dart';
 import 'settings_screen.dart';
 import 'starred_messages_screen.dart';
 
-/// The top-level screen hosting the Chats / Status / Calls tabs.
+/// The top-level screen hosting the Chats and Calls tabs.
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
@@ -23,7 +22,6 @@ class _HomeScreenState extends State<HomeScreen>
 
   final _tabs = const [
     Tab(text: 'Chats'),
-    Tab(text: 'Status'),
     Tab(text: 'Calls'),
   ];
 
@@ -40,16 +38,8 @@ class _HomeScreenState extends State<HomeScreen>
     super.dispose();
   }
 
-  IconData get _fabIcon {
-    switch (_tabController.index) {
-      case 1:
-        return Icons.camera_alt;
-      case 2:
-        return Icons.add_call;
-      default:
-        return Icons.chat;
-    }
-  }
+  IconData get _fabIcon =>
+      _tabController.index == 1 ? Icons.add_call : Icons.chat;
 
   void _onFabPressed() {
     // Only the Chats tab has a fully wired action in this demo.
@@ -101,7 +91,6 @@ class _HomeScreenState extends State<HomeScreen>
         controller: _tabController,
         children: const [
           ChatsTab(),
-          StatusTab(),
           CallsTab(),
         ],
       ),

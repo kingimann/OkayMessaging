@@ -76,6 +76,25 @@ class MessageBubble extends StatelessWidget {
                   children: [
                     if (message.replyTo != null)
                       _ReplyQuote(reply: message.replyTo!, isDark: isDark),
+                    if (message.forwarded)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 2),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.shortcut, size: 14, color: metaColor),
+                            const SizedBox(width: 4),
+                            Text(
+                              'Forwarded',
+                              style: TextStyle(
+                                color: metaColor,
+                                fontSize: 12.5,
+                                fontStyle: FontStyle.italic,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     Text(
                       message.text,
                       style: TextStyle(
