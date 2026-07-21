@@ -434,4 +434,26 @@ void main() {
     expect(find.byType(InteractiveViewer), findsOneWidget);
     expect(find.text('Erin Foster'), findsOneWidget);
   });
+
+  testWidgets('Double-tapping a message quick-reacts with a heart',
+      (tester) async {
+    await tester.pumpWidget(const OkayMessagingApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Bob Carter'));
+    await tester.pumpAndSettle();
+
+    final bob = ChatStore.instance.chatWithContact('u_bob');
+    final firstId = bob!.messages.first.id;
+
+    await tester.tap(find.text('Did you see the game last night?'));
+    await tester.pump(const Duration(milliseconds: 50));
+    await tester.tap(find.text('Did you see the game last night?'));
+    await tester.pumpAndSettle();
+
+    expect(ChatStore.instance.chatById('c_bob')!.messages
+        .firstWhere((m) => m.id == firstId)
+        .reactions
+        .contains('❤️'), isTrue);
+  });
 }

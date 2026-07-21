@@ -266,6 +266,8 @@ class _ChatScreenState extends State<ChatScreen> {
         starred: _store.isStarred(_chatId, m.id),
         onLongPress: _selectionMode ? null : () => _showMessageActions(m),
         onTap: m.isImage && !_selectionMode ? () => _openImage(m) : null,
+        onDoubleTap:
+            _selectionMode ? null : () => _store.toggleReaction(_chatId, m.id, '❤️'),
       );
 
       if (_selectionMode) {

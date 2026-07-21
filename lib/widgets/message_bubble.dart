@@ -12,6 +12,9 @@ class MessageBubble extends StatelessWidget {
 
   /// Tapped when this is an image bubble (opens the full-screen viewer).
   final VoidCallback? onTap;
+
+  /// Double-tapped to quick-react with a heart (WhatsApp-style).
+  final VoidCallback? onDoubleTap;
   final bool starred;
 
   const MessageBubble({
@@ -19,6 +22,7 @@ class MessageBubble extends StatelessWidget {
     required this.message,
     this.onLongPress,
     this.onTap,
+    this.onDoubleTap,
     this.starred = false,
   });
 
@@ -55,6 +59,7 @@ class MessageBubble extends StatelessWidget {
       alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
       child: GestureDetector(
         onLongPress: onLongPress,
+        onDoubleTap: onDoubleTap,
         child: Container(
           constraints: BoxConstraints(
             maxWidth: MediaQuery.of(context).size.width * 0.78,
