@@ -12,6 +12,9 @@ dependencies:
   cupertino_icons: ^1.0.6
   intl: ^0.19.0
   shared_preferences: ^2.2.0
+  # Used ONLY for Realtime broadcast (ephemeral pub/sub). No database tables,
+  # no auth, no stored messages — the relay just passes messages through.
+  supabase_flutter: ^2.5.0
 
 dev_dependencies:
   flutter_test:

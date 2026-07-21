@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'app_state.dart';
+import 'relay/relay_service.dart';
 import 'screens/auth/auth_gate.dart';
 import 'state/persistence.dart';
 import 'state/session.dart';
@@ -9,9 +10,12 @@ import 'theme/app_theme.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   // Everything lives on the device: the phone-number identity and all chats
-  // are loaded from (and saved to) local storage. No server is involved.
+  // are loaded from (and saved to) local storage. If a relay is configured,
+  // messages are delivered device-to-device over an ephemeral broadcast
+  // channel (nothing is stored on any server).
   await Session.instance.load();
   await Persistence.init();
+  await RelayService.instance.init();
   runApp(const OkayMessagingApp());
 }
 

@@ -43,6 +43,34 @@ flutter run          # pick a device, or -d chrome for web
 flutter test
 ```
 
+## Optional: device-to-device delivery (no server storage)
+
+By default the app is fully local, so two different phones can't exchange
+messages. You can enable real cross-device delivery **without storing any
+message on a server** by pointing the app at a free
+[Supabase](https://supabase.com) project's **Realtime** service:
+
+- Delivery uses Supabase Realtime **broadcast** only — an ephemeral pub/sub
+  channel. Messages are passed live to the other device and are **never**
+  written to any database, table, or storage. Each device keeps its own local
+  copy, exactly as before.
+- Each pair of people shares a channel keyed by their two phone numbers, so
+  only those two devices see the messages. Delivery is live-only: both must be
+  online at the same time (nothing is queued anywhere).
+
+To enable it, create a free Supabase project (no schema needed — Realtime is on
+by default) and pass its URL and anon/publishable key at build time:
+
+```bash
+flutter run \
+  --dart-define=SUPABASE_URL=https://YOUR-PROJECT.supabase.co \
+  --dart-define=SUPABASE_ANON_KEY=YOUR_ANON_KEY
+```
+
+Sign in on two devices with two phone numbers, start a chat with the other
+number on each, and messages flow between them in real time — with nothing
+stored server-side.
+
 ## Project structure
 
 ```

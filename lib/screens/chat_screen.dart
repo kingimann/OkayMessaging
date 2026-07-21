@@ -4,6 +4,8 @@ import 'package:flutter/services.dart';
 import '../app_state.dart';
 import '../models/chat.dart';
 import '../models/message.dart';
+import '../relay/relay_config.dart';
+import '../relay/relay_service.dart';
 import '../state/chat_store.dart';
 import '../theme/app_theme.dart';
 import '../utils/date_formatter.dart';
@@ -56,6 +58,13 @@ class _ChatScreenState extends State<ChatScreen> {
     super.initState();
     // Make sure a store entry exists (e.g. for a freshly started chat).
     _store.upsert(widget.chat);
+    // Start listening for this contact's messages if a relay is active.
+    final phone = widget.chat.contact.phone;
+    if (RelayConfig.isEnabled &&
+        !widget.chat.contact.isGroup &&
+        phone.isNotEmpty) {
+      RelayService.instance.ensureConversation(phone);
+    }
     _scrollController.addListener(_onScroll);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _store.markRead(_chatId);
@@ -106,20 +115,26 @@ class _ChatScreenState extends State<ChatScreen> {
 
   void _handleSend(String text) {
     final now = DateTime.now();
-    _store.addMessage(
-      _chatId,
-      Message(
-        id: 'local_${now.microsecondsSinceEpoch}',
-        text: text,
-        time: now,
-        isMe: true,
-        status: MessageStatus.sent,
-        replyTo: _replyTo,
-      ),
+    final message = Message(
+      id: 'local_${now.microsecondsSinceEpoch}',
+      text: text,
+      time: now,
+      isMe: true,
+      status: MessageStatus.sent,
+      replyTo: _replyTo,
     );
+    _store.addMessage(_chatId, message);
     setState(() => _replyTo = null);
     WidgetsBinding.instance.addPostFrameCallback((_) => _animateToBottom());
-    _scheduleAutoReply();
+
+    final phone = widget.chat.contact.phone;
+    if (RelayConfig.isEnabled && !widget.chat.contact.isGroup && phone.isNotEmpty) {
+      // Real device-to-device delivery; the other side replies for real.
+      RelayService.instance.send(phone, message);
+    } else {
+      // Local-only: keep the demo lively with a simulated reply.
+      _scheduleAutoReply();
+    }
   }
 
   void _handleSendImage() {

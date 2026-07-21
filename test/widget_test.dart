@@ -10,6 +10,7 @@ import 'package:okay_messaging/screens/auth/phone_login_screen.dart';
 import 'package:okay_messaging/screens/call_screen.dart';
 import 'package:okay_messaging/screens/media_gallery_screen.dart';
 import 'package:okay_messaging/models/message.dart';
+import 'package:okay_messaging/relay/relay_service.dart';
 import 'package:okay_messaging/state/chat_store.dart';
 import 'package:okay_messaging/state/session.dart';
 import 'package:okay_messaging/widgets/heart_burst.dart';
@@ -568,5 +569,72 @@ void main() {
     // Now signed in: the chat list is shown.
     expect(find.byType(PhoneLoginScreen), findsNothing);
     expect(find.text('Alice Bennett'), findsOneWidget);
+  });
+
+  group('Relay (device-to-device delivery)', () {
+    test('channel id is deterministic and order-independent', () {
+      final a = RelayService.channelFor('+1 555 0100', '+1 (555) 0199');
+      final b = RelayService.channelFor('+15550199', '15550100');
+      expect(a, b);
+      expect(a, 'dm_15550100_15550199');
+    });
+
+    test('applyIncoming creates a chat and appends the message', () {
+      ChatStore.instance.reset();
+      final payload = {
+        'id': 'r1',
+        'from': '+1 555 0199',
+        'fromName': 'Grace',
+        'text': 'hi from another phone',
+        'ts': DateTime(2024, 1, 1, 9).toIso8601String(),
+      };
+
+      final added = RelayService.applyIncoming(payload, myPhone: '+1 555 0100');
+      expect(added, isTrue);
+
+      final chat = ChatStore.instance.chatWithContact('+1 555 0199');
+      expect(chat, isNotNull);
+      expect(chat!.contact.name, 'Grace');
+      expect(chat.messages.single.text, 'hi from another phone');
+      expect(chat.messages.single.isMe, isFalse);
+    });
+
+    test('applyIncoming ignores our own echo and duplicate ids', () {
+      ChatStore.instance.reset();
+      final mine = {
+        'id': 'r2',
+        'from': '+1 555 0100',
+        'text': 'echo',
+        'ts': DateTime(2024, 1, 1, 9).toIso8601String(),
+      };
+      expect(
+        RelayService.applyIncoming(mine, myPhone: '+1 555 0100'),
+        isFalse,
+      );
+
+      final incoming = {
+        'id': 'r3',
+        'from': '+1 555 0199',
+        'text': 'once',
+        'ts': DateTime(2024, 1, 1, 9).toIso8601String(),
+      };
+      expect(
+        RelayService.applyIncoming(incoming, myPhone: '+1 555 0100'),
+        isTrue,
+      );
+      // Same id again is a no-op (no duplicate).
+      expect(
+        RelayService.applyIncoming(incoming, myPhone: '+1 555 0100'),
+        isFalse,
+      );
+      expect(
+        ChatStore.instance
+            .chatWithContact('+1 555 0199')!
+            .messages
+            .where((m) => m.id == 'r3')
+            .length,
+        1,
+      );
+    });
   });
 }
