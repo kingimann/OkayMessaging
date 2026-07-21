@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 
+import '../data/mock_data.dart';
 import '../tabs/calls_tab.dart';
 import '../tabs/chats_tab.dart';
 import '../tabs/status_tab.dart';
 import '../theme/app_theme.dart';
+import 'chat_search_delegate.dart';
+import 'new_chat_screen.dart';
 import 'settings_screen.dart';
 
 /// The top-level screen hosting the Chats / Status / Calls tabs.
@@ -48,6 +51,15 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
+  void _onFabPressed() {
+    // Only the Chats tab has a fully wired action in this demo.
+    if (_tabController.index == 0) {
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => const NewChatScreen()),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -55,7 +67,13 @@ class _HomeScreenState extends State<HomeScreen>
         title: const Text('Okay Messaging'),
         bottom: TabBar(controller: _tabController, tabs: _tabs),
         actions: [
-          IconButton(icon: const Icon(Icons.search), onPressed: () {}),
+          IconButton(
+            icon: const Icon(Icons.search),
+            onPressed: () => showSearch(
+              context: context,
+              delegate: ChatSearchDelegate(MockData.chats()),
+            ),
+          ),
           PopupMenuButton<String>(
             onSelected: (value) {
               if (value == 'settings') {
@@ -68,8 +86,7 @@ class _HomeScreenState extends State<HomeScreen>
               PopupMenuItem(value: 'new_group', child: Text('New group')),
               PopupMenuItem(
                   value: 'new_broadcast', child: Text('New broadcast')),
-              PopupMenuItem(
-                  value: 'starred', child: Text('Starred messages')),
+              PopupMenuItem(value: 'starred', child: Text('Starred messages')),
               PopupMenuItem(value: 'settings', child: Text('Settings')),
             ],
           ),
@@ -84,7 +101,7 @@ class _HomeScreenState extends State<HomeScreen>
         ],
       ),
       floatingActionButton: FloatingActionButton(
-        onPressed: () {},
+        onPressed: _onFabPressed,
         backgroundColor: AppColors.tealGreenDark,
         child: Icon(_fabIcon, color: Colors.white),
       ),

@@ -53,7 +53,8 @@ class ChatListTile extends StatelessWidget {
                             : DateFormatter.chatListLabel(last.time),
                         style: TextStyle(
                           fontSize: 12,
-                          color: hasUnread ? AppColors.lightGreen : subtitleColor,
+                          color:
+                              hasUnread ? AppColors.lightGreen : subtitleColor,
                           fontWeight:
                               hasUnread ? FontWeight.w600 : FontWeight.normal,
                         ),

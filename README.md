@@ -12,6 +12,12 @@ light/dark theme toggle — running entirely on in-memory mock data (no backend)
 - **Conversation screen** — WhatsApp-style message bubbles (incoming/outgoing),
   day separators, delivery status ticks (sent → delivered → read), a working
   composer, and a simulated auto-reply so the demo feels alive.
+- **Message actions** — long-press a bubble to **Copy** (to the clipboard),
+  Reply, or **Delete** it from the conversation.
+- **New chat** — the Chats FAB opens a contact picker to start a fresh
+  conversation with any contact.
+- **Search** — the app-bar search filters conversations by contact name and
+  message content, and opens the matching chat.
 - **Status tab** — "My status" plus recent and viewed updates with story rings.
 - **Calls tab** — call log with incoming/outgoing/missed indicators and
   voice/video icons.
@@ -50,11 +56,13 @@ lib/
 │   └── calls_tab.dart
 └── screens/
     ├── home_screen.dart       # Tab host
-    ├── chat_screen.dart       # Conversation view
+    ├── chat_screen.dart       # Conversation view + message actions
+    ├── new_chat_screen.dart   # Contact picker for starting a chat
+    ├── chat_search_delegate.dart
     ├── contact_info_screen.dart
     └── settings_screen.dart
 test/
-└── widget_test.dart           # Smoke tests
+└── widget_test.dart           # Widget tests (7)
 ```
 
 ## Running the app

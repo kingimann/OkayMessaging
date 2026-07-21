@@ -121,8 +121,8 @@ class _CircleAction extends StatelessWidget {
         ),
         const SizedBox(height: 6),
         Text(label,
-            style: const TextStyle(
-                fontSize: 12, color: AppColors.tealGreenDark)),
+            style:
+                const TextStyle(fontSize: 12, color: AppColors.tealGreenDark)),
       ],
     );
   }
@@ -138,8 +138,8 @@ class _InfoCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListTile(
-      title: Text(title,
-          style: const TextStyle(fontSize: 13, color: Colors.grey)),
+      title:
+          Text(title, style: const TextStyle(fontSize: 13, color: Colors.grey)),
       subtitle: Padding(
         padding: const EdgeInsets.only(top: 4),
         child: Text(value, style: const TextStyle(fontSize: 16)),

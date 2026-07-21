@@ -72,8 +72,7 @@ class _StatusTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final ringColor =
-        status.viewed ? Colors.grey : AppColors.lightGreen;
+    final ringColor = status.viewed ? Colors.grey : AppColors.lightGreen;
     return ListTile(
       leading: Container(
         padding: const EdgeInsets.all(2),

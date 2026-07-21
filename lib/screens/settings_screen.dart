@@ -18,8 +18,8 @@ class SettingsScreen extends StatelessWidget {
           ListTile(
             leading: const UserAvatar(user: me, radius: 32),
             title: Text(me.name,
-                style: const TextStyle(
-                    fontSize: 18, fontWeight: FontWeight.w600)),
+                style:
+                    const TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
             subtitle: Text(me.about),
             trailing: const Icon(Icons.qr_code, color: Colors.grey),
             onTap: () {},
@@ -84,8 +84,7 @@ class SettingsScreen extends StatelessWidget {
           subtitle: Text(isDark ? 'On' : 'Off'),
           value: isDark,
           onChanged: (on) {
-            AppState.themeMode.value =
-                on ? ThemeMode.dark : ThemeMode.light;
+            AppState.themeMode.value = on ? ThemeMode.dark : ThemeMode.light;
           },
         );
       },

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../models/chat.dart';
 import '../models/message.dart';
@@ -116,9 +117,53 @@ class _ChatScreenState extends State<ChatScreen> {
         items.add(_DayHeader(label: DateFormatter.messageDayHeader(m.time)));
         lastDay = day;
       }
-      items.add(MessageBubble(message: m));
+      items.add(MessageBubble(
+        message: m,
+        onLongPress: () => _showMessageActions(m),
+      ));
     }
     return items;
+  }
+
+  void _showMessageActions(Message message) {
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.copy),
+                title: const Text('Copy'),
+                onTap: () {
+                  Clipboard.setData(ClipboardData(text: message.text));
+                  Navigator.of(sheetContext).pop();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Message copied')),
+                  );
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.reply),
+                title: const Text('Reply'),
+                onTap: () => Navigator.of(sheetContext).pop(),
+              ),
+              ListTile(
+                leading: const Icon(Icons.delete_outline, color: Colors.red),
+                title:
+                    const Text('Delete', style: TextStyle(color: Colors.red)),
+                onTap: () {
+                  setState(
+                      () => _messages.removeWhere((m) => m.id == message.id));
+                  Navigator.of(sheetContext).pop();
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
   }
 
   @override
@@ -127,8 +172,7 @@ class _ChatScreenState extends State<ChatScreen> {
     final contact = widget.chat.contact;
 
     return Scaffold(
-      backgroundColor:
-          isDark ? AppColors.chatBgDark : AppColors.chatBgLight,
+      backgroundColor: isDark ? AppColors.chatBgDark : AppColors.chatBgLight,
       appBar: AppBar(
         titleSpacing: 0,
         title: InkWell(
@@ -181,7 +225,8 @@ class _ChatScreenState extends State<ChatScreen> {
             onSelected: (_) {},
             itemBuilder: (context) => const [
               PopupMenuItem(value: 'view', child: Text('View contact')),
-              PopupMenuItem(value: 'media', child: Text('Media, links, and docs')),
+              PopupMenuItem(
+                  value: 'media', child: Text('Media, links, and docs')),
               PopupMenuItem(value: 'search', child: Text('Search')),
               PopupMenuItem(value: 'mute', child: Text('Mute notifications')),
               PopupMenuItem(value: 'wallpaper', child: Text('Wallpaper')),

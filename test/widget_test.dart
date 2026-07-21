@@ -35,4 +35,65 @@ void main() {
     expect(find.byType(TextField), findsWidgets);
     expect(find.text('Message'), findsOneWidget);
   });
+
+  testWidgets('Sending a message adds it to the conversation',
+      (tester) async {
+    await tester.pumpWidget(const OkayMessagingApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Bob Carter'));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField).first, 'Hello from a test');
+    await tester.pump();
+    await tester.tap(find.byIcon(Icons.send));
+    await tester.pump();
+
+    expect(find.text('Hello from a test'), findsOneWidget);
+
+    // Let the simulated auto-reply timer fire and settle.
+    await tester.pump(const Duration(seconds: 2));
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('Long-pressing a message shows Copy and Delete actions',
+      (tester) async {
+    await tester.pumpWidget(const OkayMessagingApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Bob Carter'));
+    await tester.pumpAndSettle();
+
+    await tester.longPress(find.text('Did you see the game last night?'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Copy'), findsOneWidget);
+    expect(find.text('Delete'), findsOneWidget);
+  });
+
+  testWidgets('FAB on the Chats tab opens the new-chat contact picker',
+      (tester) async {
+    await tester.pumpWidget(const OkayMessagingApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byType(FloatingActionButton));
+    await tester.pumpAndSettle();
+
+    expect(find.text('New chat'), findsOneWidget);
+    expect(find.text('New group'), findsOneWidget);
+  });
+
+  testWidgets('Searching filters conversations by contact name',
+      (tester) async {
+    await tester.pumpWidget(const OkayMessagingApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.search));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField), 'Erin');
+    await tester.pumpAndSettle();
+
+    expect(find.text('Erin Foster'), findsOneWidget);
+  });
 }

@@ -68,6 +68,11 @@ class MockData {
 
   static DateTime _ago(Duration d) => DateTime.now().subtract(d);
 
+  /// Individual people available to start a new conversation with
+  /// (groups such as "Team Standup" are excluded).
+  static List<AppUser> contacts() => [_alice, _bob, _carol, _erin, _frank]
+    ..sort((a, b) => a.name.compareTo(b.name));
+
   static List<Chat> chats() {
     return [
       Chat(
