@@ -22,6 +22,8 @@ class GroupInfoScreen extends StatelessWidget {
           SliverAppBar(
             expandedHeight: 220,
             pinned: true,
+            backgroundColor: AppColors.tealGreen,
+            foregroundColor: Colors.white,
             flexibleSpace: FlexibleSpaceBar(
               title: Text(group.name),
               background: Container(

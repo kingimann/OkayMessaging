@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/chat.dart';
 import '../screens/archived_chats_screen.dart';
 import '../screens/chat_screen.dart';
+import '../screens/chat_search_delegate.dart';
 import '../state/chat_store.dart';
 import '../theme/app_theme.dart';
 import '../widgets/chat_list_tile.dart';
@@ -102,6 +103,7 @@ class _ChatsTabState extends State<ChatsTab> {
             _filter == ChatFilter.all && store.archivedCount > 0;
         return Column(
           children: [
+            const _SearchPill(),
             _FilterBar(
               selected: _filter,
               onSelected: (f) => setState(() => _filter = f),
@@ -144,6 +146,40 @@ class _ChatsTabState extends State<ChatsTab> {
       case ChatFilter.all:
         return 'No chats yet';
     }
+  }
+}
+
+class _SearchPill extends StatelessWidget {
+  const _SearchPill();
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+      child: Material(
+        color: isDark ? AppColors.darkAppBar : const Color(0xFFF0F2F3),
+        borderRadius: BorderRadius.circular(24),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(24),
+          onTap: () => showSearch(
+            context: context,
+            delegate: ChatSearchDelegate(),
+          ),
+          child: const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 11),
+            child: Row(
+              children: [
+                Icon(Icons.search, size: 22, color: Colors.grey),
+                SizedBox(width: 12),
+                Text('Search',
+                    style: TextStyle(color: Colors.grey, fontSize: 15)),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 

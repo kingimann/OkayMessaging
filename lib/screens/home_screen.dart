@@ -3,12 +3,12 @@ import 'package:flutter/material.dart';
 import '../tabs/calls_tab.dart';
 import '../tabs/chats_tab.dart';
 import '../theme/app_theme.dart';
-import 'chat_search_delegate.dart';
 import 'new_chat_screen.dart';
 import 'settings_screen.dart';
 import 'starred_messages_screen.dart';
 
-/// The top-level screen hosting the Chats and Calls tabs.
+/// The top-level screen: a bottom navigation bar switching between Chats and
+/// Calls, styled after WhatsApp's current look.
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
@@ -16,34 +16,13 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen>
-    with SingleTickerProviderStateMixin {
-  late final TabController _tabController;
+class _HomeScreenState extends State<HomeScreen> {
+  int _index = 0;
 
-  final _tabs = const [
-    Tab(text: 'Chats'),
-    Tab(text: 'Calls'),
-  ];
-
-  @override
-  void initState() {
-    super.initState();
-    _tabController = TabController(length: _tabs.length, vsync: this);
-    _tabController.addListener(() => setState(() {}));
-  }
-
-  @override
-  void dispose() {
-    _tabController.dispose();
-    super.dispose();
-  }
-
-  IconData get _fabIcon =>
-      _tabController.index == 1 ? Icons.add_call : Icons.chat;
+  IconData get _fabIcon => _index == 1 ? Icons.add_call : Icons.chat;
 
   void _onFabPressed() {
-    // Only the Chats tab has a fully wired action in this demo.
-    if (_tabController.index == 0) {
+    if (_index == 0) {
       Navigator.of(context).push(
         MaterialPageRoute(builder: (_) => const NewChatScreen()),
       );
@@ -54,15 +33,19 @@ class _HomeScreenState extends State<HomeScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Okay Messaging'),
-        bottom: TabBar(controller: _tabController, tabs: _tabs),
+        titleSpacing: 20,
+        title: const Text(
+          'Okay Messaging',
+          style: TextStyle(
+            color: AppColors.tealGreen,
+            fontWeight: FontWeight.bold,
+            fontSize: 22,
+          ),
+        ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.search),
-            onPressed: () => showSearch(
-              context: context,
-              delegate: ChatSearchDelegate(),
-            ),
+            icon: const Icon(Icons.camera_alt_outlined),
+            onPressed: () {},
           ),
           PopupMenuButton<String>(
             onSelected: (value) {
@@ -87,16 +70,35 @@ class _HomeScreenState extends State<HomeScreen>
           ),
         ],
       ),
-      body: TabBarView(
-        controller: _tabController,
+      body: IndexedStack(
+        index: _index,
         children: const [
           ChatsTab(),
           CallsTab(),
         ],
       ),
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _index,
+        onDestinationSelected: (i) => setState(() => _index = i),
+        destinations: const [
+          NavigationDestination(
+            icon: Icon(Icons.chat_bubble_outline),
+            selectedIcon: Icon(Icons.chat_bubble),
+            label: 'Chats',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.call_outlined),
+            selectedIcon: Icon(Icons.call),
+            label: 'Calls',
+          ),
+        ],
+      ),
       floatingActionButton: FloatingActionButton(
         onPressed: _onFabPressed,
         backgroundColor: AppColors.tealGreenDark,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(18),
+        ),
         child: Icon(_fabIcon, color: Colors.white),
       ),
     );

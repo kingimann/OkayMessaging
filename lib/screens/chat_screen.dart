@@ -351,8 +351,9 @@ class _ChatScreenState extends State<ChatScreen> {
                               : 'last seen recently'),
                       style: TextStyle(
                         fontSize: 12.5,
-                        color:
-                            _isTyping ? AppColors.lightGreen : Colors.white70,
+                        color: _isTyping
+                            ? AppColors.tealGreenDark
+                            : (isDark ? Colors.white70 : Colors.black54),
                       ),
                     ),
                   ],

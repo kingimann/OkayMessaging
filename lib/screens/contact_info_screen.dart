@@ -18,6 +18,8 @@ class ContactInfoScreen extends StatelessWidget {
           SliverAppBar(
             expandedHeight: 240,
             pinned: true,
+            backgroundColor: AppColors.tealGreen,
+            foregroundColor: Colors.white,
             flexibleSpace: FlexibleSpaceBar(
               title: Text(user.name),
               background: Container(
