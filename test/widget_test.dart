@@ -4,7 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:okay_messaging/app_state.dart';
+import 'package:okay_messaging/config/backend_config.dart';
 import 'package:okay_messaging/main.dart';
+import 'package:okay_messaging/screens/auth/login_screen.dart';
 import 'package:okay_messaging/screens/call_screen.dart';
 import 'package:okay_messaging/screens/media_gallery_screen.dart';
 import 'package:okay_messaging/models/message.dart';
@@ -534,5 +536,18 @@ void main() {
     await tester.tap(find.text('Links'));
     await tester.pumpAndSettle();
     expect(find.textContaining('okaydocs.example'), findsOneWidget);
+  });
+
+  testWidgets('Without backend config the app runs in demo mode (no login)',
+      (tester) async {
+    // No SUPABASE_URL / SUPABASE_ANON_KEY dart-defines are set under test.
+    expect(BackendConfig.isConfigured, isFalse);
+
+    await tester.pumpWidget(const OkayMessagingApp());
+    await tester.pumpAndSettle();
+
+    // The auth gate goes straight to the chat list, not a sign-in screen.
+    expect(find.byType(LoginScreen), findsNothing);
+    expect(find.text('Alice Bennett'), findsOneWidget);
   });
 }

@@ -25,6 +25,21 @@ class ImageViewScreen extends StatelessWidget {
     [Color(0xFFA8EDEA), Color(0xFFFED6E3)],
   ];
 
+  Widget _placeholder(List<Color> colors) {
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: colors,
+        ),
+      ),
+      child: const Center(
+        child: Icon(Icons.image, color: Colors.white70, size: 96),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final colors = _gradients[message.imageSeed % _gradients.length];
@@ -57,21 +72,13 @@ class ImageViewScreen extends StatelessWidget {
             child: InteractiveViewer(
               minScale: 1,
               maxScale: 4,
-              child: AspectRatio(
-                aspectRatio: 220 / 260,
-                child: Container(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: colors,
-                    ),
-                  ),
-                  child: const Center(
-                    child: Icon(Icons.image, color: Colors.white70, size: 96),
-                  ),
-                ),
-              ),
+              child: message.imageUrl != null
+                  ? Image.network(
+                      message.imageUrl!,
+                      fit: BoxFit.contain,
+                      errorBuilder: (_, __, ___) => _placeholder(colors),
+                    )
+                  : AspectRatio(aspectRatio: 220 / 260, child: _placeholder(colors)),
             ),
           ),
         ),

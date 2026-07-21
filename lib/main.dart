@@ -1,13 +1,21 @@
 import 'package:flutter/material.dart';
 
 import 'app_state.dart';
-import 'screens/home_screen.dart';
+import 'config/backend_config.dart';
+import 'screens/auth/auth_gate.dart';
+import 'services/supabase_service.dart';
 import 'state/persistence.dart';
 import 'theme/app_theme.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Persistence.init();
+  // Real backend when configured; otherwise the local demo data is used.
+  await SupabaseService.instance.init();
+  if (!BackendConfig.isConfigured) {
+    await Persistence.init();
+  } else {
+    await Persistence.initPreferencesOnly();
+  }
   runApp(const OkayMessagingApp());
 }
 
@@ -25,7 +33,7 @@ class OkayMessagingApp extends StatelessWidget {
           theme: AppTheme.light,
           darkTheme: AppTheme.dark,
           themeMode: mode,
-          home: const HomeScreen(),
+          home: const AuthGate(),
         );
       },
     );

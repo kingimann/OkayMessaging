@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../app_state.dart';
+import '../config/backend_config.dart';
+import '../services/supabase_service.dart';
 import '../widgets/info_section.dart';
 import '../widgets/user_avatar.dart';
 import 'edit_profile_screen.dart';
@@ -68,10 +70,23 @@ class SettingsScreen extends StatelessWidget {
               ),
             ],
           ),
+          if (BackendConfig.isConfigured)
+            InfoSection(
+              children: [
+                InfoTile(
+                  leading: const Icon(Icons.logout, color: Colors.red),
+                  title: 'Sign out',
+                  titleColor: Colors.red,
+                  onTap: () => SupabaseService.instance.signOut(),
+                ),
+              ],
+            ),
           const SizedBox(height: 20),
           Center(
             child: Text(
-              'Okay Messaging • UI demo',
+              BackendConfig.isConfigured
+                  ? 'Okay Messaging'
+                  : 'Okay Messaging • demo mode',
               style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
             ),
           ),

@@ -44,6 +44,13 @@ class ChatStore extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Replaces all conversations wholesale (used by the backend sync to push
+  /// server state into the store). Preserves the local starred set.
+  void setChats(List<Chat> chats) {
+    _chats = List.of(chats);
+    notifyListeners();
+  }
+
   /// Reloads the initial sample data. Intended for tests to isolate state
   /// between cases (the store is otherwise a long-lived singleton).
   @visibleForTesting

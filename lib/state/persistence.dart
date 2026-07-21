@@ -58,6 +58,32 @@ class Persistence {
     ChatStore.instance.onChanged = _saveChats;
   }
 
+  /// Loads and persists only the UI preferences (theme, profile, wallpaper),
+  /// leaving conversations to the backend. Used when a backend is configured
+  /// so locally-cached demo chats don't leak into the real account, and the
+  /// store starts empty until the server sync populates it.
+  static Future<void> initPreferencesOnly() async {
+    final prefs = await SharedPreferences.getInstance();
+    _prefs = prefs;
+
+    final theme = prefs.getString(_kTheme);
+    if (theme == 'dark') {
+      AppState.themeMode.value = ThemeMode.dark;
+    } else if (theme == 'light') {
+      AppState.themeMode.value = ThemeMode.light;
+    }
+
+    if (prefs.containsKey(_kWallpaper)) {
+      final value = prefs.getInt(_kWallpaper);
+      AppState.chatWallpaper.value = value == null ? null : Color(value);
+    }
+
+    ChatStore.instance.setChats(const []);
+
+    AppState.themeMode.addListener(_saveTheme);
+    AppState.chatWallpaper.addListener(_saveWallpaper);
+  }
+
   static void _saveTheme() {
     _prefs?.setString(
       _kTheme,

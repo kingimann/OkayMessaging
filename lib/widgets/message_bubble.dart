@@ -260,6 +260,23 @@ class _ImageBubble extends StatelessWidget {
     [Color(0xFFA8EDEA), Color(0xFFFED6E3)],
   ];
 
+  static Widget _gradientTile(List<Color> colors) {
+    return Container(
+      width: 220,
+      height: 260,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: colors,
+        ),
+      ),
+      child: const Center(
+        child: Icon(Icons.image, color: Colors.white70, size: 48),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final colors = _gradients[message.imageSeed % _gradients.length];
@@ -286,19 +303,19 @@ class _ImageBubble extends StatelessWidget {
               children: [
                 Hero(
                   tag: 'photo_${message.id}',
-                  child: Container(
+                  child: SizedBox(
                     width: 220,
                     height: 260,
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: colors,
-                      ),
-                    ),
-                    child: const Center(
-                      child: Icon(Icons.image, color: Colors.white70, size: 48),
-                    ),
+                    child: message.imageUrl != null
+                        ? Image.network(
+                            message.imageUrl!,
+                            width: 220,
+                            height: 260,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) =>
+                                _gradientTile(colors),
+                          )
+                        : _gradientTile(colors),
                   ),
                 ),
                 Positioned(
