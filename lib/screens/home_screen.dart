@@ -99,7 +99,12 @@ class _HomeScreenState extends State<HomeScreen> {
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(18),
         ),
-        child: Icon(_fabIcon, color: Colors.white),
+        child: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 220),
+          transitionBuilder: (child, animation) =>
+              ScaleTransition(scale: animation, child: child),
+          child: Icon(_fabIcon, key: ValueKey(_fabIcon), color: Colors.white),
+        ),
       ),
     );
   }

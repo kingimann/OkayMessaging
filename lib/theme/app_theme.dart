@@ -33,6 +33,19 @@ class AppColors {
 class AppTheme {
   AppTheme._();
 
+  /// A consistent, modern zoom page transition on every platform (including
+  /// web, which otherwise has no motion).
+  static const PageTransitionsTheme _transitions = PageTransitionsTheme(
+    builders: {
+      TargetPlatform.android: ZoomPageTransitionsBuilder(),
+      TargetPlatform.iOS: ZoomPageTransitionsBuilder(),
+      TargetPlatform.linux: ZoomPageTransitionsBuilder(),
+      TargetPlatform.macOS: ZoomPageTransitionsBuilder(),
+      TargetPlatform.windows: ZoomPageTransitionsBuilder(),
+      TargetPlatform.fuchsia: ZoomPageTransitionsBuilder(),
+    },
+  );
+
   static ThemeData get light {
     final base = ThemeData.light(useMaterial3: true);
     final scheme = ColorScheme.fromSeed(
@@ -48,6 +61,7 @@ class AppTheme {
       scaffoldBackgroundColor: AppColors.lightSurface,
       textTheme: base.textTheme.apply(fontFamily: 'Roboto'),
       primaryTextTheme: base.primaryTextTheme.apply(fontFamily: 'Roboto'),
+      pageTransitionsTheme: _transitions,
       appBarTheme: const AppBarTheme(
         backgroundColor: AppColors.lightSurface,
         foregroundColor: Color(0xFF11181C),
@@ -99,6 +113,7 @@ class AppTheme {
       scaffoldBackgroundColor: AppColors.darkSurface,
       textTheme: base.textTheme.apply(fontFamily: 'Roboto'),
       primaryTextTheme: base.primaryTextTheme.apply(fontFamily: 'Roboto'),
+      pageTransitionsTheme: _transitions,
       appBarTheme: const AppBarTheme(
         backgroundColor: AppColors.darkAppBar,
         foregroundColor: Colors.white,

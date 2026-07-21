@@ -193,9 +193,15 @@ class _ChatInputBarState extends State<ChatInputBar> {
             child: CircleAvatar(
               radius: 24,
               backgroundColor: AppColors.tealGreenDark,
-              child: Icon(
-                _hasText ? Icons.send : Icons.mic,
-                color: Colors.white,
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 200),
+                transitionBuilder: (child, animation) =>
+                    ScaleTransition(scale: animation, child: child),
+                child: Icon(
+                  _hasText ? Icons.send : Icons.mic,
+                  key: ValueKey(_hasText),
+                  color: Colors.white,
+                ),
               ),
             ),
           ),

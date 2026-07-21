@@ -10,6 +10,7 @@ import '../utils/date_formatter.dart';
 import '../widgets/chat_input_bar.dart';
 import '../widgets/emoji_data.dart';
 import '../widgets/message_bubble.dart';
+import '../widgets/typing_indicator.dart';
 import '../widgets/user_avatar.dart';
 import 'contact_info_screen.dart';
 import 'forward_screen.dart';
@@ -502,21 +503,21 @@ class _ChatScreenState extends State<ChatScreen> {
                                     fontWeight: FontWeight.w600,
                                   ),
                                 ),
-                                Text(
-                                  _isTyping
-                                      ? 'typing…'
-                                      : (contact.isOnline
-                                          ? 'online'
-                                          : 'last seen recently'),
-                                  style: TextStyle(
-                                    fontSize: 12.5,
-                                    color: _isTyping
-                                        ? AppColors.tealGreenDark
-                                        : (isDark
-                                            ? Colors.white70
-                                            : Colors.black54),
-                                  ),
-                                ),
+                                _isTyping
+                                    ? const TypingIndicator(
+                                        color: AppColors.tealGreenDark,
+                                      )
+                                    : Text(
+                                        contact.isOnline
+                                            ? 'online'
+                                            : 'last seen recently',
+                                        style: TextStyle(
+                                          fontSize: 12.5,
+                                          color: isDark
+                                              ? Colors.white70
+                                              : Colors.black54,
+                                        ),
+                                      ),
                               ],
                             ),
                           ),
