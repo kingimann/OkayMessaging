@@ -9,12 +9,16 @@ import 'message_status_icon.dart';
 class MessageBubble extends StatelessWidget {
   final Message message;
   final VoidCallback? onLongPress;
+
+  /// Tapped when this is an image bubble (opens the full-screen viewer).
+  final VoidCallback? onTap;
   final bool starred;
 
   const MessageBubble({
     super.key,
     required this.message,
     this.onLongPress,
+    this.onTap,
     this.starred = false,
   });
 
@@ -43,6 +47,7 @@ class MessageBubble extends StatelessWidget {
         bubbleColor: bubbleColor,
         hasReactions: hasReactions,
         onLongPress: onLongPress,
+        onTap: onTap,
       );
     }
 
@@ -215,6 +220,7 @@ class _ImageBubble extends StatelessWidget {
   final Color bubbleColor;
   final bool hasReactions;
   final VoidCallback? onLongPress;
+  final VoidCallback? onTap;
 
   const _ImageBubble({
     required this.message,
@@ -223,6 +229,7 @@ class _ImageBubble extends StatelessWidget {
     required this.bubbleColor,
     required this.hasReactions,
     required this.onLongPress,
+    required this.onTap,
   });
 
   static const _gradients = [
@@ -241,6 +248,7 @@ class _ImageBubble extends StatelessWidget {
       alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
       child: GestureDetector(
         onLongPress: onLongPress,
+        onTap: onTap,
         child: Container(
           margin: EdgeInsets.only(
             left: 8,
@@ -257,18 +265,21 @@ class _ImageBubble extends StatelessWidget {
             borderRadius: BorderRadius.circular(13),
             child: Stack(
               children: [
-                Container(
-                  width: 220,
-                  height: 260,
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: colors,
+                Hero(
+                  tag: 'photo_${message.id}',
+                  child: Container(
+                    width: 220,
+                    height: 260,
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: colors,
+                      ),
                     ),
-                  ),
-                  child: const Center(
-                    child: Icon(Icons.image, color: Colors.white70, size: 48),
+                    child: const Center(
+                      child: Icon(Icons.image, color: Colors.white70, size: 48),
+                    ),
                   ),
                 ),
                 Positioned(

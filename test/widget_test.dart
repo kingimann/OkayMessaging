@@ -415,4 +415,23 @@ void main() {
     await tester.pump(const Duration(seconds: 2));
     await tester.pumpAndSettle();
   });
+
+  testWidgets('Tapping a photo opens the full-screen image viewer',
+      (tester) async {
+    await tester.pumpWidget(const OkayMessagingApp());
+    await tester.pumpAndSettle();
+
+    // Erin's chat contains a sample photo message.
+    await tester.tap(find.text('Erin Foster'));
+    await tester.pumpAndSettle();
+
+    // Two image icons render at this point (the photo bubble + the camera
+    // button in the input bar); tapping the bubble's opens the viewer.
+    await tester.tap(find.byIcon(Icons.image).first);
+    await tester.pumpAndSettle();
+
+    // The viewer shows the sender name and a zoomable image.
+    expect(find.byType(InteractiveViewer), findsOneWidget);
+    expect(find.text('Erin Foster'), findsOneWidget);
+  });
 }

@@ -15,6 +15,7 @@ import '../widgets/user_avatar.dart';
 import 'contact_info_screen.dart';
 import 'forward_screen.dart';
 import 'group_info_screen.dart';
+import 'image_view_screen.dart';
 
 /// The conversation screen for a single [Chat], backed by [ChatStore].
 class ChatScreen extends StatefulWidget {
@@ -264,6 +265,7 @@ class _ChatScreenState extends State<ChatScreen> {
         message: m,
         starred: _store.isStarred(_chatId, m.id),
         onLongPress: _selectionMode ? null : () => _showMessageActions(m),
+        onTap: m.isImage && !_selectionMode ? () => _openImage(m) : null,
       );
 
       if (_selectionMode) {
@@ -401,6 +403,17 @@ class _ChatScreenState extends State<ChatScreen> {
           ),
         );
       },
+    );
+  }
+
+  void _openImage(Message message) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ImageViewScreen(
+          message: message,
+          senderName: widget.chat.contact.name,
+        ),
+      ),
     );
   }
 
