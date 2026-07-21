@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../app_state.dart';
 import '../data/mock_data.dart';
 import '../models/user.dart';
 import '../theme/app_theme.dart';
@@ -11,9 +12,17 @@ import '../widgets/user_avatar.dart';
 class GroupInfoScreen extends StatelessWidget {
   final AppUser group;
 
-  const GroupInfoScreen({super.key, required this.group});
+  /// The group's real members (empty falls back to sample members).
+  final List<AppUser> members;
 
-  List<AppUser> get _members => [MockData.me, ...MockData.contacts()];
+  const GroupInfoScreen({
+    super.key,
+    required this.group,
+    this.members = const [],
+  });
+
+  List<AppUser> get _members =>
+      members.isNotEmpty ? members : [MockData.me, ...MockData.contacts()];
 
   @override
   Widget build(BuildContext context) {
@@ -71,7 +80,13 @@ class GroupInfoScreen extends StatelessWidget {
           InfoSection(
             children: [
               for (var i = 0; i < members.length; i++)
-                _MemberTile(user: members[i], isAdmin: i == 1),
+                _MemberTile(
+                  user: members[i],
+                  isAdmin: i == 0,
+                  isMe: i == 0 ||
+                      members[i].id == AppState.profile.value.id ||
+                      members[i].id == MockData.me.id,
+                ),
             ],
           ),
           const InfoSection(
@@ -98,12 +113,16 @@ class GroupInfoScreen extends StatelessWidget {
 class _MemberTile extends StatelessWidget {
   final AppUser user;
   final bool isAdmin;
+  final bool isMe;
 
-  const _MemberTile({required this.user, required this.isAdmin});
+  const _MemberTile({
+    required this.user,
+    required this.isAdmin,
+    required this.isMe,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final isMe = user.id == MockData.me.id;
     return ListTile(
       leading: UserAvatar(user: user, radius: 22),
       title: Text(isMe ? 'You' : user.name,

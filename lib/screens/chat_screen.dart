@@ -466,7 +466,7 @@ class _ChatScreenState extends State<ChatScreen> {
         Navigator.of(context).push(
           MaterialPageRoute(
             builder: (_) => contact.isGroup
-                ? GroupInfoScreen(group: contact)
+                ? GroupInfoScreen(group: contact, members: widget.chat.members)
                 : ContactInfoScreen(user: contact, chatId: _chatId),
           ),
         );
@@ -644,7 +644,7 @@ class _ChatScreenState extends State<ChatScreen> {
                       onTap: () => Navigator.of(context).push(
                         MaterialPageRoute(
                           builder: (_) => contact.isGroup
-                              ? GroupInfoScreen(group: contact)
+                              ? GroupInfoScreen(group: contact, members: widget.chat.members)
                               : ContactInfoScreen(user: contact, chatId: _chatId),
                         ),
                       ),

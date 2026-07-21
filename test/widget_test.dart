@@ -571,6 +571,44 @@ void main() {
     expect(find.text('Alice Bennett'), findsOneWidget);
   });
 
+  testWidgets('Creating a group adds it to the chat list with its members',
+      (tester) async {
+    await tester.pumpWidget(const OkayMessagingApp());
+    await tester.pumpAndSettle();
+
+    // Chats FAB → New group.
+    await tester.tap(find.byType(FloatingActionButton));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('New group'));
+    await tester.pumpAndSettle();
+
+    // Pick two participants.
+    await tester.tap(find.text('Alice Bennett'));
+    await tester.tap(find.text('Bob Carter'));
+    await tester.pumpAndSettle();
+
+    // Next → name the group → create.
+    await tester.tap(find.text('Next'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).first, 'Weekend Trip');
+    await tester.tap(find.text('Create group'));
+    await tester.pumpAndSettle();
+
+    // Opens the group chat; the group exists with me + 2 members.
+    final group = ChatStore.instance.allChats
+        .firstWhere((c) => c.contact.name == 'Weekend Trip');
+    expect(group.contact.isGroup, isTrue);
+    expect(group.members.length, 3);
+
+    // The group conversation is now open, its header showing the name.
+    expect(find.text('Weekend Trip'), findsOneWidget);
+
+    // Its info screen lists all three members.
+    await tester.tap(find.text('Weekend Trip'));
+    await tester.pumpAndSettle();
+    expect(find.text('3 members'), findsOneWidget);
+  });
+
   group('Relay (device-to-device delivery)', () {
     test('channel id is deterministic and order-independent', () {
       final a = RelayService.channelFor('+1 555 0100', '+1 (555) 0199');

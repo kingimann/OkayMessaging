@@ -14,6 +14,9 @@ class Chat {
   /// The id of the message pinned to the top of this chat, if any.
   final String? pinnedMessageId;
 
+  /// Participants of a group chat (empty for 1:1 conversations).
+  final List<AppUser> members;
+
   const Chat({
     required this.id,
     required this.contact,
@@ -23,6 +26,7 @@ class Chat {
     this.isMuted = false,
     this.isArchived = false,
     this.pinnedMessageId,
+    this.members = const [],
   });
 
   /// Most recent message, or null when the conversation is empty.
@@ -40,6 +44,7 @@ class Chat {
         'isMuted': isMuted,
         'isArchived': isArchived,
         'pinnedMessageId': pinnedMessageId,
+        'members': members.map((m) => m.toJson()).toList(),
       };
 
   factory Chat.fromJson(Map<String, dynamic> json) => Chat(
@@ -54,6 +59,9 @@ class Chat {
         isMuted: json['isMuted'] as bool? ?? false,
         isArchived: json['isArchived'] as bool? ?? false,
         pinnedMessageId: json['pinnedMessageId'] as String?,
+        members: (json['members'] as List? ?? const [])
+            .map((m) => AppUser.fromJson(Map<String, dynamic>.from(m as Map)))
+            .toList(),
       );
 
   Chat copyWith({
@@ -75,6 +83,7 @@ class Chat {
       isArchived: isArchived ?? this.isArchived,
       pinnedMessageId:
           clearPinned ? null : (pinnedMessageId ?? this.pinnedMessageId),
+      members: members,
     );
   }
 }
