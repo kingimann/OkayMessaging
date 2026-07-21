@@ -213,6 +213,12 @@ class MockData {
             isMe: true,
             status: MessageStatus.read,
           ),
+          Message(
+            id: 'm3',
+            text: 'Here are the notes: https://okaydocs.example/notes',
+            time: _ago(const Duration(days: 1, hours: 4)),
+            isMe: false,
+          ),
         ],
       ),
       Chat(

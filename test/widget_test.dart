@@ -8,6 +8,7 @@ import 'package:okay_messaging/main.dart';
 import 'package:okay_messaging/models/message.dart';
 import 'package:okay_messaging/state/chat_store.dart';
 import 'package:okay_messaging/widgets/heart_burst.dart';
+import 'package:okay_messaging/widgets/linkable_text.dart';
 
 void main() {
   // Singletons persist across tests; reset them so each starts clean.
@@ -464,5 +465,24 @@ void main() {
     // Let the burst animation finish and remove its overlay.
     await tester.pumpAndSettle();
     expect(find.byType(HeartBurst), findsNothing);
+  });
+
+  testWidgets('A message containing a URL renders a tappable link',
+      (tester) async {
+    await tester.pumpWidget(const OkayMessagingApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Carol Diaz'));
+    await tester.pumpAndSettle();
+
+    // Carol's chat has a message with a link, rendered via LinkableText.
+    expect(find.byType(LinkableText), findsOneWidget);
+
+    // Tapping the link span copies it and shows a confirmation snackbar.
+    // (Pump past the double-tap timeout so the single tap resolves to the
+    // link's recognizer rather than the bubble's double-tap detector.)
+    await tester.tapOnText(find.textRange.ofSubstring('okaydocs.example'));
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.textContaining('Link copied'), findsOneWidget);
   });
 }
