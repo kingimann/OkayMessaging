@@ -57,10 +57,10 @@ class MessageBubble extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: bubbleColor,
                   borderRadius: BorderRadius.only(
-                    topLeft: const Radius.circular(8),
-                    topRight: const Radius.circular(8),
-                    bottomLeft: Radius.circular(isMe ? 8 : 0),
-                    bottomRight: Radius.circular(isMe ? 0 : 8),
+                    topLeft: const Radius.circular(16),
+                    topRight: const Radius.circular(16),
+                    bottomLeft: Radius.circular(isMe ? 16 : 4),
+                    bottomRight: Radius.circular(isMe ? 4 : 16),
                   ),
                   boxShadow: [
                     BoxShadow(

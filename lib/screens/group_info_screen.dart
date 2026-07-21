@@ -3,9 +3,11 @@ import 'package:flutter/material.dart';
 import '../data/mock_data.dart';
 import '../models/user.dart';
 import '../theme/app_theme.dart';
+import '../widgets/info_section.dart';
 import '../widgets/user_avatar.dart';
 
-/// Details screen for a group conversation: header, members, and actions.
+/// A modern group detail screen: clean header, tonal actions, and a grouped
+/// members list.
 class GroupInfoScreen extends StatelessWidget {
   final AppUser group;
 
@@ -17,131 +19,161 @@ class GroupInfoScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final members = _members;
     return Scaffold(
-      body: CustomScrollView(
-        slivers: [
-          SliverAppBar(
-            expandedHeight: 220,
-            pinned: true,
-            backgroundColor: AppColors.tealGreen,
-            foregroundColor: Colors.white,
-            flexibleSpace: FlexibleSpaceBar(
-              title: Text(group.name),
-              background: Container(
-                color: AppColors.tealGreen,
-                alignment: Alignment.center,
-                child: Padding(
-                  padding: const EdgeInsets.only(bottom: 40),
-                  child: UserAvatar(user: group, radius: 54),
-                ),
-              ),
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        actions: [
+          PopupMenuButton<String>(
+            itemBuilder: (context) => const [
+              PopupMenuItem(value: 'edit', child: Text('Edit group')),
+              PopupMenuItem(value: 'share', child: Text('Share')),
+            ],
+          ),
+        ],
+      ),
+      body: ListView(
+        children: [
+          const SizedBox(height: 8),
+          Center(child: UserAvatar(user: group, radius: 56)),
+          const SizedBox(height: 14),
+          Center(
+            child: Text(
+              group.name,
+              style: Theme.of(context)
+                  .textTheme
+                  .headlineSmall
+                  ?.copyWith(fontWeight: FontWeight.w600),
             ),
           ),
-          SliverList(
-            delegate: SliverChildListDelegate([
-              const SizedBox(height: 8),
-              Center(
-                child: Text(
-                  'Group · ${members.length} members',
-                  style: TextStyle(color: Colors.grey.shade600),
-                ),
-              ),
-              const SizedBox(height: 8),
-              const _ActionRow(),
-              const Divider(height: 24),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
-                child: Text(
-                  '${members.length} members',
-                  style: const TextStyle(
-                      fontWeight: FontWeight.w600, color: Colors.grey),
-                ),
-              ),
-              ...members.asMap().entries.map((e) {
-                final index = e.key;
-                final m = e.value;
-                final isMe = m.id == MockData.me.id;
-                return ListTile(
-                  leading: UserAvatar(user: m, radius: 22),
-                  title: Text(isMe ? 'You' : m.name,
-                      style: const TextStyle(fontWeight: FontWeight.w600)),
-                  subtitle: Text(m.about,
-                      maxLines: 1, overflow: TextOverflow.ellipsis),
-                  trailing: index == 1
-                      ? Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 8, vertical: 3),
-                          decoration: BoxDecoration(
-                            color:
-                                AppColors.tealGreenDark.withValues(alpha: 0.12),
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          child: const Text('Group admin',
-                              style: TextStyle(
-                                  fontSize: 12,
-                                  color: AppColors.tealGreenDark)),
-                        )
-                      : null,
-                );
-              }),
-              const Divider(height: 8),
-              const ListTile(
-                leading: Icon(Icons.logout, color: Colors.red),
-                title: Text('Exit group', style: TextStyle(color: Colors.red)),
-              ),
-              const ListTile(
-                leading: Icon(Icons.thumb_down, color: Colors.red),
-                title:
-                    Text('Report group', style: TextStyle(color: Colors.red)),
-              ),
-              const SizedBox(height: 24),
-            ]),
+          const SizedBox(height: 4),
+          Center(
+            child: Text(
+              'Group · ${members.length} members',
+              style: TextStyle(color: Colors.grey.shade600, fontSize: 15),
+            ),
           ),
+          const SizedBox(height: 22),
+          const _GroupActions(),
+          const SizedBox(height: 20),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 4, 16, 8),
+            child: Text(
+              '${members.length} members',
+              style: const TextStyle(
+                  fontWeight: FontWeight.w600, color: Colors.grey),
+            ),
+          ),
+          InfoSection(
+            children: [
+              for (var i = 0; i < members.length; i++)
+                _MemberTile(user: members[i], isAdmin: i == 1),
+            ],
+          ),
+          const InfoSection(
+            children: [
+              InfoTile(
+                leading: Icon(Icons.logout, color: Colors.red),
+                title: 'Exit group',
+                titleColor: Colors.red,
+              ),
+              InfoTile(
+                leading: Icon(Icons.thumb_down_outlined, color: Colors.red),
+                title: 'Report group',
+                titleColor: Colors.red,
+              ),
+            ],
+          ),
+          const SizedBox(height: 24),
         ],
       ),
     );
   }
 }
 
-class _ActionRow extends StatelessWidget {
-  const _ActionRow();
+class _MemberTile extends StatelessWidget {
+  final AppUser user;
+  final bool isAdmin;
+
+  const _MemberTile({required this.user, required this.isAdmin});
+
+  @override
+  Widget build(BuildContext context) {
+    final isMe = user.id == MockData.me.id;
+    return ListTile(
+      leading: UserAvatar(user: user, radius: 22),
+      title: Text(isMe ? 'You' : user.name,
+          style: const TextStyle(fontWeight: FontWeight.w600)),
+      subtitle: Text(user.about, maxLines: 1, overflow: TextOverflow.ellipsis),
+      trailing: isAdmin
+          ? Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: AppColors.tealGreenDark.withValues(alpha: 0.14),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: const Text('Group admin',
+                  style:
+                      TextStyle(fontSize: 12, color: AppColors.tealGreenDark)),
+            )
+          : null,
+    );
+  }
+}
+
+class _GroupActions extends StatelessWidget {
+  const _GroupActions();
 
   @override
   Widget build(BuildContext context) {
     return const Padding(
-      padding: EdgeInsets.symmetric(horizontal: 24),
+      padding: EdgeInsets.symmetric(horizontal: 20),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
-          _CircleAction(icon: Icons.call, label: 'Audio'),
-          _CircleAction(icon: Icons.videocam, label: 'Video'),
-          _CircleAction(icon: Icons.search, label: 'Search'),
-          _CircleAction(icon: Icons.person_add, label: 'Add'),
+          Expanded(child: _TonalAction(icon: Icons.call, label: 'Audio')),
+          SizedBox(width: 10),
+          Expanded(child: _TonalAction(icon: Icons.videocam, label: 'Video')),
+          SizedBox(width: 10),
+          Expanded(child: _TonalAction(icon: Icons.person_add, label: 'Add')),
         ],
       ),
     );
   }
 }
 
-class _CircleAction extends StatelessWidget {
+class _TonalAction extends StatelessWidget {
   final IconData icon;
   final String label;
 
-  const _CircleAction({required this.icon, required this.label});
+  const _TonalAction({required this.icon, required this.label});
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        CircleAvatar(
-          radius: 24,
-          backgroundColor: AppColors.tealGreenDark.withValues(alpha: 0.15),
-          child: Icon(icon, color: AppColors.tealGreenDark),
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Material(
+      color: isDark
+          ? AppColors.tealGreenDark.withValues(alpha: 0.22)
+          : AppColors.tealGreenDark.withValues(alpha: 0.12),
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: () {},
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          child: Column(
+            children: [
+              Icon(icon, color: AppColors.tealGreenDark, size: 22),
+              const SizedBox(height: 4),
+              Text(
+                label,
+                style: const TextStyle(
+                  color: AppColors.tealGreenDark,
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
         ),
-        const SizedBox(height: 6),
-        Text(label,
-            style:
-                const TextStyle(fontSize: 12, color: AppColors.tealGreenDark)),
-      ],
+      ),
     );
   }
 }
