@@ -281,6 +281,7 @@ class _ChatScreenState extends State<ChatScreen> {
   void _showMessageActions(Message message) {
     showModalBottomSheet<void>(
       context: context,
+      isScrollControlled: true,
       builder: (sheetContext) {
         return SafeArea(
           child: SingleChildScrollView(
@@ -322,6 +323,23 @@ class _ChatScreenState extends State<ChatScreen> {
                     _enterSelection(message.id);
                   },
                 ),
+                Builder(builder: (context) {
+                  final pinned =
+                      _store.chatById(_chatId)?.pinnedMessageId == message.id;
+                  return ListTile(
+                    leading:
+                        Icon(pinned ? Icons.push_pin : Icons.push_pin_outlined),
+                    title: Text(pinned ? 'Unpin' : 'Pin'),
+                    onTap: () {
+                      if (pinned) {
+                        _store.unpinMessage(_chatId);
+                      } else {
+                        _store.pinMessage(_chatId, message.id);
+                      }
+                      Navigator.of(sheetContext).pop();
+                    },
+                  );
+                }),
                 ListTile(
                   leading: const Icon(Icons.copy),
                   title: const Text('Copy'),
@@ -555,6 +573,20 @@ class _ChatScreenState extends State<ChatScreen> {
                   ),
         body: Column(
           children: [
+            ListenableBuilder(
+              listenable: _store,
+              builder: (context, _) {
+                final chat = _store.chatById(_chatId);
+                final pinnedId = chat?.pinnedMessageId;
+                if (pinnedId == null) return const SizedBox.shrink();
+                final matches = chat!.messages.where((m) => m.id == pinnedId);
+                if (matches.isEmpty) return const SizedBox.shrink();
+                return _PinnedBanner(
+                  message: matches.first,
+                  onUnpin: () => _store.unpinMessage(_chatId),
+                );
+              },
+            ),
             Expanded(
               child: Stack(
                 children: [
@@ -626,6 +658,69 @@ class _ReactionRow extends StatelessWidget {
               ),
             ),
         ],
+      ),
+    );
+  }
+}
+
+class _PinnedBanner extends StatelessWidget {
+  final Message message;
+  final VoidCallback onUnpin;
+
+  const _PinnedBanner({required this.message, required this.onUnpin});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Material(
+      color: isDark ? AppColors.darkAppBar : Colors.white,
+      child: InkWell(
+        onTap: () {},
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
+          decoration: const BoxDecoration(
+            border: Border(
+              left: BorderSide(color: AppColors.tealGreenDark, width: 4),
+            ),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.push_pin, size: 16, color: Colors.grey),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text(
+                      'Pinned message',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.tealGreenDark,
+                      ),
+                    ),
+                    Text(
+                      message.isVoice ? 'Voice message' : message.text,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 13.5,
+                        color: isDark ? Colors.white70 : Colors.black54,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.close, size: 20),
+                color: Colors.grey,
+                onPressed: onUnpin,
+                tooltip: 'Unpin',
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

@@ -11,6 +11,9 @@ class Chat {
   final bool isMuted;
   final bool isArchived;
 
+  /// The id of the message pinned to the top of this chat, if any.
+  final String? pinnedMessageId;
+
   const Chat({
     required this.id,
     required this.contact,
@@ -19,6 +22,7 @@ class Chat {
     this.isPinned = false,
     this.isMuted = false,
     this.isArchived = false,
+    this.pinnedMessageId,
   });
 
   /// Most recent message, or null when the conversation is empty.
@@ -35,6 +39,7 @@ class Chat {
         'isPinned': isPinned,
         'isMuted': isMuted,
         'isArchived': isArchived,
+        'pinnedMessageId': pinnedMessageId,
       };
 
   factory Chat.fromJson(Map<String, dynamic> json) => Chat(
@@ -48,6 +53,7 @@ class Chat {
         isPinned: json['isPinned'] as bool? ?? false,
         isMuted: json['isMuted'] as bool? ?? false,
         isArchived: json['isArchived'] as bool? ?? false,
+        pinnedMessageId: json['pinnedMessageId'] as String?,
       );
 
   Chat copyWith({
@@ -56,6 +62,8 @@ class Chat {
     bool? isPinned,
     bool? isMuted,
     bool? isArchived,
+    String? pinnedMessageId,
+    bool clearPinned = false,
   }) {
     return Chat(
       id: id,
@@ -65,6 +73,8 @@ class Chat {
       isPinned: isPinned ?? this.isPinned,
       isMuted: isMuted ?? this.isMuted,
       isArchived: isArchived ?? this.isArchived,
+      pinnedMessageId:
+          clearPinned ? null : (pinnedMessageId ?? this.pinnedMessageId),
     );
   }
 }

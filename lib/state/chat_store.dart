@@ -166,7 +166,20 @@ class ChatStore extends ChangeNotifier {
     final i = _indexOf(chatId);
     if (i == -1) return;
     final msgs = _chats[i].messages.where((m) => m.id != messageId).toList();
-    _replace(i, _chats[i].copyWith(messages: msgs));
+    final clearPin = _chats[i].pinnedMessageId == messageId;
+    _replace(i, _chats[i].copyWith(messages: msgs, clearPinned: clearPin));
+  }
+
+  void pinMessage(String chatId, String messageId) {
+    final i = _indexOf(chatId);
+    if (i != -1) {
+      _replace(i, _chats[i].copyWith(pinnedMessageId: messageId));
+    }
+  }
+
+  void unpinMessage(String chatId) {
+    final i = _indexOf(chatId);
+    if (i != -1) _replace(i, _chats[i].copyWith(clearPinned: true));
   }
 
   // Message ids are only unique within a chat, so star keys are composite.

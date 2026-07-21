@@ -357,6 +357,23 @@ void main() {
     expect(bob!.messages, isEmpty);
   });
 
+  testWidgets('Pinning a message shows the pinned banner', (tester) async {
+    await tester.pumpWidget(const OkayMessagingApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Bob Carter'));
+    await tester.pumpAndSettle();
+
+    await tester.longPress(find.text('Did you see the game last night?'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Pin'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Pinned message'), findsOneWidget);
+    final bob = ChatStore.instance.chatWithContact('u_bob');
+    expect(bob!.pinnedMessageId, isNotNull);
+  });
+
   testWidgets('Archiving a chat moves it into the Archived section',
       (tester) async {
     await tester.pumpWidget(const OkayMessagingApp());
