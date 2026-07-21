@@ -51,6 +51,11 @@ class _ChatScreenState extends State<ChatScreen> {
   /// Where the most recent double-tap landed, used to place the heart burst.
   Offset? _lastDoubleTapPos;
 
+  /// The unread count when the chat was opened, and the id of the message the
+  /// "unread messages" divider should sit above (captured before markRead).
+  int _initialUnread = 0;
+  String? _unreadAnchorId;
+
   String get _chatId => widget.chat.id;
 
   @override
@@ -58,6 +63,7 @@ class _ChatScreenState extends State<ChatScreen> {
     super.initState();
     // Make sure a store entry exists (e.g. for a freshly started chat).
     _store.upsert(widget.chat);
+    _captureUnreadAnchor();
     // Start listening for this contact's messages if a relay is active.
     final phone = widget.chat.contact.phone;
     if (RelayConfig.isEnabled &&
@@ -70,6 +76,19 @@ class _ChatScreenState extends State<ChatScreen> {
       _store.markRead(_chatId);
       _jumpToBottom();
     });
+  }
+
+  /// Records where the "unread messages" divider goes: above the first of the
+  /// last [unreadCount] incoming messages.
+  void _captureUnreadAnchor() {
+    final chat = _store.chatById(_chatId);
+    final unread = chat?.unreadCount ?? 0;
+    if (unread <= 0) return;
+    final incoming = chat!.messages.where((m) => !m.isMe).toList();
+    if (unread <= incoming.length) {
+      _initialUnread = unread;
+      _unreadAnchorId = incoming[incoming.length - unread].id;
+    }
   }
 
   void _onScroll() {
@@ -281,6 +300,9 @@ class _ChatScreenState extends State<ChatScreen> {
       if (lastDay == null || day != lastDay) {
         items.add(_DayHeader(label: DateFormatter.messageDayHeader(m.time)));
         lastDay = day;
+      }
+      if (!_searching && m.id == _unreadAnchorId) {
+        items.add(_UnreadDivider(count: _initialUnread));
       }
       final bubble = MessageBubble(
         message: m,
@@ -970,6 +992,35 @@ class _PinnedBanner extends StatelessWidget {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A full-width "N unread messages" separator, shown above the first message
+/// that was unread when the chat was opened.
+class _UnreadDivider extends StatelessWidget {
+  final int count;
+
+  const _UnreadDivider({required this.count});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.symmetric(vertical: 6),
+      padding: const EdgeInsets.symmetric(vertical: 5),
+      color: (isDark ? AppColors.darkAppBar : Colors.white)
+          .withValues(alpha: 0.92),
+      child: Text(
+        count == 1 ? '1 unread message' : '$count unread messages',
+        textAlign: TextAlign.center,
+        style: const TextStyle(
+          fontSize: 12.5,
+          fontWeight: FontWeight.w600,
+          color: AppColors.tealGreenDark,
         ),
       ),
     );

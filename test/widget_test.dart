@@ -571,6 +571,18 @@ void main() {
     expect(find.text('Alice Bennett'), findsOneWidget);
   });
 
+  testWidgets('Opening an unread chat shows the unread-messages divider',
+      (tester) async {
+    await tester.pumpWidget(const OkayMessagingApp());
+    await tester.pumpAndSettle();
+
+    // Alice's chat starts with 2 unread messages.
+    await tester.tap(find.text('Alice Bennett'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('2 unread messages'), findsOneWidget);
+  });
+
   testWidgets('Clear chat empties the conversation after confirming',
       (tester) async {
     await tester.pumpWidget(const OkayMessagingApp());
