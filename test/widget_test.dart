@@ -571,6 +571,27 @@ void main() {
     expect(find.text('Alice Bennett'), findsOneWidget);
   });
 
+  testWidgets('Global search finds messages by content and opens the chat',
+      (tester) async {
+    await tester.pumpWidget(const OkayMessagingApp());
+    await tester.pumpAndSettle();
+
+    // Open the Chats-tab search, then query message text.
+    await tester.tap(find.byIcon(Icons.search));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), 'finish');
+    await tester.pumpAndSettle();
+
+    // A "Messages" section lists the matching message; tapping opens its chat.
+    expect(find.textContaining('Messages ('), findsOneWidget);
+    await tester.tap(find.textContaining('What a finish'));
+    await tester.pumpAndSettle();
+
+    // Landed in Bob's conversation.
+    expect(find.text('Bob Carter'), findsWidgets);
+    expect(find.text('Did you see the game last night?'), findsOneWidget);
+  });
+
   testWidgets('Creating a group adds it to the chat list with its members',
       (tester) async {
     await tester.pumpWidget(const OkayMessagingApp());
