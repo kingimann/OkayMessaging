@@ -494,9 +494,17 @@ class _ChatScreenState extends State<ChatScreen> {
         );
       case 'media':
         _openMediaGallery();
+      case 'pin':
+        _store.togglePin(_chatId);
+        final pinned = _store.chatById(_chatId)?.isPinned ?? false;
+        setState(() {});
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(pinned ? 'Chat pinned' : 'Chat unpinned')),
+        );
       case 'mute':
         _store.toggleMute(_chatId);
         final muted = _store.chatById(_chatId)?.isMuted ?? false;
+        setState(() {});
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(muted ? 'Muted' : 'Unmuted')),
         );
@@ -734,14 +742,31 @@ class _ChatScreenState extends State<ChatScreen> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
-                                Text(
-                                  contact.name,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                    fontSize: 17,
-                                    fontWeight: FontWeight.w600,
-                                  ),
+                                Row(
+                                  children: [
+                                    Flexible(
+                                      child: Text(
+                                        contact.name,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          fontSize: 17,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ),
+                                    if (_store.chatById(_chatId)?.isMuted ??
+                                        false) ...[
+                                      const SizedBox(width: 6),
+                                      Icon(
+                                        Icons.volume_off,
+                                        size: 16,
+                                        color: isDark
+                                            ? Colors.white54
+                                            : Colors.black45,
+                                      ),
+                                    ],
+                                  ],
                                 ),
                                 _isTyping
                                     ? const TypingIndicator(
@@ -779,21 +804,34 @@ class _ChatScreenState extends State<ChatScreen> {
                       ),
                       PopupMenuButton<String>(
                         onSelected: _onMenuSelected,
-                        itemBuilder: (context) => const [
-                          PopupMenuItem(
-                              value: 'view', child: Text('View contact')),
-                          PopupMenuItem(
-                              value: 'media',
-                              child: Text('Media, links, and docs')),
-                          PopupMenuItem(
-                              value: 'mute', child: Text('Mute notifications')),
-                          PopupMenuItem(
-                              value: 'wallpaper', child: Text('Wallpaper')),
-                          PopupMenuItem(
-                              value: 'clear', child: Text('Clear chat')),
-                          PopupMenuItem(
-                              value: 'delete', child: Text('Delete chat')),
-                        ],
+                        itemBuilder: (context) {
+                          final pinned =
+                              _store.chatById(_chatId)?.isPinned ?? false;
+                          final muted =
+                              _store.chatById(_chatId)?.isMuted ?? false;
+                          return [
+                            const PopupMenuItem(
+                                value: 'view', child: Text('View contact')),
+                            const PopupMenuItem(
+                                value: 'media',
+                                child: Text('Media, links, and docs')),
+                            PopupMenuItem(
+                                value: 'pin',
+                                child:
+                                    Text(pinned ? 'Unpin chat' : 'Pin chat')),
+                            PopupMenuItem(
+                                value: 'mute',
+                                child: Text(muted
+                                    ? 'Unmute notifications'
+                                    : 'Mute notifications')),
+                            const PopupMenuItem(
+                                value: 'wallpaper', child: Text('Wallpaper')),
+                            const PopupMenuItem(
+                                value: 'clear', child: Text('Clear chat')),
+                            const PopupMenuItem(
+                                value: 'delete', child: Text('Delete chat')),
+                          ];
+                        },
                       ),
                     ],
                   ),

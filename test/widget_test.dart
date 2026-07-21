@@ -571,6 +571,40 @@ void main() {
     expect(find.text('Alice Bennett'), findsOneWidget);
   });
 
+  testWidgets('Muting from the chat menu shows a muted icon in the header',
+      (tester) async {
+    await tester.pumpWidget(const OkayMessagingApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Bob Carter'));
+    await tester.pumpAndSettle();
+    expect(find.byIcon(Icons.volume_off), findsNothing);
+
+    await tester.tap(find.byIcon(Icons.more_vert));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Mute notifications'));
+    await tester.pumpAndSettle();
+
+    expect(ChatStore.instance.chatWithContact('u_bob')!.isMuted, isTrue);
+    expect(find.byIcon(Icons.volume_off), findsOneWidget);
+  });
+
+  testWidgets('Pinning from the chat menu pins the conversation',
+      (tester) async {
+    await tester.pumpWidget(const OkayMessagingApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Bob Carter'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.more_vert));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Pin chat'));
+    await tester.pumpAndSettle();
+
+    expect(ChatStore.instance.chatWithContact('u_bob')!.isPinned, isTrue);
+  });
+
   testWidgets('Opening an unread chat shows the unread-messages divider',
       (tester) async {
     await tester.pumpWidget(const OkayMessagingApp());
