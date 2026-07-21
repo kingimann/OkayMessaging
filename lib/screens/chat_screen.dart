@@ -115,6 +115,26 @@ class _ChatScreenState extends State<ChatScreen> {
     _scheduleAutoReply();
   }
 
+  void _handleSendImage() {
+    final now = DateTime.now();
+    _store.addMessage(
+      _chatId,
+      Message(
+        id: 'img_${now.microsecondsSinceEpoch}',
+        text: '',
+        time: now,
+        isMe: true,
+        status: MessageStatus.sent,
+        isImage: true,
+        imageSeed: now.microsecondsSinceEpoch % 6,
+        replyTo: _replyTo,
+      ),
+    );
+    setState(() => _replyTo = null);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _animateToBottom());
+    _scheduleAutoReply();
+  }
+
   void _handleSendVoice(int seconds) {
     final now = DateTime.now();
     _store.addMessage(
@@ -169,7 +189,11 @@ class _ChatScreenState extends State<ChatScreen> {
     setState(() {
       _replyTo = ReplyInfo(
         senderName: widget.chat.contact.name,
-        text: message.text,
+        text: message.isImage
+            ? '📷 Photo'
+            : message.isVoice
+                ? '🎤 Voice message'
+                : message.text,
         isMe: message.isMe,
       );
     });
@@ -384,13 +408,18 @@ class _ChatScreenState extends State<ChatScreen> {
     showModalBottomSheet<void>(
       context: context,
       builder: (sheetContext) {
-        const options = [
-          (Icons.insert_drive_file, 'Document', Color(0xFF7F66FF)),
-          (Icons.camera_alt, 'Camera', Color(0xFFEF5DA8)),
-          (Icons.photo, 'Gallery', Color(0xFFC861F9)),
-          (Icons.headphones, 'Audio', Color(0xFFF97052)),
-          (Icons.location_on, 'Location', Color(0xFF1FA855)),
-          (Icons.person, 'Contact', Color(0xFF009DE2)),
+        final options = <(IconData, String, Color, VoidCallback)>[
+          (Icons.insert_drive_file, 'Document', const Color(0xFF7F66FF),
+              () => _showComingSoon(context, 'Documents')),
+          (Icons.camera_alt, 'Camera', const Color(0xFFEF5DA8),
+              _handleSendImage),
+          (Icons.photo, 'Gallery', const Color(0xFFC861F9), _handleSendImage),
+          (Icons.headphones, 'Audio', const Color(0xFFF97052),
+              () => _showComingSoon(context, 'Audio')),
+          (Icons.location_on, 'Location', const Color(0xFF1FA855),
+              () => _showComingSoon(context, 'Location')),
+          (Icons.person, 'Contact', const Color(0xFF009DE2),
+              () => _showComingSoon(context, 'Contacts')),
         ];
         return SafeArea(
           child: Padding(
@@ -400,18 +429,25 @@ class _ChatScreenState extends State<ChatScreen> {
               shrinkWrap: true,
               mainAxisSpacing: 20,
               children: [
-                for (final (icon, label, color) in options)
-                  Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      CircleAvatar(
-                        radius: 28,
-                        backgroundColor: color,
-                        child: Icon(icon, color: Colors.white),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(label, style: const TextStyle(fontSize: 12)),
-                    ],
+                for (final (icon, label, color, onTap) in options)
+                  InkWell(
+                    borderRadius: BorderRadius.circular(12),
+                    onTap: () {
+                      Navigator.of(sheetContext).pop();
+                      onTap();
+                    },
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        CircleAvatar(
+                          radius: 28,
+                          backgroundColor: color,
+                          child: Icon(icon, color: Colors.white),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(label, style: const TextStyle(fontSize: 12)),
+                      ],
+                    ),
                   ),
               ],
             ),
@@ -743,7 +779,11 @@ class _PinnedBanner extends StatelessWidget {
                       ),
                     ),
                     Text(
-                      message.isVoice ? 'Voice message' : message.text,
+                      message.isVoice
+                          ? 'Voice message'
+                          : message.isImage
+                              ? 'Photo'
+                              : message.text,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(

@@ -394,4 +394,25 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Carol Diaz'), findsOneWidget);
   });
+
+  testWidgets('Sending a photo from the attachment sheet adds an image message',
+      (tester) async {
+    await tester.pumpWidget(const OkayMessagingApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Bob Carter'));
+    await tester.pumpAndSettle();
+
+    // Open the attachment sheet and pick Gallery.
+    await tester.tap(find.byIcon(Icons.attach_file));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Gallery'));
+    await tester.pumpAndSettle();
+
+    final bob = ChatStore.instance.chatWithContact('u_bob');
+    expect(bob!.messages.any((m) => m.isImage), isTrue);
+
+    await tester.pump(const Duration(seconds: 2));
+    await tester.pumpAndSettle();
+  });
 }

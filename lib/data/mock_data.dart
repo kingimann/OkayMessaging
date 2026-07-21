@@ -182,6 +182,14 @@ class MockData {
           ),
           Message(
             id: 'm2',
+            text: '',
+            time: _ago(const Duration(hours: 21)),
+            isMe: false,
+            isImage: true,
+            imageSeed: 4,
+          ),
+          Message(
+            id: 'm3',
             text: 'Postcard coming your way 📮',
             time: _ago(const Duration(hours: 20)),
             isMe: false,

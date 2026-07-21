@@ -35,6 +35,17 @@ class MessageBubble extends StatelessWidget {
     final metaColor = isDark ? Colors.white60 : Colors.black45;
     final hasReactions = message.reactions.isNotEmpty;
 
+    if (message.isImage) {
+      return _ImageBubble(
+        message: message,
+        isMe: isMe,
+        isDark: isDark,
+        bubbleColor: bubbleColor,
+        hasReactions: hasReactions,
+        onLongPress: onLongPress,
+      );
+    }
+
     return Align(
       alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
       child: GestureDetector(
@@ -190,6 +201,112 @@ class _ReplyQuote extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// An image message: a rounded placeholder photo tile (a gradient stands in
+/// for a real image) with the time/ticks overlaid on a scrim.
+class _ImageBubble extends StatelessWidget {
+  final Message message;
+  final bool isMe;
+  final bool isDark;
+  final Color bubbleColor;
+  final bool hasReactions;
+  final VoidCallback? onLongPress;
+
+  const _ImageBubble({
+    required this.message,
+    required this.isMe,
+    required this.isDark,
+    required this.bubbleColor,
+    required this.hasReactions,
+    required this.onLongPress,
+  });
+
+  static const _gradients = [
+    [Color(0xFF667EEA), Color(0xFF764BA2)],
+    [Color(0xFFFF9A9E), Color(0xFFFAD0C4)],
+    [Color(0xFF43CEA2), Color(0xFF185A9D)],
+    [Color(0xFFF6D365), Color(0xFFFDA085)],
+    [Color(0xFF30CFD0), Color(0xFF330867)],
+    [Color(0xFFA8EDEA), Color(0xFFFED6E3)],
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = _gradients[message.imageSeed % _gradients.length];
+    return Align(
+      alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+      child: GestureDetector(
+        onLongPress: onLongPress,
+        child: Container(
+          margin: EdgeInsets.only(
+            left: 8,
+            right: 8,
+            top: 2,
+            bottom: hasReactions ? 16 : 2,
+          ),
+          padding: const EdgeInsets.all(3),
+          decoration: BoxDecoration(
+            color: bubbleColor,
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(13),
+            child: Stack(
+              children: [
+                Container(
+                  width: 220,
+                  height: 260,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: colors,
+                    ),
+                  ),
+                  child: const Center(
+                    child: Icon(Icons.image, color: Colors.white70, size: 48),
+                  ),
+                ),
+                Positioned(
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  child: Container(
+                    padding: const EdgeInsets.fromLTRB(8, 12, 8, 6),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          Colors.transparent,
+                          Colors.black.withValues(alpha: 0.45),
+                        ],
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        Text(
+                          DateFormatter.messageTime(message.time),
+                          style: const TextStyle(
+                              color: Colors.white, fontSize: 11),
+                        ),
+                        if (isMe) ...[
+                          const SizedBox(width: 4),
+                          MessageStatusIcon(status: message.status, size: 15),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }

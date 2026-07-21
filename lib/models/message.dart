@@ -46,6 +46,10 @@ class Message {
   final bool isVoice;
   final int voiceSeconds;
 
+  /// True for image messages; [imageSeed] picks a placeholder gradient.
+  final bool isImage;
+  final int imageSeed;
+
   const Message({
     required this.id,
     required this.text,
@@ -57,6 +61,8 @@ class Message {
     this.forwarded = false,
     this.isVoice = false,
     this.voiceSeconds = 0,
+    this.isImage = false,
+    this.imageSeed = 0,
   });
 
   Map<String, dynamic> toJson() => {
@@ -70,6 +76,8 @@ class Message {
         'forwarded': forwarded,
         'isVoice': isVoice,
         'voiceSeconds': voiceSeconds,
+        'isImage': isImage,
+        'imageSeed': imageSeed,
       };
 
   factory Message.fromJson(Map<String, dynamic> json) => Message(
@@ -86,6 +94,8 @@ class Message {
         forwarded: json['forwarded'] as bool? ?? false,
         isVoice: json['isVoice'] as bool? ?? false,
         voiceSeconds: json['voiceSeconds'] as int? ?? 0,
+        isImage: json['isImage'] as bool? ?? false,
+        imageSeed: json['imageSeed'] as int? ?? 0,
       );
 
   Message copyWith({
@@ -103,6 +113,8 @@ class Message {
       forwarded: forwarded,
       isVoice: isVoice,
       voiceSeconds: voiceSeconds,
+      isImage: isImage,
+      imageSeed: imageSeed,
     );
   }
 }
