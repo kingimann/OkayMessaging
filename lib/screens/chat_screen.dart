@@ -18,6 +18,7 @@ import 'contact_info_screen.dart';
 import 'forward_screen.dart';
 import 'group_info_screen.dart';
 import 'image_view_screen.dart';
+import 'media_gallery_screen.dart';
 
 /// The conversation screen for a single [Chat], backed by [ChatStore].
 class ChatScreen extends StatefulWidget {
@@ -443,6 +444,41 @@ class _ChatScreenState extends State<ChatScreen> {
     overlay.insert(entry);
   }
 
+  void _onMenuSelected(String value) {
+    final contact = widget.chat.contact;
+    switch (value) {
+      case 'view':
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => contact.isGroup
+                ? GroupInfoScreen(group: contact)
+                : ContactInfoScreen(user: contact, chatId: _chatId),
+          ),
+        );
+      case 'media':
+        _openMediaGallery();
+      case 'mute':
+        _store.toggleMute(_chatId);
+        final muted = _store.chatById(_chatId)?.isMuted ?? false;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(muted ? 'Muted' : 'Unmuted')),
+        );
+      case 'wallpaper':
+        _showComingSoon(context, 'Wallpaper');
+    }
+  }
+
+  void _openMediaGallery() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => MediaGalleryScreen(
+          chatId: _chatId,
+          contactName: widget.chat.contact.name,
+        ),
+      ),
+    );
+  }
+
   void _startCall({required bool video}) {
     if (widget.chat.contact.isGroup) {
       _showComingSoon(context, 'Group calls');
@@ -594,7 +630,7 @@ class _ChatScreenState extends State<ChatScreen> {
                         MaterialPageRoute(
                           builder: (_) => contact.isGroup
                               ? GroupInfoScreen(group: contact)
-                              : ContactInfoScreen(user: contact),
+                              : ContactInfoScreen(user: contact, chatId: _chatId),
                         ),
                       ),
                       child: Row(
@@ -654,7 +690,7 @@ class _ChatScreenState extends State<ChatScreen> {
                         onPressed: () => _startCall(video: false),
                       ),
                       PopupMenuButton<String>(
-                        onSelected: (_) {},
+                        onSelected: _onMenuSelected,
                         itemBuilder: (context) => const [
                           PopupMenuItem(
                               value: 'view', child: Text('View contact')),

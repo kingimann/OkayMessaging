@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:okay_messaging/app_state.dart';
 import 'package:okay_messaging/main.dart';
 import 'package:okay_messaging/screens/call_screen.dart';
+import 'package:okay_messaging/screens/media_gallery_screen.dart';
 import 'package:okay_messaging/models/message.dart';
 import 'package:okay_messaging/state/chat_store.dart';
 import 'package:okay_messaging/widgets/heart_burst.dart';
@@ -511,5 +512,27 @@ void main() {
     await tester.tap(find.byIcon(Icons.call_end));
     await tester.pumpAndSettle();
     expect(find.byType(CallScreen), findsNothing);
+  });
+
+  testWidgets('Media gallery lists photos and links shared in a chat',
+      (tester) async {
+    await tester.pumpWidget(const OkayMessagingApp());
+    await tester.pumpAndSettle();
+
+    // Carol's chat has a shared link; open the media gallery from the menu.
+    await tester.tap(find.text('Carol Diaz'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.more_vert));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Media, links, and docs'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(MediaGalleryScreen), findsOneWidget);
+
+    // Media tab is empty for Carol; the Links tab shows the shared link.
+    expect(find.text('No media shared yet'), findsOneWidget);
+    await tester.tap(find.text('Links'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('okaydocs.example'), findsOneWidget);
   });
 }

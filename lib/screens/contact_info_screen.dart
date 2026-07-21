@@ -4,13 +4,17 @@ import '../models/user.dart';
 import '../theme/app_theme.dart';
 import '../widgets/info_section.dart';
 import '../widgets/user_avatar.dart';
+import 'media_gallery_screen.dart';
 
 /// A modern contact detail screen: a clean surface header with a large
 /// avatar, tonal action buttons, and grouped info sections.
 class ContactInfoScreen extends StatelessWidget {
   final AppUser user;
 
-  const ContactInfoScreen({super.key, required this.user});
+  /// When set, a "Media, links, and docs" tile opens that chat's gallery.
+  final String? chatId;
+
+  const ContactInfoScreen({super.key, required this.user, this.chatId});
 
   @override
   Widget build(BuildContext context) {
@@ -66,6 +70,23 @@ class ContactInfoScreen extends StatelessWidget {
               ),
             ],
           ),
+          if (chatId != null)
+            InfoSection(
+              children: [
+                InfoTile(
+                  leading: const Icon(Icons.photo_library_outlined),
+                  title: 'Media, links, and docs',
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => MediaGalleryScreen(
+                        chatId: chatId!,
+                        contactName: user.name,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           const InfoSection(
             children: [
               InfoTile(
