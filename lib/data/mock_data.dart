@@ -44,7 +44,7 @@ class MockData {
     id: 'u_dev',
     name: 'Team Standup',
     avatarColor: '#4DB6AC',
-    about: 'Group • 6 members',
+    about: 'Group • 7 members',
     phone: '',
     isGroup: true,
   );
@@ -66,12 +66,28 @@ class MockData {
     phone: '+1 555 0155',
   );
 
+  // Has no existing conversation, so starting a chat shows the empty state.
+  static const AppUser _grace = AppUser(
+    id: 'u_grace',
+    name: 'Grace Hopper',
+    avatarColor: '#4DD0E1',
+    about: 'Debugging the future',
+    phone: '+1 555 0166',
+    isOnline: true,
+  );
+
   static DateTime _ago(Duration d) => DateTime.now().subtract(d);
 
   /// Individual people available to start a new conversation with
   /// (groups such as "Team Standup" are excluded).
-  static List<AppUser> contacts() => [_alice, _bob, _carol, _erin, _frank]
-    ..sort((a, b) => a.name.compareTo(b.name));
+  static List<AppUser> contacts() => [
+        _alice,
+        _bob,
+        _carol,
+        _erin,
+        _frank,
+        _grace
+      ]..sort((a, b) => a.name.compareTo(b.name));
 
   static List<Chat> chats() {
     return [

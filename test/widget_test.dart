@@ -197,7 +197,7 @@ void main() {
     await tester.tap(find.text('Team Standup'));
     await tester.pumpAndSettle();
 
-    expect(find.text('6 members'), findsOneWidget);
+    expect(find.text('7 members'), findsOneWidget);
     expect(find.text('Group admin'), findsOneWidget);
   });
 

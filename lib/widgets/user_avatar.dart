@@ -11,11 +11,15 @@ class UserAvatar extends StatelessWidget {
   /// When set, the avatar animates between screens as a shared element.
   final String? heroTag;
 
+  /// When true, shows a small green presence dot for online users.
+  final bool showPresence;
+
   const UserAvatar({
     super.key,
     required this.user,
     this.radius = 26,
     this.heroTag,
+    this.showPresence = false,
   });
 
   Color get _color {
@@ -27,7 +31,7 @@ class UserAvatar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final avatar = CircleAvatar(
+    Widget core = CircleAvatar(
       radius: radius,
       backgroundColor: _color,
       child: Text(
@@ -39,10 +43,37 @@ class UserAvatar extends StatelessWidget {
         ),
       ),
     );
-    if (heroTag == null) return avatar;
+
+    if (showPresence && user.isOnline) {
+      final dot = radius * 0.42;
+      core = Stack(
+        clipBehavior: Clip.none,
+        children: [
+          core,
+          Positioned(
+            right: 0,
+            bottom: 0,
+            child: Container(
+              width: dot,
+              height: dot,
+              decoration: BoxDecoration(
+                color: const Color(0xFF25D366),
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: Theme.of(context).scaffoldBackgroundColor,
+                  width: 2,
+                ),
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+
+    if (heroTag == null) return core;
     return Hero(
       tag: heroTag!,
-      child: Material(type: MaterialType.transparency, child: avatar),
+      child: Material(type: MaterialType.transparency, child: core),
     );
   }
 }

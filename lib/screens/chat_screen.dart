@@ -592,11 +592,17 @@ class _ChatScreenState extends State<ChatScreen> {
                 children: [
                   ListenableBuilder(
                     listenable: _store,
-                    builder: (context, _) => ListView(
-                      controller: _scrollController,
-                      padding: const EdgeInsets.symmetric(vertical: 8),
-                      children: _buildItems(),
-                    ),
+                    builder: (context, _) {
+                      final items = _buildItems();
+                      if (items.isEmpty && !_searching) {
+                        return const _EmptyConversation();
+                      }
+                      return ListView(
+                        controller: _scrollController,
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        children: items,
+                      );
+                    },
                   ),
                   if (_showScrollToBottom)
                     Positioned(
@@ -658,6 +664,42 @@ class _ReactionRow extends StatelessWidget {
               ),
             ),
         ],
+      ),
+    );
+  }
+}
+
+class _EmptyConversation extends StatelessWidget {
+  const _EmptyConversation();
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Center(
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 32),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color: isDark ? AppColors.darkAppBar : const Color(0xFFFEF6D9),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.lock, size: 16, color: Colors.amber.shade800),
+            const SizedBox(width: 8),
+            Flexible(
+              child: Text(
+                'Messages are end-to-end encrypted. Say hi 👋',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 13,
+                  color: isDark ? Colors.white70 : Colors.black87,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

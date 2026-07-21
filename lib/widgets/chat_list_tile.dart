@@ -34,7 +34,7 @@ class ChatListTile extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         child: Row(
           children: [
-            UserAvatar(user: chat.contact, radius: 28),
+            UserAvatar(user: chat.contact, radius: 28, showPresence: true),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
