@@ -571,6 +571,46 @@ void main() {
     expect(find.text('Alice Bennett'), findsOneWidget);
   });
 
+  testWidgets('Clear chat empties the conversation after confirming',
+      (tester) async {
+    await tester.pumpWidget(const OkayMessagingApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Bob Carter'));
+    await tester.pumpAndSettle();
+    expect(ChatStore.instance.chatWithContact('u_bob')!.messages, isNotEmpty);
+
+    await tester.tap(find.byIcon(Icons.more_vert));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Clear chat'));
+    await tester.pumpAndSettle();
+    // Confirm in the dialog (the red action button).
+    await tester.tap(find.widgetWithText(TextButton, 'Clear chat'));
+    await tester.pumpAndSettle();
+
+    expect(ChatStore.instance.chatWithContact('u_bob')!.messages, isEmpty);
+  });
+
+  testWidgets('Delete chat removes the conversation and pops back',
+      (tester) async {
+    await tester.pumpWidget(const OkayMessagingApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Bob Carter'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.more_vert));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Delete chat'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(TextButton, 'Delete chat'));
+    await tester.pumpAndSettle();
+
+    // The chat is gone and we're back on the list.
+    expect(ChatStore.instance.chatWithContact('u_bob'), isNull);
+    expect(find.text('Alice Bennett'), findsOneWidget);
+  });
+
   testWidgets('Global search finds messages by content and opens the chat',
       (tester) async {
     await tester.pumpWidget(const OkayMessagingApp());

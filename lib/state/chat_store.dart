@@ -169,6 +169,13 @@ class ChatStore extends ChangeNotifier {
     _replace(i, _chats[i].copyWith(messages: messages));
   }
 
+  /// Removes every message from a conversation (keeps the chat itself).
+  void clearMessages(String chatId) {
+    final i = _indexOf(chatId);
+    if (i == -1) return;
+    _replace(i, _chats[i].copyWith(messages: const [], clearPinned: true));
+  }
+
   void deleteMessage(String chatId, String messageId) {
     final i = _indexOf(chatId);
     if (i == -1) return;

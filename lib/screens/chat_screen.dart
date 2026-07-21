@@ -480,7 +480,58 @@ class _ChatScreenState extends State<ChatScreen> {
         );
       case 'wallpaper':
         _showComingSoon(context, 'Wallpaper');
+      case 'clear':
+        _confirmClearChat();
+      case 'delete':
+        _confirmDeleteChat();
     }
+  }
+
+  Future<void> _confirmClearChat() async {
+    final ok = await _confirm(
+      title: 'Clear this chat?',
+      message: 'All messages in this conversation will be removed from this '
+          'device. This cannot be undone.',
+      action: 'Clear chat',
+    );
+    if (ok) _store.clearMessages(_chatId);
+  }
+
+  Future<void> _confirmDeleteChat() async {
+    final ok = await _confirm(
+      title: 'Delete this chat?',
+      message: 'This conversation will be removed from this device. This '
+          'cannot be undone.',
+      action: 'Delete chat',
+    );
+    if (!ok || !mounted) return;
+    _store.deleteChat(_chatId);
+    Navigator.of(context).pop();
+  }
+
+  Future<bool> _confirm({
+    required String title,
+    required String message,
+    required String action,
+  }) async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: Text(action, style: const TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+    return result ?? false;
   }
 
   void _openMediaGallery() {
@@ -716,6 +767,10 @@ class _ChatScreenState extends State<ChatScreen> {
                               value: 'mute', child: Text('Mute notifications')),
                           PopupMenuItem(
                               value: 'wallpaper', child: Text('Wallpaper')),
+                          PopupMenuItem(
+                              value: 'clear', child: Text('Clear chat')),
+                          PopupMenuItem(
+                              value: 'delete', child: Text('Delete chat')),
                         ],
                       ),
                     ],
