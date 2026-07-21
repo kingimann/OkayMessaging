@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../models/message.dart';
@@ -10,6 +12,9 @@ class ChatInputBar extends StatefulWidget {
   final ValueChanged<String> onSend;
   final VoidCallback? onAttach;
 
+  /// Called with the recorded length in seconds when a voice message is sent.
+  final ValueChanged<int>? onSendVoice;
+
   /// The message currently being replied to (shows a quote banner).
   final ReplyInfo? replyTo;
   final VoidCallback? onCancelReply;
@@ -18,6 +23,7 @@ class ChatInputBar extends StatefulWidget {
     super.key,
     required this.onSend,
     this.onAttach,
+    this.onSendVoice,
     this.replyTo,
     this.onCancelReply,
   });
@@ -31,6 +37,10 @@ class _ChatInputBarState extends State<ChatInputBar> {
   bool _hasText = false;
   bool _emojiOpen = false;
 
+  bool _recording = false;
+  int _recordSeconds = 0;
+  Timer? _recordTimer;
+
   @override
   void initState() {
     super.initState();
@@ -42,8 +52,38 @@ class _ChatInputBarState extends State<ChatInputBar> {
 
   @override
   void dispose() {
+    _recordTimer?.cancel();
     _controller.dispose();
     super.dispose();
+  }
+
+  void _startRecording() {
+    setState(() {
+      _recording = true;
+      _recordSeconds = 0;
+      _emojiOpen = false;
+    });
+    _recordTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      setState(() => _recordSeconds++);
+    });
+  }
+
+  void _cancelRecording() {
+    _recordTimer?.cancel();
+    setState(() => _recording = false);
+  }
+
+  void _finishRecording() {
+    _recordTimer?.cancel();
+    final seconds = _recordSeconds < 1 ? 1 : _recordSeconds;
+    setState(() => _recording = false);
+    widget.onSendVoice?.call(seconds);
+  }
+
+  String get _recordLabel {
+    final m = _recordSeconds ~/ 60;
+    final s = _recordSeconds % 60;
+    return '$m:${s.toString().padLeft(2, '0')}';
   }
 
   void _send() {
@@ -77,85 +117,134 @@ class _ChatInputBarState extends State<ChatInputBar> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (widget.replyTo != null)
+          if (widget.replyTo != null && !_recording)
             _ReplyPreview(
               reply: widget.replyTo!,
               onCancel: widget.onCancelReply,
               isDark: isDark,
             ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(6, 4, 6, 6),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Expanded(
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: fieldColor,
-                      borderRadius: BorderRadius.circular(24),
+          _recording
+              ? _buildRecordingBar(isDark, fieldColor)
+              : _buildComposer(isDark, fieldColor),
+          if (_emojiOpen && !_recording)
+            _EmojiPicker(onSelected: _insertEmoji, isDark: isDark),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildComposer(bool isDark, Color fieldColor) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(6, 4, 6, 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          Expanded(
+            child: Container(
+              decoration: BoxDecoration(
+                color: fieldColor,
+                borderRadius: BorderRadius.circular(24),
+              ),
+              child: Row(
+                children: [
+                  IconButton(
+                    icon: Icon(
+                      _emojiOpen
+                          ? Icons.keyboard
+                          : Icons.emoji_emotions_outlined,
                     ),
-                    child: Row(
-                      children: [
-                        IconButton(
-                          icon: Icon(
-                            _emojiOpen
-                                ? Icons.keyboard
-                                : Icons.emoji_emotions_outlined,
-                          ),
-                          color: Colors.grey,
-                          onPressed: () =>
-                              setState(() => _emojiOpen = !_emojiOpen),
-                        ),
-                        Expanded(
-                          child: TextField(
-                            controller: _controller,
-                            minLines: 1,
-                            maxLines: 5,
-                            textCapitalization: TextCapitalization.sentences,
-                            onTap: () {
-                              if (_emojiOpen) {
-                                setState(() => _emojiOpen = false);
-                              }
-                            },
-                            decoration: const InputDecoration(
-                              hintText: 'Message',
-                              border: InputBorder.none,
-                            ),
-                            onSubmitted: (_) => _send(),
-                          ),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.attach_file),
-                          color: Colors.grey,
-                          onPressed: widget.onAttach,
-                        ),
-                        if (!_hasText)
-                          IconButton(
-                            icon: const Icon(Icons.camera_alt_outlined),
-                            color: Colors.grey,
-                            onPressed: widget.onAttach,
-                          ),
-                      ],
+                    color: Colors.grey,
+                    onPressed: () => setState(() => _emojiOpen = !_emojiOpen),
+                  ),
+                  Expanded(
+                    child: TextField(
+                      controller: _controller,
+                      minLines: 1,
+                      maxLines: 5,
+                      textCapitalization: TextCapitalization.sentences,
+                      onTap: () {
+                        if (_emojiOpen) setState(() => _emojiOpen = false);
+                      },
+                      decoration: const InputDecoration(
+                        hintText: 'Message',
+                        border: InputBorder.none,
+                      ),
+                      onSubmitted: (_) => _send(),
                     ),
                   ),
-                ),
-                const SizedBox(width: 6),
-                GestureDetector(
-                  onTap: _send,
-                  child: CircleAvatar(
-                    radius: 24,
-                    backgroundColor: AppColors.tealGreenDark,
-                    child: Icon(
-                      _hasText ? Icons.send : Icons.mic,
-                      color: Colors.white,
-                    ),
+                  IconButton(
+                    icon: const Icon(Icons.attach_file),
+                    color: Colors.grey,
+                    onPressed: widget.onAttach,
                   ),
-                ),
-              ],
+                  if (!_hasText)
+                    IconButton(
+                      icon: const Icon(Icons.camera_alt_outlined),
+                      color: Colors.grey,
+                      onPressed: widget.onAttach,
+                    ),
+                ],
+              ),
             ),
           ),
-          if (_emojiOpen)
-            _EmojiPicker(onSelected: _insertEmoji, isDark: isDark),
+          const SizedBox(width: 6),
+          GestureDetector(
+            onTap: _hasText ? _send : _startRecording,
+            child: CircleAvatar(
+              radius: 24,
+              backgroundColor: AppColors.tealGreenDark,
+              child: Icon(
+                _hasText ? Icons.send : Icons.mic,
+                color: Colors.white,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRecordingBar(bool isDark, Color fieldColor) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(6, 4, 6, 6),
+      child: Row(
+        children: [
+          Expanded(
+            child: Container(
+              height: 48,
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              decoration: BoxDecoration(
+                color: fieldColor,
+                borderRadius: BorderRadius.circular(24),
+              ),
+              child: Row(
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.delete, color: Colors.red),
+                    onPressed: _cancelRecording,
+                    tooltip: 'Cancel',
+                  ),
+                  const Icon(Icons.fiber_manual_record,
+                      color: Colors.red, size: 14),
+                  const SizedBox(width: 8),
+                  Text(_recordLabel,
+                      style: const TextStyle(fontWeight: FontWeight.w600)),
+                  const Spacer(),
+                  const Text('Recording…',
+                      style: TextStyle(color: Colors.grey)),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(width: 6),
+          GestureDetector(
+            onTap: _finishRecording,
+            child: const CircleAvatar(
+              radius: 24,
+              backgroundColor: AppColors.tealGreenDark,
+              child: Icon(Icons.send, color: Colors.white),
+            ),
+          ),
         ],
       ),
     );

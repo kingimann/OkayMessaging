@@ -95,14 +95,21 @@ class MessageBubble extends StatelessWidget {
                           ],
                         ),
                       ),
-                    Text(
-                      message.text,
-                      style: TextStyle(
-                        color: textColor,
-                        fontSize: 15.5,
-                        height: 1.3,
+                    if (message.isVoice)
+                      _VoiceContent(
+                        seconds: message.voiceSeconds,
+                        textColor: textColor,
+                        metaColor: metaColor,
+                      )
+                    else
+                      Text(
+                        message.text,
+                        style: TextStyle(
+                          color: textColor,
+                          fontSize: 15.5,
+                          height: 1.3,
+                        ),
                       ),
-                    ),
                     const SizedBox(height: 2),
                     Row(
                       mainAxisSize: MainAxisSize.min,
@@ -182,6 +189,100 @@ class _ReplyQuote extends StatelessWidget {
               fontSize: 13,
             ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+/// A voice-message row: a play/pause toggle, a static waveform, and the
+/// clip length. Playback is simulated (no real audio in this UI demo).
+class _VoiceContent extends StatefulWidget {
+  final int seconds;
+  final Color textColor;
+  final Color metaColor;
+
+  const _VoiceContent({
+    required this.seconds,
+    required this.textColor,
+    required this.metaColor,
+  });
+
+  @override
+  State<_VoiceContent> createState() => _VoiceContentState();
+}
+
+class _VoiceContentState extends State<_VoiceContent> {
+  bool _playing = false;
+
+  // A fixed pseudo-waveform so bubbles look varied but stable.
+  static const _heights = [
+    6.0,
+    12.0,
+    18.0,
+    10.0,
+    22.0,
+    14.0,
+    8.0,
+    20.0,
+    16.0,
+    11.0,
+    24.0,
+    9.0,
+    15.0,
+    19.0,
+    7.0,
+    13.0,
+    21.0,
+    10.0,
+    17.0,
+    12.0,
+  ];
+
+  String get _label {
+    final m = widget.seconds ~/ 60;
+    final s = widget.seconds % 60;
+    return '$m:${s.toString().padLeft(2, '0')}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 210,
+      child: Row(
+        children: [
+          GestureDetector(
+            onTap: () => setState(() => _playing = !_playing),
+            child: Icon(
+              _playing ? Icons.pause : Icons.play_arrow,
+              color: AppColors.tealGreenDark,
+              size: 30,
+            ),
+          ),
+          const SizedBox(width: 6),
+          Expanded(
+            child: SizedBox(
+              height: 26,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  for (final h in _heights)
+                    Expanded(
+                      child: Container(
+                        margin: const EdgeInsets.symmetric(horizontal: 0.5),
+                        height: h,
+                        decoration: BoxDecoration(
+                          color: widget.metaColor,
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(_label, style: TextStyle(color: widget.metaColor, fontSize: 12)),
         ],
       ),
     );

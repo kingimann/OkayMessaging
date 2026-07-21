@@ -97,6 +97,24 @@ class _ChatScreenState extends State<ChatScreen> {
     _scheduleAutoReply();
   }
 
+  void _handleSendVoice(int seconds) {
+    final now = DateTime.now();
+    _store.addMessage(
+      _chatId,
+      Message(
+        id: 'voice_${now.microsecondsSinceEpoch}',
+        text: '',
+        time: now,
+        isMe: true,
+        status: MessageStatus.sent,
+        isVoice: true,
+        voiceSeconds: seconds,
+      ),
+    );
+    WidgetsBinding.instance.addPostFrameCallback((_) => _animateToBottom());
+    _scheduleAutoReply();
+  }
+
   /// Simulates the other person typing then replying so the demo feels alive.
   void _scheduleAutoReply() {
     _autoReplyCounter++;
@@ -398,6 +416,7 @@ class _ChatScreenState extends State<ChatScreen> {
           ChatInputBar(
             onSend: _handleSend,
             onAttach: _showAttachmentSheet,
+            onSendVoice: _handleSendVoice,
             replyTo: _replyTo,
             onCancelReply: () => setState(() => _replyTo = null),
           ),

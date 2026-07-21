@@ -1,12 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:okay_messaging/app_state.dart';
 import 'package:okay_messaging/main.dart';
 import 'package:okay_messaging/state/chat_store.dart';
 
 void main() {
-  // The store is a singleton; reset it so each test starts from clean data.
-  setUp(() => ChatStore.instance.reset());
+  // Singletons persist across tests; reset them so each starts clean.
+  setUp(() {
+    ChatStore.instance.reset();
+    AppState.resetForTest();
+  });
 
   testWidgets('App boots with Chats and Calls tabs (no Status)',
       (tester) async {
@@ -192,6 +196,50 @@ void main() {
 
     expect(find.text('6 members'), findsOneWidget);
     expect(find.text('Group admin'), findsOneWidget);
+  });
+
+  testWidgets('Recording and sending a voice message adds it to the chat',
+      (tester) async {
+    await tester.pumpWidget(const OkayMessagingApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Bob Carter'));
+    await tester.pumpAndSettle();
+
+    // Tap the mic to start recording.
+    await tester.tap(find.byIcon(Icons.mic));
+    await tester.pump();
+    expect(find.text('Recording…'), findsOneWidget);
+
+    // Tap send to finish and send the voice message.
+    await tester.tap(find.byIcon(Icons.send));
+    await tester.pump();
+
+    final bob = ChatStore.instance.chatWithContact('u_bob');
+    expect(bob!.messages.any((m) => m.isVoice), isTrue);
+
+    await tester.pump(const Duration(seconds: 2));
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('Editing the profile updates the name in Settings',
+      (tester) async {
+    await tester.pumpWidget(const OkayMessagingApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.more_vert));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Settings'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('You'));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField).first, 'Ada Lovelace');
+    await tester.tap(find.byIcon(Icons.check));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Ada Lovelace'), findsOneWidget);
   });
 
   testWidgets('Archiving a chat moves it into the Archived section',

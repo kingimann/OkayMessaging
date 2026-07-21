@@ -1,28 +1,32 @@
 import 'package:flutter/material.dart';
 
 import '../app_state.dart';
-import '../data/mock_data.dart';
 import '../widgets/user_avatar.dart';
+import 'edit_profile_screen.dart';
 
-/// App settings, including the light/dark theme switch.
+/// App settings, including the profile row and light/dark theme switch.
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
-    const me = MockData.me;
     return Scaffold(
       appBar: AppBar(title: const Text('Settings')),
       body: ListView(
         children: [
-          ListTile(
-            leading: const UserAvatar(user: me, radius: 32),
-            title: Text(me.name,
-                style:
-                    const TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
-            subtitle: Text(me.about),
-            trailing: const Icon(Icons.qr_code, color: Colors.grey),
-            onTap: () {},
+          ValueListenableBuilder(
+            valueListenable: AppState.profile,
+            builder: (context, me, _) => ListTile(
+              leading: UserAvatar(user: me, radius: 32),
+              title: Text(me.name,
+                  style: const TextStyle(
+                      fontSize: 18, fontWeight: FontWeight.w600)),
+              subtitle: Text(me.about),
+              trailing: const Icon(Icons.qr_code, color: Colors.grey),
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const EditProfileScreen()),
+              ),
+            ),
           ),
           const Divider(),
           _buildThemeTile(context),

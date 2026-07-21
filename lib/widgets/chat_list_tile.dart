@@ -75,9 +75,15 @@ class ChatListTile extends StatelessWidget {
                         MessageStatusIcon(status: last.status, size: 16),
                         const SizedBox(width: 3),
                       ],
+                      if (last != null && last.isVoice) ...[
+                        Icon(Icons.mic, size: 16, color: subtitleColor),
+                        const SizedBox(width: 3),
+                      ],
                       Expanded(
                         child: Text(
-                          chat.preview,
+                          last != null && last.isVoice
+                              ? 'Voice message'
+                              : chat.preview,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(fontSize: 14, color: subtitleColor),

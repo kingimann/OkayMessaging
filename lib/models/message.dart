@@ -33,6 +33,10 @@ class Message {
   /// True when this message was forwarded from another chat.
   final bool forwarded;
 
+  /// True for voice messages; [voiceSeconds] then holds the clip length.
+  final bool isVoice;
+  final int voiceSeconds;
+
   const Message({
     required this.id,
     required this.text,
@@ -42,6 +46,8 @@ class Message {
     this.reactions = const [],
     this.replyTo,
     this.forwarded = false,
+    this.isVoice = false,
+    this.voiceSeconds = 0,
   });
 
   Message copyWith({
@@ -57,6 +63,8 @@ class Message {
       reactions: reactions ?? this.reactions,
       replyTo: replyTo,
       forwarded: forwarded,
+      isVoice: isVoice,
+      voiceSeconds: voiceSeconds,
     );
   }
 }
