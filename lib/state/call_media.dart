@@ -32,8 +32,23 @@ class CallMedia {
   /// user sees "Connecting…" / "Reconnecting…" rather than silence.
   final ValueNotifier<String> connectionState = ValueNotifier<String>('new');
 
-  /// WebRTC media is only wired up on the web build.
-  bool get isSupported => kIsWeb;
+  /// WebRTC media is available on every real platform flutter_webrtc supports
+  /// (web + mobile/desktop). It is only inert on unsupported targets. All calls
+  /// are additionally wrapped in try/catch, so the Dart VM used by unit tests
+  /// (no platform plugin) is a harmless no-op.
+  bool get isSupported {
+    if (kIsWeb) return true;
+    switch (defaultTargetPlatform) {
+      case TargetPlatform.android:
+      case TargetPlatform.iOS:
+      case TargetPlatform.macOS:
+      case TargetPlatform.windows:
+      case TargetPlatform.linux:
+        return true;
+      default:
+        return false;
+    }
+  }
 
   // Optional TURN server (for calls behind strict/symmetric NATs) supplied at
   // build time: --dart-define=TURN_URL=... TURN_USERNAME=... TURN_CREDENTIAL=...
