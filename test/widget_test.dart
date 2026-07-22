@@ -337,8 +337,10 @@ void main() {
     await tester.enterText(searchField, 'finish');
     await tester.pumpAndSettle();
 
+    // Non-matching messages are filtered out; the live match count is shown.
     expect(find.text('Did you see the game last night?'), findsNothing);
     expect(find.textContaining('What a finish'), findsOneWidget);
+    expect(find.textContaining('found'), findsOneWidget);
   });
 
   test('Chat store survives a JSON serialization round-trip', () {

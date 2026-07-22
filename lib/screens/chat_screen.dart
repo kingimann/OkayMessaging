@@ -243,6 +243,19 @@ class _ChatScreenState extends State<ChatScreen> {
     });
   }
 
+  /// Closes search and scrolls to the tapped result in the full conversation,
+  /// flashing it — so you see the match in context.
+  void _exitSearchToMessage(String messageId) {
+    setState(() {
+      _searching = false;
+      _searchQuery = '';
+      _searchController.clear();
+    });
+    _jumpTimer?.cancel();
+    _jumpTimer = Timer(const Duration(milliseconds: 300),
+        () => _jumpToMessage(messageId));
+  }
+
   List<Message> get _messages => _store.chatById(_chatId)?.messages ?? const [];
 
   void _jumpToBottom() {
@@ -653,7 +666,9 @@ class _ChatScreenState extends State<ChatScreen> {
         message: m,
         starred: _store.isStarred(_chatId, m.id),
         onLongPress: _selectionMode ? null : () => _showMessageActions(m),
-        onTap: m.isImage && !_selectionMode ? () => _openImage(m) : null,
+        onTap: _searching
+            ? () => _exitSearchToMessage(m.id)
+            : (m.isImage && !_selectionMode ? () => _openImage(m) : null),
         onDoubleTapDown:
             _selectionMode ? null : (d) => _lastDoubleTapPos = d.globalPosition,
         onDoubleTap: _selectionMode ? null : () => _quickReact(m),
@@ -1413,12 +1428,25 @@ class _ChatScreenState extends State<ChatScreen> {
                       controller: _searchController,
                       autofocus: true,
                       decoration: const InputDecoration(
-                        hintText: 'Search messages',
+                        hintText: 'Search this chat',
                         border: InputBorder.none,
                       ),
                       onChanged: (v) => setState(() => _searchQuery = v),
                     ),
                     actions: [
+                      if (_searchQuery.trim().isNotEmpty)
+                        Center(
+                          child: Padding(
+                            padding: const EdgeInsets.only(right: 4),
+                            child: Text(
+                              _visibleMessages.isEmpty
+                                  ? 'No matches'
+                                  : '${_visibleMessages.length} found',
+                              style: TextStyle(
+                                  color: Colors.grey.shade500, fontSize: 13),
+                            ),
+                          ),
+                        ),
                       if (_searchQuery.isNotEmpty)
                         IconButton(
                           icon: const Icon(Icons.close),
