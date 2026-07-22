@@ -8,6 +8,7 @@ import 'screens/call_screen.dart';
 import 'screens/lock_screen.dart';
 import 'state/app_lock.dart';
 import 'state/call_service.dart';
+import 'state/community_store.dart';
 import 'state/chat_store.dart';
 import 'state/persistence.dart';
 import 'state/scheduler.dart';
@@ -24,6 +25,7 @@ Future<void> main() async {
   await Persistence.init();
   await SecureKeyExchange.instance.load();
   await AppLock.instance.load();
+  await CommunityStore.instance.load();
   await RelayService.instance.init();
   await Scheduler.instance.init();
   ChatStore.instance.startSweeper();

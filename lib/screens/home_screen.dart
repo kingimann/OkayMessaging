@@ -5,6 +5,7 @@ import '../tabs/chats_tab.dart';
 import '../theme/app_theme.dart';
 import 'archived_chats_screen.dart';
 import 'chat_search_delegate.dart';
+import 'communities.dart';
 import 'new_chat_screen.dart';
 import 'settings_screen.dart';
 import 'starred_messages_screen.dart';
@@ -21,13 +22,19 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _index = 0;
 
-  IconData get _fabIcon => _index == 1 ? Icons.add_call : Icons.chat;
+  IconData get _fabIcon => switch (_index) {
+        1 => Icons.groups,
+        2 => Icons.add_call,
+        _ => Icons.chat,
+      };
 
   void _onFabPressed() {
     if (_index == 0) {
       Navigator.of(context).push(
         MaterialPageRoute(builder: (_) => const NewChatScreen()),
       );
+    } else if (_index == 1) {
+      createCommunityFlow(context);
     }
   }
 
@@ -86,6 +93,7 @@ class _HomeScreenState extends State<HomeScreen> {
         index: _index,
         children: const [
           ChatsTab(),
+          CommunitiesTab(),
           CallsTab(),
         ],
       ),
@@ -143,13 +151,21 @@ class _ModernNavBar extends StatelessWidget {
                 selected: index == 0,
                 onTap: () => onSelect(0),
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 6),
+              _NavPill(
+                icon: Icons.groups_outlined,
+                activeIcon: Icons.groups,
+                label: 'Servers',
+                selected: index == 1,
+                onTap: () => onSelect(1),
+              ),
+              const SizedBox(width: 6),
               _NavPill(
                 icon: Icons.call_outlined,
                 activeIcon: Icons.call,
                 label: 'Calls',
-                selected: index == 1,
-                onTap: () => onSelect(1),
+                selected: index == 2,
+                onTap: () => onSelect(2),
               ),
             ],
           ),

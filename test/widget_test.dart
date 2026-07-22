@@ -20,6 +20,7 @@ import 'package:okay_messaging/relay/relay_service.dart';
 import 'package:okay_messaging/state/account_service.dart';
 import 'package:okay_messaging/state/app_lock.dart';
 import 'package:okay_messaging/state/call_service.dart';
+import 'package:okay_messaging/state/community_store.dart';
 import 'package:okay_messaging/state/chat_store.dart';
 import 'package:okay_messaging/state/scheduler.dart';
 import 'package:okay_messaging/state/session.dart';
@@ -39,6 +40,7 @@ void main() {
     Scheduler.instance.resetForTest();
     CallService.instance.resetForTest();
     AppLock.instance.resetForTest();
+    CommunityStore.instance.resetForTest();
   });
 
   testWidgets('App boots with Chats and Calls tabs (no Status)',
@@ -1021,6 +1023,51 @@ void main() {
 
     final bob = ChatStore.instance.chatWithContact('u_bob')!;
     expect(bob.messages.any((m) => m.reactions.contains('😀')), isTrue);
+  });
+
+  test('Communities: create, add a slugified channel, and post a message', () {
+    CommunityStore.instance.resetForTest();
+    final c = CommunityStore.instance.createCommunity('Gamers');
+    expect(c.channels.length, 1);
+    expect(c.channels.first.name, 'general');
+
+    CommunityStore.instance.addChannel(c.id, 'Off Topic');
+    final updated = CommunityStore.instance.byId(c.id)!;
+    expect(updated.channels.length, 2);
+    expect(updated.channels.last.name, 'off-topic'); // slugified
+
+    CommunityStore.instance.postMessage(
+      c.id,
+      updated.channels.first.id,
+      Message(id: 'm', text: 'gg', time: DateTime(2024), isMe: true),
+    );
+    expect(
+      CommunityStore.instance.byId(c.id)!.channels.first.messages.length,
+      1,
+    );
+  });
+
+  testWidgets('Servers tab: open a community, a channel, and post a message',
+      (tester) async {
+    await tester.pumpWidget(const OkayMessagingApp());
+    await tester.pumpAndSettle();
+
+    // Switch to the Servers tab (its pill shows the outline icon when idle).
+    await tester.tap(find.byIcon(Icons.groups_outlined));
+    await tester.pumpAndSettle();
+    expect(find.text('Design Team'), findsOneWidget);
+
+    await tester.tap(find.text('Design Team'));
+    await tester.pumpAndSettle();
+    expect(find.text('general'), findsOneWidget);
+
+    await tester.tap(find.text('general'));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField).first, 'gm everyone');
+    await tester.tap(find.byIcon(Icons.send));
+    await tester.pumpAndSettle();
+    expect(find.text('gm everyone'), findsOneWidget);
   });
 
   test('setReactionState adds/removes a reaction idempotently', () {
