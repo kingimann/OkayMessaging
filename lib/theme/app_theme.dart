@@ -16,17 +16,19 @@ class AppColors {
   static const Color outgoingBubbleLight = Color(0xFF0F1419); // black bubble
   static const Color incomingBubbleLight = Color(0xFFEFF3F4); // light grey
   static const Color outgoingBubbleDark = Color(0xFFE7E9EA); // light bubble
-  static const Color incomingBubbleDark = Color(0xFF202327); // dark grey
+  static const Color incomingBubbleDark = Color(0xFF262A30); // dark grey
 
-  // Chat backgrounds.
+  // Chat backgrounds. A soft near-black (not pure black) for a comfortable
+  // dark mode, with elevated surfaces sitting slightly lighter on top.
   static const Color chatBgLight = Color(0xFFFFFFFF);
-  static const Color chatBgDark = Color(0xFF000000);
+  static const Color chatBgDark = Color(0xFF16181C);
 
   // Surfaces.
   static const Color lightSurface = Color(0xFFFFFFFF);
   static const Color lightBar = Color(0xFFF7F9F9);
-  static const Color darkSurface = Color(0xFF000000);
-  static const Color darkAppBar = Color(0xFF16181C);
+  static const Color darkSurface = Color(0xFF16181C); // base background
+  static const Color darkAppBar = Color(0xFF23262B); // elevated surface
+  static const Color darkElevated = Color(0xFF23262B); // cards / sheets
 
   static const Color readTick = Color(0xFF0F1419); // mono read ticks
 }
@@ -151,7 +153,7 @@ class AppTheme {
       ),
       chipTheme: base.chipTheme.copyWith(
         side: BorderSide.none,
-        backgroundColor: const Color(0xFF202327),
+        backgroundColor: const Color(0xFF2A2E34),
       ),
     );
   }

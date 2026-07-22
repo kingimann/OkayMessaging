@@ -46,7 +46,7 @@ class SecurityCodeScreen extends StatelessWidget {
             padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 12),
             decoration: BoxDecoration(
               color: Theme.of(context).brightness == Brightness.dark
-                  ? const Color(0xFF16181C)
+                  ? const Color(0xFF23262B)
                   : const Color(0xFFF4F6F7),
               borderRadius: BorderRadius.circular(16),
             ),

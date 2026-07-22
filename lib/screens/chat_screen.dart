@@ -1505,23 +1505,26 @@ class _UnreadDivider extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    // Near-white accent in dark mode so the label is readable on the soft
+    // dark background (the mono ink is near-black and would vanish).
+    final accent = isDark ? const Color(0xFFB9C1C9) : AppColors.tealGreenDark;
     return Center(
       child: Container(
         margin: const EdgeInsets.symmetric(vertical: 8),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
         decoration: BoxDecoration(
-          color: AppColors.tealGreenDark
-              .withValues(alpha: isDark ? 0.22 : 0.12),
+          color: (isDark ? Colors.white : AppColors.tealGreenDark)
+              .withValues(alpha: isDark ? 0.10 : 0.12),
           borderRadius: BorderRadius.circular(10),
         ),
         child: Text(
           (count == 1 ? '1 unread message' : '$count unread messages')
               .toUpperCase(),
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 11.5,
             fontWeight: FontWeight.w700,
             letterSpacing: 0.4,
-            color: AppColors.tealGreenDark,
+            color: accent,
           ),
         ),
       ),

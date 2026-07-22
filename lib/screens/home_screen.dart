@@ -122,7 +122,7 @@ class _ModernNavBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final bg = isDark ? Colors.black : Colors.white;
+    final bg = isDark ? const Color(0xFF16181C) : Colors.white;
     final border = isDark ? const Color(0xFF2F3336) : const Color(0xFFEFF3F4);
     return Container(
       decoration: BoxDecoration(
