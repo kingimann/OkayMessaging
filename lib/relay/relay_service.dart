@@ -72,6 +72,8 @@ class RelayService {
     required String fromPhone,
     required String fromName,
     String fromUsername = '',
+    String fromAvatarColor = '',
+    String fromAbout = '',
     String toPhone = '',
     List<int>? ecdhSecret,
     String? senderPublicKey,
@@ -79,10 +81,15 @@ class RelayService {
     // Everything sensitive goes inside this blob — nothing but routing leaks.
     // The full message is carried so replies, forwards, shared location /
     // contacts and disappearing timers survive delivery, not just plain text.
+    // Avatar color and about ride along only when the sender's privacy
+    // settings permit sharing them with this recipient — an empty string means
+    // "withheld", so the data never leaves the device.
     final content = jsonEncode({
       'text': message.text,
       'fromName': fromName,
       'fromUsername': fromUsername,
+      'fromAvatarColor': fromAvatarColor,
+      'fromAbout': fromAbout,
       'isImage': message.isImage,
       'imageSeed': message.imageSeed,
       'imageUrl': message.imageUrl,
@@ -162,19 +169,32 @@ class RelayService {
       return false;
     }
 
+    // Profile fields the sender chose to share (empty when withheld by their
+    // privacy settings).
+    final sharedColor = (content['fromAvatarColor'] as String?)?.trim() ?? '';
+    final sharedAbout = (content['fromAbout'] as String?)?.trim() ?? '';
+
     var chat = knownChat;
     if (chat == null) {
       final fromName = (content['fromName'] as String?)?.trim();
       final contact = AppUser(
         id: from,
         name: fromName != null && fromName.isNotEmpty ? fromName : from,
-        avatarColor: '#7A5CFF',
-        about: 'Available',
+        avatarColor: sharedColor.isNotEmpty ? sharedColor : '#7A5CFF',
+        about: sharedAbout.isNotEmpty ? sharedAbout : 'Available',
         phone: from,
         username: (content['fromUsername'] as String?) ?? '',
       );
       chat = Chat(id: 'chat_$from', contact: contact, messages: const []);
       target.upsert(chat);
+    } else if (sharedColor.isNotEmpty || sharedAbout.isNotEmpty) {
+      // Keep an existing contact's avatar / about in sync when the sender
+      // shares fresh values.
+      target.updateContactProfile(
+        from,
+        avatarColor: sharedColor.isNotEmpty ? sharedColor : null,
+        about: sharedAbout.isNotEmpty ? sharedAbout : null,
+      );
     }
 
     final existing = target.chatById(chat.id);
@@ -803,6 +823,15 @@ class RelayService {
       await _ensureKeyShared(contactPhone); // bootstrap for future messages
     }
 
+    // Gate the profile fields by the sender's privacy audience for this
+    // recipient. "My contacts" shares only with someone you already have a
+    // chat with; "Nobody" withholds entirely (the field never leaves here).
+    final isContact = ChatStore.instance.chatWithContact(contactPhone) != null;
+    final avatarColor = gatedProfileField(
+        AppState.profilePhotoAudience.value, me.avatarColor, isContact);
+    final about =
+        gatedProfileField(AppState.aboutAudience.value, me.about, isContact);
+
     final name = inboxChannel(contactPhone);
     final channel =
         _sendChannels.putIfAbsent(name, () => _client.channel(name));
@@ -813,11 +842,28 @@ class RelayService {
         fromPhone: me.phone,
         fromName: me.name,
         fromUsername: me.username,
+        fromAvatarColor: avatarColor,
+        fromAbout: about,
         toPhone: contactPhone,
         ecdhSecret: ecdhSecret,
         senderPublicKey: senderPublicKey,
       ),
     );
+  }
+
+  /// Returns [value] when the [audience] allows sharing it with a recipient who
+  /// [isContact] (or not), else an empty string meaning "withheld". This is the
+  /// gate that keeps a "Nobody" profile field from ever leaving the device.
+  static String gatedProfileField(
+      PrivacyAudience audience, String value, bool isContact) {
+    switch (audience) {
+      case PrivacyAudience.everyone:
+        return value;
+      case PrivacyAudience.contacts:
+        return isContact ? value : '';
+      case PrivacyAudience.nobody:
+        return '';
+    }
   }
 
   /// Sends this device's public key to [contactPhone] once per session, so the

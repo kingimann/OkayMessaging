@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import '../data/mock_data.dart';
 import '../models/chat.dart';
 import '../models/message.dart';
+import '../models/user.dart';
 
 /// Single in-memory source of truth for conversations, so pin/mute/archive,
 /// unread counts, sent messages, and reactions stay consistent across every
@@ -232,6 +233,37 @@ class ChatStore extends ChangeNotifier {
       _chats.add(chat);
       notifyListeners();
     }
+  }
+
+  /// Refreshes the stored [avatarColor] and/or [about] of the contact whose
+  /// phone id matches [contactId] — used when a peer shares updated profile
+  /// info on an incoming message (subject to their privacy settings). No-ops
+  /// when nothing changes, so it won't churn the list needlessly.
+  void updateContactProfile(String contactId,
+      {String? avatarColor, String? about}) {
+    final i = _chats.indexWhere((c) => c.contact.id == contactId);
+    if (i == -1) return;
+    final c = _chats[i].contact;
+    final nextColor =
+        (avatarColor != null && avatarColor.isNotEmpty) ? avatarColor : c.avatarColor;
+    final nextAbout =
+        (about != null && about.isNotEmpty) ? about : c.about;
+    if (nextColor == c.avatarColor && nextAbout == c.about) return;
+    _replace(
+      i,
+      _chats[i].copyWith(
+        contact: AppUser(
+          id: c.id,
+          name: c.name,
+          avatarColor: nextColor,
+          about: nextAbout,
+          phone: c.phone,
+          username: c.username,
+          isOnline: c.isOnline,
+          isGroup: c.isGroup,
+        ),
+      ),
+    );
   }
 
   void addMessage(String chatId, Message message) {

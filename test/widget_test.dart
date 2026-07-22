@@ -2267,6 +2267,92 @@ void main() {
       );
       AppState.allowVoicemail.value = true;
     });
+
+    test('shared avatar color and about reach a new contact', () {
+      ChatStore.instance.reset();
+      final msg = Message(
+          id: 'pm1', text: 'hi', time: DateTime(2024, 1, 1, 9), isMe: true);
+      final payload = RelayService.encode(
+        message: msg,
+        fromPhone: '+1 555 0199',
+        fromName: 'Grace',
+        fromAvatarColor: '#64B5F6',
+        fromAbout: 'Building things',
+      );
+      RelayService.applyIncoming(payload, myPhone: '+1 555 0100');
+      final contact =
+          ChatStore.instance.chatWithContact('+1 555 0199')!.contact;
+      expect(contact.avatarColor, '#64B5F6');
+      expect(contact.about, 'Building things');
+    });
+
+    test('withheld profile fields fall back to defaults for a new contact', () {
+      ChatStore.instance.reset();
+      final msg = Message(
+          id: 'pm2', text: 'hi', time: DateTime(2024, 1, 1, 9), isMe: true);
+      // Empty strings model a sender whose privacy setting is "Nobody".
+      final payload = RelayService.encode(
+        message: msg,
+        fromPhone: '+1 555 0199',
+        fromName: 'Grace',
+        fromAvatarColor: '',
+        fromAbout: '',
+      );
+      RelayService.applyIncoming(payload, myPhone: '+1 555 0100');
+      final contact =
+          ChatStore.instance.chatWithContact('+1 555 0199')!.contact;
+      expect(contact.avatarColor, '#7A5CFF'); // default, nothing leaked
+      expect(contact.about, 'Available');
+    });
+
+    test('profile-field gating honors the privacy audience', () {
+      // Everyone always shares; Nobody never does.
+      expect(
+          RelayService.gatedProfileField(
+              PrivacyAudience.everyone, '#64B5F6', false),
+          '#64B5F6');
+      expect(
+          RelayService.gatedProfileField(
+              PrivacyAudience.nobody, '#64B5F6', true),
+          '');
+      // My contacts shares only with an existing contact.
+      expect(
+          RelayService.gatedProfileField(
+              PrivacyAudience.contacts, '#64B5F6', true),
+          '#64B5F6');
+      expect(
+          RelayService.gatedProfileField(
+              PrivacyAudience.contacts, '#64B5F6', false),
+          '');
+    });
+
+    test('shared profile refreshes an existing contact', () {
+      ChatStore.instance.reset();
+      final first = RelayService.encode(
+        message: Message(
+            id: 'pm3', text: 'hi', time: DateTime(2024, 1, 1, 9), isMe: true),
+        fromPhone: '+1 555 0199',
+        fromName: 'Grace',
+        fromAvatarColor: '#E57373',
+        fromAbout: 'Old status',
+      );
+      RelayService.applyIncoming(first, myPhone: '+1 555 0100');
+
+      final second = RelayService.encode(
+        message: Message(
+            id: 'pm4', text: 'yo', time: DateTime(2024, 1, 1, 10), isMe: true),
+        fromPhone: '+1 555 0199',
+        fromName: 'Grace',
+        fromAvatarColor: '#81C784',
+        fromAbout: 'New status',
+      );
+      RelayService.applyIncoming(second, myPhone: '+1 555 0100');
+
+      final contact =
+          ChatStore.instance.chatWithContact('+1 555 0199')!.contact;
+      expect(contact.avatarColor, '#81C784');
+      expect(contact.about, 'New status');
+    });
   });
 
   group('Account service', () {

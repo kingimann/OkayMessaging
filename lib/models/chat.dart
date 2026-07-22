@@ -80,6 +80,7 @@ class Chat {
       );
 
   Chat copyWith({
+    AppUser? contact,
     List<Message>? messages,
     int? unreadCount,
     bool? isPinned,
@@ -91,7 +92,7 @@ class Chat {
   }) {
     return Chat(
       id: id,
-      contact: contact,
+      contact: contact ?? this.contact,
       messages: messages ?? this.messages,
       unreadCount: unreadCount ?? this.unreadCount,
       isPinned: isPinned ?? this.isPinned,
