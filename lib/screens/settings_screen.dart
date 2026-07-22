@@ -9,7 +9,9 @@ import '../widgets/info_section.dart';
 import '../widgets/user_avatar.dart';
 import 'blocked_contacts_screen.dart';
 import 'edit_profile_screen.dart';
+import 'legal_screen.dart';
 import 'my_qr_screen.dart';
+import 'okay_pro_screen.dart';
 import 'wallet_screen.dart';
 import 'wallpaper_screen.dart';
 
@@ -35,6 +37,7 @@ class SettingsView extends StatelessWidget {
         children: [
           const SizedBox(height: 6),
           _ProfileCard(),
+          _ProUpsell(),
 
           _sectionLabel(context, 'Appearance'),
           InfoSection(
@@ -123,6 +126,21 @@ class SettingsView extends StatelessWidget {
                 title: 'Invite a friend',
                 subtitle: 'Copy an invite message',
                 onTap: () => _inviteFriend(context),
+              ),
+              InfoTile(
+                leading: const Icon(Icons.privacy_tip_outlined),
+                title: 'Privacy Policy',
+                subtitle: 'What we don\'t store',
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => LegalScreen.privacy()),
+                ),
+              ),
+              InfoTile(
+                leading: const Icon(Icons.description_outlined),
+                title: 'Terms of Service',
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => LegalScreen.terms()),
+                ),
               ),
             ],
           ),
@@ -626,6 +644,61 @@ class _BlockedCountBadge extends StatelessWidget {
           ],
         );
       },
+    );
+  }
+}
+
+/// A tappable banner promoting Okay Pro.
+class _ProUpsell extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
+      child: Material(
+        borderRadius: BorderRadius.circular(16),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const OkayProScreen()),
+          ),
+          child: Ink(
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                begin: Alignment.centerLeft,
+                end: Alignment.centerRight,
+                colors: [Color(0xFF7A5CFF), Color(0xFF5B3CE0)],
+              ),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              child: Row(
+                children: [
+                  Icon(Icons.workspace_premium, color: Colors.white),
+                  SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Upgrade to Okay Pro',
+                            style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 15.5,
+                                fontWeight: FontWeight.w700)),
+                        SizedBox(height: 2),
+                        Text('Power features for you or your team',
+                            style: TextStyle(
+                                color: Colors.white70, fontSize: 12.5)),
+                      ],
+                    ),
+                  ),
+                  Icon(Icons.chevron_right, color: Colors.white70),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

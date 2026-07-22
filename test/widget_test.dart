@@ -9,6 +9,7 @@ import 'package:okay_messaging/app_state.dart';
 import 'package:okay_messaging/crypto/e2e.dart';
 import 'package:okay_messaging/crypto/key_exchange.dart';
 import 'package:okay_messaging/main.dart';
+import 'package:okay_messaging/legal/legal_content.dart';
 import 'package:okay_messaging/models/call.dart' as callmodel;
 import 'package:okay_messaging/screens/auth/phone_login_screen.dart';
 import 'package:okay_messaging/screens/blocked_contacts_screen.dart';
@@ -307,6 +308,8 @@ void main() {
     final tile = find.text('Chat wallpaper');
     await tester.scrollUntilVisible(tile, 250,
         scrollable: find.byType(Scrollable).last);
+    await tester.ensureVisible(tile);
+    await tester.pumpAndSettle();
     await tester.tap(tile);
     await tester.pumpAndSettle();
 
@@ -1294,6 +1297,18 @@ void main() {
     expect(m.reactions.contains('👍'), isFalse);
   });
 
+  test('Privacy Policy states the no-storage / broadcast promise', () {
+    final all = privacyPolicy.map((s) => '${s.title} ${s.body}').join('\n');
+    expect(all, contains('never stored'));
+    expect(all, contains('Realtime Broadcast'));
+    expect(all, contains('no messages database'));
+    expect(all.toLowerCase(), contains('end-to-end'));
+    // Terms must point payments at Stripe's Connected Account Agreement.
+    final terms = termsOfService.map((s) => s.body).join('\n');
+    expect(terms, contains('Stripe Connected Account Agreement'));
+    expect(terms, contains('not a bank or money-services business'));
+  });
+
   test('votePoll moves a vote between options and syncs remote votes', () {
     ChatStore.instance.reset();
     final bob = ChatStore.instance.chatWithContact('u_bob')!;
@@ -1534,6 +1549,8 @@ void main() {
     final tile = find.text('Share online status');
     await tester.scrollUntilVisible(tile, 250,
         scrollable: find.byType(Scrollable).last);
+    await tester.ensureVisible(tile);
+    await tester.pumpAndSettle();
     expect(tile, findsOneWidget);
 
     await tester.tap(tile);
