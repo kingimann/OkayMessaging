@@ -5,6 +5,7 @@ import '../models/message.dart';
 import '../state/community_store.dart';
 import '../theme/app_theme.dart';
 import '../utils/date_formatter.dart';
+import '../widgets/poll_widgets.dart';
 import 'community_settings_screen.dart';
 
 Color _hex(String s) =>
@@ -548,6 +549,36 @@ class _ChannelScreenState extends State<ChannelScreen> {
     _controller.clear();
   }
 
+  Future<void> _createPoll() async {
+    final result =
+        await showModalBottomSheet<({String question, List<String> options})>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => const PollComposerSheet(),
+    );
+    if (result == null || !mounted) return;
+    CommunityStore.instance.postMessage(
+      widget.communityId,
+      widget.channelId,
+      Message(
+        id: 'ch_${DateTime.now().microsecondsSinceEpoch}',
+        text: '',
+        time: DateTime.now(),
+        isMe: true,
+        status: MessageStatus.sent,
+        isPoll: true,
+        pollQuestion: result.question,
+        pollOptions: result.options,
+        pollVotes: List<int>.filled(result.options.length, 0),
+      ),
+    );
+  }
+
+  void _votePoll(Message message, int option) {
+    CommunityStore.instance.votePollInChannel(
+        widget.communityId, widget.channelId, message.id, option);
+  }
+
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
@@ -593,8 +624,13 @@ class _ChannelScreenState extends State<ChannelScreen> {
                     : ListView.builder(
                         padding: const EdgeInsets.symmetric(vertical: 8),
                         itemCount: channel.messages.length,
-                        itemBuilder: (context, i) =>
-                            _ChannelBubble(message: channel.messages[i]),
+                        itemBuilder: (context, i) {
+                          final m = channel.messages[i];
+                          return _ChannelBubble(
+                            message: m,
+                            onVote: m.isPoll ? (opt) => _votePoll(m, opt) : null,
+                          );
+                        },
                       ),
               ),
               SafeArea(
@@ -603,6 +639,12 @@ class _ChannelScreenState extends State<ChannelScreen> {
                   padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
                   child: Row(
                     children: [
+                      IconButton(
+                        icon: const Icon(Icons.poll_outlined),
+                        color: Colors.grey,
+                        tooltip: 'Create poll',
+                        onPressed: _createPoll,
+                      ),
                       Expanded(
                         child: TextField(
                           controller: _controller,
@@ -814,18 +856,25 @@ class _RoleBadge extends StatelessWidget {
 
 class _ChannelBubble extends StatelessWidget {
   final Message message;
-  const _ChannelBubble({required this.message});
+  final ValueChanged<int>? onVote;
+  const _ChannelBubble({required this.message, this.onVote});
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final onBubble = message.isMe
+        ? (isDark ? Colors.black : Colors.white)
+        : (isDark ? Colors.white : Colors.black87);
+    final metaColor = message.isMe
+        ? (isDark ? Colors.black54 : Colors.white70)
+        : Colors.grey;
     return Align(
       alignment: message.isMe ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
         margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
         padding: const EdgeInsets.fromLTRB(13, 8, 13, 7),
         constraints: BoxConstraints(
-            maxWidth: MediaQuery.of(context).size.width * 0.75),
+            maxWidth: MediaQuery.of(context).size.width * 0.78),
         decoration: BoxDecoration(
           color: message.isMe
               ? (isDark ? AppColors.outgoingBubbleDark : AppColors.tealGreenDark)
@@ -838,24 +887,22 @@ class _ChannelBubble extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(
-              message.text,
-              style: TextStyle(
-                color: message.isMe
-                    ? (isDark ? Colors.black : Colors.white)
-                    : (isDark ? Colors.white : Colors.black87),
-                fontSize: 15.5,
+            if (message.isPoll)
+              PollBubble(
+                message: message,
+                textColor: onBubble,
+                metaColor: metaColor,
+                onVote: (i) => onVote?.call(i),
+              )
+            else
+              Text(
+                message.text,
+                style: TextStyle(color: onBubble, fontSize: 15.5),
               ),
-            ),
             const SizedBox(height: 2),
             Text(
               DateFormatter.messageTime(message.time),
-              style: TextStyle(
-                color: message.isMe
-                    ? (isDark ? Colors.black54 : Colors.white70)
-                    : Colors.grey,
-                fontSize: 10.5,
-              ),
+              style: TextStyle(color: metaColor, fontSize: 10.5),
             ),
           ],
         ),

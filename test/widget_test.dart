@@ -1253,6 +1253,63 @@ void main() {
     );
   });
 
+  test('Communities: server management and channel poll voting', () {
+    CommunityStore.instance.resetForTest();
+    final c = CommunityStore.instance.createCommunity('Guild');
+    // Rename + recolor.
+    CommunityStore.instance.renameCommunity(c.id, 'The Guild');
+    CommunityStore.instance.setCommunityColor(c.id, '#12B76A');
+    var updated = CommunityStore.instance.byId(c.id)!;
+    expect(updated.name, 'The Guild');
+    expect(updated.color, '#12B76A');
+
+    // Members: add, promote, remove (owner protected).
+    CommunityStore.instance
+        .addMember(c.id, const Member(id: 'm_x', name: 'Xavier'));
+    CommunityStore.instance.setMemberRole(c.id, 'm_x', MemberRole.admin);
+    updated = CommunityStore.instance.byId(c.id)!;
+    expect(updated.members.firstWhere((m) => m.id == 'm_x').role,
+        MemberRole.admin);
+    CommunityStore.instance.setMemberRole(c.id, 'me', MemberRole.member);
+    expect(
+        CommunityStore.instance
+            .byId(c.id)!
+            .members
+            .firstWhere((m) => m.id == 'me')
+            .role,
+        MemberRole.owner); // owner can't be demoted
+    CommunityStore.instance.removeMember(c.id, 'm_x');
+    expect(CommunityStore.instance.byId(c.id)!.members.any((m) => m.id == 'm_x'),
+        isFalse);
+
+    // Poll in a channel.
+    final channelId = c.channels.first.id;
+    CommunityStore.instance.postMessage(
+      c.id,
+      channelId,
+      Message(
+        id: 'cpoll',
+        text: '',
+        time: DateTime(2024),
+        isMe: true,
+        isPoll: true,
+        pollQuestion: 'Raid tonight?',
+        pollOptions: const ['Yes', 'No'],
+        pollVotes: const [0, 0],
+      ),
+    );
+    CommunityStore.instance.votePollInChannel(c.id, channelId, 'cpoll', 0);
+    CommunityStore.instance.votePollInChannel(c.id, channelId, 'cpoll', 1);
+    final poll = CommunityStore.instance
+        .byId(c.id)!
+        .channels
+        .firstWhere((ch) => ch.id == channelId)
+        .messages
+        .firstWhere((m) => m.id == 'cpoll');
+    expect(poll.pollVotes, [0, 1]); // vote moved from Yes to No
+    expect(poll.pollMyVote, 1);
+  });
+
   testWidgets('Servers tab: open a community, a channel, and post a message',
       (tester) async {
     await tester.pumpWidget(const OkayMessagingApp());

@@ -233,6 +233,32 @@ class CommunityStore extends ChangeNotifier {
     _replace(community.copyWith(channels: channels));
   }
 
+  /// Records the local user's vote on a poll message in a channel, moving it
+  /// from any previous choice.
+  void votePollInChannel(
+      String communityId, String channelId, String messageId, int option) {
+    final community = byId(communityId);
+    if (community == null) return;
+    final channels = community.channels.map((ch) {
+      if (ch.id != channelId) return ch;
+      final msgs = ch.messages.map((m) {
+        if (m.id != messageId || !m.isPoll) return m;
+        if (option < 0 || option >= m.pollOptions.length) return m;
+        if (m.pollMyVote == option) return m;
+        final votes = [...m.pollVotes];
+        while (votes.length < m.pollOptions.length) {
+          votes.add(0);
+        }
+        final prev = m.pollMyVote;
+        if (prev >= 0 && prev < votes.length && votes[prev] > 0) votes[prev]--;
+        votes[option]++;
+        return m.copyWith(pollVotes: votes, pollMyVote: option);
+      }).toList();
+      return ch.copyWith(messages: msgs);
+    }).toList();
+    _replace(community.copyWith(channels: channels));
+  }
+
   void deleteCommunity(String communityId) {
     _communities.removeWhere((c) => c.id == communityId);
     _save();
