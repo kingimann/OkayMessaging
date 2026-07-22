@@ -3,9 +3,11 @@ import 'package:flutter/material.dart';
 import '../models/chat.dart';
 import '../models/message.dart';
 import '../state/chat_store.dart';
+import '../state/streak_store.dart';
 import '../theme/app_theme.dart';
 import '../utils/date_formatter.dart';
 import 'message_status_icon.dart';
+import 'streak_chip.dart';
 import 'user_avatar.dart';
 import 'verified_badge.dart';
 
@@ -54,6 +56,13 @@ class ChatListTile extends StatelessWidget {
                             fontSize: 17,
                             fontWeight: FontWeight.w600,
                           ),
+                          trailing: () {
+                            final streak =
+                                StreakStore.instance.streakFor(chat.id);
+                            return streak > 0
+                                ? StreakChip(count: streak)
+                                : null;
+                          }(),
                         ),
                       ),
                       const SizedBox(width: 8),

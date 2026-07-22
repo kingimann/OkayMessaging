@@ -34,6 +34,7 @@ import 'package:okay_messaging/state/chat_store.dart';
 import 'package:okay_messaging/state/scheduler.dart';
 import 'package:okay_messaging/state/score_store.dart';
 import 'package:okay_messaging/state/session.dart';
+import 'package:okay_messaging/state/streak_store.dart';
 import 'package:okay_messaging/widgets/chat_input_bar.dart';
 import 'package:okay_messaging/widgets/heart_burst.dart';
 import 'package:okay_messaging/widgets/rich_message_text.dart';
@@ -2509,6 +2510,58 @@ void main() {
           ChatStore.instance.chatWithContact('+1 555 0199')!.contact;
       expect(contact.verified, isTrue);
       expect(contact.score, 900);
+    });
+  });
+
+  group('Conversation streaks', () {
+    final d1 = DateTime(2024, 3, 10, 9);
+    final d2 = DateTime(2024, 3, 11, 9);
+
+    void exchange(String chat, DateTime day) {
+      StreakStore.instance.record(chat, isMe: true, at: day);
+      StreakStore.instance
+          .record(chat, isMe: false, at: day.add(const Duration(hours: 1)));
+    }
+
+    test('mutual exchange on consecutive days builds a streak', () {
+      StreakStore.instance.resetForTest();
+      exchange('c', d1);
+      expect(StreakStore.instance.streakFor('c', now: d1), 1);
+      exchange('c', d2);
+      expect(StreakStore.instance.streakFor('c', now: d2), 2);
+    });
+
+    test('a second exchange the same day does not double-count', () {
+      StreakStore.instance.resetForTest();
+      exchange('c', d1);
+      exchange('c', d1.add(const Duration(hours: 3)));
+      expect(StreakStore.instance.streakFor('c', now: d1), 1);
+    });
+
+    test('a missed day lapses and restarts the streak', () {
+      StreakStore.instance.resetForTest();
+      exchange('c', d1);
+      exchange('c', d2);
+      // Skip to three days later — the streak restarts at 1.
+      final later = d2.add(const Duration(days: 3));
+      exchange('c', later);
+      expect(StreakStore.instance.streakFor('c', now: later), 1);
+    });
+
+    test('streakFor reports 0 once the streak is stale', () {
+      StreakStore.instance.resetForTest();
+      exchange('c', d1);
+      // Two days on, the last streak day is neither today nor yesterday.
+      expect(
+          StreakStore.instance
+              .streakFor('c', now: d1.add(const Duration(days: 2))),
+          0);
+    });
+
+    test('a one-sided day does not advance the streak', () {
+      StreakStore.instance.resetForTest();
+      StreakStore.instance.record('c', isMe: true, at: d1);
+      expect(StreakStore.instance.streakFor('c', now: d1), 0);
     });
   });
 

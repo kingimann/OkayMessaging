@@ -15,6 +15,7 @@ import 'state/persistence.dart';
 import 'state/scheduler.dart';
 import 'state/score_store.dart';
 import 'state/session.dart';
+import 'state/streak_store.dart';
 import 'theme/app_theme.dart';
 import 'widgets/file_transfer_banner.dart';
 
@@ -31,6 +32,15 @@ Future<void> main() async {
   await CommunityStore.instance.load();
   await CallLog.instance.load();
   await ScoreStore.instance.load();
+  await StreakStore.instance.load();
+  if (StreakStore.instance.isEmpty) {
+    // Seed a couple of demo streaks so the feature is visible on first run;
+    // real streaks then build (and lapse) from actual conversation activity.
+    final oneToOne =
+        ChatStore.instance.chats.where((c) => !c.contact.isGroup).toList();
+    if (oneToOne.isNotEmpty) StreakStore.instance.seed(oneToOne[0].id, 12);
+    if (oneToOne.length > 1) StreakStore.instance.seed(oneToOne[1].id, 5);
+  }
   await RelayService.instance.init();
   await Scheduler.instance.init();
   ChatStore.instance.startSweeper();

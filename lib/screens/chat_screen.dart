@@ -23,6 +23,8 @@ import '../widgets/emoji_data.dart';
 import '../widgets/heart_burst.dart';
 import '../widgets/message_bubble.dart';
 import '../widgets/typing_indicator.dart';
+import '../state/streak_store.dart';
+import '../widgets/streak_chip.dart';
 import '../widgets/user_avatar.dart';
 import '../widgets/verified_badge.dart';
 import '../state/call_service.dart';
@@ -1492,6 +1494,13 @@ class _ChatScreenState extends State<ChatScreen> {
                                           fontSize: 17,
                                           fontWeight: FontWeight.w600,
                                         ),
+                                        trailing: () {
+                                          final s = StreakStore.instance
+                                              .streakFor(_chatId);
+                                          return s > 0
+                                              ? StreakChip(count: s)
+                                              : null;
+                                        }(),
                                       ),
                                     ),
                                     if (_store.chatById(_chatId)?.isMuted ??

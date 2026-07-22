@@ -8,6 +8,7 @@ import '../models/chat.dart';
 import '../models/message.dart';
 import '../models/user.dart';
 import 'score_store.dart';
+import 'streak_store.dart';
 
 /// Single in-memory source of truth for conversations, so pin/mute/archive,
 /// unread counts, sent messages, and reactions stay consistent across every
@@ -302,6 +303,11 @@ class ChatStore extends ChangeNotifier {
     // Grow the Okay Score for real conversation activity.
     ScoreStore.instance.award(
         msg.isMe ? ScoreStore.pointsPerSend : ScoreStore.pointsPerReceive);
+    // Track the day-by-day conversation streak (groups don't have streaks).
+    if (!_chats[i].contact.isGroup) {
+      StreakStore.instance
+          .record(chatId, isMe: msg.isMe, at: msg.time);
+    }
   }
 
   /// Sets (or clears, with 0) the disappearing-messages timer for a chat.
