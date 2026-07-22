@@ -24,6 +24,8 @@ class MockData {
     about: 'At the gym 💪',
     phone: '+1 555 0111',
     isOnline: true,
+    verified: true,
+    score: 428,
   );
 
   static const AppUser _bob = AppUser(
@@ -81,6 +83,8 @@ class MockData {
     about: 'Debugging the future',
     phone: '+1 555 0166',
     isOnline: true,
+    verified: true,
+    score: 1203,
   );
 
   static DateTime _ago(Duration d) => DateTime.now().subtract(d);

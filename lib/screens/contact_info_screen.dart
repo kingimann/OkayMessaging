@@ -8,6 +8,7 @@ import '../state/chat_store.dart';
 import '../theme/app_theme.dart';
 import '../widgets/info_section.dart';
 import '../widgets/user_avatar.dart';
+import '../widgets/verified_badge.dart';
 import 'media_gallery_screen.dart';
 import 'security_code_screen.dart';
 
@@ -51,14 +52,52 @@ class ContactInfoScreen extends StatelessWidget {
           ),
           const SizedBox(height: 14),
           Center(
-            child: Text(
-              user.name,
-              style: Theme.of(context)
-                  .textTheme
-                  .headlineSmall
-                  ?.copyWith(fontWeight: FontWeight.w600),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Flexible(
+                  child: Text(
+                    user.name,
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context)
+                        .textTheme
+                        .headlineSmall
+                        ?.copyWith(fontWeight: FontWeight.w600),
+                  ),
+                ),
+                if (user.verified) ...[
+                  const SizedBox(width: 6),
+                  const VerifiedBadge(size: 22),
+                ],
+              ],
             ),
           ),
+          if (user.score > 0) ...[
+            const SizedBox(height: 8),
+            Center(
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF7A5CFF).withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.local_fire_department,
+                        size: 16, color: Color(0xFF7A5CFF)),
+                    const SizedBox(width: 4),
+                    Text('${user.score} Okay Score',
+                        style: const TextStyle(
+                            color: Color(0xFF7A5CFF),
+                            fontWeight: FontWeight.w600,
+                            fontSize: 13)),
+                  ],
+                ),
+              ),
+            ),
+          ],
           if (user.handle.isNotEmpty) ...[
             const SizedBox(height: 4),
             Center(

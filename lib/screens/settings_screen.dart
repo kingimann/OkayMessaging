@@ -12,8 +12,11 @@ import 'legal_screen.dart';
 import 'my_qr_screen.dart';
 import 'okay_pro_screen.dart';
 import 'privacy_settings_screen.dart';
+import 'score_screen.dart';
 import 'settings_widgets.dart';
 import 'wallet_screen.dart';
+import '../state/score_store.dart';
+import '../widgets/verified_badge.dart';
 
 /// App settings as a standalone screen (pushed from deep links / older flows).
 class SettingsScreen extends StatelessWidget {
@@ -58,6 +61,15 @@ class SettingsView extends StatelessWidget {
               subtitle: 'Theme, text size, wallpaper',
               onTap: () => Navigator.of(context).push(
                 MaterialPageRoute(builder: (_) => const ChatsSettingsScreen()),
+              ),
+            ),
+            InfoTile(
+              leading: const Icon(Icons.local_fire_department_outlined),
+              title: 'Okay Score & badges',
+              subtitle: 'Your points, badges, and the blue check',
+              trailing: _ScorePill(),
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const ScoreScreen()),
               ),
             ),
           ],
@@ -265,6 +277,29 @@ class SettingsView extends StatelessWidget {
   }
 }
 
+/// A compact pill showing the current Okay Score next to the settings entry.
+class _ScorePill extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: ScoreStore.instance,
+      builder: (context, _) => Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.local_fire_department,
+              size: 16, color: Color(0xFF7A5CFF)),
+          const SizedBox(width: 3),
+          Text('${ScoreStore.instance.points}',
+              style: const TextStyle(
+                  fontWeight: FontWeight.w700, color: Color(0xFF7A5CFF))),
+          const SizedBox(width: 4),
+          const Icon(Icons.chevron_right, color: Colors.grey),
+        ],
+      ),
+    );
+  }
+}
+
 /// A tappable banner promoting Okay Pro.
 class _ProUpsell extends StatelessWidget {
   @override
@@ -331,9 +366,24 @@ class _ProfileCard extends StatelessWidget {
             contentPadding:
                 const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
             leading: UserAvatar(user: me, radius: 30),
-            title: Text(me.name,
-                style:
-                    const TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
+            title: AnimatedBuilder(
+              animation: ScoreStore.instance,
+              builder: (context, _) {
+                final featured =
+                    ScoreStore.badgeById(ScoreStore.instance.featuredBadge ?? '');
+                return NameWithBadge(
+                  name: me.name,
+                  verified: me.verified,
+                  badgeSize: 18,
+                  style: const TextStyle(
+                      fontSize: 18, fontWeight: FontWeight.w600),
+                  trailing: featured == null
+                      ? null
+                      : Text(featured.emoji,
+                          style: const TextStyle(fontSize: 16)),
+                );
+              },
+            ),
             subtitle: Text(me.handle.isNotEmpty ? me.handle : me.about),
             trailing: IconButton(
               icon: const Icon(Icons.qr_code, color: Colors.grey),

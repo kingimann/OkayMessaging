@@ -13,6 +13,13 @@ class AppUser {
   /// True for group conversations rather than a single person.
   final bool isGroup;
 
+  /// Whether this account carries a verified (blue check) badge.
+  final bool verified;
+
+  /// The account's Okay Score — a running activity tally, à la Snapchat.
+  /// For contacts this is the last value they broadcast.
+  final int score;
+
   const AppUser({
     required this.id,
     required this.name,
@@ -22,6 +29,8 @@ class AppUser {
     this.username = '',
     this.isOnline = false,
     this.isGroup = false,
+    this.verified = false,
+    this.score = 0,
   });
 
   /// The handle with a leading '@', or empty when none is set.
@@ -36,6 +45,8 @@ class AppUser {
         'username': username,
         'isOnline': isOnline,
         'isGroup': isGroup,
+        'verified': verified,
+        'score': score,
       };
 
   factory AppUser.fromJson(Map<String, dynamic> json) => AppUser(
@@ -47,6 +58,8 @@ class AppUser {
         username: json['username'] as String? ?? '',
         isOnline: json['isOnline'] as bool? ?? false,
         isGroup: json['isGroup'] as bool? ?? false,
+        verified: json['verified'] as bool? ?? false,
+        score: (json['score'] as num?)?.toInt() ?? 0,
       );
 
   /// Initials used for the placeholder avatar (e.g. "John Doe" -> "JD").

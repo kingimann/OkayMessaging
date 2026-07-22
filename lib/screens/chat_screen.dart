@@ -24,6 +24,7 @@ import '../widgets/heart_burst.dart';
 import '../widgets/message_bubble.dart';
 import '../widgets/typing_indicator.dart';
 import '../widgets/user_avatar.dart';
+import '../widgets/verified_badge.dart';
 import '../state/call_service.dart';
 import 'contact_info_screen.dart';
 import 'forward_screen.dart';
@@ -1483,10 +1484,10 @@ class _ChatScreenState extends State<ChatScreen> {
                                 Row(
                                   children: [
                                     Flexible(
-                                      child: Text(
-                                        contact.name,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
+                                      child: NameWithBadge(
+                                        name: contact.name,
+                                        verified: contact.verified,
+                                        badgeSize: 16,
                                         style: const TextStyle(
                                           fontSize: 17,
                                           fontWeight: FontWeight.w600,

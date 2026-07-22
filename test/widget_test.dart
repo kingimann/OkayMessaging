@@ -32,6 +32,7 @@ import 'package:okay_messaging/state/community_store.dart';
 import 'package:okay_messaging/state/file_transfer.dart';
 import 'package:okay_messaging/state/chat_store.dart';
 import 'package:okay_messaging/state/scheduler.dart';
+import 'package:okay_messaging/state/score_store.dart';
 import 'package:okay_messaging/state/session.dart';
 import 'package:okay_messaging/widgets/chat_input_bar.dart';
 import 'package:okay_messaging/widgets/heart_burst.dart';
@@ -2417,6 +2418,97 @@ void main() {
 
       expect(ChatStore.instance.chatById('chat_grace')!.contact.name,
           'Amazing Grace');
+    });
+  });
+
+  group('Okay Score & badges', () {
+    test('points award and reset', () {
+      ScoreStore.instance.resetForTest();
+      expect(ScoreStore.instance.points, 0);
+      ScoreStore.instance.award(10);
+      ScoreStore.instance.award(0); // ignored
+      ScoreStore.instance.award(-5); // ignored
+      expect(ScoreStore.instance.points, 10);
+      ScoreStore.instance.resetForTest();
+      expect(ScoreStore.instance.points, 0);
+    });
+
+    test('threshold and flag badges unlock as expected', () {
+      ScoreStore.instance.resetForTest();
+      expect(ScoreStore.instance.isEarned('starter'), isFalse);
+      ScoreStore.instance.award(2);
+      expect(ScoreStore.instance.isEarned('starter'), isTrue); // threshold 2
+      expect(ScoreStore.instance.isEarned('century'), isFalse);
+      ScoreStore.instance.award(100);
+      expect(ScoreStore.instance.isEarned('century'), isTrue);
+      // Flag-based badge.
+      expect(ScoreStore.instance.isEarned('caller'), isFalse);
+      ScoreStore.instance.recordFlag('made_call');
+      expect(ScoreStore.instance.isEarned('caller'), isTrue);
+    });
+
+    test('featured badge must be earned and can be cleared', () {
+      ScoreStore.instance.resetForTest();
+      ScoreStore.instance.setFeatured('century'); // not earned yet → ignored
+      expect(ScoreStore.instance.featuredBadge, isNull);
+      ScoreStore.instance.award(100);
+      ScoreStore.instance.setFeatured('century');
+      expect(ScoreStore.instance.featuredBadge, 'century');
+      ScoreStore.instance.setFeatured(null);
+      expect(ScoreStore.instance.featuredBadge, isNull);
+    });
+
+    test('sending a message grows the score', () {
+      ScoreStore.instance.resetForTest();
+      ChatStore.instance.reset();
+      final chat = ChatStore.instance.chats.first;
+      final before = ScoreStore.instance.points;
+      ChatStore.instance.addMessage(
+        chat.id,
+        Message(id: 's1', text: 'hi', time: DateTime(2024, 1, 1), isMe: true),
+      );
+      expect(ScoreStore.instance.points,
+          before + ScoreStore.pointsPerSend);
+    });
+
+    test('verified flag toggles on the profile', () {
+      AppState.resetForTest();
+      Session.instance.resetForTest();
+      expect(AppState.profile.value.verified, isFalse);
+      AppState.setVerified(true);
+      expect(AppState.profile.value.verified, isTrue);
+      AppState.setVerified(false);
+      expect(AppState.profile.value.verified, isFalse);
+    });
+
+    test('AppUser round-trips verified and score through JSON', () {
+      const u = AppUser(
+        id: 'x',
+        name: 'X',
+        avatarColor: '#000000',
+        verified: true,
+        score: 77,
+      );
+      final back = AppUser.fromJson(u.toJson());
+      expect(back.verified, isTrue);
+      expect(back.score, 77);
+    });
+
+    test('a verified, high-score sender is reflected on the contact', () {
+      ChatStore.instance.reset();
+      final payload = RelayService.encode(
+        message: Message(
+            id: 'vm9', text: 'hey', time: DateTime(2024, 1, 1), isMe: true),
+        fromPhone: '+1 555 0199',
+        fromName: 'Grace',
+        fromVerified: true,
+        fromScore: 900,
+      );
+      RelayService.applyIncoming(payload, myPhone: '+1 555 0100');
+      final contact =
+          ChatStore.instance.chatWithContact('+1 555 0199')!.contact;
+      expect(contact.verified, isTrue);
+      expect(contact.score, 900);
     });
   });
 

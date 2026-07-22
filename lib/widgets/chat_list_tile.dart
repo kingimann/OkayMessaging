@@ -7,6 +7,7 @@ import '../theme/app_theme.dart';
 import '../utils/date_formatter.dart';
 import 'message_status_icon.dart';
 import 'user_avatar.dart';
+import 'verified_badge.dart';
 
 /// A single row in the chats list.
 class ChatListTile extends StatelessWidget {
@@ -45,10 +46,10 @@ class ChatListTile extends StatelessWidget {
                   Row(
                     children: [
                       Expanded(
-                        child: Text(
-                          chat.contact.name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+                        child: NameWithBadge(
+                          name: chat.contact.name,
+                          verified: chat.contact.verified,
+                          badgeSize: 16,
                           style: const TextStyle(
                             fontSize: 17,
                             fontWeight: FontWeight.w600,

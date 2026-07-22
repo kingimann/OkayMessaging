@@ -7,6 +7,7 @@ import '../data/mock_data.dart';
 import '../models/chat.dart';
 import '../models/message.dart';
 import '../models/user.dart';
+import 'score_store.dart';
 
 /// Single in-memory source of truth for conversations, so pin/mute/archive,
 /// unread counts, sent messages, and reactions stay consistent across every
@@ -241,7 +242,11 @@ class ChatStore extends ChangeNotifier {
   /// and when you rename a contact locally. No-ops when nothing changes, so it
   /// won't churn the list needlessly.
   void updateContactProfile(String contactId,
-      {String? name, String? avatarColor, String? about}) {
+      {String? name,
+      String? avatarColor,
+      String? about,
+      bool? verified,
+      int? score}) {
     final i = _chats.indexWhere((c) => c.contact.id == contactId);
     if (i == -1) return;
     final c = _chats[i].contact;
@@ -250,9 +255,15 @@ class ChatStore extends ChangeNotifier {
         (avatarColor != null && avatarColor.isNotEmpty) ? avatarColor : c.avatarColor;
     final nextAbout =
         (about != null && about.isNotEmpty) ? about : c.about;
+    final nextVerified = verified ?? c.verified;
+    // Only ever raise a contact's known score (a stale, lower broadcast
+    // shouldn't roll it back).
+    final nextScore = (score != null && score > c.score) ? score : c.score;
     if (nextName == c.name &&
         nextColor == c.avatarColor &&
-        nextAbout == c.about) {
+        nextAbout == c.about &&
+        nextVerified == c.verified &&
+        nextScore == c.score) {
       return;
     }
     _replace(
@@ -267,6 +278,8 @@ class ChatStore extends ChangeNotifier {
           username: c.username,
           isOnline: c.isOnline,
           isGroup: c.isGroup,
+          verified: nextVerified,
+          score: nextScore,
         ),
       ),
     );
@@ -286,6 +299,9 @@ class ChatStore extends ChangeNotifier {
       i,
       _chats[i].copyWith(messages: [..._chats[i].messages, msg]),
     );
+    // Grow the Okay Score for real conversation activity.
+    ScoreStore.instance.award(
+        msg.isMe ? ScoreStore.pointsPerSend : ScoreStore.pointsPerReceive);
   }
 
   /// Sets (or clears, with 0) the disappearing-messages timer for a chat.

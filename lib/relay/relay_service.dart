@@ -12,6 +12,7 @@ import '../models/user.dart';
 import '../state/call_service.dart';
 import '../state/chat_store.dart';
 import '../state/file_transfer.dart';
+import '../state/score_store.dart';
 import '../state/session.dart';
 import 'relay_config.dart';
 
@@ -74,6 +75,8 @@ class RelayService {
     String fromUsername = '',
     String fromAvatarColor = '',
     String fromAbout = '',
+    bool fromVerified = false,
+    int fromScore = 0,
     String toPhone = '',
     List<int>? ecdhSecret,
     String? senderPublicKey,
@@ -90,6 +93,8 @@ class RelayService {
       'fromUsername': fromUsername,
       'fromAvatarColor': fromAvatarColor,
       'fromAbout': fromAbout,
+      'fromVerified': fromVerified,
+      'fromScore': fromScore,
       'isImage': message.isImage,
       'imageSeed': message.imageSeed,
       'imageUrl': message.imageUrl,
@@ -173,6 +178,8 @@ class RelayService {
     // privacy settings).
     final sharedColor = (content['fromAvatarColor'] as String?)?.trim() ?? '';
     final sharedAbout = (content['fromAbout'] as String?)?.trim() ?? '';
+    final sharedVerified = content['fromVerified'] == true;
+    final sharedScore = (content['fromScore'] as num?)?.toInt() ?? 0;
 
     var chat = knownChat;
     if (chat == null) {
@@ -184,16 +191,20 @@ class RelayService {
         about: sharedAbout.isNotEmpty ? sharedAbout : 'Available',
         phone: from,
         username: (content['fromUsername'] as String?) ?? '',
+        verified: sharedVerified,
+        score: sharedScore,
       );
       chat = Chat(id: 'chat_$from', contact: contact, messages: const []);
       target.upsert(chat);
-    } else if (sharedColor.isNotEmpty || sharedAbout.isNotEmpty) {
-      // Keep an existing contact's avatar / about in sync when the sender
-      // shares fresh values.
+    } else {
+      // Keep an existing contact's avatar / about / verified / score in sync
+      // when the sender shares fresh values.
       target.updateContactProfile(
         from,
         avatarColor: sharedColor.isNotEmpty ? sharedColor : null,
         about: sharedAbout.isNotEmpty ? sharedAbout : null,
+        verified: sharedVerified,
+        score: sharedScore,
       );
     }
 
@@ -844,6 +855,8 @@ class RelayService {
         fromUsername: me.username,
         fromAvatarColor: avatarColor,
         fromAbout: about,
+        fromVerified: me.verified,
+        fromScore: ScoreStore.instance.points,
         toPhone: contactPhone,
         ecdhSecret: ecdhSecret,
         senderPublicKey: senderPublicKey,

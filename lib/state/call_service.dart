@@ -9,6 +9,7 @@ import '../relay/relay_config.dart';
 import '../relay/relay_service.dart';
 import 'call_log.dart';
 import 'call_media.dart';
+import 'score_store.dart';
 import 'chat_store.dart';
 
 /// Whether a call is incoming (they rang us) or outgoing (we rang them).
@@ -107,6 +108,9 @@ class CallService {
   /// Places an outgoing call to [peer] and rings their device.
   void startOutgoing(AppUser peer, {required bool video}) {
     if (isBusy) return;
+    // Reward call activity and unlock the caller badge.
+    ScoreStore.instance.award(ScoreStore.pointsPerCall);
+    ScoreStore.instance.recordFlag('made_call');
     final id = _newCallId(peer.phone);
     RelayService.instance.currentCallId = id;
     current.value = CallSession(

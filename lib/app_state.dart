@@ -171,6 +171,26 @@ class AppState {
       about: about.trim().isEmpty ? p.about : about.trim(),
       phone: p.phone,
       username: username == null ? p.username : normalizeUsername(username),
+      verified: p.verified,
+      score: p.score,
+    );
+  }
+
+  /// Turns the verified (blue check) badge on or off for the current profile.
+  static void setVerified(bool value) {
+    final p = profile.value;
+    if (p.verified == value) return;
+    profile.value = AppUser(
+      id: p.id,
+      name: p.name,
+      avatarColor: p.avatarColor,
+      about: p.about,
+      phone: p.phone,
+      username: p.username,
+      isOnline: p.isOnline,
+      isGroup: p.isGroup,
+      verified: value,
+      score: p.score,
     );
   }
 

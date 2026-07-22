@@ -85,6 +85,31 @@ class Session {
       phone: current.phone,
       username:
           username == null ? current.username : _normalizeUsername(username),
+      verified: current.verified,
+      score: current.score,
+    );
+    _prefs ??= await SharedPreferences.getInstance();
+    await _prefs!.setString(_key, jsonEncode(updated.toJson()));
+    user.value = updated;
+    AppState.profile.value = updated;
+  }
+
+  /// Sets the verified (blue check) flag on the signed-in identity and
+  /// persists it, mirroring the change into [AppState.profile].
+  Future<void> setVerified(bool value) async {
+    final current = user.value;
+    if (current == null || current.verified == value) return;
+    final updated = AppUser(
+      id: current.id,
+      name: current.name,
+      avatarColor: current.avatarColor,
+      about: current.about,
+      phone: current.phone,
+      username: current.username,
+      isOnline: current.isOnline,
+      isGroup: current.isGroup,
+      verified: value,
+      score: current.score,
     );
     _prefs ??= await SharedPreferences.getInstance();
     await _prefs!.setString(_key, jsonEncode(updated.toJson()));

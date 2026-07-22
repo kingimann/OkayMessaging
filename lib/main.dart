@@ -13,6 +13,7 @@ import 'state/community_store.dart';
 import 'state/chat_store.dart';
 import 'state/persistence.dart';
 import 'state/scheduler.dart';
+import 'state/score_store.dart';
 import 'state/session.dart';
 import 'theme/app_theme.dart';
 import 'widgets/file_transfer_banner.dart';
@@ -29,6 +30,7 @@ Future<void> main() async {
   await AppLock.instance.load();
   await CommunityStore.instance.load();
   await CallLog.instance.load();
+  await ScoreStore.instance.load();
   await RelayService.instance.init();
   await Scheduler.instance.init();
   ChatStore.instance.startSweeper();
