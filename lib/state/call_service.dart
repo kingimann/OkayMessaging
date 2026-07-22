@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 
 import '../models/user.dart';
 import '../relay/relay_service.dart';
+import 'call_media.dart';
 
 /// Whether a call is incoming (they rang us) or outgoing (we rang them).
 enum CallDirection { incoming, outgoing }
@@ -71,10 +72,14 @@ class CallService {
     return 'call_${RelayService.digits(peerPhone)}_${DateTime.now().millisecondsSinceEpoch}_$_seq';
   }
 
+  /// SDP offer received from a caller, awaiting our answer on accept().
+  String? _pendingOfferSdp;
+
   /// Places an outgoing call to [peer] and rings their device.
   void startOutgoing(AppUser peer, {required bool video}) {
     if (isBusy) return;
     final id = _newCallId(peer.phone);
+    RelayService.instance.currentCallId = id;
     current.value = CallSession(
       callId: id,
       peer: peer,
@@ -82,20 +87,36 @@ class CallService {
       direction: CallDirection.outgoing,
       status: CallStatus.ringing,
     );
+    _beginOutgoing(peer.phone, id, video);
+  }
+
+  /// Sets up WebRTC media (web only) then rings the peer with the SDP offer.
+  Future<void> _beginOutgoing(String phone, String id, bool video) async {
+    final sdp = await CallMedia.instance.createOffer(phone, video);
     RelayService.instance
-        .sendCall(peer.phone, kind: 'offer', callId: id, video: video);
+        .sendCall(phone, kind: 'offer', callId: id, video: video, sdp: sdp);
   }
 
   /// Accepts the current incoming call.
   void accept() {
     final c = current.value;
     if (c == null || c.direction != CallDirection.incoming) return;
+    RelayService.instance.currentCallId = c.callId;
     current.value = c.copyWith(
       status: CallStatus.connected,
       connectedAt: DateTime.now(),
     );
-    RelayService.instance
-        .sendCall(c.peer.phone, kind: 'answer', callId: c.callId, video: c.video);
+    _beginAnswer(c);
+  }
+
+  /// Sets up WebRTC media (web only) from the pending offer, then answers.
+  Future<void> _beginAnswer(CallSession c) async {
+    final offer = _pendingOfferSdp;
+    final sdp = offer == null
+        ? null
+        : await CallMedia.instance.createAnswer(c.peer.phone, offer, c.video);
+    RelayService.instance.sendCall(c.peer.phone,
+        kind: 'answer', callId: c.callId, video: c.video, sdp: sdp);
   }
 
   /// Declines the current incoming call, telling the caller.
@@ -104,6 +125,8 @@ class CallService {
     if (c == null) return;
     RelayService.instance.sendCall(c.peer.phone,
         kind: 'decline', callId: c.callId, video: c.video);
+    _pendingOfferSdp = null;
+    CallMedia.instance.hangUp();
     current.value = null;
   }
 
@@ -113,6 +136,8 @@ class CallService {
     if (c == null) return;
     RelayService.instance
         .sendCall(c.peer.phone, kind: 'end', callId: c.callId, video: c.video);
+    _pendingOfferSdp = null;
+    CallMedia.instance.hangUp();
     current.value = null;
   }
 
@@ -123,13 +148,15 @@ class CallService {
 
   // --- Remote signaling (called by RelayService when events arrive) ---
 
-  void onRemoteOffer(AppUser peer, String callId, bool video) {
+  void onRemoteOffer(AppUser peer, String callId, bool video, {String? sdp}) {
     if (isBusy) {
       // We're already on a call — tell them we're busy (a decline).
       RelayService.instance
           .sendCall(peer.phone, kind: 'decline', callId: callId, video: video);
       return;
     }
+    _pendingOfferSdp = sdp;
+    RelayService.instance.currentCallId = callId;
     current.value = CallSession(
       callId: callId,
       peer: peer,
@@ -139,22 +166,32 @@ class CallService {
     );
   }
 
-  void onRemoteAnswer(String callId) {
+  void onRemoteAnswer(String callId, {String? sdp}) {
     final c = current.value;
     if (c == null || c.callId != callId) return;
+    if (sdp != null) CallMedia.instance.setRemoteAnswer(sdp);
     current.value =
         c.copyWith(status: CallStatus.connected, connectedAt: DateTime.now());
+  }
+
+  /// A remote ICE candidate for the active call.
+  void onRemoteIce(String callId, Map<String, dynamic> candidate) {
+    final c = current.value;
+    if (c == null || (callId.isNotEmpty && c.callId != callId)) return;
+    CallMedia.instance.addIce(candidate);
   }
 
   void onRemoteDecline(String callId) {
     final c = current.value;
     if (c == null || c.callId != callId) return;
+    CallMedia.instance.hangUp();
     current.value = c.copyWith(status: CallStatus.declined);
   }
 
   void onRemoteEnd(String callId) {
     final c = current.value;
     if (c == null || c.callId != callId) return;
+    CallMedia.instance.hangUp();
     current.value = c.copyWith(status: CallStatus.ended);
   }
 

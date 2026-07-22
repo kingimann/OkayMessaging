@@ -1,7 +1,9 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_webrtc/flutter_webrtc.dart';
 
+import '../state/call_media.dart';
 import '../state/call_service.dart';
 import '../widgets/user_avatar.dart';
 
@@ -32,7 +34,17 @@ class _CallScreenState extends State<CallScreen> {
   void initState() {
     super.initState();
     _syncForStatus();
+    CallMedia.instance.remoteReady.addListener(_onRemoteReady);
   }
+
+  void _onRemoteReady() {
+    if (mounted) setState(() {});
+  }
+
+  bool get _showVideo =>
+      CallMedia.instance.isSupported &&
+      widget.session.video &&
+      widget.session.status == CallStatus.connected;
 
   @override
   void didUpdateWidget(CallScreen old) {
@@ -61,6 +73,7 @@ class _CallScreenState extends State<CallScreen> {
   void dispose() {
     _tick?.cancel();
     _dismiss?.cancel();
+    CallMedia.instance.remoteReady.removeListener(_onRemoteReady);
     super.dispose();
   }
 
@@ -89,30 +102,60 @@ class _CallScreenState extends State<CallScreen> {
     final incomingRinging = session.direction == CallDirection.incoming &&
         session.status == CallStatus.ringing;
 
+    final remoteRenderer = CallMedia.instance.remoteRenderer;
+    final localRenderer = CallMedia.instance.localRenderer;
+    final showingRemoteVideo = _showVideo &&
+        CallMedia.instance.remoteReady.value &&
+        remoteRenderer != null;
+
     return Scaffold(
       backgroundColor: Colors.black,
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [Color(0xFF16181C), Color(0xFF000000)],
-          ),
-        ),
-        child: SafeArea(
-          child: Column(
-            children: [
-              const SizedBox(height: 44),
-              UserAvatar(user: session.peer, radius: 56),
-              const SizedBox(height: 20),
-              Text(
-                session.peer.name,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 26,
-                  fontWeight: FontWeight.w600,
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          // Remote video fills the screen once it arrives; otherwise a gradient.
+          if (showingRemoteVideo)
+            RTCVideoView(remoteRenderer,
+                objectFit:
+                    RTCVideoViewObjectFit.RTCVideoViewObjectFitCover)
+          else
+            const DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [Color(0xFF16181C), Color(0xFF000000)],
                 ),
               ),
+            ),
+          // Local camera preview (top-right) during a video call.
+          if (_showVideo && localRenderer != null)
+            Positioned(
+              top: 48,
+              right: 16,
+              width: 108,
+              height: 150,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: RTCVideoView(localRenderer, mirror: true),
+              ),
+            ),
+          SafeArea(
+            child: Column(
+              children: [
+                const SizedBox(height: 44),
+                if (!showingRemoteVideo) ...[
+                  UserAvatar(user: session.peer, radius: 56),
+                  const SizedBox(height: 20),
+                ],
+                Text(
+                  session.peer.name,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 26,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
               const SizedBox(height: 8),
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -148,6 +191,7 @@ class _CallScreenState extends State<CallScreen> {
             ],
           ),
         ),
+          ],
       ),
     );
   }
@@ -184,12 +228,18 @@ class _CallScreenState extends State<CallScreen> {
         _CallControl(
           icon: _video ? Icons.videocam : Icons.videocam_off,
           active: _video,
-          onTap: () => setState(() => _video = !_video),
+          onTap: () {
+            setState(() => _video = !_video);
+            CallMedia.instance.setVideoEnabled(_video);
+          },
         ),
         _CallControl(
           icon: _muted ? Icons.mic_off : Icons.mic,
           active: _muted,
-          onTap: () => setState(() => _muted = !_muted),
+          onTap: () {
+            setState(() => _muted = !_muted);
+            CallMedia.instance.setMuted(_muted);
+          },
         ),
         _CallControl(
           icon: Icons.call_end,

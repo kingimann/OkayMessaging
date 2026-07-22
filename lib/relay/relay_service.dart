@@ -317,10 +317,18 @@ class RelayService {
                   phone: from,
                   username: (payload['fromUsername'] as String?) ?? '',
                 );
-                call.onRemoteOffer(peer, callId, payload['video'] == true);
+                call.onRemoteOffer(peer, callId, payload['video'] == true,
+                    sdp: payload['sdp'] as String?);
                 break;
               case 'answer':
-                call.onRemoteAnswer(callId);
+                call.onRemoteAnswer(callId, sdp: payload['sdp'] as String?);
+                break;
+              case 'ice':
+                final ice = payload['ice'];
+                if (ice is Map) {
+                  call.onRemoteIce(
+                      callId, Map<String, dynamic>.from(ice));
+                }
                 break;
               case 'decline':
                 call.onRemoteDecline(callId);
@@ -335,12 +343,14 @@ class RelayService {
   }
 
   /// Sends a call-signaling event ('offer', 'answer', 'decline', 'end') to
-  /// [contactPhone]'s inbox so their device rings / stays in sync.
+  /// [contactPhone]'s inbox so their device rings / stays in sync. For WebRTC,
+  /// 'offer'/'answer' carry the session-description [sdp].
   Future<void> sendCall(
     String contactPhone, {
     required String kind,
     required String callId,
     required bool video,
+    String? sdp,
   }) async {
     if (!_initialized) return;
     final me = Session.instance.user.value;
@@ -357,9 +367,35 @@ class RelayService {
         'kind': kind,
         'callId': callId,
         'video': video,
+        if (sdp != null) 'sdp': sdp,
       },
     );
   }
+
+  /// Sends a WebRTC ICE candidate for [callId] to [contactPhone].
+  Future<void> sendIce(
+      String contactPhone, Map<String, dynamic> candidate) async {
+    if (!_initialized) return;
+    final me = Session.instance.user.value;
+    if (me == null) return;
+    final name = inboxChannel(contactPhone);
+    final channel =
+        _sendChannels.putIfAbsent(name, () => _client.channel(name));
+    await channel.sendBroadcastMessage(
+      event: 'call',
+      payload: {
+        'from': me.phone,
+        'kind': 'ice',
+        'callId': _currentCallId ?? '',
+        'video': false,
+        'ice': candidate,
+      },
+    );
+  }
+
+  /// The active call id, so ICE candidates can be tagged with it.
+  String? _currentCallId;
+  set currentCallId(String? id) => _currentCallId = id;
 
   /// Broadcasts a reaction change on message [messageId] to [contactPhone].
   Future<void> sendReaction(

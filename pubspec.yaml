@@ -21,6 +21,7 @@ dependencies:
   # no auth, no stored messages — the relay just passes messages through.
   supabase_flutter: ^2.5.0
   qr_flutter: ^4.1.0
+  flutter_webrtc: ^1.5.2
 
 dev_dependencies:
   flutter_test:
