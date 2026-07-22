@@ -7,6 +7,7 @@ import '../state/session.dart';
 import '../widgets/info_section.dart';
 import '../widgets/user_avatar.dart';
 import 'edit_profile_screen.dart';
+import 'my_qr_screen.dart';
 import 'wallpaper_screen.dart';
 
 /// App settings, redesigned with grouped rounded cards (modern style).
@@ -271,7 +272,13 @@ class _ProfileCard extends StatelessWidget {
                 style:
                     const TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
             subtitle: Text(me.handle.isNotEmpty ? me.handle : me.about),
-            trailing: const Icon(Icons.qr_code, color: Colors.grey),
+            trailing: IconButton(
+              icon: const Icon(Icons.qr_code, color: Colors.grey),
+              tooltip: 'My QR code',
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const MyQrScreen()),
+              ),
+            ),
             shape: const RoundedRectangleBorder(
               borderRadius: BorderRadius.all(Radius.circular(16)),
             ),

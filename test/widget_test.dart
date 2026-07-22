@@ -11,7 +11,9 @@ import 'package:okay_messaging/main.dart';
 import 'package:okay_messaging/screens/auth/phone_login_screen.dart';
 import 'package:okay_messaging/screens/call_screen.dart';
 import 'package:okay_messaging/screens/media_gallery_screen.dart';
+import 'package:okay_messaging/screens/my_qr_screen.dart';
 import 'package:okay_messaging/screens/security_code_screen.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import 'package:okay_messaging/models/message.dart';
 import 'package:okay_messaging/models/user.dart';
 import 'package:okay_messaging/relay/relay_service.dart';
@@ -1204,6 +1206,38 @@ void main() {
 
     expect(AppState.shareLastSeen.value, isFalse);
     expect(find.text('Your online status is hidden'), findsOneWidget);
+  });
+
+  test('My QR payload encodes username, phone and name as an app URI', () {
+    const me = AppUser(
+      id: '+1 555 0100',
+      name: 'Ada Lovelace',
+      avatarColor: '#4DB6AC',
+      about: 'Available',
+      phone: '+1 555 0100',
+      username: 'adal',
+    );
+    final payload = MyQrScreen.payloadFor(me);
+    expect(payload, startsWith('okaymsg://add?'));
+    expect(payload, contains('u=adal'));
+    expect(payload, contains('n=Ada%20Lovelace')); // URL-encoded
+  });
+
+  testWidgets('The QR icon in Settings opens the My QR code screen',
+      (tester) async {
+    await tester.pumpWidget(const OkayMessagingApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.more_vert));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Settings'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.qr_code));
+    await tester.pumpAndSettle();
+
+    expect(find.text('My QR code'), findsOneWidget);
+    expect(find.byType(QrImageView), findsOneWidget);
   });
 
   testWidgets('The read-receipts toggle flips and persists to AppState',
