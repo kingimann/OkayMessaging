@@ -31,11 +31,11 @@ class ChatListTile extends StatelessWidget {
       onTap: onTap,
       onLongPress: onLongPress,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
         child: Row(
           children: [
             UserAvatar(user: chat.contact, radius: 28, showPresence: true),
-            const SizedBox(width: 12),
+            const SizedBox(width: 14),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -48,7 +48,7 @@ class ChatListTile extends StatelessWidget {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
-                            fontSize: 16.5,
+                            fontSize: 17,
                             fontWeight: FontWeight.w600,
                           ),
                         ),
@@ -68,7 +68,7 @@ class ChatListTile extends StatelessWidget {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 5),
                   Row(
                     children: [
                       if (last != null && last.isMe) ...[
@@ -93,7 +93,7 @@ class ChatListTile extends StatelessWidget {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
-                            fontSize: 14,
+                            fontSize: 14.5,
                             // Unread rows show a slightly darker, medium-weight
                             // preview so they stand out at a glance.
                             color: hasUnread

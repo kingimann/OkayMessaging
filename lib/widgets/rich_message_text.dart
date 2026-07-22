@@ -137,7 +137,7 @@ class _RichMessageTextState extends State<RichMessageText> {
 
     return Text.rich(
       TextSpan(children: spans),
-      style: TextStyle(color: widget.textColor, fontSize: 15.5, height: 1.3),
+      style: TextStyle(color: widget.textColor, fontSize: 16, height: 1.35),
     );
   }
 }

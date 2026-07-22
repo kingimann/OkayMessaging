@@ -295,7 +295,10 @@ void main() {
     await tester.tap(find.text('Bob Carter'));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byIcon(Icons.search));
+    // Search now lives in the overflow menu (decluttered header).
+    await tester.tap(find.byIcon(Icons.more_vert));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Search'));
     await tester.pumpAndSettle();
 
     final searchField = find.descendant(

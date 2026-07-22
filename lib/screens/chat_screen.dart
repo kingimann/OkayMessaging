@@ -714,6 +714,8 @@ class _ChatScreenState extends State<ChatScreen> {
   void _onMenuSelected(String value) {
     final contact = widget.chat.contact;
     switch (value) {
+      case 'search':
+        setState(() => _searching = true);
       case 'view':
         Navigator.of(context).push(
           MaterialPageRoute(
@@ -1021,16 +1023,12 @@ class _ChatScreenState extends State<ChatScreen> {
                     ),
                     actions: [
                       IconButton(
-                        icon: const Icon(Icons.search),
-                        onPressed: () => setState(() => _searching = true),
+                        icon: const Icon(Icons.call),
+                        onPressed: () => _startCall(video: false),
                       ),
                       IconButton(
                         icon: const Icon(Icons.videocam),
                         onPressed: () => _startCall(video: true),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.call),
-                        onPressed: () => _startCall(video: false),
                       ),
                       PopupMenuButton<String>(
                         onSelected: _onMenuSelected,
@@ -1040,6 +1038,8 @@ class _ChatScreenState extends State<ChatScreen> {
                           final muted =
                               _store.chatById(_chatId)?.isMuted ?? false;
                           return [
+                            const PopupMenuItem(
+                                value: 'search', child: Text('Search')),
                             const PopupMenuItem(
                                 value: 'view', child: Text('View contact')),
                             const PopupMenuItem(
