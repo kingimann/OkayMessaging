@@ -70,11 +70,6 @@ class _ChatScreenState extends State<ChatScreen> {
     // Make sure a store entry exists (e.g. for a freshly started chat).
     _store.upsert(widget.chat);
     _captureUnreadAnchor();
-    // Start listening for this contact's messages if a relay is active and
-    // this is a real number-based peer (not a seeded demo contact).
-    if (RelayConfig.isEnabled && _isRealPeer(widget.chat.contact)) {
-      RelayService.instance.ensureConversation(widget.chat.contact.phone);
-    }
     _scrollController.addListener(_onScroll);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _store.markRead(_chatId);

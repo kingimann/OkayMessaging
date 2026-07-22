@@ -7,10 +7,13 @@ import '../state/chat_store.dart';
 import '../state/session.dart';
 import 'relay_config.dart';
 
-/// Delivers messages between devices over an ephemeral Realtime **broadcast**
-/// channel. Nothing is ever stored on a server: a message is passed live to
-/// the other device, which saves its own local copy. Two people talk over a
-/// shared per-pair channel; both must be online (delivery is live-only).
+/// Delivers messages between devices with **nothing stored on a server**.
+///
+/// Each user subscribes to their own inbox channel (`inbox_<digits>`) to
+/// *receive*. To *send*, we broadcast to the recipient's inbox over REST (an
+/// unsubscribed channel falls back to an HTTP POST), so a sender never joins —
+/// and therefore can never eavesdrop on — someone else's inbox. Messages ride
+/// an ephemeral Realtime broadcast; each device keeps its own local copy.
 ///
 /// The message-mapping logic is static and pure so it can be unit-tested
 /// without a live connection.
@@ -19,18 +22,16 @@ class RelayService {
   static final RelayService instance = RelayService._();
 
   bool _initialized = false;
-  final Map<String, RealtimeChannel> _channels = {};
+  RealtimeChannel? _inbox;
+  final Map<String, RealtimeChannel> _sendChannels = {};
 
   SupabaseClient get _client => Supabase.instance.client;
 
   /// Only the digits of a phone number, for use in a channel name.
   static String digits(String phone) => phone.replaceAll(RegExp(r'\D'), '');
 
-  /// A deterministic, order-independent channel id for the pair (a, b).
-  static String channelFor(String a, String b) {
-    final pair = [digits(a), digits(b)]..sort();
-    return 'dm_${pair[0]}_${pair[1]}';
-  }
+  /// The inbox channel a user listens on / is reached at.
+  static String inboxChannel(String phone) => 'inbox_${digits(phone)}';
 
   /// Builds the broadcast payload for an outgoing message.
   static Map<String, dynamic> encode({
@@ -51,8 +52,8 @@ class RelayService {
 
   /// Applies an incoming broadcast payload to [store]: finds or creates the
   /// local conversation with the sender and appends the message. Ignores
-  /// messages from [myPhone] (our own echo) and duplicates by id. Returns true
-  /// when a new message was added.
+  /// messages from [myPhone] and duplicates by id. Returns true when a new
+  /// message was added.
   static bool applyIncoming(
     Map<String, dynamic> payload, {
     required String myPhone,
@@ -79,7 +80,6 @@ class RelayService {
       target.upsert(chat);
     }
 
-    // Skip if we already have this message id in the conversation.
     final existing = target.chatById(chat.id);
     if (existing != null && existing.messages.any((m) => m.id == id)) {
       return false;
@@ -111,30 +111,14 @@ class RelayService {
     _initialized = true;
   }
 
-  String? get _myPhone => Session.instance.user.value?.phone;
-
-  /// Subscribes to the channels for every existing phone conversation.
+  /// Subscribes to the signed-in user's inbox so incoming messages arrive even
+  /// from someone they haven't chatted with before.
   void start() {
-    if (!_initialized) return;
-    for (final chat in ChatStore.instance.allChats) {
-      final phone = chat.contact.phone;
-      if (!chat.contact.isGroup && phone.isNotEmpty) {
-        ensureConversation(phone);
-      }
-    }
-  }
-
-  /// Ensures we're subscribed to the shared channel with [contactPhone].
-  RealtimeChannel? ensureConversation(String contactPhone) {
-    if (!_initialized) return null;
-    final me = _myPhone;
-    if (me == null) return null;
-    final name = channelFor(me, contactPhone);
-    final existing = _channels[name];
-    if (existing != null) return existing;
-
-    final channel = _client.channel(name);
-    channel
+    if (!_initialized || _inbox != null) return;
+    final me = Session.instance.user.value?.phone;
+    if (me == null) return;
+    _inbox = _client
+        .channel(inboxChannel(me))
         .onBroadcast(
           event: 'msg',
           callback: (payload) => applyIncoming(
@@ -143,32 +127,31 @@ class RelayService {
           ),
         )
         .subscribe();
-    _channels[name] = channel;
-    return channel;
   }
 
-  /// Broadcasts an outgoing [message] to [contactPhone]'s device.
+  /// Broadcasts an outgoing [message] to [contactPhone]'s inbox over REST (the
+  /// channel is never subscribed, so we can't see their other traffic).
   Future<void> send(String contactPhone, Message message) async {
     if (!_initialized) return;
     final me = Session.instance.user.value;
     if (me == null) return;
-    final channel = ensureConversation(contactPhone);
-    if (channel == null) return;
+    final name = inboxChannel(contactPhone);
+    final channel =
+        _sendChannels.putIfAbsent(name, () => _client.channel(name));
     await channel.sendBroadcastMessage(
       event: 'msg',
-      payload: encode(
-        message: message,
-        fromPhone: me.phone,
-        fromName: me.name,
-      ),
+      payload: encode(message: message, fromPhone: me.phone, fromName: me.name),
     );
   }
 
   /// Tears down all subscriptions (on sign-out).
   Future<void> stop() async {
-    for (final channel in _channels.values) {
+    final inbox = _inbox;
+    _inbox = null;
+    if (inbox != null) await _client.removeChannel(inbox);
+    for (final channel in _sendChannels.values) {
       await _client.removeChannel(channel);
     }
-    _channels.clear();
+    _sendChannels.clear();
   }
 }

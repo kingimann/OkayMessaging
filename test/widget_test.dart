@@ -751,11 +751,10 @@ void main() {
   });
 
   group('Relay (device-to-device delivery)', () {
-    test('channel id is deterministic and order-independent', () {
-      final a = RelayService.channelFor('+1 555 0100', '+1 (555) 0199');
-      final b = RelayService.channelFor('+15550199', '15550100');
-      expect(a, b);
-      expect(a, 'dm_15550100_15550199');
+    test('inbox channel id is derived from the phone digits', () {
+      expect(RelayService.inboxChannel('+1 (555) 0199'), 'inbox_15550199');
+      expect(RelayService.inboxChannel('15550199'),
+          RelayService.inboxChannel('+1 555 0199'));
     });
 
     test('applyIncoming creates a chat and appends the message', () {
