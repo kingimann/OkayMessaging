@@ -982,6 +982,28 @@ void main() {
     expect(find.widgetWithText(TextField, 'unsent draft'), findsOneWidget);
   });
 
+  testWidgets('React with any emoji via the + picker', (tester) async {
+    await tester.pumpWidget(const OkayMessagingApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Bob Carter'));
+    await tester.pumpAndSettle();
+
+    await tester.longPress(find.text('Did you see the game last night?'));
+    await tester.pumpAndSettle();
+
+    // Open the full emoji picker from the reaction row's "+".
+    await tester.tap(find.byIcon(Icons.add));
+    await tester.pumpAndSettle();
+    expect(find.text('React with…'), findsOneWidget);
+
+    await tester.tap(find.text('😀'));
+    await tester.pumpAndSettle();
+
+    final bob = ChatStore.instance.chatWithContact('u_bob')!;
+    expect(bob.messages.any((m) => m.reactions.contains('😀')), isTrue);
+  });
+
   test('setReactionState adds/removes a reaction idempotently', () {
     ChatStore.instance.reset();
     final bob = ChatStore.instance.chatWithContact('u_bob')!;

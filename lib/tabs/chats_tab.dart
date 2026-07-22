@@ -83,7 +83,7 @@ class _ChatsTabState extends State<ChatsTab> {
       builder: (context, _) {
         final chats = store.chats;
         if (chats.isEmpty) {
-          return const Center(child: Text('No chats yet'));
+          return const _EmptyChats();
         }
         return ListView.separated(
           itemCount: chats.length,
@@ -123,6 +123,42 @@ class _ChatsTabState extends State<ChatsTab> {
           },
         );
       },
+    );
+  }
+}
+
+/// Friendly empty state for the chats list.
+class _EmptyChats extends StatelessWidget {
+  const _EmptyChats();
+
+  @override
+  Widget build(BuildContext context) {
+    final grey = Colors.grey.shade500;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(40),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.chat_bubble_outline, size: 64, color: grey),
+            const SizedBox(height: 16),
+            Text(
+              'No chats yet',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+                color: Colors.grey.shade700,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Tap the compose button to start a private,\nencrypted conversation.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: grey, height: 1.4),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

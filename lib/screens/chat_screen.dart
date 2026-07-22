@@ -691,6 +691,10 @@ class _ChatScreenState extends State<ChatScreen> {
                     _react(message.id, emoji);
                     Navigator.of(sheetContext).pop();
                   },
+                  onMore: () {
+                    Navigator.of(sheetContext).pop();
+                    _pickReactionEmoji(message.id);
+                  },
                 ),
                 const Divider(height: 1),
                 ListTile(
@@ -875,6 +879,47 @@ class _ChatScreenState extends State<ChatScreen> {
       RelayService.instance
           .sendReaction(widget.chat.contact.phone, messageId, emoji, present);
     }
+  }
+
+  /// Opens the full emoji grid to react to [messageId] with any emoji.
+  void _pickReactionEmoji(String messageId) {
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (sheetContext) => SafeArea(
+        child: SizedBox(
+          height: 320,
+          child: Column(
+            children: [
+              const Padding(
+                padding: EdgeInsets.all(14),
+                child: Text('React with…',
+                    style:
+                        TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+              ),
+              Expanded(
+                child: GridView.count(
+                  crossAxisCount: 7,
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  children: [
+                    for (final e in EmojiData.picker)
+                      InkWell(
+                        onTap: () {
+                          Navigator.of(sheetContext).pop();
+                          _react(messageId, e);
+                        },
+                        borderRadius: BorderRadius.circular(8),
+                        child: Center(
+                          child: Text(e, style: const TextStyle(fontSize: 26)),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   /// Toggles a ❤️ reaction; when one is added, pops a heart at the tap point.
@@ -1510,11 +1555,13 @@ class _BlockedBanner extends StatelessWidget {
 
 class _ReactionRow extends StatelessWidget {
   final ValueChanged<String> onSelected;
+  final VoidCallback? onMore;
 
-  const _ReactionRow({required this.onSelected});
+  const _ReactionRow({required this.onSelected, this.onMore});
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       child: Row(
@@ -1527,6 +1574,21 @@ class _ReactionRow extends StatelessWidget {
               child: Padding(
                 padding: const EdgeInsets.all(6),
                 child: Text(emoji, style: const TextStyle(fontSize: 28)),
+              ),
+            ),
+          if (onMore != null)
+            InkWell(
+              onTap: onMore,
+              borderRadius: BorderRadius.circular(24),
+              child: Container(
+                padding: const EdgeInsets.all(6),
+                child: CircleAvatar(
+                  radius: 18,
+                  backgroundColor:
+                      isDark ? Colors.white10 : Colors.grey.shade200,
+                  child: Icon(Icons.add,
+                      color: isDark ? Colors.white70 : Colors.black54),
+                ),
               ),
             ),
         ],
