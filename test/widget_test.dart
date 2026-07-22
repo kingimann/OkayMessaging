@@ -13,6 +13,7 @@ import 'package:okay_messaging/screens/media_gallery_screen.dart';
 import 'package:okay_messaging/models/message.dart';
 import 'package:okay_messaging/models/user.dart';
 import 'package:okay_messaging/relay/relay_service.dart';
+import 'package:okay_messaging/state/account_service.dart';
 import 'package:okay_messaging/state/call_service.dart';
 import 'package:okay_messaging/state/chat_store.dart';
 import 'package:okay_messaging/state/scheduler.dart';
@@ -1195,6 +1196,31 @@ void main() {
       final got =
           ChatStore.instance.chatWithContact('+1 555 0199')!.messages.single;
       expect(got.text, 'secret rendezvous at noon');
+    });
+  });
+
+  group('Account service', () {
+    test('e164 keeps digits only', () {
+      expect(AccountService.e164('+1 (555) 012-3456'), '15550123456');
+      expect(AccountService.e164('44 7700 900123'), '447700900123');
+    });
+
+    test('normalizeUsername lowercases and strips @ and bad chars', () {
+      expect(AccountService.normalizeUsername('  @Ada_L. '), 'ada_l.');
+      expect(AccountService.normalizeUsername('@@Bob!!Smith'), 'bobsmith');
+    });
+
+    test('isValidUsername enforces length and charset', () {
+      expect(AccountService.isValidUsername('ada'), isTrue);
+      expect(AccountService.isValidUsername('a.b_9'), isTrue);
+      expect(AccountService.isValidUsername('ab'), isFalse); // too short
+      expect(AccountService.isValidUsername('@AdaL'), isTrue); // normalized
+    });
+
+    test('is disabled without the REQUIRE_OTP build flag', () {
+      // Tests build without --dart-define, so the real flow stays off and the
+      // instant local login is used.
+      expect(AccountService.isEnabled, isFalse);
     });
   });
 
