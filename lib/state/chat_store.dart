@@ -235,26 +235,32 @@ class ChatStore extends ChangeNotifier {
     }
   }
 
-  /// Refreshes the stored [avatarColor] and/or [about] of the contact whose
-  /// phone id matches [contactId] — used when a peer shares updated profile
-  /// info on an incoming message (subject to their privacy settings). No-ops
-  /// when nothing changes, so it won't churn the list needlessly.
+  /// Refreshes the stored [name], [avatarColor], and/or [about] of the contact
+  /// whose id matches [contactId] — used both when a peer shares updated
+  /// profile info on an incoming message (subject to their privacy settings)
+  /// and when you rename a contact locally. No-ops when nothing changes, so it
+  /// won't churn the list needlessly.
   void updateContactProfile(String contactId,
-      {String? avatarColor, String? about}) {
+      {String? name, String? avatarColor, String? about}) {
     final i = _chats.indexWhere((c) => c.contact.id == contactId);
     if (i == -1) return;
     final c = _chats[i].contact;
+    final nextName = (name != null && name.trim().isNotEmpty) ? name.trim() : c.name;
     final nextColor =
         (avatarColor != null && avatarColor.isNotEmpty) ? avatarColor : c.avatarColor;
     final nextAbout =
         (about != null && about.isNotEmpty) ? about : c.about;
-    if (nextColor == c.avatarColor && nextAbout == c.about) return;
+    if (nextName == c.name &&
+        nextColor == c.avatarColor &&
+        nextAbout == c.about) {
+      return;
+    }
     _replace(
       i,
       _chats[i].copyWith(
         contact: AppUser(
           id: c.id,
-          name: c.name,
+          name: nextName,
           avatarColor: nextColor,
           about: nextAbout,
           phone: c.phone,

@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../app_state.dart';
 import '../models/user.dart';
+import '../state/call_service.dart';
+import '../state/chat_store.dart';
 import '../theme/app_theme.dart';
 import '../widgets/info_section.dart';
 import '../widgets/user_avatar.dart';
@@ -25,9 +28,13 @@ class ContactInfoScreen extends StatelessWidget {
         backgroundColor: Colors.transparent,
         actions: [
           PopupMenuButton<String>(
+            onSelected: (v) {
+              if (v == 'share') _shareContact(context);
+              if (v == 'edit') _editName(context);
+            },
             itemBuilder: (context) => const [
               PopupMenuItem(value: 'share', child: Text('Share')),
-              PopupMenuItem(value: 'edit', child: Text('Edit')),
+              PopupMenuItem(value: 'edit', child: Text('Edit name')),
             ],
           ),
         ],
@@ -75,7 +82,11 @@ class ContactInfoScreen extends StatelessWidget {
             ),
           ],
           const SizedBox(height: 22),
-          const _ActionButtons(),
+          _ActionButtons(
+            onMessage: () => Navigator.of(context).maybePop(),
+            onCall: () => _startCall(context, video: false),
+            onVideo: () => _startCall(context, video: true),
+          ),
           const SizedBox(height: 20),
           InfoSection(
             children: [
@@ -155,6 +166,38 @@ class ContactInfoScreen extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  /// Starts an outgoing call and returns to the conversation so the call UI
+  /// (shown by the app root) takes over.
+  void _startCall(BuildContext context, {required bool video}) {
+    CallService.instance.startOutgoing(user, video: video);
+    Navigator.of(context).maybePop();
+  }
+
+  /// Copies a shareable summary of this contact to the clipboard.
+  void _shareContact(BuildContext context) {
+    final buf = StringBuffer(user.name);
+    if (user.handle.isNotEmpty) buf.write(' (${user.handle})');
+    if (user.phone.isNotEmpty) buf.write('\n${user.phone}');
+    buf.write('\nMessage me on Okay Messaging.');
+    Clipboard.setData(ClipboardData(text: buf.toString()));
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Contact copied to clipboard')),
+    );
+  }
+
+  /// Renames this contact locally (does not affect what they call themselves).
+  Future<void> _editName(BuildContext context) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final newName = await showDialog<String>(
+      context: context,
+      builder: (_) => _EditNameDialog(initial: user.name),
+    );
+    if (newName != null && newName.isNotEmpty) {
+      ChatStore.instance.updateContactProfile(user.id, name: newName);
+      messenger.showSnackBar(const SnackBar(content: Text('Name updated')));
+    }
   }
 
   Future<void> _toggleBlock(BuildContext context, bool blocked) async {
@@ -253,20 +296,82 @@ class ContactInfoScreen extends StatelessWidget {
   }
 }
 
-class _ActionButtons extends StatelessWidget {
-  const _ActionButtons();
+/// A small dialog that owns its text controller so it is disposed only after
+/// the dialog's exit transition completes.
+class _EditNameDialog extends StatefulWidget {
+  final String initial;
+  const _EditNameDialog({required this.initial});
+
+  @override
+  State<_EditNameDialog> createState() => _EditNameDialogState();
+}
+
+class _EditNameDialogState extends State<_EditNameDialog> {
+  late final TextEditingController _controller =
+      TextEditingController(text: widget.initial);
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    return const Padding(
-      padding: EdgeInsets.symmetric(horizontal: 20),
+    return AlertDialog(
+      title: const Text('Edit name'),
+      content: TextField(
+        controller: _controller,
+        autofocus: true,
+        textCapitalization: TextCapitalization.words,
+        decoration: const InputDecoration(
+          labelText: 'Name',
+          helperText: 'Only changes how this contact appears to you',
+          border: OutlineInputBorder(),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(_controller.text.trim()),
+          child: const Text('Save'),
+        ),
+      ],
+    );
+  }
+}
+
+class _ActionButtons extends StatelessWidget {
+  final VoidCallback onMessage;
+  final VoidCallback onCall;
+  final VoidCallback onVideo;
+
+  const _ActionButtons({
+    required this.onMessage,
+    required this.onCall,
+    required this.onVideo,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
       child: Row(
         children: [
-          Expanded(child: _TonalAction(icon: Icons.message, label: 'Message')),
-          SizedBox(width: 10),
-          Expanded(child: _TonalAction(icon: Icons.call, label: 'Audio')),
-          SizedBox(width: 10),
-          Expanded(child: _TonalAction(icon: Icons.videocam, label: 'Video')),
+          Expanded(
+              child: _TonalAction(
+                  icon: Icons.message, label: 'Message', onTap: onMessage)),
+          const SizedBox(width: 10),
+          Expanded(
+              child: _TonalAction(
+                  icon: Icons.call, label: 'Audio', onTap: onCall)),
+          const SizedBox(width: 10),
+          Expanded(
+              child: _TonalAction(
+                  icon: Icons.videocam, label: 'Video', onTap: onVideo)),
         ],
       ),
     );
@@ -276,8 +381,10 @@ class _ActionButtons extends StatelessWidget {
 class _TonalAction extends StatelessWidget {
   final IconData icon;
   final String label;
+  final VoidCallback onTap;
 
-  const _TonalAction({required this.icon, required this.label});
+  const _TonalAction(
+      {required this.icon, required this.label, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -289,7 +396,7 @@ class _TonalAction extends StatelessWidget {
       borderRadius: BorderRadius.circular(14),
       child: InkWell(
         borderRadius: BorderRadius.circular(14),
-        onTap: () {},
+        onTap: onTap,
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 12),
           child: Column(

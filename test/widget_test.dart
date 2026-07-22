@@ -14,6 +14,8 @@ import 'package:okay_messaging/models/call.dart' as callmodel;
 import 'package:okay_messaging/screens/auth/phone_login_screen.dart';
 import 'package:okay_messaging/screens/blocked_contacts_screen.dart';
 import 'package:okay_messaging/screens/call_screen.dart';
+import 'package:okay_messaging/screens/contact_info_screen.dart';
+import 'package:okay_messaging/models/chat.dart';
 import 'package:okay_messaging/state/call_log.dart';
 import 'package:okay_messaging/screens/media_gallery_screen.dart';
 import 'package:okay_messaging/screens/my_qr_screen.dart';
@@ -2352,6 +2354,69 @@ void main() {
           ChatStore.instance.chatWithContact('+1 555 0199')!.contact;
       expect(contact.avatarColor, '#81C784');
       expect(contact.about, 'New status');
+    });
+  });
+
+  group('Contact info', () {
+    Chat seedChat() {
+      ChatStore.instance.reset();
+      const contact = AppUser(
+        id: '+1 555 0170',
+        name: 'Grace Hopper',
+        avatarColor: '#4DB6AC',
+        about: 'Compiling',
+        phone: '+1 555 0170',
+        username: 'grace',
+      );
+      const chat =
+          Chat(id: 'chat_grace', contact: contact, messages: []);
+      ChatStore.instance.upsert(chat);
+      return chat;
+    }
+
+    test('updateContactProfile renames a contact locally', () {
+      final chat = seedChat();
+      ChatStore.instance.updateContactProfile(chat.contact.id, name: 'Gracie');
+      expect(ChatStore.instance.chatById('chat_grace')!.contact.name, 'Gracie');
+      // Blank names are ignored.
+      ChatStore.instance.updateContactProfile(chat.contact.id, name: '   ');
+      expect(ChatStore.instance.chatById('chat_grace')!.contact.name, 'Gracie');
+    });
+
+    testWidgets('Contact info shows the about and action buttons',
+        (tester) async {
+      final chat = seedChat();
+      await tester.pumpWidget(MaterialApp(
+        home: ContactInfoScreen(user: chat.contact, chatId: chat.id),
+      ));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Grace Hopper'), findsOneWidget);
+      expect(find.text('Compiling'), findsOneWidget); // the shared about
+      expect(find.text('Message'), findsOneWidget);
+      expect(find.text('Audio'), findsOneWidget);
+      expect(find.text('Video'), findsOneWidget);
+    });
+
+    testWidgets('Edit name from contact info updates the stored contact',
+        (tester) async {
+      final chat = seedChat();
+      await tester.pumpWidget(MaterialApp(
+        home: ContactInfoScreen(user: chat.contact, chatId: chat.id),
+      ));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byType(PopupMenuButton<String>));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Edit name'));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextField), 'Amazing Grace');
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+
+      expect(ChatStore.instance.chatById('chat_grace')!.contact.name,
+          'Amazing Grace');
     });
   });
 
