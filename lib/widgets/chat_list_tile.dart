@@ -92,7 +92,16 @@ class ChatListTile extends StatelessWidget {
                                   : chat.preview,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: TextStyle(fontSize: 14, color: subtitleColor),
+                          style: TextStyle(
+                            fontSize: 14,
+                            // Unread rows show a slightly darker, medium-weight
+                            // preview so they stand out at a glance.
+                            color: hasUnread
+                                ? Theme.of(context).textTheme.bodyLarge?.color
+                                : subtitleColor,
+                            fontWeight:
+                                hasUnread ? FontWeight.w500 : FontWeight.normal,
+                          ),
                         ),
                       ),
                       if (chat.isMuted)
