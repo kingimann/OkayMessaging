@@ -422,9 +422,10 @@ class _ChatScreenState extends State<ChatScreen> {
         child: bubble,
       );
 
+      final Widget row;
       if (_selectionMode) {
         final selected = _selectedIds.contains(m.id);
-        items.add(GestureDetector(
+        row = GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTap: () => _toggleSelect(m.id),
           onLongPress: () => _toggleSelect(m.id),
@@ -434,9 +435,9 @@ class _ChatScreenState extends State<ChatScreen> {
                 : null,
             child: keyed,
           ),
-        ));
+        );
       } else {
-        items.add(Dismissible(
+        row = Dismissible(
           key: ValueKey('msg_${m.id}'),
           direction: DismissDirection.startToEnd,
           dismissThresholds: const {DismissDirection.startToEnd: 0.25},
@@ -452,8 +453,11 @@ class _ChatScreenState extends State<ChatScreen> {
             ),
           ),
           child: keyed,
-        ));
+        );
       }
+      // Keyed by message id so each message animates in exactly once and
+      // never re-animates on later rebuilds (reactions, status, etc.).
+      items.add(_MessageEntrance(key: ValueKey('anim_${m.id}'), child: row));
     }
     return items;
   }
@@ -1164,6 +1168,47 @@ class _PinnedBanner extends StatelessWidget {
   }
 }
 
+/// Fades and gently slides a message into view once, when it first appears.
+class _MessageEntrance extends StatefulWidget {
+  final Widget child;
+
+  const _MessageEntrance({super.key, required this.child});
+
+  @override
+  State<_MessageEntrance> createState() => _MessageEntranceState();
+}
+
+class _MessageEntranceState extends State<_MessageEntrance>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 220),
+  )..forward();
+
+  late final Animation<double> _curve =
+      CurvedAnimation(parent: _controller, curve: Curves.easeOut);
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      opacity: _curve,
+      child: SlideTransition(
+        position: Tween<Offset>(
+          begin: const Offset(0, 0.06),
+          end: Offset.zero,
+        ).animate(_curve),
+        child: widget.child,
+      ),
+    );
+  }
+}
+
 /// A full-width "N unread messages" separator, shown above the first message
 /// that was unread when the chat was opened.
 class _UnreadDivider extends StatelessWidget {
@@ -1174,19 +1219,24 @@ class _UnreadDivider extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Container(
-      width: double.infinity,
-      margin: const EdgeInsets.symmetric(vertical: 6),
-      padding: const EdgeInsets.symmetric(vertical: 5),
-      color: (isDark ? AppColors.darkAppBar : Colors.white)
-          .withValues(alpha: 0.92),
-      child: Text(
-        count == 1 ? '1 unread message' : '$count unread messages',
-        textAlign: TextAlign.center,
-        style: const TextStyle(
-          fontSize: 12.5,
-          fontWeight: FontWeight.w600,
-          color: AppColors.tealGreenDark,
+    return Center(
+      child: Container(
+        margin: const EdgeInsets.symmetric(vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
+        decoration: BoxDecoration(
+          color: AppColors.tealGreenDark
+              .withValues(alpha: isDark ? 0.22 : 0.12),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Text(
+          (count == 1 ? '1 unread message' : '$count unread messages')
+              .toUpperCase(),
+          style: const TextStyle(
+            fontSize: 11.5,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0.4,
+            color: AppColors.tealGreenDark,
+          ),
         ),
       ),
     );

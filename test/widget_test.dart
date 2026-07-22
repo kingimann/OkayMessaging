@@ -648,7 +648,7 @@ void main() {
     await tester.tap(find.text('Alice Bennett'));
     await tester.pumpAndSettle();
 
-    expect(find.text('2 unread messages'), findsOneWidget);
+    expect(find.text('2 UNREAD MESSAGES'), findsOneWidget);
   });
 
   testWidgets('Clear chat empties the conversation after confirming',
