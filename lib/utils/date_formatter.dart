@@ -34,6 +34,20 @@ class DateFormatter {
     return DateFormat('dd MMMM yyyy').format(time);
   }
 
+  /// Label for a scheduled send time, e.g. "Today 18:30" / "12 Aug 09:00".
+  static String scheduleLabel(DateTime time) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final that = DateTime(time.year, time.month, time.day);
+    final diff = that.difference(today).inDays;
+
+    final t = DateFormat('HH:mm').format(time);
+    if (diff == 0) return 'Today $t';
+    if (diff == 1) return 'Tomorrow $t';
+    if (diff > 1 && diff < 7) return '${DateFormat('EEEE').format(time)} $t';
+    return '${DateFormat('d MMM').format(time)} $t';
+  }
+
   /// Label used in the call log.
   static String callLabel(DateTime time) {
     final now = DateTime.now();

@@ -22,6 +22,10 @@ class ChatInputBar extends StatefulWidget {
   /// Called as the user types (used to broadcast a typing indicator).
   final VoidCallback? onTyping;
 
+  /// Long-pressing send offers to schedule the current text; returns true when
+  /// a message was scheduled (so the field is cleared).
+  final Future<bool> Function(String text)? onSchedule;
+
   const ChatInputBar({
     super.key,
     required this.onSend,
@@ -30,6 +34,7 @@ class ChatInputBar extends StatefulWidget {
     this.replyTo,
     this.onCancelReply,
     this.onTyping,
+    this.onSchedule,
   });
 
   @override
@@ -96,6 +101,13 @@ class _ChatInputBarState extends State<ChatInputBar> {
     if (text.isEmpty) return;
     widget.onSend(text);
     _controller.clear();
+  }
+
+  Future<void> _schedule() async {
+    final text = _controller.text.trim();
+    if (text.isEmpty || widget.onSchedule == null) return;
+    final scheduled = await widget.onSchedule!(text);
+    if (scheduled) _controller.clear();
   }
 
   void _insertEmoji(String emoji) {
@@ -195,6 +207,7 @@ class _ChatInputBarState extends State<ChatInputBar> {
           const SizedBox(width: 6),
           GestureDetector(
             onTap: _hasText ? _send : _startRecording,
+            onLongPress: _hasText ? _schedule : null,
             child: CircleAvatar(
               radius: 24,
               backgroundColor: AppColors.tealGreenDark,

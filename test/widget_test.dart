@@ -12,6 +12,7 @@ import 'package:okay_messaging/screens/media_gallery_screen.dart';
 import 'package:okay_messaging/models/message.dart';
 import 'package:okay_messaging/relay/relay_service.dart';
 import 'package:okay_messaging/state/chat_store.dart';
+import 'package:okay_messaging/state/scheduler.dart';
 import 'package:okay_messaging/state/session.dart';
 import 'package:okay_messaging/widgets/heart_burst.dart';
 import 'package:okay_messaging/widgets/rich_message_text.dart';
@@ -25,6 +26,7 @@ void main() {
     ChatStore.instance.reset();
     AppState.resetForTest();
     Session.instance.signInForTest();
+    Scheduler.instance.resetForTest();
   });
 
   testWidgets('App boots with Chats and Calls tabs (no Status)',
@@ -635,6 +637,43 @@ void main() {
     await tester.pump(const Duration(milliseconds: 350));
     expect(find.text('Did you see the game last night?'), findsWidgets);
     await tester.pump(const Duration(seconds: 2));
+  });
+
+  test('Scheduler delivers due messages and keeps future ones pending', () {
+    ChatStore.instance.reset();
+    Scheduler.instance.resetForTest();
+    final now = DateTime(2024, 1, 1, 12, 0);
+
+    // One due (in the past) and one for the future.
+    Scheduler.instance.schedule(
+      chatId: 'c_bob',
+      contactPhone: '+1 555 0122',
+      text: 'due now',
+      time: now.subtract(const Duration(minutes: 1)),
+    );
+    Scheduler.instance.schedule(
+      chatId: 'c_bob',
+      contactPhone: '+1 555 0122',
+      text: 'later',
+      time: now.add(const Duration(hours: 2)),
+    );
+    expect(Scheduler.instance.pendingFor('c_bob').length, 2);
+
+    final delivered = Scheduler.instance.flushDue(now);
+    expect(delivered, 1);
+
+    // The due message is now in the conversation; the future one stays pending.
+    expect(
+      ChatStore.instance.chatById('c_bob')!.messages.any((m) => m.text == 'due now'),
+      isTrue,
+    );
+    final pending = Scheduler.instance.pendingFor('c_bob');
+    expect(pending.length, 1);
+    expect(pending.single.text, 'later');
+
+    // Cancelling removes it.
+    Scheduler.instance.cancel(pending.single.id);
+    expect(Scheduler.instance.pendingFor('c_bob'), isEmpty);
   });
 
   test('setReactionState adds/removes a reaction idempotently', () {

@@ -4,6 +4,7 @@ import 'app_state.dart';
 import 'relay/relay_service.dart';
 import 'screens/auth/auth_gate.dart';
 import 'state/persistence.dart';
+import 'state/scheduler.dart';
 import 'state/session.dart';
 import 'theme/app_theme.dart';
 
@@ -16,6 +17,7 @@ Future<void> main() async {
   await Session.instance.load();
   await Persistence.init();
   await RelayService.instance.init();
+  await Scheduler.instance.init();
   runApp(const OkayMessagingApp());
 }
 

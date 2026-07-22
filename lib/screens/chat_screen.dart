@@ -10,6 +10,7 @@ import '../models/user.dart';
 import '../relay/relay_config.dart';
 import '../relay/relay_service.dart';
 import '../state/chat_store.dart';
+import '../state/scheduler.dart';
 import '../theme/app_theme.dart';
 import '../utils/date_formatter.dart';
 import '../widgets/chat_input_bar.dart';
@@ -241,6 +242,87 @@ class _ChatScreenState extends State<ChatScreen> {
       replyTo: _replyTo,
     ));
     setState(() => _replyTo = null);
+  }
+
+  /// Schedules the current [text] to auto-send later. Returns true if set.
+  Future<bool> _scheduleMessage(String text) async {
+    final now = DateTime.now();
+    final date = await showDatePicker(
+      context: context,
+      initialDate: now,
+      firstDate: now,
+      lastDate: now.add(const Duration(days: 365)),
+      helpText: 'Send on',
+    );
+    if (date == null || !mounted) return false;
+    final time = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(now.add(const Duration(hours: 1))),
+      helpText: 'Send at',
+    );
+    if (time == null || !mounted) return false;
+    final when =
+        DateTime(date.year, date.month, date.day, time.hour, time.minute);
+    if (!when.isAfter(now)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Pick a time in the future')),
+      );
+      return false;
+    }
+    Scheduler.instance.schedule(
+      chatId: _chatId,
+      contactPhone: widget.chat.contact.phone,
+      text: text,
+      time: when,
+    );
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+          content: Text('Scheduled for ${DateFormatter.scheduleLabel(when)}')),
+    );
+    return true;
+  }
+
+  void _showScheduledSheet() {
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (sheetContext) => SafeArea(
+        child: ListenableBuilder(
+          listenable: Scheduler.instance,
+          builder: (context, _) {
+            final items = Scheduler.instance.pendingFor(_chatId);
+            if (items.isEmpty) {
+              Navigator.of(sheetContext).maybePop();
+              return const SizedBox.shrink();
+            }
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(16, 14, 16, 6),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text('Scheduled messages',
+                        style: TextStyle(fontWeight: FontWeight.w600)),
+                  ),
+                ),
+                for (final s in items)
+                  ListTile(
+                    leading: const Icon(Icons.schedule),
+                    title: Text(s.text,
+                        maxLines: 2, overflow: TextOverflow.ellipsis),
+                    subtitle: Text(DateFormatter.scheduleLabel(s.time)),
+                    trailing: IconButton(
+                      icon: const Icon(Icons.close),
+                      tooltip: 'Cancel',
+                      onPressed: () => Scheduler.instance.cancel(s.id),
+                    ),
+                  ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
   }
 
   void _handleSendImage() {
@@ -1115,12 +1197,51 @@ class _ChatScreenState extends State<ChatScreen> {
                 ],
               ),
             ),
+            ListenableBuilder(
+              listenable: Scheduler.instance,
+              builder: (context, _) {
+                final count = Scheduler.instance.pendingFor(_chatId).length;
+                if (count == 0) return const SizedBox.shrink();
+                return Material(
+                  color: AppColors.tealGreenDark.withValues(alpha: 0.12),
+                  child: InkWell(
+                    onTap: _showScheduledSheet,
+                    child: Padding(
+                      padding:
+                          const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.schedule,
+                              size: 18, color: AppColors.tealGreenDark),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              count == 1
+                                  ? '1 message scheduled'
+                                  : '$count messages scheduled',
+                              style: const TextStyle(
+                                color: AppColors.tealGreenDark,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 13.5,
+                              ),
+                            ),
+                          ),
+                          const Icon(Icons.chevron_right,
+                              size: 20, color: AppColors.tealGreenDark),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
             if (!_selectionMode)
               ChatInputBar(
                 onSend: _handleSend,
                 onAttach: _showAttachmentSheet,
                 onSendVoice: _handleSendVoice,
                 onTyping: _onTyping,
+                onSchedule: _scheduleMessage,
                 replyTo: _replyTo,
                 onCancelReply: () => setState(() => _replyTo = null),
               ),
