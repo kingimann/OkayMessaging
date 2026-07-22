@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import '../data/mock_data.dart';
@@ -15,6 +17,15 @@ class ChatStore extends ChangeNotifier {
   static final ChatStore instance = ChatStore._();
 
   late List<Chat> _chats;
+
+  Timer? _sweeper;
+
+  /// Starts a periodic sweep that deletes expired (disappearing) messages even
+  /// while their chat isn't open. Safe to call once at startup.
+  void startSweeper() {
+    _sweeper ??=
+        Timer.periodic(const Duration(seconds: 20), (_) => sweepExpired());
+  }
 
   /// Ids of messages the user has starred.
   final Set<String> _starred = {};
@@ -165,10 +176,44 @@ class ChatStore extends ChangeNotifier {
   void addMessage(String chatId, Message message) {
     final i = _indexOf(chatId);
     if (i == -1) return;
+    var msg = message;
+    // Stamp an expiry when the chat has disappearing messages enabled.
+    final ttl = _chats[i].disappearingSeconds;
+    if (ttl > 0 && msg.expiresAt == null) {
+      msg = msg.copyWith(
+          expiresAt: msg.time.add(Duration(seconds: ttl)));
+    }
     _replace(
       i,
-      _chats[i].copyWith(messages: [..._chats[i].messages, message]),
+      _chats[i].copyWith(messages: [..._chats[i].messages, msg]),
     );
+  }
+
+  /// Sets (or clears, with 0) the disappearing-messages timer for a chat.
+  void setDisappearing(String chatId, int seconds) {
+    final i = _indexOf(chatId);
+    if (i != -1) {
+      _replace(i, _chats[i].copyWith(disappearingSeconds: seconds));
+    }
+  }
+
+  /// Removes any messages whose expiry has passed. Returns the number deleted.
+  /// [now] is injectable for tests.
+  int sweepExpired([DateTime? now]) {
+    final at = now ?? DateTime.now();
+    var removed = 0;
+    for (var i = 0; i < _chats.length; i++) {
+      final msgs = _chats[i].messages;
+      final kept = msgs
+          .where((m) => m.expiresAt == null || m.expiresAt!.isAfter(at))
+          .toList();
+      if (kept.length != msgs.length) {
+        removed += msgs.length - kept.length;
+        _chats[i] = _chats[i].copyWith(messages: kept);
+      }
+    }
+    if (removed > 0) notifyListeners();
+    return removed;
   }
 
   void replaceMessages(String chatId, List<Message> messages) {

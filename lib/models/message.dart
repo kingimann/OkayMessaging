@@ -66,6 +66,10 @@ class Message {
   /// A real image URL (from backend storage), when available.
   final String? imageUrl;
 
+  /// When set, the message is deleted from the device after this time
+  /// (disappearing messages).
+  final DateTime? expiresAt;
+
   const Message({
     required this.id,
     required this.text,
@@ -81,6 +85,7 @@ class Message {
     this.imageSeed = 0,
     this.imageUrl,
     this.edited = false,
+    this.expiresAt,
   });
 
   Map<String, dynamic> toJson() => {
@@ -98,6 +103,7 @@ class Message {
         'imageSeed': imageSeed,
         'imageUrl': imageUrl,
         'edited': edited,
+        'expiresAt': expiresAt?.toIso8601String(),
       };
 
   factory Message.fromJson(Map<String, dynamic> json) => Message(
@@ -118,6 +124,9 @@ class Message {
         imageSeed: json['imageSeed'] as int? ?? 0,
         imageUrl: json['imageUrl'] as String?,
         edited: json['edited'] as bool? ?? false,
+        expiresAt: json['expiresAt'] == null
+            ? null
+            : DateTime.tryParse(json['expiresAt'] as String),
       );
 
   Message copyWith({
@@ -125,6 +134,7 @@ class Message {
     MessageStatus? status,
     List<String>? reactions,
     bool? edited,
+    DateTime? expiresAt,
   }) {
     return Message(
       id: id,
@@ -141,6 +151,7 @@ class Message {
       imageSeed: imageSeed,
       imageUrl: imageUrl,
       edited: edited ?? this.edited,
+      expiresAt: expiresAt ?? this.expiresAt,
     );
   }
 }

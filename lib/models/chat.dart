@@ -17,6 +17,10 @@ class Chat {
   /// Participants of a group chat (empty for 1:1 conversations).
   final List<AppUser> members;
 
+  /// Disappearing-messages timer in seconds; 0 means off. New messages in this
+  /// chat are deleted from the device this long after they're sent.
+  final int disappearingSeconds;
+
   const Chat({
     required this.id,
     required this.contact,
@@ -27,6 +31,7 @@ class Chat {
     this.isArchived = false,
     this.pinnedMessageId,
     this.members = const [],
+    this.disappearingSeconds = 0,
   });
 
   /// Most recent message, or null when the conversation is empty.
@@ -45,6 +50,7 @@ class Chat {
         'isArchived': isArchived,
         'pinnedMessageId': pinnedMessageId,
         'members': members.map((m) => m.toJson()).toList(),
+        'disappearingSeconds': disappearingSeconds,
       };
 
   factory Chat.fromJson(Map<String, dynamic> json) => Chat(
@@ -62,6 +68,7 @@ class Chat {
         members: (json['members'] as List? ?? const [])
             .map((m) => AppUser.fromJson(Map<String, dynamic>.from(m as Map)))
             .toList(),
+        disappearingSeconds: json['disappearingSeconds'] as int? ?? 0,
       );
 
   Chat copyWith({
@@ -72,6 +79,7 @@ class Chat {
     bool? isArchived,
     String? pinnedMessageId,
     bool clearPinned = false,
+    int? disappearingSeconds,
   }) {
     return Chat(
       id: id,
@@ -84,6 +92,7 @@ class Chat {
       pinnedMessageId:
           clearPinned ? null : (pinnedMessageId ?? this.pinnedMessageId),
       members: members,
+      disappearingSeconds: disappearingSeconds ?? this.disappearingSeconds,
     );
   }
 }

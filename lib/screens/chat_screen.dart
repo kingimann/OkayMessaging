@@ -823,6 +823,8 @@ class _ChatScreenState extends State<ChatScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(muted ? 'Muted' : 'Unmuted')),
         );
+      case 'disappearing':
+        _chooseDisappearing();
       case 'wallpaper':
         _showComingSoon(context, 'Wallpaper');
       case 'clear':
@@ -830,6 +832,63 @@ class _ChatScreenState extends State<ChatScreen> {
       case 'delete':
         _confirmDeleteChat();
     }
+  }
+
+  Future<void> _chooseDisappearing() async {
+    const options = <String, int>{
+      'Off': 0,
+      '1 hour': 3600,
+      '1 day': 86400,
+      '1 week': 604800,
+    };
+    final current = _store.chatById(_chatId)?.disappearingSeconds ?? 0;
+    final chosen = await showModalBottomSheet<int>(
+      context: context,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(20, 18, 20, 6),
+              child: Row(children: [
+                Icon(Icons.timer_outlined, size: 20),
+                SizedBox(width: 10),
+                Text('Disappearing messages',
+                    style:
+                        TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+              ]),
+            ),
+            const Padding(
+              padding: EdgeInsets.fromLTRB(20, 0, 20, 10),
+              child: Text(
+                'New messages in this chat will be deleted from this device '
+                'after the selected time.',
+                style: TextStyle(color: Colors.grey, fontSize: 13),
+              ),
+            ),
+            for (final entry in options.entries)
+              ListTile(
+                title: Text(entry.key),
+                trailing: entry.value == current
+                    ? Icon(Icons.check,
+                        color: Theme.of(sheetContext).colorScheme.primary)
+                    : null,
+                onTap: () => Navigator.of(sheetContext).pop(entry.value),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (chosen == null || !mounted) return;
+    _store.setDisappearing(_chatId, chosen);
+    setState(() {});
+    final label =
+        options.entries.firstWhere((e) => e.value == chosen).key;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(chosen == 0
+          ? 'Disappearing messages off'
+          : 'Disappearing messages: $label'),
+    ));
   }
 
   Future<void> _confirmClearChat() async {
@@ -1101,6 +1160,13 @@ class _ChatScreenState extends State<ChatScreen> {
                       ),
                     ),
                     actions: [
+                      if ((_store.chatById(_chatId)?.disappearingSeconds ?? 0) >
+                          0)
+                        IconButton(
+                          icon: const Icon(Icons.timer_outlined),
+                          tooltip: 'Disappearing messages on',
+                          onPressed: _chooseDisappearing,
+                        ),
                       IconButton(
                         icon: const Icon(Icons.call),
                         onPressed: () => _startCall(video: false),
@@ -1133,6 +1199,9 @@ class _ChatScreenState extends State<ChatScreen> {
                                 child: Text(muted
                                     ? 'Unmute notifications'
                                     : 'Mute notifications')),
+                            const PopupMenuItem(
+                                value: 'disappearing',
+                                child: Text('Disappearing messages')),
                             const PopupMenuItem(
                                 value: 'wallpaper', child: Text('Wallpaper')),
                             const PopupMenuItem(

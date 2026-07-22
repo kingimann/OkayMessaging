@@ -6,6 +6,7 @@ import 'relay/relay_service.dart';
 import 'screens/auth/auth_gate.dart';
 import 'screens/call_screen.dart';
 import 'state/call_service.dart';
+import 'state/chat_store.dart';
 import 'state/persistence.dart';
 import 'state/scheduler.dart';
 import 'state/session.dart';
@@ -22,6 +23,7 @@ Future<void> main() async {
   await SecureKeyExchange.instance.load();
   await RelayService.instance.init();
   await Scheduler.instance.init();
+  ChatStore.instance.startSweeper();
   runApp(const OkayMessagingApp());
 }
 

@@ -761,6 +761,76 @@ void main() {
     expect(Scheduler.instance.pendingFor('c_bob'), isEmpty);
   });
 
+  test('disappearing messages: new messages get an expiry and are swept', () {
+    ChatStore.instance.reset();
+    final bob = ChatStore.instance.chatWithContact('u_bob')!;
+    ChatStore.instance.setDisappearing(bob.id, 3600); // 1 hour
+
+    final base = DateTime(2024, 1, 1, 12);
+    ChatStore.instance.addMessage(
+      bob.id,
+      Message(id: 'disp1', text: 'poof', time: base, isMe: true),
+    );
+    final msg = ChatStore.instance
+        .chatById(bob.id)!
+        .messages
+        .firstWhere((m) => m.id == 'disp1');
+    expect(msg.expiresAt, base.add(const Duration(hours: 1)));
+
+    // Not yet expired.
+    expect(ChatStore.instance.sweepExpired(base.add(const Duration(minutes: 30))),
+        0);
+    expect(
+      ChatStore.instance.chatById(bob.id)!.messages.any((m) => m.id == 'disp1'),
+      isTrue,
+    );
+
+    // After the hour, it's swept away.
+    final removed =
+        ChatStore.instance.sweepExpired(base.add(const Duration(hours: 2)));
+    expect(removed, greaterThanOrEqualTo(1));
+    expect(
+      ChatStore.instance.chatById(bob.id)!.messages.any((m) => m.id == 'disp1'),
+      isFalse,
+    );
+  });
+
+  test('disappearing off leaves messages without an expiry', () {
+    ChatStore.instance.reset();
+    final bob = ChatStore.instance.chatWithContact('u_bob')!;
+    ChatStore.instance.addMessage(
+      bob.id,
+      Message(id: 'keep1', text: 'stays', time: DateTime(2024), isMe: true),
+    );
+    final msg = ChatStore.instance
+        .chatById(bob.id)!
+        .messages
+        .firstWhere((m) => m.id == 'keep1');
+    expect(msg.expiresAt, isNull);
+  });
+
+  testWidgets('Disappearing-messages menu sets a timer and shows the indicator',
+      (tester) async {
+    await tester.pumpWidget(const OkayMessagingApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Bob Carter'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.more_vert));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Disappearing messages'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('1 day'));
+    await tester.pumpAndSettle();
+
+    // The timer indicator now shows in the header.
+    expect(find.byIcon(Icons.timer_outlined), findsOneWidget);
+    final chat = ChatStore.instance.chatWithContact('u_bob')!;
+    expect(chat.disappearingSeconds, 86400);
+  });
+
   test('setReactionState adds/removes a reaction idempotently', () {
     ChatStore.instance.reset();
     final bob = ChatStore.instance.chatWithContact('u_bob')!;
