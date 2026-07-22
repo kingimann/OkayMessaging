@@ -63,6 +63,12 @@ class _ChatScreenState extends State<ChatScreen> {
   /// receipt is sent once per new message (not on every store change).
   String? _lastAckedIncomingId;
 
+  /// Presence: whether the peer is currently online, plus timers to broadcast
+  /// our own presence and to revert the peer to offline after a quiet period.
+  bool _peerOnline = false;
+  Timer? _presenceSend;
+  Timer? _presenceRevert;
+
   /// The unread count when the chat was opened, and the id of the message the
   /// "unread messages" divider should sit above (captured before markRead).
   int _initialUnread = 0;
@@ -86,6 +92,13 @@ class _ChatScreenState extends State<ChatScreen> {
       RelayService.instance.typingPing.addListener(_onTypingPing);
       if (_isRealPeer(widget.chat.contact)) {
         _store.addListener(_maybeSendReadReceipt);
+        RelayService.instance.presencePing.addListener(_onPresencePing);
+        // Announce we're here now, then keep announcing while the chat is open.
+        RelayService.instance.sendPresence(widget.chat.contact.phone);
+        _presenceSend = Timer.periodic(
+          const Duration(seconds: 15),
+          (_) => RelayService.instance.sendPresence(widget.chat.contact.phone),
+        );
       }
     }
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -134,6 +147,21 @@ class _ChatScreenState extends State<ChatScreen> {
     });
   }
 
+  /// Marks the peer online when their presence ping arrives, reverting to
+  /// offline after a quiet period.
+  void _onPresencePing() {
+    if (RelayService.instance.presenceFromDigits !=
+        RelayService.digits(widget.chat.contact.phone)) {
+      return;
+    }
+    if (!mounted) return;
+    if (!_peerOnline) setState(() => _peerOnline = true);
+    _presenceRevert?.cancel();
+    _presenceRevert = Timer(const Duration(seconds: 35), () {
+      if (mounted) setState(() => _peerOnline = false);
+    });
+  }
+
   /// Records where the "unread messages" divider goes: above the first of the
   /// last [unreadCount] incoming messages.
   void _captureUnreadAnchor() {
@@ -161,9 +189,12 @@ class _ChatScreenState extends State<ChatScreen> {
   void dispose() {
     if (RelayConfig.isEnabled) {
       RelayService.instance.typingPing.removeListener(_onTypingPing);
+      RelayService.instance.presencePing.removeListener(_onPresencePing);
       _store.removeListener(_maybeSendReadReceipt);
     }
     _typingClear?.cancel();
+    _presenceSend?.cancel();
+    _presenceRevert?.cancel();
     _scrollController.dispose();
     _searchController.dispose();
     super.dispose();
@@ -863,7 +894,7 @@ class _ChatScreenState extends State<ChatScreen> {
                                         color: AppColors.tealGreenDark,
                                       )
                                     : Text(
-                                        contact.isOnline
+                                        (contact.isOnline || _peerOnline)
                                             ? 'online'
                                             : 'last seen recently',
                                         style: TextStyle(

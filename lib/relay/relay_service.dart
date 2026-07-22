@@ -31,6 +31,10 @@ class RelayService {
   String? typingFromDigits;
   final ValueNotifier<int> typingPing = ValueNotifier<int>(0);
 
+  /// Same pattern for "online" presence pings.
+  String? presenceFromDigits;
+  final ValueNotifier<int> presencePing = ValueNotifier<int>(0);
+
   SupabaseClient get _client => Supabase.instance.client;
 
   /// Only the digits of a phone number, for use in a channel name.
@@ -151,6 +155,15 @@ class RelayService {
           },
         )
         .onBroadcast(
+          event: 'presence',
+          callback: (payload) {
+            final from = payload['from'] as String?;
+            if (from == null || digits(from) == digits(me)) return;
+            presenceFromDigits = digits(from);
+            presencePing.value++;
+          },
+        )
+        .onBroadcast(
           event: 'receipt',
           callback: (payload) {
             final from = payload['from'] as String?;
@@ -181,15 +194,21 @@ class RelayService {
   }
 
   /// Sends a lightweight "typing" ping to [contactPhone]'s inbox.
-  Future<void> sendTyping(String contactPhone) async {
+  Future<void> sendTyping(String contactPhone) async =>
+      _ping(contactPhone, 'typing');
+
+  /// Sends an "online" presence ping to [contactPhone]'s inbox.
+  Future<void> sendPresence(String contactPhone) async =>
+      _ping(contactPhone, 'presence');
+
+  Future<void> _ping(String contactPhone, String event) async {
     if (!_initialized) return;
     final me = Session.instance.user.value;
     if (me == null) return;
     final name = inboxChannel(contactPhone);
     final channel =
         _sendChannels.putIfAbsent(name, () => _client.channel(name));
-    await channel
-        .sendBroadcastMessage(event: 'typing', payload: {'from': me.phone});
+    await channel.sendBroadcastMessage(event: event, payload: {'from': me.phone});
   }
 
   /// Broadcasts an outgoing [message] to [contactPhone]'s inbox over REST (the
