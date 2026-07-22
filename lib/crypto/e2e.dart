@@ -45,6 +45,26 @@ class E2eCrypto {
     return sha256.convert(utf8.encode('$_context|$ordered')).bytes;
   }
 
+  /// A stable 60-digit "security code" (safety number) for the conversation
+  /// between two numbers, shown as 12 groups of 5 digits. Both devices compute
+  /// the same value from the shared secret; if they match, the chat's
+  /// encryption is verified (the classic Signal-style comparison).
+  static String safetyNumber(String phoneA, String phoneB) {
+    final base = keyFor(phoneA, phoneB);
+    // Two hash rounds give us plenty of bytes to map to 60 decimal digits.
+    final h1 = sha256.convert([...base, ...utf8.encode('safety-1')]).bytes;
+    final h2 = sha256.convert([...base, ...utf8.encode('safety-2')]).bytes;
+    final bytes = [...h1, ...h2];
+    final digits = StringBuffer();
+    for (var i = 0; i < 60; i++) {
+      digits.write(bytes[i % bytes.length] % 10);
+    }
+    final s = digits.toString();
+    return [
+      for (var i = 0; i < 60; i += 5) s.substring(i, i + 5),
+    ].join(' ');
+  }
+
   /// Stretches a raw shared secret into a 32-byte AES key via HKDF-SHA256.
   static Uint8List deriveAesKey(List<int> secret) {
     final hkdf = HKDFKeyDerivator(SHA256Digest())

@@ -5,6 +5,7 @@ import '../theme/app_theme.dart';
 import '../widgets/info_section.dart';
 import '../widgets/user_avatar.dart';
 import 'media_gallery_screen.dart';
+import 'security_code_screen.dart';
 
 /// A modern contact detail screen: a clean surface header with a large
 /// avatar, tonal action buttons, and grouped info sections.
@@ -100,19 +101,25 @@ class ContactInfoScreen extends StatelessWidget {
                 ),
               ],
             ),
-          const InfoSection(
+          InfoSection(
             children: [
-              InfoTile(
+              const InfoTile(
                 leading: Icon(Icons.notifications_outlined),
                 title: 'Notifications',
                 subtitle: 'On',
               ),
               InfoTile(
-                leading: Icon(Icons.lock_outline),
+                leading: const Icon(Icons.lock_outline),
                 title: 'Encryption',
-                subtitle: 'Messages are end-to-end encrypted',
+                subtitle: 'Tap to verify the security code',
+                trailing: const Icon(Icons.chevron_right, color: Colors.grey),
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => SecurityCodeScreen(contact: user),
+                  ),
+                ),
               ),
-              InfoTile(
+              const InfoTile(
                 leading: Icon(Icons.wallpaper_outlined),
                 title: 'Wallpaper & sound',
               ),

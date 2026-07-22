@@ -11,6 +11,7 @@ import 'package:okay_messaging/main.dart';
 import 'package:okay_messaging/screens/auth/phone_login_screen.dart';
 import 'package:okay_messaging/screens/call_screen.dart';
 import 'package:okay_messaging/screens/media_gallery_screen.dart';
+import 'package:okay_messaging/screens/security_code_screen.dart';
 import 'package:okay_messaging/models/message.dart';
 import 'package:okay_messaging/models/user.dart';
 import 'package:okay_messaging/relay/relay_service.dart';
@@ -665,6 +666,28 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('@aliceb'), findsOneWidget);
+  });
+
+  testWidgets('Encryption tile opens the security code screen', (tester) async {
+    await tester.pumpWidget(const OkayMessagingApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Alice Bennett'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Alice Bennett')); // open contact info
+    await tester.pumpAndSettle();
+
+    final tile = find.text('Encryption');
+    await tester.scrollUntilVisible(tile, 200,
+        scrollable: find.byType(Scrollable).first);
+    await tester.ensureVisible(tile);
+    await tester.pumpAndSettle();
+    await tester.tap(tile);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Security code'), findsOneWidget);
+    // The 12-group code renders (spot-check a couple of groups exist).
+    expect(find.byType(SecurityCodeScreen), findsOneWidget);
   });
 
   testWidgets('Replying quotes the original and the quote jumps back to it',
@@ -1335,6 +1358,17 @@ void main() {
       final bytes = base64.decode(blob);
       bytes[20] = bytes[20] ^ 0xFF; // flip a byte in the ciphertext region
       expect(E2eCrypto.decrypt(key, base64.encode(bytes)), isNull);
+    });
+
+    test('safety number is stable, symmetric, and 12 groups of 5 digits', () {
+      final a = E2eCrypto.safetyNumber('+1 555 0199', '+1 555 0100');
+      final b = E2eCrypto.safetyNumber('15550100', '15550199');
+      expect(a, b); // order-independent
+      final groups = a.split(' ');
+      expect(groups.length, 12);
+      expect(groups.every((g) => RegExp(r'^\d{5}$').hasMatch(g)), isTrue);
+      // A different pair yields a different code.
+      expect(a, isNot(E2eCrypto.safetyNumber('+1 555 0199', '+1 555 0123')));
     });
   });
 }
