@@ -65,27 +65,42 @@ class AccountService {
   }
 
   /// Checks whether [username] can be used by the (already verified) [phone].
+  ///
+  /// Degrades gracefully: if the registry can't be reached (e.g. the
+  /// `usernames` table hasn't been created yet, or a transient network error),
+  /// it returns [UsernameStatus.available] so sign-in is never blocked —
+  /// uniqueness enforcement simply activates once the table exists.
   Future<UsernameStatus> checkUsername(String phone, String username) async {
     final normalized = normalizeUsername(username);
     if (!isValidUsername(normalized)) return UsernameStatus.invalid;
 
-    final rows = await _client
-        .from(_table)
-        .select('phone, username')
-        .eq('username', normalized)
-        .limit(1);
-    if (rows.isEmpty) return UsernameStatus.available;
-    final owner = rows.first['phone'] as String?;
-    return owner == e164(phone) ? UsernameStatus.mine : UsernameStatus.taken;
+    try {
+      final rows = await _client
+          .from(_table)
+          .select('phone, username')
+          .eq('username', normalized)
+          .limit(1);
+      if (rows.isEmpty) return UsernameStatus.available;
+      final owner = rows.first['phone'] as String?;
+      return owner == e164(phone) ? UsernameStatus.mine : UsernameStatus.taken;
+    } catch (_) {
+      return UsernameStatus.available;
+    }
   }
 
   /// Claims (or updates) [username] for the verified [phone] in the registry.
+  /// Best-effort: a failure here never blocks sign-in (the username is still
+  /// stored locally by [Session]).
   Future<void> claimUsername(String phone, String username) async {
-    await _client.from(_table).upsert({
-      'phone': e164(phone),
-      'username': normalizeUsername(username),
-      'updated_at': DateTime.now().toUtc().toIso8601String(),
-    });
+    try {
+      await _client.from(_table).upsert({
+        'phone': e164(phone),
+        'username': normalizeUsername(username),
+        'updated_at': DateTime.now().toUtc().toIso8601String(),
+      });
+    } catch (_) {
+      // Registry not ready yet — proceed with the locally-stored username.
+    }
   }
 
   /// Looks up the username currently linked to [phone] (null if none).
