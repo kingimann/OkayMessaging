@@ -5,6 +5,9 @@ class AppUser {
   final String avatarColor; // hex string used to build a placeholder avatar
   final String about;
   final String phone;
+
+  /// A public handle (without the leading '@'), e.g. "ada".
+  final String username;
   final bool isOnline;
 
   /// True for group conversations rather than a single person.
@@ -16,9 +19,13 @@ class AppUser {
     required this.avatarColor,
     this.about = 'Hey there! I am using Okay Messaging.',
     this.phone = '',
+    this.username = '',
     this.isOnline = false,
     this.isGroup = false,
   });
+
+  /// The handle with a leading '@', or empty when none is set.
+  String get handle => username.isEmpty ? '' : '@$username';
 
   Map<String, dynamic> toJson() => {
         'id': id,
@@ -26,6 +33,7 @@ class AppUser {
         'avatarColor': avatarColor,
         'about': about,
         'phone': phone,
+        'username': username,
         'isOnline': isOnline,
         'isGroup': isGroup,
       };
@@ -36,6 +44,7 @@ class AppUser {
         avatarColor: json['avatarColor'] as String,
         about: json['about'] as String? ?? '',
         phone: json['phone'] as String? ?? '',
+        username: json['username'] as String? ?? '',
         isOnline: json['isOnline'] as bool? ?? false,
         isGroup: json['isGroup'] as bool? ?? false,
       );

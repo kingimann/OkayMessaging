@@ -36,8 +36,13 @@ class Session {
     }
   }
 
-  /// Signs in with a phone number and display name, persisting locally.
-  Future<void> signIn({required String phone, required String name}) async {
+  /// Signs in with a phone number, display name, and optional username,
+  /// persisting locally.
+  Future<void> signIn({
+    required String phone,
+    required String name,
+    String username = '',
+  }) async {
     final trimmedName = name.trim().isEmpty ? phone : name.trim();
     final me = AppUser(
       id: phone,
@@ -45,12 +50,20 @@ class Session {
       avatarColor: _colorForPhone(phone),
       about: 'Available',
       phone: phone,
+      username: _normalizeUsername(username),
     );
     _prefs ??= await SharedPreferences.getInstance();
     await _prefs!.setString(_key, jsonEncode(me.toJson()));
     user.value = me;
     AppState.profile.value = me;
   }
+
+  /// Lowercases and strips a leading '@' / invalid characters from a username.
+  static String _normalizeUsername(String raw) => raw
+      .trim()
+      .replaceFirst(RegExp(r'^@+'), '')
+      .toLowerCase()
+      .replaceAll(RegExp(r'[^a-z0-9_.]'), '');
 
   /// Updates the signed-in user's name/about and persists it on the device,
   /// keeping the phone number (identity) and avatar color.
@@ -66,6 +79,7 @@ class Session {
       avatarColor: current.avatarColor,
       about: about.trim().isEmpty ? current.about : about.trim(),
       phone: current.phone,
+      username: current.username,
     );
     _prefs ??= await SharedPreferences.getInstance();
     await _prefs!.setString(_key, jsonEncode(updated.toJson()));
@@ -82,13 +96,18 @@ class Session {
 
   /// Establishes a signed-in identity synchronously for tests.
   @visibleForTesting
-  void signInForTest({String phone = '+1 555 0100', String name = 'You'}) {
+  void signInForTest({
+    String phone = '+1 555 0100',
+    String name = 'You',
+    String username = 'you',
+  }) {
     final me = AppUser(
       id: phone,
       name: name,
       avatarColor: _colorForPhone(phone),
       about: 'Available',
       phone: phone,
+      username: username,
     );
     user.value = me;
     AppState.profile.value = me;

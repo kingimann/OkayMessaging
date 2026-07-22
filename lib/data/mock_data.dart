@@ -10,6 +10,7 @@ class MockData {
   static const AppUser me = AppUser(
     id: 'me',
     name: 'You',
+    username: 'you',
     avatarColor: '#25D366',
     about: 'Available',
     phone: '+1 555 0100',
@@ -18,6 +19,7 @@ class MockData {
   static const AppUser _alice = AppUser(
     id: 'u_alice',
     name: 'Alice Bennett',
+    username: 'aliceb',
     avatarColor: '#E57373',
     about: 'At the gym 💪',
     phone: '+1 555 0111',
@@ -27,6 +29,7 @@ class MockData {
   static const AppUser _bob = AppUser(
     id: 'u_bob',
     name: 'Bob Carter',
+    username: 'bobc',
     avatarColor: '#64B5F6',
     about: 'Busy',
     phone: '+1 555 0122',
@@ -35,6 +38,7 @@ class MockData {
   static const AppUser _carol = AppUser(
     id: 'u_carol',
     name: 'Carol Diaz',
+    username: 'carold',
     avatarColor: '#BA68C8',
     about: 'Sleeping 😴',
     phone: '+1 555 0133',
@@ -52,6 +56,7 @@ class MockData {
   static const AppUser _erin = AppUser(
     id: 'u_erin',
     name: 'Erin Foster',
+    username: 'erinf',
     avatarColor: '#FFB74D',
     about: 'Travelling ✈️',
     phone: '+1 555 0144',
@@ -61,6 +66,7 @@ class MockData {
   static const AppUser _frank = AppUser(
     id: 'u_frank',
     name: 'Frank Green',
+    username: 'frankg',
     avatarColor: '#A1887F',
     about: 'Can\'t talk, WhatsApp only',
     phone: '+1 555 0155',
@@ -70,6 +76,7 @@ class MockData {
   static const AppUser _grace = AppUser(
     id: 'u_grace',
     name: 'Grace Hopper',
+    username: 'gracehop',
     avatarColor: '#4DD0E1',
     about: 'Debugging the future',
     phone: '+1 555 0166',

@@ -48,11 +48,13 @@ class RelayService {
     required Message message,
     required String fromPhone,
     required String fromName,
+    String fromUsername = '',
   }) {
     return {
       'id': message.id,
       'from': fromPhone,
       'fromName': fromName,
+      'fromUsername': fromUsername,
       'text': message.text,
       'ts': message.time.toIso8601String(),
       'isImage': message.isImage,
@@ -85,9 +87,10 @@ class RelayService {
         name: (payload['fromName'] as String?)?.trim().isNotEmpty == true
             ? payload['fromName'] as String
             : from,
-        avatarColor: '#64B5F6',
+        avatarColor: '#7A5CFF',
         about: 'Available',
         phone: from,
+        username: (payload['fromUsername'] as String?) ?? '',
       );
       chat = Chat(id: 'chat_$from', contact: contact, messages: const []);
       target.upsert(chat);
@@ -305,7 +308,12 @@ class RelayService {
         _sendChannels.putIfAbsent(name, () => _client.channel(name));
     await channel.sendBroadcastMessage(
       event: 'msg',
-      payload: encode(message: message, fromPhone: me.phone, fromName: me.name),
+      payload: encode(
+        message: message,
+        fromPhone: me.phone,
+        fromName: me.name,
+        fromUsername: me.username,
+      ),
     );
   }
 

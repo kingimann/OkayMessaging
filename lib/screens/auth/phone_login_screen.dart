@@ -18,6 +18,7 @@ class PhoneLoginScreen extends StatefulWidget {
 class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
   final _formKey = GlobalKey<FormState>();
   final _name = TextEditingController();
+  final _username = TextEditingController();
   final _phone = TextEditingController();
   String _dialCode = '+1';
   bool _busy = false;
@@ -27,6 +28,7 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
   @override
   void dispose() {
     _name.dispose();
+    _username.dispose();
     _phone.dispose();
     super.dispose();
   }
@@ -35,7 +37,11 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _busy = true);
     final phone = '$_dialCode ${_phone.text.trim()}';
-    await Session.instance.signIn(phone: phone, name: _name.text.trim());
+    await Session.instance.signIn(
+      phone: phone,
+      name: _name.text.trim(),
+      username: _username.text.trim(),
+    );
     // The auth gate reacts to the new session and shows the home screen.
   }
 
@@ -80,6 +86,28 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
                     ),
                     validator: (v) =>
                         (v == null || v.trim().isEmpty) ? 'Enter a name' : null,
+                  ),
+                  const SizedBox(height: 14),
+                  TextFormField(
+                    controller: _username,
+                    textInputAction: TextInputAction.next,
+                    decoration: const InputDecoration(
+                      labelText: 'Username',
+                      prefixText: '@',
+                      helperText: 'Letters, numbers, _ and .',
+                      border: OutlineInputBorder(),
+                    ),
+                    validator: (v) {
+                      final u = (v ?? '')
+                          .trim()
+                          .replaceFirst(RegExp(r'^@+'), '')
+                          .toLowerCase();
+                      if (u.isEmpty) return 'Choose a username';
+                      if (!RegExp(r'^[a-z0-9_.]{3,}$').hasMatch(u)) {
+                        return 'At least 3 letters/numbers';
+                      }
+                      return null;
+                    },
                   ),
                   const SizedBox(height: 14),
                   Row(

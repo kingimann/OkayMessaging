@@ -144,7 +144,7 @@ class _ProfileCard extends StatelessWidget {
             title: Text(me.name,
                 style:
                     const TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
-            subtitle: Text(me.about),
+            subtitle: Text(me.handle.isNotEmpty ? me.handle : me.about),
             trailing: const Icon(Icons.qr_code, color: Colors.grey),
             shape: const RoundedRectangleBorder(
               borderRadius: BorderRadius.all(Radius.circular(16)),

@@ -571,17 +571,33 @@ void main() {
     expect(find.byType(PhoneLoginScreen), findsOneWidget);
     expect(find.text('Alice Bennett'), findsNothing);
 
-    // Enter a name and phone number and continue.
+    // Enter a name, username and phone number and continue.
     await tester.enterText(find.widgetWithText(TextFormField, 'Your name'),
         'Ada');
+    await tester.enterText(
+        find.widgetWithText(TextFormField, 'Username'), 'AdaL');
     await tester.enterText(
         find.widgetWithText(TextFormField, 'Phone number'), '5550123');
     await tester.tap(find.text('Continue'));
     await tester.pumpAndSettle();
 
-    // Now signed in: the chat list is shown.
+    // Now signed in with a normalized username.
     expect(find.byType(PhoneLoginScreen), findsNothing);
     expect(find.text('Alice Bennett'), findsOneWidget);
+    expect(Session.instance.user.value?.username, 'adal');
+  });
+
+  testWidgets('Contact info shows the contact\'s @username', (tester) async {
+    await tester.pumpWidget(const OkayMessagingApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Alice Bennett'));
+    await tester.pumpAndSettle();
+    // Tap the header to open contact info.
+    await tester.tap(find.text('Alice Bennett'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('@aliceb'), findsOneWidget);
   });
 
   testWidgets('Replying quotes the original and the quote jumps back to it',

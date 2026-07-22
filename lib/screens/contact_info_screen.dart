@@ -50,6 +50,19 @@ class ContactInfoScreen extends StatelessWidget {
                   ?.copyWith(fontWeight: FontWeight.w600),
             ),
           ),
+          if (user.handle.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Center(
+              child: Text(
+                user.handle,
+                style: const TextStyle(
+                  color: AppColors.tealGreenDark,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
           if (user.phone.isNotEmpty) ...[
             const SizedBox(height: 4),
             Center(
