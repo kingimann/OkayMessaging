@@ -94,6 +94,15 @@ class Message {
   final int paymentAmountCents;
   final String paymentCurrency;
 
+  /// True for a poll; [pollQuestion] / [pollOptions] describe it, [pollVotes]
+  /// holds the tally per option, and [pollMyVote] is this device's choice
+  /// (-1 = not voted yet).
+  final bool isPoll;
+  final String pollQuestion;
+  final List<String> pollOptions;
+  final List<int> pollVotes;
+  final int pollMyVote;
+
   const Message({
     required this.id,
     required this.text,
@@ -121,7 +130,15 @@ class Message {
     this.isPayment = false,
     this.paymentAmountCents = 0,
     this.paymentCurrency = 'cad',
+    this.isPoll = false,
+    this.pollQuestion = '',
+    this.pollOptions = const [],
+    this.pollVotes = const [],
+    this.pollMyVote = -1,
   });
+
+  /// Total votes cast across all poll options.
+  int get pollTotalVotes => pollVotes.fold(0, (n, v) => n + v);
 
   Map<String, dynamic> toJson() => {
         'id': id,
@@ -150,6 +167,11 @@ class Message {
         'isPayment': isPayment,
         'paymentAmountCents': paymentAmountCents,
         'paymentCurrency': paymentCurrency,
+        'isPoll': isPoll,
+        'pollQuestion': pollQuestion,
+        'pollOptions': pollOptions,
+        'pollVotes': pollVotes,
+        'pollMyVote': pollMyVote,
       };
 
   factory Message.fromJson(Map<String, dynamic> json) => Message(
@@ -184,6 +206,15 @@ class Message {
         isPayment: json['isPayment'] as bool? ?? false,
         paymentAmountCents: json['paymentAmountCents'] as int? ?? 0,
         paymentCurrency: json['paymentCurrency'] as String? ?? 'cad',
+        isPoll: json['isPoll'] as bool? ?? false,
+        pollQuestion: json['pollQuestion'] as String? ?? '',
+        pollOptions:
+            (json['pollOptions'] as List?)?.cast<String>() ?? const [],
+        pollVotes: (json['pollVotes'] as List?)
+                ?.map((e) => (e as num).toInt())
+                .toList() ??
+            const [],
+        pollMyVote: json['pollMyVote'] as int? ?? -1,
       );
 
   Message copyWith({
@@ -192,6 +223,8 @@ class Message {
     List<String>? reactions,
     bool? edited,
     DateTime? expiresAt,
+    List<int>? pollVotes,
+    int? pollMyVote,
   }) {
     return Message(
       id: id,
@@ -220,6 +253,11 @@ class Message {
       isPayment: isPayment,
       paymentAmountCents: paymentAmountCents,
       paymentCurrency: paymentCurrency,
+      isPoll: isPoll,
+      pollQuestion: pollQuestion,
+      pollOptions: pollOptions,
+      pollVotes: pollVotes ?? this.pollVotes,
+      pollMyVote: pollMyVote ?? this.pollMyVote,
     );
   }
 

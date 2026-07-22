@@ -239,6 +239,57 @@ class CommunityStore extends ChangeNotifier {
     notifyListeners();
   }
 
+  // --- Server management -------------------------------------------------
+
+  void renameCommunity(String communityId, String name) {
+    final community = byId(communityId);
+    if (community == null || name.trim().isEmpty) return;
+    _replace(community.copyWith(name: name.trim()));
+  }
+
+  void setCommunityColor(String communityId, String color) {
+    final community = byId(communityId);
+    if (community == null) return;
+    _replace(community.copyWith(color: color));
+  }
+
+  /// Promotes/demotes a member. The owner role can't be changed here.
+  void setMemberRole(String communityId, String memberId, MemberRole role) {
+    final community = byId(communityId);
+    if (community == null) return;
+    final members = community.members.map((m) {
+      if (m.id != memberId || m.role == MemberRole.owner) return m;
+      return m.copyWith(role: role);
+    }).toList();
+    _replace(community.copyWith(members: members));
+  }
+
+  /// Removes a member (the owner can't be removed).
+  void removeMember(String communityId, String memberId) {
+    final community = byId(communityId);
+    if (community == null) return;
+    final members = community.members
+        .where((m) => m.id != memberId || m.role == MemberRole.owner)
+        .toList();
+    _replace(community.copyWith(members: members));
+  }
+
+  /// Adds a member (used when someone joins via an invite).
+  void addMember(String communityId, Member member) {
+    final community = byId(communityId);
+    if (community == null) return;
+    if (community.members.any((m) => m.id == member.id)) return;
+    _replace(community.copyWith(members: [...community.members, member]));
+  }
+
+  /// A short, shareable invite code derived from the community id, and the
+  /// deep-link an invitee would open.
+  static String inviteCode(Community community) =>
+      community.id.hashCode.toRadixString(36).replaceAll('-', '').padLeft(6, '0');
+
+  static String inviteLink(Community community) =>
+      'https://okay.chat/join/${inviteCode(community)}';
+
   @visibleForTesting
   void resetForTest() {
     _communities = _seed();

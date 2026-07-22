@@ -11,6 +11,7 @@ import '../models/user.dart';
 import '../payments/payment_amount_sheet.dart';
 import '../payments/payment_service.dart';
 import '../relay/relay_config.dart';
+import '../widgets/poll_widgets.dart';
 import '../relay/relay_service.dart';
 import '../state/chat_store.dart';
 import '../state/file_transfer.dart';
@@ -644,6 +645,8 @@ class _ChatScreenState extends State<ChatScreen> {
             m.isLocation && !_selectionMode ? () => _openLocation(m) : null,
         onOpenContact:
             m.isContact && !_selectionMode ? () => _openSharedContact(m) : null,
+        onPollVote:
+            m.isPoll && !_selectionMode ? (i) => _handleVotePoll(m, i) : null,
       );
 
       final key = _messageKeys.putIfAbsent(m.id, () => GlobalKey());
@@ -1247,6 +1250,39 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
+  /// Composes and sends a poll into the conversation.
+  Future<void> _handleCreatePoll() async {
+    final result =
+        await showModalBottomSheet<({String question, List<String> options})>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => const PollComposerSheet(),
+    );
+    if (result == null || !mounted) return;
+    final now = DateTime.now();
+    _deliver(Message(
+      id: 'poll_${now.microsecondsSinceEpoch}',
+      text: '',
+      time: now,
+      isMe: true,
+      status: MessageStatus.sent,
+      isPoll: true,
+      pollQuestion: result.question,
+      pollOptions: result.options,
+      pollVotes: List<int>.filled(result.options.length, 0),
+    ));
+  }
+
+  /// Records the local vote and syncs it to a real peer.
+  void _handleVotePoll(Message message, int option) {
+    final previous = _store.votePoll(_chatId, message.id, option);
+    if (previous == option) return; // no change
+    if (RelayConfig.isEnabled && _isRealPeer(widget.chat.contact)) {
+      RelayService.instance
+          .sendPollVote(widget.chat.contact.phone, message.id, option, previous);
+    }
+  }
+
   void _showAttachmentSheet() {
     showModalBottomSheet<void>(
       context: context,
@@ -1265,6 +1301,8 @@ class _ChatScreenState extends State<ChatScreen> {
               _pickContactToShare),
           (Icons.attach_money, 'Payment', const Color(0xFF12B76A),
               _handleSendMoney),
+          (Icons.poll_outlined, 'Poll', const Color(0xFF7F66FF),
+              _handleCreatePoll),
         ];
         return SafeArea(
           child: Padding(

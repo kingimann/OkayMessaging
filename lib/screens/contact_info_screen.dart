@@ -190,9 +190,65 @@ class ContactInfoScreen extends StatelessWidget {
     }
   }
 
-  void _report(BuildContext context) {
+  Future<void> _report(BuildContext context) async {
+    const reasons = [
+      'Spam or scam',
+      'Harassment or bullying',
+      'Inappropriate content',
+      'Impersonation',
+      'Something else',
+    ];
+    var alsoBlock = true;
+    final reason = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (sheetContext, setSheet) => SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 4, 20, 4),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Report ${user.name}',
+                        style: const TextStyle(
+                            fontSize: 18, fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 4),
+                    Text('Choose a reason. Reports are confidential.',
+                        style: TextStyle(
+                            color: Colors.grey.shade600, fontSize: 13)),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 6),
+              for (final r in reasons)
+                ListTile(
+                  title: Text(r),
+                  trailing: const Icon(Icons.chevron_right, size: 20),
+                  onTap: () => Navigator.pop(sheetContext, r),
+                ),
+              CheckboxListTile(
+                value: alsoBlock,
+                onChanged: (v) => setSheet(() => alsoBlock = v ?? true),
+                title: Text('Also block ${user.name}'),
+                controlAffinity: ListTileControlAffinity.leading,
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (reason == null || !context.mounted) return;
+    if (alsoBlock) AppState.setBlocked(user.phone, true);
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('${user.name} reported')),
+      SnackBar(
+          content: Text(alsoBlock
+              ? 'Reported and blocked ${user.name}'
+              : 'Thanks — ${user.name} has been reported')),
     );
   }
 }

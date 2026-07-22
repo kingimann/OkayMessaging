@@ -101,6 +101,10 @@ class RelayService {
       'isPayment': message.isPayment,
       'paymentAmountCents': message.paymentAmountCents,
       'paymentCurrency': message.paymentCurrency,
+      'isPoll': message.isPoll,
+      'pollQuestion': message.pollQuestion,
+      'pollOptions': message.pollOptions,
+      'pollVotes': message.pollVotes,
       'expiresAt': message.expiresAt?.toIso8601String(),
     });
 
@@ -208,6 +212,14 @@ class RelayService {
         isPayment: content['isPayment'] as bool? ?? false,
         paymentAmountCents: content['paymentAmountCents'] as int? ?? 0,
         paymentCurrency: content['paymentCurrency'] as String? ?? 'cad',
+        isPoll: content['isPoll'] as bool? ?? false,
+        pollQuestion: content['pollQuestion'] as String? ?? '',
+        pollOptions:
+            (content['pollOptions'] as List?)?.cast<String>() ?? const [],
+        pollVotes: (content['pollVotes'] as List?)
+                ?.map((e) => (e as num).toInt())
+                .toList() ??
+            const [],
         expiresAt: content['expiresAt'] == null
             ? null
             : DateTime.tryParse(content['expiresAt'] as String),
@@ -383,6 +395,25 @@ class RelayService {
             if (chat != null) {
               ChatStore.instance.setReactionState(
                   chat.id, id, emoji, payload['add'] as bool? ?? true);
+            }
+          },
+        )
+        .onBroadcast(
+          event: 'poll',
+          callback: (payload) {
+            final from = payload['from'] as String?;
+            final id = payload['id'] as String?;
+            if (from == null || id == null || digits(from) == digits(me)) {
+              return;
+            }
+            final chat = ChatStore.instance.chatWithContact(from);
+            if (chat != null) {
+              ChatStore.instance.applyRemotePollVote(
+                chat.id,
+                id,
+                (payload['add'] as num?)?.toInt() ?? -1,
+                (payload['remove'] as num?)?.toInt() ?? -1,
+              );
             }
           },
         )
@@ -669,6 +700,27 @@ class RelayService {
     await channel.sendBroadcastMessage(
       event: 'reaction',
       payload: {'from': me.phone, 'id': messageId, 'emoji': emoji, 'add': add},
+    );
+  }
+
+  /// Broadcasts a poll vote on [messageId] to [contactPhone]: increments
+  /// [addOption] and decrements a prior [removeOption] (-1 for none).
+  Future<void> sendPollVote(
+      String contactPhone, String messageId, int addOption,
+      int removeOption) async {
+    if (!_initialized) return;
+    final me = Session.instance.user.value;
+    if (me == null) return;
+    final channel = _sendChannels.putIfAbsent(inboxChannel(contactPhone),
+        () => _client.channel(inboxChannel(contactPhone)));
+    await channel.sendBroadcastMessage(
+      event: 'poll',
+      payload: {
+        'from': me.phone,
+        'id': messageId,
+        'add': addOption,
+        'remove': removeOption,
+      },
     );
   }
 

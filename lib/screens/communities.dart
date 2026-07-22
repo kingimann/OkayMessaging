@@ -5,6 +5,7 @@ import '../models/message.dart';
 import '../state/community_store.dart';
 import '../theme/app_theme.dart';
 import '../utils/date_formatter.dart';
+import 'community_settings_screen.dart';
 
 Color _hex(String s) =>
     Color(int.parse(s.replaceFirst('#', 'ff'), radix: 16));
@@ -282,6 +283,13 @@ class CommunityScreen extends StatelessWidget {
                 icon: const Icon(Icons.add),
                 tooltip: 'Add channel',
                 onPressed: () => _addChannel(context),
+              ),
+              IconButton(
+                icon: const Icon(Icons.settings_outlined),
+                tooltip: 'Server settings',
+                onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) =>
+                        CommunitySettingsScreen(communityId: communityId))),
               ),
             ],
           ),
@@ -697,11 +705,77 @@ class _MembersSheet extends StatelessWidget {
               trailing: m.role == MemberRole.member
                   ? null
                   : _RoleBadge(role: m.role),
+              onTap: _canManage(m)
+                  ? () => _manageMember(context, m)
+                  : null,
             ),
           const SizedBox(height: 12),
         ],
       ),
     );
+  }
+
+  /// The current user's role in this community ('me' is the local user).
+  MemberRole get _myRole => community.members
+      .firstWhere((m) => m.id == 'me',
+          orElse: () => const Member(id: 'me', name: 'You'))
+      .role;
+
+  /// Owners and admins can manage other non-owner members (not themselves).
+  bool _canManage(Member m) =>
+      (_myRole == MemberRole.owner || _myRole == MemberRole.admin) &&
+      m.id != 'me' &&
+      m.role != MemberRole.owner;
+
+  Future<void> _manageMember(BuildContext context, Member m) async {
+    final store = CommunityStore.instance;
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (_) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              title: Text(m.name,
+                  style: const TextStyle(fontWeight: FontWeight.w600)),
+              subtitle: Text(roleName(m.role)),
+            ),
+            const Divider(height: 1),
+            if (m.role == MemberRole.member)
+              ListTile(
+                leading: const Icon(Icons.shield_outlined),
+                title: const Text('Make admin'),
+                onTap: () => Navigator.pop(context, 'promote'),
+              )
+            else
+              ListTile(
+                leading: const Icon(Icons.person_outline),
+                title: const Text('Remove admin'),
+                onTap: () => Navigator.pop(context, 'demote'),
+              ),
+            ListTile(
+              leading: const Icon(Icons.person_remove_outlined,
+                  color: Colors.red),
+              title: const Text('Remove from server',
+                  style: TextStyle(color: Colors.red)),
+              onTap: () => Navigator.pop(context, 'remove'),
+            ),
+          ],
+        ),
+      ),
+    );
+    switch (action) {
+      case 'promote':
+        store.setMemberRole(community.id, m.id, MemberRole.admin);
+        break;
+      case 'demote':
+        store.setMemberRole(community.id, m.id, MemberRole.member);
+        break;
+      case 'remove':
+        store.removeMember(community.id, m.id);
+        break;
+    }
   }
 }
 

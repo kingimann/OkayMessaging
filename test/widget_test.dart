@@ -1294,6 +1294,46 @@ void main() {
     expect(m.reactions.contains('👍'), isFalse);
   });
 
+  test('votePoll moves a vote between options and syncs remote votes', () {
+    ChatStore.instance.reset();
+    final bob = ChatStore.instance.chatWithContact('u_bob')!;
+    ChatStore.instance.addMessage(
+      bob.id,
+      Message(
+        id: 'p',
+        text: '',
+        time: DateTime(2024),
+        isMe: false,
+        isPoll: true,
+        pollQuestion: 'Best?',
+        pollOptions: const ['A', 'B', 'C'],
+        pollVotes: const [0, 0, 0],
+      ),
+    );
+
+    // Vote A, then switch to B — A goes back to 0, B to 1.
+    var prev = ChatStore.instance.votePoll(bob.id, 'p', 0);
+    expect(prev, -1);
+    prev = ChatStore.instance.votePoll(bob.id, 'p', 1);
+    expect(prev, 0);
+    var m = ChatStore.instance
+        .chatById(bob.id)!
+        .messages
+        .firstWhere((x) => x.id == 'p');
+    expect(m.pollVotes, [0, 1, 0]);
+    expect(m.pollMyVote, 1);
+
+    // A remote peer votes C; our own choice is untouched.
+    ChatStore.instance.applyRemotePollVote(bob.id, 'p', 2, -1);
+    m = ChatStore.instance
+        .chatById(bob.id)!
+        .messages
+        .firstWhere((x) => x.id == 'p');
+    expect(m.pollVotes, [0, 1, 1]);
+    expect(m.pollMyVote, 1);
+    expect(m.pollTotalVotes, 2);
+  });
+
   test('editMessage replaces text and marks it edited', () {
     ChatStore.instance.reset();
     final bob = ChatStore.instance.chatWithContact('u_bob')!;
@@ -1879,6 +1919,30 @@ void main() {
       final got =
           ChatStore.instance.chatWithContact('+1 555 0199')!.messages.single;
       expect(got.text, 'secret rendezvous at noon');
+    });
+
+    test('a poll survives the relay with question, options, and tally', () {
+      ChatStore.instance.reset();
+      final poll = Message(
+        id: 'poll1',
+        text: '',
+        time: DateTime(2024, 1, 1, 9),
+        isMe: true,
+        isPoll: true,
+        pollQuestion: 'Lunch?',
+        pollOptions: const ['Sushi', 'Tacos'],
+        pollVotes: const [3, 1],
+      );
+      final payload = RelayService.encode(
+          message: poll, fromPhone: '+1 555 0199', fromName: 'Grace');
+      RelayService.applyIncoming(payload, myPhone: '+1 555 0100');
+      final got =
+          ChatStore.instance.chatWithContact('+1 555 0199')!.messages.single;
+      expect(got.isPoll, isTrue);
+      expect(got.pollQuestion, 'Lunch?');
+      expect(got.pollOptions, ['Sushi', 'Tacos']);
+      expect(got.pollVotes, [3, 1]);
+      expect(got.pollMyVote, -1); // the receiver hasn't voted
     });
 
     test('an in-chat payment survives the relay with amount and note', () {

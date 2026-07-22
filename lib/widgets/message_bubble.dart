@@ -5,6 +5,7 @@ import '../payments/payment_amount_sheet.dart';
 import '../theme/app_theme.dart';
 import '../utils/date_formatter.dart';
 import 'message_status_icon.dart';
+import 'poll_widgets.dart';
 import 'rich_message_text.dart';
 
 /// A single chat bubble, aligned left for incoming and right for outgoing.
@@ -31,6 +32,9 @@ class MessageBubble extends StatelessWidget {
   /// Tapped on the "Message" action of a shared-contact card.
   final VoidCallback? onOpenContact;
 
+  /// Called with the chosen option index when the user votes on a poll.
+  final ValueChanged<int>? onPollVote;
+
   const MessageBubble({
     super.key,
     required this.message,
@@ -42,6 +46,7 @@ class MessageBubble extends StatelessWidget {
     this.starred = false,
     this.onOpenLocation,
     this.onOpenContact,
+    this.onPollVote,
   });
 
   @override
@@ -165,7 +170,14 @@ class MessageBubble extends StatelessWidget {
                           ],
                         ),
                       ),
-                    if (message.isVoice)
+                    if (message.isPoll)
+                      PollBubble(
+                        message: message,
+                        textColor: textColor,
+                        metaColor: metaColor,
+                        onVote: (i) => onPollVote?.call(i),
+                      )
+                    else if (message.isVoice)
                       _VoiceContent(
                         seconds: message.voiceSeconds,
                         textColor: textColor,
