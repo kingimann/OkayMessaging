@@ -44,10 +44,8 @@ jobs:
         run: |
           flutter build web --release --base-href "/OkayMessaging/" \
             --dart-define=SUPABASE_URL=https://trbdqucphtsstnrwwfnw.supabase.co \
-            --dart-define=SUPABASE_ANON_KEY=sb_publishable_PrY-Aru0AryWyhHgfD2Tow_uXca1owt
-            # Re-add `--dart-define=REQUIRE_OTP=true` (with a trailing \ on the
-            # line above) once the Supabase Phone provider + SMS is confirmed
-            # working, to turn on verified sign-in.
+            --dart-define=SUPABASE_ANON_KEY=sb_publishable_PrY-Aru0AryWyhHgfD2Tow_uXca1owt \
+            --dart-define=REQUIRE_OTP=true
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
