@@ -39,11 +39,12 @@ identity-level steps that only you can complete, because they tie the app to
    - iOS: set your Apple Developer team and a provisioning profile in Xcode
      (or let Codemagic manage it via the App Store Connect integration).
 
-2. **App icons** — done. A branded icon (white chat bubble + purple check)
-   is generated for Android, iOS, and web. To change the art, edit
-   `assets/icon/icon.png` (and `icon_foreground.png`) and rerun
-   `dart run flutter_launcher_icons`. A custom launch screen is still
-   optional if you want to replace the default white splash.
+2. **App icons & splash** — done. A branded icon (white chat bubble + purple
+   check) is generated for Android, iOS, and web, and a matching native
+   splash screen (logo on brand purple, incl. Android 12) shows on launch.
+   To change the art, edit `assets/icon/icon.png` /
+   `assets/icon/splash_logo.png` and rerun `dart run flutter_launcher_icons`
+   and `dart run flutter_native_splash:create`.
 
 3. **Store metadata** — app name, description, privacy policy URL, and
    screenshots. Because the app is store-nothing and end-to-end encrypted,
