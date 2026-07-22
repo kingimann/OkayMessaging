@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide Session;
 
+import '../crypto/e2e.dart';
 import '../models/chat.dart';
 import '../models/message.dart';
 import '../models/user.dart';
@@ -43,19 +44,31 @@ class RelayService {
   /// The inbox channel a user listens on / is reached at.
   static String inboxChannel(String phone) => 'inbox_${digits(phone)}';
 
-  /// Builds the broadcast payload for an outgoing message.
+  /// Builds the broadcast payload for an outgoing message. When [toPhone] is
+  /// given, the message text is end-to-end encrypted so the relay forwards
+  /// ciphertext it cannot read; the recipient decrypts with the same derived
+  /// key. Falls back to plaintext (enc: 0) when no recipient is known.
   static Map<String, dynamic> encode({
     required Message message,
     required String fromPhone,
     required String fromName,
     String fromUsername = '',
+    String toPhone = '',
   }) {
+    var text = message.text;
+    var enc = 0;
+    if (toPhone.isNotEmpty && text.isNotEmpty) {
+      final key = E2eCrypto.keyFor(fromPhone, toPhone);
+      text = E2eCrypto.encrypt(key, message.text);
+      enc = 1;
+    }
     return {
       'id': message.id,
       'from': fromPhone,
       'fromName': fromName,
       'fromUsername': fromUsername,
-      'text': message.text,
+      'text': text,
+      'enc': enc,
       'ts': message.time.toIso8601String(),
       'isImage': message.isImage,
       'imageSeed': message.imageSeed,
@@ -101,11 +114,20 @@ class RelayService {
       return false;
     }
 
+    var text = (payload['text'] as String?) ?? '';
+    // enc may arrive as int (1) or bool (true) depending on JSON transport.
+    final encRaw = payload['enc'];
+    final encrypted = encRaw == 1 || encRaw == true;
+    if (encrypted && text.isNotEmpty) {
+      final key = E2eCrypto.keyFor(from, myPhone);
+      text = E2eCrypto.decrypt(key, text) ?? text;
+    }
+
     target.addMessage(
       chat.id,
       Message(
         id: id,
-        text: (payload['text'] as String?) ?? '',
+        text: text,
         time: DateTime.tryParse(payload['ts'] as String? ?? '')?.toLocal() ??
             DateTime.now(),
         isMe: false,
@@ -313,6 +335,7 @@ class RelayService {
         fromPhone: me.phone,
         fromName: me.name,
         fromUsername: me.username,
+        toPhone: contactPhone,
       ),
     );
   }

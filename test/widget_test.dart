@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:okay_messaging/app_state.dart';
+import 'package:okay_messaging/crypto/e2e.dart';
 import 'package:okay_messaging/main.dart';
 import 'package:okay_messaging/screens/auth/phone_login_screen.dart';
 import 'package:okay_messaging/screens/call_screen.dart';
@@ -1110,6 +1111,62 @@ void main() {
             .length,
         1,
       );
+    });
+
+    test('end-to-end encrypted text round-trips through encode/applyIncoming',
+        () {
+      ChatStore.instance.reset();
+      final msg = Message(
+        id: 'e1',
+        text: 'secret rendezvous at noon',
+        time: DateTime(2024, 1, 1, 9),
+        isMe: true,
+      );
+      final payload = RelayService.encode(
+        message: msg,
+        fromPhone: '+1 555 0199',
+        fromName: 'Grace',
+        toPhone: '+1 555 0100',
+      );
+      // The wire payload is ciphertext, not the plaintext.
+      expect(payload['enc'], 1);
+      expect(payload['text'], isNot('secret rendezvous at noon'));
+
+      RelayService.applyIncoming(payload, myPhone: '+1 555 0100');
+      final got =
+          ChatStore.instance.chatWithContact('+1 555 0199')!.messages.single;
+      expect(got.text, 'secret rendezvous at noon');
+    });
+  });
+
+  group('E2E crypto', () {
+    test('encrypt/decrypt round-trips with the derived shared key', () {
+      final key = E2eCrypto.keyFor('+1 555 0199', '+1 555 0100');
+      final blob = E2eCrypto.encrypt(key, 'hello 🔐 world');
+      expect(blob, isNot('hello 🔐 world'));
+      expect(E2eCrypto.decrypt(key, blob), 'hello 🔐 world');
+    });
+
+    test('both parties derive the same key regardless of order', () {
+      expect(
+        E2eCrypto.keyFor('+1 555 0199', '+1 (555) 0100'),
+        E2eCrypto.keyFor('15550100', '15550199'),
+      );
+    });
+
+    test('a wrong key fails to decrypt (returns null)', () {
+      final key = E2eCrypto.keyFor('+1 555 0199', '+1 555 0100');
+      final other = E2eCrypto.keyFor('+1 555 0199', '+1 555 0123');
+      final blob = E2eCrypto.encrypt(key, 'top secret');
+      expect(E2eCrypto.decrypt(other, blob), isNull);
+    });
+
+    test('a tampered ciphertext fails authentication', () {
+      final key = E2eCrypto.keyFor('+1 555 0199', '+1 555 0100');
+      final blob = E2eCrypto.encrypt(key, 'integrity matters');
+      final bytes = base64.decode(blob);
+      bytes[20] = bytes[20] ^ 0xFF; // flip a byte in the ciphertext region
+      expect(E2eCrypto.decrypt(key, base64.encode(bytes)), isNull);
     });
   });
 }
