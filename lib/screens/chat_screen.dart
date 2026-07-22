@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../app_state.dart';
 import '../models/chat.dart';
 import '../models/message.dart';
+import '../models/user.dart';
 import '../relay/relay_config.dart';
 import '../relay/relay_service.dart';
 import '../state/chat_store.dart';
@@ -69,12 +70,10 @@ class _ChatScreenState extends State<ChatScreen> {
     // Make sure a store entry exists (e.g. for a freshly started chat).
     _store.upsert(widget.chat);
     _captureUnreadAnchor();
-    // Start listening for this contact's messages if a relay is active.
-    final phone = widget.chat.contact.phone;
-    if (RelayConfig.isEnabled &&
-        !widget.chat.contact.isGroup &&
-        phone.isNotEmpty) {
-      RelayService.instance.ensureConversation(phone);
+    // Start listening for this contact's messages if a relay is active and
+    // this is a real number-based peer (not a seeded demo contact).
+    if (RelayConfig.isEnabled && _isRealPeer(widget.chat.contact)) {
+      RelayService.instance.ensureConversation(widget.chat.contact.phone);
     }
     _scrollController.addListener(_onScroll);
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -151,15 +150,19 @@ class _ChatScreenState extends State<ChatScreen> {
     setState(() => _replyTo = null);
     WidgetsBinding.instance.addPostFrameCallback((_) => _animateToBottom());
 
-    final phone = widget.chat.contact.phone;
-    if (RelayConfig.isEnabled && !widget.chat.contact.isGroup && phone.isNotEmpty) {
+    if (RelayConfig.isEnabled && _isRealPeer(widget.chat.contact)) {
       // Real device-to-device delivery; the other side replies for real.
-      RelayService.instance.send(phone, message);
+      RelayService.instance.send(widget.chat.contact.phone, message);
     } else {
-      // Local-only: keep the demo lively with a simulated reply.
+      // Demo contact (or no relay): keep it lively with a simulated reply.
       _scheduleAutoReply();
     }
   }
+
+  /// A real, number-identified peer (chat started with an actual phone number),
+  /// as opposed to a seeded demo contact or a group.
+  bool _isRealPeer(AppUser c) =>
+      !c.isGroup && c.phone.isNotEmpty && c.id == c.phone;
 
   void _handleSendImage() {
     final now = DateTime.now();

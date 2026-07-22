@@ -36,8 +36,15 @@ jobs:
         run: flutter test
 
       # base-href must match the project-site path: https://<user>.github.io/OkayMessaging/
+      # The Supabase values enable the store-nothing message relay (Realtime
+      # broadcast only — no database, no tables). SUPABASE_ANON_KEY is a
+      # *publishable* key: it is designed to be shipped in the client bundle,
+      # so it is provided here as a build arg rather than a secret.
       - name: Build web
-        run: flutter build web --release --base-href "/OkayMessaging/"
+        run: |
+          flutter build web --release --base-href "/OkayMessaging/" \
+            --dart-define=SUPABASE_URL=https://trbdqucphtsstnrwwfnw.supabase.co \
+            --dart-define=SUPABASE_ANON_KEY=sb_publishable_PrY-Aru0AryWyhHgfD2Tow_uXca1owt
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
