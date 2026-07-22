@@ -272,7 +272,10 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.enterText(find.byType(TextField).first, 'Ada Lovelace');
-    await tester.tap(find.byIcon(Icons.check));
+    // Tap the AppBar save action (a selected avatar swatch also renders a
+    // check icon, so scope the finder to the AppBar).
+    await tester.tap(find.descendant(
+        of: find.byType(AppBar), matching: find.byIcon(Icons.check)));
     await tester.pumpAndSettle();
 
     expect(find.text('Ada Lovelace'), findsOneWidget);
@@ -303,6 +306,8 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.tap(find.byIcon(Icons.person_outline));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Chats & appearance'));
     await tester.pumpAndSettle();
 
     final tile = find.text('Chat wallpaper');
@@ -1629,6 +1634,8 @@ void main() {
 
     await tester.tap(find.byIcon(Icons.person_outline));
     await tester.pumpAndSettle();
+    await tester.tap(find.text('Privacy & security'));
+    await tester.pumpAndSettle();
 
     expect(AppState.shareLastSeen.value, isTrue);
 
@@ -1718,6 +1725,8 @@ void main() {
 
     await tester.tap(find.byIcon(Icons.person_outline));
     await tester.pumpAndSettle();
+    await tester.tap(find.text('Privacy & security'));
+    await tester.pumpAndSettle();
 
     expect(AppState.sendReadReceipts.value, isTrue);
 
@@ -1738,6 +1747,8 @@ void main() {
 
     await tester.tap(find.byIcon(Icons.person_outline));
     await tester.pumpAndSettle();
+    await tester.tap(find.text('Privacy & security'));
+    await tester.pumpAndSettle();
 
     expect(AppState.sendTypingIndicators.value, isTrue);
 
@@ -1756,6 +1767,88 @@ void main() {
     AppState.messageTextScale.value = 1.2;
     AppState.resetForTest();
     expect(AppState.messageTextScale.value, 1.0);
+  });
+
+  test('updateProfile can change avatar color and normalizes the username', () {
+    AppState.resetForTest();
+    Session.instance.resetForTest();
+    AppState.updateProfile(
+      name: 'Ada',
+      about: 'Available',
+      username: '@Ada_Lovelace!!',
+      avatarColor: '#64B5F6',
+    );
+    expect(AppState.profile.value.avatarColor, '#64B5F6');
+    // Uppercase/leading @/invalid chars are stripped.
+    expect(AppState.profile.value.username, 'ada_lovelace');
+    expect(AppState.profile.value.handle, '@ada_lovelace');
+  });
+
+  test('New privacy defaults are Everyone and reset cleanly', () {
+    AppState.profilePhotoAudience.value = PrivacyAudience.nobody;
+    AppState.aboutAudience.value = PrivacyAudience.contacts;
+    AppState.groupAddAudience.value = PrivacyAudience.nobody;
+    AppState.blockScreenshots.value = true;
+    AppState.defaultDisappearingSeconds.value = 86400;
+    AppState.resetForTest();
+    expect(AppState.profilePhotoAudience.value, PrivacyAudience.everyone);
+    expect(AppState.aboutAudience.value, PrivacyAudience.everyone);
+    expect(AppState.groupAddAudience.value, PrivacyAudience.everyone);
+    expect(AppState.blockScreenshots.value, isFalse);
+    expect(AppState.defaultDisappearingSeconds.value, 0);
+    expect(PrivacyAudience.fromName('contacts'), PrivacyAudience.contacts);
+    expect(PrivacyAudience.fromName('garbage'), PrivacyAudience.everyone);
+  });
+
+  testWidgets('Settings hub opens Privacy & security and sets an audience',
+      (tester) async {
+    AppState.resetForTest();
+    await tester.pumpWidget(const OkayMessagingApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.person_outline));
+    await tester.pumpAndSettle();
+
+    // The hub shows grouped entry points into the sub-screens.
+    expect(find.text('Privacy & security'), findsOneWidget);
+    expect(find.text('Chats & appearance'), findsOneWidget);
+
+    await tester.tap(find.text('Privacy & security'));
+    await tester.pumpAndSettle();
+
+    expect(AppState.profilePhotoAudience.value, PrivacyAudience.everyone);
+
+    // Open the "Profile photo" audience picker and choose Nobody.
+    await tester.tap(find.text('Profile photo'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Nobody').last);
+    await tester.pumpAndSettle();
+
+    expect(AppState.profilePhotoAudience.value, PrivacyAudience.nobody);
+  });
+
+  testWidgets('Edit profile picks an avatar color and saves it',
+      (tester) async {
+    AppState.resetForTest();
+    Session.instance.signInForTest();
+    await tester.pumpWidget(const OkayMessagingApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.person_outline));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(ListTile).first); // profile card
+    await tester.pumpAndSettle();
+
+    // The enhanced editor exposes the avatar-color picker and username field.
+    expect(find.text('AVATAR COLOR'), findsOneWidget);
+    expect(find.text('Username'), findsOneWidget);
+    await tester.enterText(find.byType(TextField).first, 'Ada');
+    // Tap the AppBar save action (a selected swatch also renders a check icon).
+    await tester.tap(find.descendant(
+        of: find.byType(AppBar), matching: find.byIcon(Icons.check)));
+    await tester.pumpAndSettle();
+
+    expect(AppState.profile.value.name, 'Ada');
   });
 
   testWidgets('Blocked contacts screen lists a blocked number and unblocks',

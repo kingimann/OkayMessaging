@@ -65,21 +65,26 @@ class Session {
       .toLowerCase()
       .replaceAll(RegExp(r'[^a-z0-9_.]'), '');
 
-  /// Updates the signed-in user's name/about and persists it on the device,
-  /// keeping the phone number (identity) and avatar color.
+  /// Updates the signed-in user's name/about (and optionally username / avatar
+  /// color) and persists it on the device, keeping the phone number (identity).
   Future<void> updateProfile({
     required String name,
     required String about,
+    String? username,
+    String? avatarColor,
   }) async {
     final current = user.value;
     if (current == null) return;
     final updated = AppUser(
       id: current.id,
       name: name.trim().isEmpty ? current.name : name.trim(),
-      avatarColor: current.avatarColor,
+      avatarColor: (avatarColor == null || avatarColor.isEmpty)
+          ? current.avatarColor
+          : avatarColor,
       about: about.trim().isEmpty ? current.about : about.trim(),
       phone: current.phone,
-      username: current.username,
+      username:
+          username == null ? current.username : _normalizeUsername(username),
     );
     _prefs ??= await SharedPreferences.getInstance();
     await _prefs!.setString(_key, jsonEncode(updated.toJson()));

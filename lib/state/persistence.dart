@@ -26,6 +26,11 @@ class Persistence {
   static const _kEnterToSend = 'enter_to_send';
   static const _kTextScale = 'message_text_scale';
   static const _kBlocked = 'blocked_contacts_v1';
+  static const _kPhotoAudience = 'profile_photo_audience';
+  static const _kAboutAudience = 'about_audience';
+  static const _kGroupAddAudience = 'group_add_audience';
+  static const _kBlockScreenshots = 'block_screenshots';
+  static const _kDefaultDisappearing = 'default_disappearing_seconds';
 
   static SharedPreferences? _prefs;
 
@@ -100,6 +105,26 @@ class Persistence {
     if (blocked != null) {
       AppState.blockedContacts.value = blocked.toSet();
     }
+    if (prefs.containsKey(_kPhotoAudience)) {
+      AppState.profilePhotoAudience.value =
+          PrivacyAudience.fromName(prefs.getString(_kPhotoAudience));
+    }
+    if (prefs.containsKey(_kAboutAudience)) {
+      AppState.aboutAudience.value =
+          PrivacyAudience.fromName(prefs.getString(_kAboutAudience));
+    }
+    if (prefs.containsKey(_kGroupAddAudience)) {
+      AppState.groupAddAudience.value =
+          PrivacyAudience.fromName(prefs.getString(_kGroupAddAudience));
+    }
+    if (prefs.containsKey(_kBlockScreenshots)) {
+      AppState.blockScreenshots.value =
+          prefs.getBool(_kBlockScreenshots) ?? false;
+    }
+    if (prefs.containsKey(_kDefaultDisappearing)) {
+      AppState.defaultDisappearingSeconds.value =
+          prefs.getInt(_kDefaultDisappearing) ?? 0;
+    }
 
     AppState.themeMode.addListener(_saveTheme);
     AppState.profile.addListener(_saveProfile);
@@ -114,7 +139,33 @@ class Persistence {
     AppState.enterToSend.addListener(_saveEnterToSend);
     AppState.messageTextScale.addListener(_saveTextScale);
     AppState.blockedContacts.addListener(_saveBlocked);
+    AppState.profilePhotoAudience.addListener(_savePhotoAudience);
+    AppState.aboutAudience.addListener(_saveAboutAudience);
+    AppState.groupAddAudience.addListener(_saveGroupAddAudience);
+    AppState.blockScreenshots.addListener(_saveBlockScreenshots);
+    AppState.defaultDisappearingSeconds.addListener(_saveDefaultDisappearing);
     ChatStore.instance.onChanged = _saveChats;
+  }
+
+  static void _savePhotoAudience() {
+    _prefs?.setString(_kPhotoAudience, AppState.profilePhotoAudience.value.name);
+  }
+
+  static void _saveAboutAudience() {
+    _prefs?.setString(_kAboutAudience, AppState.aboutAudience.value.name);
+  }
+
+  static void _saveGroupAddAudience() {
+    _prefs?.setString(_kGroupAddAudience, AppState.groupAddAudience.value.name);
+  }
+
+  static void _saveBlockScreenshots() {
+    _prefs?.setBool(_kBlockScreenshots, AppState.blockScreenshots.value);
+  }
+
+  static void _saveDefaultDisappearing() {
+    _prefs?.setInt(
+        _kDefaultDisappearing, AppState.defaultDisappearingSeconds.value);
   }
 
   static void _saveTypingIndicators() {
