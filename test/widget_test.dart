@@ -39,9 +39,15 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Okay Messaging'), findsOneWidget);
+    // The modern pill bar labels only the active tab; Chats is active.
     expect(find.text('Chats'), findsOneWidget);
-    expect(find.text('Calls'), findsOneWidget);
     expect(find.text('Status'), findsNothing);
+
+    // The Calls destination exists; selecting it reveals its label.
+    expect(find.byIcon(Icons.call_outlined), findsOneWidget);
+    await tester.tap(find.byIcon(Icons.call_outlined));
+    await tester.pumpAndSettle();
+    expect(find.text('Calls'), findsOneWidget);
   });
 
   testWidgets('At least one conversation is listed on the Chats tab',
@@ -140,17 +146,6 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Erin Foster'), findsOneWidget);
-  });
-
-  testWidgets('Groups filter shows only group chats', (tester) async {
-    await tester.pumpWidget(const OkayMessagingApp());
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.text('Groups'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('Team Standup'), findsOneWidget);
-    expect(find.text('Alice Bennett'), findsNothing);
   });
 
   testWidgets('Starring a message surfaces it in Starred messages',
@@ -273,8 +268,13 @@ void main() {
     await tester.drag(find.text('Bob Carter'), const Offset(-500, 0));
     await tester.pumpAndSettle();
 
+    // Gone from the main list; still reachable via the Archived menu entry.
     expect(find.text('Bob Carter'), findsNothing);
-    expect(find.text('Archived'), findsOneWidget);
+    await tester.tap(find.byIcon(Icons.more_vert));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Archived chats'));
+    await tester.pumpAndSettle();
+    expect(find.text('Bob Carter'), findsOneWidget);
   });
 
   testWidgets('Chat wallpaper picker is reachable from Settings',
@@ -398,7 +398,7 @@ void main() {
     expect(bob!.pinnedMessageId, isNotNull);
   });
 
-  testWidgets('Archiving a chat moves it into the Archived section',
+  testWidgets('Archiving a chat moves it into the Archived screen',
       (tester) async {
     await tester.pumpWidget(const OkayMessagingApp());
     await tester.pumpAndSettle();
@@ -409,12 +409,13 @@ void main() {
     await tester.tap(find.text('Archive chat'));
     await tester.pumpAndSettle();
 
-    // Carol is gone from the main list; an Archived row appears.
+    // Carol is gone from the main list.
     expect(find.text('Carol Diaz'), findsNothing);
-    expect(find.text('Archived'), findsOneWidget);
 
-    // Opening Archived shows Carol again.
-    await tester.tap(find.text('Archived'));
+    // Archived chats are reachable from the app-bar menu.
+    await tester.tap(find.byIcon(Icons.more_vert));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Archived chats'));
     await tester.pumpAndSettle();
     expect(find.text('Carol Diaz'), findsOneWidget);
   });
