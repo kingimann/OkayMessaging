@@ -5,6 +5,8 @@ import 'crypto/key_exchange.dart';
 import 'relay/relay_service.dart';
 import 'screens/auth/auth_gate.dart';
 import 'screens/call_screen.dart';
+import 'screens/lock_screen.dart';
+import 'state/app_lock.dart';
 import 'state/call_service.dart';
 import 'state/chat_store.dart';
 import 'state/persistence.dart';
@@ -21,6 +23,7 @@ Future<void> main() async {
   await Session.instance.load();
   await Persistence.init();
   await SecureKeyExchange.instance.load();
+  await AppLock.instance.load();
   await RelayService.instance.init();
   await Scheduler.instance.init();
   ChatStore.instance.startSweeper();
@@ -50,6 +53,38 @@ class _CallOverlay extends StatelessWidget {
   }
 }
 
+/// Shows the PIN lock screen over everything while [AppLock] reports locked.
+class _LockOverlay extends StatelessWidget {
+  final Widget child;
+  const _LockOverlay({required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<bool>(
+      valueListenable: AppLock.instance.locked,
+      builder: (context, locked, _) {
+        return Stack(
+          children: [
+            child,
+            // Wrapped in its own Navigator so the PIN field has an Overlay
+            // ancestor (this sits above the app's own Navigator).
+            if (locked)
+              Positioned.fill(
+                child: HeroControllerScope.none(
+                  child: Navigator(
+                    onGenerateRoute: (_) => MaterialPageRoute<void>(
+                      builder: (_) => const LockScreen(),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+}
+
 class OkayMessagingApp extends StatelessWidget {
   const OkayMessagingApp({super.key});
 
@@ -65,8 +100,9 @@ class OkayMessagingApp extends StatelessWidget {
           darkTheme: AppTheme.dark,
           themeMode: mode,
           home: const AuthGate(),
-          builder: (context, child) =>
-              _CallOverlay(child: child ?? const SizedBox.shrink()),
+          builder: (context, child) => _LockOverlay(
+            child: _CallOverlay(child: child ?? const SizedBox.shrink()),
+          ),
         );
       },
     );

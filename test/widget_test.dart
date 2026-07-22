@@ -18,6 +18,7 @@ import 'package:okay_messaging/models/message.dart';
 import 'package:okay_messaging/models/user.dart';
 import 'package:okay_messaging/relay/relay_service.dart';
 import 'package:okay_messaging/state/account_service.dart';
+import 'package:okay_messaging/state/app_lock.dart';
 import 'package:okay_messaging/state/call_service.dart';
 import 'package:okay_messaging/state/chat_store.dart';
 import 'package:okay_messaging/state/scheduler.dart';
@@ -37,6 +38,7 @@ void main() {
     Session.instance.signInForTest();
     Scheduler.instance.resetForTest();
     CallService.instance.resetForTest();
+    AppLock.instance.resetForTest();
   });
 
   testWidgets('App boots with Chats and Calls tabs (no Status)',
@@ -1206,6 +1208,41 @@ void main() {
 
     expect(AppState.shareLastSeen.value, isFalse);
     expect(find.text('Your online status is hidden'), findsOneWidget);
+  });
+
+  test('App lock: set, verify (wrong/right), and disable a PIN', () async {
+    SharedPreferences.setMockInitialValues({});
+    AppLock.instance.resetForTest();
+    await AppLock.instance.setPin('1234');
+    expect(AppLock.instance.enabled.value, isTrue);
+    expect(AppLock.instance.unlock('0000'), isFalse);
+    expect(AppLock.instance.unlock('1234'), isTrue);
+    await AppLock.instance.disable();
+    expect(AppLock.instance.enabled.value, isFalse);
+  });
+
+  testWidgets('The lock screen gates the app and unlocks with the right PIN',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    AppLock.instance.resetForTest();
+    await AppLock.instance.setPin('4321');
+    AppLock.instance.locked.value = true; // simulate a fresh, locked launch
+
+    await tester.pumpWidget(const OkayMessagingApp());
+    await tester.pumpAndSettle();
+    expect(find.text('Okay Messaging is locked'), findsOneWidget);
+
+    // Wrong PIN keeps it locked.
+    await tester.enterText(find.byType(TextField).first, '0000');
+    await tester.tap(find.text('Unlock'));
+    await tester.pumpAndSettle();
+    expect(find.text('Okay Messaging is locked'), findsOneWidget);
+
+    // Correct PIN unlocks.
+    await tester.enterText(find.byType(TextField).first, '4321');
+    await tester.tap(find.text('Unlock'));
+    await tester.pumpAndSettle();
+    expect(find.text('Okay Messaging is locked'), findsNothing);
   });
 
   test('My QR payload encodes username, phone and name as an app URI', () {

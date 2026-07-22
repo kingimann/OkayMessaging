@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../app_state.dart';
+import '../state/app_lock.dart';
 import '../state/chat_store.dart';
 import '../state/session.dart';
 import '../widgets/info_section.dart';
@@ -46,6 +47,7 @@ class SettingsScreen extends StatelessWidget {
               _buildLastSeenTile(),
               _buildReadReceiptsTile(),
               _buildNotificationsTile(),
+              _buildAppLockTile(),
             ],
           ),
           InfoSection(
@@ -233,6 +235,97 @@ class SettingsScreen extends StatelessWidget {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Invite copied to clipboard')),
     );
+  }
+
+  Widget _buildAppLockTile() {
+    return ValueListenableBuilder<bool>(
+      valueListenable: AppLock.instance.enabled,
+      builder: (context, on, _) {
+        return SwitchListTile(
+          secondary: Icon(on ? Icons.lock : Icons.lock_open),
+          title: const Text('App lock'),
+          subtitle: Text(on
+              ? 'A PIN is required to open the app'
+              : 'Require a PIN to open the app'),
+          value: on,
+          shape: const RoundedRectangleBorder(
+            borderRadius: BorderRadius.all(Radius.circular(16)),
+          ),
+          onChanged: (v) {
+            if (v) {
+              _setPin(context);
+            } else {
+              AppLock.instance.disable();
+            }
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _setPin(BuildContext context) async {
+    final pin = TextEditingController();
+    final confirm = TextEditingController();
+    String? error;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setState) {
+          Widget field(TextEditingController c, String label) => TextField(
+                controller: c,
+                obscureText: true,
+                keyboardType: TextInputType.number,
+                maxLength: 6,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                decoration: InputDecoration(labelText: label, counterText: ''),
+              );
+          return AlertDialog(
+            title: const Text('Set a PIN'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                field(pin, 'PIN (4-6 digits)'),
+                field(confirm, 'Confirm PIN'),
+                if (error != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Text(error!,
+                        style: const TextStyle(color: Colors.red)),
+                  ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(false),
+                child: const Text('Cancel'),
+              ),
+              TextButton(
+                onPressed: () {
+                  if (pin.text.length < 4) {
+                    setState(() => error = 'Use at least 4 digits');
+                  } else if (pin.text != confirm.text) {
+                    setState(() => error = 'PINs don\'t match');
+                  } else {
+                    Navigator.of(dialogContext).pop(true);
+                  }
+                },
+                child: const Text('Set'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+    if (ok == true) {
+      await AppLock.instance.setPin(pin.text);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('App lock enabled')),
+        );
+      }
+    }
+    pin.dispose();
+    confirm.dispose();
   }
 
   Widget _buildThemeTile() {
