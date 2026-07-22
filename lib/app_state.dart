@@ -24,6 +24,14 @@ class AppState {
   /// with. When off, peers won't see you as "online".
   static final ValueNotifier<bool> shareLastSeen = ValueNotifier<bool>(true);
 
+  /// Whether to send read receipts. When off, senders won't see blue ticks
+  /// from you (mirroring WhatsApp's read-receipts setting).
+  static final ValueNotifier<bool> sendReadReceipts = ValueNotifier<bool>(true);
+
+  /// Whether to show in-app notifications for the simulated demo replies.
+  static final ValueNotifier<bool> notificationsEnabled =
+      ValueNotifier<bool>(true);
+
   /// Resets global state; used by tests to isolate cases.
   @visibleForTesting
   static void resetForTest() {
@@ -31,6 +39,8 @@ class AppState {
     profile.value = MockData.me;
     chatWallpaper.value = null;
     shareLastSeen.value = true;
+    sendReadReceipts.value = true;
+    notificationsEnabled.value = true;
   }
 
   /// Updates the current user's name and about text.

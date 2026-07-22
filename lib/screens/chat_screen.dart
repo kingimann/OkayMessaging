@@ -114,6 +114,7 @@ class _ChatScreenState extends State<ChatScreen> {
   /// while this chat is open (once per message, so no receipt ping-pong).
   void _maybeSendReadReceipt() {
     if (!RelayConfig.isEnabled || !_isRealPeer(widget.chat.contact)) return;
+    if (!AppState.sendReadReceipts.value) return;
     final incoming =
         _store.chatById(_chatId)?.messages.where((m) => !m.isMe).toList();
     if (incoming == null || incoming.isEmpty) return;

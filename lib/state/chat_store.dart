@@ -51,6 +51,14 @@ class ChatStore extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Deletes every conversation from the device. Used by Settings →
+  /// "Storage and data" → clear all chats.
+  void clearAll() {
+    _chats = [];
+    _starred.clear();
+    notifyListeners();
+  }
+
   /// Reloads the initial sample data. Intended for tests to isolate state
   /// between cases (the store is otherwise a long-lived singleton).
   @visibleForTesting

@@ -17,6 +17,8 @@ class Persistence {
   static const _kWallpaper = 'wallpaper';
   static const _kChats = 'chats_v1';
   static const _kShareLastSeen = 'share_last_seen';
+  static const _kReadReceipts = 'send_read_receipts';
+  static const _kNotifications = 'notifications_enabled';
 
   static SharedPreferences? _prefs;
 
@@ -56,16 +58,33 @@ class Persistence {
     if (prefs.containsKey(_kShareLastSeen)) {
       AppState.shareLastSeen.value = prefs.getBool(_kShareLastSeen) ?? true;
     }
+    if (prefs.containsKey(_kReadReceipts)) {
+      AppState.sendReadReceipts.value = prefs.getBool(_kReadReceipts) ?? true;
+    }
+    if (prefs.containsKey(_kNotifications)) {
+      AppState.notificationsEnabled.value =
+          prefs.getBool(_kNotifications) ?? true;
+    }
 
     AppState.themeMode.addListener(_saveTheme);
     AppState.profile.addListener(_saveProfile);
     AppState.chatWallpaper.addListener(_saveWallpaper);
     AppState.shareLastSeen.addListener(_saveShareLastSeen);
+    AppState.sendReadReceipts.addListener(_saveReadReceipts);
+    AppState.notificationsEnabled.addListener(_saveNotifications);
     ChatStore.instance.onChanged = _saveChats;
   }
 
   static void _saveShareLastSeen() {
     _prefs?.setBool(_kShareLastSeen, AppState.shareLastSeen.value);
+  }
+
+  static void _saveReadReceipts() {
+    _prefs?.setBool(_kReadReceipts, AppState.sendReadReceipts.value);
+  }
+
+  static void _saveNotifications() {
+    _prefs?.setBool(_kNotifications, AppState.notificationsEnabled.value);
   }
 
   static void _saveTheme() {

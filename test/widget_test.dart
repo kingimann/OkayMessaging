@@ -904,6 +904,52 @@ void main() {
     expect(find.text('Your online status is hidden'), findsOneWidget);
   });
 
+  testWidgets('The read-receipts toggle flips and persists to AppState',
+      (tester) async {
+    await tester.pumpWidget(const OkayMessagingApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.more_vert));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Settings'));
+    await tester.pumpAndSettle();
+
+    expect(AppState.sendReadReceipts.value, isTrue);
+
+    final tile = find.text('Read receipts');
+    await tester.ensureVisible(tile);
+    await tester.pumpAndSettle();
+    await tester.tap(tile);
+    await tester.pumpAndSettle();
+
+    expect(AppState.sendReadReceipts.value, isFalse);
+  });
+
+  testWidgets('Storage → clear all chats empties the store after confirming',
+      (tester) async {
+    await tester.pumpWidget(const OkayMessagingApp());
+    await tester.pumpAndSettle();
+    expect(ChatStore.instance.chats, isNotEmpty);
+
+    await tester.tap(find.byIcon(Icons.more_vert));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Settings'));
+    await tester.pumpAndSettle();
+
+    final tile = find.text('Storage and data');
+    await tester.scrollUntilVisible(tile, 120,
+        scrollable: find.byType(Scrollable).first);
+    await tester.pumpAndSettle();
+    await tester.tap(tile);
+    await tester.pumpAndSettle();
+
+    // Confirm the destructive dialog.
+    await tester.tap(find.text('Clear'));
+    await tester.pumpAndSettle();
+
+    expect(ChatStore.instance.chats, isEmpty);
+  });
+
   test('setOutgoingStatus upgrades only outgoing messages, never downgrades',
       () {
     ChatStore.instance.reset();
