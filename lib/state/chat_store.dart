@@ -30,6 +30,10 @@ class ChatStore extends ChangeNotifier {
   /// Ids of messages the user has starred.
   final Set<String> _starred = {};
 
+  /// Unsent composer text per chat id (drafts), restored when you reopen a
+  /// conversation.
+  final Map<String, String> _drafts = {};
+
   /// Invoked after every change so a persistence layer can save.
   void Function()? onChanged;
 
@@ -42,6 +46,7 @@ class ChatStore extends ChangeNotifier {
   Map<String, dynamic> toJson() => {
         'chats': _chats.map((c) => c.toJson()).toList(),
         'starred': _starred.toList(),
+        'drafts': Map<String, String>.of(_drafts),
       };
 
   /// Replaces all state from a previously-saved [json] snapshot.
@@ -52,7 +57,34 @@ class ChatStore extends ChangeNotifier {
     _starred
       ..clear()
       ..addAll((json['starred'] as List? ?? const []).map((e) => '$e'));
+    _drafts
+      ..clear()
+      ..addAll((json['drafts'] as Map? ?? const {})
+          .map((k, v) => MapEntry('$k', '$v')));
     notifyListeners();
+  }
+
+  /// The saved draft for [chatId] (empty when none).
+  String draftFor(String chatId) => _drafts[chatId] ?? '';
+
+  /// Saves (or clears, when empty) the composer draft for [chatId]. Notifies
+  /// listeners only when the draft appears/disappears (so the chat-list
+  /// indicator updates), otherwise just persists — no per-keystroke rebuild.
+  void setDraft(String chatId, String text) {
+    final trimmed = text.trim();
+    final current = _drafts[chatId] ?? '';
+    if (trimmed == current) return;
+    final visibilityChanged = trimmed.isEmpty != current.isEmpty;
+    if (trimmed.isEmpty) {
+      _drafts.remove(chatId);
+    } else {
+      _drafts[chatId] = trimmed;
+    }
+    if (visibilityChanged) {
+      notifyListeners();
+    } else {
+      onChanged?.call();
+    }
   }
 
   /// Replaces all conversations wholesale (used by the backend sync to push
@@ -67,6 +99,7 @@ class ChatStore extends ChangeNotifier {
   void clearAll() {
     _chats = [];
     _starred.clear();
+    _drafts.clear();
     notifyListeners();
   }
 
@@ -76,6 +109,7 @@ class ChatStore extends ChangeNotifier {
   void reset() {
     _chats = MockData.chats();
     _starred.clear();
+    _drafts.clear();
     notifyListeners();
   }
 

@@ -933,6 +933,51 @@ void main() {
     expect(chat.disappearingSeconds, 86400);
   });
 
+  test('drafts save, clear when emptied, and survive a hydrate round-trip', () {
+    ChatStore.instance.reset();
+    final bob = ChatStore.instance.chatWithContact('u_bob')!;
+    ChatStore.instance.setDraft(bob.id, '  half a thought  ');
+    expect(ChatStore.instance.draftFor(bob.id), 'half a thought');
+
+    // Persist + restore.
+    final snapshot = ChatStore.instance.toJson();
+    ChatStore.instance.reset();
+    expect(ChatStore.instance.draftFor(bob.id), '');
+    ChatStore.instance.hydrate(snapshot);
+    expect(ChatStore.instance.draftFor(bob.id), 'half a thought');
+
+    // Emptying clears it.
+    ChatStore.instance.setDraft(bob.id, '');
+    expect(ChatStore.instance.draftFor(bob.id), '');
+  });
+
+  testWidgets('A draft is saved on leaving a chat and restored on return',
+      (tester) async {
+    await tester.pumpWidget(const OkayMessagingApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Bob Carter'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).first, 'unsent draft');
+    await tester.pump();
+
+    // Leave the chat: the chat list shows a Draft indicator.
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(find.text('Draft: '), findsOneWidget);
+    expect(ChatStore.instance.chatWithContact('u_bob')!.id, isNotEmpty);
+    expect(
+      ChatStore.instance
+          .draftFor(ChatStore.instance.chatWithContact('u_bob')!.id),
+      'unsent draft',
+    );
+
+    // Reopening restores the text into the composer.
+    await tester.tap(find.text('Bob Carter'));
+    await tester.pumpAndSettle();
+    expect(find.widgetWithText(TextField, 'unsent draft'), findsOneWidget);
+  });
+
   test('setReactionState adds/removes a reaction idempotently', () {
     ChatStore.instance.reset();
     final bob = ChatStore.instance.chatWithContact('u_bob')!;

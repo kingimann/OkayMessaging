@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/chat.dart';
 import '../models/message.dart';
+import '../state/chat_store.dart';
 import '../theme/app_theme.dart';
 import '../utils/date_formatter.dart';
 import 'message_status_icon.dart';
@@ -23,6 +24,7 @@ class ChatListTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final last = chat.lastMessage;
+    final draft = ChatStore.instance.draftFor(chat.id);
     final hasUnread = chat.unreadCount > 0;
     final subtitleColor =
         Theme.of(context).textTheme.bodySmall?.color ?? Colors.grey;
@@ -71,38 +73,58 @@ class ChatListTile extends StatelessWidget {
                   const SizedBox(height: 5),
                   Row(
                     children: [
-                      if (last != null && last.isMe) ...[
+                      if (draft.isEmpty && last != null && last.isMe) ...[
                         MessageStatusIcon(status: last.status, size: 16),
                         const SizedBox(width: 3),
                       ],
-                      if (last != null && last.isVoice) ...[
+                      if (draft.isEmpty && last != null && last.isVoice) ...[
                         Icon(Icons.mic, size: 16, color: subtitleColor),
                         const SizedBox(width: 3),
                       ],
-                      if (last != null && last.isImage) ...[
+                      if (draft.isEmpty && last != null && last.isImage) ...[
                         Icon(Icons.photo, size: 16, color: subtitleColor),
                         const SizedBox(width: 3),
                       ],
                       Expanded(
-                        child: Text(
-                          last != null && last.isVoice
-                              ? 'Voice message'
-                              : last != null && last.isImage
-                                  ? 'Photo'
-                                  : chat.preview,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 14.5,
-                            // Unread rows show a slightly darker, medium-weight
-                            // preview so they stand out at a glance.
-                            color: hasUnread
-                                ? Theme.of(context).textTheme.bodyLarge?.color
-                                : subtitleColor,
-                            fontWeight:
-                                hasUnread ? FontWeight.w500 : FontWeight.normal,
-                          ),
-                        ),
+                        child: draft.isNotEmpty
+                            ? Row(
+                                children: [
+                                  const Text(
+                                    'Draft: ',
+                                    style: TextStyle(
+                                      fontSize: 14.5,
+                                      color: Color(0xFFEB4B3F),
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                  Expanded(
+                                    child: Text(
+                                      draft,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                          fontSize: 14.5, color: subtitleColor),
+                                    ),
+                                  ),
+                                ],
+                              )
+                            : Text(
+                                chat.preview,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 14.5,
+                                  color: hasUnread
+                                      ? Theme.of(context)
+                                          .textTheme
+                                          .bodyLarge
+                                          ?.color
+                                      : subtitleColor,
+                                  fontWeight: hasUnread
+                                      ? FontWeight.w500
+                                      : FontWeight.normal,
+                                ),
+                              ),
                       ),
                       if (chat.isMuted)
                         const Padding(

@@ -26,6 +26,12 @@ class ChatInputBar extends StatefulWidget {
   /// a message was scheduled (so the field is cleared).
   final Future<bool> Function(String text)? onSchedule;
 
+  /// Text to pre-fill the composer with (a saved draft).
+  final String initialText;
+
+  /// Called as the composer text changes, so the draft can be saved.
+  final ValueChanged<String>? onChanged;
+
   const ChatInputBar({
     super.key,
     required this.onSend,
@@ -35,6 +41,8 @@ class ChatInputBar extends StatefulWidget {
     this.onCancelReply,
     this.onTyping,
     this.onSchedule,
+    this.initialText = '',
+    this.onChanged,
   });
 
   @override
@@ -42,7 +50,8 @@ class ChatInputBar extends StatefulWidget {
 }
 
 class _ChatInputBarState extends State<ChatInputBar> {
-  final TextEditingController _controller = TextEditingController();
+  late final TextEditingController _controller =
+      TextEditingController(text: widget.initialText);
   bool _hasText = false;
   bool _emojiOpen = false;
 
@@ -53,10 +62,12 @@ class _ChatInputBarState extends State<ChatInputBar> {
   @override
   void initState() {
     super.initState();
+    _hasText = _controller.text.trim().isNotEmpty;
     _controller.addListener(() {
       final has = _controller.text.trim().isNotEmpty;
       if (has != _hasText) setState(() => _hasText = has);
       if (has) widget.onTyping?.call();
+      widget.onChanged?.call(_controller.text);
     });
   }
 

@@ -1459,6 +1459,8 @@ class _ChatScreenState extends State<ChatScreen> {
                     onSchedule: _scheduleMessage,
                     replyTo: _replyTo,
                     onCancelReply: () => setState(() => _replyTo = null),
+                    initialText: _store.draftFor(_chatId),
+                    onChanged: (t) => _store.setDraft(_chatId, t),
                   );
                 },
               ),
