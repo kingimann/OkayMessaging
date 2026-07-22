@@ -15,8 +15,8 @@
 #   • iOS code signing → connect an App Store Connect API key integration
 #       named "okay_app_store" and let Codemagic manage the certificate/profile.
 #
-#   • Change the bundle identifier below (and in the native projects) from the
-#     com.example.* placeholder — both stores reject it. See STORE_CHECKLIST.md.
+#   • The bundle identifier is com.okaymessaging — register that exact id when
+#     you create the app in App Store Connect and the Play Console.
 
 workflows:
   # --- Fast feedback on every push / pull request ------------------------
@@ -50,7 +50,7 @@ workflows:
       android_signing:
         - okay_keystore
       vars:
-        PACKAGE_NAME: "com.example.okay_messaging" # TODO: change before release
+        PACKAGE_NAME: "com.okaymessaging"
     scripts:
       - name: Get packages
         script: flutter pub get
@@ -94,7 +94,7 @@ workflows:
         - supabase
       ios_signing:
         distribution_type: app_store
-        bundle_identifier: com.example.okayMessaging # TODO: change before release
+        bundle_identifier: com.okaymessaging
       integrations:
         app_store_connect: okay_app_store
     scripts:
