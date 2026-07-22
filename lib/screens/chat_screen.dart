@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -52,6 +54,11 @@ class _ChatScreenState extends State<ChatScreen> {
   /// Where the most recent double-tap landed, used to place the heart burst.
   Offset? _lastDoubleTapPos;
 
+  /// Throttle for outgoing typing pings, and a timer to clear the incoming
+  /// typing indicator after a pause.
+  DateTime? _lastTypingSent;
+  Timer? _typingClear;
+
   /// The unread count when the chat was opened, and the id of the message the
   /// "unread messages" divider should sit above (captured before markRead).
   int _initialUnread = 0;
@@ -71,9 +78,38 @@ class _ChatScreenState extends State<ChatScreen> {
     _store.upsert(widget.chat);
     _captureUnreadAnchor();
     _scrollController.addListener(_onScroll);
+    if (RelayConfig.isEnabled) {
+      RelayService.instance.typingPing.addListener(_onTypingPing);
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _store.markRead(_chatId);
       _jumpToBottom();
+    });
+  }
+
+  /// Broadcasts that we're typing (throttled) to a real peer.
+  void _onTyping() {
+    if (!RelayConfig.isEnabled || !_isRealPeer(widget.chat.contact)) return;
+    final now = DateTime.now();
+    if (_lastTypingSent != null &&
+        now.difference(_lastTypingSent!) < const Duration(seconds: 2)) {
+      return;
+    }
+    _lastTypingSent = now;
+    RelayService.instance.sendTyping(widget.chat.contact.phone);
+  }
+
+  /// Shows the typing indicator when the peer of *this* chat is typing.
+  void _onTypingPing() {
+    if (RelayService.instance.typingFromDigits !=
+        RelayService.digits(widget.chat.contact.phone)) {
+      return;
+    }
+    if (!mounted) return;
+    setState(() => _isTyping = true);
+    _typingClear?.cancel();
+    _typingClear = Timer(const Duration(seconds: 3), () {
+      if (mounted) setState(() => _isTyping = false);
     });
   }
 
@@ -102,6 +138,10 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   void dispose() {
+    if (RelayConfig.isEnabled) {
+      RelayService.instance.typingPing.removeListener(_onTypingPing);
+    }
+    _typingClear?.cancel();
     _scrollController.dispose();
     _searchController.dispose();
     super.dispose();
@@ -918,6 +958,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 onSend: _handleSend,
                 onAttach: _showAttachmentSheet,
                 onSendVoice: _handleSendVoice,
+                onTyping: _onTyping,
                 replyTo: _replyTo,
                 onCancelReply: () => setState(() => _replyTo = null),
               ),

@@ -19,6 +19,9 @@ class ChatInputBar extends StatefulWidget {
   final ReplyInfo? replyTo;
   final VoidCallback? onCancelReply;
 
+  /// Called as the user types (used to broadcast a typing indicator).
+  final VoidCallback? onTyping;
+
   const ChatInputBar({
     super.key,
     required this.onSend,
@@ -26,6 +29,7 @@ class ChatInputBar extends StatefulWidget {
     this.onSendVoice,
     this.replyTo,
     this.onCancelReply,
+    this.onTyping,
   });
 
   @override
@@ -47,6 +51,7 @@ class _ChatInputBarState extends State<ChatInputBar> {
     _controller.addListener(() {
       final has = _controller.text.trim().isNotEmpty;
       if (has != _hasText) setState(() => _hasText = has);
+      if (has) widget.onTyping?.call();
     });
   }
 

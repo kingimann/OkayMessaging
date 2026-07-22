@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide Session;
 
 import '../models/chat.dart';
@@ -24,6 +25,11 @@ class RelayService {
   bool _initialized = false;
   RealtimeChannel? _inbox;
   final Map<String, RealtimeChannel> _sendChannels = {};
+
+  /// Digits of whoever most recently sent a "typing" ping; the counter bumps
+  /// on every ping so listeners always fire (even for the same sender).
+  String? typingFromDigits;
+  final ValueNotifier<int> typingPing = ValueNotifier<int>(0);
 
   SupabaseClient get _client => Supabase.instance.client;
 
@@ -132,7 +138,28 @@ class RelayService {
             myPhone: me,
           ),
         )
+        .onBroadcast(
+          event: 'typing',
+          callback: (payload) {
+            final from = payload['from'] as String?;
+            if (from == null || digits(from) == digits(me)) return;
+            typingFromDigits = digits(from);
+            typingPing.value++;
+          },
+        )
         .subscribe();
+  }
+
+  /// Sends a lightweight "typing" ping to [contactPhone]'s inbox.
+  Future<void> sendTyping(String contactPhone) async {
+    if (!_initialized) return;
+    final me = Session.instance.user.value;
+    if (me == null) return;
+    final name = inboxChannel(contactPhone);
+    final channel =
+        _sendChannels.putIfAbsent(name, () => _client.channel(name));
+    await channel
+        .sendBroadcastMessage(event: 'typing', payload: {'from': me.phone});
   }
 
   /// Broadcasts an outgoing [message] to [contactPhone]'s inbox over REST (the
