@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -21,6 +22,7 @@ import 'package:okay_messaging/state/account_service.dart';
 import 'package:okay_messaging/state/app_lock.dart';
 import 'package:okay_messaging/state/call_service.dart';
 import 'package:okay_messaging/state/community_store.dart';
+import 'package:okay_messaging/state/file_transfer.dart';
 import 'package:okay_messaging/state/chat_store.dart';
 import 'package:okay_messaging/state/scheduler.dart';
 import 'package:okay_messaging/state/session.dart';
@@ -1656,6 +1658,20 @@ void main() {
       // instant local login is used.
       expect(AccountService.isEnabled, isFalse);
     });
+  });
+
+  test('file transfer chunking splits and losslessly reassembles', () {
+    final data =
+        Uint8List.fromList(List.generate(40000, (i) => (i * 7) % 256));
+    final chunks = FileTransfer.chunk(data);
+    // 40000 / 16384 -> 3 chunks (16384, 16384, 7232).
+    expect(chunks.length, 3);
+    expect(chunks.first.length, FileTransfer.chunkSize);
+    expect(FileTransfer.reassemble(chunks), equals(data));
+
+    // Edge: empty input.
+    expect(FileTransfer.chunk(Uint8List(0)), isEmpty);
+    expect(FileTransfer.reassemble(const []), isEmpty);
   });
 
   group('ECDH key exchange', () {

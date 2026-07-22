@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -10,6 +11,7 @@ import '../models/user.dart';
 import '../relay/relay_config.dart';
 import '../relay/relay_service.dart';
 import '../state/chat_store.dart';
+import '../state/file_transfer.dart';
 import '../state/scheduler.dart';
 import '../theme/app_theme.dart';
 import '../utils/date_formatter.dart';
@@ -353,6 +355,39 @@ class _ChatScreenState extends State<ChatScreen> {
       isVoice: true,
       voiceSeconds: seconds,
     ));
+  }
+
+  /// Picks a file and sends it peer-to-peer over a WebRTC data channel (the
+  /// bytes never touch a server). Requires a real, online contact.
+  Future<void> _handleSendDocument() async {
+    if (!RelayConfig.isEnabled || !_isRealPeer(widget.chat.contact)) {
+      _showComingSoon(context, 'Direct file sending (needs a real contact)');
+      return;
+    }
+    final result = await FilePicker.pickFiles(withData: true);
+    if (result == null || result.files.isEmpty || !mounted) return;
+    final f = result.files.first;
+    final bytes = f.bytes;
+    if (bytes == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Couldn\'t read that file')),
+      );
+      return;
+    }
+    // Record a local marker in the chat, then stream the bytes directly.
+    _deliver(Message(
+      id: 'file_${DateTime.now().microsecondsSinceEpoch}',
+      text: '📎 ${f.name}',
+      time: DateTime.now(),
+      isMe: true,
+      status: MessageStatus.sent,
+    ));
+    FileTransfer.instance.sendFile(
+      widget.chat.contact.phone,
+      widget.chat.contact.name,
+      f.name,
+      Uint8List.fromList(bytes),
+    );
   }
 
   void _handleSendLocation() {
@@ -1159,7 +1194,7 @@ class _ChatScreenState extends State<ChatScreen> {
       builder: (sheetContext) {
         final options = <(IconData, String, Color, VoidCallback)>[
           (Icons.insert_drive_file, 'Document', const Color(0xFF7F66FF),
-              () => _showComingSoon(context, 'Documents')),
+              _handleSendDocument),
           (Icons.camera_alt, 'Camera', const Color(0xFFEF5DA8),
               _handleSendImage),
           (Icons.photo, 'Gallery', const Color(0xFFC861F9), _handleSendImage),

@@ -14,6 +14,7 @@ import 'state/persistence.dart';
 import 'state/scheduler.dart';
 import 'state/session.dart';
 import 'theme/app_theme.dart';
+import 'widgets/file_transfer_banner.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -103,7 +104,14 @@ class OkayMessagingApp extends StatelessWidget {
           themeMode: mode,
           home: const AuthGate(),
           builder: (context, child) => _LockOverlay(
-            child: _CallOverlay(child: child ?? const SizedBox.shrink()),
+            child: _CallOverlay(
+              child: Stack(
+                children: [
+                  child ?? const SizedBox.shrink(),
+                  const FileTransferBanner(),
+                ],
+              ),
+            ),
           ),
         );
       },

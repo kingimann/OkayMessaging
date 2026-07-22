@@ -8,6 +8,7 @@ import '../models/message.dart';
 import '../models/user.dart';
 import '../state/call_service.dart';
 import '../state/chat_store.dart';
+import '../state/file_transfer.dart';
 import '../state/session.dart';
 import 'relay_config.dart';
 
@@ -339,7 +340,76 @@ class RelayService {
             }
           },
         )
+        .onBroadcast(
+          event: 'file',
+          callback: (payload) {
+            final from = payload['from'] as String?;
+            final kind = payload['kind'] as String?;
+            if (from == null || kind == null || digits(from) == digits(me)) {
+              return;
+            }
+            final ft = FileTransfer.instance;
+            switch (kind) {
+              case 'offer':
+                ft.onRemoteOffer(
+                  from,
+                  (payload['fromName'] as String?) ?? from,
+                  (payload['transferId'] as String?) ?? '',
+                  (payload['fileName'] as String?) ?? 'file',
+                  (payload['size'] as num?)?.toInt() ?? 0,
+                  (payload['sdp'] as String?) ?? '',
+                );
+                break;
+              case 'answer':
+                ft.onRemoteAnswer((payload['sdp'] as String?) ?? '');
+                break;
+              case 'ice':
+                final ice = payload['ice'];
+                if (ice is Map) ft.onRemoteIce(Map<String, dynamic>.from(ice));
+                break;
+              case 'decline':
+                ft.onRemoteDecline();
+                break;
+            }
+          },
+        )
         .subscribe();
+  }
+
+  /// The active file-transfer id, so ICE candidates can be tagged with it.
+  String? _currentFileId;
+  set currentFileId(String? id) => _currentFileId = id;
+
+  /// Sends a file-transfer signaling event to [contactPhone]'s inbox. The file
+  /// bytes never go through here — only the WebRTC handshake (SDP/ICE) does.
+  Future<void> sendFileSignal(
+    String contactPhone, {
+    required String kind,
+    String? sdp,
+    Map<String, dynamic>? ice,
+    String? fileName,
+    int? size,
+    String? transferId,
+  }) async {
+    if (!_initialized) return;
+    final me = Session.instance.user.value;
+    if (me == null) return;
+    final name = inboxChannel(contactPhone);
+    final channel =
+        _sendChannels.putIfAbsent(name, () => _client.channel(name));
+    await channel.sendBroadcastMessage(
+      event: 'file',
+      payload: {
+        'from': me.phone,
+        'fromName': me.name,
+        'kind': kind,
+        'transferId': transferId ?? _currentFileId ?? '',
+        if (sdp != null) 'sdp': sdp,
+        if (ice != null) 'ice': ice,
+        if (fileName != null) 'fileName': fileName,
+        if (size != null) 'size': size,
+      },
+    );
   }
 
   /// Sends a call-signaling event ('offer', 'answer', 'decline', 'end') to
