@@ -19,6 +19,9 @@ class MessageBubble extends StatelessWidget {
 
   /// Records where the double-tap landed, so a heart can burst there.
   final GestureTapDownCallback? onDoubleTapDown;
+
+  /// Tapped on the quoted reply to jump to the original message.
+  final VoidCallback? onReplyTap;
   final bool starred;
 
   const MessageBubble({
@@ -28,6 +31,7 @@ class MessageBubble extends StatelessWidget {
     this.onTap,
     this.onDoubleTap,
     this.onDoubleTapDown,
+    this.onReplyTap,
     this.starred = false,
   });
 
@@ -102,7 +106,11 @@ class MessageBubble extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     if (message.replyTo != null)
-                      _ReplyQuote(reply: message.replyTo!, isDark: isDark),
+                      _ReplyQuote(
+                        reply: message.replyTo!,
+                        isDark: isDark,
+                        onTap: onReplyTap,
+                      ),
                     if (message.forwarded)
                       Padding(
                         padding: const EdgeInsets.only(bottom: 2),
@@ -187,12 +195,15 @@ class MessageBubble extends StatelessWidget {
 class _ReplyQuote extends StatelessWidget {
   final ReplyInfo reply;
   final bool isDark;
+  final VoidCallback? onTap;
 
-  const _ReplyQuote({required this.reply, required this.isDark});
+  const _ReplyQuote({required this.reply, required this.isDark, this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
       margin: const EdgeInsets.only(bottom: 4),
       padding: const EdgeInsets.fromLTRB(8, 4, 8, 4),
       decoration: BoxDecoration(
@@ -225,6 +236,7 @@ class _ReplyQuote extends StatelessWidget {
             ),
           ),
         ],
+      ),
       ),
     );
   }

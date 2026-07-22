@@ -56,6 +56,11 @@ class _ChatScreenState extends State<ChatScreen> {
   int _initialUnread = 0;
   String? _unreadAnchorId;
 
+  /// Per-message keys (for scroll-to-message) and the id currently flashing
+  /// after a reply-quote jump.
+  final Map<String, GlobalKey> _messageKeys = {};
+  String? _highlightedId;
+
   String get _chatId => widget.chat.id;
 
   @override
@@ -236,6 +241,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 ? '🎤 Voice message'
                 : message.text,
         isMe: message.isMe,
+        messageId: message.id,
       );
     });
   }
@@ -312,6 +318,19 @@ class _ChatScreenState extends State<ChatScreen> {
         onDoubleTapDown:
             _selectionMode ? null : (d) => _lastDoubleTapPos = d.globalPosition,
         onDoubleTap: _selectionMode ? null : () => _quickReact(m),
+        onReplyTap: m.replyTo?.messageId == null
+            ? null
+            : () => _jumpToMessage(m.replyTo!.messageId!),
+      );
+
+      final key = _messageKeys.putIfAbsent(m.id, () => GlobalKey());
+      final highlighted = _highlightedId == m.id;
+      final keyed = Container(
+        key: key,
+        color: highlighted
+            ? AppColors.tealGreenDark.withValues(alpha: 0.18)
+            : null,
+        child: bubble,
       );
 
       if (_selectionMode) {
@@ -324,7 +343,7 @@ class _ChatScreenState extends State<ChatScreen> {
             color: selected
                 ? AppColors.tealGreenDark.withValues(alpha: 0.16)
                 : null,
-            child: bubble,
+            child: keyed,
           ),
         ));
       } else {
@@ -343,11 +362,30 @@ class _ChatScreenState extends State<ChatScreen> {
               child: Icon(Icons.reply, color: Colors.grey),
             ),
           ),
-          child: bubble,
+          child: keyed,
         ));
       }
     }
     return items;
+  }
+
+  /// Scrolls to the original [messageId] (the quoted message) and flashes it.
+  void _jumpToMessage(String messageId) {
+    final key = _messageKeys[messageId];
+    final ctx = key?.currentContext;
+    if (ctx == null) return;
+    Scrollable.ensureVisible(
+      ctx,
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeInOut,
+      alignment: 0.3,
+    );
+    setState(() => _highlightedId = messageId);
+    Future.delayed(const Duration(milliseconds: 1200), () {
+      if (mounted && _highlightedId == messageId) {
+        setState(() => _highlightedId = null);
+      }
+    });
   }
 
   void _showMessageActions(Message message) {

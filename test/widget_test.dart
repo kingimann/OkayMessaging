@@ -571,6 +571,40 @@ void main() {
     expect(find.text('Alice Bennett'), findsOneWidget);
   });
 
+  testWidgets('Replying quotes the original and the quote jumps back to it',
+      (tester) async {
+    await tester.pumpWidget(const OkayMessagingApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Bob Carter'));
+    await tester.pumpAndSettle();
+
+    // Reply to the first incoming message.
+    await tester.longPress(find.text('Did you see the game last night?'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Reply'));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField).first, 'replying now');
+    await tester.pump();
+    await tester.tap(find.byIcon(Icons.send));
+    await tester.pump();
+
+    // The reply carries the original message id and quotes its text.
+    final bob = ChatStore.instance.chatWithContact('u_bob')!;
+    final reply = bob.messages.firstWhere((m) => m.text == 'replying now');
+    expect(reply.replyTo?.messageId, isNotNull);
+
+    // Original text now appears twice: the message itself and the quote.
+    expect(find.text('Did you see the game last night?'), findsNWidgets(2));
+
+    // Tapping the quote jumps to the original without error.
+    await tester.tap(find.text('Did you see the game last night?').last);
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(find.text('Did you see the game last night?'), findsWidgets);
+    await tester.pump(const Duration(seconds: 2));
+  });
+
   testWidgets('Muting from the chat menu shows a muted icon in the header',
       (tester) async {
     await tester.pumpWidget(const OkayMessagingApp());

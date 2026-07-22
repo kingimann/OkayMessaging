@@ -7,19 +7,28 @@ class ReplyInfo {
   final String text;
   final bool isMe;
 
+  /// Id of the original message, so tapping the quote can jump to it.
+  final String? messageId;
+
   const ReplyInfo({
     required this.senderName,
     required this.text,
     required this.isMe,
+    this.messageId,
   });
 
-  Map<String, dynamic> toJson() =>
-      {'senderName': senderName, 'text': text, 'isMe': isMe};
+  Map<String, dynamic> toJson() => {
+        'senderName': senderName,
+        'text': text,
+        'isMe': isMe,
+        'messageId': messageId,
+      };
 
   factory ReplyInfo.fromJson(Map<String, dynamic> json) => ReplyInfo(
         senderName: json['senderName'] as String,
         text: json['text'] as String,
         isMe: json['isMe'] as bool,
+        messageId: json['messageId'] as String?,
       );
 }
 
