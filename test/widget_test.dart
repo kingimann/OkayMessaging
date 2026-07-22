@@ -776,6 +776,32 @@ void main() {
       expect(restored.direction, callmodel.CallDirection.outgoing);
       expect(restored.time, DateTime(2024, 5, 6, 7, 8));
     });
+
+    test('newMissedCount counts unseen missed calls; markSeen clears it', () {
+      callmodel.CallRecord missed(String id, DateTime t) =>
+          callmodel.CallRecord(
+            id: id,
+            user: const AppUser(
+              id: '+1 555 0110',
+              name: 'Dora',
+              avatarColor: '#4DB6AC',
+              about: 'Available',
+              phone: '+1 555 0110',
+            ),
+            time: t,
+            type: callmodel.CallType.voice,
+            direction: callmodel.CallDirection.missed,
+          );
+
+      CallLog.instance.add(missed('m1', DateTime(2024, 1, 1)));
+      CallLog.instance.add(missed('m2', DateTime(2024, 1, 2)));
+      CallLog.instance.add(rec('o1', DateTime(2024, 1, 3))); // outgoing
+      // Both missed calls are unseen; the outgoing one doesn't count.
+      expect(CallLog.instance.newMissedCount, 2);
+
+      CallLog.instance.markSeen();
+      expect(CallLog.instance.newMissedCount, 0);
+    });
   });
 
   testWidgets('Media gallery lists photos and links shared in a chat',

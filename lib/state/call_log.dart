@@ -13,15 +13,22 @@ class CallLog extends ChangeNotifier {
   static final CallLog instance = CallLog._();
 
   static const _key = 'call_log_v1';
+  static const _seenKey = 'call_log_seen_v1';
   static const _max = 200;
 
   List<CallRecord> _records = [];
+  DateTime _lastSeen = DateTime.fromMillisecondsSinceEpoch(0);
   SharedPreferences? _prefs;
 
   /// Most-recent-first list of calls.
   List<CallRecord> get records => List.unmodifiable(_records);
 
   bool get isEmpty => _records.isEmpty;
+
+  /// Number of missed calls received since the user last opened the Calls tab.
+  /// Backs the badge on the Calls navigation destination.
+  int get newMissedCount =>
+      _records.where((r) => r.isMissed && r.time.isAfter(_lastSeen)).length;
 
   Future<void> load() async {
     final prefs = await SharedPreferences.getInstance();
@@ -37,6 +44,17 @@ class CallLog extends ChangeNotifier {
         _records = [];
       }
     }
+    final seen = prefs.getString(_seenKey);
+    if (seen != null) {
+      _lastSeen = DateTime.tryParse(seen) ?? _lastSeen;
+    }
+    notifyListeners();
+  }
+
+  /// Marks the current history as seen, clearing the missed-call badge.
+  void markSeen() {
+    _lastSeen = DateTime.now();
+    _prefs?.setString(_seenKey, _lastSeen.toIso8601String());
     notifyListeners();
   }
 
@@ -67,6 +85,7 @@ class CallLog extends ChangeNotifier {
   @visibleForTesting
   void resetForTest() {
     _records = [];
+    _lastSeen = DateTime.fromMillisecondsSinceEpoch(0);
     _prefs = null;
     notifyListeners();
   }

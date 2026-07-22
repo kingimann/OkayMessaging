@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../app_state.dart';
 import '../data/mock_data.dart';
 import '../models/user.dart';
+import '../state/call_service.dart';
 import '../state/chat_store.dart';
 import '../theme/app_theme.dart';
 import '../widgets/info_section.dart';
@@ -65,6 +66,8 @@ class GroupInfoScreen extends StatelessWidget {
                   const SizedBox(height: 16),
                   _GroupActions(
                     muted: chat?.isMuted ?? false,
+                    onAudio: () => _startGroupCall(context, video: false),
+                    onVideo: () => _startGroupCall(context, video: true),
                     onMute: chatId == null
                         ? null
                         : () => ChatStore.instance.toggleMute(chatId!),
@@ -170,6 +173,13 @@ class GroupInfoScreen extends StatelessWidget {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Thanks — this group has been reported')),
     );
+  }
+
+  /// Rings the group. The call overlay takes over the screen, so we pop the
+  /// info page first to land back on the conversation when the call ends.
+  void _startGroupCall(BuildContext context, {required bool video}) {
+    Navigator.of(context).pop();
+    CallService.instance.startOutgoing(group, video: video);
   }
 }
 
@@ -307,10 +317,18 @@ class _MemberTile extends StatelessWidget {
 
 class _GroupActions extends StatelessWidget {
   final bool muted;
+  final VoidCallback? onAudio;
+  final VoidCallback? onVideo;
   final VoidCallback? onMute;
   final VoidCallback? onMedia;
 
-  const _GroupActions({required this.muted, this.onMute, this.onMedia});
+  const _GroupActions({
+    required this.muted,
+    this.onAudio,
+    this.onVideo,
+    this.onMute,
+    this.onMedia,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -318,10 +336,13 @@ class _GroupActions extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 20),
       child: Row(
         children: [
-          const Expanded(child: _TonalAction(icon: Icons.call, label: 'Audio')),
+          Expanded(
+              child: _TonalAction(
+                  icon: Icons.call, label: 'Audio', onTap: onAudio)),
           const SizedBox(width: 10),
-          const Expanded(
-              child: _TonalAction(icon: Icons.videocam, label: 'Video')),
+          Expanded(
+              child: _TonalAction(
+                  icon: Icons.videocam, label: 'Video', onTap: onVideo)),
           const SizedBox(width: 10),
           Expanded(
             child: _TonalAction(

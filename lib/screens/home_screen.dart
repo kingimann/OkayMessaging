@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../state/call_log.dart';
 import '../tabs/calls_tab.dart';
 import '../tabs/chats_tab.dart';
 import '../theme/app_theme.dart';
@@ -103,9 +104,13 @@ class _HomeScreenState extends State<HomeScreen> {
           SettingsView(),
         ],
       ),
-      bottomNavigationBar: _ModernNavBar(
-        index: _index,
-        onSelect: (i) => setState(() => _index = i),
+      bottomNavigationBar: ListenableBuilder(
+        listenable: CallLog.instance,
+        builder: (context, _) => _ModernNavBar(
+          index: _index,
+          missedCalls: CallLog.instance.newMissedCount,
+          onSelect: _onSelectTab,
+        ),
       ),
       floatingActionButton: _index >= 2
           ? null
@@ -126,6 +131,12 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  void _onSelectTab(int i) {
+    setState(() => _index = i);
+    // Opening the Calls tab clears the missed-call badge.
+    if (i == 2) CallLog.instance.markSeen();
+  }
+
   String get _titleForIndex => switch (_index) {
         1 => 'Communities',
         2 => 'Calls',
@@ -138,9 +149,14 @@ class _HomeScreenState extends State<HomeScreen> {
 /// destination — the label slides in only for the active tab.
 class _ModernNavBar extends StatelessWidget {
   final int index;
+  final int missedCalls;
   final ValueChanged<int> onSelect;
 
-  const _ModernNavBar({required this.index, required this.onSelect});
+  const _ModernNavBar({
+    required this.index,
+    required this.onSelect,
+    this.missedCalls = 0,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -180,6 +196,7 @@ class _ModernNavBar extends StatelessWidget {
                 activeIcon: Icons.call,
                 label: 'Calls',
                 selected: index == 2,
+                badgeCount: missedCalls,
                 onTap: () => onSelect(2),
               ),
               const SizedBox(width: 6),
@@ -203,6 +220,7 @@ class _NavPill extends StatelessWidget {
   final IconData activeIcon;
   final String label;
   final bool selected;
+  final int badgeCount;
   final VoidCallback onTap;
 
   const _NavPill({
@@ -211,6 +229,7 @@ class _NavPill extends StatelessWidget {
     required this.label,
     required this.selected,
     required this.onTap,
+    this.badgeCount = 0,
   });
 
   @override
@@ -237,8 +256,11 @@ class _NavPill extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(selected ? activeIcon : icon,
-                size: 24, color: selected ? ink : idle),
+            _IconWithBadge(
+              icon: selected ? activeIcon : icon,
+              color: selected ? ink : idle,
+              badgeCount: badgeCount,
+            ),
             AnimatedSize(
               duration: const Duration(milliseconds: 240),
               curve: Curves.easeOut,
@@ -259,6 +281,56 @@ class _NavPill extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// A nav icon with an optional red count badge (used for missed calls).
+class _IconWithBadge extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final int badgeCount;
+
+  const _IconWithBadge({
+    required this.icon,
+    required this.color,
+    required this.badgeCount,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final canvas = Theme.of(context).brightness == Brightness.dark
+        ? const Color(0xFF16181C)
+        : Colors.white;
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Icon(icon, size: 24, color: color),
+        if (badgeCount > 0)
+          Positioned(
+            right: -6,
+            top: -4,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+              constraints: const BoxConstraints(minWidth: 17, minHeight: 17),
+              decoration: BoxDecoration(
+                color: const Color(0xFFE53935),
+                borderRadius: BorderRadius.circular(9),
+                border: Border.all(color: canvas, width: 1.5),
+              ),
+              child: Text(
+                badgeCount > 9 ? '9+' : '$badgeCount',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w700,
+                  height: 1.1,
+                ),
+              ),
+            ),
+          ),
+      ],
     );
   }
 }
