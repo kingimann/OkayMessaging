@@ -1,34 +1,34 @@
 import 'package:flutter/material.dart';
 
-/// Central palette and [ThemeData]. A distinct violet/indigo identity — its
-/// own look, not a WhatsApp clone. (Constant names are kept for stability;
-/// they now hold the brand-violet palette rather than greens.)
+/// Central palette and [ThemeData]. A clean monochrome black-and-white
+/// identity, in the spirit of X. (Constant names are kept for stability; they
+/// now hold the mono palette.)
 class AppColors {
   AppColors._();
 
-  // Brand violet/indigo.
-  static const Color tealGreen = Color(0xFF5B3FE0); // deep brand violet
-  static const Color tealGreenDark = Color(0xFF7A5CFF); // accent violet
-  static const Color lightGreen = Color(0xFF9B87FF); // light accent
-  static const Color accent = Color(0xFF7A5CFF);
+  // Brand mono — near-black in light, near-white in dark.
+  static const Color tealGreen = Color(0xFF0F1419); // ink / brand
+  static const Color tealGreenDark = Color(0xFF0F1419); // accent (light)
+  static const Color lightGreen = Color(0xFF536471); // secondary grey
+  static const Color accent = Color(0xFF0F1419);
 
-  // Chat bubbles.
-  static const Color outgoingBubbleLight = Color(0xFFEAE4FF); // soft violet
-  static const Color incomingBubbleLight = Color(0xFFFFFFFF);
-  static const Color outgoingBubbleDark = Color(0xFF4A3AA8);
-  static const Color incomingBubbleDark = Color(0xFF262636);
+  // Chat bubbles — outgoing high-contrast, incoming subtle grey.
+  static const Color outgoingBubbleLight = Color(0xFF0F1419); // black bubble
+  static const Color incomingBubbleLight = Color(0xFFEFF3F4); // light grey
+  static const Color outgoingBubbleDark = Color(0xFFE7E9EA); // light bubble
+  static const Color incomingBubbleDark = Color(0xFF202327); // dark grey
 
   // Chat backgrounds.
-  static const Color chatBgLight = Color(0xFFF4F1FC); // soft lavender
-  static const Color chatBgDark = Color(0xFF141322);
+  static const Color chatBgLight = Color(0xFFFFFFFF);
+  static const Color chatBgDark = Color(0xFF000000);
 
   // Surfaces.
   static const Color lightSurface = Color(0xFFFFFFFF);
-  static const Color lightBar = Color(0xFFF6F4FD);
-  static const Color darkSurface = Color(0xFF15131F);
-  static const Color darkAppBar = Color(0xFF1E1B2E);
+  static const Color lightBar = Color(0xFFF7F9F9);
+  static const Color darkSurface = Color(0xFF000000);
+  static const Color darkAppBar = Color(0xFF16181C);
 
-  static const Color readTick = Color(0xFF7A5CFF); // violet read ticks
+  static const Color readTick = Color(0xFF0F1419); // mono read ticks
 }
 
 class AppTheme {

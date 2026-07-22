@@ -40,6 +40,10 @@ class MessageBubble extends StatelessWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final isMe = message.isMe;
 
+    // Outgoing bubbles are high-contrast (dark in light mode, light in dark
+    // mode); incoming bubbles are a subtle grey. Text/meta/tick colors are
+    // derived so they always contrast with the bubble they sit on.
+    const ink = Color(0xFF0F1419);
     final bubbleColor = isMe
         ? (isDark
             ? AppColors.outgoingBubbleDark
@@ -48,8 +52,18 @@ class MessageBubble extends StatelessWidget {
             ? AppColors.incomingBubbleDark
             : AppColors.incomingBubbleLight);
 
-    final textColor = isDark ? Colors.white : Colors.black87;
-    final metaColor = isDark ? Colors.white60 : Colors.black45;
+    final Color textColor;
+    final Color metaColor;
+    final Color readTickColor;
+    if (isMe) {
+      textColor = isDark ? ink : Colors.white;
+      metaColor = isDark ? Colors.black54 : Colors.white70;
+      readTickColor = isDark ? ink : Colors.white;
+    } else {
+      textColor = isDark ? const Color(0xFFE7E9EA) : ink;
+      metaColor = isDark ? Colors.white54 : Colors.black45;
+      readTickColor = metaColor;
+    }
     final hasReactions = message.reactions.isNotEmpty;
 
     if (message.isImage) {
@@ -164,7 +178,12 @@ class MessageBubble extends StatelessWidget {
                         ),
                         if (isMe) ...[
                           const SizedBox(width: 4),
-                          MessageStatusIcon(status: message.status, size: 15),
+                          MessageStatusIcon(
+                            status: message.status,
+                            size: 15,
+                            color: metaColor,
+                            readColor: readTickColor,
+                          ),
                         ],
                       ],
                     ),
