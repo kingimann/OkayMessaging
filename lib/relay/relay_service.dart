@@ -199,7 +199,40 @@ class RelayService {
             if (chat != null) ChatStore.instance.deleteMessage(chat.id, id);
           },
         )
+        .onBroadcast(
+          event: 'reaction',
+          callback: (payload) {
+            final from = payload['from'] as String?;
+            final id = payload['id'] as String?;
+            final emoji = payload['emoji'] as String?;
+            if (from == null ||
+                id == null ||
+                emoji == null ||
+                digits(from) == digits(me)) {
+              return;
+            }
+            final chat = ChatStore.instance.chatWithContact(from);
+            if (chat != null) {
+              ChatStore.instance.setReactionState(
+                  chat.id, id, emoji, payload['add'] as bool? ?? true);
+            }
+          },
+        )
         .subscribe();
+  }
+
+  /// Broadcasts a reaction change on message [messageId] to [contactPhone].
+  Future<void> sendReaction(
+      String contactPhone, String messageId, String emoji, bool add) async {
+    if (!_initialized) return;
+    final me = Session.instance.user.value;
+    if (me == null) return;
+    final channel = _sendChannels.putIfAbsent(
+        inboxChannel(contactPhone), () => _client.channel(inboxChannel(contactPhone)));
+    await channel.sendBroadcastMessage(
+      event: 'reaction',
+      payload: {'from': me.phone, 'id': messageId, 'emoji': emoji, 'add': add},
+    );
   }
 
   /// Broadcasts an edit of message [messageId] to [contactPhone].

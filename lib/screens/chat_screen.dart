@@ -493,7 +493,7 @@ class _ChatScreenState extends State<ChatScreen> {
               children: [
                 _ReactionRow(
                   onSelected: (emoji) {
-                    _store.toggleReaction(_chatId, message.id, emoji);
+                    _react(message.id, emoji);
                     Navigator.of(sheetContext).pop();
                   },
                 ),
@@ -666,9 +666,25 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
+  /// Toggles a reaction locally and mirrors it to a real peer over the relay.
+  void _react(String messageId, String emoji) {
+    _store.toggleReaction(_chatId, messageId, emoji);
+    if (RelayConfig.isEnabled && _isRealPeer(widget.chat.contact)) {
+      final present = _store
+              .chatById(_chatId)
+              ?.messages
+              .firstWhere((m) => m.id == messageId)
+              .reactions
+              .contains(emoji) ??
+          false;
+      RelayService.instance
+          .sendReaction(widget.chat.contact.phone, messageId, emoji, present);
+    }
+  }
+
   /// Toggles a ❤️ reaction; when one is added, pops a heart at the tap point.
   void _quickReact(Message message) {
-    _store.toggleReaction(_chatId, message.id, '❤️');
+    _react(message.id, '❤️');
     final added = _store
             .chatById(_chatId)
             ?.messages

@@ -605,6 +605,27 @@ void main() {
     await tester.pump(const Duration(seconds: 2));
   });
 
+  test('setReactionState adds/removes a reaction idempotently', () {
+    ChatStore.instance.reset();
+    final bob = ChatStore.instance.chatWithContact('u_bob')!;
+    final id = bob.messages.first.id;
+
+    ChatStore.instance.setReactionState(bob.id, id, '👍', true);
+    ChatStore.instance.setReactionState(bob.id, id, '👍', true); // idempotent
+    var m = ChatStore.instance
+        .chatById(bob.id)!
+        .messages
+        .firstWhere((x) => x.id == id);
+    expect(m.reactions.where((r) => r == '👍').length, 1);
+
+    ChatStore.instance.setReactionState(bob.id, id, '👍', false);
+    m = ChatStore.instance
+        .chatById(bob.id)!
+        .messages
+        .firstWhere((x) => x.id == id);
+    expect(m.reactions.contains('👍'), isFalse);
+  });
+
   test('editMessage replaces text and marks it edited', () {
     ChatStore.instance.reset();
     final bob = ChatStore.instance.chatWithContact('u_bob')!;

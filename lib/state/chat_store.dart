@@ -249,6 +249,30 @@ class ChatStore extends ChangeNotifier {
     return out;
   }
 
+  /// Forces [emoji] on a message to [present] (used to mirror a peer's
+  /// reaction received over the relay).
+  void setReactionState(
+      String chatId, String messageId, String emoji, bool present) {
+    final i = _indexOf(chatId);
+    if (i == -1) return;
+    var changed = false;
+    final msgs = _chats[i].messages.map((m) {
+      if (m.id != messageId) return m;
+      final reactions = List<String>.from(m.reactions);
+      final has = reactions.contains(emoji);
+      if (present && !has) {
+        reactions.add(emoji);
+      } else if (!present && has) {
+        reactions.remove(emoji);
+      } else {
+        return m;
+      }
+      changed = true;
+      return m.copyWith(reactions: reactions);
+    }).toList();
+    if (changed) _replace(i, _chats[i].copyWith(messages: msgs));
+  }
+
   /// Toggles [emoji] on a message: adds it if absent, removes it if present.
   void toggleReaction(String chatId, String messageId, String emoji) {
     final i = _indexOf(chatId);
