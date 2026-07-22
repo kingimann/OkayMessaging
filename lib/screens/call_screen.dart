@@ -35,6 +35,7 @@ class _CallScreenState extends State<CallScreen> {
     super.initState();
     _syncForStatus();
     CallMedia.instance.remoteReady.addListener(_onRemoteReady);
+    CallMedia.instance.connectionState.addListener(_onRemoteReady);
   }
 
   void _onRemoteReady() {
@@ -74,6 +75,7 @@ class _CallScreenState extends State<CallScreen> {
     _tick?.cancel();
     _dismiss?.cancel();
     CallMedia.instance.remoteReady.removeListener(_onRemoteReady);
+    CallMedia.instance.connectionState.removeListener(_onRemoteReady);
     super.dispose();
   }
 
@@ -86,6 +88,19 @@ class _CallScreenState extends State<CallScreen> {
         }
         return s.video ? 'Video calling…' : 'Ringing…';
       case CallStatus.connected:
+        // Reflect the live WebRTC media state so a still-negotiating or
+        // dropped connection isn't shown as a running call.
+        if (CallMedia.instance.isSupported) {
+          switch (CallMedia.instance.connectionState.value) {
+            case 'new':
+            case 'connecting':
+              return 'Connecting…';
+            case 'disconnected':
+              return 'Reconnecting…';
+            case 'failed':
+              return 'Connection lost';
+          }
+        }
         final m = _seconds ~/ 60;
         final sec = _seconds % 60;
         return '$m:${sec.toString().padLeft(2, '0')}';

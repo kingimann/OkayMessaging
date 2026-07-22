@@ -27,17 +27,54 @@ class CallMedia {
   /// Flips true once a remote track arrives, so the UI can show remote video.
   final ValueNotifier<bool> remoteReady = ValueNotifier<bool>(false);
 
+  /// Live media connection state: 'new' | 'connecting' | 'connected' |
+  /// 'disconnected' | 'failed' | 'closed'. The call UI reflects this so the
+  /// user sees "Connecting…" / "Reconnecting…" rather than silence.
+  final ValueNotifier<String> connectionState = ValueNotifier<String>('new');
+
   /// WebRTC media is only wired up on the web build.
   bool get isSupported => kIsWeb;
 
-  // Public STUN servers handle NAT traversal for most networks. Calls behind
-  // strict/symmetric NATs would additionally need a TURN server (see docs).
-  static const Map<String, dynamic> _config = {
-    'iceServers': [
-      {'urls': 'stun:stun.l.google.com:19302'},
-      {'urls': 'stun:stun1.l.google.com:19302'},
-    ],
-  };
+  // Optional TURN server (for calls behind strict/symmetric NATs) supplied at
+  // build time: --dart-define=TURN_URL=... TURN_USERNAME=... TURN_CREDENTIAL=...
+  static const String _turnUrl =
+      String.fromEnvironment('TURN_URL', defaultValue: '');
+  static const String _turnUser =
+      String.fromEnvironment('TURN_USERNAME', defaultValue: '');
+  static const String _turnCred =
+      String.fromEnvironment('TURN_CREDENTIAL', defaultValue: '');
+
+  // Public STUN servers cover most networks; TURN (if configured) relays media
+  // when a direct path can't be found.
+  static Map<String, dynamic> get _config => {
+        'iceServers': [
+          {'urls': 'stun:stun.l.google.com:19302'},
+          {'urls': 'stun:stun1.l.google.com:19302'},
+          if (_turnUrl.isNotEmpty)
+            {
+              'urls': _turnUrl,
+              'username': _turnUser,
+              'credential': _turnCred,
+            },
+        ],
+      };
+
+  static String _mapState(RTCPeerConnectionState s) {
+    switch (s) {
+      case RTCPeerConnectionState.RTCPeerConnectionStateConnecting:
+        return 'connecting';
+      case RTCPeerConnectionState.RTCPeerConnectionStateConnected:
+        return 'connected';
+      case RTCPeerConnectionState.RTCPeerConnectionStateDisconnected:
+        return 'disconnected';
+      case RTCPeerConnectionState.RTCPeerConnectionStateFailed:
+        return 'failed';
+      case RTCPeerConnectionState.RTCPeerConnectionStateClosed:
+        return 'closed';
+      default:
+        return 'new';
+    }
+  }
 
   Future<void> _ensureRenderers() async {
     if (_renderersReady) return;
@@ -74,6 +111,10 @@ class CallMedia {
         remoteReady.value = true;
       }
     };
+    pc.onConnectionState = (state) {
+      connectionState.value = _mapState(state);
+    };
+    connectionState.value = 'connecting';
   }
 
   /// Caller side: opens the mic/camera and returns the SDP offer to signal.
@@ -134,6 +175,7 @@ class CallMedia {
 
   Future<void> hangUp() async {
     remoteReady.value = false;
+    connectionState.value = 'closed';
     try {
       _localStream?.getTracks().forEach((t) => t.stop());
       await _localStream?.dispose();
