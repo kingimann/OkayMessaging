@@ -903,7 +903,8 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Wallpaper'));
     await tester.pumpAndSettle();
-    expect(find.text('Chat wallpaper'), findsOneWidget);
+    // Per-chat wallpaper picker (its "Default" swatch is shown).
+    expect(find.text('Default'), findsOneWidget);
     await tester.pageBack();
     await tester.pumpAndSettle();
 
@@ -953,6 +954,24 @@ void main() {
     // Emptying clears it.
     ChatStore.instance.setDraft(bob.id, '');
     expect(ChatStore.instance.draftFor(bob.id), '');
+  });
+
+  test('per-chat wallpaper overrides the default and survives persistence', () {
+    ChatStore.instance.reset();
+    final bob = ChatStore.instance.chatWithContact('u_bob')!;
+    expect(ChatStore.instance.wallpaperFor(bob.id), isNull);
+
+    ChatStore.instance.setWallpaper(bob.id, const Color(0xFFDCEBF5));
+    expect(ChatStore.instance.wallpaperFor(bob.id), const Color(0xFFDCEBF5));
+
+    final snapshot = ChatStore.instance.toJson();
+    ChatStore.instance.reset();
+    expect(ChatStore.instance.wallpaperFor(bob.id), isNull);
+    ChatStore.instance.hydrate(snapshot);
+    expect(ChatStore.instance.wallpaperFor(bob.id), const Color(0xFFDCEBF5));
+
+    ChatStore.instance.setWallpaper(bob.id, null);
+    expect(ChatStore.instance.wallpaperFor(bob.id), isNull);
   });
 
   testWidgets('A draft is saved on leaving a chat and restored on return',

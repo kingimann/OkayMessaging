@@ -983,9 +983,12 @@ class _ChatScreenState extends State<ChatScreen> {
       case 'disappearing':
         _chooseDisappearing();
       case 'wallpaper':
-        Navigator.of(context).push(
-          MaterialPageRoute(builder: (_) => const WallpaperScreen()),
-        );
+        Navigator.of(context)
+            .push(MaterialPageRoute(
+                builder: (_) => WallpaperScreen(chatId: _chatId)))
+            .then((_) {
+          if (mounted) setState(() {}); // reflect the new per-chat wallpaper
+        });
       case 'export':
         _exportChat();
       case 'clear':
@@ -1210,8 +1213,9 @@ class _ChatScreenState extends State<ChatScreen> {
 
     return ValueListenableBuilder<Color?>(
       valueListenable: AppState.chatWallpaper,
-      builder: (context, wallpaper, _) => Scaffold(
-        backgroundColor: wallpaper ??
+      builder: (context, globalWallpaper, _) => Scaffold(
+        // A per-chat wallpaper overrides the global default.
+        backgroundColor: (_store.wallpaperFor(_chatId) ?? globalWallpaper) ??
             (isDark ? AppColors.chatBgDark : AppColors.chatBgLight),
         appBar: _selectionMode
             ? AppBar(

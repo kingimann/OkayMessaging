@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' show Color;
 
 import 'package:flutter/foundation.dart';
 
@@ -34,6 +35,9 @@ class ChatStore extends ChangeNotifier {
   /// conversation.
   final Map<String, String> _drafts = {};
 
+  /// Per-chat wallpaper color (ARGB int) overriding the global default.
+  final Map<String, int> _wallpapers = {};
+
   /// Invoked after every change so a persistence layer can save.
   void Function()? onChanged;
 
@@ -47,6 +51,7 @@ class ChatStore extends ChangeNotifier {
         'chats': _chats.map((c) => c.toJson()).toList(),
         'starred': _starred.toList(),
         'drafts': Map<String, String>.of(_drafts),
+        'wallpapers': Map<String, int>.of(_wallpapers),
       };
 
   /// Replaces all state from a previously-saved [json] snapshot.
@@ -61,6 +66,26 @@ class ChatStore extends ChangeNotifier {
       ..clear()
       ..addAll((json['drafts'] as Map? ?? const {})
           .map((k, v) => MapEntry('$k', '$v')));
+    _wallpapers
+      ..clear()
+      ..addAll((json['wallpapers'] as Map? ?? const {})
+          .map((k, v) => MapEntry('$k', v as int)));
+    notifyListeners();
+  }
+
+  /// The wallpaper override for [chatId], or null to use the global default.
+  Color? wallpaperFor(String chatId) {
+    final v = _wallpapers[chatId];
+    return v == null ? null : Color(v);
+  }
+
+  /// Sets (or clears, with null) a per-chat wallpaper.
+  void setWallpaper(String chatId, Color? color) {
+    if (color == null) {
+      _wallpapers.remove(chatId);
+    } else {
+      _wallpapers[chatId] = color.toARGB32();
+    }
     notifyListeners();
   }
 
@@ -100,6 +125,7 @@ class ChatStore extends ChangeNotifier {
     _chats = [];
     _starred.clear();
     _drafts.clear();
+    _wallpapers.clear();
     notifyListeners();
   }
 
@@ -110,6 +136,7 @@ class ChatStore extends ChangeNotifier {
     _chats = MockData.chats();
     _starred.clear();
     _drafts.clear();
+    _wallpapers.clear();
     notifyListeners();
   }
 

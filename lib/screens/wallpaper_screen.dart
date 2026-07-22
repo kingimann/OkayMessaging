@@ -1,12 +1,17 @@
 import 'package:flutter/material.dart';
 
 import '../app_state.dart';
+import '../state/chat_store.dart';
 import '../theme/app_theme.dart';
 
 /// A simple chat-wallpaper picker: choose a solid background color (or the
-/// default). The choice applies to every conversation.
+/// default). With no [chatId] the choice is the global default for every
+/// conversation; with a [chatId] it overrides the wallpaper for just that chat.
 class WallpaperScreen extends StatelessWidget {
-  const WallpaperScreen({super.key});
+  /// When set, the picker changes only this chat's wallpaper.
+  final String? chatId;
+
+  const WallpaperScreen({super.key, this.chatId});
 
   // null = default (theme-based) wallpaper.
   static const List<Color?> _options = [
@@ -27,10 +32,17 @@ class WallpaperScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Chat wallpaper')),
-      body: ValueListenableBuilder<Color?>(
-        valueListenable: AppState.chatWallpaper,
-        builder: (context, current, _) {
+      appBar: AppBar(
+        title: Text(chatId == null ? 'Chat wallpaper' : 'Wallpaper'),
+      ),
+      body: AnimatedBuilder(
+        animation: chatId == null
+            ? AppState.chatWallpaper
+            : ChatStore.instance,
+        builder: (context, _) {
+          final current = chatId == null
+              ? AppState.chatWallpaper.value
+              : ChatStore.instance.wallpaperFor(chatId!);
           return GridView.count(
             crossAxisCount: 3,
             padding: const EdgeInsets.all(16),
@@ -42,7 +54,11 @@ class WallpaperScreen extends StatelessWidget {
                   color: color,
                   selected: color == current,
                   onTap: () {
-                    AppState.chatWallpaper.value = color;
+                    if (chatId == null) {
+                      AppState.chatWallpaper.value = color;
+                    } else {
+                      ChatStore.instance.setWallpaper(chatId!, color);
+                    }
                     Navigator.of(context).pop();
                   },
                 ),
