@@ -1,0 +1,132 @@
+# Codemagic CI/CD configuration for Okay Messaging.
+#
+# Before your first build, set these up in the Codemagic UI
+# (App settings → Environment variables, and Code signing):
+#
+#   • Variable group "supabase" with:
+#       SUPABASE_URL       – your project URL (e.g. https://xxxx.supabase.co)
+#       SUPABASE_ANON_KEY  – the publishable/anon key (safe to ship in the app)
+#     Optionally in the same group, for calls behind strict NATs:
+#       TURN_URL, TURN_USERNAME, TURN_CREDENTIAL
+#
+#   • Android code signing → reference name "okay_keystore"
+#       (upload your upload keystore; Codemagic injects it at build time).
+#
+#   • iOS code signing → connect an App Store Connect API key integration
+#       named "okay_app_store" and let Codemagic manage the certificate/profile.
+#
+#   • Change the bundle identifier below (and in the native projects) from the
+#     com.example.* placeholder — both stores reject it. See STORE_CHECKLIST.md.
+
+workflows:
+  # --- Fast feedback on every push / pull request ------------------------
+  test:
+    name: Analyze & test
+    max_build_duration: 30
+    instance_type: linux_x2
+    environment:
+      flutter: 3.44.7
+    triggering:
+      events:
+        - push
+        - pull_request
+    scripts:
+      - name: Get packages
+        script: flutter pub get
+      - name: Analyze
+        script: flutter analyze
+      - name: Unit & widget tests
+        script: flutter test
+
+  # --- Android App Bundle for Google Play --------------------------------
+  android-release:
+    name: Android release (Play Store)
+    max_build_duration: 60
+    instance_type: linux_x2
+    environment:
+      flutter: 3.44.7
+      groups:
+        - supabase
+      android_signing:
+        - okay_keystore
+      vars:
+        PACKAGE_NAME: "com.example.okay_messaging" # TODO: change before release
+    scripts:
+      - name: Get packages
+        script: flutter pub get
+      - name: Analyze & test
+        script: |
+          flutter analyze
+          flutter test
+      - name: Build app bundle
+        script: |
+          flutter build appbundle --release \
+            --dart-define=SUPABASE_URL="$SUPABASE_URL" \
+            --dart-define=SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY" \
+            --dart-define=REQUIRE_OTP=true
+    artifacts:
+      - build/**/outputs/bundle/**/*.aab
+      - build/**/outputs/apk/**/*.apk
+      - build/**/outputs/mapping/**/*.txt
+    publishing:
+      # Uncomment once a Google Play service-account key is added to Codemagic.
+      # google_play:
+      #   credentials: $GCLOUD_SERVICE_ACCOUNT_CREDENTIALS
+      #   track: internal
+      #   submit_as_draft: true
+      email:
+        recipients:
+          - ifakhargomi@gmail.com
+        notify:
+          success: true
+          failure: true
+
+  # --- iOS archive for the App Store -------------------------------------
+  ios-release:
+    name: iOS release (App Store)
+    max_build_duration: 90
+    instance_type: mac_mini_m2
+    environment:
+      flutter: 3.44.7
+      xcode: latest
+      cocoapods: default
+      groups:
+        - supabase
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.example.okayMessaging # TODO: change before release
+      integrations:
+        app_store_connect: okay_app_store
+    scripts:
+      - name: Get packages
+        script: flutter pub get
+      - name: Analyze & test
+        script: |
+          flutter analyze
+          flutter test
+      - name: Install CocoaPods
+        script: |
+          find . -name "Podfile" -execdir pod install \;
+      - name: Set up provisioning profiles
+        script: xcode-project use-profiles
+      - name: Build IPA
+        script: |
+          flutter build ipa --release \
+            --dart-define=SUPABASE_URL="$SUPABASE_URL" \
+            --dart-define=SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY" \
+            --dart-define=REQUIRE_OTP=true \
+            --export-options-plist=/Users/builder/export_options.plist
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+    publishing:
+      # Uncomment to push builds to TestFlight automatically.
+      # app_store_connect:
+      #   auth: integration
+      #   submit_to_testflight: true
+      email:
+        recipients:
+          - ifakhargomi@gmail.com
+        notify:
+          success: true
+          failure: true
