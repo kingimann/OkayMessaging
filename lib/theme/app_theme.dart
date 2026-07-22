@@ -1,33 +1,34 @@
 import 'package:flutter/material.dart';
 
-/// Central palette and [ThemeData], refreshed to match WhatsApp's current
-/// (light-header + bottom-navigation) look.
+/// Central palette and [ThemeData]. A distinct violet/indigo identity — its
+/// own look, not a WhatsApp clone. (Constant names are kept for stability;
+/// they now hold the brand-violet palette rather than greens.)
 class AppColors {
   AppColors._();
 
-  // Modern brand greens.
-  static const Color tealGreen = Color(0xFF008069); // deep brand green
-  static const Color tealGreenDark = Color(0xFF00A884); // accent green
-  static const Color lightGreen = Color(0xFF25D366);
-  static const Color accent = Color(0xFF00A884);
+  // Brand violet/indigo.
+  static const Color tealGreen = Color(0xFF5B3FE0); // deep brand violet
+  static const Color tealGreenDark = Color(0xFF7A5CFF); // accent violet
+  static const Color lightGreen = Color(0xFF9B87FF); // light accent
+  static const Color accent = Color(0xFF7A5CFF);
 
   // Chat bubbles.
-  static const Color outgoingBubbleLight = Color(0xFFD9FDD3);
+  static const Color outgoingBubbleLight = Color(0xFFEAE4FF); // soft violet
   static const Color incomingBubbleLight = Color(0xFFFFFFFF);
-  static const Color outgoingBubbleDark = Color(0xFF005C4B);
-  static const Color incomingBubbleDark = Color(0xFF202C33);
+  static const Color outgoingBubbleDark = Color(0xFF4A3AA8);
+  static const Color incomingBubbleDark = Color(0xFF262636);
 
   // Chat backgrounds.
-  static const Color chatBgLight = Color(0xFFEFEAE2);
-  static const Color chatBgDark = Color(0xFF0B141A);
+  static const Color chatBgLight = Color(0xFFF4F1FC); // soft lavender
+  static const Color chatBgDark = Color(0xFF141322);
 
   // Surfaces.
   static const Color lightSurface = Color(0xFFFFFFFF);
-  static const Color lightBar = Color(0xFFF7F8FA);
-  static const Color darkSurface = Color(0xFF111B21);
-  static const Color darkAppBar = Color(0xFF1F2C34);
+  static const Color lightBar = Color(0xFFF6F4FD);
+  static const Color darkSurface = Color(0xFF15131F);
+  static const Color darkAppBar = Color(0xFF1E1B2E);
 
-  static const Color readTick = Color(0xFF53BDEB);
+  static const Color readTick = Color(0xFF7A5CFF); // violet read ticks
 }
 
 class AppTheme {

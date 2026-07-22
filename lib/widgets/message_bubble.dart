@@ -84,19 +84,14 @@ class MessageBubble extends StatelessWidget {
             clipBehavior: Clip.none,
             children: [
               Container(
-                padding: const EdgeInsets.fromLTRB(10, 6, 10, 6),
+                padding: const EdgeInsets.fromLTRB(13, 8, 13, 7),
                 decoration: BoxDecoration(
                   color: bubbleColor,
-                  borderRadius: BorderRadius.only(
-                    topLeft: const Radius.circular(16),
-                    topRight: const Radius.circular(16),
-                    bottomLeft: Radius.circular(isMe ? 16 : 4),
-                    bottomRight: Radius.circular(isMe ? 4 : 16),
-                  ),
+                  borderRadius: const BorderRadius.all(Radius.circular(20)),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.08),
-                      blurRadius: 1,
+                      color: Colors.black.withValues(alpha: 0.05),
+                      blurRadius: 2,
                       offset: const Offset(0, 1),
                     ),
                   ],
