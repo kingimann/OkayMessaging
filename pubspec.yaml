@@ -30,6 +30,19 @@ dev_dependencies:
     sdk: flutter
   flutter_lints: ^3.0.0
   flutter_launcher_icons: ^0.14.1
+  flutter_native_splash: ^2.4.4
+
+# Native launch screen. Regenerate after changing the art with:
+#   dart run flutter_native_splash:create
+flutter_native_splash:
+  color: "#6A3CE0"
+  image: assets/icon/splash_logo.png
+  android_12:
+    color: "#6A3CE0"
+    image: assets/icon/splash_logo.png
+  android: true
+  ios: true
+  web: false
 
 # App launcher icons. Regenerate after changing the source art with:
 #   dart run flutter_launcher_icons
