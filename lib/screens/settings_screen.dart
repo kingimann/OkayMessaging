@@ -55,6 +55,7 @@ class SettingsView extends StatelessWidget {
           _sectionLabel(context, 'Privacy'),
           InfoSection(
             children: [
+              _buildContactsOnlyTile(),
               _buildLastSeenTile(),
               _buildReadReceiptsTile(),
               _buildTypingTile(),
@@ -148,6 +149,24 @@ class SettingsView extends StatelessWidget {
           ),
         ),
       );
+
+  Widget _buildContactsOnlyTile() {
+    return ValueListenableBuilder<bool>(
+      valueListenable: AppState.messagesFromContactsOnly,
+      builder: (context, on, _) {
+        return SwitchListTile(
+          secondary: Icon(on ? Icons.mark_email_read_outlined : Icons.mail_outline),
+          title: const Text('Only my contacts can message me'),
+          subtitle: Text(on
+              ? 'Messages from unknown numbers are ignored'
+              : 'Anyone can start a chat with you'),
+          value: on,
+          shape: _tileShape,
+          onChanged: (v) => AppState.messagesFromContactsOnly.value = v,
+        );
+      },
+    );
+  }
 
   Widget _buildLastSeenTile() {
     return ValueListenableBuilder<bool>(

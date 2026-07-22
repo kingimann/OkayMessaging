@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide Session;
 
+import '../app_state.dart';
 import '../crypto/e2e.dart';
 import '../crypto/key_exchange.dart';
 import '../models/chat.dart';
@@ -76,6 +77,8 @@ class RelayService {
     String? senderPublicKey,
   }) {
     // Everything sensitive goes inside this blob — nothing but routing leaks.
+    // The full message is carried so replies, forwards, shared location /
+    // contacts and disappearing timers survive delivery, not just plain text.
     final content = jsonEncode({
       'text': message.text,
       'fromName': fromName,
@@ -85,6 +88,16 @@ class RelayService {
       'imageUrl': message.imageUrl,
       'isVoice': message.isVoice,
       'voiceSeconds': message.voiceSeconds,
+      'forwarded': message.forwarded,
+      'replyTo': message.replyTo?.toJson(),
+      'isLocation': message.isLocation,
+      'locationLat': message.locationLat,
+      'locationLng': message.locationLng,
+      'locationLabel': message.locationLabel,
+      'isContact': message.isContact,
+      'contactName': message.contactName,
+      'contactPhone': message.contactPhone,
+      'expiresAt': message.expiresAt?.toIso8601String(),
     });
 
     var c = content;
@@ -123,11 +136,20 @@ class RelayService {
     final target = store ?? ChatStore.instance;
     final id = payload['id'] as String? ?? 'relay_${payload['ts']}';
 
+    // Privacy: blocked senders are always ignored, and when "only my contacts
+    // can message me" is on, a message from someone with no existing chat is
+    // dropped rather than starting a new conversation.
+    final knownChat = target.chatWithContact(from);
+    if (AppState.isBlocked(from)) return false;
+    if (knownChat == null && AppState.messagesFromContactsOnly.value) {
+      return false;
+    }
+
     // Decrypt the sealed content blob into the real fields. Falls back to the
     // legacy top-level layout for any message still on the old wire format.
     final content = _decodeContent(payload, from: from, myPhone: myPhone);
 
-    var chat = target.chatWithContact(from);
+    var chat = knownChat;
     if (chat == null) {
       final fromName = (content['fromName'] as String?)?.trim();
       final contact = AppUser(
@@ -147,6 +169,7 @@ class RelayService {
       return false;
     }
 
+    final replyJson = content['replyTo'];
     target.addMessage(
       chat.id,
       Message(
@@ -161,6 +184,20 @@ class RelayService {
         imageUrl: content['imageUrl'] as String?,
         isVoice: content['isVoice'] as bool? ?? false,
         voiceSeconds: content['voiceSeconds'] as int? ?? 0,
+        forwarded: content['forwarded'] as bool? ?? false,
+        replyTo: replyJson is Map
+            ? ReplyInfo.fromJson(Map<String, dynamic>.from(replyJson))
+            : null,
+        isLocation: content['isLocation'] as bool? ?? false,
+        locationLat: (content['locationLat'] as num?)?.toDouble(),
+        locationLng: (content['locationLng'] as num?)?.toDouble(),
+        locationLabel: content['locationLabel'] as String?,
+        isContact: content['isContact'] as bool? ?? false,
+        contactName: content['contactName'] as String?,
+        contactPhone: content['contactPhone'] as String?,
+        expiresAt: content['expiresAt'] == null
+            ? null
+            : DateTime.tryParse(content['expiresAt'] as String),
       ),
     );
     return true;
@@ -339,9 +376,10 @@ class RelayService {
         .onBroadcast(
           event: 'call',
           callback: (payload) {
-            final from = payload['from'] as String?;
-            final kind = payload['kind'] as String?;
-            final callId = payload['callId'] as String?;
+            final p = Map<String, dynamic>.from(payload);
+            final from = p['from'] as String?;
+            final kind = p['kind'] as String?;
+            final callId = p['callId'] as String?;
             if (from == null ||
                 kind == null ||
                 callId == null ||
@@ -353,27 +391,23 @@ class RelayService {
               case 'offer':
                 final peer = AppUser(
                   id: from,
-                  name: (payload['fromName'] as String?)?.trim().isNotEmpty ==
-                          true
-                      ? payload['fromName'] as String
+                  name: (p['fromName'] as String?)?.trim().isNotEmpty == true
+                      ? p['fromName'] as String
                       : from,
                   avatarColor: '#7A5CFF',
                   about: 'Available',
                   phone: from,
-                  username: (payload['fromUsername'] as String?) ?? '',
+                  username: (p['fromUsername'] as String?) ?? '',
                 );
-                call.onRemoteOffer(peer, callId, payload['video'] == true,
-                    sdp: payload['sdp'] as String?);
+                call.onRemoteOffer(peer, callId, p['video'] == true,
+                    sdp: _openSdp(from, p));
                 break;
               case 'answer':
-                call.onRemoteAnswer(callId, sdp: payload['sdp'] as String?);
+                call.onRemoteAnswer(callId, sdp: _openSdp(from, p));
                 break;
               case 'ice':
-                final ice = payload['ice'];
-                if (ice is Map) {
-                  call.onRemoteIce(
-                      callId, Map<String, dynamic>.from(ice));
-                }
+                final ice = _openIce(from, p);
+                if (ice != null) call.onRemoteIce(callId, ice);
                 break;
               case 'decline':
                 call.onRemoteDecline(callId);
@@ -387,8 +421,9 @@ class RelayService {
         .onBroadcast(
           event: 'file',
           callback: (payload) {
-            final from = payload['from'] as String?;
-            final kind = payload['kind'] as String?;
+            final p = Map<String, dynamic>.from(payload);
+            final from = p['from'] as String?;
+            final kind = p['kind'] as String?;
             if (from == null || kind == null || digits(from) == digits(me)) {
               return;
             }
@@ -397,19 +432,19 @@ class RelayService {
               case 'offer':
                 ft.onRemoteOffer(
                   from,
-                  (payload['fromName'] as String?) ?? from,
-                  (payload['transferId'] as String?) ?? '',
-                  (payload['fileName'] as String?) ?? 'file',
-                  (payload['size'] as num?)?.toInt() ?? 0,
-                  (payload['sdp'] as String?) ?? '',
+                  (p['fromName'] as String?) ?? from,
+                  (p['transferId'] as String?) ?? '',
+                  (p['fileName'] as String?) ?? 'file',
+                  (p['size'] as num?)?.toInt() ?? 0,
+                  _openSdp(from, p) ?? '',
                 );
                 break;
               case 'answer':
-                ft.onRemoteAnswer((payload['sdp'] as String?) ?? '');
+                ft.onRemoteAnswer(_openSdp(from, p) ?? '');
                 break;
               case 'ice':
-                final ice = payload['ice'];
-                if (ice is Map) ft.onRemoteIce(Map<String, dynamic>.from(ice));
+                final ice = _openIce(from, p);
+                if (ice != null) ft.onRemoteIce(ice);
                 break;
               case 'decline':
                 ft.onRemoteDecline();
@@ -418,6 +453,59 @@ class RelayService {
           },
         )
         .subscribe();
+  }
+
+  /// Encrypts a call/file signaling string ([plaintext] — an SDP or a JSON ICE
+  /// candidate) for [contactPhone], so the relay can't read the WebRTC
+  /// handshake (which carries DTLS fingerprints and network candidates). Uses
+  /// the ECDH shared secret when known, else the phone-derived key. Returns the
+  /// ciphertext, the enc mode, and (for ECDH) our public key.
+  ({String data, int enc, String? spk}) _sealSignal(
+      String contactPhone, String plaintext) {
+    final kx = SecureKeyExchange.instance;
+    final peerPub = kx.peerKey(contactPhone);
+    if (kx.isReady && peerPub != null) {
+      final secret = kx.sharedSecretWith(peerPub);
+      if (secret != null) {
+        return (
+          data: E2eCrypto.encrypt(secret, plaintext),
+          enc: 2,
+          spk: kx.myPublicKey
+        );
+      }
+    }
+    final me = Session.instance.user.value;
+    if (me != null) {
+      return (
+        data: E2eCrypto.encrypt(E2eCrypto.keyFor(me.phone, contactPhone),
+            plaintext),
+        enc: 1,
+        spk: null,
+      );
+    }
+    return (data: plaintext, enc: 0, spk: null);
+  }
+
+  /// Reverses [_sealSignal] for a signal received from [from]. Returns the
+  /// plaintext, or the input unchanged when it wasn't (or couldn't be) sealed.
+  String? _openSignal(String from, String? data, Object? encRaw, String? spk) {
+    if (data == null) return null;
+    if (encRaw == 2 || encRaw == '2') {
+      final secret =
+          spk == null ? null : SecureKeyExchange.instance.sharedSecretWith(spk);
+      if (secret != null) {
+        if (spk != null) SecureKeyExchange.instance.rememberPeer(from, spk);
+        return E2eCrypto.decrypt(secret, data) ?? data;
+      }
+      return data;
+    }
+    if (encRaw == 1 || encRaw == true) {
+      final me = Session.instance.user.value;
+      if (me != null) {
+        return E2eCrypto.decrypt(E2eCrypto.keyFor(from, me.phone), data) ?? data;
+      }
+    }
+    return data;
   }
 
   /// The active file-transfer id, so ICE candidates can be tagged with it.
@@ -441,6 +529,8 @@ class RelayService {
     final name = inboxChannel(contactPhone);
     final channel =
         _sendChannels.putIfAbsent(name, () => _client.channel(name));
+    // Encrypt the handshake so the relay never sees the SDP / ICE candidates.
+    final sealed = _sealSignalPair(contactPhone, sdp: sdp, ice: ice);
     await channel.sendBroadcastMessage(
       event: 'file',
       payload: {
@@ -448,12 +538,56 @@ class RelayService {
         'fromName': me.name,
         'kind': kind,
         'transferId': transferId ?? _currentFileId ?? '',
-        if (sdp != null) 'sdp': sdp,
-        if (ice != null) 'ice': ice,
+        ...sealed,
         if (fileName != null) 'fileName': fileName,
         if (size != null) 'size': size,
       },
     );
+  }
+
+  /// Seals an [sdp] and/or [ice] candidate for [contactPhone] into a payload
+  /// fragment carrying the ciphertext plus the enc mode / sender key so the
+  /// receiver can decrypt. Shared by call and file signaling.
+  Map<String, dynamic> _sealSignalPair(
+    String contactPhone, {
+    String? sdp,
+    Map<String, dynamic>? ice,
+  }) {
+    final out = <String, dynamic>{};
+    if (sdp != null) {
+      final s = _sealSignal(contactPhone, sdp);
+      out['sdp'] = s.data;
+      out['senc'] = s.enc;
+      if (s.spk != null) out['sspk'] = s.spk;
+    }
+    if (ice != null) {
+      final s = _sealSignal(contactPhone, jsonEncode(ice));
+      out['ice'] = s.data;
+      out['ienc'] = s.enc;
+      if (s.spk != null) out['ispk'] = s.spk;
+    }
+    return out;
+  }
+
+  /// Recovers an SDP string from a sealed signaling [payload].
+  String? _openSdp(String from, Map<String, dynamic> payload) =>
+      _openSignal(from, payload['sdp'] as String?, payload['senc'],
+          payload['sspk'] as String?);
+
+  /// Recovers an ICE-candidate map from a sealed signaling [payload].
+  Map<String, dynamic>? _openIce(String from, Map<String, dynamic> payload) {
+    final raw = payload['ice'];
+    if (raw == null) return null;
+    // New sealed form: an encrypted JSON string. Legacy form: a raw Map.
+    if (raw is Map) return Map<String, dynamic>.from(raw);
+    final json = _openSignal(from, raw as String?, payload['ienc'],
+        payload['ispk'] as String?);
+    if (json == null) return null;
+    try {
+      final decoded = jsonDecode(json);
+      if (decoded is Map) return Map<String, dynamic>.from(decoded);
+    } catch (_) {}
+    return null;
   }
 
   /// Sends a call-signaling event ('offer', 'answer', 'decline', 'end') to
@@ -481,7 +615,7 @@ class RelayService {
         'kind': kind,
         'callId': callId,
         'video': video,
-        if (sdp != null) 'sdp': sdp,
+        ..._sealSignalPair(contactPhone, sdp: sdp),
       },
     );
   }
@@ -502,7 +636,7 @@ class RelayService {
         'kind': 'ice',
         'callId': _currentCallId ?? '',
         'video': false,
-        'ice': candidate,
+        ..._sealSignalPair(contactPhone, ice: candidate),
       },
     );
   }

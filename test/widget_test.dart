@@ -1563,6 +1563,8 @@ void main() {
     final tile = find.text('Read receipts');
     await tester.scrollUntilVisible(tile, 250,
         scrollable: find.byType(Scrollable).last);
+    await tester.ensureVisible(tile);
+    await tester.pumpAndSettle();
     await tester.tap(tile);
     await tester.pumpAndSettle();
 
@@ -1859,6 +1861,68 @@ void main() {
       final got =
           ChatStore.instance.chatWithContact('+1 555 0199')!.messages.single;
       expect(got.text, 'secret rendezvous at noon');
+    });
+
+    test('a reply, forward, and shared location survive the relay', () {
+      ChatStore.instance.reset();
+      final msg = Message(
+        id: 'rich1',
+        text: 'On my way!',
+        time: DateTime(2024, 1, 1, 9),
+        isMe: true,
+        forwarded: true,
+        replyTo: const ReplyInfo(
+            senderName: 'Grace', text: 'Where are you?', isMe: false),
+        isLocation: true,
+        locationLat: 37.7749,
+        locationLng: -122.4194,
+        locationLabel: 'Ferry Building',
+      );
+      final payload = RelayService.encode(
+          message: msg, fromPhone: '+1 555 0199', fromName: 'Grace');
+      RelayService.applyIncoming(payload, myPhone: '+1 555 0100');
+      final got =
+          ChatStore.instance.chatWithContact('+1 555 0199')!.messages.single;
+      expect(got.forwarded, isTrue);
+      expect(got.replyTo?.text, 'Where are you?');
+      expect(got.isLocation, isTrue);
+      expect(got.locationLabel, 'Ferry Building');
+      expect(got.locationLat, closeTo(37.7749, 0.0001));
+    });
+
+    test('contacts-only privacy drops messages from unknown senders', () {
+      ChatStore.instance.reset();
+      AppState.messagesFromContactsOnly.value = true;
+      final payload = {
+        'id': 'x1',
+        'from': '+1 555 7777', // no existing chat
+        'c': null,
+        'text': 'hey there',
+        'ts': DateTime(2024, 1, 1, 9).toIso8601String(),
+      };
+      final added =
+          RelayService.applyIncoming(payload, myPhone: '+1 555 0100');
+      expect(added, isFalse);
+      expect(ChatStore.instance.chatWithContact('+1 555 7777'), isNull);
+      AppState.messagesFromContactsOnly.value = false;
+    });
+
+    test('blocked senders are dropped even from an existing chat', () {
+      ChatStore.instance.reset();
+      final bob = ChatStore.instance.chats.first.contact;
+      AppState.setBlocked(bob.phone, true);
+      final payload = {
+        'id': 'blk1',
+        'from': bob.phone,
+        'c': null,
+        'text': 'spam',
+        'ts': DateTime(2024, 1, 1, 9).toIso8601String(),
+      };
+      expect(
+        RelayService.applyIncoming(payload, myPhone: '+1 555 0100'),
+        isFalse,
+      );
+      AppState.setBlocked(bob.phone, false);
     });
   });
 

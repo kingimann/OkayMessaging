@@ -39,6 +39,11 @@ class AppState {
   static final ValueNotifier<bool> silenceUnknownCallers =
       ValueNotifier<bool>(false);
 
+  /// When on, only people you already have a chat with can message you; a
+  /// message from an unknown number is dropped instead of starting a new chat.
+  static final ValueNotifier<bool> messagesFromContactsOnly =
+      ValueNotifier<bool>(false);
+
   /// Whether to show in-app notifications for the simulated demo replies.
   static final ValueNotifier<bool> notificationsEnabled =
       ValueNotifier<bool>(true);
@@ -84,6 +89,7 @@ class AppState {
     sendReadReceipts.value = true;
     sendTypingIndicators.value = true;
     silenceUnknownCallers.value = false;
+    messagesFromContactsOnly.value = false;
     notificationsEnabled.value = true;
     enterToSend.value = true;
     messageTextScale.value = 1.0;
