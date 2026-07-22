@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../models/message.dart';
+import '../payments/payment_amount_sheet.dart';
 import '../theme/app_theme.dart';
 import '../utils/date_formatter.dart';
 import 'message_status_icon.dart';
@@ -83,6 +84,23 @@ class MessageBubble extends StatelessWidget {
         hasReactions: hasReactions,
         onLongPress: onLongPress,
         onTap: onTap,
+      );
+    }
+
+    if (message.isPayment) {
+      return Align(
+        alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+        child: GestureDetector(
+          onLongPress: onLongPress,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+            child: PaymentBubble(
+              amountCents: message.paymentAmountCents,
+              note: message.text,
+              isMe: isMe,
+            ),
+          ),
+        ),
       );
     }
 

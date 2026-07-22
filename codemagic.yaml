@@ -4,8 +4,9 @@
 # (App settings → Environment variables, and Code signing):
 #
 #   • Variable group "supabase" with:
-#       SUPABASE_URL       – your project URL (e.g. https://xxxx.supabase.co)
-#       SUPABASE_ANON_KEY  – the publishable/anon key (safe to ship in the app)
+#       SUPABASE_URL           – your project URL (e.g. https://xxxx.supabase.co)
+#       SUPABASE_ANON_KEY      – the publishable/anon key (safe to ship in the app)
+#       STRIPE_PUBLISHABLE_KEY – pk_test_.../pk_live_... for in-chat payments
 #     Optionally in the same group, for calls behind strict NATs:
 #       TURN_URL, TURN_USERNAME, TURN_CREDENTIAL
 #
@@ -63,6 +64,7 @@ workflows:
           flutter build appbundle --release \
             --dart-define=SUPABASE_URL="$SUPABASE_URL" \
             --dart-define=SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY" \
+            --dart-define=STRIPE_PUBLISHABLE_KEY="$STRIPE_PUBLISHABLE_KEY" \
             --dart-define=REQUIRE_OTP=true
     artifacts:
       - build/**/outputs/bundle/**/*.aab
@@ -114,6 +116,7 @@ workflows:
           flutter build ipa --release \
             --dart-define=SUPABASE_URL="$SUPABASE_URL" \
             --dart-define=SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY" \
+            --dart-define=STRIPE_PUBLISHABLE_KEY="$STRIPE_PUBLISHABLE_KEY" \
             --dart-define=REQUIRE_OTP=true \
             --export-options-plist=/Users/builder/export_options.plist
     artifacts:

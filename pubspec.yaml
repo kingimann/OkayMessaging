@@ -24,6 +24,11 @@ dependencies:
   flutter_webrtc: ^1.5.2
   file_picker: ^11.0.2
   path_provider: ^2.1.6
+  # Native card / Apple Pay / Google Pay sheet for in-chat payments. Used only
+  # on mobile (guarded by a conditional import so the web build stays clean).
+  flutter_stripe: ^11.1.0
+  # Opens the Stripe-hosted Express onboarding (KYC) link in an in-app browser.
+  url_launcher: ^6.2.0
 
 dev_dependencies:
   flutter_test:

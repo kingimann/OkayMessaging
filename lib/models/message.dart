@@ -87,6 +87,13 @@ class Message {
   final String? contactName;
   final String? contactPhone;
 
+  /// True for an in-chat payment; [paymentAmountCents] / [paymentCurrency] hold
+  /// the amount and [text] carries an optional note. Money moves through Stripe
+  /// Connect — this message is only the receipt shown in the conversation.
+  final bool isPayment;
+  final int paymentAmountCents;
+  final String paymentCurrency;
+
   const Message({
     required this.id,
     required this.text,
@@ -111,6 +118,9 @@ class Message {
     this.isContact = false,
     this.contactName,
     this.contactPhone,
+    this.isPayment = false,
+    this.paymentAmountCents = 0,
+    this.paymentCurrency = 'cad',
   });
 
   Map<String, dynamic> toJson() => {
@@ -137,6 +147,9 @@ class Message {
         'isContact': isContact,
         'contactName': contactName,
         'contactPhone': contactPhone,
+        'isPayment': isPayment,
+        'paymentAmountCents': paymentAmountCents,
+        'paymentCurrency': paymentCurrency,
       };
 
   factory Message.fromJson(Map<String, dynamic> json) => Message(
@@ -168,6 +181,9 @@ class Message {
         isContact: json['isContact'] as bool? ?? false,
         contactName: json['contactName'] as String?,
         contactPhone: json['contactPhone'] as String?,
+        isPayment: json['isPayment'] as bool? ?? false,
+        paymentAmountCents: json['paymentAmountCents'] as int? ?? 0,
+        paymentCurrency: json['paymentCurrency'] as String? ?? 'cad',
       );
 
   Message copyWith({
@@ -201,6 +217,15 @@ class Message {
       isContact: isContact,
       contactName: contactName,
       contactPhone: contactPhone,
+      isPayment: isPayment,
+      paymentAmountCents: paymentAmountCents,
+      paymentCurrency: paymentCurrency,
     );
+  }
+
+  /// Formats [paymentAmountCents] as a currency string, e.g. "$20.00".
+  String get paymentDisplay {
+    final symbol = paymentCurrency.toLowerCase() == 'usd' ? r'$' : r'$';
+    return '$symbol${(paymentAmountCents / 100).toStringAsFixed(2)}';
   }
 }

@@ -10,6 +10,7 @@ import '../widgets/user_avatar.dart';
 import 'blocked_contacts_screen.dart';
 import 'edit_profile_screen.dart';
 import 'my_qr_screen.dart';
+import 'wallet_screen.dart';
 import 'wallpaper_screen.dart';
 
 /// App settings as a standalone screen (pushed from deep links / older flows).
@@ -85,6 +86,14 @@ class SettingsView extends StatelessWidget {
           _sectionLabel(context, 'Account'),
           InfoSection(
             children: [
+              InfoTile(
+                leading: const Icon(Icons.account_balance_wallet_outlined),
+                title: 'Wallet & payments',
+                subtitle: 'Balance, cash out, receive money',
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const WalletScreen()),
+                ),
+              ),
               InfoTile(
                 leading: const Icon(Icons.key_outlined),
                 title: 'Account',

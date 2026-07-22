@@ -39,3 +39,49 @@ create policy usernames_update_own on public.usernames
   for update to authenticated
   using (phone = (auth.jwt() ->> 'phone'))
   with check (phone = (auth.jwt() ->> 'phone'));
+
+-- =============================================================================
+-- Payments (Stripe Connect Express)
+-- =============================================================================
+-- These tables hold ONLY payment metadata needed for routing and status — never
+-- card numbers (PCI stays with Stripe) and never user funds (money lives in each
+-- receiver's Stripe connected-account balance and auto-pays out to their bank).
+-- They are written exclusively by the Edge Functions using the service-role key;
+-- RLS is on with no anon/authenticated policies, so the client can't read them
+-- directly (it goes through the functions).
+
+-- Maps a verified phone to its Stripe Express connected account + KYC status.
+create table if not exists public.payment_accounts (
+  phone             text primary key,      -- E.164 digits
+  stripe_account_id text not null,
+  charges_enabled   boolean not null default false,
+  payouts_enabled   boolean not null default false,
+  details_submitted boolean not null default false,
+  updated_at        timestamptz not null default now()
+);
+alter table public.payment_accounts enable row level security;
+
+-- One row per PaymentIntent: who paid whom, how much, the platform fee, status.
+create table if not exists public.payment_transactions (
+  id                text primary key,      -- Stripe PaymentIntent id
+  from_phone        text not null,
+  to_phone          text not null,
+  amount_cents      integer not null,
+  fee_cents         integer not null default 0,
+  currency          text not null default 'cad',
+  status            text not null default 'requires_payment',
+  created_at        timestamptz not null default now(),
+  updated_at        timestamptz not null default now()
+);
+alter table public.payment_transactions enable row level security;
+
+-- Latest payout state per connected account (from payout.* webhooks), so a
+-- receiver can see "paid out to bank" status in-app.
+create table if not exists public.payout_status (
+  stripe_account_id text primary key,
+  status            text not null,
+  amount_cents      integer,
+  arrival_date      timestamptz,
+  updated_at        timestamptz not null default now()
+);
+alter table public.payout_status enable row level security;

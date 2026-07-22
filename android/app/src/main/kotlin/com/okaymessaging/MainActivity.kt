@@ -1,5 +1,6 @@
 package com.okaymessaging
 
-import io.flutter.embedding.android.FlutterActivity
+// flutter_stripe's Payment Sheet requires a FragmentActivity host.
+import io.flutter.embedding.android.FlutterFragmentActivity
 
-class MainActivity : FlutterActivity()
+class MainActivity : FlutterFragmentActivity()

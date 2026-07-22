@@ -98,6 +98,9 @@ class RelayService {
       'isContact': message.isContact,
       'contactName': message.contactName,
       'contactPhone': message.contactPhone,
+      'isPayment': message.isPayment,
+      'paymentAmountCents': message.paymentAmountCents,
+      'paymentCurrency': message.paymentCurrency,
       'expiresAt': message.expiresAt?.toIso8601String(),
     });
 
@@ -202,6 +205,9 @@ class RelayService {
         isContact: content['isContact'] as bool? ?? false,
         contactName: content['contactName'] as String?,
         contactPhone: content['contactPhone'] as String?,
+        isPayment: content['isPayment'] as bool? ?? false,
+        paymentAmountCents: content['paymentAmountCents'] as int? ?? 0,
+        paymentCurrency: content['paymentCurrency'] as String? ?? 'cad',
         expiresAt: content['expiresAt'] == null
             ? null
             : DateTime.tryParse(content['expiresAt'] as String),

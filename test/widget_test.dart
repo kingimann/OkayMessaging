@@ -1881,6 +1881,29 @@ void main() {
       expect(got.text, 'secret rendezvous at noon');
     });
 
+    test('an in-chat payment survives the relay with amount and note', () {
+      ChatStore.instance.reset();
+      final pay = Message(
+        id: 'pay1',
+        text: 'lunch 🍜',
+        time: DateTime(2024, 1, 1, 9),
+        isMe: true,
+        isPayment: true,
+        paymentAmountCents: 2050,
+        paymentCurrency: 'cad',
+      );
+      final payload = RelayService.encode(
+          message: pay, fromPhone: '+1 555 0199', fromName: 'Grace');
+      RelayService.applyIncoming(payload, myPhone: '+1 555 0100');
+      final got =
+          ChatStore.instance.chatWithContact('+1 555 0199')!.messages.single;
+      expect(got.isPayment, isTrue);
+      expect(got.paymentAmountCents, 2050);
+      expect(got.paymentCurrency, 'cad');
+      expect(got.text, 'lunch 🍜'); // the note
+      expect(got.paymentDisplay, r'$20.50');
+    });
+
     test('a reply, forward, and shared location survive the relay', () {
       ChatStore.instance.reset();
       final msg = Message(

@@ -8,6 +8,8 @@ import '../app_state.dart';
 import '../models/chat.dart';
 import '../models/message.dart';
 import '../models/user.dart';
+import '../payments/payment_amount_sheet.dart';
+import '../payments/payment_service.dart';
 import '../relay/relay_config.dart';
 import '../relay/relay_service.dart';
 import '../state/chat_store.dart';
@@ -1190,6 +1192,61 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
+  /// Sends money to this chat's contact via Stripe Connect. Opens the amount
+  /// sheet, creates a destination PaymentIntent, presents the native payment
+  /// sheet, and on success drops a payment receipt into the conversation.
+  Future<void> _handleSendMoney() async {
+    final svc = PaymentService.instance;
+    if (!svc.isConfigured) {
+      _showComingSoon(context, 'Payments (add your Stripe key to enable)');
+      return;
+    }
+    if (!svc.canSendOnThisDevice) {
+      _showComingSoon(context, 'Sending money (use the mobile app)');
+      return;
+    }
+    if (!_isRealPeer(widget.chat.contact)) {
+      _showComingSoon(context, 'Payments (needs a real contact)');
+      return;
+    }
+    final result = await showModalBottomSheet<({int cents, String note})>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => PaymentAmountSheet(peerName: widget.chat.contact.name),
+    );
+    if (result == null || result.cents <= 0 || !mounted) return;
+
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final ok = await svc.sendMoney(
+        toPhone: widget.chat.contact.phone,
+        amountCents: result.cents,
+        note: result.note,
+      );
+      if (!ok) return; // cancelled or failed in the sheet
+      final now = DateTime.now();
+      _deliver(Message(
+        id: 'pay_${now.microsecondsSinceEpoch}',
+        text: result.note,
+        time: now,
+        isMe: true,
+        status: MessageStatus.sent,
+        isPayment: true,
+        paymentAmountCents: result.cents,
+        paymentCurrency: 'cad',
+      ));
+    } on PaymentException catch (e) {
+      messenger.showSnackBar(SnackBar(
+        content: Text(e.code == 'receiver_not_onboarded'
+            ? '${widget.chat.contact.name} hasn\'t set up payments yet'
+            : 'Payment failed: ${e.code}'),
+      ));
+    } catch (_) {
+      messenger.showSnackBar(
+          const SnackBar(content: Text('Payment could not be completed')));
+    }
+  }
+
   void _showAttachmentSheet() {
     showModalBottomSheet<void>(
       context: context,
@@ -1206,6 +1263,8 @@ class _ChatScreenState extends State<ChatScreen> {
               _handleSendLocation),
           (Icons.person, 'Contact', const Color(0xFF009DE2),
               _pickContactToShare),
+          (Icons.attach_money, 'Payment', const Color(0xFF12B76A),
+              _handleSendMoney),
         ];
         return SafeArea(
           child: Padding(
