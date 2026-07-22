@@ -605,6 +605,48 @@ void main() {
     await tester.pump(const Duration(seconds: 2));
   });
 
+  test('editMessage replaces text and marks it edited', () {
+    ChatStore.instance.reset();
+    final bob = ChatStore.instance.chatWithContact('u_bob')!;
+    final id = bob.messages.firstWhere((m) => m.isMe).id;
+
+    ChatStore.instance.editMessage(bob.id, id, 'edited text');
+    final m = ChatStore.instance
+        .chatById(bob.id)!
+        .messages
+        .firstWhere((x) => x.id == id);
+    expect(m.text, 'edited text');
+    expect(m.edited, isTrue);
+  });
+
+  testWidgets('Editing a sent message updates it with an edited marker',
+      (tester) async {
+    await tester.pumpWidget(const OkayMessagingApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Bob Carter'));
+    await tester.pumpAndSettle();
+
+    // Long-press my own message, choose Edit.
+    await tester.longPress(find.textContaining('What a finish'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Edit'));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.descendant(
+          of: find.byType(AlertDialog), matching: find.byType(TextField)),
+      'Edited!',
+    );
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    final bob = ChatStore.instance.chatWithContact('u_bob')!;
+    expect(bob.messages.any((m) => m.text == 'Edited!' && m.edited), isTrue);
+    expect(find.text('Edited!'), findsOneWidget);
+    expect(find.text('edited'), findsWidgets);
+  });
+
   testWidgets('Muting from the chat menu shows a muted icon in the header',
       (tester) async {
     await tester.pumpWidget(const OkayMessagingApp());

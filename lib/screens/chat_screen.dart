@@ -543,6 +543,15 @@ class _ChatScreenState extends State<ChatScreen> {
                     },
                   );
                 }),
+                if (message.isMe && !message.isImage && !message.isVoice)
+                  ListTile(
+                    leading: const Icon(Icons.edit_outlined),
+                    title: const Text('Edit'),
+                    onTap: () {
+                      Navigator.of(sheetContext).pop();
+                      _editMessage(message);
+                    },
+                  ),
                 ListTile(
                   leading: const Icon(Icons.copy),
                   title: const Text('Copy'),
@@ -571,8 +580,8 @@ class _ChatScreenState extends State<ChatScreen> {
                   title:
                       const Text('Delete', style: TextStyle(color: Colors.red)),
                   onTap: () {
-                    _store.deleteMessage(_chatId, message.id);
                     Navigator.of(sheetContext).pop();
+                    _deleteMessage(message);
                   },
                 ),
               ],
@@ -580,6 +589,80 @@ class _ChatScreenState extends State<ChatScreen> {
           ),
         );
       },
+    );
+  }
+
+  Future<void> _editMessage(Message message) async {
+    final controller = TextEditingController(text: message.text);
+    final result = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Edit message'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLines: null,
+          decoration: const InputDecoration(border: OutlineInputBorder()),
+          onSubmitted: (v) => Navigator.of(dialogContext).pop(v),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(controller.text),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    final text = result?.trim();
+    if (text == null || text.isEmpty || text == message.text) return;
+    _store.editMessage(_chatId, message.id, text);
+    if (RelayConfig.isEnabled && _isRealPeer(widget.chat.contact)) {
+      RelayService.instance.sendEdit(widget.chat.contact.phone, message.id, text);
+    }
+  }
+
+  /// Deletes a message: for your own messages on a real-peer chat, offers to
+  /// delete it for everyone (removing it on the other device too).
+  Future<void> _deleteMessage(Message message) async {
+    final canDeleteForEveryone = message.isMe &&
+        RelayConfig.isEnabled &&
+        _isRealPeer(widget.chat.contact);
+    if (!canDeleteForEveryone) {
+      _store.deleteMessage(_chatId, message.id);
+      return;
+    }
+    await showModalBottomSheet<void>(
+      context: context,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.delete_outline),
+              title: const Text('Delete for me'),
+              onTap: () {
+                _store.deleteMessage(_chatId, message.id);
+                Navigator.of(sheetContext).pop();
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.delete_forever, color: Colors.red),
+              title: const Text('Delete for everyone',
+                  style: TextStyle(color: Colors.red)),
+              onTap: () {
+                _store.deleteMessage(_chatId, message.id);
+                RelayService.instance
+                    .sendDelete(widget.chat.contact.phone, message.id);
+                Navigator.of(sheetContext).pop();
+              },
+            ),
+          ],
+        ),
+      ),
     );
   }
 

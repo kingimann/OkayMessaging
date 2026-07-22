@@ -192,6 +192,17 @@ class ChatStore extends ChangeNotifier {
     _replace(i, _chats[i].copyWith(messages: const [], clearPinned: true));
   }
 
+  /// Replaces a message's text and marks it edited.
+  void editMessage(String chatId, String messageId, String newText) {
+    final i = _indexOf(chatId);
+    if (i == -1) return;
+    final msgs = _chats[i].messages
+        .map((m) =>
+            m.id == messageId ? m.copyWith(text: newText, edited: true) : m)
+        .toList();
+    _replace(i, _chats[i].copyWith(messages: msgs));
+  }
+
   void deleteMessage(String chatId, String messageId) {
     final i = _indexOf(chatId);
     if (i == -1) return;

@@ -176,7 +176,57 @@ class RelayService {
             ChatStore.instance.setOutgoingStatus(chat.id, status);
           },
         )
+        .onBroadcast(
+          event: 'edit',
+          callback: (payload) {
+            final from = payload['from'] as String?;
+            final id = payload['id'] as String?;
+            if (from == null || id == null || digits(from) == digits(me)) return;
+            final chat = ChatStore.instance.chatWithContact(from);
+            if (chat != null) {
+              ChatStore.instance
+                  .editMessage(chat.id, id, (payload['text'] as String?) ?? '');
+            }
+          },
+        )
+        .onBroadcast(
+          event: 'delete',
+          callback: (payload) {
+            final from = payload['from'] as String?;
+            final id = payload['id'] as String?;
+            if (from == null || id == null || digits(from) == digits(me)) return;
+            final chat = ChatStore.instance.chatWithContact(from);
+            if (chat != null) ChatStore.instance.deleteMessage(chat.id, id);
+          },
+        )
         .subscribe();
+  }
+
+  /// Broadcasts an edit of message [messageId] to [contactPhone].
+  Future<void> sendEdit(
+      String contactPhone, String messageId, String newText) async {
+    if (!_initialized) return;
+    final me = Session.instance.user.value;
+    if (me == null) return;
+    final channel = _sendChannels.putIfAbsent(
+        inboxChannel(contactPhone), () => _client.channel(inboxChannel(contactPhone)));
+    await channel.sendBroadcastMessage(
+      event: 'edit',
+      payload: {'from': me.phone, 'id': messageId, 'text': newText},
+    );
+  }
+
+  /// Broadcasts a delete-for-everyone of message [messageId] to [contactPhone].
+  Future<void> sendDelete(String contactPhone, String messageId) async {
+    if (!_initialized) return;
+    final me = Session.instance.user.value;
+    if (me == null) return;
+    final channel = _sendChannels.putIfAbsent(
+        inboxChannel(contactPhone), () => _client.channel(inboxChannel(contactPhone)));
+    await channel.sendBroadcastMessage(
+      event: 'delete',
+      payload: {'from': me.phone, 'id': messageId},
+    );
   }
 
   /// Sends a delivery/read receipt ('delivered' or 'read') to [contactPhone].

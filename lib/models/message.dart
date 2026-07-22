@@ -55,6 +55,9 @@ class Message {
   final bool isVoice;
   final int voiceSeconds;
 
+  /// True when this message has been edited after sending.
+  final bool edited;
+
   /// True for image messages; [imageSeed] picks a placeholder gradient when
   /// there is no real [imageUrl] (e.g. in the local demo).
   final bool isImage;
@@ -77,6 +80,7 @@ class Message {
     this.isImage = false,
     this.imageSeed = 0,
     this.imageUrl,
+    this.edited = false,
   });
 
   Map<String, dynamic> toJson() => {
@@ -93,6 +97,7 @@ class Message {
         'isImage': isImage,
         'imageSeed': imageSeed,
         'imageUrl': imageUrl,
+        'edited': edited,
       };
 
   factory Message.fromJson(Map<String, dynamic> json) => Message(
@@ -112,15 +117,18 @@ class Message {
         isImage: json['isImage'] as bool? ?? false,
         imageSeed: json['imageSeed'] as int? ?? 0,
         imageUrl: json['imageUrl'] as String?,
+        edited: json['edited'] as bool? ?? false,
       );
 
   Message copyWith({
+    String? text,
     MessageStatus? status,
     List<String>? reactions,
+    bool? edited,
   }) {
     return Message(
       id: id,
-      text: text,
+      text: text ?? this.text,
       time: time,
       isMe: isMe,
       status: status ?? this.status,
@@ -132,6 +140,7 @@ class Message {
       isImage: isImage,
       imageSeed: imageSeed,
       imageUrl: imageUrl,
+      edited: edited ?? this.edited,
     );
   }
 }

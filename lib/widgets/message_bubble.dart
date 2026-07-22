@@ -161,6 +161,17 @@ class MessageBubble extends StatelessWidget {
                           Icon(Icons.star, size: 13, color: metaColor),
                           const SizedBox(width: 3),
                         ],
+                        if (message.edited) ...[
+                          Text(
+                            'edited',
+                            style: TextStyle(
+                              color: metaColor,
+                              fontSize: 11,
+                              fontStyle: FontStyle.italic,
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                        ],
                         Text(
                           DateFormatter.messageTime(message.time),
                           style: TextStyle(color: metaColor, fontSize: 11),
