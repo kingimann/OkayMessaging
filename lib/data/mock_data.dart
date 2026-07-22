@@ -111,6 +111,14 @@ class MockData {
             status: MessageStatus.read,
           ),
           Message(
+            id: 'm2b',
+            text: 'That new place is *amazing* — try the `truffle pasta`, '
+                'and _skip_ the ~overpriced~ dessert 😋',
+            time: _ago(const Duration(minutes: 30)),
+            isMe: true,
+            status: MessageStatus.read,
+          ),
+          Message(
             id: 'm3',
             text: 'Perfect. I\'ll book a table.',
             time: _ago(const Duration(minutes: 8)),

@@ -14,7 +14,7 @@ import 'package:okay_messaging/relay/relay_service.dart';
 import 'package:okay_messaging/state/chat_store.dart';
 import 'package:okay_messaging/state/session.dart';
 import 'package:okay_messaging/widgets/heart_burst.dart';
-import 'package:okay_messaging/widgets/linkable_text.dart';
+import 'package:okay_messaging/widgets/rich_message_text.dart';
 
 void main() {
   // Singletons persist across tests; reset them so each starts clean. Most
@@ -488,8 +488,8 @@ void main() {
     await tester.tap(find.text('Carol Diaz'));
     await tester.pumpAndSettle();
 
-    // Carol's chat has a message with a link, rendered via LinkableText.
-    expect(find.byType(LinkableText), findsOneWidget);
+    // Carol's chat has a message with a link, rendered via RichMessageText.
+    expect(find.byType(RichMessageText), findsWidgets);
 
     // Tapping the link span copies it and shows a confirmation snackbar.
     // (Pump past the double-tap timeout so the single tap resolves to the
@@ -497,6 +497,19 @@ void main() {
     await tester.tapOnText(find.textRange.ofSubstring('okaydocs.example'));
     await tester.pump(const Duration(milliseconds: 400));
     expect(find.textContaining('Link copied'), findsOneWidget);
+  });
+
+  test('Rich text parses bold/italic/strike/mono markers', () {
+    List<RunStyle> stylesOf(String s) =>
+        RichMessageText.parse(s).map((r) => r.style).toList();
+
+    final runs = RichMessageText.parse('a *b* _c_ ~d~ `e`');
+    expect(runs.map((r) => r.text).join(), 'a b c d e');
+    expect(stylesOf('*bold*'), [RunStyle.bold]);
+    expect(stylesOf('_x_'), [RunStyle.italic]);
+    expect(stylesOf('~x~'), [RunStyle.strike]);
+    expect(stylesOf('`x`'), [RunStyle.mono]);
+    expect(stylesOf('plain'), [RunStyle.plain]);
   });
 
   testWidgets('Tapping the call button opens the call screen', (tester) async {

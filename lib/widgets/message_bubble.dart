@@ -3,8 +3,8 @@ import 'package:flutter/material.dart';
 import '../models/message.dart';
 import '../theme/app_theme.dart';
 import '../utils/date_formatter.dart';
-import 'linkable_text.dart';
 import 'message_status_icon.dart';
+import 'rich_message_text.dart';
 
 /// A single chat bubble, aligned left for incoming and right for outgoing.
 class MessageBubble extends StatelessWidget {
@@ -136,22 +136,13 @@ class MessageBubble extends StatelessWidget {
                         textColor: textColor,
                         metaColor: metaColor,
                       )
-                    else if (LinkableText.hasLink(message.text))
-                      LinkableText(
+                    else
+                      RichMessageText(
                         text: message.text,
                         textColor: textColor,
                         linkColor: isDark
                             ? const Color(0xFF53BDEB)
                             : const Color(0xFF027EB5),
-                      )
-                    else
-                      Text(
-                        message.text,
-                        style: TextStyle(
-                          color: textColor,
-                          fontSize: 15.5,
-                          height: 1.3,
-                        ),
                       ),
                     const SizedBox(height: 2),
                     Row(
