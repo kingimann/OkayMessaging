@@ -142,12 +142,12 @@ void main() {
     expect(find.text('❤️'), findsOneWidget);
   });
 
-  testWidgets('FAB on the Chats tab opens the new-chat contact picker',
+  testWidgets('New-chat action on the Chats tab opens the contact picker',
       (tester) async {
     await tester.pumpWidget(const OkayMessagingApp());
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byType(FloatingActionButton));
+    await tester.tap(find.byIcon(Icons.add_comment_outlined));
     await tester.pumpAndSettle();
 
     expect(find.text('New chat'), findsOneWidget);
@@ -1430,8 +1430,8 @@ void main() {
     await tester.pumpWidget(const OkayMessagingApp());
     await tester.pumpAndSettle();
 
-    // Chats FAB → New group.
-    await tester.tap(find.byType(FloatingActionButton));
+    // Chats "new chat" action → New group.
+    await tester.tap(find.byIcon(Icons.add_comment_outlined));
     await tester.pumpAndSettle();
     await tester.tap(find.text('New group'));
     await tester.pumpAndSettle();

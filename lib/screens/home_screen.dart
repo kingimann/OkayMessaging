@@ -23,22 +23,6 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _index = 0;
 
-  IconData get _fabIcon => switch (_index) {
-        1 => Icons.groups,
-        2 => Icons.add_call,
-        _ => Icons.chat,
-      };
-
-  void _onFabPressed() {
-    if (_index == 0) {
-      Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => const NewChatScreen()),
-      );
-    } else if (_index == 1) {
-      createCommunityFlow(context);
-    }
-  }
-
   void _onMenuSelected(String value) {
     switch (value) {
       case 'settings':
@@ -79,6 +63,13 @@ class _HomeScreenState extends State<HomeScreen> {
         actions: [
           if (onChats) ...[
             IconButton(
+              icon: const Icon(Icons.add_comment_outlined),
+              tooltip: 'New chat',
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const NewChatScreen()),
+              ),
+            ),
+            IconButton(
               icon: const Icon(Icons.search),
               tooltip: 'Search',
               onPressed: () =>
@@ -92,7 +83,12 @@ class _HomeScreenState extends State<HomeScreen> {
                     value: 'starred', child: Text('Starred messages')),
               ],
             ),
-          ],
+          ] else if (_index == 1)
+            IconButton(
+              icon: const Icon(Icons.add),
+              tooltip: 'New community',
+              onPressed: () => createCommunityFlow(context),
+            ),
         ],
       ),
       body: IndexedStack(
@@ -112,22 +108,6 @@ class _HomeScreenState extends State<HomeScreen> {
           onSelect: _onSelectTab,
         ),
       ),
-      floatingActionButton: _index >= 2
-          ? null
-          : FloatingActionButton(
-              onPressed: _onFabPressed,
-              backgroundColor: isDark ? Colors.white : AppColors.tealGreenDark,
-              foregroundColor: isDark ? Colors.black : Colors.white,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(18),
-              ),
-              child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 220),
-                transitionBuilder: (child, animation) =>
-                    ScaleTransition(scale: animation, child: child),
-                child: Icon(_fabIcon, key: ValueKey(_fabIcon)),
-              ),
-            ),
     );
   }
 
