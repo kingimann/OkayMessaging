@@ -46,7 +46,10 @@ class RelayService {
       'text': message.text,
       'ts': message.time.toIso8601String(),
       'isImage': message.isImage,
+      'imageSeed': message.imageSeed,
       'imageUrl': message.imageUrl,
+      'isVoice': message.isVoice,
+      'voiceSeconds': message.voiceSeconds,
     };
   }
 
@@ -95,7 +98,10 @@ class RelayService {
         isMe: false,
         status: MessageStatus.delivered,
         isImage: payload['isImage'] as bool? ?? false,
+        imageSeed: payload['imageSeed'] as int? ?? 0,
         imageUrl: payload['imageUrl'] as String?,
+        isVoice: payload['isVoice'] as bool? ?? false,
+        voiceSeconds: payload['voiceSeconds'] as int? ?? 0,
       ),
     );
     return true;

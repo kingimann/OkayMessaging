@@ -133,23 +133,53 @@ class _ChatScreenState extends State<ChatScreen> {
 
   void _handleSend(String text) {
     final now = DateTime.now();
-    final message = Message(
+    _deliver(Message(
       id: 'local_${now.microsecondsSinceEpoch}',
       text: text,
       time: now,
       isMe: true,
       status: MessageStatus.sent,
       replyTo: _replyTo,
-    );
-    _store.addMessage(_chatId, message);
+    ));
     setState(() => _replyTo = null);
-    WidgetsBinding.instance.addPostFrameCallback((_) => _animateToBottom());
+  }
 
+  void _handleSendImage() {
+    final now = DateTime.now();
+    _deliver(Message(
+      id: 'img_${now.microsecondsSinceEpoch}',
+      text: '',
+      time: now,
+      isMe: true,
+      status: MessageStatus.sent,
+      isImage: true,
+      imageSeed: now.microsecondsSinceEpoch % 6,
+      replyTo: _replyTo,
+    ));
+    setState(() => _replyTo = null);
+  }
+
+  void _handleSendVoice(int seconds) {
+    final now = DateTime.now();
+    _deliver(Message(
+      id: 'voice_${now.microsecondsSinceEpoch}',
+      text: '',
+      time: now,
+      isMe: true,
+      status: MessageStatus.sent,
+      isVoice: true,
+      voiceSeconds: seconds,
+    ));
+  }
+
+  /// Stores an outgoing [message] and either delivers it over the relay (to a
+  /// real number-based peer) or triggers a simulated reply (demo contact).
+  void _deliver(Message message) {
+    _store.addMessage(_chatId, message);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _animateToBottom());
     if (RelayConfig.isEnabled && _isRealPeer(widget.chat.contact)) {
-      // Real device-to-device delivery; the other side replies for real.
       RelayService.instance.send(widget.chat.contact.phone, message);
     } else {
-      // Demo contact (or no relay): keep it lively with a simulated reply.
       _scheduleAutoReply();
     }
   }
@@ -158,44 +188,6 @@ class _ChatScreenState extends State<ChatScreen> {
   /// as opposed to a seeded demo contact or a group.
   bool _isRealPeer(AppUser c) =>
       !c.isGroup && c.phone.isNotEmpty && c.id == c.phone;
-
-  void _handleSendImage() {
-    final now = DateTime.now();
-    _store.addMessage(
-      _chatId,
-      Message(
-        id: 'img_${now.microsecondsSinceEpoch}',
-        text: '',
-        time: now,
-        isMe: true,
-        status: MessageStatus.sent,
-        isImage: true,
-        imageSeed: now.microsecondsSinceEpoch % 6,
-        replyTo: _replyTo,
-      ),
-    );
-    setState(() => _replyTo = null);
-    WidgetsBinding.instance.addPostFrameCallback((_) => _animateToBottom());
-    _scheduleAutoReply();
-  }
-
-  void _handleSendVoice(int seconds) {
-    final now = DateTime.now();
-    _store.addMessage(
-      _chatId,
-      Message(
-        id: 'voice_${now.microsecondsSinceEpoch}',
-        text: '',
-        time: now,
-        isMe: true,
-        status: MessageStatus.sent,
-        isVoice: true,
-        voiceSeconds: seconds,
-      ),
-    );
-    WidgetsBinding.instance.addPostFrameCallback((_) => _animateToBottom());
-    _scheduleAutoReply();
-  }
 
   /// Simulates the other person typing then replying so the demo feels alive.
   void _scheduleAutoReply() {

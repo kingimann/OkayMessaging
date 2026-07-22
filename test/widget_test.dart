@@ -757,6 +757,47 @@ void main() {
           RelayService.inboxChannel('+1 555 0199'));
     });
 
+    test('encode/applyIncoming round-trip preserves image and voice', () {
+      ChatStore.instance.reset();
+      final photo = Message(
+        id: 'p1',
+        text: '',
+        time: DateTime(2024, 1, 1, 9),
+        isMe: true,
+        isImage: true,
+        imageSeed: 4,
+      );
+      final encoded = RelayService.encode(
+          message: photo, fromPhone: '+1 555 0199', fromName: 'Grace');
+      RelayService.applyIncoming(encoded, myPhone: '+1 555 0100');
+      final got = ChatStore.instance
+          .chatWithContact('+1 555 0199')!
+          .messages
+          .single;
+      expect(got.isImage, isTrue);
+      expect(got.imageSeed, 4);
+
+      final voice = Message(
+        id: 'v1',
+        text: '',
+        time: DateTime(2024, 1, 1, 10),
+        isMe: true,
+        isVoice: true,
+        voiceSeconds: 12,
+      );
+      RelayService.applyIncoming(
+        RelayService.encode(
+            message: voice, fromPhone: '+1 555 0199', fromName: 'Grace'),
+        myPhone: '+1 555 0100',
+      );
+      final v = ChatStore.instance
+          .chatWithContact('+1 555 0199')!
+          .messages
+          .firstWhere((m) => m.id == 'v1');
+      expect(v.isVoice, isTrue);
+      expect(v.voiceSeconds, 12);
+    });
+
     test('applyIncoming creates a chat and appends the message', () {
       ChatStore.instance.reset();
       final payload = {
