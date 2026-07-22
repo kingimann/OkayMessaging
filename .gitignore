@@ -83,3 +83,6 @@ app.*.symbols
 !**/ios/**/default.mode2v3
 !**/ios/**/default.pbxuser
 !**/ios/**/default.perspectivev3
+
+# QA-only preview entrypoint (local visual testing)
+lib/preview.dart

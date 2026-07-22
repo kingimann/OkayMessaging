@@ -101,12 +101,17 @@ class AppTheme {
 
   static ThemeData get dark {
     final base = ThemeData.dark(useMaterial3: true);
+    // In dark mode the accent flips to near-white (X-style), so switches,
+    // selected states and filled controls are visible on black.
+    const darkInk = Color(0xFFE7E9EA);
     final scheme = ColorScheme.fromSeed(
-      seedColor: AppColors.tealGreenDark,
+      seedColor: darkInk,
       brightness: Brightness.dark,
     ).copyWith(
-      primary: AppColors.tealGreenDark,
-      secondary: AppColors.accent,
+      primary: darkInk,
+      onPrimary: Colors.black,
+      secondary: darkInk,
+      onSecondary: Colors.black,
       surface: AppColors.darkSurface,
     );
     return base.copyWith(
@@ -146,7 +151,7 @@ class AppTheme {
       ),
       chipTheme: base.chipTheme.copyWith(
         side: BorderSide.none,
-        backgroundColor: const Color(0xFF202C33),
+        backgroundColor: const Color(0xFF202327),
       ),
     );
   }

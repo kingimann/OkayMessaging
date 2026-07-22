@@ -12,7 +12,7 @@ class InfoSection extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
       child: Material(
-        color: isDark ? const Color(0xFF1B262C) : const Color(0xFFF4F6F7),
+        color: isDark ? const Color(0xFF16181C) : const Color(0xFFF4F6F7),
         borderRadius: BorderRadius.circular(16),
         clipBehavior: Clip.antiAlias,
         child: Column(children: children),

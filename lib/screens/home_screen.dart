@@ -53,13 +53,14 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Scaffold(
       appBar: AppBar(
         titleSpacing: 20,
-        title: const Text(
+        title: Text(
           'Okay Messaging',
           style: TextStyle(
-            color: AppColors.tealGreen,
+            color: isDark ? Colors.white : AppColors.tealGreen,
             fontWeight: FontWeight.bold,
             fontSize: 22,
           ),
@@ -94,7 +95,8 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: _onFabPressed,
-        backgroundColor: AppColors.tealGreenDark,
+        backgroundColor: isDark ? Colors.white : AppColors.tealGreenDark,
+        foregroundColor: isDark ? Colors.black : Colors.white,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(18),
         ),
@@ -102,7 +104,7 @@ class _HomeScreenState extends State<HomeScreen> {
           duration: const Duration(milliseconds: 220),
           transitionBuilder: (child, animation) =>
               ScaleTransition(scale: animation, child: child),
-          child: Icon(_fabIcon, key: ValueKey(_fabIcon), color: Colors.white),
+          child: Icon(_fabIcon, key: ValueKey(_fabIcon)),
         ),
       ),
     );
