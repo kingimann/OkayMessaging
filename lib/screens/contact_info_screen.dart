@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../app_state.dart';
 import '../models/user.dart';
 import '../theme/app_theme.dart';
 import '../widgets/info_section.dart';
@@ -125,24 +126,73 @@ class ContactInfoScreen extends StatelessWidget {
               ),
             ],
           ),
-          InfoSection(
-            children: [
-              InfoTile(
-                leading: const Icon(Icons.block, color: Colors.red),
-                title: 'Block ${user.name}',
-                titleColor: Colors.red,
-              ),
-              InfoTile(
-                leading:
-                    const Icon(Icons.thumb_down_outlined, color: Colors.red),
-                title: 'Report ${user.name}',
-                titleColor: Colors.red,
-              ),
-            ],
+          ValueListenableBuilder<Set<String>>(
+            valueListenable: AppState.blockedContacts,
+            builder: (context, _, __) {
+              final blocked = AppState.isBlocked(user.phone);
+              return InfoSection(
+                children: [
+                  InfoTile(
+                    leading: Icon(blocked ? Icons.check_circle_outline : Icons.block,
+                        color: blocked ? null : Colors.red),
+                    title:
+                        blocked ? 'Unblock ${user.name}' : 'Block ${user.name}',
+                    titleColor: blocked ? null : Colors.red,
+                    onTap: () => _toggleBlock(context, blocked),
+                  ),
+                  InfoTile(
+                    leading: const Icon(Icons.thumb_down_outlined,
+                        color: Colors.red),
+                    title: 'Report ${user.name}',
+                    titleColor: Colors.red,
+                    onTap: () => _report(context),
+                  ),
+                ],
+              );
+            },
           ),
           const SizedBox(height: 24),
         ],
       ),
+    );
+  }
+
+  Future<void> _toggleBlock(BuildContext context, bool blocked) async {
+    if (blocked) {
+      AppState.setBlocked(user.phone, false);
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('${user.name} unblocked')));
+      return;
+    }
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Text('Block ${user.name}?'),
+        content: Text(
+            'You won\'t be able to send messages to ${user.name} until you '
+            'unblock them.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Block', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+    if (ok == true && context.mounted) {
+      AppState.setBlocked(user.phone, true);
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('${user.name} blocked')));
+    }
+  }
+
+  void _report(BuildContext context) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('${user.name} reported')),
     );
   }
 }

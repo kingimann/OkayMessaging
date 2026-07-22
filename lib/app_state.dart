@@ -32,6 +32,28 @@ class AppState {
   static final ValueNotifier<bool> notificationsEnabled =
       ValueNotifier<bool>(true);
 
+  /// Phone-number digits of contacts the user has blocked. Blocked contacts
+  /// can't be messaged until unblocked.
+  static final ValueNotifier<Set<String>> blockedContacts =
+      ValueNotifier<Set<String>>(<String>{});
+
+  static String _digits(String phone) => phone.replaceAll(RegExp(r'\D'), '');
+
+  /// Whether [phone] is currently blocked.
+  static bool isBlocked(String phone) =>
+      blockedContacts.value.contains(_digits(phone));
+
+  /// Blocks or unblocks [phone].
+  static void setBlocked(String phone, bool blocked) {
+    final next = Set<String>.from(blockedContacts.value);
+    if (blocked) {
+      next.add(_digits(phone));
+    } else {
+      next.remove(_digits(phone));
+    }
+    blockedContacts.value = next;
+  }
+
   /// Resets global state; used by tests to isolate cases.
   @visibleForTesting
   static void resetForTest() {
@@ -41,6 +63,7 @@ class AppState {
     shareLastSeen.value = true;
     sendReadReceipts.value = true;
     notificationsEnabled.value = true;
+    blockedContacts.value = <String>{};
   }
 
   /// Updates the current user's name and about text.

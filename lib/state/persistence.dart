@@ -19,6 +19,7 @@ class Persistence {
   static const _kShareLastSeen = 'share_last_seen';
   static const _kReadReceipts = 'send_read_receipts';
   static const _kNotifications = 'notifications_enabled';
+  static const _kBlocked = 'blocked_contacts_v1';
 
   static SharedPreferences? _prefs;
 
@@ -65,6 +66,10 @@ class Persistence {
       AppState.notificationsEnabled.value =
           prefs.getBool(_kNotifications) ?? true;
     }
+    final blocked = prefs.getStringList(_kBlocked);
+    if (blocked != null) {
+      AppState.blockedContacts.value = blocked.toSet();
+    }
 
     AppState.themeMode.addListener(_saveTheme);
     AppState.profile.addListener(_saveProfile);
@@ -72,7 +77,12 @@ class Persistence {
     AppState.shareLastSeen.addListener(_saveShareLastSeen);
     AppState.sendReadReceipts.addListener(_saveReadReceipts);
     AppState.notificationsEnabled.addListener(_saveNotifications);
+    AppState.blockedContacts.addListener(_saveBlocked);
     ChatStore.instance.onChanged = _saveChats;
+  }
+
+  static void _saveBlocked() {
+    _prefs?.setStringList(_kBlocked, AppState.blockedContacts.value.toList());
   }
 
   static void _saveShareLastSeen() {

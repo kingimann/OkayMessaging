@@ -1330,14 +1330,26 @@ class _ChatScreenState extends State<ChatScreen> {
               },
             ),
             if (!_selectionMode)
-              ChatInputBar(
-                onSend: _handleSend,
-                onAttach: _showAttachmentSheet,
-                onSendVoice: _handleSendVoice,
-                onTyping: _onTyping,
-                onSchedule: _scheduleMessage,
-                replyTo: _replyTo,
-                onCancelReply: () => setState(() => _replyTo = null),
+              ValueListenableBuilder<Set<String>>(
+                valueListenable: AppState.blockedContacts,
+                builder: (context, _, __) {
+                  if (AppState.isBlocked(widget.chat.contact.phone)) {
+                    return _BlockedBanner(
+                      name: widget.chat.contact.name,
+                      onUnblock: () => AppState.setBlocked(
+                          widget.chat.contact.phone, false),
+                    );
+                  }
+                  return ChatInputBar(
+                    onSend: _handleSend,
+                    onAttach: _showAttachmentSheet,
+                    onSendVoice: _handleSendVoice,
+                    onTyping: _onTyping,
+                    onSchedule: _scheduleMessage,
+                    replyTo: _replyTo,
+                    onCancelReply: () => setState(() => _replyTo = null),
+                  );
+                },
               ),
           ],
         ),
@@ -1348,6 +1360,37 @@ class _ChatScreenState extends State<ChatScreen> {
   void _showComingSoon(BuildContext context, String feature) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('$feature is not available in this demo')),
+    );
+  }
+}
+
+/// Shown in place of the composer when the contact is blocked.
+class _BlockedBanner extends StatelessWidget {
+  final String name;
+  final VoidCallback onUnblock;
+
+  const _BlockedBanner({required this.name, required this.onUnblock});
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      top: false,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'You blocked $name',
+              style: TextStyle(color: Colors.grey.shade600),
+            ),
+            TextButton(
+              onPressed: onUnblock,
+              child: const Text('Unblock to send a message'),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

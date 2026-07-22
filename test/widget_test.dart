@@ -20,6 +20,7 @@ import 'package:okay_messaging/state/call_service.dart';
 import 'package:okay_messaging/state/chat_store.dart';
 import 'package:okay_messaging/state/scheduler.dart';
 import 'package:okay_messaging/state/session.dart';
+import 'package:okay_messaging/widgets/chat_input_bar.dart';
 import 'package:okay_messaging/widgets/heart_burst.dart';
 import 'package:okay_messaging/widgets/rich_message_text.dart';
 
@@ -807,6 +808,37 @@ void main() {
         .messages
         .firstWhere((m) => m.id == 'keep1');
     expect(msg.expiresAt, isNull);
+  });
+
+  testWidgets('Blocking a contact replaces the composer with a banner',
+      (tester) async {
+    await tester.pumpWidget(const OkayMessagingApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Bob Carter'));
+    await tester.pumpAndSettle();
+    expect(find.byType(ChatInputBar), findsOneWidget);
+
+    // Open contact info and block.
+    await tester.tap(find.text('Bob Carter'));
+    await tester.pumpAndSettle();
+    final blockTile = find.text('Block Bob Carter');
+    await tester.scrollUntilVisible(blockTile, 200,
+        scrollable: find.byType(Scrollable).first);
+    await tester.ensureVisible(blockTile);
+    await tester.pumpAndSettle();
+    await tester.tap(blockTile);
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(TextButton, 'Block'));
+    await tester.pumpAndSettle();
+    final bobPhone = ChatStore.instance.chatWithContact('u_bob')!.contact.phone;
+    expect(AppState.isBlocked(bobPhone), isTrue);
+
+    // Back in the conversation, the composer is gone and a banner shows.
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(find.byType(ChatInputBar), findsNothing);
+    expect(find.text('You blocked Bob Carter'), findsOneWidget);
   });
 
   testWidgets('Chat menu: Wallpaper opens the picker, Export copies the chat',
