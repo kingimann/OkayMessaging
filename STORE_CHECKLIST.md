@@ -26,14 +26,24 @@ identity-level steps that only you can complete, because they tie the app to
 ## You need to do before submitting
 
 1. **Signing**
-   - Android: create an upload keystore and wire a `release` `signingConfig`
-     (it currently signs with the debug key). See
-     <https://docs.flutter.dev/deployment/android#signing-the-app>.
-   - iOS: set your Apple Developer team and a provisioning profile in Xcode.
+   - Android: the `release` build is already wired to sign with a real upload
+     key when one is available — no code change needed. Just provide the key:
+     - **On Codemagic:** upload your keystore under Code signing (reference
+       name `okay_keystore`); the build reads the `CM_*` env vars automatically.
+     - **Locally:** copy `android/key.properties.example` to
+       `android/key.properties` and fill in your keystore path/passwords
+       (both are gitignored). Create the keystore with
+       `keytool -genkey -v -keystore upload-keystore.jks -keyalg RSA -keysize 2048 -validity 10000 -alias upload`.
+     - Without either, release builds fall back to the debug key so
+       `flutter run --release` still works during development.
+   - iOS: set your Apple Developer team and a provisioning profile in Xcode
+     (or let Codemagic manage it via the App Store Connect integration).
 
-2. **App icons & launch screen** — the project still ships the default
-   Flutter launcher icon. Add your own (the `flutter_launcher_icons` package
-   makes this a one-command step).
+2. **App icons** — done. A branded icon (white chat bubble + purple check)
+   is generated for Android, iOS, and web. To change the art, edit
+   `assets/icon/icon.png` (and `icon_foreground.png`) and rerun
+   `dart run flutter_launcher_icons`. A custom launch screen is still
+   optional if you want to replace the default white splash.
 
 3. **Store metadata** — app name, description, privacy policy URL, and
    screenshots. Because the app is store-nothing and end-to-end encrypted,

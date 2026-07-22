@@ -1,0 +1,15 @@
+# Copy this file to `android/key.properties` and fill in your upload keystore
+# details for local release builds. NEVER commit the real key.properties or the
+# .jks/.keystore file — both are gitignored.
+#
+# Create an upload keystore once with:
+#   keytool -genkey -v -keystore upload-keystore.jks \
+#     -keyalg RSA -keysize 2048 -validity 10000 -alias upload
+#
+# On Codemagic you don't need this file — configure the keystore under
+# Code signing and the build reads the CM_* env vars automatically.
+
+storeFile=/absolute/path/to/upload-keystore.jks
+storePassword=your-keystore-password
+keyAlias=upload
+keyPassword=your-key-password
