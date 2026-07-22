@@ -28,9 +28,23 @@ class AppState {
   /// from you (mirroring WhatsApp's read-receipts setting).
   static final ValueNotifier<bool> sendReadReceipts = ValueNotifier<bool>(true);
 
+  /// Whether to broadcast the "typing…" indicator to the person you're
+  /// messaging. When off, they won't see when you're composing.
+  static final ValueNotifier<bool> sendTypingIndicators =
+      ValueNotifier<bool>(true);
+
   /// Whether to show in-app notifications for the simulated demo replies.
   static final ValueNotifier<bool> notificationsEnabled =
       ValueNotifier<bool>(true);
+
+  /// Whether tapping Enter/return in the composer sends the message (vs.
+  /// inserting a newline). A common messaging-app customization.
+  static final ValueNotifier<bool> enterToSend = ValueNotifier<bool>(true);
+
+  /// Relative size of message text, 0.85–1.30 (1.0 = default). Lets people
+  /// scale chat text up or down to taste.
+  static final ValueNotifier<double> messageTextScale =
+      ValueNotifier<double>(1.0);
 
   /// Phone-number digits of contacts the user has blocked. Blocked contacts
   /// can't be messaged until unblocked.
@@ -62,7 +76,10 @@ class AppState {
     chatWallpaper.value = null;
     shareLastSeen.value = true;
     sendReadReceipts.value = true;
+    sendTypingIndicators.value = true;
     notificationsEnabled.value = true;
+    enterToSend.value = true;
+    messageTextScale.value = 1.0;
     blockedContacts.value = <String>{};
   }
 

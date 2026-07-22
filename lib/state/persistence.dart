@@ -18,7 +18,10 @@ class Persistence {
   static const _kChats = 'chats_v1';
   static const _kShareLastSeen = 'share_last_seen';
   static const _kReadReceipts = 'send_read_receipts';
+  static const _kTypingIndicators = 'send_typing_indicators';
   static const _kNotifications = 'notifications_enabled';
+  static const _kEnterToSend = 'enter_to_send';
+  static const _kTextScale = 'message_text_scale';
   static const _kBlocked = 'blocked_contacts_v1';
 
   static SharedPreferences? _prefs;
@@ -34,6 +37,8 @@ class Persistence {
       AppState.themeMode.value = ThemeMode.dark;
     } else if (theme == 'light') {
       AppState.themeMode.value = ThemeMode.light;
+    } else if (theme == 'system') {
+      AppState.themeMode.value = ThemeMode.system;
     }
 
     final profile = prefs.getString(_kProfile);
@@ -62,9 +67,20 @@ class Persistence {
     if (prefs.containsKey(_kReadReceipts)) {
       AppState.sendReadReceipts.value = prefs.getBool(_kReadReceipts) ?? true;
     }
+    if (prefs.containsKey(_kTypingIndicators)) {
+      AppState.sendTypingIndicators.value =
+          prefs.getBool(_kTypingIndicators) ?? true;
+    }
     if (prefs.containsKey(_kNotifications)) {
       AppState.notificationsEnabled.value =
           prefs.getBool(_kNotifications) ?? true;
+    }
+    if (prefs.containsKey(_kEnterToSend)) {
+      AppState.enterToSend.value = prefs.getBool(_kEnterToSend) ?? true;
+    }
+    if (prefs.containsKey(_kTextScale)) {
+      AppState.messageTextScale.value =
+          (prefs.getDouble(_kTextScale) ?? 1.0).clamp(0.85, 1.30);
     }
     final blocked = prefs.getStringList(_kBlocked);
     if (blocked != null) {
@@ -76,9 +92,24 @@ class Persistence {
     AppState.chatWallpaper.addListener(_saveWallpaper);
     AppState.shareLastSeen.addListener(_saveShareLastSeen);
     AppState.sendReadReceipts.addListener(_saveReadReceipts);
+    AppState.sendTypingIndicators.addListener(_saveTypingIndicators);
     AppState.notificationsEnabled.addListener(_saveNotifications);
+    AppState.enterToSend.addListener(_saveEnterToSend);
+    AppState.messageTextScale.addListener(_saveTextScale);
     AppState.blockedContacts.addListener(_saveBlocked);
     ChatStore.instance.onChanged = _saveChats;
+  }
+
+  static void _saveTypingIndicators() {
+    _prefs?.setBool(_kTypingIndicators, AppState.sendTypingIndicators.value);
+  }
+
+  static void _saveEnterToSend() {
+    _prefs?.setBool(_kEnterToSend, AppState.enterToSend.value);
+  }
+
+  static void _saveTextScale() {
+    _prefs?.setDouble(_kTextScale, AppState.messageTextScale.value);
   }
 
   static void _saveBlocked() {
@@ -98,10 +129,11 @@ class Persistence {
   }
 
   static void _saveTheme() {
-    _prefs?.setString(
-      _kTheme,
-      AppState.themeMode.value == ThemeMode.dark ? 'dark' : 'light',
-    );
+    _prefs?.setString(_kTheme, switch (AppState.themeMode.value) {
+      ThemeMode.dark => 'dark',
+      ThemeMode.light => 'light',
+      ThemeMode.system => 'system',
+    });
   }
 
   static void _saveProfile() {

@@ -10,6 +10,7 @@ import 'package:okay_messaging/crypto/e2e.dart';
 import 'package:okay_messaging/crypto/key_exchange.dart';
 import 'package:okay_messaging/main.dart';
 import 'package:okay_messaging/screens/auth/phone_login_screen.dart';
+import 'package:okay_messaging/screens/blocked_contacts_screen.dart';
 import 'package:okay_messaging/screens/call_screen.dart';
 import 'package:okay_messaging/screens/media_gallery_screen.dart';
 import 'package:okay_messaging/screens/my_qr_screen.dart';
@@ -300,10 +301,13 @@ void main() {
     await tester.tap(find.text('Settings'));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Chats'));
+    final tile = find.text('Chat wallpaper');
+    await tester.scrollUntilVisible(tile, 250,
+        scrollable: find.byType(Scrollable).first);
+    await tester.tap(tile);
     await tester.pumpAndSettle();
 
-    expect(find.text('Chat wallpaper'), findsOneWidget);
+    // The wallpaper screen shows the "Default" option.
     expect(find.text('Default'), findsOneWidget);
   });
 
@@ -1331,9 +1335,13 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(AppState.shareLastSeen.value, isTrue);
-    expect(find.text('Share online status'), findsOneWidget);
 
-    await tester.tap(find.text('Share online status'));
+    final tile = find.text('Share online status');
+    await tester.scrollUntilVisible(tile, 250,
+        scrollable: find.byType(Scrollable).first);
+    expect(tile, findsOneWidget);
+
+    await tester.tap(tile);
     await tester.pumpAndSettle();
 
     expect(AppState.shareLastSeen.value, isFalse);
@@ -1420,12 +1428,55 @@ void main() {
     expect(AppState.sendReadReceipts.value, isTrue);
 
     final tile = find.text('Read receipts');
-    await tester.ensureVisible(tile);
-    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(tile, 250,
+        scrollable: find.byType(Scrollable).first);
     await tester.tap(tile);
     await tester.pumpAndSettle();
 
     expect(AppState.sendReadReceipts.value, isFalse);
+  });
+
+  testWidgets('Typing-indicators privacy toggle flips', (tester) async {
+    await tester.pumpWidget(const OkayMessagingApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.more_vert));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Settings'));
+    await tester.pumpAndSettle();
+
+    expect(AppState.sendTypingIndicators.value, isTrue);
+
+    final tile = find.text('Typing indicators');
+    await tester.scrollUntilVisible(tile, 250,
+        scrollable: find.byType(Scrollable).first);
+    await tester.tap(tile);
+    await tester.pumpAndSettle();
+
+    expect(AppState.sendTypingIndicators.value, isFalse);
+  });
+
+  test('Message text scale defaults to 1.0 and resets', () {
+    AppState.messageTextScale.value = 1.2;
+    AppState.resetForTest();
+    expect(AppState.messageTextScale.value, 1.0);
+  });
+
+  testWidgets('Blocked contacts screen lists a blocked number and unblocks',
+      (tester) async {
+    AppState.setBlocked('+1 555 0143', true);
+    expect(AppState.isBlocked('+1 555 0143'), isTrue);
+
+    await tester
+        .pumpWidget(const MaterialApp(home: BlockedContactsScreen()));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Unblock'), findsOneWidget);
+    await tester.tap(find.text('Unblock'));
+    await tester.pumpAndSettle();
+
+    expect(AppState.isBlocked('+1 555 0143'), isFalse);
+    expect(find.text('No blocked contacts'), findsOneWidget);
   });
 
   testWidgets('Storage → clear all chats empties the store after confirming',

@@ -130,6 +130,8 @@ class _ChatScreenState extends State<ChatScreen> {
   /// Broadcasts that we're typing (throttled) to a real peer.
   void _onTyping() {
     if (!RelayConfig.isEnabled || !_isRealPeer(widget.chat.contact)) return;
+    // Respect the privacy setting: don't leak "typing…" when it's off.
+    if (!AppState.sendTypingIndicators.value) return;
     final now = DateTime.now();
     if (_lastTypingSent != null &&
         now.difference(_lastTypingSent!) < const Duration(seconds: 2)) {
@@ -995,7 +997,7 @@ class _ChatScreenState extends State<ChatScreen> {
         Navigator.of(context).push(
           MaterialPageRoute(
             builder: (_) => contact.isGroup
-                ? GroupInfoScreen(group: contact, members: widget.chat.members)
+                ? GroupInfoScreen(group: contact, members: widget.chat.members, chatId: _chatId)
                 : ContactInfoScreen(user: contact, chatId: _chatId),
           ),
         );
@@ -1316,7 +1318,7 @@ class _ChatScreenState extends State<ChatScreen> {
                       onTap: () => Navigator.of(context).push(
                         MaterialPageRoute(
                           builder: (_) => contact.isGroup
-                              ? GroupInfoScreen(group: contact, members: widget.chat.members)
+                              ? GroupInfoScreen(group: contact, members: widget.chat.members, chatId: _chatId)
                               : ContactInfoScreen(user: contact, chatId: _chatId),
                         ),
                       ),

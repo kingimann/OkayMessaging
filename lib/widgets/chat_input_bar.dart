@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../app_state.dart';
 import '../models/message.dart';
 import '../theme/app_theme.dart';
 import 'emoji_data.dart';
@@ -185,19 +186,28 @@ class _ChatInputBarState extends State<ChatInputBar> {
                     onPressed: () => setState(() => _emojiOpen = !_emojiOpen),
                   ),
                   Expanded(
-                    child: TextField(
-                      controller: _controller,
-                      minLines: 1,
-                      maxLines: 5,
-                      textCapitalization: TextCapitalization.sentences,
-                      onTap: () {
-                        if (_emojiOpen) setState(() => _emojiOpen = false);
-                      },
-                      decoration: const InputDecoration(
-                        hintText: 'Message',
-                        border: InputBorder.none,
+                    child: ValueListenableBuilder<bool>(
+                      valueListenable: AppState.enterToSend,
+                      builder: (context, enterToSend, _) => TextField(
+                        controller: _controller,
+                        minLines: 1,
+                        maxLines: 5,
+                        textCapitalization: TextCapitalization.sentences,
+                        // When enter-to-send is on, the return key submits;
+                        // otherwise it inserts a newline and the send button
+                        // is used instead.
+                        textInputAction: enterToSend
+                            ? TextInputAction.send
+                            : TextInputAction.newline,
+                        onTap: () {
+                          if (_emojiOpen) setState(() => _emojiOpen = false);
+                        },
+                        decoration: const InputDecoration(
+                          hintText: 'Message',
+                          border: InputBorder.none,
+                        ),
+                        onSubmitted: enterToSend ? (_) => _send() : null,
                       ),
-                      onSubmitted: (_) => _send(),
                     ),
                   ),
                   IconButton(

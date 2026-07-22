@@ -639,6 +639,20 @@ class RelayService {
     );
   }
 
+  /// Re-establishes the inbox subscription and re-announces presence to the
+  /// people you have chats with. Backs pull-to-refresh: it gives the relay a
+  /// nudge so a device that just came online re-syncs delivery and presence.
+  Future<void> resync() async {
+    if (!_initialized) return;
+    start(); // idempotent — subscribes only if not already listening
+    for (final chat in ChatStore.instance.chats) {
+      final phone = chat.contact.phone;
+      if (phone.isNotEmpty) {
+        await sendPresence(phone);
+      }
+    }
+  }
+
   /// Tears down all subscriptions (on sign-out).
   Future<void> stop() async {
     final inbox = _inbox;

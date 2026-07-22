@@ -2,6 +2,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../app_state.dart';
 import 'linkable_text.dart';
 
 /// The inline styles supported in message text.
@@ -135,9 +136,15 @@ class _RichMessageTextState extends State<RichMessageText> {
       spans.addAll(_formattedSpans(widget.text.substring(index)));
     }
 
-    return Text.rich(
-      TextSpan(children: spans),
-      style: TextStyle(color: widget.textColor, fontSize: 16, height: 1.35),
+    // Rebuild when the user changes their message-text-size preference.
+    return ValueListenableBuilder<double>(
+      valueListenable: AppState.messageTextScale,
+      builder: (context, scale, _) => Text.rich(
+        TextSpan(children: spans),
+        textScaler: TextScaler.linear(scale),
+        style:
+            TextStyle(color: widget.textColor, fontSize: 16, height: 1.35),
+      ),
     );
   }
 }

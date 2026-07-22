@@ -27,9 +27,16 @@ Future<void> createCommunityFlow(BuildContext context) async {
   }
 }
 
-/// The "Communities" tab: Discord-style servers you can create and open.
+/// The "Communities" tab: Discord-style servers you can create and open,
+/// shown as tappable cards.
 class CommunitiesTab extends StatelessWidget {
   const CommunitiesTab({super.key});
+
+  Future<void> _refresh() async {
+    // Local-first: just give the list a beat to refresh from the store.
+    CommunityStore.instance.touch();
+    await Future<void>.delayed(const Duration(milliseconds: 500));
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -37,39 +44,128 @@ class CommunitiesTab extends StatelessWidget {
       listenable: CommunityStore.instance,
       builder: (context, _) {
         final communities = CommunityStore.instance.communities;
-        if (communities.isEmpty) {
-          return const _Empty();
-        }
-        return ListView(
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          children: [
-            for (final c in communities)
-              ListTile(
-                leading: CircleAvatar(
-                  radius: 26,
-                  backgroundColor: _hex(c.color),
-                  child: Text(
-                    c.name.isEmpty ? '?' : c.name[0].toUpperCase(),
-                    style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w700,
-                        fontSize: 20),
-                  ),
+        return RefreshIndicator(
+          onRefresh: _refresh,
+          child: communities.isEmpty
+              ? ListView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  children: const [SizedBox(height: 100), _Empty()],
+                )
+              : ListView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.fromLTRB(12, 12, 12, 24),
+                  children: [
+                    for (final c in communities) _CommunityCard(community: c),
+                  ],
                 ),
-                title: Text(c.name,
-                    style: const TextStyle(
-                        fontSize: 17, fontWeight: FontWeight.w600)),
-                subtitle: Text(
-                    '${c.channels.length} channel${c.channels.length == 1 ? '' : 's'} · '
-                    '${c.members.length} member${c.members.length == 1 ? '' : 's'}'),
-                onTap: () => Navigator.of(context).push(MaterialPageRoute(
-                    builder: (_) => CommunityScreen(communityId: c.id))),
-              ),
-          ],
         );
       },
     );
   }
+}
+
+/// A single community rendered as a rounded card with a gradient badge.
+class _CommunityCard extends StatelessWidget {
+  final Community community;
+  const _CommunityCard({required this.community});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final base = _hex(community.color);
+    final online = community.members.where((m) => m.online).length;
+    final channels = community.channels.length;
+    final members = community.members.length;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 5),
+      child: Material(
+        color: isDark ? const Color(0xFF20232A) : Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        clipBehavior: Clip.antiAlias,
+        elevation: isDark ? 0 : 1,
+        shadowColor: Colors.black.withValues(alpha: 0.08),
+        child: InkWell(
+          onTap: () => Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => CommunityScreen(communityId: community.id))),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Row(
+              children: [
+                Container(
+                  width: 56,
+                  height: 56,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        base,
+                        Color.lerp(base, Colors.black, 0.28) ?? base,
+                      ],
+                    ),
+                    borderRadius: BorderRadius.circular(18),
+                  ),
+                  alignment: Alignment.center,
+                  child: Text(
+                    community.name.isEmpty
+                        ? '?'
+                        : community.name[0].toUpperCase(),
+                    style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 24),
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(community.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                              fontSize: 17, fontWeight: FontWeight.w700)),
+                      const SizedBox(height: 5),
+                      Row(
+                        children: [
+                          _meta(Icons.tag, '$channels'),
+                          const SizedBox(width: 14),
+                          _meta(Icons.people_alt_outlined, '$members'),
+                          if (online > 0) ...[
+                            const SizedBox(width: 14),
+                            const Icon(Icons.circle,
+                                size: 8, color: Color(0xFF43B581)),
+                            const SizedBox(width: 4),
+                            Text('$online online',
+                                style: const TextStyle(
+                                    fontSize: 12.5,
+                                    color: Color(0xFF43B581),
+                                    fontWeight: FontWeight.w600)),
+                          ],
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(Icons.chevron_right, color: Colors.grey.shade400),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _meta(IconData icon, String label) => Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 15, color: Colors.grey.shade500),
+          const SizedBox(width: 4),
+          Text(label,
+              style: TextStyle(fontSize: 12.5, color: Colors.grey.shade600)),
+        ],
+      );
 }
 
 /// A single community: its channels grouped by category, plus actions to add

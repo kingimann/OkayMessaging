@@ -7,11 +7,12 @@ import '../state/chat_store.dart';
 import '../state/session.dart';
 import '../widgets/info_section.dart';
 import '../widgets/user_avatar.dart';
+import 'blocked_contacts_screen.dart';
 import 'edit_profile_screen.dart';
 import 'my_qr_screen.dart';
 import 'wallpaper_screen.dart';
 
-/// App settings, redesigned with grouped rounded cards (modern style).
+/// App settings, organised into labelled sections with grouped rounded cards.
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
 
@@ -23,19 +24,48 @@ class SettingsScreen extends StatelessWidget {
         children: [
           const SizedBox(height: 6),
           _ProfileCard(),
+
+          _sectionLabel(context, 'Appearance'),
           InfoSection(
             children: [
-              _buildThemeTile(),
+              const _ThemeModeTile(),
+              const _TextSizeTile(),
               InfoTile(
-                leading: const Icon(Icons.chat_outlined),
-                title: 'Chats',
-                subtitle: 'Wallpaper, theme, chat history',
+                leading: const Icon(Icons.wallpaper_outlined),
+                title: 'Chat wallpaper',
+                subtitle: 'Background for your conversations',
                 onTap: () => Navigator.of(context).push(
                   MaterialPageRoute(builder: (_) => const WallpaperScreen()),
                 ),
               ),
+              _buildEnterToSendTile(),
             ],
           ),
+
+          _sectionLabel(context, 'Privacy'),
+          InfoSection(
+            children: [
+              _buildLastSeenTile(),
+              _buildReadReceiptsTile(),
+              _buildTypingTile(),
+              InfoTile(
+                leading: const Icon(Icons.block_outlined),
+                title: 'Blocked contacts',
+                subtitle: 'Manage who can\'t reach you',
+                trailing: _BlockedCountBadge(),
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                      builder: (_) => const BlockedContactsScreen()),
+                ),
+              ),
+              _buildAppLockTile(),
+            ],
+          ),
+
+          _sectionLabel(context, 'Notifications'),
+          InfoSection(children: [_buildNotificationsTile()]),
+
+          _sectionLabel(context, 'Account'),
           InfoSection(
             children: [
               InfoTile(
@@ -44,20 +74,18 @@ class SettingsScreen extends StatelessWidget {
                 subtitle: 'Phone number, username',
                 onTap: () => _showAccount(context),
               ),
-              _buildLastSeenTile(),
-              _buildReadReceiptsTile(),
-              _buildNotificationsTile(),
-              _buildAppLockTile(),
-            ],
-          ),
-          InfoSection(
-            children: [
               InfoTile(
                 leading: const Icon(Icons.data_usage_outlined),
                 title: 'Storage and data',
                 subtitle: 'Clear all chats from this device',
                 onTap: () => _confirmClearChats(context),
               ),
+            ],
+          ),
+
+          _sectionLabel(context, 'About & support'),
+          InfoSection(
+            children: [
               InfoTile(
                 leading: const Icon(Icons.help_outline),
                 title: 'Help',
@@ -72,6 +100,7 @@ class SettingsScreen extends StatelessWidget {
               ),
             ],
           ),
+
           InfoSection(
             children: [
               InfoTile(
@@ -85,7 +114,7 @@ class SettingsScreen extends StatelessWidget {
           const SizedBox(height: 20),
           Center(
             child: Text(
-              'Okay Messaging',
+              'Okay Messaging · v1.0.0',
               style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
             ),
           ),
@@ -94,6 +123,19 @@ class SettingsScreen extends StatelessWidget {
       ),
     );
   }
+
+  static Widget _sectionLabel(BuildContext context, String text) => Padding(
+        padding: const EdgeInsets.fromLTRB(24, 18, 24, 2),
+        child: Text(
+          text.toUpperCase(),
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0.7,
+            color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.7),
+          ),
+        ),
+      );
 
   Widget _buildLastSeenTile() {
     return ValueListenableBuilder<bool>(
@@ -106,9 +148,7 @@ class SettingsScreen extends StatelessWidget {
               ? 'Contacts you chat with can see when you\'re online'
               : 'Your online status is hidden'),
           value: share,
-          shape: const RoundedRectangleBorder(
-            borderRadius: BorderRadius.all(Radius.circular(16)),
-          ),
+          shape: _tileShape,
           onChanged: (on) => AppState.shareLastSeen.value = on,
         );
       },
@@ -126,10 +166,26 @@ class SettingsScreen extends StatelessWidget {
               ? 'Senders can see when you\'ve read their messages'
               : 'You won\'t send read receipts (you also won\'t see others\')'),
           value: on,
-          shape: const RoundedRectangleBorder(
-            borderRadius: BorderRadius.all(Radius.circular(16)),
-          ),
+          shape: _tileShape,
           onChanged: (v) => AppState.sendReadReceipts.value = v,
+        );
+      },
+    );
+  }
+
+  Widget _buildTypingTile() {
+    return ValueListenableBuilder<bool>(
+      valueListenable: AppState.sendTypingIndicators,
+      builder: (context, on, _) {
+        return SwitchListTile(
+          secondary: Icon(on ? Icons.more_horiz : Icons.do_not_disturb_on),
+          title: const Text('Typing indicators'),
+          subtitle: Text(on
+              ? 'Show others when you\'re typing'
+              : 'Others won\'t see when you\'re typing'),
+          value: on,
+          shape: _tileShape,
+          onChanged: (v) => AppState.sendTypingIndicators.value = v,
         );
       },
     );
@@ -145,10 +201,26 @@ class SettingsScreen extends StatelessWidget {
           title: const Text('Notifications'),
           subtitle: Text(on ? 'In-app alerts are on' : 'In-app alerts are off'),
           value: on,
-          shape: const RoundedRectangleBorder(
-            borderRadius: BorderRadius.all(Radius.circular(16)),
-          ),
+          shape: _tileShape,
           onChanged: (v) => AppState.notificationsEnabled.value = v,
+        );
+      },
+    );
+  }
+
+  Widget _buildEnterToSendTile() {
+    return ValueListenableBuilder<bool>(
+      valueListenable: AppState.enterToSend,
+      builder: (context, on, _) {
+        return SwitchListTile(
+          secondary: const Icon(Icons.keyboard_return),
+          title: const Text('Enter key sends'),
+          subtitle: Text(on
+              ? 'Return sends the message'
+              : 'Return adds a new line'),
+          value: on,
+          shape: _tileShape,
+          onChanged: (v) => AppState.enterToSend.value = v,
         );
       },
     );
@@ -220,7 +292,7 @@ class SettingsScreen extends StatelessWidget {
         Text(
           'A private, local-first messenger. Your messages live on your '
           'device — nothing is stored on a server. Messages are relayed '
-          'directly to the people you chat with.',
+          'directly to the people you chat with, end-to-end encrypted.',
         ),
       ],
     );
@@ -248,9 +320,7 @@ class SettingsScreen extends StatelessWidget {
               ? 'A PIN is required to open the app'
               : 'Require a PIN to open the app'),
           value: on,
-          shape: const RoundedRectangleBorder(
-            borderRadius: BorderRadius.all(Radius.circular(16)),
-          ),
+          shape: _tileShape,
           onChanged: (v) {
             if (v) {
               _setPin(context);
@@ -327,23 +397,154 @@ class SettingsScreen extends StatelessWidget {
     pin.dispose();
     confirm.dispose();
   }
+}
 
-  Widget _buildThemeTile() {
+const RoundedRectangleBorder _tileShape = RoundedRectangleBorder(
+  borderRadius: BorderRadius.all(Radius.circular(16)),
+);
+
+/// A three-way theme selector (System / Light / Dark) as a segmented control.
+class _ThemeModeTile extends StatelessWidget {
+  const _ThemeModeTile();
+
+  @override
+  Widget build(BuildContext context) {
     return ValueListenableBuilder<ThemeMode>(
       valueListenable: AppState.themeMode,
-      builder: (context, mode, _) {
-        final isDark = mode == ThemeMode.dark;
-        return SwitchListTile(
-          secondary: Icon(isDark ? Icons.dark_mode : Icons.light_mode),
-          title: const Text('Dark theme'),
-          subtitle: Text(isDark ? 'On' : 'Off'),
-          value: isDark,
-          shape: const RoundedRectangleBorder(
-            borderRadius: BorderRadius.all(Radius.circular(16)),
+      builder: (context, mode, _) => Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(_iconFor(mode),
+                    color: Theme.of(context).iconTheme.color, size: 22),
+                const SizedBox(width: 14),
+                const Text('Theme',
+                    style: TextStyle(
+                        fontSize: 16, fontWeight: FontWeight.w500)),
+              ],
+            ),
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              child: SegmentedButton<ThemeMode>(
+                segments: const [
+                  ButtonSegment(
+                      value: ThemeMode.system,
+                      icon: Icon(Icons.brightness_auto),
+                      label: Text('System')),
+                  ButtonSegment(
+                      value: ThemeMode.light,
+                      icon: Icon(Icons.light_mode),
+                      label: Text('Light')),
+                  ButtonSegment(
+                      value: ThemeMode.dark,
+                      icon: Icon(Icons.dark_mode),
+                      label: Text('Dark')),
+                ],
+                selected: {mode},
+                showSelectedIcon: false,
+                onSelectionChanged: (s) => AppState.themeMode.value = s.first,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  IconData _iconFor(ThemeMode m) => switch (m) {
+        ThemeMode.system => Icons.brightness_auto,
+        ThemeMode.light => Icons.light_mode,
+        ThemeMode.dark => Icons.dark_mode,
+      };
+}
+
+/// A slider that scales message text, with a live sample bubble.
+class _TextSizeTile extends StatelessWidget {
+  const _TextSizeTile();
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<double>(
+      valueListenable: AppState.messageTextScale,
+      builder: (context, scale, _) {
+        final isDark = Theme.of(context).brightness == Brightness.dark;
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 10),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.format_size,
+                      color: Theme.of(context).iconTheme.color, size: 22),
+                  const SizedBox(width: 14),
+                  const Text('Message text size',
+                      style: TextStyle(
+                          fontSize: 16, fontWeight: FontWeight.w500)),
+                  const Spacer(),
+                  Text('${(scale * 100).round()}%',
+                      style: TextStyle(color: Colors.grey.shade500)),
+                ],
+              ),
+              // Live preview bubble.
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Container(
+                  margin: const EdgeInsets.only(top: 6, bottom: 2),
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 14, vertical: 9),
+                  decoration: BoxDecoration(
+                    color: isDark
+                        ? const Color(0xFF2A2D34)
+                        : const Color(0xFFE7ECEF),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Text(
+                    'Aa — the quick brown fox',
+                    textScaler: TextScaler.linear(scale),
+                    style: const TextStyle(fontSize: 16, height: 1.35),
+                  ),
+                ),
+              ),
+              Slider(
+                value: scale,
+                min: 0.85,
+                max: 1.30,
+                divisions: 9,
+                label: '${(scale * 100).round()}%',
+                onChanged: (v) => AppState.messageTextScale.value =
+                    double.parse(v.toStringAsFixed(2)),
+              ),
+            ],
           ),
-          onChanged: (on) {
-            AppState.themeMode.value = on ? ThemeMode.dark : ThemeMode.light;
-          },
+        );
+      },
+    );
+  }
+}
+
+/// A small pill showing how many contacts are blocked.
+class _BlockedCountBadge extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<Set<String>>(
+      valueListenable: AppState.blockedContacts,
+      builder: (context, blocked, _) {
+        if (blocked.isEmpty) {
+          return const Icon(Icons.chevron_right, color: Colors.grey);
+        }
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('${blocked.length}',
+                style: TextStyle(color: Colors.grey.shade500)),
+            const SizedBox(width: 4),
+            const Icon(Icons.chevron_right, color: Colors.grey),
+          ],
         );
       },
     );
@@ -372,9 +573,7 @@ class _ProfileCard extends StatelessWidget {
                 MaterialPageRoute(builder: (_) => const MyQrScreen()),
               ),
             ),
-            shape: const RoundedRectangleBorder(
-              borderRadius: BorderRadius.all(Radius.circular(16)),
-            ),
+            shape: _tileShape,
             onTap: () => Navigator.of(context).push(
               MaterialPageRoute(builder: (_) => const EditProfileScreen()),
             ),

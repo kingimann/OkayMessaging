@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../models/chat.dart';
+import '../relay/relay_config.dart';
+import '../relay/relay_service.dart';
 import '../screens/chat_screen.dart';
 import '../state/chat_store.dart';
 import '../theme/app_theme.dart';
@@ -75,6 +77,23 @@ class _ChatsTabState extends State<ChatsTab> {
     );
   }
 
+  /// Pull-to-refresh: nudge the relay to re-sync delivery and presence.
+  /// Local-first, so there's nothing to "download" — this just re-announces
+  /// us to peers and re-subscribes if the connection dropped.
+  Future<void> _refresh() async {
+    final started = DateTime.now();
+    if (RelayConfig.isEnabled) {
+      try {
+        await RelayService.instance.resync();
+      } catch (_) {}
+    }
+    // Keep the spinner up long enough to feel intentional.
+    final elapsed = DateTime.now().difference(started);
+    if (elapsed < const Duration(milliseconds: 650)) {
+      await Future<void>.delayed(const Duration(milliseconds: 650) - elapsed);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final store = ChatStore.instance;
@@ -83,16 +102,28 @@ class _ChatsTabState extends State<ChatsTab> {
       builder: (context, _) {
         final chats = store.chats;
         if (chats.isEmpty) {
-          return const _EmptyChats();
+          return RefreshIndicator(
+            onRefresh: _refresh,
+            child: ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              children: const [
+                SizedBox(height: 120),
+                _EmptyChats(),
+              ],
+            ),
+          );
         }
-        return ListView.separated(
-          itemCount: chats.length,
-          separatorBuilder: (_, __) => const Divider(
-            height: 1,
-            indent: 84,
-            thickness: 0.4,
-          ),
-          itemBuilder: (context, index) {
+        return RefreshIndicator(
+          onRefresh: _refresh,
+          child: ListView.separated(
+            physics: const AlwaysScrollableScrollPhysics(),
+            itemCount: chats.length,
+            separatorBuilder: (_, __) => const Divider(
+              height: 1,
+              indent: 84,
+              thickness: 0.4,
+            ),
+            itemBuilder: (context, index) {
             final chat = chats[index];
             return Dismissible(
               key: ValueKey('chatrow_${chat.id}'),
@@ -120,7 +151,8 @@ class _ChatsTabState extends State<ChatsTab> {
                 onLongPress: () => _showChatActions(chat),
               ),
             );
-          },
+            },
+          ),
         );
       },
     );

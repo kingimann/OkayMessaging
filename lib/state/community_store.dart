@@ -112,6 +112,9 @@ class CommunityStore extends ChangeNotifier {
         _key, jsonEncode(_communities.map((c) => c.toJson()).toList()));
   }
 
+  /// Notifies listeners without changing data — backs pull-to-refresh.
+  void touch() => notifyListeners();
+
   Community? byId(String id) {
     final i = _communities.indexWhere((c) => c.id == id);
     return i == -1 ? null : _communities[i];
