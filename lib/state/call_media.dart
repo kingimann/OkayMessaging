@@ -188,6 +188,27 @@ class CallMedia {
     _localStream?.getVideoTracks().forEach((t) => t.enabled = enabled);
   }
 
+  /// Routes call audio to the loudspeaker (on) or the earpiece (off).
+  Future<void> setSpeaker(bool on) async {
+    if (!isSupported) return;
+    try {
+      await Helper.setSpeakerphoneOn(on);
+    } catch (_) {}
+  }
+
+  /// Flips between the front and back camera during a video call.
+  Future<void> switchCamera() async {
+    if (!isSupported || _localStream == null) return;
+    try {
+      final tracks = _localStream!.getVideoTracks();
+      if (tracks.isNotEmpty) await Helper.switchCamera(tracks.first);
+    } catch (_) {}
+  }
+
+  /// Whether a local video track exists (a video call with the camera on).
+  bool get hasLocalVideo =>
+      (_localStream?.getVideoTracks().isNotEmpty ?? false);
+
   Future<void> hangUp() async {
     remoteReady.value = false;
     connectionState.value = 'closed';

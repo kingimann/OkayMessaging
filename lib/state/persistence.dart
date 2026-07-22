@@ -19,6 +19,7 @@ class Persistence {
   static const _kShareLastSeen = 'share_last_seen';
   static const _kReadReceipts = 'send_read_receipts';
   static const _kTypingIndicators = 'send_typing_indicators';
+  static const _kSilenceUnknown = 'silence_unknown_callers';
   static const _kNotifications = 'notifications_enabled';
   static const _kEnterToSend = 'enter_to_send';
   static const _kTextScale = 'message_text_scale';
@@ -71,6 +72,10 @@ class Persistence {
       AppState.sendTypingIndicators.value =
           prefs.getBool(_kTypingIndicators) ?? true;
     }
+    if (prefs.containsKey(_kSilenceUnknown)) {
+      AppState.silenceUnknownCallers.value =
+          prefs.getBool(_kSilenceUnknown) ?? false;
+    }
     if (prefs.containsKey(_kNotifications)) {
       AppState.notificationsEnabled.value =
           prefs.getBool(_kNotifications) ?? true;
@@ -93,6 +98,7 @@ class Persistence {
     AppState.shareLastSeen.addListener(_saveShareLastSeen);
     AppState.sendReadReceipts.addListener(_saveReadReceipts);
     AppState.sendTypingIndicators.addListener(_saveTypingIndicators);
+    AppState.silenceUnknownCallers.addListener(_saveSilenceUnknown);
     AppState.notificationsEnabled.addListener(_saveNotifications);
     AppState.enterToSend.addListener(_saveEnterToSend);
     AppState.messageTextScale.addListener(_saveTextScale);
@@ -102,6 +108,10 @@ class Persistence {
 
   static void _saveTypingIndicators() {
     _prefs?.setBool(_kTypingIndicators, AppState.sendTypingIndicators.value);
+  }
+
+  static void _saveSilenceUnknown() {
+    _prefs?.setBool(_kSilenceUnknown, AppState.silenceUnknownCallers.value);
   }
 
   static void _saveEnterToSend() {

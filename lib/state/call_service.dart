@@ -1,8 +1,10 @@
 import 'package:flutter/foundation.dart';
 
+import '../app_state.dart';
 import '../models/user.dart';
 import '../relay/relay_service.dart';
 import 'call_media.dart';
+import 'chat_store.dart';
 
 /// Whether a call is incoming (they rang us) or outgoing (we rang them).
 enum CallDirection { incoming, outgoing }
@@ -155,6 +157,14 @@ class CallService {
           .sendCall(peer.phone, kind: 'decline', callId: callId, video: video);
       return;
     }
+    // Privacy: blocked numbers never ring; and when "silence unknown callers"
+    // is on, only people you've chatted with get through. Both silently
+    // decline so the device stays quiet.
+    if (AppState.isBlocked(peer.phone) || _shouldSilence(peer)) {
+      RelayService.instance
+          .sendCall(peer.phone, kind: 'decline', callId: callId, video: video);
+      return;
+    }
     _pendingOfferSdp = sdp;
     RelayService.instance.currentCallId = callId;
     current.value = CallSession(
@@ -164,6 +174,17 @@ class CallService {
       direction: CallDirection.incoming,
       status: CallStatus.ringing,
     );
+  }
+
+  /// True when "silence unknown callers" is on and [peer] isn't someone we
+  /// already have a conversation with (matched by phone digits or contact id).
+  bool _shouldSilence(AppUser peer) {
+    if (!AppState.silenceUnknownCallers.value) return false;
+    final digits = RelayService.digits(peer.phone);
+    final known = ChatStore.instance.allChats.any((c) =>
+        RelayService.digits(c.contact.phone) == digits ||
+        c.contact.id == peer.id);
+    return !known;
   }
 
   void onRemoteAnswer(String callId, {String? sdp}) {

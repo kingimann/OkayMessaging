@@ -61,32 +61,37 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final onChats = _index == 0;
     return Scaffold(
       appBar: AppBar(
         titleSpacing: 20,
-        title: Text(
-          'Okay Messaging',
-          style: TextStyle(
-            color: isDark ? Colors.white : AppColors.tealGreen,
-            fontWeight: FontWeight.bold,
-            fontSize: 22,
-          ),
-        ),
+        title: _index == 0
+            ? Text(
+                'Okay Messaging',
+                style: TextStyle(
+                  color: isDark ? Colors.white : AppColors.tealGreen,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 22,
+                ),
+              )
+            : Text(_titleForIndex),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.search),
-            tooltip: 'Search',
-            onPressed: () =>
-                showSearch(context: context, delegate: ChatSearchDelegate()),
-          ),
-          PopupMenuButton<String>(
-            onSelected: _onMenuSelected,
-            itemBuilder: (context) => const [
-              PopupMenuItem(value: 'archived', child: Text('Archived chats')),
-              PopupMenuItem(value: 'starred', child: Text('Starred messages')),
-              PopupMenuItem(value: 'settings', child: Text('Settings')),
-            ],
-          ),
+          if (onChats) ...[
+            IconButton(
+              icon: const Icon(Icons.search),
+              tooltip: 'Search',
+              onPressed: () =>
+                  showSearch(context: context, delegate: ChatSearchDelegate()),
+            ),
+            PopupMenuButton<String>(
+              onSelected: _onMenuSelected,
+              itemBuilder: (context) => const [
+                PopupMenuItem(value: 'archived', child: Text('Archived chats')),
+                PopupMenuItem(
+                    value: 'starred', child: Text('Starred messages')),
+              ],
+            ),
+          ],
         ],
       ),
       body: IndexedStack(
@@ -95,28 +100,38 @@ class _HomeScreenState extends State<HomeScreen> {
           ChatsTab(),
           CommunitiesTab(),
           CallsTab(),
+          SettingsView(),
         ],
       ),
       bottomNavigationBar: _ModernNavBar(
         index: _index,
         onSelect: (i) => setState(() => _index = i),
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _onFabPressed,
-        backgroundColor: isDark ? Colors.white : AppColors.tealGreenDark,
-        foregroundColor: isDark ? Colors.black : Colors.white,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(18),
-        ),
-        child: AnimatedSwitcher(
-          duration: const Duration(milliseconds: 220),
-          transitionBuilder: (child, animation) =>
-              ScaleTransition(scale: animation, child: child),
-          child: Icon(_fabIcon, key: ValueKey(_fabIcon)),
-        ),
-      ),
+      floatingActionButton: _index >= 2
+          ? null
+          : FloatingActionButton(
+              onPressed: _onFabPressed,
+              backgroundColor: isDark ? Colors.white : AppColors.tealGreenDark,
+              foregroundColor: isDark ? Colors.black : Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(18),
+              ),
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 220),
+                transitionBuilder: (child, animation) =>
+                    ScaleTransition(scale: animation, child: child),
+                child: Icon(_fabIcon, key: ValueKey(_fabIcon)),
+              ),
+            ),
     );
   }
+
+  String get _titleForIndex => switch (_index) {
+        1 => 'Communities',
+        2 => 'Calls',
+        3 => 'You',
+        _ => 'Okay Messaging',
+      };
 }
 
 /// A sleek, minimal bottom bar with an animated "pill" behind the selected
@@ -140,7 +155,7 @@ class _ModernNavBar extends StatelessWidget {
       child: SafeArea(
         top: false,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
@@ -166,6 +181,14 @@ class _ModernNavBar extends StatelessWidget {
                 label: 'Calls',
                 selected: index == 2,
                 onTap: () => onSelect(2),
+              ),
+              const SizedBox(width: 6),
+              _NavPill(
+                icon: Icons.person_outline,
+                activeIcon: Icons.person,
+                label: 'You',
+                selected: index == 3,
+                onTap: () => onSelect(3),
               ),
             ],
           ),
@@ -202,7 +225,7 @@ class _NavPill extends StatelessWidget {
         duration: const Duration(milliseconds: 240),
         curve: Curves.easeOut,
         padding: EdgeInsets.symmetric(
-          horizontal: selected ? 20 : 18,
+          horizontal: selected ? 16 : 13,
           vertical: 11,
         ),
         decoration: BoxDecoration(
@@ -221,12 +244,12 @@ class _NavPill extends StatelessWidget {
               curve: Curves.easeOut,
               child: selected
                   ? Padding(
-                      padding: const EdgeInsets.only(left: 9),
+                      padding: const EdgeInsets.only(left: 8),
                       child: Text(
                         label,
                         style: TextStyle(
                           color: ink,
-                          fontSize: 14.5,
+                          fontSize: 14,
                           fontWeight: FontWeight.w700,
                         ),
                       ),

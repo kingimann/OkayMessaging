@@ -57,11 +57,15 @@ void main() {
     expect(find.text('Chats'), findsOneWidget);
     expect(find.text('Status'), findsNothing);
 
-    // The Calls destination exists; selecting it reveals its label.
+    // The Calls destination exists; selecting it reveals its label (and the
+    // app bar title also reads "Calls", so it appears more than once).
     expect(find.byIcon(Icons.call_outlined), findsOneWidget);
     await tester.tap(find.byIcon(Icons.call_outlined));
     await tester.pumpAndSettle();
-    expect(find.text('Calls'), findsOneWidget);
+    expect(find.text('Calls'), findsWidgets);
+
+    // The new "You" tab hosts settings.
+    expect(find.byIcon(Icons.person_outline), findsOneWidget);
   });
 
   testWidgets('At least one conversation is listed on the Chats tab',
@@ -257,12 +261,11 @@ void main() {
     await tester.pumpWidget(const OkayMessagingApp());
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byIcon(Icons.more_vert));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Settings'));
+    await tester.tap(find.byIcon(Icons.person_outline));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('You'));
+    // Open the profile card (the first tile in the You/Settings tab).
+    await tester.tap(find.byType(ListTile).first);
     await tester.pumpAndSettle();
 
     await tester.enterText(find.byType(TextField).first, 'Ada Lovelace');
@@ -296,14 +299,12 @@ void main() {
     await tester.pumpWidget(const OkayMessagingApp());
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byIcon(Icons.more_vert));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Settings'));
+    await tester.tap(find.byIcon(Icons.person_outline));
     await tester.pumpAndSettle();
 
     final tile = find.text('Chat wallpaper');
     await tester.scrollUntilVisible(tile, 250,
-        scrollable: find.byType(Scrollable).first);
+        scrollable: find.byType(Scrollable).last);
     await tester.tap(tile);
     await tester.pumpAndSettle();
 
@@ -663,6 +664,33 @@ void main() {
       // Still ringing — the end was for a different call.
       expect(call.current.value?.status, CallStatus.ringing);
     });
+
+    test('silence unknown callers: strangers are muted, contacts still ring',
+        () {
+      final call = CallService.instance;
+      ChatStore.instance.reset();
+      AppState.silenceUnknownCallers.value = true;
+
+      // A stranger we've never chatted with is silently declined.
+      call.onRemoteOffer(peer(), 'call_stranger', false);
+      expect(call.current.value, isNull);
+
+      // Someone we already have a chat with still rings through.
+      final known = ChatStore.instance.chats.first.contact;
+      call.onRemoteOffer(known, 'call_known', false);
+      expect(call.current.value?.status, CallStatus.ringing);
+
+      AppState.silenceUnknownCallers.value = false;
+      call.resetForTest();
+    });
+
+    test('blocked numbers never ring', () {
+      final call = CallService.instance;
+      AppState.setBlocked(peer().phone, true);
+      call.onRemoteOffer(peer(), 'call_blocked', false);
+      expect(call.current.value, isNull);
+      AppState.setBlocked(peer().phone, false);
+    });
   });
 
   testWidgets('Media gallery lists photos and links shared in a chat',
@@ -738,7 +766,7 @@ void main() {
 
     final tile = find.text('Encryption');
     await tester.scrollUntilVisible(tile, 200,
-        scrollable: find.byType(Scrollable).first);
+        scrollable: find.byType(Scrollable).last);
     await tester.ensureVisible(tile);
     await tester.pumpAndSettle();
     await tester.tap(tile);
@@ -882,7 +910,7 @@ void main() {
     await tester.pumpAndSettle();
     final blockTile = find.text('Block Bob Carter');
     await tester.scrollUntilVisible(blockTile, 200,
-        scrollable: find.byType(Scrollable).first);
+        scrollable: find.byType(Scrollable).last);
     await tester.ensureVisible(blockTile);
     await tester.pumpAndSettle();
     await tester.tap(blockTile);
@@ -1329,16 +1357,14 @@ void main() {
     await tester.pumpWidget(const OkayMessagingApp());
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byIcon(Icons.more_vert));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Settings'));
+    await tester.tap(find.byIcon(Icons.person_outline));
     await tester.pumpAndSettle();
 
     expect(AppState.shareLastSeen.value, isTrue);
 
     final tile = find.text('Share online status');
     await tester.scrollUntilVisible(tile, 250,
-        scrollable: find.byType(Scrollable).first);
+        scrollable: find.byType(Scrollable).last);
     expect(tile, findsOneWidget);
 
     await tester.tap(tile);
@@ -1403,9 +1429,7 @@ void main() {
     await tester.pumpWidget(const OkayMessagingApp());
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byIcon(Icons.more_vert));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Settings'));
+    await tester.tap(find.byIcon(Icons.person_outline));
     await tester.pumpAndSettle();
 
     await tester.tap(find.byIcon(Icons.qr_code));
@@ -1420,16 +1444,14 @@ void main() {
     await tester.pumpWidget(const OkayMessagingApp());
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byIcon(Icons.more_vert));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Settings'));
+    await tester.tap(find.byIcon(Icons.person_outline));
     await tester.pumpAndSettle();
 
     expect(AppState.sendReadReceipts.value, isTrue);
 
     final tile = find.text('Read receipts');
     await tester.scrollUntilVisible(tile, 250,
-        scrollable: find.byType(Scrollable).first);
+        scrollable: find.byType(Scrollable).last);
     await tester.tap(tile);
     await tester.pumpAndSettle();
 
@@ -1440,16 +1462,16 @@ void main() {
     await tester.pumpWidget(const OkayMessagingApp());
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byIcon(Icons.more_vert));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Settings'));
+    await tester.tap(find.byIcon(Icons.person_outline));
     await tester.pumpAndSettle();
 
     expect(AppState.sendTypingIndicators.value, isTrue);
 
     final tile = find.text('Typing indicators');
     await tester.scrollUntilVisible(tile, 250,
-        scrollable: find.byType(Scrollable).first);
+        scrollable: find.byType(Scrollable).last);
+    await tester.ensureVisible(tile);
+    await tester.pumpAndSettle();
     await tester.tap(tile);
     await tester.pumpAndSettle();
 
@@ -1485,14 +1507,12 @@ void main() {
     await tester.pumpAndSettle();
     expect(ChatStore.instance.chats, isNotEmpty);
 
-    await tester.tap(find.byIcon(Icons.more_vert));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Settings'));
+    await tester.tap(find.byIcon(Icons.person_outline));
     await tester.pumpAndSettle();
 
     final tile = find.text('Storage and data');
     await tester.scrollUntilVisible(tile, 120,
-        scrollable: find.byType(Scrollable).first);
+        scrollable: find.byType(Scrollable).last);
     await tester.pumpAndSettle();
     await tester.tap(tile);
     await tester.pumpAndSettle();

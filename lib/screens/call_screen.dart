@@ -47,6 +47,14 @@ class _CallScreenState extends State<CallScreen> {
       widget.session.video &&
       widget.session.status == CallStatus.connected;
 
+  /// True while the media path is still negotiating on a connected call.
+  bool get _connecting {
+    if (widget.session.status != CallStatus.connected) return false;
+    if (!CallMedia.instance.isSupported) return false;
+    final s = CallMedia.instance.connectionState.value;
+    return s == 'new' || s == 'connecting';
+  }
+
   @override
   void didUpdateWidget(CallScreen old) {
     super.didUpdateWidget(old);
@@ -175,12 +183,23 @@ class _CallScreenState extends State<CallScreen> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(
-                    session.video ? Icons.videocam : Icons.call,
-                    size: 16,
-                    color: Colors.white70,
-                  ),
-                  const SizedBox(width: 6),
+                  if (_connecting)
+                    const Padding(
+                      padding: EdgeInsets.only(right: 8),
+                      child: SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2, color: Colors.white70),
+                      ),
+                    )
+                  else
+                    Icon(
+                      session.video ? Icons.videocam : Icons.call,
+                      size: 16,
+                      color: Colors.white70,
+                    ),
+                  if (!_connecting) const SizedBox(width: 6),
                   Text(
                     _statusLabel,
                     style: const TextStyle(color: Colors.white70, fontSize: 16),
@@ -232,33 +251,62 @@ class _CallScreenState extends State<CallScreen> {
   }
 
   Widget _activeControls() {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    return Column(
+      mainAxisSize: MainAxisSize.min,
       children: [
-        _CallControl(
-          icon: _speaker ? Icons.volume_up : Icons.volume_up_outlined,
-          active: _speaker,
-          onTap: () => setState(() => _speaker = !_speaker),
+        // Toggle row, grouped on a translucent bar.
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.08),
+            borderRadius: BorderRadius.circular(28),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              _CallControl(
+                icon: _muted ? Icons.mic_off : Icons.mic,
+                label: _muted ? 'Unmute' : 'Mute',
+                active: _muted,
+                onTap: () {
+                  setState(() => _muted = !_muted);
+                  CallMedia.instance.setMuted(_muted);
+                },
+              ),
+              _CallControl(
+                icon: _speaker ? Icons.volume_up : Icons.volume_down_outlined,
+                label: 'Speaker',
+                active: _speaker,
+                onTap: () {
+                  setState(() => _speaker = !_speaker);
+                  CallMedia.instance.setSpeaker(_speaker);
+                },
+              ),
+              _CallControl(
+                icon: _video ? Icons.videocam : Icons.videocam_off,
+                label: 'Video',
+                active: _video,
+                onTap: () {
+                  setState(() => _video = !_video);
+                  CallMedia.instance.setVideoEnabled(_video);
+                },
+              ),
+              if (_video)
+                _CallControl(
+                  icon: Icons.cameraswitch,
+                  label: 'Flip',
+                  onTap: () => CallMedia.instance.switchCamera(),
+                ),
+            ],
+          ),
         ),
-        _CallControl(
-          icon: _video ? Icons.videocam : Icons.videocam_off,
-          active: _video,
-          onTap: () {
-            setState(() => _video = !_video);
-            CallMedia.instance.setVideoEnabled(_video);
-          },
-        ),
-        _CallControl(
-          icon: _muted ? Icons.mic_off : Icons.mic,
-          active: _muted,
-          onTap: () {
-            setState(() => _muted = !_muted);
-            CallMedia.instance.setMuted(_muted);
-          },
-        ),
+        const SizedBox(height: 20),
+        // Prominent hang-up button.
         _CallControl(
           icon: Icons.call_end,
+          label: 'End',
           background: Colors.red,
+          size: 68,
           onTap: () => CallService.instance.end(),
         ),
       ],
@@ -272,6 +320,7 @@ class _CallControl extends StatelessWidget {
   final bool active;
   final Color? background;
   final String? label;
+  final double size;
 
   const _CallControl({
     required this.icon,
@@ -279,6 +328,7 @@ class _CallControl extends StatelessWidget {
     this.active = false,
     this.background,
     this.label,
+    this.size = 58,
   });
 
   @override
@@ -291,19 +341,23 @@ class _CallControl extends StatelessWidget {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        GestureDetector(
-          onTap: onTap,
-          child: Container(
-            width: 62,
-            height: 62,
-            decoration: BoxDecoration(color: bg, shape: BoxShape.circle),
-            child: Icon(icon, color: fg, size: 27),
+        Material(
+          color: bg,
+          shape: const CircleBorder(),
+          child: InkWell(
+            customBorder: const CircleBorder(),
+            onTap: onTap,
+            child: SizedBox(
+              width: size,
+              height: size,
+              child: Icon(icon, color: fg, size: size * 0.44),
+            ),
           ),
         ),
         if (label != null) ...[
-          const SizedBox(height: 8),
+          const SizedBox(height: 7),
           Text(label!,
-              style: const TextStyle(color: Colors.white70, fontSize: 13)),
+              style: const TextStyle(color: Colors.white70, fontSize: 12.5)),
         ],
       ],
     );

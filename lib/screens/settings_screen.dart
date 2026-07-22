@@ -12,15 +12,25 @@ import 'edit_profile_screen.dart';
 import 'my_qr_screen.dart';
 import 'wallpaper_screen.dart';
 
-/// App settings, organised into labelled sections with grouped rounded cards.
+/// App settings as a standalone screen (pushed from deep links / older flows).
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
 
   @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(title: const Text('Settings')),
+        body: const SettingsView(),
+      );
+}
+
+/// The settings content without its own Scaffold, so the same UI serves both
+/// the standalone screen and the "You" bottom-navigation tab.
+class SettingsView extends StatelessWidget {
+  const SettingsView({super.key});
+
+  @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Settings')),
-      body: ListView(
+    return ListView(
         children: [
           const SizedBox(height: 6),
           _ProfileCard(),
@@ -61,6 +71,9 @@ class SettingsScreen extends StatelessWidget {
               _buildAppLockTile(),
             ],
           ),
+
+          _sectionLabel(context, 'Calls'),
+          InfoSection(children: [_buildSilenceUnknownTile()]),
 
           _sectionLabel(context, 'Notifications'),
           InfoSection(children: [_buildNotificationsTile()]),
@@ -120,7 +133,6 @@ class SettingsScreen extends StatelessWidget {
           ),
           const SizedBox(height: 24),
         ],
-      ),
     );
   }
 
@@ -186,6 +198,24 @@ class SettingsScreen extends StatelessWidget {
           value: on,
           shape: _tileShape,
           onChanged: (v) => AppState.sendTypingIndicators.value = v,
+        );
+      },
+    );
+  }
+
+  Widget _buildSilenceUnknownTile() {
+    return ValueListenableBuilder<bool>(
+      valueListenable: AppState.silenceUnknownCallers,
+      builder: (context, on, _) {
+        return SwitchListTile(
+          secondary: Icon(on ? Icons.phone_disabled : Icons.phone_in_talk),
+          title: const Text('Silence unknown callers'),
+          subtitle: Text(on
+              ? 'Only people you\'ve chatted with can ring you'
+              : 'Anyone can call you'),
+          value: on,
+          shape: _tileShape,
+          onChanged: (v) => AppState.silenceUnknownCallers.value = v,
         );
       },
     );

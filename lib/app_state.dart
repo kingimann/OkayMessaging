@@ -33,6 +33,12 @@ class AppState {
   static final ValueNotifier<bool> sendTypingIndicators =
       ValueNotifier<bool>(true);
 
+  /// When on, calls from numbers you've never chatted with don't ring — they're
+  /// silently declined (à la iOS "Silence Unknown Callers"). Blocked numbers
+  /// never ring regardless.
+  static final ValueNotifier<bool> silenceUnknownCallers =
+      ValueNotifier<bool>(false);
+
   /// Whether to show in-app notifications for the simulated demo replies.
   static final ValueNotifier<bool> notificationsEnabled =
       ValueNotifier<bool>(true);
@@ -77,6 +83,7 @@ class AppState {
     shareLastSeen.value = true;
     sendReadReceipts.value = true;
     sendTypingIndicators.value = true;
+    silenceUnknownCallers.value = false;
     notificationsEnabled.value = true;
     enterToSend.value = true;
     messageTextScale.value = 1.0;
