@@ -15,6 +15,7 @@ import 'package:okay_messaging/screens/media_gallery_screen.dart';
 import 'package:okay_messaging/screens/my_qr_screen.dart';
 import 'package:okay_messaging/screens/security_code_screen.dart';
 import 'package:qr_flutter/qr_flutter.dart';
+import 'package:okay_messaging/models/community.dart';
 import 'package:okay_messaging/models/message.dart';
 import 'package:okay_messaging/models/user.dart';
 import 'package:okay_messaging/relay/relay_service.dart';
@@ -1030,12 +1031,17 @@ void main() {
   test('Communities: create, add a slugified channel, and post a message', () {
     CommunityStore.instance.resetForTest();
     final c = CommunityStore.instance.createCommunity('Gamers');
-    expect(c.channels.length, 1);
+    // A fresh community starts with a text #general and a voice channel.
+    expect(c.channels.length, 2);
     expect(c.channels.first.name, 'general');
+    expect(c.channels.first.type, ChannelType.text);
+    expect(c.channels.last.type, ChannelType.voice);
+    // The creator is the owner.
+    expect(c.members.single.role, MemberRole.owner);
 
     CommunityStore.instance.addChannel(c.id, 'Off Topic');
     final updated = CommunityStore.instance.byId(c.id)!;
-    expect(updated.channels.length, 2);
+    expect(updated.channels.length, 3);
     expect(updated.channels.last.name, 'off-topic'); // slugified
 
     CommunityStore.instance.postMessage(
@@ -1046,6 +1052,40 @@ void main() {
     expect(
       CommunityStore.instance.byId(c.id)!.channels.first.messages.length,
       1,
+    );
+  });
+
+  test('Communities: voice channels keep their casing and group by category',
+      () {
+    CommunityStore.instance.resetForTest();
+    final c = CommunityStore.instance.createCommunity('Studio');
+    CommunityStore.instance
+        .addChannel(c.id, 'Music Room', type: ChannelType.voice);
+    final updated = CommunityStore.instance.byId(c.id)!;
+    final voice = updated.channels.firstWhere((ch) => ch.name == 'Music Room');
+    expect(voice.type, ChannelType.voice); // spaces/casing preserved
+    expect(voice.category, 'Voice Channels');
+    // Categories are de-duplicated in first-seen order.
+    expect(updated.categories, contains('Voice Channels'));
+    expect(updated.channelsIn('Voice Channels').length, 2);
+  });
+
+  test('Communities: rename, retopic, and delete a channel', () {
+    CommunityStore.instance.resetForTest();
+    final c = CommunityStore.instance.createCommunity('Ops');
+    final id = c.channels.first.id;
+
+    CommunityStore.instance.renameChannel(c.id, id, 'On Call');
+    CommunityStore.instance.setChannelTopic(c.id, id, 'Pager duty');
+    var ch =
+        CommunityStore.instance.byId(c.id)!.channels.firstWhere((x) => x.id == id);
+    expect(ch.name, 'on-call'); // text channels slugify
+    expect(ch.topic, 'Pager duty');
+
+    CommunityStore.instance.deleteChannel(c.id, id);
+    expect(
+      CommunityStore.instance.byId(c.id)!.channels.any((x) => x.id == id),
+      isFalse,
     );
   });
 

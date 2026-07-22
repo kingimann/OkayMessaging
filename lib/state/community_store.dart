@@ -46,16 +46,63 @@ class CommunityStore extends ChangeNotifier {
           name: 'Design Team',
           color: '#7A5CFF',
           channels: [
-            Channel(id: 'seed_general', name: 'general', messages: [
-              Message(
-                id: 'seed_m1',
-                text: 'Welcome to the Design Team community! 🎨',
-                time: DateTime(2024, 1, 1, 9),
-                isMe: false,
-              ),
-            ]),
-            const Channel(id: 'seed_ideas', name: 'ideas'),
-            const Channel(id: 'seed_random', name: 'random'),
+            Channel(
+              id: 'seed_announce',
+              name: 'announcements',
+              type: ChannelType.announcement,
+              category: 'Information',
+              topic: 'Team-wide updates.',
+              messages: [
+                Message(
+                  id: 'seed_m0',
+                  text: 'Welcome to the Design Team community! 🎨',
+                  time: DateTime(2024, 1, 1, 9),
+                  isMe: false,
+                ),
+              ],
+            ),
+            Channel(
+              id: 'seed_general',
+              name: 'general',
+              category: 'Text Channels',
+              topic: 'Chat about anything.',
+              messages: [
+                Message(
+                  id: 'seed_m1',
+                  text: 'What is everyone working on today?',
+                  time: DateTime(2024, 1, 1, 9, 30),
+                  isMe: false,
+                ),
+              ],
+            ),
+            const Channel(
+                id: 'seed_ideas',
+                name: 'ideas',
+                category: 'Text Channels',
+                topic: 'Pitch and refine concepts.'),
+            const Channel(
+                id: 'seed_random', name: 'random', category: 'Text Channels'),
+            const Channel(
+                id: 'seed_lounge',
+                name: 'Lounge',
+                type: ChannelType.voice,
+                category: 'Voice Channels'),
+            const Channel(
+                id: 'seed_standup',
+                name: 'Standup',
+                type: ChannelType.voice,
+                category: 'Voice Channels'),
+          ],
+          members: const [
+            Member(
+                id: 'me', name: 'You', role: MemberRole.owner, online: true),
+            Member(
+                id: 'm_ada',
+                name: 'Ada Lovelace',
+                role: MemberRole.admin,
+                online: true),
+            Member(id: 'm_grace', name: 'Grace Hopper', online: true),
+            Member(id: 'm_alan', name: 'Alan Turing'),
           ],
         ),
       ];
@@ -79,14 +126,28 @@ class CommunityStore extends ChangeNotifier {
     }
   }
 
-  /// Creates a community with an initial `#general` channel.
+  /// Creates a community with a starter set of channels and the creator as
+  /// owner.
   Community createCommunity(String name, {String color = '#7A5CFF'}) {
     final id = 'c_${name.hashCode}_${_communities.length}';
     final community = Community(
       id: id,
       name: name.trim(),
       color: color,
-      channels: [Channel(id: '${id}_general', name: 'general')],
+      channels: [
+        Channel(
+            id: '${id}_general',
+            name: 'general',
+            category: 'Text Channels'),
+        Channel(
+            id: '${id}_voice',
+            name: 'General',
+            type: ChannelType.voice,
+            category: 'Voice Channels'),
+      ],
+      members: const [
+        Member(id: 'me', name: 'You', role: MemberRole.owner, online: true),
+      ],
     );
     _communities.add(community);
     _save();
@@ -94,19 +155,69 @@ class CommunityStore extends ChangeNotifier {
     return community;
   }
 
-  void addChannel(String communityId, String channelName) {
-    final community = byId(communityId);
-    if (community == null) return;
-    final clean = channelName
-        .trim()
+  /// Normalizes a channel name: voice/announcement keep spaces and case,
+  /// text channels are lower-kebab-cased like Discord.
+  static String _cleanChannelName(String raw, ChannelType type) {
+    final trimmed = raw.trim();
+    if (type == ChannelType.voice) return trimmed;
+    return trimmed
         .toLowerCase()
         .replaceAll(RegExp(r'\s+'), '-')
         .replaceAll(RegExp(r'[^a-z0-9\-_]'), '');
+  }
+
+  void addChannel(
+    String communityId,
+    String channelName, {
+    ChannelType type = ChannelType.text,
+    String? category,
+  }) {
+    final community = byId(communityId);
+    if (community == null) return;
+    final clean = _cleanChannelName(channelName, type);
     if (clean.isEmpty) return;
+    final cat = category ??
+        switch (type) {
+          ChannelType.voice => 'Voice Channels',
+          ChannelType.announcement => 'Information',
+          ChannelType.text => 'Text Channels',
+        };
     final channel = Channel(
-        id: '${communityId}_${clean}_${community.channels.length}',
-        name: clean);
+      id: '${communityId}_${clean.hashCode}_${community.channels.length}',
+      name: clean,
+      type: type,
+      category: cat,
+    );
     _replace(community.copyWith(channels: [...community.channels, channel]));
+  }
+
+  void renameChannel(String communityId, String channelId, String newName) {
+    final community = byId(communityId);
+    if (community == null) return;
+    final channels = community.channels.map((ch) {
+      if (ch.id != channelId) return ch;
+      final clean = _cleanChannelName(newName, ch.type);
+      return clean.isEmpty ? ch : ch.copyWith(name: clean);
+    }).toList();
+    _replace(community.copyWith(channels: channels));
+  }
+
+  void setChannelTopic(String communityId, String channelId, String topic) {
+    final community = byId(communityId);
+    if (community == null) return;
+    final channels = community.channels.map((ch) {
+      if (ch.id != channelId) return ch;
+      return ch.copyWith(topic: topic.trim());
+    }).toList();
+    _replace(community.copyWith(channels: channels));
+  }
+
+  void deleteChannel(String communityId, String channelId) {
+    final community = byId(communityId);
+    if (community == null) return;
+    final channels =
+        community.channels.where((c) => c.id != channelId).toList();
+    _replace(community.copyWith(channels: channels));
   }
 
   void postMessage(String communityId, String channelId, Message message) {

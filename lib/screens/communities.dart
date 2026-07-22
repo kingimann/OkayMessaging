@@ -9,6 +9,12 @@ import '../utils/date_formatter.dart';
 Color _hex(String s) =>
     Color(int.parse(s.replaceFirst('#', 'ff'), radix: 16));
 
+IconData _channelIcon(ChannelType type) => switch (type) {
+      ChannelType.voice => Icons.volume_up_rounded,
+      ChannelType.announcement => Icons.campaign_rounded,
+      ChannelType.text => Icons.tag,
+    };
+
 /// Prompts for a name, creates a community and opens it. Called from the
 /// home screen's compose button when the Communities tab is active.
 Future<void> createCommunityFlow(BuildContext context) async {
@@ -54,7 +60,8 @@ class CommunitiesTab extends StatelessWidget {
                     style: const TextStyle(
                         fontSize: 17, fontWeight: FontWeight.w600)),
                 subtitle: Text(
-                    '${c.channels.length} channel${c.channels.length == 1 ? '' : 's'}'),
+                    '${c.channels.length} channel${c.channels.length == 1 ? '' : 's'} · '
+                    '${c.members.length} member${c.members.length == 1 ? '' : 's'}'),
                 onTap: () => Navigator.of(context).push(MaterialPageRoute(
                     builder: (_) => CommunityScreen(communityId: c.id))),
               ),
@@ -65,15 +72,79 @@ class CommunitiesTab extends StatelessWidget {
   }
 }
 
-/// A single community: its channels, plus an add-channel action.
+/// A single community: its channels grouped by category, plus actions to add
+/// a channel or view members.
 class CommunityScreen extends StatelessWidget {
   final String communityId;
   const CommunityScreen({super.key, required this.communityId});
 
   Future<void> _addChannel(BuildContext context) async {
-    final name = await _promptName(context, 'New channel', 'channel-name');
-    if (name == null || name.isEmpty) return;
-    CommunityStore.instance.addChannel(communityId, name);
+    final result = await _promptNewChannel(context);
+    if (result == null) return;
+    CommunityStore.instance
+        .addChannel(communityId, result.$1, type: result.$2);
+  }
+
+  void _openMembers(BuildContext context, Community community) {
+    showModalBottomSheet(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (_) => _MembersSheet(community: community),
+    );
+  }
+
+  Future<void> _channelActions(
+      BuildContext context, Channel ch) async {
+    final store = CommunityStore.instance;
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (_) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: Icon(_channelIcon(ch.type)),
+              title: Text(ch.name,
+                  style: const TextStyle(fontWeight: FontWeight.w600)),
+              subtitle: ch.topic.isEmpty ? null : Text(ch.topic),
+            ),
+            const Divider(height: 1),
+            ListTile(
+                leading: const Icon(Icons.edit_outlined),
+                title: const Text('Rename channel'),
+                onTap: () => Navigator.pop(context, 'rename')),
+            ListTile(
+                leading: const Icon(Icons.notes_rounded),
+                title: const Text('Edit topic'),
+                onTap: () => Navigator.pop(context, 'topic')),
+            ListTile(
+                leading: const Icon(Icons.delete_outline, color: Colors.red),
+                title: const Text('Delete channel',
+                    style: TextStyle(color: Colors.red)),
+                onTap: () => Navigator.pop(context, 'delete')),
+          ],
+        ),
+      ),
+    );
+    if (action == null || !context.mounted) return;
+    switch (action) {
+      case 'rename':
+        final name = await _promptName(context, 'Rename channel', ch.name);
+        if (name != null && name.isNotEmpty) {
+          store.renameChannel(communityId, ch.id, name);
+        }
+        break;
+      case 'topic':
+        final topic = await _promptName(
+            context, 'Channel topic', ch.topic.isEmpty ? 'Topic' : ch.topic);
+        if (topic != null) store.setChannelTopic(communityId, ch.id, topic);
+        break;
+      case 'delete':
+        store.deleteChannel(communityId, ch.id);
+        break;
+    }
   }
 
   @override
@@ -85,6 +156,7 @@ class CommunityScreen extends StatelessWidget {
         if (community == null) {
           return const Scaffold(body: Center(child: Text('Community not found')));
         }
+        final onlineCount = community.members.where((m) => m.online).length;
         return Scaffold(
           appBar: AppBar(
             title: Row(
@@ -106,6 +178,11 @@ class CommunityScreen extends StatelessWidget {
             ),
             actions: [
               IconButton(
+                icon: const Icon(Icons.people_alt_outlined),
+                tooltip: 'Members',
+                onPressed: () => _openMembers(context, community),
+              ),
+              IconButton(
                 icon: const Icon(Icons.add),
                 tooltip: 'Add channel',
                 onPressed: () => _addChannel(context),
@@ -114,28 +191,56 @@ class CommunityScreen extends StatelessWidget {
           ),
           body: ListView(
             children: [
-              const Padding(
-                padding: EdgeInsets.fromLTRB(16, 14, 16, 6),
-                child: Text('CHANNELS',
-                    style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 0.6,
-                        color: Colors.grey)),
-              ),
-              for (final ch in community.channels)
-                ListTile(
-                  leading: const Icon(Icons.tag, color: Colors.grey),
-                  title: Text(ch.name),
-                  subtitle: ch.messages.isEmpty
-                      ? null
-                      : Text(ch.messages.last.text,
-                          maxLines: 1, overflow: TextOverflow.ellipsis),
-                  onTap: () => Navigator.of(context).push(MaterialPageRoute(
-                    builder: (_) => ChannelScreen(
-                        communityId: communityId, channelId: ch.id),
-                  )),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                child: Row(
+                  children: [
+                    const Icon(Icons.circle, size: 9, color: Color(0xFF43B581)),
+                    const SizedBox(width: 6),
+                    Text('$onlineCount online · ${community.members.length} members',
+                        style: TextStyle(
+                            fontSize: 12.5, color: Colors.grey.shade600)),
+                  ],
                 ),
+              ),
+              for (final category in community.categories) ...[
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
+                  child: Text(category.toUpperCase(),
+                      style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.6,
+                          color: Colors.grey)),
+                ),
+                for (final ch in community.channelsIn(category))
+                  ListTile(
+                    dense: true,
+                    leading:
+                        Icon(_channelIcon(ch.type), color: Colors.grey, size: 22),
+                    title: Text(ch.name),
+                    subtitle: ch.type == ChannelType.voice
+                        ? const Text('Voice channel')
+                        : (ch.messages.isNotEmpty
+                            ? Text(ch.messages.last.text,
+                                maxLines: 1, overflow: TextOverflow.ellipsis)
+                            : (ch.topic.isEmpty ? null : Text(ch.topic))),
+                    trailing: IconButton(
+                      icon: const Icon(Icons.more_vert, size: 20),
+                      tooltip: 'Channel options',
+                      onPressed: () => _channelActions(context, ch),
+                    ),
+                    onLongPress: () => _channelActions(context, ch),
+                    onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                      builder: (_) => ch.type == ChannelType.voice
+                          ? VoiceChannelScreen(
+                              communityId: communityId, channelId: ch.id)
+                          : ChannelScreen(
+                              communityId: communityId, channelId: ch.id),
+                    )),
+                  ),
+              ],
+              const SizedBox(height: 20),
             ],
           ),
         );
@@ -144,7 +249,165 @@ class CommunityScreen extends StatelessWidget {
   }
 }
 
-/// A channel's message view: a simple list plus a composer.
+/// A voice channel "lobby": shows the members who could join and a local
+/// join/leave toggle. Real group audio would ride the same WebRTC path as
+/// 1:1 calls; here it's a presence lobby.
+class VoiceChannelScreen extends StatefulWidget {
+  final String communityId;
+  final String channelId;
+  const VoiceChannelScreen(
+      {super.key, required this.communityId, required this.channelId});
+
+  @override
+  State<VoiceChannelScreen> createState() => _VoiceChannelScreenState();
+}
+
+class _VoiceChannelScreenState extends State<VoiceChannelScreen> {
+  bool _joined = false;
+  bool _muted = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: CommunityStore.instance,
+      builder: (context, _) {
+        final community = CommunityStore.instance.byId(widget.communityId);
+        final channel = community?.channels
+            .cast<Channel?>()
+            .firstWhere((c) => c?.id == widget.channelId, orElse: () => null);
+        if (channel == null) {
+          return const Scaffold(body: Center(child: Text('Channel not found')));
+        }
+        final present = _joined
+            ? community!.members.where((m) => m.online).toList()
+            : <Member>[];
+        return Scaffold(
+          appBar: AppBar(
+            title: Row(
+              children: [
+                const Icon(Icons.volume_up_rounded, size: 20),
+                const SizedBox(width: 6),
+                Text(channel.name),
+              ],
+            ),
+          ),
+          body: Column(
+            children: [
+              Expanded(
+                child: present.isEmpty
+                    ? Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.headset_mic_outlined,
+                                size: 56, color: Colors.grey.shade400),
+                            const SizedBox(height: 12),
+                            Text('No one is in ${channel.name}',
+                                style:
+                                    TextStyle(color: Colors.grey.shade500)),
+                            const SizedBox(height: 4),
+                            Text('Join to start the conversation',
+                                style: TextStyle(
+                                    color: Colors.grey.shade400,
+                                    fontSize: 12.5)),
+                          ],
+                        ),
+                      )
+                    : GridView.count(
+                        crossAxisCount: 3,
+                        padding: const EdgeInsets.all(16),
+                        children: [
+                          for (final m in present)
+                            Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                CircleAvatar(
+                                  radius: 30,
+                                  backgroundColor: _hex(community!.color),
+                                  child: Text(
+                                    m.name.isEmpty
+                                        ? '?'
+                                        : m.name[0].toUpperCase(),
+                                    style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 22,
+                                        fontWeight: FontWeight.w700),
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                Text(m.name,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(fontSize: 12.5)),
+                              ],
+                            ),
+                        ],
+                      ),
+              ),
+              SafeArea(
+                top: false,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      if (_joined) ...[
+                        _voiceButton(
+                          icon: _muted ? Icons.mic_off : Icons.mic,
+                          color: _muted ? Colors.grey : AppColors.tealGreenDark,
+                          onTap: () => setState(() => _muted = !_muted),
+                        ),
+                        const SizedBox(width: 16),
+                        _voiceButton(
+                          icon: Icons.call_end,
+                          color: Colors.red,
+                          onTap: () => setState(() {
+                            _joined = false;
+                            _muted = false;
+                          }),
+                        ),
+                      ] else
+                        FilledButton.icon(
+                          style: FilledButton.styleFrom(
+                            backgroundColor: AppColors.tealGreenDark,
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 28, vertical: 14),
+                          ),
+                          icon: const Icon(Icons.headset_mic),
+                          label: const Text('Join Voice'),
+                          onPressed: () => setState(() => _joined = true),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _voiceButton(
+          {required IconData icon,
+          required Color color,
+          required VoidCallback onTap}) =>
+      Material(
+        color: color,
+        shape: const CircleBorder(),
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Icon(icon, color: Colors.white, size: 26),
+          ),
+        ),
+      );
+}
+
+/// A channel's message view: a simple list plus a composer. Announcement
+/// channels look the same but read as broadcast posts.
 class ChannelScreen extends StatefulWidget {
   final String communityId;
   final String channelId;
@@ -197,7 +460,7 @@ class _ChannelScreenState extends State<ChannelScreen> {
           appBar: AppBar(
             title: Row(
               children: [
-                const Icon(Icons.tag, size: 20),
+                Icon(_channelIcon(channel.type), size: 20),
                 const SizedBox(width: 4),
                 Text(channel.name),
               ],
@@ -205,6 +468,18 @@ class _ChannelScreenState extends State<ChannelScreen> {
           ),
           body: Column(
             children: [
+              if (channel.topic.isNotEmpty)
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+                  color: Theme.of(context)
+                      .colorScheme
+                      .surfaceContainerHighest
+                      .withValues(alpha: 0.4),
+                  child: Text(channel.topic,
+                      style: TextStyle(
+                          fontSize: 13, color: Colors.grey.shade600)),
+                ),
               Expanded(
                 child: channel.messages.isEmpty
                     ? Center(
@@ -255,6 +530,114 @@ class _ChannelScreenState extends State<ChannelScreen> {
           ),
         );
       },
+    );
+  }
+}
+
+class _MembersSheet extends StatelessWidget {
+  final Community community;
+  const _MembersSheet({required this.community});
+
+  @override
+  Widget build(BuildContext context) {
+    // Owner/admins first, then everyone; online before offline within a role.
+    final members = [...community.members]..sort((a, b) {
+        final r = a.role.index.compareTo(b.role.index);
+        if (r != 0) return r;
+        if (a.online != b.online) return a.online ? -1 : 1;
+        return a.name.compareTo(b.name);
+      });
+    return DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: 0.6,
+      maxChildSize: 0.9,
+      builder: (context, controller) => ListView(
+        controller: controller,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
+            child: Text('Members — ${community.members.length}',
+                style: const TextStyle(
+                    fontSize: 18, fontWeight: FontWeight.w700)),
+          ),
+          for (final m in members)
+            ListTile(
+              leading: Stack(
+                children: [
+                  CircleAvatar(
+                    radius: 20,
+                    backgroundColor: _hex(community.color),
+                    child: Text(
+                      m.name.isEmpty ? '?' : m.name[0].toUpperCase(),
+                      style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                  if (m.online)
+                    Positioned(
+                      right: 0,
+                      bottom: 0,
+                      child: Container(
+                        width: 12,
+                        height: 12,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF43B581),
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                              color: Theme.of(context).canvasColor, width: 2),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+              title: Text(m.name),
+              subtitle: Text(m.online ? 'Online' : 'Offline',
+                  style: TextStyle(
+                      color: m.online
+                          ? const Color(0xFF43B581)
+                          : Colors.grey.shade500,
+                      fontSize: 12.5)),
+              trailing: m.role == MemberRole.member
+                  ? null
+                  : _RoleBadge(role: m.role),
+            ),
+          const SizedBox(height: 12),
+        ],
+      ),
+    );
+  }
+}
+
+class _RoleBadge extends StatelessWidget {
+  final MemberRole role;
+  const _RoleBadge({required this.role});
+
+  @override
+  Widget build(BuildContext context) {
+    final color =
+        role == MemberRole.owner ? const Color(0xFFF1C40F) : AppColors.tealGreenDark;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+              role == MemberRole.owner
+                  ? Icons.star_rounded
+                  : Icons.shield_rounded,
+              size: 14,
+              color: color),
+          const SizedBox(width: 4),
+          Text(roleName(role),
+              style: TextStyle(
+                  color: color, fontSize: 12, fontWeight: FontWeight.w600)),
+        ],
+      ),
     );
   }
 }
@@ -361,9 +744,69 @@ Future<String?> _promptName(
         TextButton(
           onPressed: () =>
               Navigator.of(dialogContext).pop(controller.text.trim()),
-          child: const Text('Create'),
+          child: const Text('Save'),
         ),
       ],
+    ),
+  );
+}
+
+/// Dialog to create a channel: pick a type, then name it.
+Future<(String, ChannelType)?> _promptNewChannel(BuildContext context) {
+  final controller = TextEditingController();
+  var type = ChannelType.text;
+  return showDialog<(String, ChannelType)>(
+    context: context,
+    builder: (dialogContext) => StatefulBuilder(
+      builder: (dialogContext, setState) => AlertDialog(
+        title: const Text('New channel'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SegmentedButton<ChannelType>(
+              segments: const [
+                ButtonSegment(
+                    value: ChannelType.text,
+                    icon: Icon(Icons.tag),
+                    label: Text('Text')),
+                ButtonSegment(
+                    value: ChannelType.voice,
+                    icon: Icon(Icons.volume_up_rounded),
+                    label: Text('Voice')),
+                ButtonSegment(
+                    value: ChannelType.announcement,
+                    icon: Icon(Icons.campaign_rounded),
+                    label: Text('News')),
+              ],
+              selected: {type},
+              showSelectedIcon: false,
+              onSelectionChanged: (s) => setState(() => type = s.first),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: controller,
+              autofocus: true,
+              decoration: InputDecoration(
+                  hintText:
+                      type == ChannelType.voice ? 'Channel name' : 'channel-name'),
+              onSubmitted: (v) =>
+                  Navigator.of(dialogContext).pop((v.trim(), type)),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext)
+                .pop((controller.text.trim(), type)),
+            child: const Text('Create'),
+          ),
+        ],
+      ),
     ),
   );
 }
