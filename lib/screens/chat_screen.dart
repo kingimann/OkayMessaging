@@ -36,7 +36,11 @@ import 'wallpaper_screen.dart';
 class ChatScreen extends StatefulWidget {
   final Chat chat;
 
-  const ChatScreen({super.key, required this.chat});
+  /// When set (e.g. opened from search), the chat scrolls to and briefly
+  /// highlights this message after it opens.
+  final String? initialMessageId;
+
+  const ChatScreen({super.key, required this.chat, this.initialMessageId});
 
   @override
   State<ChatScreen> createState() => _ChatScreenState();
@@ -86,6 +90,11 @@ class _ChatScreenState extends State<ChatScreen> {
   final Map<String, GlobalKey> _messageKeys = {};
   String? _highlightedId;
 
+  /// Deferred scroll-to-message when opened from search, and the timer that
+  /// clears a jumped-to message's highlight.
+  Timer? _jumpTimer;
+  Timer? _highlightClear;
+
   String get _chatId => widget.chat.id;
 
   @override
@@ -95,6 +104,14 @@ class _ChatScreenState extends State<ChatScreen> {
     _store.upsert(widget.chat);
     _captureUnreadAnchor();
     _scrollController.addListener(_onScroll);
+    // When opened from search, jump to the matched message once it's laid out.
+    if (widget.initialMessageId != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _jumpTimer = Timer(const Duration(milliseconds: 250),
+            () => _jumpToMessage(widget.initialMessageId!));
+      });
+    }
     if (RelayConfig.isEnabled) {
       RelayService.instance.typingPing.addListener(_onTypingPing);
       if (_isRealPeer(widget.chat.contact)) {
@@ -211,6 +228,8 @@ class _ChatScreenState extends State<ChatScreen> {
     _typingClear?.cancel();
     _presenceSend?.cancel();
     _presenceRevert?.cancel();
+    _jumpTimer?.cancel();
+    _highlightClear?.cancel();
     _scrollController.dispose();
     _searchController.dispose();
     super.dispose();
@@ -711,7 +730,8 @@ class _ChatScreenState extends State<ChatScreen> {
       alignment: 0.3,
     );
     setState(() => _highlightedId = messageId);
-    Future.delayed(const Duration(milliseconds: 1200), () {
+    _highlightClear?.cancel();
+    _highlightClear = Timer(const Duration(milliseconds: 1200), () {
       if (mounted && _highlightedId == messageId) {
         setState(() => _highlightedId = null);
       }

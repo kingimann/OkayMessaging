@@ -1555,6 +1555,33 @@ void main() {
     expect(find.text('Did you see the game last night?'), findsOneWidget);
   });
 
+  testWidgets('Universal search finds people and servers, and filters',
+      (tester) async {
+    await tester.pumpWidget(const OkayMessagingApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.search));
+    await tester.pumpAndSettle();
+
+    // A server name surfaces the community as a result.
+    await tester.enterText(find.byType(TextField), 'Design');
+    await tester.pumpAndSettle();
+    expect(find.text('Design Team'), findsWidgets);
+
+    // A person's name surfaces them in the People section.
+    await tester.enterText(find.byType(TextField), 'Alice');
+    await tester.pumpAndSettle();
+    expect(find.text('Alice Bennett'), findsWidgets);
+
+    // Filter chips are present.
+    expect(find.widgetWithText(ChoiceChip, 'Servers'), findsOneWidget);
+
+    // Channel names are searchable (the Channels header is unique — no chip).
+    await tester.enterText(find.byType(TextField), 'general');
+    await tester.pumpAndSettle();
+    expect(find.text('Channels'), findsOneWidget);
+  });
+
   testWidgets('Creating a group adds it to the chat list with its members',
       (tester) async {
     await tester.pumpWidget(const OkayMessagingApp());
