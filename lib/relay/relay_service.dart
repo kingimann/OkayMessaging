@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide Session;
 
@@ -51,15 +53,19 @@ class RelayService {
   /// The inbox channel a user listens on / is reached at.
   static String inboxChannel(String phone) => 'inbox_${digits(phone)}';
 
-  /// Builds the broadcast payload for an outgoing message. The text is end-to-
-  /// end encrypted so the relay forwards ciphertext it cannot read:
+  /// Builds the broadcast payload for an outgoing message. The **entire**
+  /// message body — text, the sender's display name and username, and all
+  /// media metadata — is bundled into one JSON blob and end-to-end encrypted
+  /// into the single `c` field, so the relay forwards a ciphertext it cannot
+  /// read: it never sees who is talking, what they wrote, or what they sent.
+  /// Only routing data (`id`, `from`, `enc`, `spk`, `ts`) stays in the clear.
   ///
   ///  * enc 2 — AES-256-GCM keyed by an ECDH shared secret ([ecdhSecret]); the
   ///    sender's public key rides along as `spk` so the recipient can derive
   ///    the same secret. This is the strong path, used once keys are exchanged.
   ///  * enc 1 — AES-256-GCM keyed by the phone-number-derived secret (the
   ///    fallback until the ECDH handshake completes).
-  ///  * enc 0 — plaintext (no recipient / empty body).
+  ///  * enc 0 — plaintext JSON (no recipient key available yet).
   static Map<String, dynamic> encode({
     required Message message,
     required String fromPhone,
@@ -69,31 +75,36 @@ class RelayService {
     List<int>? ecdhSecret,
     String? senderPublicKey,
   }) {
-    var text = message.text;
-    var enc = 0;
-    String? spk;
-    if (text.isNotEmpty && ecdhSecret != null && senderPublicKey != null) {
-      text = E2eCrypto.encrypt(ecdhSecret, message.text);
-      enc = 2;
-      spk = senderPublicKey;
-    } else if (toPhone.isNotEmpty && text.isNotEmpty) {
-      text = E2eCrypto.encrypt(E2eCrypto.keyFor(fromPhone, toPhone), message.text);
-      enc = 1;
-    }
-    return {
-      'id': message.id,
-      'from': fromPhone,
+    // Everything sensitive goes inside this blob — nothing but routing leaks.
+    final content = jsonEncode({
+      'text': message.text,
       'fromName': fromName,
       'fromUsername': fromUsername,
-      'text': text,
-      'enc': enc,
-      if (spk != null) 'spk': spk,
-      'ts': message.time.toIso8601String(),
       'isImage': message.isImage,
       'imageSeed': message.imageSeed,
       'imageUrl': message.imageUrl,
       'isVoice': message.isVoice,
       'voiceSeconds': message.voiceSeconds,
+    });
+
+    var c = content;
+    var enc = 0;
+    String? spk;
+    if (ecdhSecret != null && senderPublicKey != null) {
+      c = E2eCrypto.encrypt(ecdhSecret, content);
+      enc = 2;
+      spk = senderPublicKey;
+    } else if (toPhone.isNotEmpty) {
+      c = E2eCrypto.encrypt(E2eCrypto.keyFor(fromPhone, toPhone), content);
+      enc = 1;
+    }
+    return {
+      'id': message.id,
+      'from': fromPhone,
+      'c': c,
+      'enc': enc,
+      if (spk != null) 'spk': spk,
+      'ts': message.time.toIso8601String(),
     };
   }
 
@@ -112,17 +123,20 @@ class RelayService {
     final target = store ?? ChatStore.instance;
     final id = payload['id'] as String? ?? 'relay_${payload['ts']}';
 
+    // Decrypt the sealed content blob into the real fields. Falls back to the
+    // legacy top-level layout for any message still on the old wire format.
+    final content = _decodeContent(payload, from: from, myPhone: myPhone);
+
     var chat = target.chatWithContact(from);
     if (chat == null) {
+      final fromName = (content['fromName'] as String?)?.trim();
       final contact = AppUser(
         id: from,
-        name: (payload['fromName'] as String?)?.trim().isNotEmpty == true
-            ? payload['fromName'] as String
-            : from,
+        name: fromName != null && fromName.isNotEmpty ? fromName : from,
         avatarColor: '#7A5CFF',
         about: 'Available',
         phone: from,
-        username: (payload['fromUsername'] as String?) ?? '',
+        username: (content['fromUsername'] as String?) ?? '',
       );
       chat = Chat(id: 'chat_$from', contact: contact, messages: const []);
       target.upsert(chat);
@@ -133,42 +147,72 @@ class RelayService {
       return false;
     }
 
-    var text = (payload['text'] as String?) ?? '';
-    // enc may arrive as int or bool depending on JSON transport.
-    final encRaw = payload['enc'];
-    if (text.isNotEmpty) {
-      if (encRaw == 2 || encRaw == '2') {
-        // ECDH path: derive the shared secret from the sender's public key.
-        final spk = payload['spk'] as String?;
-        final secret = spk == null
-            ? null
-            : SecureKeyExchange.instance.sharedSecretWith(spk);
-        if (secret != null) {
-          text = E2eCrypto.decrypt(secret, text) ?? text;
-          if (spk != null) SecureKeyExchange.instance.rememberPeer(from, spk);
-        }
-      } else if (encRaw == 1 || encRaw == true) {
-        text = E2eCrypto.decrypt(E2eCrypto.keyFor(from, myPhone), text) ?? text;
-      }
-    }
-
     target.addMessage(
       chat.id,
       Message(
         id: id,
-        text: text,
+        text: (content['text'] as String?) ?? '',
         time: DateTime.tryParse(payload['ts'] as String? ?? '')?.toLocal() ??
             DateTime.now(),
         isMe: false,
         status: MessageStatus.delivered,
-        isImage: payload['isImage'] as bool? ?? false,
-        imageSeed: payload['imageSeed'] as int? ?? 0,
-        imageUrl: payload['imageUrl'] as String?,
-        isVoice: payload['isVoice'] as bool? ?? false,
-        voiceSeconds: payload['voiceSeconds'] as int? ?? 0,
+        isImage: content['isImage'] as bool? ?? false,
+        imageSeed: content['imageSeed'] as int? ?? 0,
+        imageUrl: content['imageUrl'] as String?,
+        isVoice: content['isVoice'] as bool? ?? false,
+        voiceSeconds: content['voiceSeconds'] as int? ?? 0,
       ),
     );
     return true;
+  }
+
+  /// Recovers the decrypted content map from a relay payload. New payloads seal
+  /// everything into `c`; legacy payloads carried the fields at the top level,
+  /// so we read those directly when `c` is absent.
+  static Map<String, dynamic> _decodeContent(
+    Map<String, dynamic> payload, {
+    required String from,
+    required String myPhone,
+  }) {
+    final blob = payload['c'] as String?;
+    if (blob == null) {
+      // Legacy format: fields ride in the clear at the top level.
+      return {
+        'text': (payload['text'] as String?) ?? '',
+        'fromName': payload['fromName'],
+        'fromUsername': payload['fromUsername'],
+        'isImage': payload['isImage'],
+        'imageSeed': payload['imageSeed'],
+        'imageUrl': payload['imageUrl'],
+        'isVoice': payload['isVoice'],
+        'voiceSeconds': payload['voiceSeconds'],
+      };
+    }
+
+    var json = blob;
+    // enc may arrive as int or bool depending on JSON transport.
+    final encRaw = payload['enc'];
+    if (encRaw == 2 || encRaw == '2') {
+      // ECDH path: derive the shared secret from the sender's public key.
+      final spk = payload['spk'] as String?;
+      final secret =
+          spk == null ? null : SecureKeyExchange.instance.sharedSecretWith(spk);
+      if (secret != null) {
+        json = E2eCrypto.decrypt(secret, blob) ?? blob;
+        SecureKeyExchange.instance.rememberPeer(from, spk!);
+      }
+    } else if (encRaw == 1 || encRaw == true) {
+      json = E2eCrypto.decrypt(E2eCrypto.keyFor(from, myPhone), blob) ?? blob;
+    }
+
+    try {
+      final decoded = jsonDecode(json);
+      if (decoded is Map<String, dynamic>) return decoded;
+      if (decoded is Map) return Map<String, dynamic>.from(decoded);
+    } catch (_) {
+      // Undecryptable (missing key) — surface a placeholder rather than crash.
+    }
+    return {'text': json};
   }
 
   /// Initializes the realtime client when a relay is configured.

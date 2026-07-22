@@ -1600,7 +1600,11 @@ void main() {
       );
       expect(payload['enc'], 2);
       expect(payload['spk'], myPub);
-      expect(payload['text'], isNot('sent under an ECDH key'));
+      // The whole content blob is sealed — plaintext and sender name leak nowhere.
+      expect(payload['c'], isNot(contains('sent under an ECDH key')));
+      expect(payload['c'], isNot(contains('Grace')));
+      expect(payload.containsKey('fromName'), isFalse);
+      expect(payload.containsKey('text'), isFalse);
 
       RelayService.applyIncoming(payload, myPhone: '+1 555 0100');
       final got =
@@ -1626,7 +1630,8 @@ void main() {
       );
       // The wire payload is ciphertext, not the plaintext.
       expect(payload['enc'], 1);
-      expect(payload['text'], isNot('secret rendezvous at noon'));
+      expect(payload['c'], isNot(contains('secret rendezvous at noon')));
+      expect(payload.containsKey('text'), isFalse);
 
       RelayService.applyIncoming(payload, myPhone: '+1 555 0100');
       final got =
