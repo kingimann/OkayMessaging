@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'app_state.dart';
 import 'relay/relay_service.dart';
 import 'screens/auth/auth_gate.dart';
+import 'screens/call_screen.dart';
+import 'state/call_service.dart';
 import 'state/persistence.dart';
 import 'state/scheduler.dart';
 import 'state/session.dart';
@@ -21,6 +23,29 @@ Future<void> main() async {
   runApp(const OkayMessagingApp());
 }
 
+/// Shows the full-screen call UI on top of everything whenever there's an
+/// active call, so an incoming call rings no matter what screen you're on.
+class _CallOverlay extends StatelessWidget {
+  final Widget child;
+  const _CallOverlay({required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<CallSession?>(
+      valueListenable: CallService.instance.current,
+      builder: (context, session, _) {
+        return Stack(
+          children: [
+            child,
+            if (session != null)
+              Positioned.fill(child: CallScreen(session: session)),
+          ],
+        );
+      },
+    );
+  }
+}
+
 class OkayMessagingApp extends StatelessWidget {
   const OkayMessagingApp({super.key});
 
@@ -36,6 +61,8 @@ class OkayMessagingApp extends StatelessWidget {
           darkTheme: AppTheme.dark,
           themeMode: mode,
           home: const AuthGate(),
+          builder: (context, child) =>
+              _CallOverlay(child: child ?? const SizedBox.shrink()),
         );
       },
     );

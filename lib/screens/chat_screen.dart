@@ -19,7 +19,7 @@ import '../widgets/heart_burst.dart';
 import '../widgets/message_bubble.dart';
 import '../widgets/typing_indicator.dart';
 import '../widgets/user_avatar.dart';
-import 'call_screen.dart';
+import '../state/call_service.dart';
 import 'contact_info_screen.dart';
 import 'forward_screen.dart';
 import 'group_info_screen.dart';
@@ -895,11 +895,7 @@ class _ChatScreenState extends State<ChatScreen> {
       _showComingSoon(context, 'Group calls');
       return;
     }
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => CallScreen(user: widget.chat.contact, video: video),
-      ),
-    );
+    CallService.instance.startOutgoing(widget.chat.contact, video: video);
   }
 
   void _openImage(Message message) {

@@ -2,76 +2,111 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
-import '../models/user.dart';
+import '../state/call_service.dart';
 import '../widgets/user_avatar.dart';
 
-/// A simulated outgoing call screen. It shows "Ringing…" briefly, then a
-/// running call timer, with mute / speaker / video / end controls. Nothing
-/// real is dialled — this is a UI demo — and "End" pops the screen.
+/// The full-screen call UI, driven entirely by [CallService].
+///
+/// It handles both directions: an outgoing call shows "Ringing…" until the
+/// peer answers; an incoming call shows Accept / Decline. Once connected a live
+/// timer runs. Every button maps to a real relay signal, so hanging up or
+/// declining is mirrored on the other device.
 class CallScreen extends StatefulWidget {
-  final AppUser user;
-  final bool video;
+  final CallSession session;
 
-  const CallScreen({super.key, required this.user, this.video = false});
+  const CallScreen({super.key, required this.session});
 
   @override
   State<CallScreen> createState() => _CallScreenState();
 }
 
 class _CallScreenState extends State<CallScreen> {
-  Timer? _connectTimer;
   Timer? _tick;
-  bool _connected = false;
+  Timer? _dismiss;
   int _seconds = 0;
   bool _muted = false;
   bool _speaker = false;
-  late bool _video = widget.video;
+  late bool _video = widget.session.video;
 
   @override
   void initState() {
     super.initState();
-    _connectTimer = Timer(const Duration(milliseconds: 2200), () {
-      if (!mounted) return;
-      setState(() => _connected = true);
+    _syncForStatus();
+  }
+
+  @override
+  void didUpdateWidget(CallScreen old) {
+    super.didUpdateWidget(old);
+    if (old.session.status != widget.session.status) _syncForStatus();
+  }
+
+  void _syncForStatus() {
+    final s = widget.session.status;
+    if (s == CallStatus.connected && _tick == null) {
       _tick = Timer.periodic(const Duration(seconds: 1), (_) {
         if (mounted) setState(() => _seconds++);
       });
-    });
+    }
+    if (s == CallStatus.ended || s == CallStatus.declined) {
+      _tick?.cancel();
+      _tick = null;
+      // Show the terminal state briefly, then dismiss.
+      _dismiss ??= Timer(const Duration(milliseconds: 1400), () {
+        CallService.instance.clear();
+      });
+    }
   }
 
   @override
   void dispose() {
-    _connectTimer?.cancel();
     _tick?.cancel();
+    _dismiss?.cancel();
     super.dispose();
   }
 
-  String get _status {
-    if (!_connected) return widget.video ? 'Video calling…' : 'Ringing…';
-    final m = _seconds ~/ 60;
-    final s = _seconds % 60;
-    return '$m:${s.toString().padLeft(2, '0')}';
+  String get _statusLabel {
+    final s = widget.session;
+    switch (s.status) {
+      case CallStatus.ringing:
+        if (s.direction == CallDirection.incoming) {
+          return s.video ? 'Incoming video call' : 'Incoming call';
+        }
+        return s.video ? 'Video calling…' : 'Ringing…';
+      case CallStatus.connected:
+        final m = _seconds ~/ 60;
+        final sec = _seconds % 60;
+        return '$m:${sec.toString().padLeft(2, '0')}';
+      case CallStatus.declined:
+        return 'Call declined';
+      case CallStatus.ended:
+        return 'Call ended';
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    final session = widget.session;
+    final incomingRinging = session.direction == CallDirection.incoming &&
+        session.status == CallStatus.ringing;
+
     return Scaffold(
+      backgroundColor: Colors.black,
       body: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: [Color(0xFF075E54), Color(0xFF0B141A)],
+            colors: [Color(0xFF16181C), Color(0xFF000000)],
           ),
         ),
         child: SafeArea(
           child: Column(
             children: [
-              const SizedBox(height: 40),
-              UserAvatar(user: widget.user, radius: 56),
+              const SizedBox(height: 44),
+              UserAvatar(user: session.peer, radius: 56),
               const SizedBox(height: 20),
               Text(
-                widget.user.name,
+                session.peer.name,
                 style: const TextStyle(
                   color: Colors.white,
                   fontSize: 26,
@@ -83,13 +118,13 @@ class _CallScreenState extends State<CallScreen> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Icon(
-                    widget.video ? Icons.videocam : Icons.call,
+                    session.video ? Icons.videocam : Icons.call,
                     size: 16,
                     color: Colors.white70,
                   ),
                   const SizedBox(width: 6),
                   Text(
-                    _status,
+                    _statusLabel,
                     style: const TextStyle(color: Colors.white70, fontSize: 16),
                   ),
                 ],
@@ -98,44 +133,70 @@ class _CallScreenState extends State<CallScreen> {
               Text(
                 'End-to-end encrypted',
                 style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.5),
+                  color: Colors.white.withValues(alpha: 0.45),
                   fontSize: 12.5,
                 ),
               ),
               const SizedBox(height: 24),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 28),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    _CallControl(
-                      icon: _speaker ? Icons.volume_up : Icons.volume_up_outlined,
-                      active: _speaker,
-                      onTap: () => setState(() => _speaker = !_speaker),
-                    ),
-                    _CallControl(
-                      icon: _video ? Icons.videocam : Icons.videocam_off,
-                      active: _video,
-                      onTap: () => setState(() => _video = !_video),
-                    ),
-                    _CallControl(
-                      icon: _muted ? Icons.mic_off : Icons.mic,
-                      active: _muted,
-                      onTap: () => setState(() => _muted = !_muted),
-                    ),
-                    _CallControl(
-                      icon: Icons.call_end,
-                      background: Colors.red,
-                      onTap: () => Navigator.of(context).maybePop(),
-                    ),
-                  ],
-                ),
+                child: incomingRinging
+                    ? _incomingControls()
+                    : _activeControls(),
               ),
-              const SizedBox(height: 36),
+              const SizedBox(height: 40),
             ],
           ),
         ),
       ),
+    );
+  }
+
+  Widget _incomingControls() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+      children: [
+        _CallControl(
+          icon: Icons.call_end,
+          label: 'Decline',
+          background: Colors.red,
+          onTap: () => CallService.instance.decline(),
+        ),
+        _CallControl(
+          icon: Icons.call,
+          label: 'Accept',
+          background: Colors.green,
+          onTap: () => CallService.instance.accept(),
+        ),
+      ],
+    );
+  }
+
+  Widget _activeControls() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        _CallControl(
+          icon: _speaker ? Icons.volume_up : Icons.volume_up_outlined,
+          active: _speaker,
+          onTap: () => setState(() => _speaker = !_speaker),
+        ),
+        _CallControl(
+          icon: _video ? Icons.videocam : Icons.videocam_off,
+          active: _video,
+          onTap: () => setState(() => _video = !_video),
+        ),
+        _CallControl(
+          icon: _muted ? Icons.mic_off : Icons.mic,
+          active: _muted,
+          onTap: () => setState(() => _muted = !_muted),
+        ),
+        _CallControl(
+          icon: Icons.call_end,
+          background: Colors.red,
+          onTap: () => CallService.instance.end(),
+        ),
+      ],
     );
   }
 }
@@ -145,12 +206,14 @@ class _CallControl extends StatelessWidget {
   final VoidCallback onTap;
   final bool active;
   final Color? background;
+  final String? label;
 
   const _CallControl({
     required this.icon,
     required this.onTap,
     this.active = false,
     this.background,
+    this.label,
   });
 
   @override
@@ -159,15 +222,25 @@ class _CallControl extends StatelessWidget {
         (active ? Colors.white : Colors.white.withValues(alpha: 0.18));
     final fg = background != null
         ? Colors.white
-        : (active ? const Color(0xFF075E54) : Colors.white);
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: 60,
-        height: 60,
-        decoration: BoxDecoration(color: bg, shape: BoxShape.circle),
-        child: Icon(icon, color: fg, size: 26),
-      ),
+        : (active ? Colors.black : Colors.white);
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        GestureDetector(
+          onTap: onTap,
+          child: Container(
+            width: 62,
+            height: 62,
+            decoration: BoxDecoration(color: bg, shape: BoxShape.circle),
+            child: Icon(icon, color: fg, size: 27),
+          ),
+        ),
+        if (label != null) ...[
+          const SizedBox(height: 8),
+          Text(label!,
+              style: const TextStyle(color: Colors.white70, fontSize: 13)),
+        ],
+      ],
     );
   }
 }

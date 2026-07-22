@@ -11,7 +11,9 @@ import 'package:okay_messaging/screens/auth/phone_login_screen.dart';
 import 'package:okay_messaging/screens/call_screen.dart';
 import 'package:okay_messaging/screens/media_gallery_screen.dart';
 import 'package:okay_messaging/models/message.dart';
+import 'package:okay_messaging/models/user.dart';
 import 'package:okay_messaging/relay/relay_service.dart';
+import 'package:okay_messaging/state/call_service.dart';
 import 'package:okay_messaging/state/chat_store.dart';
 import 'package:okay_messaging/state/scheduler.dart';
 import 'package:okay_messaging/state/session.dart';
@@ -28,6 +30,7 @@ void main() {
     AppState.resetForTest();
     Session.instance.signInForTest();
     Scheduler.instance.resetForTest();
+    CallService.instance.resetForTest();
   });
 
   testWidgets('App boots with Chats and Calls tabs (no Status)',
@@ -518,7 +521,8 @@ void main() {
     expect(stylesOf('plain'), [RunStyle.plain]);
   });
 
-  testWidgets('Tapping the call button opens the call screen', (tester) async {
+  testWidgets('Tapping the call button rings the peer, hang-up dismisses it',
+      (tester) async {
     await tester.pumpWidget(const OkayMessagingApp());
     await tester.pumpAndSettle();
 
@@ -532,16 +536,70 @@ void main() {
     // The call screen shows the contact and a ringing status.
     expect(find.byType(CallScreen), findsOneWidget);
     expect(find.text('Ringing…'), findsOneWidget);
+    expect(CallService.instance.current.value?.direction,
+        CallDirection.outgoing);
 
-    // After connecting, a running timer replaces the ringing status.
-    await tester.pump(const Duration(milliseconds: 2300));
-    await tester.pump(const Duration(seconds: 1));
-    expect(find.text('Ringing…'), findsNothing);
-
-    // Ending the call returns to the conversation.
+    // Hanging up dismisses the call overlay.
     await tester.tap(find.byIcon(Icons.call_end));
     await tester.pumpAndSettle();
     expect(find.byType(CallScreen), findsNothing);
+    expect(CallService.instance.current.value, isNull);
+  });
+
+  group('Call signaling', () {
+    setUp(() => CallService.instance.resetForTest());
+
+    AppUser peer() => const AppUser(
+          id: '+1 555 0199',
+          name: 'Grace',
+          avatarColor: '#64B5F6',
+          about: 'Available',
+          phone: '+1 555 0199',
+        );
+
+    test('outgoing call is ringing, then connects when the peer answers', () {
+      final call = CallService.instance;
+      call.startOutgoing(peer(), video: false);
+      expect(call.current.value?.status, CallStatus.ringing);
+      expect(call.isBusy, isTrue);
+
+      call.onRemoteAnswer(call.current.value!.callId);
+      expect(call.current.value?.status, CallStatus.connected);
+      expect(call.current.value?.connectedAt, isNotNull);
+    });
+
+    test('a declined outgoing call moves to declined', () {
+      final call = CallService.instance;
+      call.startOutgoing(peer(), video: true);
+      call.onRemoteDecline(call.current.value!.callId);
+      expect(call.current.value?.status, CallStatus.declined);
+    });
+
+    test('an incoming offer rings; accepting connects it', () {
+      final call = CallService.instance;
+      call.onRemoteOffer(peer(), 'call_abc', false);
+      expect(call.current.value?.direction, CallDirection.incoming);
+      expect(call.current.value?.status, CallStatus.ringing);
+
+      call.accept();
+      expect(call.current.value?.status, CallStatus.connected);
+    });
+
+    test('a remote hang-up ends the connected call', () {
+      final call = CallService.instance;
+      call.onRemoteOffer(peer(), 'call_xyz', false);
+      call.accept();
+      call.onRemoteEnd('call_xyz');
+      expect(call.current.value?.status, CallStatus.ended);
+    });
+
+    test('a stale callId is ignored', () {
+      final call = CallService.instance;
+      call.onRemoteOffer(peer(), 'call_1', false);
+      call.onRemoteEnd('some_other_call');
+      // Still ringing — the end was for a different call.
+      expect(call.current.value?.status, CallStatus.ringing);
+    });
   });
 
   testWidgets('Media gallery lists photos and links shared in a chat',

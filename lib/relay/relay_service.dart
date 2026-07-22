@@ -5,6 +5,7 @@ import '../crypto/e2e.dart';
 import '../models/chat.dart';
 import '../models/message.dart';
 import '../models/user.dart';
+import '../state/call_service.dart';
 import '../state/chat_store.dart';
 import '../state/session.dart';
 import 'relay_config.dart';
@@ -243,7 +244,74 @@ class RelayService {
             }
           },
         )
+        .onBroadcast(
+          event: 'call',
+          callback: (payload) {
+            final from = payload['from'] as String?;
+            final kind = payload['kind'] as String?;
+            final callId = payload['callId'] as String?;
+            if (from == null ||
+                kind == null ||
+                callId == null ||
+                digits(from) == digits(me)) {
+              return;
+            }
+            final call = CallService.instance;
+            switch (kind) {
+              case 'offer':
+                final peer = AppUser(
+                  id: from,
+                  name: (payload['fromName'] as String?)?.trim().isNotEmpty ==
+                          true
+                      ? payload['fromName'] as String
+                      : from,
+                  avatarColor: '#7A5CFF',
+                  about: 'Available',
+                  phone: from,
+                  username: (payload['fromUsername'] as String?) ?? '',
+                );
+                call.onRemoteOffer(peer, callId, payload['video'] == true);
+                break;
+              case 'answer':
+                call.onRemoteAnswer(callId);
+                break;
+              case 'decline':
+                call.onRemoteDecline(callId);
+                break;
+              case 'end':
+                call.onRemoteEnd(callId);
+                break;
+            }
+          },
+        )
         .subscribe();
+  }
+
+  /// Sends a call-signaling event ('offer', 'answer', 'decline', 'end') to
+  /// [contactPhone]'s inbox so their device rings / stays in sync.
+  Future<void> sendCall(
+    String contactPhone, {
+    required String kind,
+    required String callId,
+    required bool video,
+  }) async {
+    if (!_initialized) return;
+    final me = Session.instance.user.value;
+    if (me == null) return;
+    final name = inboxChannel(contactPhone);
+    final channel =
+        _sendChannels.putIfAbsent(name, () => _client.channel(name));
+    await channel.sendBroadcastMessage(
+      event: 'call',
+      payload: {
+        'from': me.phone,
+        'fromName': me.name,
+        'fromUsername': me.username,
+        'kind': kind,
+        'callId': callId,
+        'video': video,
+      },
+    );
   }
 
   /// Broadcasts a reaction change on message [messageId] to [contactPhone].

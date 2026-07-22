@@ -3,17 +3,13 @@ import 'package:flutter/material.dart';
 import '../data/mock_data.dart';
 import '../models/call.dart';
 import '../models/user.dart';
-import '../screens/call_screen.dart';
+import '../state/call_service.dart' show CallService;
 import '../theme/app_theme.dart';
 import '../utils/date_formatter.dart';
 import '../widgets/user_avatar.dart';
 
 void _startCall(BuildContext context, AppUser user, {required bool video}) {
-  Navigator.of(context).push(
-    MaterialPageRoute(
-      builder: (_) => CallScreen(user: user, video: video),
-    ),
-  );
+  CallService.instance.startOutgoing(user, video: video);
 }
 
 /// The "Calls" tab: a modern layout with a search pill, favourites, and the
