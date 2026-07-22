@@ -169,6 +169,22 @@ class ChatStore extends ChangeNotifier {
     _replace(i, _chats[i].copyWith(messages: messages));
   }
 
+  /// Upgrades the delivery status of the user's own (outgoing) messages in a
+  /// chat to at least [status] — used to apply delivered/read receipts.
+  void setOutgoingStatus(String chatId, MessageStatus status) {
+    final i = _indexOf(chatId);
+    if (i == -1) return;
+    var changed = false;
+    final msgs = _chats[i].messages.map((m) {
+      if (m.isMe && m.status.index < status.index) {
+        changed = true;
+        return m.copyWith(status: status);
+      }
+      return m;
+    }).toList();
+    if (changed) _replace(i, _chats[i].copyWith(messages: msgs));
+  }
+
   /// Removes every message from a conversation (keeps the chat itself).
   void clearMessages(String chatId) {
     final i = _indexOf(chatId);

@@ -133,10 +133,13 @@ class RelayService {
         .channel(inboxChannel(me))
         .onBroadcast(
           event: 'msg',
-          callback: (payload) => applyIncoming(
-            Map<String, dynamic>.from(payload),
-            myPhone: me,
-          ),
+          callback: (payload) {
+            final map = Map<String, dynamic>.from(payload);
+            final added = applyIncoming(map, myPhone: me);
+            // Acknowledge delivery so the sender's ticks advance.
+            final from = map['from'] as String?;
+            if (added && from != null) sendReceipt(from, 'delivered');
+          },
         )
         .onBroadcast(
           event: 'typing',
@@ -147,7 +150,34 @@ class RelayService {
             typingPing.value++;
           },
         )
+        .onBroadcast(
+          event: 'receipt',
+          callback: (payload) {
+            final from = payload['from'] as String?;
+            if (from == null || digits(from) == digits(me)) return;
+            final chat = ChatStore.instance.chatWithContact(from);
+            if (chat == null) return;
+            final status = payload['kind'] == 'read'
+                ? MessageStatus.read
+                : MessageStatus.delivered;
+            ChatStore.instance.setOutgoingStatus(chat.id, status);
+          },
+        )
         .subscribe();
+  }
+
+  /// Sends a delivery/read receipt ('delivered' or 'read') to [contactPhone].
+  Future<void> sendReceipt(String contactPhone, String kind) async {
+    if (!_initialized) return;
+    final me = Session.instance.user.value;
+    if (me == null) return;
+    final name = inboxChannel(contactPhone);
+    final channel =
+        _sendChannels.putIfAbsent(name, () => _client.channel(name));
+    await channel.sendBroadcastMessage(
+      event: 'receipt',
+      payload: {'from': me.phone, 'kind': kind},
+    );
   }
 
   /// Sends a lightweight "typing" ping to [contactPhone]'s inbox.

@@ -750,6 +750,62 @@ void main() {
     expect(find.text('3 members'), findsOneWidget);
   });
 
+  test('setOutgoingStatus upgrades only outgoing messages, never downgrades',
+      () {
+    ChatStore.instance.reset();
+    // Bob's chat has an outgoing message at status read.
+    ChatStore.instance.addMessage(
+      'c_bob',
+      Message(
+        id: 'out1',
+        text: 'yo',
+        time: DateTime(2024),
+        isMe: true,
+        status: MessageStatus.sent,
+      ),
+    );
+
+    // A 'delivered' receipt upgrades sent -> delivered.
+    ChatStore.instance.setOutgoingStatus('c_bob', MessageStatus.delivered);
+    final m1 = ChatStore.instance
+        .chatById('c_bob')!
+        .messages
+        .firstWhere((m) => m.id == 'out1');
+    expect(m1.status, MessageStatus.delivered);
+
+    // A later 'read' receipt upgrades to read.
+    ChatStore.instance.setOutgoingStatus('c_bob', MessageStatus.read);
+    expect(
+      ChatStore.instance
+          .chatById('c_bob')!
+          .messages
+          .firstWhere((m) => m.id == 'out1')
+          .status,
+      MessageStatus.read,
+    );
+
+    // A stale 'delivered' receipt must not downgrade a read message.
+    ChatStore.instance.setOutgoingStatus('c_bob', MessageStatus.delivered);
+    expect(
+      ChatStore.instance
+          .chatById('c_bob')!
+          .messages
+          .firstWhere((m) => m.id == 'out1')
+          .status,
+      MessageStatus.read,
+    );
+
+    // Incoming messages are untouched.
+    expect(
+      ChatStore.instance
+          .chatById('c_bob')!
+          .messages
+          .where((m) => !m.isMe)
+          .every((m) => m.status != MessageStatus.read || m.id != 'out1'),
+      isTrue,
+    );
+  });
+
   group('Relay (device-to-device delivery)', () {
     test('inbox channel id is derived from the phone digits', () {
       expect(RelayService.inboxChannel('+1 (555) 0199'), 'inbox_15550199');

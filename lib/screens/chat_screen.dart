@@ -59,6 +59,10 @@ class _ChatScreenState extends State<ChatScreen> {
   DateTime? _lastTypingSent;
   Timer? _typingClear;
 
+  /// Id of the newest incoming message we've sent a read receipt for, so a
+  /// receipt is sent once per new message (not on every store change).
+  String? _lastAckedIncomingId;
+
   /// The unread count when the chat was opened, and the id of the message the
   /// "unread messages" divider should sit above (captured before markRead).
   int _initialUnread = 0;
@@ -80,11 +84,28 @@ class _ChatScreenState extends State<ChatScreen> {
     _scrollController.addListener(_onScroll);
     if (RelayConfig.isEnabled) {
       RelayService.instance.typingPing.addListener(_onTypingPing);
+      if (_isRealPeer(widget.chat.contact)) {
+        _store.addListener(_maybeSendReadReceipt);
+      }
     }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _store.markRead(_chatId);
+      _maybeSendReadReceipt();
       _jumpToBottom();
     });
+  }
+
+  /// Sends a 'read' receipt to a real peer when a new incoming message appears
+  /// while this chat is open (once per message, so no receipt ping-pong).
+  void _maybeSendReadReceipt() {
+    if (!RelayConfig.isEnabled || !_isRealPeer(widget.chat.contact)) return;
+    final incoming =
+        _store.chatById(_chatId)?.messages.where((m) => !m.isMe).toList();
+    if (incoming == null || incoming.isEmpty) return;
+    final lastId = incoming.last.id;
+    if (lastId == _lastAckedIncomingId) return;
+    _lastAckedIncomingId = lastId;
+    RelayService.instance.sendReceipt(widget.chat.contact.phone, 'read');
   }
 
   /// Broadcasts that we're typing (throttled) to a real peer.
@@ -140,6 +161,7 @@ class _ChatScreenState extends State<ChatScreen> {
   void dispose() {
     if (RelayConfig.isEnabled) {
       RelayService.instance.typingPing.removeListener(_onTypingPing);
+      _store.removeListener(_maybeSendReadReceipt);
     }
     _typingClear?.cancel();
     _scrollController.dispose();
