@@ -88,6 +88,7 @@ class RelayService {
       'imageUrl': message.imageUrl,
       'isVoice': message.isVoice,
       'voiceSeconds': message.voiceSeconds,
+      'isVoicemail': message.isVoicemail,
       'forwarded': message.forwarded,
       'replyTo': message.replyTo?.toJson(),
       'isLocation': message.isLocation,
@@ -149,6 +150,11 @@ class RelayService {
     // legacy top-level layout for any message still on the old wire format.
     final content = _decodeContent(payload, from: from, myPhone: myPhone);
 
+    // Respect the "allow voicemail" preference before touching the store.
+    if (content['isVoicemail'] == true && !AppState.allowVoicemail.value) {
+      return false;
+    }
+
     var chat = knownChat;
     if (chat == null) {
       final fromName = (content['fromName'] as String?)?.trim();
@@ -184,6 +190,7 @@ class RelayService {
         imageUrl: content['imageUrl'] as String?,
         isVoice: content['isVoice'] as bool? ?? false,
         voiceSeconds: content['voiceSeconds'] as int? ?? 0,
+        isVoicemail: content['isVoicemail'] as bool? ?? false,
         forwarded: content['forwarded'] as bool? ?? false,
         replyTo: replyJson is Map
             ? ReplyInfo.fromJson(Map<String, dynamic>.from(replyJson))

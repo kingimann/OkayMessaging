@@ -44,6 +44,10 @@ class AppState {
   static final ValueNotifier<bool> messagesFromContactsOnly =
       ValueNotifier<bool>(false);
 
+  /// Whether callers can leave you a voicemail after an unanswered call. When
+  /// off, incoming voicemails are ignored.
+  static final ValueNotifier<bool> allowVoicemail = ValueNotifier<bool>(true);
+
   /// Whether to show in-app notifications for the simulated demo replies.
   static final ValueNotifier<bool> notificationsEnabled =
       ValueNotifier<bool>(true);
@@ -90,6 +94,7 @@ class AppState {
     sendTypingIndicators.value = true;
     silenceUnknownCallers.value = false;
     messagesFromContactsOnly.value = false;
+    allowVoicemail.value = true;
     notificationsEnabled.value = true;
     enterToSend.value = true;
     messageTextScale.value = 1.0;

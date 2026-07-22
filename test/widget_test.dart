@@ -694,6 +694,24 @@ void main() {
       AppState.setBlocked(peer().phone, false);
     });
 
+    test('leaveVoicemail records a voicemail voice message in the chat', () {
+      ChatStore.instance.reset();
+      final contact = ChatStore.instance.chats.first.contact;
+      final ok = CallService.instance.leaveVoicemail(contact, 8);
+      expect(ok, isTrue);
+      final chat = ChatStore.instance.chatWithContact(contact.id)!;
+      final vm = chat.messages.last;
+      expect(vm.isVoicemail, isTrue);
+      expect(vm.isVoice, isTrue);
+      expect(vm.voiceSeconds, 8);
+      expect(vm.isMe, isTrue);
+    });
+
+    test('leaveVoicemail rejects an empty recording', () {
+      final contact = ChatStore.instance.chats.first.contact;
+      expect(CallService.instance.leaveVoicemail(contact, 0), isFalse);
+    });
+
     test('ending an outgoing call records it as outgoing in the log', () {
       CallLog.instance.resetForTest();
       final call = CallService.instance;
@@ -1923,6 +1941,48 @@ void main() {
         isFalse,
       );
       AppState.setBlocked(bob.phone, false);
+    });
+
+    test('a voicemail survives the relay with its flag intact', () {
+      ChatStore.instance.reset();
+      final msg = Message(
+        id: 'vm1',
+        text: '',
+        time: DateTime(2024, 1, 1, 9),
+        isMe: true,
+        isVoice: true,
+        isVoicemail: true,
+        voiceSeconds: 12,
+      );
+      final payload = RelayService.encode(
+          message: msg, fromPhone: '+1 555 0199', fromName: 'Grace');
+      RelayService.applyIncoming(payload, myPhone: '+1 555 0100');
+      final got =
+          ChatStore.instance.chatWithContact('+1 555 0199')!.messages.single;
+      expect(got.isVoicemail, isTrue);
+      expect(got.isVoice, isTrue);
+      expect(got.voiceSeconds, 12);
+    });
+
+    test('allowVoicemail=false drops an incoming voicemail', () {
+      ChatStore.instance.reset();
+      AppState.allowVoicemail.value = false;
+      final msg = Message(
+        id: 'vm2',
+        text: '',
+        time: DateTime(2024, 1, 1, 9),
+        isMe: true,
+        isVoice: true,
+        isVoicemail: true,
+        voiceSeconds: 5,
+      );
+      final payload = RelayService.encode(
+          message: msg, fromPhone: '+1 555 0199', fromName: 'Grace');
+      expect(
+        RelayService.applyIncoming(payload, myPhone: '+1 555 0100'),
+        isFalse,
+      );
+      AppState.allowVoicemail.value = true;
     });
   });
 

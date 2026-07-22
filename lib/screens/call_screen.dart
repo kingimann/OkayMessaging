@@ -5,6 +5,7 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 
 import '../state/call_media.dart';
 import '../state/call_service.dart';
+import '../theme/app_theme.dart';
 import '../widgets/user_avatar.dart';
 
 /// The full-screen call UI, driven entirely by [CallService].
@@ -71,11 +72,26 @@ class _CallScreenState extends State<CallScreen> {
     if (s == CallStatus.ended || s == CallStatus.declined) {
       _tick?.cancel();
       _tick = null;
-      // Show the terminal state briefly, then dismiss.
-      _dismiss ??= Timer(const Duration(milliseconds: 1400), () {
-        CallService.instance.clear();
-      });
+      // When we can offer a voicemail, keep the screen up so the user can
+      // choose; otherwise show the terminal state briefly, then dismiss.
+      if (!_offerVoicemail) {
+        _dismiss ??= Timer(const Duration(milliseconds: 1400), () {
+          CallService.instance.clear();
+        });
+      }
     }
+  }
+
+  /// After an outgoing call that never connected, the caller can leave a
+  /// voicemail (delivered as a voice message; the callee's settings decide
+  /// whether it's accepted).
+  bool get _offerVoicemail {
+    final s = widget.session;
+    final terminal =
+        s.status == CallStatus.ended || s.status == CallStatus.declined;
+    return terminal &&
+        s.direction == CallDirection.outgoing &&
+        s.connectedAt == null;
   }
 
   @override
@@ -219,7 +235,9 @@ class _CallScreenState extends State<CallScreen> {
                 padding: const EdgeInsets.symmetric(horizontal: 28),
                 child: incomingRinging
                     ? _incomingControls()
-                    : _activeControls(),
+                    : _offerVoicemail
+                        ? _voicemailControls()
+                        : _activeControls(),
               ),
               const SizedBox(height: 40),
             ],
@@ -228,6 +246,60 @@ class _CallScreenState extends State<CallScreen> {
           ],
       ),
     );
+  }
+
+  /// Terminal controls after an unanswered outgoing call: dismiss, or record a
+  /// voicemail for the person we couldn't reach.
+  Widget _voicemailControls() {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          'No answer',
+          style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.7), fontSize: 14),
+        ),
+        const SizedBox(height: 18),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            _CallControl(
+              icon: Icons.close,
+              label: 'Close',
+              onTap: () => CallService.instance.clear(),
+            ),
+            _CallControl(
+              icon: Icons.voicemail,
+              label: 'Voicemail',
+              background: AppColors.tealGreenDark,
+              size: 68,
+              onTap: _recordVoicemail,
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Future<void> _recordVoicemail() async {
+    final seconds = await showModalBottomSheet<int>(
+      context: context,
+      isDismissible: true,
+      backgroundColor: const Color(0xFF16181C),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => _VoicemailRecorder(peerName: widget.session.peer.name),
+    );
+    if (seconds != null && seconds > 0 && mounted) {
+      final sent =
+          CallService.instance.leaveVoicemail(widget.session.peer, seconds);
+      final messenger = ScaffoldMessenger.of(context);
+      CallService.instance.clear();
+      messenger.showSnackBar(SnackBar(
+        content: Text(sent ? 'Voicemail sent' : 'Voicemail too short'),
+      ));
+    }
   }
 
   Widget _incomingControls() {
@@ -360,6 +432,115 @@ class _CallControl extends StatelessWidget {
               style: const TextStyle(color: Colors.white70, fontSize: 12.5)),
         ],
       ],
+    );
+  }
+}
+
+/// A simple voicemail recorder sheet: a live timer with a pulsing dot and a
+/// stop button that returns the recorded length in seconds.
+class _VoicemailRecorder extends StatefulWidget {
+  final String peerName;
+  const _VoicemailRecorder({required this.peerName});
+
+  @override
+  State<_VoicemailRecorder> createState() => _VoicemailRecorderState();
+}
+
+class _VoicemailRecorderState extends State<_VoicemailRecorder>
+    with SingleTickerProviderStateMixin {
+  Timer? _tick;
+  int _seconds = 0;
+  late final AnimationController _pulse = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 900),
+  )..repeat(reverse: true);
+
+  @override
+  void initState() {
+    super.initState();
+    _tick = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() => _seconds++);
+    });
+  }
+
+  @override
+  void dispose() {
+    _tick?.cancel();
+    _pulse.dispose();
+    super.dispose();
+  }
+
+  String get _label {
+    final m = _seconds ~/ 60;
+    final s = _seconds % 60;
+    return '$m:${s.toString().padLeft(2, '0')}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(24, 20, 24, 28),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('Voicemail for ${widget.peerName}',
+                style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600)),
+            const SizedBox(height: 24),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                FadeTransition(
+                  opacity: _pulse,
+                  child: const Icon(Icons.fiber_manual_record,
+                      color: Colors.red, size: 16),
+                ),
+                const SizedBox(width: 10),
+                Text(_label,
+                    style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 30,
+                        fontWeight: FontWeight.w300,
+                        fontFeatures: [FontFeature.tabularFigures()])),
+              ],
+            ),
+            const SizedBox(height: 8),
+            const Text('Recording…',
+                style: TextStyle(color: Colors.white54, fontSize: 13)),
+            const SizedBox(height: 24),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.white70,
+                      side: const BorderSide(color: Colors.white24),
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                    ),
+                    onPressed: () => Navigator.of(context).pop(0),
+                    child: const Text('Cancel'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: FilledButton.icon(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: AppColors.tealGreenDark,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                    ),
+                    icon: const Icon(Icons.send),
+                    label: const Text('Send'),
+                    onPressed: () => Navigator.of(context).pop(_seconds),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

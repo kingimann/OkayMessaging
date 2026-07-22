@@ -74,7 +74,10 @@ class SettingsView extends StatelessWidget {
           ),
 
           _sectionLabel(context, 'Calls'),
-          InfoSection(children: [_buildSilenceUnknownTile()]),
+          InfoSection(children: [
+            _buildSilenceUnknownTile(),
+            _buildVoicemailTile(),
+          ]),
 
           _sectionLabel(context, 'Notifications'),
           InfoSection(children: [_buildNotificationsTile()]),
@@ -235,6 +238,24 @@ class SettingsView extends StatelessWidget {
           value: on,
           shape: _tileShape,
           onChanged: (v) => AppState.silenceUnknownCallers.value = v,
+        );
+      },
+    );
+  }
+
+  Widget _buildVoicemailTile() {
+    return ValueListenableBuilder<bool>(
+      valueListenable: AppState.allowVoicemail,
+      builder: (context, on, _) {
+        return SwitchListTile(
+          secondary: Icon(on ? Icons.voicemail : Icons.voicemail_outlined),
+          title: const Text('Voicemail'),
+          subtitle: Text(on
+              ? 'Callers can leave a voicemail if you miss a call'
+              : 'Voicemails are turned off'),
+          value: on,
+          shape: _tileShape,
+          onChanged: (v) => AppState.allowVoicemail.value = v,
         );
       },
     );

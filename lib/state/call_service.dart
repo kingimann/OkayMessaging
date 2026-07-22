@@ -2,7 +2,10 @@ import 'package:flutter/foundation.dart';
 
 import '../app_state.dart';
 import '../models/call.dart' as log;
+import '../models/chat.dart';
+import '../models/message.dart';
 import '../models/user.dart';
+import '../relay/relay_config.dart';
 import '../relay/relay_service.dart';
 import 'call_log.dart';
 import 'call_media.dart';
@@ -172,6 +175,35 @@ class CallService {
   /// Clears a terminal (ended/declined) session once the UI has shown it.
   void clear() {
     current.value = null;
+  }
+
+  /// Leaves a voicemail for [peer] after an unanswered call: records a voice
+  /// message flagged as a voicemail into the conversation and delivers it over
+  /// the relay to a real peer. Returns false if [seconds] is empty.
+  bool leaveVoicemail(AppUser peer, int seconds) {
+    if (seconds <= 0) return false;
+    final store = ChatStore.instance;
+    var chat = store.chatWithContact(peer.id) ??
+        store.chatWithContact(peer.phone);
+    if (chat == null) {
+      chat = Chat(id: 'chat_${peer.phone}', contact: peer, messages: const []);
+      store.upsert(chat);
+    }
+    final msg = Message(
+      id: 'vm_${DateTime.now().microsecondsSinceEpoch}',
+      text: '',
+      time: DateTime.now(),
+      isMe: true,
+      status: MessageStatus.sent,
+      isVoice: true,
+      isVoicemail: true,
+      voiceSeconds: seconds,
+    );
+    store.addMessage(chat.id, msg);
+    if (RelayConfig.isEnabled) {
+      RelayService.instance.send(peer.phone, msg);
+    }
+    return true;
   }
 
   // --- Remote signaling (called by RelayService when events arrive) ---

@@ -21,6 +21,7 @@ class Persistence {
   static const _kTypingIndicators = 'send_typing_indicators';
   static const _kSilenceUnknown = 'silence_unknown_callers';
   static const _kContactsOnly = 'messages_from_contacts_only';
+  static const _kAllowVoicemail = 'allow_voicemail';
   static const _kNotifications = 'notifications_enabled';
   static const _kEnterToSend = 'enter_to_send';
   static const _kTextScale = 'message_text_scale';
@@ -81,6 +82,9 @@ class Persistence {
       AppState.messagesFromContactsOnly.value =
           prefs.getBool(_kContactsOnly) ?? false;
     }
+    if (prefs.containsKey(_kAllowVoicemail)) {
+      AppState.allowVoicemail.value = prefs.getBool(_kAllowVoicemail) ?? true;
+    }
     if (prefs.containsKey(_kNotifications)) {
       AppState.notificationsEnabled.value =
           prefs.getBool(_kNotifications) ?? true;
@@ -105,6 +109,7 @@ class Persistence {
     AppState.sendTypingIndicators.addListener(_saveTypingIndicators);
     AppState.silenceUnknownCallers.addListener(_saveSilenceUnknown);
     AppState.messagesFromContactsOnly.addListener(_saveContactsOnly);
+    AppState.allowVoicemail.addListener(_saveAllowVoicemail);
     AppState.notificationsEnabled.addListener(_saveNotifications);
     AppState.enterToSend.addListener(_saveEnterToSend);
     AppState.messageTextScale.addListener(_saveTextScale);
@@ -122,6 +127,10 @@ class Persistence {
 
   static void _saveContactsOnly() {
     _prefs?.setBool(_kContactsOnly, AppState.messagesFromContactsOnly.value);
+  }
+
+  static void _saveAllowVoicemail() {
+    _prefs?.setBool(_kAllowVoicemail, AppState.allowVoicemail.value);
   }
 
   static void _saveEnterToSend() {

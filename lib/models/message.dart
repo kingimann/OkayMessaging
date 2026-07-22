@@ -55,6 +55,10 @@ class Message {
   final bool isVoice;
   final int voiceSeconds;
 
+  /// True when this voice message is a voicemail left after an unanswered
+  /// call (a [isVoice] message surfaced separately in the Calls tab).
+  final bool isVoicemail;
+
   /// True when this message has been edited after sending.
   final bool edited;
 
@@ -94,6 +98,7 @@ class Message {
     this.forwarded = false,
     this.isVoice = false,
     this.voiceSeconds = 0,
+    this.isVoicemail = false,
     this.isImage = false,
     this.imageSeed = 0,
     this.imageUrl,
@@ -119,6 +124,7 @@ class Message {
         'forwarded': forwarded,
         'isVoice': isVoice,
         'voiceSeconds': voiceSeconds,
+        'isVoicemail': isVoicemail,
         'isImage': isImage,
         'imageSeed': imageSeed,
         'imageUrl': imageUrl,
@@ -147,6 +153,7 @@ class Message {
         forwarded: json['forwarded'] as bool? ?? false,
         isVoice: json['isVoice'] as bool? ?? false,
         voiceSeconds: json['voiceSeconds'] as int? ?? 0,
+        isVoicemail: json['isVoicemail'] as bool? ?? false,
         isImage: json['isImage'] as bool? ?? false,
         imageSeed: json['imageSeed'] as int? ?? 0,
         imageUrl: json['imageUrl'] as String?,
@@ -181,6 +188,7 @@ class Message {
       forwarded: forwarded,
       isVoice: isVoice,
       voiceSeconds: voiceSeconds,
+      isVoicemail: isVoicemail,
       isImage: isImage,
       imageSeed: imageSeed,
       imageUrl: imageUrl,
