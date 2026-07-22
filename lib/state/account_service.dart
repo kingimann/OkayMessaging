@@ -89,17 +89,25 @@ class AccountService {
   }
 
   /// Claims (or updates) [username] for the verified [phone] in the registry.
-  /// Best-effort: a failure here never blocks sign-in (the username is still
-  /// stored locally by [Session]).
-  Future<void> claimUsername(String phone, String username) async {
+  ///
+  /// Returns false when the username is already taken by someone else — the
+  /// database's case-insensitive unique index rejects the write with a unique
+  /// violation (23505), which makes uniqueness authoritative even if the
+  /// pre-check was bypassed. Other/transient errors return true (best-effort;
+  /// the username is still stored locally by [Session]).
+  Future<bool> claimUsername(String phone, String username) async {
     try {
       await _client.from(_table).upsert({
         'phone': e164(phone),
         'username': normalizeUsername(username),
         'updated_at': DateTime.now().toUtc().toIso8601String(),
       });
+      return true;
+    } on PostgrestException catch (e) {
+      if (e.code == '23505') return false; // username taken (unique violation)
+      return true;
     } catch (_) {
-      // Registry not ready yet — proceed with the locally-stored username.
+      return true;
     }
   }
 
