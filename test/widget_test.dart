@@ -9,9 +9,11 @@ import 'package:okay_messaging/app_state.dart';
 import 'package:okay_messaging/crypto/e2e.dart';
 import 'package:okay_messaging/crypto/key_exchange.dart';
 import 'package:okay_messaging/main.dart';
+import 'package:okay_messaging/models/call.dart' as callmodel;
 import 'package:okay_messaging/screens/auth/phone_login_screen.dart';
 import 'package:okay_messaging/screens/blocked_contacts_screen.dart';
 import 'package:okay_messaging/screens/call_screen.dart';
+import 'package:okay_messaging/state/call_log.dart';
 import 'package:okay_messaging/screens/media_gallery_screen.dart';
 import 'package:okay_messaging/screens/my_qr_screen.dart';
 import 'package:okay_messaging/screens/security_code_screen.dart';
@@ -690,6 +692,89 @@ void main() {
       call.onRemoteOffer(peer(), 'call_blocked', false);
       expect(call.current.value, isNull);
       AppState.setBlocked(peer().phone, false);
+    });
+
+    test('ending an outgoing call records it as outgoing in the log', () {
+      CallLog.instance.resetForTest();
+      final call = CallService.instance;
+      call.startOutgoing(peer(), video: false);
+      call.end();
+      final rec = CallLog.instance.records.single;
+      expect(rec.direction, callmodel.CallDirection.outgoing);
+      expect(rec.type, callmodel.CallType.voice);
+      expect(rec.user.phone, peer().phone);
+    });
+
+    test('an unanswered incoming call is logged as missed', () {
+      CallLog.instance.resetForTest();
+      final call = CallService.instance;
+      call.onRemoteOffer(peer(), 'c_missed', true);
+      call.onRemoteEnd('c_missed'); // caller gave up before we answered
+      final rec = CallLog.instance.records.single;
+      expect(rec.direction, callmodel.CallDirection.missed);
+      expect(rec.type, callmodel.CallType.video);
+    });
+
+    test('an answered incoming call is logged as incoming', () {
+      CallLog.instance.resetForTest();
+      final call = CallService.instance;
+      call.onRemoteOffer(peer(), 'c_in', false);
+      call.accept();
+      call.end();
+      expect(CallLog.instance.records.single.direction,
+          callmodel.CallDirection.incoming);
+    });
+
+    test('a call is only logged once', () {
+      CallLog.instance.resetForTest();
+      final call = CallService.instance;
+      call.onRemoteOffer(peer(), 'c_once', false);
+      call.accept();
+      call.onRemoteEnd('c_once');
+      call.end(); // no-op: already cleared
+      expect(CallLog.instance.records.length, 1);
+    });
+  });
+
+  group('Call log store', () {
+    setUp(() => CallLog.instance.resetForTest());
+
+    callmodel.CallRecord rec(String id, DateTime t) => callmodel.CallRecord(
+          id: id,
+          user: const AppUser(
+            id: '+1 555 0110',
+            name: 'Dora',
+            avatarColor: '#4DB6AC',
+            about: 'Available',
+            phone: '+1 555 0110',
+          ),
+          time: t,
+          type: callmodel.CallType.voice,
+          direction: callmodel.CallDirection.outgoing,
+        );
+
+    test('records are ordered newest-first by time and clear empties them', () {
+      CallLog.instance.add(rec('a', DateTime(2024, 1, 1)));
+      CallLog.instance.add(rec('b', DateTime(2024, 1, 3)));
+      CallLog.instance.add(rec('c', DateTime(2024, 1, 2)));
+      // Sorted by time descending regardless of insertion order.
+      expect(CallLog.instance.records.map((r) => r.id).toList(),
+          ['b', 'c', 'a']);
+      expect(CallLog.instance.records.length, 3);
+
+      CallLog.instance.clear();
+      expect(CallLog.instance.isEmpty, isTrue);
+    });
+
+    test('CallRecord serializes round-trip through JSON', () {
+      final original = rec('x', DateTime(2024, 5, 6, 7, 8));
+      final restored =
+          callmodel.CallRecord.fromJson(original.toJson());
+      expect(restored.id, 'x');
+      expect(restored.user.name, 'Dora');
+      expect(restored.type, callmodel.CallType.voice);
+      expect(restored.direction, callmodel.CallDirection.outgoing);
+      expect(restored.time, DateTime(2024, 5, 6, 7, 8));
     });
   });
 

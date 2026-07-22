@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../data/mock_data.dart';
 import '../models/call.dart';
 import '../models/user.dart';
+import '../state/call_log.dart';
 import '../state/call_service.dart' show CallService;
 import '../theme/app_theme.dart';
 import '../utils/date_formatter.dart';
@@ -12,25 +13,90 @@ void _startCall(BuildContext context, AppUser user, {required bool video}) {
   CallService.instance.startOutgoing(user, video: video);
 }
 
-/// The "Calls" tab: a modern layout with a search pill, favourites, and the
-/// recent call log.
+/// The "Calls" tab: a search pill, favourites, and the real, persisted call
+/// log that fills in as you place and receive calls.
 class CallsTab extends StatelessWidget {
   const CallsTab({super.key});
 
+  Future<void> _clearLog(BuildContext context) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Clear call history?'),
+        content: const Text('This removes every entry from the call log.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Clear', style: TextStyle(color: Colors.red))),
+        ],
+      ),
+    );
+    if (ok == true) CallLog.instance.clear();
+  }
+
   @override
   Widget build(BuildContext context) {
-    final calls = MockData.calls();
     final favourites = MockData.contacts().take(3).toList();
-    return ListView(
-      children: [
-        const _SearchPill(),
-        const _CreateCallLinkTile(),
-        const _SectionHeader('Favourites'),
-        ...favourites.map((u) => _FavouriteTile(user: u)),
-        const _SectionHeader('Recent'),
-        ...calls.map((c) => _CallTile(record: c)),
-        const SizedBox(height: 12),
-      ],
+    return ListenableBuilder(
+      listenable: CallLog.instance,
+      builder: (context, _) {
+        final calls = CallLog.instance.records;
+        return ListView(
+          children: [
+            const _SearchPill(),
+            const _CreateCallLinkTile(),
+            const _SectionHeader('Favourites'),
+            ...favourites.map((u) => _FavouriteTile(user: u)),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const _SectionHeader('Recent'),
+                if (calls.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: TextButton(
+                      onPressed: () => _clearLog(context),
+                      child: const Text('Clear'),
+                    ),
+                  ),
+              ],
+            ),
+            if (calls.isEmpty)
+              const _EmptyRecent()
+            else
+              ...calls.map((c) => _CallTile(record: c)),
+            const SizedBox(height: 12),
+          ],
+        );
+      },
+    );
+  }
+}
+
+/// Empty state for the recent-calls section before any calls happen.
+class _EmptyRecent extends StatelessWidget {
+  const _EmptyRecent();
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(24, 24, 24, 12),
+      child: Column(
+        children: [
+          Icon(Icons.call_outlined, size: 44, color: Colors.grey.shade400),
+          const SizedBox(height: 12),
+          Text('No recent calls',
+              style: TextStyle(
+                  fontWeight: FontWeight.w600, color: Colors.grey.shade600)),
+          const SizedBox(height: 4),
+          Text('Calls you make and receive will show up here.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.grey.shade500, fontSize: 13)),
+        ],
+      ),
     );
   }
 }

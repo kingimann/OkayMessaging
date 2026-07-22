@@ -7,6 +7,7 @@ import 'screens/auth/auth_gate.dart';
 import 'screens/call_screen.dart';
 import 'screens/lock_screen.dart';
 import 'state/app_lock.dart';
+import 'state/call_log.dart';
 import 'state/call_service.dart';
 import 'state/community_store.dart';
 import 'state/chat_store.dart';
@@ -27,6 +28,7 @@ Future<void> main() async {
   await SecureKeyExchange.instance.load();
   await AppLock.instance.load();
   await CommunityStore.instance.load();
+  await CallLog.instance.load();
   await RelayService.instance.init();
   await Scheduler.instance.init();
   ChatStore.instance.startSweeper();

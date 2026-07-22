@@ -1,8 +1,10 @@
 import 'package:flutter/foundation.dart';
 
 import '../app_state.dart';
+import '../models/call.dart' as log;
 import '../models/user.dart';
 import '../relay/relay_service.dart';
+import 'call_log.dart';
 import 'call_media.dart';
 import 'chat_store.dart';
 
@@ -77,6 +79,28 @@ class CallService {
   /// SDP offer received from a caller, awaiting our answer on accept().
   String? _pendingOfferSdp;
 
+  /// Call ids already written to the log, so a single call is recorded once.
+  final Set<String> _loggedCallIds = {};
+
+  /// Appends [c] to the call history, inferring the log direction: outgoing
+  /// stays outgoing; an incoming call that connected is "incoming", one that
+  /// never connected is "missed".
+  void _logCall(CallSession c) {
+    if (c.callId.isEmpty || _loggedCallIds.contains(c.callId)) return;
+    _loggedCallIds.add(c.callId);
+    final connected = c.connectedAt != null;
+    final log.CallDirection dir = c.direction == CallDirection.outgoing
+        ? log.CallDirection.outgoing
+        : (connected ? log.CallDirection.incoming : log.CallDirection.missed);
+    CallLog.instance.add(log.CallRecord(
+      id: c.callId,
+      user: c.peer,
+      time: DateTime.now(),
+      type: c.video ? log.CallType.video : log.CallType.voice,
+      direction: dir,
+    ));
+  }
+
   /// Places an outgoing call to [peer] and rings their device.
   void startOutgoing(AppUser peer, {required bool video}) {
     if (isBusy) return;
@@ -127,6 +151,7 @@ class CallService {
     if (c == null) return;
     RelayService.instance.sendCall(c.peer.phone,
         kind: 'decline', callId: c.callId, video: c.video);
+    _logCall(c);
     _pendingOfferSdp = null;
     CallMedia.instance.hangUp();
     current.value = null;
@@ -138,6 +163,7 @@ class CallService {
     if (c == null) return;
     RelayService.instance
         .sendCall(c.peer.phone, kind: 'end', callId: c.callId, video: c.video);
+    _logCall(c);
     _pendingOfferSdp = null;
     CallMedia.instance.hangUp();
     current.value = null;
@@ -205,6 +231,7 @@ class CallService {
   void onRemoteDecline(String callId) {
     final c = current.value;
     if (c == null || c.callId != callId) return;
+    _logCall(c);
     CallMedia.instance.hangUp();
     current.value = c.copyWith(status: CallStatus.declined);
   }
@@ -212,6 +239,7 @@ class CallService {
   void onRemoteEnd(String callId) {
     final c = current.value;
     if (c == null || c.callId != callId) return;
+    _logCall(c);
     CallMedia.instance.hangUp();
     current.value = c.copyWith(status: CallStatus.ended);
   }
@@ -220,5 +248,6 @@ class CallService {
   void resetForTest() {
     current.value = null;
     _seq = 0;
+    _loggedCallIds.clear();
   }
 }
