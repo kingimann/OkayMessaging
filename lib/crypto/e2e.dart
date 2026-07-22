@@ -3,27 +3,31 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
+import 'package:pointycastle/export.dart';
 
 /// End-to-end encryption for relayed messages.
 ///
 /// Message bodies are encrypted on the sending device and only decrypted on
-/// the recipient's device, so the relay (Supabase Realtime) forwards
-/// ciphertext it cannot read. The scheme is authenticated encrypt-then-MAC
-/// built on HMAC-SHA256:
+/// the recipient's, so the relay (Supabase Realtime) forwards ciphertext it
+/// cannot read. The cipher is **AES-256-GCM** — a standard, audited
+/// authenticated-encryption construction — with the key stretched through
+/// **HKDF-SHA256**:
 ///
-///   K       = SHA256("okaymsg-e2e-v1|" + sorted(digitsA, digitsB))
-///   Kenc    = HMAC(K, "enc")          Kmac = HMAC(K, "mac")
-///   nonce   = 16 random bytes
-///   stream  = HMAC(Kenc, nonce || counter) blocks, XORed into the plaintext
-///   tag     = HMAC(Kmac, nonce || ciphertext)
-///   blob    = base64(nonce || ciphertext || tag)
+///   secret  = SHA256("okaymsg-e2e-v1|" + sorted(digitsA, digitsB))
+///   key     = HKDF-SHA256(secret, salt="okaymsg-hkdf", info="aes-gcm-key", 32)
+///   nonce   = 12 random bytes
+///   ct||tag = AES-256-GCM(key, nonce, plaintext)      (16-byte tag)
+///   blob    = base64(nonce || ct || tag)
+///
+/// GCM authenticates the ciphertext, so any tampering (or a wrong key) fails
+/// to decrypt and returns null.
 ///
 /// **Threat model (be honest):** this hides message contents from the relay
-/// operator and any passive network observer. It is *not* a full PKI like
-/// Signal — the conversation key is derived from the two participants' phone
-/// numbers, so it protects against the relay, not against an adversary who
-/// already knows both numbers. It is a real, meaningful confidentiality layer,
-/// not a replacement for a verified key exchange.
+/// operator and any passive observer. When the two devices have exchanged
+/// public keys, [SecureKeyExchange] supplies a much stronger per-pair key via
+/// P-256 ECDH; this phone-number-derived key is the fallback used until that
+/// handshake completes. It is real confidentiality against the server, not a
+/// replacement for verified key exchange.
 class E2eCrypto {
   E2eCrypto._();
 
@@ -32,8 +36,8 @@ class E2eCrypto {
 
   static String _digits(String phone) => phone.replaceAll(RegExp(r'\D'), '');
 
-  /// Derives the shared 32-byte conversation key for two phone numbers. The
-  /// numbers are sorted so both sides compute an identical key.
+  /// Derives the shared 32-byte secret for two phone numbers. The numbers are
+  /// sorted so both sides compute an identical value.
   static List<int> keyFor(String phoneA, String phoneB) {
     final a = _digits(phoneA);
     final b = _digits(phoneB);
@@ -41,84 +45,52 @@ class E2eCrypto {
     return sha256.convert(utf8.encode('$_context|$ordered')).bytes;
   }
 
-  static List<int> _subKey(List<int> key, String label) =>
-      Hmac(sha256, key).convert(utf8.encode(label)).bytes;
-
-  /// Produces `counter`-indexed keystream bytes from a nonce.
-  static Uint8List _keystream(List<int> kEnc, List<int> nonce, int length) {
-    final out = Uint8List(length);
-    final mac = Hmac(sha256, kEnc);
-    var offset = 0;
-    var counter = 0;
-    while (offset < length) {
-      final block =
-          mac.convert([...nonce, ...(_u32(counter))]).bytes; // 32 bytes
-      final take = min(block.length, length - offset);
-      for (var i = 0; i < take; i++) {
-        out[offset + i] = block[i];
-      }
-      offset += take;
-      counter++;
-    }
-    return out;
+  /// Stretches a raw shared secret into a 32-byte AES key via HKDF-SHA256.
+  static Uint8List deriveAesKey(List<int> secret) {
+    final hkdf = HKDFKeyDerivator(SHA256Digest())
+      ..init(HkdfParameters(
+        Uint8List.fromList(secret),
+        32,
+        utf8.encode('okaymsg-hkdf'), // salt
+        utf8.encode('aes-gcm-key'), // info
+      ));
+    return hkdf.process(Uint8List(32));
   }
 
-  static List<int> _u32(int v) =>
-      [(v >> 24) & 0xff, (v >> 16) & 0xff, (v >> 8) & 0xff, v & 0xff];
+  static Uint8List _randomBytes(int n) =>
+      Uint8List.fromList(List.generate(n, (_) => _rng.nextInt(256)));
 
-  /// Encrypts [plaintext] under the conversation [key], returning a base64 blob.
-  static String encrypt(List<int> key, String plaintext) {
-    final kEnc = _subKey(key, 'enc');
-    final kMac = _subKey(key, 'mac');
-    final nonce =
-        Uint8List.fromList(List.generate(16, (_) => _rng.nextInt(256)));
-    final data = utf8.encode(plaintext);
-    final stream = _keystream(kEnc, nonce, data.length);
-    final cipher = Uint8List(data.length);
-    for (var i = 0; i < data.length; i++) {
-      cipher[i] = data[i] ^ stream[i];
-    }
-    final tag = Hmac(sha256, kMac).convert([...nonce, ...cipher]).bytes;
-    return base64.encode([...nonce, ...cipher, ...tag]);
+  /// Encrypts [plaintext] under the shared [secret], returning a base64 blob.
+  static String encrypt(List<int> secret, String plaintext) {
+    final key = deriveAesKey(secret);
+    final nonce = _randomBytes(12);
+    final gcm = GCMBlockCipher(AESEngine())
+      ..init(true, AEADParameters(KeyParameter(key), 128, nonce, Uint8List(0)));
+    final data = Uint8List.fromList(utf8.encode(plaintext));
+    final out = gcm.process(data); // ciphertext followed by the 16-byte tag
+    return base64.encode(Uint8List.fromList([...nonce, ...out]));
   }
 
-  /// Decrypts a base64 [blob] produced by [encrypt]. Returns null if the blob
-  /// is malformed or its authentication tag does not verify.
-  static String? decrypt(List<int> key, String blob) {
-    List<int> raw;
+  /// Decrypts a base64 [blob]. Returns null if it is malformed, or if GCM
+  /// authentication fails (tampered ciphertext or the wrong key).
+  static String? decrypt(List<int> secret, String blob) {
+    Uint8List raw;
     try {
       raw = base64.decode(blob);
     } catch (_) {
       return null;
     }
-    if (raw.length < 16 + 32) return null;
-    final nonce = raw.sublist(0, 16);
-    final cipher = raw.sublist(16, raw.length - 32);
-    final tag = raw.sublist(raw.length - 32);
-
-    final kMac = _subKey(key, 'mac');
-    final expected = Hmac(sha256, kMac).convert([...nonce, ...cipher]).bytes;
-    if (!_constantTimeEquals(tag, expected)) return null;
-
-    final kEnc = _subKey(key, 'enc');
-    final stream = _keystream(kEnc, nonce, cipher.length);
-    final plain = Uint8List(cipher.length);
-    for (var i = 0; i < cipher.length; i++) {
-      plain[i] = cipher[i] ^ stream[i];
-    }
+    if (raw.length < 12 + 16) return null;
+    final nonce = raw.sublist(0, 12);
+    final body = raw.sublist(12);
+    final key = deriveAesKey(secret);
+    final gcm = GCMBlockCipher(AESEngine())
+      ..init(false, AEADParameters(KeyParameter(key), 128, nonce, Uint8List(0)));
     try {
+      final plain = gcm.process(Uint8List.fromList(body));
       return utf8.decode(plain);
     } catch (_) {
-      return null;
+      return null; // InvalidCipherTextException on auth failure, etc.
     }
-  }
-
-  static bool _constantTimeEquals(List<int> a, List<int> b) {
-    if (a.length != b.length) return false;
-    var diff = 0;
-    for (var i = 0; i < a.length; i++) {
-      diff |= a[i] ^ b[i];
-    }
-    return diff == 0;
   }
 }

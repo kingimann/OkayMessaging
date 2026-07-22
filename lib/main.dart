@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'app_state.dart';
+import 'crypto/key_exchange.dart';
 import 'relay/relay_service.dart';
 import 'screens/auth/auth_gate.dart';
 import 'screens/call_screen.dart';
@@ -18,6 +19,7 @@ Future<void> main() async {
   // channel (nothing is stored on any server).
   await Session.instance.load();
   await Persistence.init();
+  await SecureKeyExchange.instance.load();
   await RelayService.instance.init();
   await Scheduler.instance.init();
   runApp(const OkayMessagingApp());

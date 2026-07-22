@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:okay_messaging/app_state.dart';
 import 'package:okay_messaging/crypto/e2e.dart';
+import 'package:okay_messaging/crypto/key_exchange.dart';
 import 'package:okay_messaging/main.dart';
 import 'package:okay_messaging/screens/auth/phone_login_screen.dart';
 import 'package:okay_messaging/screens/call_screen.dart';
@@ -1173,6 +1174,40 @@ void main() {
       );
     });
 
+    test('ECDH (enc-2) message round-trips: encode with a shared secret, '
+        'decode with the sender public key', () {
+      ChatStore.instance.reset();
+      final kx = SecureKeyExchange.instance;
+      kx.resetForTest();
+      kx.ensureKeys(); // acts as the recipient's identity for this test
+      final myPub = kx.myPublicKey!;
+      // The "sender" derives the shared secret against our public key.
+      final secret = kx.sharedSecretWith(myPub)!; // self-pair for the test
+
+      final msg = Message(
+        id: 'x2',
+        text: 'sent under an ECDH key',
+        time: DateTime(2024, 1, 1, 9),
+        isMe: true,
+      );
+      final payload = RelayService.encode(
+        message: msg,
+        fromPhone: '+1 555 0199',
+        fromName: 'Grace',
+        ecdhSecret: secret,
+        senderPublicKey: myPub,
+      );
+      expect(payload['enc'], 2);
+      expect(payload['spk'], myPub);
+      expect(payload['text'], isNot('sent under an ECDH key'));
+
+      RelayService.applyIncoming(payload, myPhone: '+1 555 0100');
+      final got =
+          ChatStore.instance.chatWithContact('+1 555 0199')!.messages.single;
+      expect(got.text, 'sent under an ECDH key');
+      kx.resetForTest();
+    });
+
     test('end-to-end encrypted text round-trips through encode/applyIncoming',
         () {
       ChatStore.instance.reset();
@@ -1221,6 +1256,54 @@ void main() {
       // Tests build without --dart-define, so the real flow stays off and the
       // instant local login is used.
       expect(AccountService.isEnabled, isFalse);
+    });
+  });
+
+  group('ECDH key exchange', () {
+    test('two devices derive the same shared secret (P-256 ECDH)', () {
+      final alice = SecureKeyExchange.instance;
+      alice.resetForTest();
+      alice.ensureKeys();
+      final alicePub = alice.myPublicKey!;
+      final alicePriv = alice.exportPrivate();
+
+      // Bob: a second identity, restored into the same singleton to compute
+      // his side, capturing his public key.
+      final bob = SecureKeyExchange.instance;
+      bob.resetForTest();
+      bob.ensureKeys();
+      final bobPub = bob.myPublicKey!;
+      final bobSecret = bob.sharedSecretWith(alicePub);
+
+      // Back to Alice's identity to compute her side.
+      alice.resetForTest();
+      alice.ensureKeys(restorePrivateHex: alicePriv);
+      final aliceSecret = alice.sharedSecretWith(bobPub);
+
+      expect(aliceSecret, isNotNull);
+      expect(bobSecret, isNotNull);
+      expect(aliceSecret, equals(bobSecret));
+    });
+
+    test('an ECDH secret encrypts/decrypts through AES-256-GCM', () {
+      final kx = SecureKeyExchange.instance;
+      kx.resetForTest();
+      kx.ensureKeys();
+      // Round-trip with the device talking to itself (same key both ways).
+      final secret = kx.sharedSecretWith(kx.myPublicKey!)!;
+      final blob = E2eCrypto.encrypt(secret, 'handshake secured 🔒');
+      expect(E2eCrypto.decrypt(secret, blob), 'handshake secured 🔒');
+    });
+
+    test('restoring a private key reproduces the same public key', () {
+      final kx = SecureKeyExchange.instance;
+      kx.resetForTest();
+      kx.ensureKeys();
+      final pub = kx.myPublicKey;
+      final priv = kx.exportPrivate();
+      kx.resetForTest();
+      kx.ensureKeys(restorePrivateHex: priv);
+      expect(kx.myPublicKey, pub);
     });
   });
 

@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide Session;
 
 import '../crypto/e2e.dart';
+import '../crypto/key_exchange.dart';
 import '../models/chat.dart';
 import '../models/message.dart';
 import '../models/user.dart';
@@ -28,6 +29,10 @@ class RelayService {
   RealtimeChannel? _inbox;
   final Map<String, RealtimeChannel> _sendChannels = {};
 
+  /// Phone digits we've already sent our public key to this session (avoids
+  /// re-broadcasting the key on every message / handshake reply loop).
+  final Set<String> _sentKeyTo = {};
+
   /// Digits of whoever most recently sent a "typing" ping; the counter bumps
   /// on every ping so listeners always fire (even for the same sender).
   String? typingFromDigits;
@@ -45,22 +50,33 @@ class RelayService {
   /// The inbox channel a user listens on / is reached at.
   static String inboxChannel(String phone) => 'inbox_${digits(phone)}';
 
-  /// Builds the broadcast payload for an outgoing message. When [toPhone] is
-  /// given, the message text is end-to-end encrypted so the relay forwards
-  /// ciphertext it cannot read; the recipient decrypts with the same derived
-  /// key. Falls back to plaintext (enc: 0) when no recipient is known.
+  /// Builds the broadcast payload for an outgoing message. The text is end-to-
+  /// end encrypted so the relay forwards ciphertext it cannot read:
+  ///
+  ///  * enc 2 — AES-256-GCM keyed by an ECDH shared secret ([ecdhSecret]); the
+  ///    sender's public key rides along as `spk` so the recipient can derive
+  ///    the same secret. This is the strong path, used once keys are exchanged.
+  ///  * enc 1 — AES-256-GCM keyed by the phone-number-derived secret (the
+  ///    fallback until the ECDH handshake completes).
+  ///  * enc 0 — plaintext (no recipient / empty body).
   static Map<String, dynamic> encode({
     required Message message,
     required String fromPhone,
     required String fromName,
     String fromUsername = '',
     String toPhone = '',
+    List<int>? ecdhSecret,
+    String? senderPublicKey,
   }) {
     var text = message.text;
     var enc = 0;
-    if (toPhone.isNotEmpty && text.isNotEmpty) {
-      final key = E2eCrypto.keyFor(fromPhone, toPhone);
-      text = E2eCrypto.encrypt(key, message.text);
+    String? spk;
+    if (text.isNotEmpty && ecdhSecret != null && senderPublicKey != null) {
+      text = E2eCrypto.encrypt(ecdhSecret, message.text);
+      enc = 2;
+      spk = senderPublicKey;
+    } else if (toPhone.isNotEmpty && text.isNotEmpty) {
+      text = E2eCrypto.encrypt(E2eCrypto.keyFor(fromPhone, toPhone), message.text);
       enc = 1;
     }
     return {
@@ -70,6 +86,7 @@ class RelayService {
       'fromUsername': fromUsername,
       'text': text,
       'enc': enc,
+      if (spk != null) 'spk': spk,
       'ts': message.time.toIso8601String(),
       'isImage': message.isImage,
       'imageSeed': message.imageSeed,
@@ -116,12 +133,22 @@ class RelayService {
     }
 
     var text = (payload['text'] as String?) ?? '';
-    // enc may arrive as int (1) or bool (true) depending on JSON transport.
+    // enc may arrive as int or bool depending on JSON transport.
     final encRaw = payload['enc'];
-    final encrypted = encRaw == 1 || encRaw == true;
-    if (encrypted && text.isNotEmpty) {
-      final key = E2eCrypto.keyFor(from, myPhone);
-      text = E2eCrypto.decrypt(key, text) ?? text;
+    if (text.isNotEmpty) {
+      if (encRaw == 2 || encRaw == '2') {
+        // ECDH path: derive the shared secret from the sender's public key.
+        final spk = payload['spk'] as String?;
+        final secret = spk == null
+            ? null
+            : SecureKeyExchange.instance.sharedSecretWith(spk);
+        if (secret != null) {
+          text = E2eCrypto.decrypt(secret, text) ?? text;
+          if (spk != null) SecureKeyExchange.instance.rememberPeer(from, spk);
+        }
+      } else if (encRaw == 1 || encRaw == true) {
+        text = E2eCrypto.decrypt(E2eCrypto.keyFor(from, myPhone), text) ?? text;
+      }
     }
 
     target.addMessage(
@@ -166,9 +193,29 @@ class RelayService {
           callback: (payload) {
             final map = Map<String, dynamic>.from(payload);
             final added = applyIncoming(map, myPhone: me);
-            // Acknowledge delivery so the sender's ticks advance.
             final from = map['from'] as String?;
+            if (from != null) {
+              // Cache the sender's public key (rides on enc-2 messages) and
+              // make sure they have ours, so replies upgrade to the ECDH path.
+              final spk = map['spk'] as String?;
+              if (spk != null) SecureKeyExchange.instance.rememberPeer(from, spk);
+              _ensureKeyShared(from);
+            }
+            // Acknowledge delivery so the sender's ticks advance.
             if (added && from != null) sendReceipt(from, 'delivered');
+          },
+        )
+        .onBroadcast(
+          event: 'key',
+          callback: (payload) {
+            final from = payload['from'] as String?;
+            final pub = payload['pub'] as String?;
+            if (from == null || pub == null || digits(from) == digits(me)) {
+              return;
+            }
+            SecureKeyExchange.instance.rememberPeer(from, pub);
+            // Reply with our key once so both sides can derive the secret.
+            _ensureKeyShared(from);
           },
         )
         .onBroadcast(
@@ -388,11 +435,25 @@ class RelayService {
   }
 
   /// Broadcasts an outgoing [message] to [contactPhone]'s inbox over REST (the
-  /// channel is never subscribed, so we can't see their other traffic).
+  /// channel is never subscribed, so we can't see their other traffic). Uses
+  /// the ECDH key when the peer's public key is known, otherwise falls back to
+  /// the phone-derived key and kicks off a key exchange for next time.
   Future<void> send(String contactPhone, Message message) async {
     if (!_initialized) return;
     final me = Session.instance.user.value;
     if (me == null) return;
+
+    final kx = SecureKeyExchange.instance;
+    final peerPub = kx.peerKey(contactPhone);
+    List<int>? ecdhSecret;
+    String? senderPublicKey;
+    if (kx.isReady && peerPub != null) {
+      ecdhSecret = kx.sharedSecretWith(peerPub);
+      senderPublicKey = kx.myPublicKey;
+    } else {
+      await _ensureKeyShared(contactPhone); // bootstrap for future messages
+    }
+
     final name = inboxChannel(contactPhone);
     final channel =
         _sendChannels.putIfAbsent(name, () => _client.channel(name));
@@ -404,7 +465,27 @@ class RelayService {
         fromName: me.name,
         fromUsername: me.username,
         toPhone: contactPhone,
+        ecdhSecret: ecdhSecret,
+        senderPublicKey: senderPublicKey,
       ),
+    );
+  }
+
+  /// Sends this device's public key to [contactPhone] once per session, so the
+  /// two sides can derive an ECDH shared secret.
+  Future<void> _ensureKeyShared(String contactPhone) async {
+    if (!_initialized) return;
+    final kx = SecureKeyExchange.instance;
+    if (!kx.isReady) return;
+    final key = digits(contactPhone);
+    if (_sentKeyTo.contains(key)) return;
+    _sentKeyTo.add(key);
+    final name = inboxChannel(contactPhone);
+    final channel =
+        _sendChannels.putIfAbsent(name, () => _client.channel(name));
+    await channel.sendBroadcastMessage(
+      event: 'key',
+      payload: {'from': Session.instance.user.value?.phone, 'pub': kx.myPublicKey},
     );
   }
 
@@ -417,5 +498,6 @@ class RelayService {
       await _client.removeChannel(channel);
     }
     _sendChannels.clear();
+    _sentKeyTo.clear();
   }
 }
