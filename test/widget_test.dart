@@ -809,6 +809,31 @@ void main() {
     expect(msg.expiresAt, isNull);
   });
 
+  testWidgets('Chat menu: Wallpaper opens the picker, Export copies the chat',
+      (tester) async {
+    await tester.pumpWidget(const OkayMessagingApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Bob Carter'));
+    await tester.pumpAndSettle();
+
+    // Wallpaper opens the picker screen.
+    await tester.tap(find.byIcon(Icons.more_vert));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Wallpaper'));
+    await tester.pumpAndSettle();
+    expect(find.text('Chat wallpaper'), findsOneWidget);
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+
+    // Export copies the conversation and confirms via a snackbar.
+    await tester.tap(find.byIcon(Icons.more_vert));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Export chat'));
+    await tester.pumpAndSettle();
+    expect(find.text('Chat copied to clipboard'), findsOneWidget);
+  });
+
   testWidgets('Disappearing-messages menu sets a timer and shows the indicator',
       (tester) async {
     await tester.pumpWidget(const OkayMessagingApp());

@@ -25,6 +25,7 @@ import 'forward_screen.dart';
 import 'group_info_screen.dart';
 import 'image_view_screen.dart';
 import 'media_gallery_screen.dart';
+import 'wallpaper_screen.dart';
 
 /// The conversation screen for a single [Chat], backed by [ChatStore].
 class ChatScreen extends StatefulWidget {
@@ -826,7 +827,11 @@ class _ChatScreenState extends State<ChatScreen> {
       case 'disappearing':
         _chooseDisappearing();
       case 'wallpaper':
-        _showComingSoon(context, 'Wallpaper');
+        Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => const WallpaperScreen()),
+        );
+      case 'export':
+        _exportChat();
       case 'clear':
         _confirmClearChat();
       case 'delete':
@@ -889,6 +894,27 @@ class _ChatScreenState extends State<ChatScreen> {
           ? 'Disappearing messages off'
           : 'Disappearing messages: $label'),
     ));
+  }
+
+  void _exportChat() {
+    final chat = _store.chatById(_chatId);
+    if (chat == null) return;
+    final me = AppState.profile.value.name;
+    final buffer = StringBuffer('Chat with ${widget.chat.contact.name}\n\n');
+    for (final m in chat.messages) {
+      final who = m.isMe ? me : widget.chat.contact.name;
+      final time = DateFormatter.messageTime(m.time);
+      final body = m.isImage
+          ? '[photo]'
+          : m.isVoice
+              ? '[voice message]'
+              : m.text;
+      buffer.writeln('[$time] $who: $body');
+    }
+    Clipboard.setData(ClipboardData(text: buffer.toString()));
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Chat copied to clipboard')),
+    );
   }
 
   Future<void> _confirmClearChat() async {
@@ -1204,6 +1230,8 @@ class _ChatScreenState extends State<ChatScreen> {
                                 child: Text('Disappearing messages')),
                             const PopupMenuItem(
                                 value: 'wallpaper', child: Text('Wallpaper')),
+                            const PopupMenuItem(
+                                value: 'export', child: Text('Export chat')),
                             const PopupMenuItem(
                                 value: 'clear', child: Text('Clear chat')),
                             const PopupMenuItem(
