@@ -93,11 +93,12 @@ class _ChatScreenState extends State<ChatScreen> {
       if (_isRealPeer(widget.chat.contact)) {
         _store.addListener(_maybeSendReadReceipt);
         RelayService.instance.presencePing.addListener(_onPresencePing);
-        // Announce we're here now, then keep announcing while the chat is open.
-        RelayService.instance.sendPresence(widget.chat.contact.phone);
+        // Announce we're here now, then keep announcing while the chat is open
+        // (unless the user has hidden their online status).
+        _broadcastPresence();
         _presenceSend = Timer.periodic(
           const Duration(seconds: 15),
-          (_) => RelayService.instance.sendPresence(widget.chat.contact.phone),
+          (_) => _broadcastPresence(),
         );
       }
     }
@@ -145,6 +146,11 @@ class _ChatScreenState extends State<ChatScreen> {
     _typingClear = Timer(const Duration(seconds: 3), () {
       if (mounted) setState(() => _isTyping = false);
     });
+  }
+
+  void _broadcastPresence() {
+    if (!AppState.shareLastSeen.value) return;
+    RelayService.instance.sendPresence(widget.chat.contact.phone);
   }
 
   /// Marks the peer online when their presence ping arrives, reverting to

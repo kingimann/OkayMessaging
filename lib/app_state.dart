@@ -20,12 +20,17 @@ class AppState {
   static final ValueNotifier<Color?> chatWallpaper =
       ValueNotifier<Color?>(null);
 
+  /// Whether to broadcast your online / last-seen status to people you chat
+  /// with. When off, peers won't see you as "online".
+  static final ValueNotifier<bool> shareLastSeen = ValueNotifier<bool>(true);
+
   /// Resets global state; used by tests to isolate cases.
   @visibleForTesting
   static void resetForTest() {
     themeMode.value = ThemeMode.light;
     profile.value = MockData.me;
     chatWallpaper.value = null;
+    shareLastSeen.value = true;
   }
 
   /// Updates the current user's name and about text.

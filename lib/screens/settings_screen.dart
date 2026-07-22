@@ -32,24 +32,20 @@ class SettingsScreen extends StatelessWidget {
               ),
             ],
           ),
-          const InfoSection(
+          InfoSection(
             children: [
-              InfoTile(
+              const InfoTile(
                 leading: Icon(Icons.key_outlined),
                 title: 'Account',
                 subtitle: 'Security notifications, change number',
               ),
-              InfoTile(
-                leading: Icon(Icons.lock_outline),
-                title: 'Privacy',
-                subtitle: 'Block contacts, disappearing messages',
-              ),
-              InfoTile(
+              _buildLastSeenTile(),
+              const InfoTile(
                 leading: Icon(Icons.notifications_outlined),
                 title: 'Notifications',
                 subtitle: 'Message, group & call tones',
               ),
-              InfoTile(
+              const InfoTile(
                 leading: Icon(Icons.data_usage_outlined),
                 title: 'Storage and data',
                 subtitle: 'Network usage, auto-download',
@@ -89,6 +85,26 @@ class SettingsScreen extends StatelessWidget {
           const SizedBox(height: 24),
         ],
       ),
+    );
+  }
+
+  Widget _buildLastSeenTile() {
+    return ValueListenableBuilder<bool>(
+      valueListenable: AppState.shareLastSeen,
+      builder: (context, share, _) {
+        return SwitchListTile(
+          secondary: Icon(share ? Icons.visibility : Icons.visibility_off),
+          title: const Text('Share online status'),
+          subtitle: Text(share
+              ? 'Contacts you chat with can see when you\'re online'
+              : 'Your online status is hidden'),
+          value: share,
+          shape: const RoundedRectangleBorder(
+            borderRadius: BorderRadius.all(Radius.circular(16)),
+          ),
+          onChanged: (on) => AppState.shareLastSeen.value = on,
+        );
+      },
     );
   }
 

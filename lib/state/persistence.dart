@@ -16,6 +16,7 @@ class Persistence {
   static const _kProfile = 'profile';
   static const _kWallpaper = 'wallpaper';
   static const _kChats = 'chats_v1';
+  static const _kShareLastSeen = 'share_last_seen';
 
   static SharedPreferences? _prefs;
 
@@ -52,10 +53,19 @@ class Persistence {
       } catch (_) {}
     }
 
+    if (prefs.containsKey(_kShareLastSeen)) {
+      AppState.shareLastSeen.value = prefs.getBool(_kShareLastSeen) ?? true;
+    }
+
     AppState.themeMode.addListener(_saveTheme);
     AppState.profile.addListener(_saveProfile);
     AppState.chatWallpaper.addListener(_saveWallpaper);
+    AppState.shareLastSeen.addListener(_saveShareLastSeen);
     ChatStore.instance.onChanged = _saveChats;
+  }
+
+  static void _saveShareLastSeen() {
+    _prefs?.setBool(_kShareLastSeen, AppState.shareLastSeen.value);
   }
 
   static void _saveTheme() {

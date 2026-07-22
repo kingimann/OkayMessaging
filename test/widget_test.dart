@@ -750,6 +750,26 @@ void main() {
     expect(find.text('3 members'), findsOneWidget);
   });
 
+  testWidgets('The online-status privacy toggle flips and reflects state',
+      (tester) async {
+    await tester.pumpWidget(const OkayMessagingApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.more_vert));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Settings'));
+    await tester.pumpAndSettle();
+
+    expect(AppState.shareLastSeen.value, isTrue);
+    expect(find.text('Share online status'), findsOneWidget);
+
+    await tester.tap(find.text('Share online status'));
+    await tester.pumpAndSettle();
+
+    expect(AppState.shareLastSeen.value, isFalse);
+    expect(find.text('Your online status is hidden'), findsOneWidget);
+  });
+
   test('setOutgoingStatus upgrades only outgoing messages, never downgrades',
       () {
     ChatStore.instance.reset();
