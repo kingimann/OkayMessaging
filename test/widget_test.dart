@@ -445,6 +445,51 @@ void main() {
     await tester.pumpAndSettle();
   });
 
+  testWidgets('Sharing a location sends a location message', (tester) async {
+    await tester.pumpWidget(const OkayMessagingApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Bob Carter'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.attach_file));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Location'));
+    await tester.pumpAndSettle();
+
+    final bob = ChatStore.instance.chatWithContact('u_bob')!;
+    expect(bob.messages.any((m) => m.isLocation), isTrue);
+    // The location card renders its pin.
+    expect(find.byIcon(Icons.location_on), findsWidgets);
+    await tester.pump(const Duration(seconds: 2));
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('Sharing a contact sends a contact card', (tester) async {
+    await tester.pumpWidget(const OkayMessagingApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Bob Carter'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.attach_file));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Contact'));
+    await tester.pumpAndSettle();
+
+    // Pick the first contact in the share sheet.
+    await tester.tap(find.text('Alice Bennett').last);
+    await tester.pumpAndSettle();
+
+    final bob = ChatStore.instance.chatWithContact('u_bob')!;
+    final card = bob.messages.firstWhere((m) => m.isContact);
+    expect(card.contactName, 'Alice Bennett');
+    // The card offers a Message action.
+    expect(find.widgetWithText(TextButton, 'Message'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 2));
+    await tester.pumpAndSettle();
+  });
+
   testWidgets('Tapping a photo opens the full-screen image viewer',
       (tester) async {
     await tester.pumpWidget(const OkayMessagingApp());

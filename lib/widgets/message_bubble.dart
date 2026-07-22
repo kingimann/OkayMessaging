@@ -24,6 +24,12 @@ class MessageBubble extends StatelessWidget {
   final VoidCallback? onReplyTap;
   final bool starred;
 
+  /// Tapped on a shared-location card (opens it in maps).
+  final VoidCallback? onOpenLocation;
+
+  /// Tapped on the "Message" action of a shared-contact card.
+  final VoidCallback? onOpenContact;
+
   const MessageBubble({
     super.key,
     required this.message,
@@ -33,6 +39,8 @@ class MessageBubble extends StatelessWidget {
     this.onDoubleTapDown,
     this.onReplyTap,
     this.starred = false,
+    this.onOpenLocation,
+    this.onOpenContact,
   });
 
   @override
@@ -144,6 +152,20 @@ class MessageBubble extends StatelessWidget {
                         seconds: message.voiceSeconds,
                         textColor: textColor,
                         metaColor: metaColor,
+                      )
+                    else if (message.isLocation)
+                      _LocationContent(
+                        message: message,
+                        textColor: textColor,
+                        metaColor: metaColor,
+                        onTap: onOpenLocation,
+                      )
+                    else if (message.isContact)
+                      _ContactContent(
+                        message: message,
+                        textColor: textColor,
+                        metaColor: metaColor,
+                        onMessage: onOpenContact,
                       )
                     else
                       RichMessageText(
@@ -382,6 +404,154 @@ class _ImageBubble extends StatelessWidget {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// A shared-location card: a stylised mini-map with a pin, the place label /
+/// coordinates, and an "Open in Maps" affordance.
+class _LocationContent extends StatelessWidget {
+  final Message message;
+  final Color textColor;
+  final Color metaColor;
+  final VoidCallback? onTap;
+
+  const _LocationContent({
+    required this.message,
+    required this.textColor,
+    required this.metaColor,
+    this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final lat = message.locationLat ?? 0;
+    final lng = message.locationLng ?? 0;
+    final label = message.locationLabel?.isNotEmpty == true
+        ? message.locationLabel!
+        : 'Shared location';
+    return GestureDetector(
+      onTap: onTap,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: SizedBox(
+              width: 220,
+              height: 120,
+              child: CustomPaint(
+                painter: _MiniMapPainter(),
+                child: const Center(
+                  child: Icon(Icons.location_on, color: Color(0xFFEB4B3F),
+                      size: 34),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(label,
+              style: TextStyle(
+                  color: textColor, fontWeight: FontWeight.w600, fontSize: 15)),
+          Text(
+            '${lat.toStringAsFixed(4)}, ${lng.toStringAsFixed(4)}  ·  Open in Maps',
+            style: TextStyle(color: metaColor, fontSize: 12),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Paints a simple abstract "map" (streets grid) behind a location pin.
+class _MiniMapPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final bg = Paint()..color = const Color(0xFFE8EDF0);
+    canvas.drawRect(Offset.zero & size, bg);
+    final road = Paint()
+      ..color = const Color(0xFFCBD5DB)
+      ..strokeWidth = 6;
+    for (double x = 12; x < size.width; x += 44) {
+      canvas.drawLine(Offset(x, 0), Offset(x + 18, size.height), road);
+    }
+    for (double y = 16; y < size.height; y += 34) {
+      canvas.drawLine(Offset(0, y), Offset(size.width, y - 6), road);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+/// A shared-contact card: avatar initial, name, number and a Message action.
+class _ContactContent extends StatelessWidget {
+  final Message message;
+  final Color textColor;
+  final Color metaColor;
+  final VoidCallback? onMessage;
+
+  const _ContactContent({
+    required this.message,
+    required this.textColor,
+    required this.metaColor,
+    this.onMessage,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final name = message.contactName ?? 'Contact';
+    final phone = message.contactPhone ?? '';
+    final initial = name.trim().isEmpty ? '?' : name.trim()[0].toUpperCase();
+    return SizedBox(
+      width: 220,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              CircleAvatar(
+                radius: 20,
+                backgroundColor: metaColor.withValues(alpha: 0.25),
+                child: Text(initial,
+                    style: TextStyle(
+                        color: textColor, fontWeight: FontWeight.w600)),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(name,
+                        style: TextStyle(
+                            color: textColor,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 15),
+                        overflow: TextOverflow.ellipsis),
+                    if (phone.isNotEmpty)
+                      Text(phone,
+                          style: TextStyle(color: metaColor, fontSize: 12.5)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Divider(height: 1, color: metaColor.withValues(alpha: 0.25)),
+          TextButton(
+            onPressed: onMessage,
+            style: TextButton.styleFrom(
+              foregroundColor: textColor,
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              minimumSize: const Size(0, 32),
+            ),
+            child: const Text('Message'),
+          ),
+        ],
       ),
     );
   }

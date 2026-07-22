@@ -38,7 +38,15 @@ class Chat {
   Message? get lastMessage => messages.isEmpty ? null : messages.last;
 
   /// Preview text shown in the chat list.
-  String get preview => lastMessage?.text ?? '';
+  String get preview {
+    final m = lastMessage;
+    if (m == null) return '';
+    if (m.isImage) return 'Photo';
+    if (m.isVoice) return 'Voice message';
+    if (m.isLocation) return 'Location';
+    if (m.isContact) return 'Contact: ${m.contactName ?? ''}';
+    return m.text;
+  }
 
   Map<String, dynamic> toJson() => {
         'id': id,

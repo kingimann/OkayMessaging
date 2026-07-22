@@ -355,6 +355,113 @@ class _ChatScreenState extends State<ChatScreen> {
     ));
   }
 
+  void _handleSendLocation() {
+    final now = DateTime.now();
+    // No device GPS on web; share a representative current location. The card
+    // is fully rendered and "Open in Maps" produces a real maps link.
+    _deliver(Message(
+      id: 'loc_${now.microsecondsSinceEpoch}',
+      text: 'Shared location',
+      time: now,
+      isMe: true,
+      status: MessageStatus.sent,
+      isLocation: true,
+      locationLat: 37.7749,
+      locationLng: -122.4194,
+      locationLabel: 'My location',
+    ));
+  }
+
+  /// Opens a picker of the people you chat with, and shares the chosen one as
+  /// a contact card.
+  void _pickContactToShare() {
+    final contacts = _store.allChats
+        .map((c) => c.contact)
+        .where((c) => !c.isGroup && c.id != widget.chat.contact.id)
+        .toList();
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(20, 16, 20, 6),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text('Share contact',
+                    style:
+                        TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+              ),
+            ),
+            Flexible(
+              child: ListView(
+                shrinkWrap: true,
+                children: [
+                  for (final c in contacts)
+                    ListTile(
+                      leading: UserAvatar(user: c, radius: 20),
+                      title: Text(c.name),
+                      subtitle: c.phone.isNotEmpty ? Text(c.phone) : null,
+                      onTap: () {
+                        Navigator.of(sheetContext).pop();
+                        _sendContactCard(c);
+                      },
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _sendContactCard(AppUser contact) {
+    final now = DateTime.now();
+    _deliver(Message(
+      id: 'contact_${now.microsecondsSinceEpoch}',
+      text: 'Contact: ${contact.name}',
+      time: now,
+      isMe: true,
+      status: MessageStatus.sent,
+      isContact: true,
+      contactName: contact.name,
+      contactPhone: contact.phone,
+    ));
+  }
+
+  /// Copies a maps link for a shared-location message.
+  void _openLocation(Message m) {
+    final link =
+        'https://maps.google.com/?q=${m.locationLat},${m.locationLng}';
+    Clipboard.setData(ClipboardData(text: link));
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Maps link copied to clipboard')),
+    );
+  }
+
+  /// Opens (or starts) a chat with a shared contact card's person.
+  void _openSharedContact(Message m) {
+    final phone = m.contactPhone ?? '';
+    final name = m.contactName ?? 'Contact';
+    var chat = phone.isEmpty ? null : _store.chatWithContact(phone);
+    if (chat == null) {
+      final user = AppUser(
+        id: phone.isEmpty ? name : phone,
+        name: name,
+        avatarColor: '#7A5CFF',
+        about: 'Available',
+        phone: phone,
+      );
+      chat = Chat(id: 'chat_${user.id}', contact: user, messages: const []);
+      _store.upsert(chat);
+    }
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => ChatScreen(chat: chat!)),
+    );
+  }
+
   /// Stores an outgoing [message] and either delivers it over the relay (to a
   /// real number-based peer) or triggers a simulated reply (demo contact).
   void _deliver(Message message) {
@@ -494,6 +601,10 @@ class _ChatScreenState extends State<ChatScreen> {
         onReplyTap: m.replyTo?.messageId == null
             ? null
             : () => _jumpToMessage(m.replyTo!.messageId!),
+        onOpenLocation:
+            m.isLocation && !_selectionMode ? () => _openLocation(m) : null,
+        onOpenContact:
+            m.isContact && !_selectionMode ? () => _openSharedContact(m) : null,
       );
 
       final key = _messageKeys.putIfAbsent(m.id, () => GlobalKey());
@@ -1007,9 +1118,9 @@ class _ChatScreenState extends State<ChatScreen> {
           (Icons.headphones, 'Audio', const Color(0xFFF97052),
               () => _showComingSoon(context, 'Audio')),
           (Icons.location_on, 'Location', const Color(0xFF1FA855),
-              () => _showComingSoon(context, 'Location')),
+              _handleSendLocation),
           (Icons.person, 'Contact', const Color(0xFF009DE2),
-              () => _showComingSoon(context, 'Contacts')),
+              _pickContactToShare),
         ];
         return SafeArea(
           child: Padding(

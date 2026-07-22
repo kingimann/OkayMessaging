@@ -70,6 +70,19 @@ class Message {
   /// (disappearing messages).
   final DateTime? expiresAt;
 
+  /// True for a shared-location message; [locationLat]/[locationLng] hold the
+  /// coordinates and [locationLabel] an optional place name.
+  final bool isLocation;
+  final double? locationLat;
+  final double? locationLng;
+  final String? locationLabel;
+
+  /// True for a shared-contact card; [contactName]/[contactPhone] hold the
+  /// shared person's details.
+  final bool isContact;
+  final String? contactName;
+  final String? contactPhone;
+
   const Message({
     required this.id,
     required this.text,
@@ -86,6 +99,13 @@ class Message {
     this.imageUrl,
     this.edited = false,
     this.expiresAt,
+    this.isLocation = false,
+    this.locationLat,
+    this.locationLng,
+    this.locationLabel,
+    this.isContact = false,
+    this.contactName,
+    this.contactPhone,
   });
 
   Map<String, dynamic> toJson() => {
@@ -104,6 +124,13 @@ class Message {
         'imageUrl': imageUrl,
         'edited': edited,
         'expiresAt': expiresAt?.toIso8601String(),
+        'isLocation': isLocation,
+        'locationLat': locationLat,
+        'locationLng': locationLng,
+        'locationLabel': locationLabel,
+        'isContact': isContact,
+        'contactName': contactName,
+        'contactPhone': contactPhone,
       };
 
   factory Message.fromJson(Map<String, dynamic> json) => Message(
@@ -127,6 +154,13 @@ class Message {
         expiresAt: json['expiresAt'] == null
             ? null
             : DateTime.tryParse(json['expiresAt'] as String),
+        isLocation: json['isLocation'] as bool? ?? false,
+        locationLat: (json['locationLat'] as num?)?.toDouble(),
+        locationLng: (json['locationLng'] as num?)?.toDouble(),
+        locationLabel: json['locationLabel'] as String?,
+        isContact: json['isContact'] as bool? ?? false,
+        contactName: json['contactName'] as String?,
+        contactPhone: json['contactPhone'] as String?,
       );
 
   Message copyWith({
@@ -152,6 +186,13 @@ class Message {
       imageUrl: imageUrl,
       edited: edited ?? this.edited,
       expiresAt: expiresAt ?? this.expiresAt,
+      isLocation: isLocation,
+      locationLat: locationLat,
+      locationLng: locationLng,
+      locationLabel: locationLabel,
+      isContact: isContact,
+      contactName: contactName,
+      contactPhone: contactPhone,
     );
   }
 }
