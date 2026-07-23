@@ -31,6 +31,7 @@ import 'package:okay_messaging/state/app_lock.dart';
 import 'package:okay_messaging/state/call_service.dart';
 import 'package:okay_messaging/state/community_store.dart';
 import 'package:okay_messaging/state/file_transfer.dart';
+import 'package:okay_messaging/state/backup_service.dart';
 import 'package:okay_messaging/state/chat_store.dart';
 import 'package:okay_messaging/state/recent_searches.dart';
 import 'package:okay_messaging/state/scheduler.dart';
@@ -2843,6 +2844,59 @@ void main() {
       RelayService.applyIncoming(payload, myPhone: '+1 555 0100');
       expect(
           StreakStore.instance.streakFor('chat_+1 555 0199', now: at), 8);
+    });
+  });
+
+  group('Encrypted chat backup', () {
+    test('archive round-trips with the right passphrase', () {
+      const bundle = '{"chats":{"chats":[]},"profile":{"name":"You"}}';
+      final archive =
+          BackupService.encryptArchive(bundle, 'correct horse battery');
+      expect(archive, isNot(contains('You'))); // payload is sealed
+      expect(archive, contains('okay-messaging-backup')); // self-describing
+      final back =
+          BackupService.decryptArchive(archive, 'correct horse battery');
+      expect(back, bundle);
+    });
+
+    test('a wrong passphrase or tampered archive fails to decrypt', () {
+      final archive = BackupService.encryptArchive('{"x":1}', 'right-pass');
+      expect(BackupService.decryptArchive(archive, 'wrong-pass'), isNull);
+      expect(BackupService.decryptArchive('not json', 'right-pass'), isNull);
+      // A file that isn't one of our archives is rejected by the app tag.
+      expect(
+          BackupService.decryptArchive('{"app":"other","data":"x"}', 'p'),
+          isNull);
+    });
+
+    test('backing up then restoring reproduces the conversations', () {
+      ChatStore.instance.reset();
+      final before = ChatStore.instance.chats.length;
+      expect(before, greaterThan(0));
+
+      final archive = BackupService.encryptArchive(
+          BackupService.buildBundle(), 'my-passphrase');
+
+      // Wipe every chat, then restore from the encrypted archive.
+      ChatStore.instance.clearAll();
+      expect(ChatStore.instance.chats, isEmpty);
+
+      final bundle =
+          BackupService.decryptArchive(archive, 'my-passphrase');
+      expect(bundle, isNotNull);
+      expect(BackupService.applyBundle(bundle!), isTrue);
+      expect(ChatStore.instance.chats.length, before);
+    });
+
+    test('createArchiveBytes stamps the last-backup time', () {
+      BackupService.instance.resetForTest();
+      ChatStore.instance.reset();
+      expect(BackupService.instance.lastBackupAt, isNull);
+      final when = DateTime(2024, 5, 1, 9);
+      final bytes =
+          BackupService.instance.createArchiveBytes('pw', now: when);
+      expect(bytes, isNotEmpty);
+      expect(BackupService.instance.lastBackupAt, when);
     });
   });
 

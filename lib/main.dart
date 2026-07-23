@@ -7,6 +7,7 @@ import 'screens/auth/auth_gate.dart';
 import 'screens/call_screen.dart';
 import 'screens/lock_screen.dart';
 import 'state/app_lock.dart';
+import 'state/backup_service.dart';
 import 'state/call_log.dart';
 import 'state/call_service.dart';
 import 'state/community_store.dart';
@@ -35,6 +36,7 @@ Future<void> main() async {
   await ScoreStore.instance.load();
   await StreakStore.instance.load();
   await RecentSearches.instance.load();
+  await BackupService.instance.load();
   if (StreakStore.instance.isEmpty) {
     // Seed a couple of demo streaks so the feature is visible on first run;
     // real streaks then build (and lapse) from actual conversation activity.

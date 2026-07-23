@@ -6,6 +6,7 @@ import '../state/chat_store.dart';
 import '../state/session.dart';
 import '../widgets/info_section.dart';
 import '../widgets/user_avatar.dart';
+import 'backup_screen.dart';
 import 'chats_settings_screen.dart';
 import 'edit_profile_screen.dart';
 import 'legal_screen.dart';
@@ -97,6 +98,14 @@ class SettingsView extends StatelessWidget {
               title: 'Account',
               subtitle: 'Phone number, username',
               onTap: () => _showAccount(context),
+            ),
+            InfoTile(
+              leading: const Icon(Icons.backup_outlined),
+              title: 'Chat backup',
+              subtitle: 'Encrypted backup to iCloud, Dropbox, or Drive',
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const BackupScreen()),
+              ),
             ),
             InfoTile(
               leading: const Icon(Icons.data_usage_outlined),

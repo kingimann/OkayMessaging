@@ -24,6 +24,10 @@ dependencies:
   flutter_webrtc: ^1.5.2
   file_picker: ^11.0.2
   path_provider: ^2.1.6
+  # System share sheet, used only on mobile to send an encrypted chat backup to
+  # iCloud Drive / Dropbox / Google Drive / Files (guarded by a conditional
+  # import so the web build never references it).
+  share_plus: ^10.1.4
   # Native card / Apple Pay / Google Pay sheet for in-chat payments. Used only
   # on mobile (guarded by a conditional import so the web build stays clean).
   flutter_stripe: ^11.1.0
