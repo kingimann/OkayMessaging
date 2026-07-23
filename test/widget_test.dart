@@ -3956,6 +3956,46 @@ void main() {
     });
   });
 
+  group('Mentions', () {
+    test('the mention regex matches @tokens at word boundaries only', () {
+      final hits = RichMessageText.mention
+          .allMatches('hey @Alice and @Bob, email a@b is not one')
+          .map((m) => m.group(0))
+          .toList();
+      expect(hits, ['@Alice', '@Bob']);
+    });
+
+    testWidgets('typing @ in a group offers members and inserts the mention',
+        (tester) async {
+      await tester.pumpWidget(const OkayMessagingApp());
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Team Standup'));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextField).first, 'hey @Al');
+      await tester.pumpAndSettle();
+
+      // The member suggestion appears; tapping it completes the mention.
+      expect(find.text('@Alice'), findsOneWidget);
+      await tester.tap(find.text('@Alice'));
+      await tester.pumpAndSettle();
+
+      final field = tester.widget<TextField>(find.byType(TextField).first);
+      expect(field.controller!.text, 'hey @Alice ');
+    });
+
+    testWidgets('one-to-one chats do not offer mentions', (tester) async {
+      await tester.pumpWidget(const OkayMessagingApp());
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Bob Carter'));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextField).first, 'hey @Al');
+      await tester.pumpAndSettle();
+      expect(find.text('@Alice'), findsNothing);
+    });
+  });
+
   group('Chat export', () {
     test('transcriptFileName slugifies the contact name', () {
       expect(transcriptFileName('Alice Bennett'), 'okay-chat-alice-bennett.txt');

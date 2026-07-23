@@ -34,6 +34,9 @@ class RichMessageText extends StatefulWidget {
   static final RegExp _format =
       RegExp(r'\*(.+?)\*|_(.+?)_|~(.+?)~|`(.+?)`');
 
+  /// An @mention token: an "@" at a word boundary followed by a name word.
+  static final RegExp mention = RegExp(r'(?<=^|\s)@\w+');
+
   /// Splits [text] into styled runs by the formatting markers. Pure — used by
   /// the widget and by tests.
   static List<TextRun> parse(String text) {
@@ -99,10 +102,24 @@ class _RichMessageTextState extends State<RichMessageText> {
   }
 
   List<InlineSpan> _formattedSpans(String text) {
-    return [
-      for (final run in RichMessageText.parse(text))
-        TextSpan(text: run.text, style: _styleFor(run.style)),
-    ];
+    final spans = <InlineSpan>[];
+    for (final run in RichMessageText.parse(text)) {
+      final base = _styleFor(run.style);
+      final mentionStyle =
+          base.merge(TextStyle(color: widget.linkColor, fontWeight: FontWeight.w600));
+      var idx = 0;
+      for (final m in RichMessageText.mention.allMatches(run.text)) {
+        if (m.start > idx) {
+          spans.add(TextSpan(text: run.text.substring(idx, m.start), style: base));
+        }
+        spans.add(TextSpan(text: m.group(0), style: mentionStyle));
+        idx = m.end;
+      }
+      if (idx < run.text.length) {
+        spans.add(TextSpan(text: run.text.substring(idx), style: base));
+      }
+    }
+    return spans;
   }
 
   @override

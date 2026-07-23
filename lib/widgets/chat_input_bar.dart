@@ -37,6 +37,9 @@ class ChatInputBar extends StatefulWidget {
   /// resolves false, the send is cancelled and the composer text is kept.
   final Future<bool> Function()? confirmSend;
 
+  /// Names that can be @mentioned (group members). Empty disables mentions.
+  final List<String> mentionNames;
+
   const ChatInputBar({
     super.key,
     required this.onSend,
@@ -49,6 +52,7 @@ class ChatInputBar extends StatefulWidget {
     this.initialText = '',
     this.onChanged,
     this.confirmSend,
+    this.mentionNames = const [],
   });
 
   @override
@@ -65,6 +69,8 @@ class _ChatInputBarState extends State<ChatInputBar> {
   int _recordSeconds = 0;
   Timer? _recordTimer;
 
+  List<String> _mentionMatches = const [];
+
   @override
   void initState() {
     super.initState();
@@ -74,7 +80,53 @@ class _ChatInputBarState extends State<ChatInputBar> {
       if (has != _hasText) setState(() => _hasText = has);
       if (has) widget.onTyping?.call();
       widget.onChanged?.call(_controller.text);
+      _updateMentions();
     });
+  }
+
+  /// The partial name being typed after an "@" at the cursor, or null when the
+  /// cursor isn't inside a mention token.
+  String? _mentionQuery() {
+    if (widget.mentionNames.isEmpty) return null;
+    final sel = _controller.selection;
+    if (!sel.isValid || sel.baseOffset != sel.extentOffset) return null;
+    final pos = sel.baseOffset;
+    if (pos < 0 || pos > _controller.text.length) return null;
+    final before = _controller.text.substring(0, pos);
+    final at = before.lastIndexOf('@');
+    if (at < 0) return null;
+    if (at > 0 && !RegExp(r'\s').hasMatch(before[at - 1])) return null;
+    final query = before.substring(at + 1);
+    if (query.contains(RegExp(r'\s'))) return null;
+    return query;
+  }
+
+  void _updateMentions() {
+    final q = _mentionQuery();
+    final matches = q == null
+        ? const <String>[]
+        : widget.mentionNames
+            .where((n) => n.toLowerCase().startsWith(q.toLowerCase()))
+            .take(5)
+            .toList();
+    if (matches.length != _mentionMatches.length ||
+        !matches.every(_mentionMatches.contains)) {
+      setState(() => _mentionMatches = matches);
+    }
+  }
+
+  void _applyMention(String name) {
+    final pos = _controller.selection.baseOffset;
+    final text = _controller.text;
+    final before = text.substring(0, pos);
+    final at = before.lastIndexOf('@');
+    final newBefore = '${before.substring(0, at)}@$name ';
+    final newText = newBefore + text.substring(pos);
+    _controller.value = TextEditingValue(
+      text: newText,
+      selection: TextSelection.collapsed(offset: newBefore.length),
+    );
+    setState(() => _mentionMatches = const []);
   }
 
   @override
@@ -171,6 +223,12 @@ class _ChatInputBarState extends State<ChatInputBar> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            if (_mentionMatches.isNotEmpty && !_recording)
+              _MentionSuggestions(
+                names: _mentionMatches,
+                isDark: isDark,
+                onPick: _applyMention,
+              ),
             if (widget.replyTo != null && !_recording)
               _ReplyPreview(
                 reply: widget.replyTo!,
@@ -317,6 +375,53 @@ class _ChatInputBarState extends State<ChatInputBar> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// A dropdown of @mention candidates shown above the composer while typing.
+class _MentionSuggestions extends StatelessWidget {
+  final List<String> names;
+  final bool isDark;
+  final ValueChanged<String> onPick;
+
+  const _MentionSuggestions({
+    required this.names,
+    required this.isDark,
+    required this.onPick,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(8, 4, 8, 0),
+      constraints: const BoxConstraints(maxHeight: 200),
+      child: Material(
+        color: isDark ? AppColors.darkAppBar : Colors.white,
+        elevation: 3,
+        borderRadius: BorderRadius.circular(12),
+        clipBehavior: Clip.antiAlias,
+        child: ListView(
+          shrinkWrap: true,
+          padding: EdgeInsets.zero,
+          children: [
+            for (final name in names)
+              ListTile(
+                dense: true,
+                leading: CircleAvatar(
+                  radius: 15,
+                  backgroundColor: AppColors.tealGreenDark,
+                  child: Text(
+                    name.isEmpty ? '?' : name[0].toUpperCase(),
+                    style: const TextStyle(color: Colors.white, fontSize: 13),
+                  ),
+                ),
+                title: Text('@$name'),
+                onTap: () => onPick(name),
+              ),
+          ],
+        ),
       ),
     );
   }

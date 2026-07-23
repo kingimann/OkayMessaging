@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../app_state.dart';
+import '../data/mock_data.dart';
 import '../models/chat.dart';
 import '../models/message.dart';
 import '../models/user.dart';
@@ -281,6 +282,20 @@ class _ChatScreenState extends State<ChatScreen> {
       duration: const Duration(milliseconds: 250),
       curve: Curves.easeOut,
     );
+  }
+
+  /// First names that can be @mentioned in this chat — the group's members
+  /// (excluding you). Empty for one-to-one chats.
+  List<String> _mentionNames() {
+    if (!widget.chat.contact.isGroup) return const [];
+    final members = widget.chat.members.isNotEmpty
+        ? widget.chat.members
+        : MockData.contacts();
+    final me = AppState.profile.value.id;
+    return members
+        .where((u) => u.id != me && !u.isGroup)
+        .map((u) => u.name.split(' ').first)
+        .toList();
   }
 
   void _handleSend(String text) {
@@ -1962,6 +1977,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     initialText: _store.draftFor(_chatId),
                     onChanged: (t) => _store.setDraft(_chatId, t),
                     confirmSend: _confirmRecipient,
+                    mentionNames: _mentionNames(),
                   );
                 },
               ),
