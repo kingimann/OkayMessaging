@@ -3,6 +3,12 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../app_state.dart';
+import '../models/chat.dart';
+import '../models/message.dart';
+import '../models/user.dart';
+import '../relay/relay_config.dart';
+import '../relay/relay_service.dart';
+import '../state/chat_store.dart';
 import '../state/status_store.dart';
 import '../utils/date_formatter.dart';
 
@@ -294,6 +300,9 @@ class StatusViewerScreen extends StatefulWidget {
 class _StatusViewerScreenState extends State<StatusViewerScreen> {
   int _i = 0;
   Timer? _timer;
+  final _reply = TextEditingController();
+
+  bool get _isMine => widget.thread.authorId == 'me';
 
   @override
   void initState() {
@@ -309,7 +318,41 @@ class _StatusViewerScreenState extends State<StatusViewerScreen> {
   @override
   void dispose() {
     _timer?.cancel();
+    _reply.dispose();
     super.dispose();
+  }
+
+  void _sendReply() {
+    final text = _reply.text.trim();
+    if (text.isEmpty) return;
+    final store = ChatStore.instance;
+    var chat = store.chatWithContact(widget.thread.authorId);
+    final contact = chat?.contact ??
+        AppUser(
+          id: widget.thread.authorId,
+          name: widget.thread.authorName,
+          avatarColor: widget.thread.avatarColor,
+        );
+    chat ??= Chat(id: 'chat_${contact.id}', contact: contact, messages: const []);
+    store.upsert(chat);
+    final msg = Message(
+      id: 'streply_${DateTime.now().microsecondsSinceEpoch}',
+      text: text,
+      time: DateTime.now(),
+      isMe: true,
+      status: MessageStatus.sent,
+    );
+    store.addMessage(chat.id, msg);
+    if (RelayConfig.isEnabled && contact.phone.isNotEmpty) {
+      RelayService.instance.send(contact.phone, msg);
+    }
+    _reply.clear();
+    FocusScope.of(context).unfocus();
+    final messenger = ScaffoldMessenger.of(context);
+    Navigator.of(context).maybePop();
+    messenger.showSnackBar(
+      SnackBar(content: Text('Reply sent to ${widget.thread.authorName}')),
+    );
   }
 
   void _next() {
@@ -415,6 +458,39 @@ class _StatusViewerScreenState extends State<StatusViewerScreen> {
                   ),
                 ),
               ),
+              if (!_isMine)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _reply,
+                          onTap: () => _timer?.cancel(),
+                          textInputAction: TextInputAction.send,
+                          onSubmitted: (_) => _sendReply(),
+                          style: const TextStyle(color: Colors.white),
+                          decoration: InputDecoration(
+                            hintText: 'Reply to ${widget.thread.authorName}…',
+                            hintStyle: const TextStyle(color: Colors.white70),
+                            filled: true,
+                            fillColor: Colors.white.withValues(alpha: 0.18),
+                            contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 16, vertical: 10),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(24),
+                              borderSide: BorderSide.none,
+                            ),
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.send, color: Colors.white),
+                        onPressed: _sendReply,
+                      ),
+                    ],
+                  ),
+                ),
             ],
           ),
         ),

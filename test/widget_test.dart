@@ -35,6 +35,7 @@ import 'package:okay_messaging/state/file_transfer.dart';
 import 'package:okay_messaging/models/status_update.dart';
 import 'package:okay_messaging/payments/payment_service.dart';
 import 'package:okay_messaging/state/backup_service.dart';
+import 'package:okay_messaging/screens/status_screen.dart';
 import 'package:okay_messaging/state/status_store.dart';
 import 'package:okay_messaging/state/chat_store.dart';
 import 'package:okay_messaging/state/recent_searches.dart';
@@ -3072,6 +3073,39 @@ void main() {
       expect(threads.first.updates.length, 2);
       // Grouped updates are oldest-first for playback.
       expect(threads.first.updates.map((u) => u.id), ['e1', 'e2']);
+    });
+
+    testWidgets('replying to a status sends a message to that contact',
+        (tester) async {
+      ChatStore.instance.reset();
+      final now = DateTime.now();
+      StatusStore.instance.seedForTest([
+        StatusUpdate(
+          id: 'a1',
+          authorId: 'u_alice',
+          authorName: 'Alice Bennett',
+          avatarColor: '#E57373',
+          text: 'Beach day',
+          bgColor: '#0BA5EC',
+          time: now.subtract(const Duration(hours: 1)),
+        ),
+      ]);
+      final thread = StatusStore.instance.otherThreads().single;
+      final before =
+          ChatStore.instance.chatWithContact('u_alice')!.messages.length;
+
+      await tester.pumpWidget(
+          MaterialApp(home: StatusViewerScreen(thread: thread)));
+      await tester.pump(); // don't settle — the auto-advance timer is pending
+
+      await tester.enterText(find.byType(TextField), 'Looks fun!');
+      await tester.tap(find.byIcon(Icons.send));
+      await tester.pump();
+
+      final msgs = ChatStore.instance.chatWithContact('u_alice')!.messages;
+      expect(msgs.length, before + 1);
+      expect(msgs.last.text, 'Looks fun!');
+      expect(msgs.last.isMe, isTrue);
     });
 
     test('posting adds a status for the current user', () {
