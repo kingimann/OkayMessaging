@@ -491,7 +491,8 @@ void main() {
     await tester.pumpAndSettle();
   });
 
-  testWidgets('Sharing a location sends a location message', (tester) async {
+  testWidgets('Sharing a location opens the map picker and sends a point',
+      (tester) async {
     await tester.pumpWidget(const OkayMessagingApp());
     await tester.pumpAndSettle();
 
@@ -501,14 +502,23 @@ void main() {
     await tester.tap(find.byIcon(Icons.attach_file));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Location'));
-    await tester.pumpAndSettle();
+    // The picker hosts a FlutterMap whose tile timers never settle, so pump
+    // fixed frames instead of pumpAndSettle.
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(find.text('Send this location'), findsOneWidget);
+    await tester.tap(find.text('Send this location'));
+    await tester.pump();
+    // Drain the 1.4s demo auto-reply timer so none is pending at teardown.
+    await tester.pump(const Duration(seconds: 2));
 
     final bob = ChatStore.instance.chatWithContact('u_bob')!;
     expect(bob.messages.any((m) => m.isLocation), isTrue);
-    // The location card renders its pin.
-    expect(find.byIcon(Icons.location_on), findsWidgets);
-    await tester.pump(const Duration(seconds: 2));
-    await tester.pumpAndSettle();
+
+    // Unmount so any map tile work is torn down before the test ends.
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump();
   });
 
   testWidgets('Sharing a contact sends a contact card', (tester) async {

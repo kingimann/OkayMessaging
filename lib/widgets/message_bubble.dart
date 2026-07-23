@@ -6,6 +6,7 @@ import '../payments/payment_amount_sheet.dart';
 import '../theme/app_theme.dart';
 import '../utils/date_formatter.dart';
 import 'message_status_icon.dart';
+import 'osm_map.dart';
 import 'poll_widgets.dart';
 import 'rich_message_text.dart';
 
@@ -547,17 +548,7 @@ class _LocationContent extends StatelessWidget {
         children: [
           ClipRRect(
             borderRadius: BorderRadius.circular(12),
-            child: SizedBox(
-              width: 220,
-              height: 120,
-              child: CustomPaint(
-                painter: _MiniMapPainter(),
-                child: const Center(
-                  child: Icon(Icons.location_on, color: Color(0xFFEB4B3F),
-                      size: 34),
-                ),
-              ),
-            ),
+            child: MiniMapPreview(lat: lat, lng: lng),
           ),
           const SizedBox(height: 6),
           Text(label,
@@ -571,27 +562,6 @@ class _LocationContent extends StatelessWidget {
       ),
     );
   }
-}
-
-/// Paints a simple abstract "map" (streets grid) behind a location pin.
-class _MiniMapPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final bg = Paint()..color = const Color(0xFFE8EDF0);
-    canvas.drawRect(Offset.zero & size, bg);
-    final road = Paint()
-      ..color = const Color(0xFFCBD5DB)
-      ..strokeWidth = 6;
-    for (double x = 12; x < size.width; x += 44) {
-      canvas.drawLine(Offset(x, 0), Offset(x + 18, size.height), road);
-    }
-    for (double y = 16; y < size.height; y += 34) {
-      canvas.drawLine(Offset(0, y), Offset(size.width, y - 6), road);
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 /// A shared-contact card: avatar initial, name, number and a Message action.

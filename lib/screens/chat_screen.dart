@@ -1,10 +1,9 @@
 import 'dart:async';
 
 import 'package:file_picker/file_picker.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:url_launcher/url_launcher.dart';
+import 'package:latlong2/latlong.dart';
 
 import '../app_state.dart';
 import '../models/chat.dart';
@@ -21,7 +20,6 @@ import '../state/file_transfer.dart';
 import '../state/scheduler.dart';
 import '../theme/app_theme.dart';
 import '../utils/date_formatter.dart';
-import '../utils/maps_link.dart';
 import '../widgets/chat_input_bar.dart';
 import '../widgets/emoji_data.dart';
 import '../widgets/heart_burst.dart';
@@ -36,6 +34,8 @@ import 'contact_info_screen.dart';
 import 'forward_screen.dart';
 import 'group_info_screen.dart';
 import 'image_view_screen.dart';
+import 'location_map_screen.dart';
+import 'location_picker_screen.dart';
 import 'media_gallery_screen.dart';
 import 'okay_pro_screen.dart';
 import 'wallpaper_screen.dart';
@@ -438,10 +438,13 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _handleSendLocation() async {
+    // Pick a real point on an OpenStreetMap before sending.
+    final picked = await Navigator.of(context).push<LatLng>(
+      MaterialPageRoute(builder: (_) => const LocationPickerScreen()),
+    );
+    if (picked == null || !mounted) return;
     if (!await _confirmRecipient()) return;
     final now = DateTime.now();
-    // No device GPS on web; share a representative current location. The card
-    // is fully rendered and "Open in Maps" produces a real maps link.
     _deliver(Message(
       id: 'loc_${now.microsecondsSinceEpoch}',
       text: 'Shared location',
@@ -449,9 +452,9 @@ class _ChatScreenState extends State<ChatScreen> {
       isMe: true,
       status: MessageStatus.sent,
       isLocation: true,
-      locationLat: 37.7749,
-      locationLng: -122.4194,
-      locationLabel: 'My location',
+      locationLat: picked.latitude,
+      locationLng: picked.longitude,
+      locationLabel: 'Shared location',
     ));
   }
 
@@ -515,32 +518,18 @@ class _ChatScreenState extends State<ChatScreen> {
     ));
   }
 
-  /// Opens a shared-location message in the platform's maps app — Apple Maps
-  /// on iPhone/Mac, Google Maps everywhere else — falling back to copying the
-  /// link if nothing can handle it.
-  Future<void> _openLocation(Message m) async {
-    final isApple = defaultTargetPlatform == TargetPlatform.iOS ||
-        defaultTargetPlatform == TargetPlatform.macOS;
-    final uri = mapsUrl(
-      lat: m.locationLat ?? 0,
-      lng: m.locationLng ?? 0,
-      label: m.locationLabel ?? '',
-      apple: isApple,
+  /// Opens a shared-location message on a full-screen, interactive
+  /// OpenStreetMap; from there the user can hand off to their maps app.
+  void _openLocation(Message m) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => LocationMapScreen(
+          lat: m.locationLat ?? 0,
+          lng: m.locationLng ?? 0,
+          label: m.locationLabel ?? '',
+        ),
+      ),
     );
-    var opened = false;
-    try {
-      opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
-    } catch (_) {
-      opened = false;
-    }
-    if (!opened && mounted) {
-      await Clipboard.setData(ClipboardData(text: uri.toString()));
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Maps link copied to clipboard')),
-        );
-      }
-    }
   }
 
   /// Opens (or starts) a chat with a shared contact card's person.
