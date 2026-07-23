@@ -96,6 +96,7 @@ class ForumPost {
   final int score;
   final int myVote; // -1, 0, 1
   final bool pinned;
+  final bool edited;
   final List<ForumComment> comments;
 
   const ForumPost({
@@ -108,13 +109,17 @@ class ForumPost {
     this.score = 1,
     this.myVote = 1,
     this.pinned = false,
+    this.edited = false,
     this.comments = const [],
   });
 
   ForumPost copyWith({
+    String? title,
+    String? body,
     int? score,
     int? myVote,
     bool? pinned,
+    bool? edited,
     List<ForumComment>? comments,
   }) =>
       ForumPost(
@@ -122,11 +127,12 @@ class ForumPost {
         authorId: authorId,
         authorName: authorName,
         time: time,
-        title: title,
-        body: body,
+        title: title ?? this.title,
+        body: body ?? this.body,
         score: score ?? this.score,
         myVote: myVote ?? this.myVote,
         pinned: pinned ?? this.pinned,
+        edited: edited ?? this.edited,
         comments: comments ?? this.comments,
       );
 
@@ -140,6 +146,7 @@ class ForumPost {
         'score': score,
         'myVote': myVote,
         'pinned': pinned,
+        'edited': edited,
         'comments': comments.map((c) => c.toJson()).toList(),
       };
 
@@ -153,6 +160,7 @@ class ForumPost {
         score: (j['score'] as num?)?.toInt() ?? 1,
         myVote: (j['myVote'] as num?)?.toInt() ?? 0,
         pinned: j['pinned'] as bool? ?? false,
+        edited: j['edited'] as bool? ?? false,
         comments: (j['comments'] as List? ?? const [])
             .map((c) => ForumComment.fromJson(Map<String, dynamic>.from(c as Map)))
             .toList(),
@@ -288,6 +296,9 @@ class Community {
 
   /// Avatar color as a hex string (e.g. '#7A5CFF').
   final String color;
+
+  /// A short description of what the server is about.
+  final String description;
   final List<Channel> channels;
   final List<Member> members;
 
@@ -295,6 +306,7 @@ class Community {
     required this.id,
     required this.name,
     required this.color,
+    this.description = '',
     this.channels = const [],
     this.members = const [],
   });
@@ -314,6 +326,7 @@ class Community {
   Community copyWith({
     String? name,
     String? color,
+    String? description,
     List<Channel>? channels,
     List<Member>? members,
   }) =>
@@ -321,6 +334,7 @@ class Community {
         id: id,
         name: name ?? this.name,
         color: color ?? this.color,
+        description: description ?? this.description,
         channels: channels ?? this.channels,
         members: members ?? this.members,
       );
@@ -329,6 +343,7 @@ class Community {
         'id': id,
         'name': name,
         'color': color,
+        'description': description,
         'channels': channels.map((c) => c.toJson()).toList(),
         'members': members.map((m) => m.toJson()).toList(),
       };
@@ -337,6 +352,7 @@ class Community {
         id: json['id'] as String,
         name: json['name'] as String,
         color: json['color'] as String? ?? '#7A5CFF',
+        description: json['description'] as String? ?? '',
         channels: (json['channels'] as List? ?? const [])
             .map((c) => Channel.fromJson(Map<String, dynamic>.from(c as Map)))
             .toList(),

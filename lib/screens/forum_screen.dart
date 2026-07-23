@@ -227,7 +227,9 @@ class _PostCard extends StatelessWidget {
                         Text(post.authorName,
                             style: const TextStyle(
                                 fontSize: 12, fontWeight: FontWeight.w600)),
-                        Text('  ·  ${DateFormatter.callLabel(post.time)}',
+                        Text(
+                            '  ·  ${DateFormatter.callLabel(post.time)}'
+                            '${post.edited ? ' · edited' : ''}',
                             style: TextStyle(
                                 fontSize: 12, color: Colors.grey.shade500)),
                         const Spacer(),
@@ -302,6 +304,13 @@ class _PostMenu extends StatelessWidget {
         if (v == 'pin') {
           CommunityStore.instance
               .togglePinForumPost(communityId, channelId, post.id);
+        } else if (v == 'edit') {
+          Navigator.of(context).push(MaterialPageRoute(
+            builder: (_) => CreateForumPostScreen(
+                communityId: communityId,
+                channelId: channelId,
+                existing: post),
+          ));
         } else if (v == 'delete') {
           if (await _confirmDelete(context, 'post')) {
             CommunityStore.instance
@@ -311,6 +320,8 @@ class _PostMenu extends StatelessWidget {
         }
       },
       itemBuilder: (context) => [
+        if (isMineAuthor(post.authorId))
+          const PopupMenuItem(value: 'edit', child: Text('Edit')),
         if (mod)
           PopupMenuItem(
               value: 'pin', child: Text(post.pinned ? 'Unpin' : 'Pin')),
@@ -465,7 +476,8 @@ class _ForumPostScreenState extends State<ForumPostScreen> {
                                       fontWeight: FontWeight.w700)),
                               const SizedBox(height: 6),
                               Text(
-                                  '${post.authorName}  ·  ${DateFormatter.callLabel(post.time)}',
+                                  '${post.authorName}  ·  ${DateFormatter.callLabel(post.time)}'
+                                  '${post.edited ? ' · edited' : ''}',
                                   style: TextStyle(
                                       fontSize: 12,
                                       color: Colors.grey.shade500)),
@@ -603,20 +615,26 @@ class _CommentTile extends StatelessWidget {
   }
 }
 
-/// Compose a new forum post (title + optional body).
+/// Compose a new forum post, or edit an [existing] one.
 class CreateForumPostScreen extends StatefulWidget {
   final String communityId;
   final String channelId;
+  final ForumPost? existing;
   const CreateForumPostScreen(
-      {super.key, required this.communityId, required this.channelId});
+      {super.key,
+      required this.communityId,
+      required this.channelId,
+      this.existing});
 
   @override
   State<CreateForumPostScreen> createState() => _CreateForumPostScreenState();
 }
 
 class _CreateForumPostScreenState extends State<CreateForumPostScreen> {
-  final _title = TextEditingController();
-  final _body = TextEditingController();
+  late final _title = TextEditingController(text: widget.existing?.title ?? '');
+  late final _body = TextEditingController(text: widget.existing?.body ?? '');
+
+  bool get _isEdit => widget.existing != null;
 
   @override
   void initState() {
@@ -634,21 +652,26 @@ class _CreateForumPostScreenState extends State<CreateForumPostScreen> {
   void _post() {
     final title = _title.text.trim();
     if (title.isEmpty) return;
-    final me = AppState.profile.value;
-    CommunityStore.instance.addForumPost(
-      widget.communityId,
-      widget.channelId,
-      ForumPost(
-        id: 'fp_${DateTime.now().microsecondsSinceEpoch}',
-        authorId: me.id,
-        authorName: me.name,
-        time: DateTime.now(),
-        title: title,
-        body: _body.text.trim(),
-        score: 1,
-        myVote: 1,
-      ),
-    );
+    if (_isEdit) {
+      CommunityStore.instance.editForumPost(widget.communityId,
+          widget.channelId, widget.existing!.id, title, _body.text.trim());
+    } else {
+      final me = AppState.profile.value;
+      CommunityStore.instance.addForumPost(
+        widget.communityId,
+        widget.channelId,
+        ForumPost(
+          id: 'fp_${DateTime.now().microsecondsSinceEpoch}',
+          authorId: me.id,
+          authorName: me.name,
+          time: DateTime.now(),
+          title: title,
+          body: _body.text.trim(),
+          score: 1,
+          myVote: 1,
+        ),
+      );
+    }
     Navigator.of(context).pop(true);
   }
 
@@ -656,11 +679,11 @@ class _CreateForumPostScreenState extends State<CreateForumPostScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('New post'),
+        title: Text(_isEdit ? 'Edit post' : 'New post'),
         actions: [
           TextButton(
             onPressed: _title.text.trim().isEmpty ? null : _post,
-            child: const Text('Post'),
+            child: Text(_isEdit ? 'Save' : 'Post'),
           ),
         ],
       ),
@@ -692,8 +715,8 @@ class _CreateForumPostScreenState extends State<CreateForumPostScreen> {
           const SizedBox(height: 16),
           FilledButton.icon(
             onPressed: _title.text.trim().isEmpty ? null : _post,
-            icon: const Icon(Icons.send),
-            label: const Text('Post'),
+            icon: Icon(_isEdit ? Icons.save : Icons.send),
+            label: Text(_isEdit ? 'Save' : 'Post'),
           ),
         ],
       ),

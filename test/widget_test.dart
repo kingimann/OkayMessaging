@@ -1368,6 +1368,42 @@ void main() {
       expect(remaining.any((p) => p.id == 'seed_post_1'), isFalse);
     });
 
+    test('editing a forum post updates it and flags edited', () {
+      CommunityStore.instance.resetForTest();
+      CommunityStore.instance.editForumPost('seed_design', 'seed_forum',
+          'seed_post_1', 'Updated title', 'Updated body');
+      final post = CommunityStore.instance
+          .byId('seed_design')!
+          .channels
+          .firstWhere((c) => c.id == 'seed_forum')
+          .posts
+          .firstWhere((p) => p.id == 'seed_post_1');
+      expect(post.title, 'Updated title');
+      expect(post.body, 'Updated body');
+      expect(post.edited, isTrue);
+      // A blank title is rejected (keeps the edit a no-op).
+      CommunityStore.instance.editForumPost(
+          'seed_design', 'seed_forum', 'seed_post_1', '   ', 'x');
+      expect(
+          CommunityStore.instance
+              .byId('seed_design')!
+              .channels
+              .firstWhere((c) => c.id == 'seed_forum')
+              .posts
+              .firstWhere((p) => p.id == 'seed_post_1')
+              .title,
+          'Updated title');
+    });
+
+    test('a server description can be set and survives JSON', () {
+      CommunityStore.instance.resetForTest();
+      CommunityStore.instance
+          .setCommunityDescription('seed_design', '  Cool crew  ');
+      final c = CommunityStore.instance.byId('seed_design')!;
+      expect(c.description, 'Cool crew'); // trimmed
+      expect(Community.fromJson(c.toJson()).description, 'Cool crew');
+    });
+
     test('post ordering by hot / new / top', () {
       final base = DateTime(2024, 1, 10, 12);
       // 'old' has the higher raw score but is 5 days (120h) stale, costing it

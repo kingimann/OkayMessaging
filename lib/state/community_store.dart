@@ -60,6 +60,8 @@ class CommunityStore extends ChangeNotifier {
           id: 'seed_design',
           name: 'Design Team',
           color: '#7A5CFF',
+          description: 'Where the product design crew shares work, '
+              'gives feedback, and hangs out.',
           channels: [
             Channel(
               id: 'seed_announce',
@@ -467,6 +469,29 @@ class CommunityStore extends ChangeNotifier {
     final community = byId(communityId);
     if (community == null) return;
     _replace(community.copyWith(color: color));
+  }
+
+  void setCommunityDescription(String communityId, String description) {
+    final community = byId(communityId);
+    if (community == null) return;
+    _replace(community.copyWith(description: description.trim()));
+  }
+
+  /// Edits a forum post's title/body (author or moderator) and flags it edited.
+  void editForumPost(String communityId, String channelId, String postId,
+      String title, String body) {
+    final community = byId(communityId);
+    if (community == null || title.trim().isEmpty) return;
+    final channels = community.channels.map((ch) {
+      if (ch.id != channelId) return ch;
+      final posts = ch.posts.map((p) {
+        if (p.id != postId) return p;
+        return p.copyWith(
+            title: title.trim(), body: body.trim(), edited: true);
+      }).toList();
+      return ch.copyWith(posts: posts);
+    }).toList();
+    _replace(community.copyWith(channels: channels));
   }
 
   /// Promotes/demotes a member. The owner role can't be changed here.

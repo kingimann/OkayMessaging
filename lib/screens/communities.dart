@@ -149,6 +149,14 @@ class _CommunityCard extends StatelessWidget {
                           ],
                         ],
                       ),
+                      if (community.description.isNotEmpty) ...[
+                        const SizedBox(height: 6),
+                        Text(community.description,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                                fontSize: 12.5, color: Colors.grey.shade600)),
+                      ],
                     ],
                   ),
                 ),
@@ -310,6 +318,13 @@ class CommunityScreen extends StatelessWidget {
                   ],
                 ),
               ),
+              if (community.description.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 2, 16, 4),
+                  child: Text(community.description,
+                      style: TextStyle(
+                          fontSize: 13.5, color: Colors.grey.shade700)),
+                ),
               for (final category in community.categories) ...[
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),

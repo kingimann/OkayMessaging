@@ -50,6 +50,14 @@ class CommunitySettingsScreen extends StatelessWidget {
                   subtitle: community.name,
                   onTap: () => _rename(context, community),
                 ),
+                InfoTile(
+                  leading: const Icon(Icons.notes_outlined),
+                  title: 'Description',
+                  subtitle: community.description.isEmpty
+                      ? 'Add a description'
+                      : community.description,
+                  onTap: () => _editDescription(context, community),
+                ),
               ]),
               Padding(
                 padding: const EdgeInsets.fromLTRB(24, 12, 24, 6),
@@ -141,6 +149,36 @@ class CommunitySettingsScreen extends StatelessWidget {
     );
     if (name != null && name.isNotEmpty) {
       CommunityStore.instance.renameCommunity(communityId, name);
+    }
+  }
+
+  Future<void> _editDescription(
+      BuildContext context, Community community) async {
+    final controller = TextEditingController(text: community.description);
+    final desc = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Server description'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLines: 3,
+          maxLength: 140,
+          decoration: const InputDecoration(
+              hintText: 'What is this server about?'),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+              child: const Text('Save')),
+        ],
+      ),
+    );
+    if (desc != null) {
+      CommunityStore.instance.setCommunityDescription(communityId, desc);
     }
   }
 
