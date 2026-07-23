@@ -22,6 +22,7 @@ import 'package:okay_messaging/screens/forum_screen.dart';
 import 'package:okay_messaging/screens/location_picker_screen.dart';
 import 'package:okay_messaging/screens/map_screen.dart';
 import 'package:okay_messaging/utils/friend_locations.dart';
+import 'package:okay_messaging/util/geocoding.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:okay_messaging/tabs/chats_tab.dart';
 import 'package:okay_messaging/utils/maps_link.dart';
@@ -3860,8 +3861,45 @@ void main() {
     });
   });
 
+  group('Place search (Photon geocoder)', () {
+    test('parses features into results with a readable label', () {
+      const body = '''
+      {"type":"FeatureCollection","features":[
+        {"type":"Feature",
+         "properties":{"name":"Eiffel Tower","city":"Paris","country":"France"},
+         "geometry":{"type":"Point","coordinates":[2.2945,48.8584]}},
+        {"type":"Feature",
+         "properties":{"name":"Louvre","city":"Paris","country":"France"},
+         "geometry":{"type":"Point","coordinates":[2.3376,48.8606]}}
+      ]}''';
+      final results = parsePhoton(body);
+      expect(results.length, 2);
+      expect(results.first.name, 'Eiffel Tower, Paris, France');
+      // Photon coordinates are [lng, lat] — make sure we don't swap them.
+      expect(results.first.lat, closeTo(48.8584, 0.0001));
+      expect(results.first.lng, closeTo(2.2945, 0.0001));
+    });
+
+    test('skips malformed features and tolerates junk', () {
+      const body = '''
+      {"features":[
+        {"properties":{"name":"No geometry"}},
+        {"geometry":{"coordinates":[1.0]},"properties":{"name":"Short coords"}},
+        {"geometry":{"coordinates":[5.0,6.0]},"properties":{"name":"Good"}}
+      ]}''';
+      final results = parsePhoton(body);
+      expect(results.length, 1);
+      expect(results.single.name, 'Good');
+    });
+
+    test('returns empty on non-list / invalid json', () {
+      expect(parsePhoton('{"features":"nope"}'), isEmpty);
+      expect(parsePhoton('not json'), isEmpty);
+    });
+  });
+
   group('Snap Map', () {
-    final base = const LatLng(37.7749, -122.4194);
+    const base = LatLng(37.7749, -122.4194);
 
     test('friendPlaces is deterministic, complete, and clustered nearby', () {
       final friends =

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 
+import '../util/geocoding.dart';
 import '../util/geolocation.dart';
 import '../widgets/osm_map.dart';
 
@@ -22,8 +23,45 @@ class LocationPickerScreen extends StatefulWidget {
 
 class _LocationPickerScreenState extends State<LocationPickerScreen> {
   final MapController _map = MapController();
+  final TextEditingController _search = TextEditingController();
   late LatLng _center = widget.initialCenter;
   bool _locating = false;
+  bool _searching = false;
+  List<GeoResult> _results = const [];
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
+
+  Future<void> _runSearch() async {
+    final q = _search.text.trim();
+    if (q.isEmpty) return;
+    setState(() => _searching = true);
+    final results = await searchPlaces(q);
+    if (!mounted) return;
+    setState(() {
+      _searching = false;
+      _results = results;
+    });
+    if (results.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No places found for "$q".')),
+      );
+    }
+  }
+
+  void _pickResult(GeoResult r) {
+    final here = LatLng(r.lat, r.lng);
+    _map.move(here, 16);
+    setState(() {
+      _center = here;
+      _results = const [];
+      _search.text = r.name;
+    });
+    FocusScope.of(context).unfocus();
+  }
 
   Future<void> _useMyLocation() async {
     setState(() => _locating = true);
@@ -70,6 +108,19 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
           const Padding(
             padding: EdgeInsets.only(bottom: 40),
             child: Icon(Icons.location_pin, size: 44, color: Color(0xFFEB4B3F)),
+          ),
+          // Search a place by name (OpenStreetMap / Photon geocoder).
+          Positioned(
+            top: 10,
+            left: 12,
+            right: 12,
+            child: _SearchBox(
+              controller: _search,
+              searching: _searching,
+              results: _results,
+              onSubmit: _runSearch,
+              onPick: _pickResult,
+            ),
           ),
           Positioned(
             right: 16,
@@ -124,6 +175,94 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// A rounded search field with a dropdown of geocoded place results.
+class _SearchBox extends StatelessWidget {
+  final TextEditingController controller;
+  final bool searching;
+  final List<GeoResult> results;
+  final VoidCallback onSubmit;
+  final ValueChanged<GeoResult> onPick;
+
+  const _SearchBox({
+    required this.controller,
+    required this.searching,
+    required this.results,
+    required this.onSubmit,
+    required this.onPick,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Material(
+          elevation: 3,
+          borderRadius: BorderRadius.circular(28),
+          child: TextField(
+            controller: controller,
+            textInputAction: TextInputAction.search,
+            onSubmitted: (_) => onSubmit(),
+            decoration: InputDecoration(
+              hintText: 'Search a place or address',
+              prefixIcon: const Icon(Icons.search),
+              suffixIcon: searching
+                  ? const Padding(
+                      padding: EdgeInsets.all(12),
+                      child: SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    )
+                  : IconButton(
+                      icon: const Icon(Icons.arrow_forward),
+                      onPressed: onSubmit,
+                    ),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(28),
+                borderSide: BorderSide.none,
+              ),
+              filled: true,
+              fillColor: Theme.of(context).colorScheme.surface,
+              contentPadding: const EdgeInsets.symmetric(vertical: 4),
+            ),
+          ),
+        ),
+        if (results.isNotEmpty)
+          Container(
+            margin: const EdgeInsets.only(top: 6),
+            constraints: const BoxConstraints(maxHeight: 260),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surface,
+              borderRadius: BorderRadius.circular(14),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.12),
+                  blurRadius: 8,
+                ),
+              ],
+            ),
+            child: ListView.separated(
+              shrinkWrap: true,
+              itemCount: results.length,
+              separatorBuilder: (_, __) => const Divider(height: 1),
+              itemBuilder: (context, i) {
+                final r = results[i];
+                return ListTile(
+                  leading: const Icon(Icons.place_outlined),
+                  title: Text(r.name,
+                      maxLines: 2, overflow: TextOverflow.ellipsis),
+                  onTap: () => onPick(r),
+                );
+              },
+            ),
+          ),
+      ],
     );
   }
 }
