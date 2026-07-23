@@ -148,25 +148,42 @@ class _ChatInputBarState extends State<ChatInputBar> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final fieldColor = isDark ? AppColors.darkAppBar : Colors.white;
+    // The input pill needs to stand out from the (white) chat background, so
+    // it uses a soft grey in light mode rather than blending into white.
+    final fieldColor =
+        isDark ? AppColors.darkAppBar : const Color(0xFFEFF1F3);
 
-    return SafeArea(
-      top: false,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (widget.replyTo != null && !_recording)
-            _ReplyPreview(
-              reply: widget.replyTo!,
-              onCancel: widget.onCancelReply,
-              isDark: isDark,
-            ),
-          _recording
-              ? _buildRecordingBar(isDark, fieldColor)
-              : _buildComposer(isDark, fieldColor),
-          if (_emojiOpen && !_recording)
-            _EmojiPicker(onSelected: _insertEmoji, isDark: isDark),
-        ],
+    return DecoratedBox(
+      // A hairline separates the composer from the conversation above it.
+      decoration: BoxDecoration(
+        border: Border(
+          top: BorderSide(
+            color: isDark ? const Color(0xFF2A2D31) : const Color(0xFFE8EAED),
+            width: 0.6,
+          ),
+        ),
+      ),
+      child: SafeArea(
+        top: false,
+        // A little bottom breathing room so the bar isn't jammed against the
+        // browser toolbar / gesture area on the web build.
+        minimum: const EdgeInsets.only(bottom: 6),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (widget.replyTo != null && !_recording)
+              _ReplyPreview(
+                reply: widget.replyTo!,
+                onCancel: widget.onCancelReply,
+                isDark: isDark,
+              ),
+            _recording
+                ? _buildRecordingBar(isDark, fieldColor)
+                : _buildComposer(isDark, fieldColor),
+            if (_emojiOpen && !_recording)
+              _EmojiPicker(onSelected: _insertEmoji, isDark: isDark),
+          ],
+        ),
       ),
     );
   }
