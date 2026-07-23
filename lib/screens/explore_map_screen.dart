@@ -115,8 +115,17 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Nothing found for "$q" nearby.')),
       );
+    } else if (results.length == 1) {
+      _map.move(LatLng(results.first.lat, results.first.lng), 15);
     } else {
-      _map.move(LatLng(results.first.lat, results.first.lng), 14);
+      // Frame every result pin at once, Apple-Maps style.
+      _map.fitCamera(
+        CameraFit.bounds(
+          bounds: LatLngBounds.fromPoints(
+              [for (final r in results) LatLng(r.lat, r.lng)]),
+          padding: const EdgeInsets.fromLTRB(50, 140, 50, 120),
+        ),
+      );
     }
   }
 
@@ -317,6 +326,10 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
                   if (selected != null)
                     mapPin(LatLng(selected.lat, selected.lng)),
                 ],
+              ),
+              const Scalebar(
+                alignment: Alignment.bottomLeft,
+                padding: EdgeInsets.fromLTRB(10, 0, 0, 14),
               ),
               const LiveAttribution(),
             ],

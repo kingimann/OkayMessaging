@@ -195,7 +195,7 @@ class MapControls extends StatelessWidget {
 
   void _zoom(double delta) {
     final cam = controller.camera;
-    controller.move(cam.center, (cam.zoom + delta).clamp(2.0, 19.0));
+    controller.move(cam.center, (cam.zoom + delta).clamp(2.0, 20.0));
   }
 
   Future<void> _pickLayer(BuildContext context) async {

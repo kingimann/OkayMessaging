@@ -1071,6 +1071,15 @@ class _ChatScreenState extends State<ChatScreen> {
                     Navigator.of(sheetContext).pop();
                   },
                 ),
+                if (message.isMe)
+                  ListTile(
+                    leading: const Icon(Icons.info_outline),
+                    title: const Text('Message info'),
+                    onTap: () {
+                      Navigator.of(sheetContext).pop();
+                      _showMessageInfo(message);
+                    },
+                  ),
                 ListTile(
                   leading: const Icon(Icons.delete_outline, color: Colors.red),
                   title:
@@ -1448,6 +1457,66 @@ class _ChatScreenState extends State<ChatScreen> {
     }
     CallService.instance.startOutgoing(widget.chat.contact, video: video);
   }
+
+  /// A WhatsApp-style "Message info" dialog: when it was sent and how far it
+  /// got (sent → delivered → read), plus edit details when applicable.
+  void _showMessageInfo(Message message) {
+    final statusLabel = switch (message.status) {
+      MessageStatus.read => 'Read',
+      MessageStatus.delivered => 'Delivered',
+      MessageStatus.sent => 'Sent',
+      _ => 'Pending',
+    };
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Message info'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _infoRow(Icons.schedule,
+                'Sent ${DateFormatter.messageTime(message.time)}'),
+            const SizedBox(height: 10),
+            _infoRow(
+              message.status == MessageStatus.read
+                  ? Icons.done_all
+                  : message.status == MessageStatus.delivered
+                      ? Icons.done_all
+                      : Icons.done,
+              'Status: $statusLabel',
+            ),
+            if (message.edited) ...[
+              const SizedBox(height: 10),
+              _infoRow(Icons.edit_outlined, 'Edited'),
+            ],
+            if (message.viewOnce) ...[
+              const SizedBox(height: 10),
+              _infoRow(
+                  Icons.timer_outlined,
+                  message.viewOnceOpened
+                      ? 'View once · opened'
+                      : 'View once · not opened yet'),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _infoRow(IconData icon, String text) => Row(
+        children: [
+          Icon(icon, size: 18, color: Colors.grey.shade600),
+          const SizedBox(width: 10),
+          Expanded(child: Text(text)),
+        ],
+      );
 
   /// Whether tapping an image should open the viewer. A spent view-once photo
   /// is no longer openable by the recipient.

@@ -258,6 +258,10 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
                   mapPin(widget.dest),
                 ],
               ),
+              const Scalebar(
+                alignment: Alignment.bottomLeft,
+                padding: EdgeInsets.fromLTRB(10, 0, 0, 14),
+              ),
               const LiveAttribution(),
             ],
           ),

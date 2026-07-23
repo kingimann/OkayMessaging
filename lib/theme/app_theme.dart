@@ -98,6 +98,10 @@ class AppTheme {
         side: BorderSide.none,
         backgroundColor: const Color(0xFFEFF2F3),
       ),
+      snackBarTheme: SnackBarThemeData(
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
     );
   }
 
@@ -154,6 +158,10 @@ class AppTheme {
       chipTheme: base.chipTheme.copyWith(
         side: BorderSide.none,
         backgroundColor: const Color(0xFF2A2E34),
+      ),
+      snackBarTheme: SnackBarThemeData(
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
     );
   }

@@ -23,6 +23,7 @@ import 'package:okay_messaging/screens/location_picker_screen.dart';
 import 'package:okay_messaging/screens/map_screen.dart';
 import 'package:okay_messaging/utils/friend_locations.dart';
 import 'package:okay_messaging/util/geocoding.dart';
+import 'package:okay_messaging/util/geolocation.dart';
 import 'package:okay_messaging/utils/chat_transcript.dart';
 import 'package:okay_messaging/util/routing.dart';
 import 'package:okay_messaging/screens/chat_places_screen.dart';
@@ -85,6 +86,9 @@ void main() {
     LiveLocationStore.instance.resetForTest();
     SavedPlacesStore.instance.resetForTest();
     RecentSearches.maps.resetForTest();
+    // Plugin platform channels never complete inside the fake-async test
+    // zone, so resolve GPS lookups immediately (with no fix) in tests.
+    debugGeolocationOverride = () async => null;
   });
 
   testWidgets('App boots with Chats and Calls tabs (no Status)',
@@ -4177,6 +4181,65 @@ void main() {
     test('returns empty on non-list / invalid json', () {
       expect(parsePhoton('{"features":"nope"}'), isEmpty);
       expect(parsePhoton('not json'), isEmpty);
+    });
+  });
+
+  group('Forum search', () {
+    test('filterPosts matches title, body, and author, else passes through',
+        () {
+      final posts = CommunityStore.instance
+          .byId('seed_design')!
+          .channels
+          .firstWhere((c) => c.id == 'seed_forum')
+          .posts;
+      expect(filterPosts(posts, ''), posts);
+      final byTitle = filterPosts(posts, 'brand palette');
+      expect(byTitle.length, 1);
+      expect(byTitle.single.id, 'seed_post_2');
+      expect(filterPosts(posts, 'zzz-no-match'), isEmpty);
+    });
+
+    testWidgets('the search field filters the feed live', (tester) async {
+      await tester.pumpWidget(const MaterialApp(
+        home: ForumChannelScreen(
+            communityId: 'seed_design', channelId: 'seed_forum'),
+      ));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('design tools'), findsOneWidget);
+      expect(find.textContaining('brand palette'), findsOneWidget);
+
+      await tester.tap(find.byIcon(Icons.search));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).first, 'palette');
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('brand palette'), findsOneWidget);
+      expect(find.textContaining('design tools'), findsNothing);
+
+      // Closing search clears the filter.
+      await tester.tap(find.byIcon(Icons.close));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('design tools'), findsOneWidget);
+    });
+  });
+
+  group('Message info', () {
+    testWidgets('shows sent time and status for your own message',
+        (tester) async {
+      await tester.pumpWidget(const OkayMessagingApp());
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Bob Carter'));
+      await tester.pumpAndSettle();
+
+      await tester.longPress(find.text('Yes! What a finish 🔥'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Message info'));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('Sent '), findsOneWidget);
+      expect(find.text('Status: Read'), findsOneWidget);
+      await tester.tap(find.text('Close'));
+      await tester.pumpAndSettle();
     });
   });
 

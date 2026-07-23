@@ -38,6 +38,18 @@ List<ForumPost> sortPosts(List<ForumPost> posts, ForumSort sort,
   return [...pinned, ...rest];
 }
 
+/// Case-insensitively filters [posts] by title, body, or author. Pure.
+List<ForumPost> filterPosts(List<ForumPost> posts, String query) {
+  final q = query.trim().toLowerCase();
+  if (q.isEmpty) return posts;
+  return posts
+      .where((p) =>
+          p.title.toLowerCase().contains(q) ||
+          p.body.toLowerCase().contains(q) ||
+          p.authorName.toLowerCase().contains(q))
+      .toList();
+}
+
 /// Whether [authorId] is the local user (posts they created, or the seeded
 /// `me` member).
 bool isMineAuthor(String authorId) =>
@@ -57,6 +69,14 @@ class ForumChannelScreen extends StatefulWidget {
 
 class _ForumChannelScreenState extends State<ForumChannelScreen> {
   ForumSort _sort = ForumSort.hot;
+  bool _searching = false;
+  final TextEditingController _query = TextEditingController();
+
+  @override
+  void dispose() {
+    _query.dispose();
+    super.dispose();
+  }
 
   Future<void> _newPost() async {
     await Navigator.of(context).push<bool>(MaterialPageRoute(
@@ -77,16 +97,37 @@ class _ForumChannelScreenState extends State<ForumChannelScreen> {
         if (channel == null) {
           return const Scaffold(body: Center(child: Text('Channel not found')));
         }
-        final posts = sortPosts(channel.posts, _sort);
+        final posts =
+            sortPosts(filterPosts(channel.posts, _query.text), _sort);
         return Scaffold(
           appBar: AppBar(
-            title: Row(
-              children: [
-                const Icon(Icons.forum_rounded, size: 20),
-                const SizedBox(width: 6),
-                Text(channel.name),
-              ],
-            ),
+            title: _searching
+                ? TextField(
+                    controller: _query,
+                    autofocus: true,
+                    decoration: const InputDecoration(
+                      hintText: 'Search posts',
+                      border: InputBorder.none,
+                    ),
+                    onChanged: (_) => setState(() {}),
+                  )
+                : Row(
+                    children: [
+                      const Icon(Icons.forum_rounded, size: 20),
+                      const SizedBox(width: 6),
+                      Text(channel.name),
+                    ],
+                  ),
+            actions: [
+              IconButton(
+                icon: Icon(_searching ? Icons.close : Icons.search),
+                tooltip: _searching ? 'Close search' : 'Search posts',
+                onPressed: () => setState(() {
+                  if (_searching) _query.clear();
+                  _searching = !_searching;
+                }),
+              ),
+            ],
           ),
           floatingActionButton: FloatingActionButton.extended(
             onPressed: _newPost,

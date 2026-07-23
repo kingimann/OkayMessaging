@@ -6,6 +6,8 @@
 		<string>Okay Messaging needs the camera for video calls.</string>
 		<key>NSMicrophoneUsageDescription</key>
 		<string>Okay Messaging needs the microphone for voice and video calls.</string>
+		<key>NSLocationWhenInUseUsageDescription</key>
+		<string>Okay Messaging uses your location to show you on the map, share places, and give directions.</string>
 		<key>CADisableMinimumFrameDurationOnPhone</key>
 		<true/>
 		<key>CFBundleDevelopmentRegion</key>
