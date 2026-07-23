@@ -10,6 +10,7 @@ import 'communities.dart';
 import 'new_chat_screen.dart';
 import 'settings_screen.dart';
 import 'starred_messages_screen.dart';
+import 'status_screen.dart';
 
 /// The top-level screen: a modern pill bottom bar switching between Chats and
 /// Calls, with a compose FAB.
@@ -62,6 +63,13 @@ class _HomeScreenState extends State<HomeScreen> {
             : Text(_titleForIndex),
         actions: [
           if (onChats) ...[
+            IconButton(
+              icon: const Icon(Icons.motion_photos_on_outlined),
+              tooltip: 'Status',
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const StatusScreen()),
+              ),
+            ),
             IconButton(
               icon: const Icon(Icons.add_comment_outlined),
               tooltip: 'New chat',

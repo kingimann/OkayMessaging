@@ -32,8 +32,10 @@ import 'package:okay_messaging/state/app_lock.dart';
 import 'package:okay_messaging/state/call_service.dart';
 import 'package:okay_messaging/state/community_store.dart';
 import 'package:okay_messaging/state/file_transfer.dart';
+import 'package:okay_messaging/models/status_update.dart';
 import 'package:okay_messaging/payments/payment_service.dart';
 import 'package:okay_messaging/state/backup_service.dart';
+import 'package:okay_messaging/state/status_store.dart';
 import 'package:okay_messaging/state/chat_store.dart';
 import 'package:okay_messaging/state/recent_searches.dart';
 import 'package:okay_messaging/state/scheduler.dart';
@@ -3031,6 +3033,67 @@ void main() {
       RelayService.applyIncoming(payload, myPhone: '+1 555 0100');
       expect(
           StreakStore.instance.streakFor('chat_+1 555 0199', now: at), 8);
+    });
+  });
+
+  group('Status (stories)', () {
+    StatusUpdate su(String id, String author, DateTime t) => StatusUpdate(
+          id: id,
+          authorId: author,
+          authorName: author == 'me' ? 'You' : author,
+          avatarColor: '#7A5CFF',
+          text: 'hi',
+          bgColor: '#12B76A',
+          time: t,
+        );
+
+    test('expired updates drop out of the active window', () {
+      final now = DateTime(2024, 6, 10, 12);
+      StatusStore.instance.seedForTest([
+        su('fresh', 'me', now.subtract(const Duration(hours: 2))),
+        su('old', 'me', now.subtract(const Duration(hours: 30))), // > 24h
+      ]);
+      final mine = StatusStore.instance.myActive(now: now);
+      expect(mine.map((u) => u.id), ['fresh']);
+    });
+
+    test('other authors are grouped and ordered by most recent', () {
+      final now = DateTime(2024, 6, 10, 12);
+      StatusStore.instance.seedForTest([
+        su('a1', 'u_alice', now.subtract(const Duration(hours: 6))),
+        su('e1', 'u_erin', now.subtract(const Duration(hours: 5))),
+        su('e2', 'u_erin', now.subtract(const Duration(hours: 1))),
+        su('mine', 'me', now.subtract(const Duration(hours: 2))),
+      ]);
+      final threads = StatusStore.instance.otherThreads(now: now);
+      // Two other authors (me excluded); Erin most recent → first.
+      expect(threads.length, 2);
+      expect(threads.first.authorId, 'u_erin');
+      expect(threads.first.updates.length, 2);
+      // Grouped updates are oldest-first for playback.
+      expect(threads.first.updates.map((u) => u.id), ['e1', 'e2']);
+    });
+
+    test('posting adds a status for the current user', () {
+      StatusStore.instance.resetForTest();
+      final now = DateTime(2024, 6, 10, 12);
+      StatusStore.instance.post(
+        text: 'On vacation 🏖️',
+        bgColor: '#0BA5EC',
+        authorName: 'You',
+        avatarColor: '#25D366',
+        now: now,
+      );
+      final mine = StatusStore.instance.myActive(now: now);
+      expect(mine.single.text, 'On vacation 🏖️');
+      // Blank posts are ignored.
+      StatusStore.instance.post(
+          text: '   ',
+          bgColor: '#0BA5EC',
+          authorName: 'You',
+          avatarColor: '#25D366',
+          now: now);
+      expect(StatusStore.instance.myActive(now: now).length, 1);
     });
   });
 

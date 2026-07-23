@@ -18,6 +18,7 @@ import 'state/recent_searches.dart';
 import 'state/scheduler.dart';
 import 'state/score_store.dart';
 import 'state/session.dart';
+import 'state/status_store.dart';
 import 'state/streak_store.dart';
 import 'theme/app_theme.dart';
 import 'widgets/file_transfer_banner.dart';
@@ -39,6 +40,7 @@ Future<void> main() async {
   await RecentSearches.instance.load();
   await BackupService.instance.load();
   await PaymentService.instance.load();
+  await StatusStore.instance.load();
   if (StreakStore.instance.isEmpty) {
     // Seed a couple of demo streaks so the feature is visible on first run;
     // real streaks then build (and lapse) from actual conversation activity.
