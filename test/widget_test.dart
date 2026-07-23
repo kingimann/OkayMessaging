@@ -66,6 +66,7 @@ void main() {
     CallService.instance.resetForTest();
     AppLock.instance.resetForTest();
     CommunityStore.instance.resetForTest();
+    ChatsTab.filtersVisible.value = false;
   });
 
   testWidgets('App boots with Chats and Calls tabs (no Status)',
@@ -3514,11 +3515,44 @@ void main() {
 
   group('Chat list filters', () {
     Future<void> pumpTab(WidgetTester tester) async {
+      // The chip bar is hidden by default; reveal it for these tests.
+      ChatsTab.filtersVisible.value = true;
       await tester.pumpWidget(
         const MaterialApp(home: Scaffold(body: ChatsTab())),
       );
       await tester.pumpAndSettle();
     }
+
+    testWidgets('filter chips are hidden by default', (tester) async {
+      await tester.pumpWidget(
+        const MaterialApp(home: Scaffold(body: ChatsTab())),
+      );
+      await tester.pumpAndSettle();
+      // No chip row until it's toggled on from the menu.
+      expect(find.text('Unread'), findsNothing);
+      expect(find.text('Groups'), findsNothing);
+      // The chat list is still shown, unfiltered.
+      expect(find.text('Bob Carter'), findsOneWidget);
+    });
+
+    testWidgets('overflow menu toggles the filter chips', (tester) async {
+      await tester.pumpWidget(const OkayMessagingApp());
+      await tester.pumpAndSettle();
+      expect(find.text('Unread'), findsNothing);
+
+      await tester.tap(find.byIcon(Icons.more_vert));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Filter chats'));
+      await tester.pumpAndSettle();
+      expect(find.text('Unread'), findsOneWidget);
+
+      // The menu now offers to hide them again.
+      await tester.tap(find.byIcon(Icons.more_vert));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Hide filters'));
+      await tester.pumpAndSettle();
+      expect(find.text('Unread'), findsNothing);
+    });
 
     test('ChatFilter.matches applies the right predicate', () {
       final store = ChatStore.instance;

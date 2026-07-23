@@ -26,6 +26,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _onMenuSelected(String value) {
     switch (value) {
+      case 'filter':
+        ChatsTab.filtersVisible.value = !ChatsTab.filtersVisible.value;
+        break;
       case 'settings':
         Navigator.of(context).push(
           MaterialPageRoute(builder: (_) => const SettingsScreen()),
@@ -85,9 +88,16 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             PopupMenuButton<String>(
               onSelected: _onMenuSelected,
-              itemBuilder: (context) => const [
-                PopupMenuItem(value: 'archived', child: Text('Archived chats')),
+              itemBuilder: (context) => [
                 PopupMenuItem(
+                  value: 'filter',
+                  child: Text(ChatsTab.filtersVisible.value
+                      ? 'Hide filters'
+                      : 'Filter chats'),
+                ),
+                const PopupMenuItem(
+                    value: 'archived', child: Text('Archived chats')),
+                const PopupMenuItem(
                     value: 'starred', child: Text('Starred messages')),
               ],
             ),

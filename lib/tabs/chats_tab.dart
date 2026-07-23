@@ -36,6 +36,10 @@ enum ChatFilter {
 class ChatsTab extends StatefulWidget {
   const ChatsTab({super.key});
 
+  /// Whether the filter chips are shown. Hidden by default to keep the chat
+  /// list uncluttered; toggled from the Chats overflow menu.
+  static final ValueNotifier<bool> filtersVisible = ValueNotifier<bool>(false);
+
   @override
   State<ChatsTab> createState() => _ChatsTabState();
 }
@@ -145,31 +149,42 @@ class _ChatsTabState extends State<ChatsTab> {
             ),
           );
         }
-        // Favourites only appears as a filter once something is favourited, so
-        // the row stays uncluttered on a fresh account.
-        final filters = <ChatFilter>[
-          ChatFilter.all,
-          ChatFilter.unread,
-          if (store.hasFavorites) ChatFilter.favorites,
-          ChatFilter.groups,
-        ];
-        // A previously-selected filter (e.g. Favourites) can disappear from the
-        // row; fall back to All so the list never hides everything.
-        final active = filters.contains(_filter) ? _filter : ChatFilter.all;
-        final chats = allChats.where(active.matches).toList();
-        return Column(
-          children: [
-            _FilterBar(
-              filters: filters,
-              active: active,
-              onChanged: (f) => setState(() => _filter = f),
-            ),
-            Expanded(
-              child: chats.isEmpty
-                  ? _EmptyFilter(filter: active)
-                  : _buildList(store, chats),
-            ),
-          ],
+        return ValueListenableBuilder<bool>(
+          valueListenable: ChatsTab.filtersVisible,
+          builder: (context, showFilters, _) {
+            // When hidden, the list is unfiltered so nothing is silently
+            // scoped away behind a collapsed bar.
+            if (!showFilters) return _buildList(store, allChats);
+
+            // Favourites only appears as a filter once something is
+            // favourited, so the row stays uncluttered on a fresh account.
+            final filters = <ChatFilter>[
+              ChatFilter.all,
+              ChatFilter.unread,
+              if (store.hasFavorites) ChatFilter.favorites,
+              ChatFilter.groups,
+            ];
+            // A previously-selected filter (e.g. Favourites) can disappear
+            // from the row; fall back to All so the list never hides
+            // everything.
+            final active =
+                filters.contains(_filter) ? _filter : ChatFilter.all;
+            final chats = allChats.where(active.matches).toList();
+            return Column(
+              children: [
+                _FilterBar(
+                  filters: filters,
+                  active: active,
+                  onChanged: (f) => setState(() => _filter = f),
+                ),
+                Expanded(
+                  child: chats.isEmpty
+                      ? _EmptyFilter(filter: active)
+                      : _buildList(store, chats),
+                ),
+              ],
+            );
+          },
         );
       },
     );
