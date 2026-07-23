@@ -192,6 +192,17 @@ class ChatStore extends ChangeNotifier {
     if (i != -1) _replace(i, _chats[i].copyWith(isMuted: !_chats[i].isMuted));
   }
 
+  void toggleFavorite(String id) {
+    final i = _indexOf(id);
+    if (i != -1) {
+      _replace(i, _chats[i].copyWith(isFavorite: !_chats[i].isFavorite));
+    }
+  }
+
+  /// Whether any non-archived chat is currently marked a favourite.
+  bool get hasFavorites =>
+      _chats.any((c) => c.isFavorite && !c.isArchived);
+
   void setArchived(String id, bool archived) {
     final i = _indexOf(id);
     if (i != -1) {

@@ -10,6 +10,7 @@ class Chat {
   final bool isPinned;
   final bool isMuted;
   final bool isArchived;
+  final bool isFavorite;
 
   /// The id of the message pinned to the top of this chat, if any.
   final String? pinnedMessageId;
@@ -29,6 +30,7 @@ class Chat {
     this.isPinned = false,
     this.isMuted = false,
     this.isArchived = false,
+    this.isFavorite = false,
     this.pinnedMessageId,
     this.members = const [],
     this.disappearingSeconds = 0,
@@ -56,6 +58,7 @@ class Chat {
         'isPinned': isPinned,
         'isMuted': isMuted,
         'isArchived': isArchived,
+        'isFavorite': isFavorite,
         'pinnedMessageId': pinnedMessageId,
         'members': members.map((m) => m.toJson()).toList(),
         'disappearingSeconds': disappearingSeconds,
@@ -72,6 +75,7 @@ class Chat {
         isPinned: json['isPinned'] as bool? ?? false,
         isMuted: json['isMuted'] as bool? ?? false,
         isArchived: json['isArchived'] as bool? ?? false,
+        isFavorite: json['isFavorite'] as bool? ?? false,
         pinnedMessageId: json['pinnedMessageId'] as String?,
         members: (json['members'] as List? ?? const [])
             .map((m) => AppUser.fromJson(Map<String, dynamic>.from(m as Map)))
@@ -86,6 +90,7 @@ class Chat {
     bool? isPinned,
     bool? isMuted,
     bool? isArchived,
+    bool? isFavorite,
     String? pinnedMessageId,
     bool clearPinned = false,
     int? disappearingSeconds,
@@ -98,6 +103,7 @@ class Chat {
       isPinned: isPinned ?? this.isPinned,
       isMuted: isMuted ?? this.isMuted,
       isArchived: isArchived ?? this.isArchived,
+      isFavorite: isFavorite ?? this.isFavorite,
       pinnedMessageId:
           clearPinned ? null : (pinnedMessageId ?? this.pinnedMessageId),
       members: members,

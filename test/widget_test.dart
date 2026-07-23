@@ -18,6 +18,7 @@ import 'package:okay_messaging/screens/contact_info_screen.dart';
 import 'package:okay_messaging/screens/chats_settings_screen.dart';
 import 'package:okay_messaging/screens/okay_pro_screen.dart';
 import 'package:okay_messaging/screens/forum_screen.dart';
+import 'package:okay_messaging/tabs/chats_tab.dart';
 import 'package:okay_messaging/widgets/message_bubble.dart';
 import 'package:okay_messaging/screens/score_screen.dart';
 import 'package:okay_messaging/models/chat.dart';
@@ -3400,7 +3401,7 @@ void main() {
   });
 
   group('Custom bubble color (Okay Pro)', () {
-    Color _outgoingBubbleColor(WidgetTester tester) {
+    Color outgoingBubbleColor(WidgetTester tester) {
       final containers = tester.widgetList<Container>(
         find.descendant(
           of: find.byType(MessageBubble),
@@ -3486,7 +3487,7 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      expect(_outgoingBubbleColor(tester), const Color(0xFFEB4B7E));
+      expect(outgoingBubbleColor(tester), const Color(0xFFEB4B7E));
     });
 
     testWidgets('incoming bubble ignores the custom color', (tester) async {
@@ -3506,7 +3507,83 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      expect(_outgoingBubbleColor(tester), isNot(const Color(0xFFEB4B7E)));
+      expect(outgoingBubbleColor(tester), isNot(const Color(0xFFEB4B7E)));
+    });
+  });
+
+  group('Chat list filters', () {
+    Future<void> pumpTab(WidgetTester tester) async {
+      await tester.pumpWidget(
+        const MaterialApp(home: Scaffold(body: ChatsTab())),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    test('ChatFilter.matches applies the right predicate', () {
+      final store = ChatStore.instance;
+      final group = store.chatById('c_dev')!; // Team Standup, unread 5
+      final read = store.chatById('c_bob')!; // no unread, 1:1
+      expect(ChatFilter.all.matches(read), isTrue);
+      expect(ChatFilter.unread.matches(group), isTrue);
+      expect(ChatFilter.unread.matches(read), isFalse);
+      expect(ChatFilter.groups.matches(group), isTrue);
+      expect(ChatFilter.groups.matches(read), isFalse);
+      expect(ChatFilter.favorites.matches(read), isFalse);
+    });
+
+    testWidgets('Favourites chip appears only after favouriting',
+        (tester) async {
+      await pumpTab(tester);
+      expect(find.text('All'), findsOneWidget);
+      expect(find.text('Unread'), findsOneWidget);
+      expect(find.text('Groups'), findsOneWidget);
+      expect(find.text('Favourites'), findsNothing);
+
+      ChatStore.instance.toggleFavorite('c_alice');
+      await tester.pumpAndSettle();
+      expect(find.text('Favourites'), findsOneWidget);
+    });
+
+    testWidgets('Unread filter shows only unread chats', (tester) async {
+      await pumpTab(tester);
+      expect(find.text('Bob Carter'), findsOneWidget);
+
+      await tester.tap(find.text('Unread'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Team Standup'), findsOneWidget); // unread 5
+      expect(find.text('Bob Carter'), findsNothing); // read
+    });
+
+    testWidgets('Groups filter shows only group chats', (tester) async {
+      await pumpTab(tester);
+      await tester.tap(find.text('Groups'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Team Standup'), findsOneWidget);
+      expect(find.text('Alice Bennett'), findsNothing);
+    });
+
+    testWidgets('Favourites filter shows only favourited chats',
+        (tester) async {
+      ChatStore.instance.toggleFavorite('c_bob');
+      await pumpTab(tester);
+      await tester.tap(find.text('Favourites'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Bob Carter'), findsOneWidget);
+      expect(find.text('Alice Bennett'), findsNothing);
+    });
+
+    test('isFavorite survives a JSON roundtrip', () {
+      final store = ChatStore.instance;
+      store.toggleFavorite('c_alice');
+      final snapshot = jsonDecode(jsonEncode(store.toJson()))
+          as Map<String, dynamic>;
+      store.reset();
+      store.hydrate(snapshot);
+      expect(store.chatById('c_alice')!.isFavorite, isTrue);
+      expect(store.chatById('c_bob')!.isFavorite, isFalse);
     });
   });
 }

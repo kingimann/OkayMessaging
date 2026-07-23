@@ -8,6 +8,29 @@ import '../state/chat_store.dart';
 import '../theme/app_theme.dart';
 import '../widgets/chat_list_tile.dart';
 
+/// Quick filters shown as chips above the chat list, mirroring the familiar
+/// All / Unread / Favourites / Groups controls.
+enum ChatFilter {
+  all,
+  unread,
+  favorites,
+  groups;
+
+  String get label => switch (this) {
+        ChatFilter.all => 'All',
+        ChatFilter.unread => 'Unread',
+        ChatFilter.favorites => 'Favourites',
+        ChatFilter.groups => 'Groups',
+      };
+
+  bool matches(Chat chat) => switch (this) {
+        ChatFilter.all => true,
+        ChatFilter.unread => chat.unreadCount > 0,
+        ChatFilter.favorites => chat.isFavorite,
+        ChatFilter.groups => chat.contact.isGroup,
+      };
+}
+
 /// The primary "Chats" tab: a clean, uncluttered list of all (non-archived)
 /// conversations. Search and archived chats live in the app-bar menu.
 class ChatsTab extends StatefulWidget {
@@ -18,6 +41,7 @@ class ChatsTab extends StatefulWidget {
 }
 
 class _ChatsTabState extends State<ChatsTab> {
+  ChatFilter _filter = ChatFilter.all;
   void _openChat(Chat chat) {
     Navigator.of(context)
         .push(MaterialPageRoute(builder: (_) => ChatScreen(chat: chat)));
@@ -42,6 +66,14 @@ class _ChatsTabState extends State<ChatsTab> {
                     chat.isPinned ? Icons.push_pin : Icons.push_pin_outlined),
                 title: Text(chat.isPinned ? 'Unpin chat' : 'Pin chat'),
                 onTap: () => act(() => store.togglePin(chat.id)),
+              ),
+              ListTile(
+                leading: Icon(
+                    chat.isFavorite ? Icons.star : Icons.star_border_outlined),
+                title: Text(chat.isFavorite
+                    ? 'Remove from favourites'
+                    : 'Add to favourites'),
+                onTap: () => act(() => store.toggleFavorite(chat.id)),
               ),
               ListTile(
                 leading:
@@ -100,8 +132,8 @@ class _ChatsTabState extends State<ChatsTab> {
     return ListenableBuilder(
       listenable: store,
       builder: (context, _) {
-        final chats = store.chats;
-        if (chats.isEmpty) {
+        final allChats = store.chats;
+        if (allChats.isEmpty) {
           return RefreshIndicator(
             onRefresh: _refresh,
             child: ListView(
@@ -113,17 +145,48 @@ class _ChatsTabState extends State<ChatsTab> {
             ),
           );
         }
-        return RefreshIndicator(
-          onRefresh: _refresh,
-          child: ListView.separated(
-            physics: const AlwaysScrollableScrollPhysics(),
-            itemCount: chats.length,
-            separatorBuilder: (_, __) => const Divider(
-              height: 1,
-              indent: 84,
-              thickness: 0.4,
+        // Favourites only appears as a filter once something is favourited, so
+        // the row stays uncluttered on a fresh account.
+        final filters = <ChatFilter>[
+          ChatFilter.all,
+          ChatFilter.unread,
+          if (store.hasFavorites) ChatFilter.favorites,
+          ChatFilter.groups,
+        ];
+        // A previously-selected filter (e.g. Favourites) can disappear from the
+        // row; fall back to All so the list never hides everything.
+        final active = filters.contains(_filter) ? _filter : ChatFilter.all;
+        final chats = allChats.where(active.matches).toList();
+        return Column(
+          children: [
+            _FilterBar(
+              filters: filters,
+              active: active,
+              onChanged: (f) => setState(() => _filter = f),
             ),
-            itemBuilder: (context, index) {
+            Expanded(
+              child: chats.isEmpty
+                  ? _EmptyFilter(filter: active)
+                  : _buildList(store, chats),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildList(ChatStore store, List<Chat> chats) {
+    return RefreshIndicator(
+      onRefresh: _refresh,
+      child: ListView.separated(
+        physics: const AlwaysScrollableScrollPhysics(),
+        itemCount: chats.length,
+        separatorBuilder: (_, __) => const Divider(
+          height: 1,
+          indent: 84,
+          thickness: 0.4,
+        ),
+        itemBuilder: (context, index) {
             final chat = chats[index];
             return Dismissible(
               key: ValueKey('chatrow_${chat.id}'),
@@ -154,7 +217,77 @@ class _ChatsTabState extends State<ChatsTab> {
             },
           ),
         );
-      },
+  }
+}
+
+/// A horizontal row of filter chips above the chat list.
+class _FilterBar extends StatelessWidget {
+  final List<ChatFilter> filters;
+  final ChatFilter active;
+  final ValueChanged<ChatFilter> onChanged;
+
+  const _FilterBar({
+    required this.filters,
+    required this.active,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 48,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        itemCount: filters.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 8),
+        itemBuilder: (context, i) {
+          final f = filters[i];
+          return ChoiceChip(
+            label: Text(f.label),
+            selected: f == active,
+            showCheckmark: false,
+            onSelected: (_) => onChanged(f),
+          );
+        },
+      ),
+    );
+  }
+}
+
+/// Shown when the active filter matches no conversations.
+class _EmptyFilter extends StatelessWidget {
+  final ChatFilter filter;
+  const _EmptyFilter({required this.filter});
+
+  @override
+  Widget build(BuildContext context) {
+    final grey = Colors.grey.shade500;
+    final (IconData icon, String text) = switch (filter) {
+      ChatFilter.unread => (Icons.mark_chat_read_outlined, 'No unread chats'),
+      ChatFilter.favorites => (
+          Icons.star_border,
+          'No favourite chats yet'
+        ),
+      ChatFilter.groups => (Icons.groups_outlined, 'No group chats'),
+      ChatFilter.all => (Icons.chat_bubble_outline, 'No chats'),
+    };
+    return ListView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      children: [
+        const SizedBox(height: 120),
+        Icon(icon, size: 56, color: grey),
+        const SizedBox(height: 12),
+        Text(
+          text,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+            color: Colors.grey.shade600,
+          ),
+        ),
+      ],
     );
   }
 }
