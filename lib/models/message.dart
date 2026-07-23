@@ -62,6 +62,14 @@ class Message {
   /// True when this message has been edited after sending.
   final bool edited;
 
+  /// The text this message had before its first edit, so the original can be
+  /// viewed. Null when the message has never been edited.
+  final String? originalText;
+
+  /// True when this message was deleted for everyone — it stays in the thread
+  /// as a "This message was deleted" tombstone instead of disappearing.
+  final bool isDeleted;
+
   /// True for image messages; [imageSeed] picks a placeholder gradient when
   /// there is no real [imageUrl] (e.g. in the local demo).
   final bool isImage;
@@ -123,6 +131,8 @@ class Message {
     this.imageSeed = 0,
     this.imageUrl,
     this.edited = false,
+    this.originalText,
+    this.isDeleted = false,
     this.expiresAt,
     this.isLocation = false,
     this.locationLat,
@@ -161,6 +171,8 @@ class Message {
         'imageSeed': imageSeed,
         'imageUrl': imageUrl,
         'edited': edited,
+        'originalText': originalText,
+        'isDeleted': isDeleted,
         'expiresAt': expiresAt?.toIso8601String(),
         'isLocation': isLocation,
         'locationLat': locationLat,
@@ -199,6 +211,8 @@ class Message {
         imageSeed: json['imageSeed'] as int? ?? 0,
         imageUrl: json['imageUrl'] as String?,
         edited: json['edited'] as bool? ?? false,
+        originalText: json['originalText'] as String?,
+        isDeleted: json['isDeleted'] as bool? ?? false,
         expiresAt: json['expiresAt'] == null
             ? null
             : DateTime.tryParse(json['expiresAt'] as String),
@@ -229,6 +243,8 @@ class Message {
     MessageStatus? status,
     List<String>? reactions,
     bool? edited,
+    String? originalText,
+    bool? isDeleted,
     DateTime? expiresAt,
     List<int>? pollVotes,
     int? pollMyVote,
@@ -250,6 +266,8 @@ class Message {
       imageSeed: imageSeed,
       imageUrl: imageUrl,
       edited: edited ?? this.edited,
+      originalText: originalText ?? this.originalText,
+      isDeleted: isDeleted ?? this.isDeleted,
       expiresAt: expiresAt ?? this.expiresAt,
       isLocation: isLocation,
       locationLat: locationLat,

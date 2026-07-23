@@ -757,6 +757,23 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   void _showMessageActions(Message message) {
+    // A deleted tombstone only offers removal from this device.
+    if (message.isDeleted) {
+      showModalBottomSheet<void>(
+        context: context,
+        builder: (sheetContext) => SafeArea(
+          child: ListTile(
+            leading: const Icon(Icons.delete_outline),
+            title: const Text('Delete for me'),
+            onTap: () {
+              _store.deleteMessage(_chatId, message.id);
+              Navigator.of(sheetContext).pop();
+            },
+          ),
+        ),
+      );
+      return;
+    }
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -933,7 +950,7 @@ class _ChatScreenState extends State<ChatScreen> {
               title: const Text('Delete for everyone',
                   style: TextStyle(color: Colors.red)),
               onTap: () {
-                _store.deleteMessage(_chatId, message.id);
+                _store.deleteMessage(_chatId, message.id, forEveryone: true);
                 RelayService.instance
                     .sendDelete(widget.chat.contact.phone, message.id);
                 Navigator.of(sheetContext).pop();

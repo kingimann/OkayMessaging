@@ -80,6 +80,44 @@ class MessageBubble extends StatelessWidget {
     }
     final hasReactions = message.reactions.isNotEmpty;
 
+    if (message.isDeleted) {
+      return Align(
+        alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+        child: GestureDetector(
+          onLongPress: onLongPress,
+          child: Container(
+            margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+            decoration: BoxDecoration(
+              color: bubbleColor.withValues(alpha: 0.55),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: metaColor.withValues(alpha: 0.3)),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.do_not_disturb_alt, size: 15, color: metaColor),
+                const SizedBox(width: 6),
+                Text(
+                  isMe ? 'You deleted this message' : 'This message was deleted',
+                  style: TextStyle(
+                    color: textColor.withValues(alpha: 0.7),
+                    fontSize: 14,
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  DateFormatter.messageTime(message.time),
+                  style: TextStyle(color: metaColor, fontSize: 11),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
     if (message.isImage) {
       return _ImageBubble(
         message: message,
@@ -215,12 +253,22 @@ class MessageBubble extends StatelessWidget {
                           const SizedBox(width: 3),
                         ],
                         if (message.edited) ...[
-                          Text(
-                            'edited',
-                            style: TextStyle(
-                              color: metaColor,
-                              fontSize: 11,
-                              fontStyle: FontStyle.italic,
+                          GestureDetector(
+                            onTap: message.originalText == null
+                                ? null
+                                : () =>
+                                    _showOriginal(context, message.originalText!),
+                            child: Text(
+                              'edited',
+                              style: TextStyle(
+                                color: metaColor,
+                                fontSize: 11,
+                                fontStyle: FontStyle.italic,
+                                decoration: message.originalText == null
+                                    ? null
+                                    : TextDecoration.underline,
+                                decorationColor: metaColor,
+                              ),
                             ),
                           ),
                           const SizedBox(width: 4),
@@ -259,6 +307,23 @@ class MessageBubble extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Shows the pre-edit text of an edited message.
+void _showOriginal(BuildContext context, String original) {
+  showDialog<void>(
+    context: context,
+    builder: (_) => AlertDialog(
+      title: const Text('Original message'),
+      content: Text(original.isEmpty ? '(empty)' : original),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Close'),
+        ),
+      ],
+    ),
+  );
 }
 
 class _ReplyQuote extends StatelessWidget {

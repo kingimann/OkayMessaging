@@ -382,22 +382,40 @@ class ChatStore extends ChangeNotifier {
     _replace(i, _chats[i].copyWith(messages: const [], clearPinned: true));
   }
 
-  /// Replaces a message's text and marks it edited.
+  /// Replaces a message's text and marks it edited, preserving the original
+  /// text (from the first edit) so it can be viewed later.
   void editMessage(String chatId, String messageId, String newText) {
     final i = _indexOf(chatId);
     if (i == -1) return;
     final msgs = _chats[i].messages
-        .map((m) =>
-            m.id == messageId ? m.copyWith(text: newText, edited: true) : m)
+        .map((m) => m.id == messageId
+            ? m.copyWith(
+                text: newText,
+                edited: true,
+                originalText: m.originalText ?? m.text)
+            : m)
         .toList();
     _replace(i, _chats[i].copyWith(messages: msgs));
   }
 
-  void deleteMessage(String chatId, String messageId) {
+  /// Deletes a message. When [forEveryone] is true it stays in the thread as a
+  /// "This message was deleted" tombstone (mirroring WhatsApp/Telegram); a
+  /// plain delete (for me) removes it entirely.
+  void deleteMessage(String chatId, String messageId,
+      {bool forEveryone = false}) {
     final i = _indexOf(chatId);
     if (i == -1) return;
-    final msgs = _chats[i].messages.where((m) => m.id != messageId).toList();
     final clearPin = _chats[i].pinnedMessageId == messageId;
+    final List<Message> msgs;
+    if (forEveryone) {
+      msgs = _chats[i].messages.map((m) {
+        if (m.id != messageId) return m;
+        return m.copyWith(
+            text: '', isDeleted: true, reactions: const []);
+      }).toList();
+    } else {
+      msgs = _chats[i].messages.where((m) => m.id != messageId).toList();
+    }
     _replace(i, _chats[i].copyWith(messages: msgs, clearPinned: clearPin));
   }
 

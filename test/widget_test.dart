@@ -1602,6 +1602,7 @@ void main() {
     final bob = ChatStore.instance.chatWithContact('u_bob')!;
     final id = bob.messages.firstWhere((m) => m.isMe).id;
 
+    final before = bob.messages.firstWhere((m) => m.id == id).text;
     ChatStore.instance.editMessage(bob.id, id, 'edited text');
     final m = ChatStore.instance
         .chatById(bob.id)!
@@ -1609,6 +1610,39 @@ void main() {
         .firstWhere((x) => x.id == id);
     expect(m.text, 'edited text');
     expect(m.edited, isTrue);
+    // The original text is preserved so it can be viewed.
+    expect(m.originalText, before);
+    // A second edit keeps the very first original, not the interim one.
+    ChatStore.instance.editMessage(bob.id, id, 'edited again');
+    expect(
+        ChatStore.instance.chatById(bob.id)!.messages
+            .firstWhere((x) => x.id == id)
+            .originalText,
+        before);
+  });
+
+  test('delete for everyone leaves a tombstone; for me removes it', () {
+    ChatStore.instance.reset();
+    final bob = ChatStore.instance.chatWithContact('u_bob')!;
+    final count = bob.messages.length;
+    final everyoneId = bob.messages.first.id;
+    final meId = bob.messages.last.id;
+
+    // Delete for everyone → the message stays as a deleted tombstone.
+    ChatStore.instance.deleteMessage(bob.id, everyoneId, forEveryone: true);
+    final tomb = ChatStore.instance
+        .chatById(bob.id)!
+        .messages
+        .firstWhere((m) => m.id == everyoneId);
+    expect(tomb.isDeleted, isTrue);
+    expect(tomb.text, isEmpty);
+    expect(ChatStore.instance.chatById(bob.id)!.messages.length, count);
+
+    // Delete for me → the message is gone.
+    ChatStore.instance.deleteMessage(bob.id, meId);
+    expect(
+        ChatStore.instance.chatById(bob.id)!.messages.any((m) => m.id == meId),
+        isFalse);
   });
 
   testWidgets('Editing a sent message updates it with an edited marker',

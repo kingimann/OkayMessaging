@@ -423,7 +423,10 @@ class RelayService {
             final id = payload['id'] as String?;
             if (from == null || id == null || digits(from) == digits(me)) return;
             final chat = ChatStore.instance.chatWithContact(from);
-            if (chat != null) ChatStore.instance.deleteMessage(chat.id, id);
+            if (chat != null) {
+              ChatStore.instance
+                  .deleteMessage(chat.id, id, forEveryone: true);
+            }
           },
         )
         .onBroadcast(
