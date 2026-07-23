@@ -77,6 +77,37 @@ String attributionFor(MapLayer layer) => switch (layer) {
 /// attribution — see [OsmAttribution].
 TileLayer osmTileLayer() => tileLayerFor(MapLayer.standard);
 
+/// An icon for a search result's category — businesses get a matching glyph,
+/// plain addresses a road pin. Pure, so it's easy to test.
+IconData iconForPlaceCategory(String category) {
+  final c = category.toLowerCase();
+  if (c.isEmpty) return Icons.location_on_outlined; // plain address
+  if (c.contains('cafe') || c.contains('coffee')) return Icons.local_cafe;
+  if (c.contains('restaurant') || c.contains('food')) return Icons.restaurant;
+  if (c.contains('bar') || c.contains('pub')) return Icons.local_bar;
+  if (c.contains('hotel') || c.contains('hostel') || c.contains('guest')) {
+    return Icons.hotel;
+  }
+  if (c.contains('fuel') || c.contains('charging')) {
+    return Icons.local_gas_station;
+  }
+  if (c.contains('supermarket') ||
+      c.contains('convenience') ||
+      c.contains('mall') ||
+      c.contains('shop') ||
+      c.contains('store')) {
+    return Icons.storefront;
+  }
+  if (c.contains('bank') || c.contains('atm')) return Icons.local_atm;
+  if (c.contains('parking')) return Icons.local_parking;
+  if (c.contains('hospital') || c.contains('clinic') || c.contains('pharm')) {
+    return Icons.local_hospital;
+  }
+  if (c.contains('school') || c.contains('universit')) return Icons.school;
+  if (c.contains('park') || c.contains('garden')) return Icons.park;
+  return Icons.place_outlined; // some other kind of business/POI
+}
+
 /// The classic blue "you are here" dot with a white ring and a soft halo.
 class MyLocationDot extends StatelessWidget {
   const MyLocationDot({super.key});

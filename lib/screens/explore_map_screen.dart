@@ -34,7 +34,10 @@ class ExploreMapScreen extends StatefulWidget {
   /// Test/preview hook: a fixed "current location" fix, bypassing real GPS.
   final LatLng? debugMyLocation;
 
-  const ExploreMapScreen({super.key, this.debugMyLocation});
+  /// Test hook: replaces the network place search.
+  final Future<List<GeoResult>> Function(String query)? debugSearch;
+
+  const ExploreMapScreen({super.key, this.debugMyLocation, this.debugSearch});
 
   @override
   State<ExploreMapScreen> createState() => _ExploreMapScreenState();
@@ -51,6 +54,8 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
   bool _resolvingPin = false;
 
   Timer? _locTimer;
+  Timer? _debounce;
+  int _searchSeq = 0;
 
   @override
   void initState() {
@@ -64,8 +69,42 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
   @override
   void dispose() {
     _locTimer?.cancel();
+    _debounce?.cancel();
     _search.dispose();
     super.dispose();
+  }
+
+  Future<List<GeoResult>> _doSearch(String q) {
+    final debug = widget.debugSearch;
+    if (debug != null) return debug(q);
+    final c = _center;
+    return searchPlaces(q, lat: c.latitude, lng: c.longitude, limit: 12);
+  }
+
+  /// Live, Apple-Maps-style suggestions while typing (debounced; stale
+  /// responses are discarded).
+  void _onQueryChanged(String text) {
+    _debounce?.cancel();
+    final q = text.trim();
+    if (q.isEmpty) {
+      setState(() {
+        _results = const [];
+        _searching = false;
+      });
+      return;
+    }
+    setState(() {}); // refresh the clear button on the first keystroke
+    _debounce = Timer(const Duration(milliseconds: 350), () async {
+      if (!mounted) return;
+      final seq = ++_searchSeq;
+      setState(() => _searching = true);
+      final results = await _doSearch(q);
+      if (!mounted || seq != _searchSeq) return;
+      setState(() {
+        _searching = false;
+        _results = results;
+      });
+    });
   }
 
   Future<void> _locate({required bool recenter}) async {
@@ -98,12 +137,12 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
   Future<void> _runSearch([String? term]) async {
     final q = (term ?? _search.text).trim();
     if (q.isEmpty) return;
+    _debounce?.cancel();
     FocusScope.of(context).unfocus();
+    final seq = ++_searchSeq;
     setState(() => _searching = true);
-    final c = _center;
-    final results =
-        await searchPlaces(q, lat: c.latitude, lng: c.longitude, limit: 12);
-    if (!mounted) return;
+    final results = await _doSearch(q);
+    if (!mounted || seq != _searchSeq) return;
     // Remember typed queries that found something (not the category chips).
     if (term == null && results.isNotEmpty) RecentSearches.maps.add(q);
     setState(() {
@@ -131,10 +170,15 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
 
   void _select(GeoResult r) {
     FocusScope.of(context).unfocus();
+    _debounce?.cancel();
+    ++_searchSeq; // discard any in-flight suggestion fetch
+    // Picking a suggestion is the common path now — remember it.
+    RecentSearches.maps.add(r.name.split(',').first.trim());
     setState(() {
       _selected = r;
       _search.text = r.name;
       _results = const [];
+      _searching = false;
     });
     _map.move(LatLng(r.lat, r.lng), 16);
   }
@@ -342,10 +386,23 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
             child: _SearchBox(
               controller: _search,
               searching: _searching,
-              results: _results,
+              // Hide the suggestion list once a place is selected (its card
+              // is showing); the pins for other results stay on the map.
+              results: selected == null ? _results : const <GeoResult>[],
               origin: _me,
               onSubmit: () => _runSearch(),
               onPick: _select,
+              onChanged: _onQueryChanged,
+              onClear: () {
+                _debounce?.cancel();
+                ++_searchSeq;
+                _search.clear();
+                setState(() {
+                  _results = const [];
+                  _selected = null;
+                  _searching = false;
+                });
+              },
             ),
           ),
           if (_results.isEmpty && selected == null) ...[
@@ -557,6 +614,8 @@ class _SearchBox extends StatelessWidget {
   final LatLng? origin;
   final VoidCallback onSubmit;
   final ValueChanged<GeoResult> onPick;
+  final ValueChanged<String>? onChanged;
+  final VoidCallback? onClear;
 
   const _SearchBox({
     required this.controller,
@@ -565,6 +624,8 @@ class _SearchBox extends StatelessWidget {
     required this.onSubmit,
     required this.onPick,
     this.origin,
+    this.onChanged,
+    this.onClear,
   });
 
   /// "Cafe · 350 m" style meta line for a result row.
@@ -590,6 +651,7 @@ class _SearchBox extends StatelessWidget {
           child: TextField(
             controller: controller,
             textInputAction: TextInputAction.search,
+            onChanged: onChanged,
             onSubmitted: (_) => onSubmit(),
             decoration: InputDecoration(
               hintText: 'Search Maps',
@@ -602,9 +664,13 @@ class _SearchBox extends StatelessWidget {
                           height: 18,
                           child: CircularProgressIndicator(strokeWidth: 2)),
                     )
-                  : IconButton(
-                      icon: const Icon(Icons.arrow_forward),
-                      onPressed: onSubmit),
+                  : controller.text.isNotEmpty
+                      ? IconButton(
+                          icon: const Icon(Icons.close),
+                          tooltip: 'Clear search',
+                          onPressed: onClear,
+                        )
+                      : null,
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(28),
                 borderSide: BorderSide.none,
@@ -615,7 +681,7 @@ class _SearchBox extends StatelessWidget {
             ),
           ),
         ),
-        if (results.length > 1)
+        if (results.isNotEmpty)
           Container(
             margin: const EdgeInsets.only(top: 6),
             constraints: const BoxConstraints(maxHeight: 300),
@@ -632,7 +698,7 @@ class _SearchBox extends StatelessWidget {
                   final meta = _meta(r);
                   return ListTile(
                     dense: true,
-                    leading: const Icon(Icons.place_outlined),
+                    leading: Icon(iconForPlaceCategory(r.category)),
                     title: Text(r.name,
                         maxLines: 1, overflow: TextOverflow.ellipsis),
                     subtitle: meta == null ? null : Text(meta),

@@ -4043,6 +4043,84 @@ void main() {
       expect(RecentSearches.maps.queries, ['eiffel tower']);
     });
 
+    test('iconForPlaceCategory maps businesses and addresses sensibly', () {
+      expect(iconForPlaceCategory(''), Icons.location_on_outlined);
+      expect(iconForPlaceCategory('Cafe'), Icons.local_cafe);
+      expect(iconForPlaceCategory('Fast food'), Icons.restaurant);
+      expect(iconForPlaceCategory('Fuel'), Icons.local_gas_station);
+      expect(iconForPlaceCategory('Supermarket'), Icons.storefront);
+      expect(iconForPlaceCategory('Sculpture'), Icons.place_outlined);
+    });
+
+    testWidgets('typing shows live suggestions; picking one selects the place',
+        (tester) async {
+      const cafe = GeoResult(
+          name: 'Blue Bottle, San Francisco',
+          lat: 37.7763,
+          lng: -122.4232,
+          category: 'Cafe');
+      const shop = GeoResult(
+          name: 'Blue Danube Coffee', lat: 37.78, lng: -122.46);
+      var calls = 0;
+      await tester.pumpWidget(MaterialApp(
+        home: ExploreMapScreen(
+          debugMyLocation: const LatLng(37.7749, -122.4194),
+          debugSearch: (q) async {
+            calls++;
+            return const [cafe, shop];
+          },
+        ),
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      // Type — no submit — and let the debounce fire.
+      await tester.enterText(find.byType(TextField).first, 'blue');
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump();
+
+      expect(calls, 1);
+      expect(find.text('Blue Bottle, San Francisco'), findsOneWidget);
+      expect(find.text('Blue Danube Coffee'), findsOneWidget);
+      // The meta line shows category + distance from the debug fix.
+      expect(find.textContaining('Cafe · '), findsOneWidget);
+
+      // Picking a suggestion selects it (Directions card) and remembers it.
+      await tester.tap(find.text('Blue Bottle, San Francisco'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.text('Directions'), findsOneWidget);
+      expect(RecentSearches.maps.queries, contains('Blue Bottle'));
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+    });
+
+    testWidgets('the clear button resets the search', (tester) async {
+      await tester.pumpWidget(MaterialApp(
+        home: ExploreMapScreen(
+          debugSearch: (q) async =>
+              const [GeoResult(name: 'Somewhere', lat: 1, lng: 2)],
+        ),
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      await tester.enterText(find.byType(TextField).first, 'some');
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump();
+      expect(find.text('Somewhere'), findsOneWidget);
+
+      await tester.tap(find.byTooltip('Clear search'));
+      await tester.pump();
+      expect(find.text('Somewhere'), findsNothing);
+      final field = tester.widget<TextField>(find.byType(TextField).first);
+      expect(field.controller!.text, isEmpty);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+    });
+
     testWidgets('Maps shows the blue "you are here" dot when located',
         (tester) async {
       await tester.pumpWidget(const MaterialApp(
