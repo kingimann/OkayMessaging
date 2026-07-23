@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -19,6 +20,8 @@ import '../state/chat_store.dart';
 import '../state/file_transfer.dart';
 import '../state/scheduler.dart';
 import '../theme/app_theme.dart';
+import '../util/file_saver.dart';
+import '../utils/chat_transcript.dart';
 import '../utils/date_formatter.dart';
 import '../widgets/chat_input_bar.dart';
 import '../widgets/emoji_data.dart';
@@ -1335,25 +1338,24 @@ class _ChatScreenState extends State<ChatScreen> {
     ));
   }
 
-  void _exportChat() {
+  Future<void> _exportChat() async {
     final chat = _store.chatById(_chatId);
     if (chat == null) return;
-    final me = AppState.profile.value.name;
-    final buffer = StringBuffer('Chat with ${widget.chat.contact.name}\n\n');
-    for (final m in chat.messages) {
-      final who = m.isMe ? me : widget.chat.contact.name;
-      final time = DateFormatter.messageTime(m.time);
-      final body = m.isImage
-          ? '[photo]'
-          : m.isVoice
-              ? '[voice message]'
-              : m.text;
-      buffer.writeln('[$time] $who: $body');
+    if (chat.messages.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Nothing to export yet')),
+      );
+      return;
     }
-    Clipboard.setData(ClipboardData(text: buffer.toString()));
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Chat copied to clipboard')),
+    final messenger = ScaffoldMessenger.of(context);
+    final transcript = buildChatTranscript(chat, AppState.profile.value.name);
+    final result = await saveIncomingFile(
+      transcriptFileName(widget.chat.contact.name),
+      Uint8List.fromList(utf8.encode(transcript)),
     );
+    messenger.showSnackBar(SnackBar(
+      content: Text(result ?? 'Couldn\'t export the chat'),
+    ));
   }
 
   Future<void> _confirmClearChat() async {

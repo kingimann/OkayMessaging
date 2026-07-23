@@ -23,6 +23,7 @@ import 'package:okay_messaging/screens/location_picker_screen.dart';
 import 'package:okay_messaging/screens/map_screen.dart';
 import 'package:okay_messaging/utils/friend_locations.dart';
 import 'package:okay_messaging/util/geocoding.dart';
+import 'package:okay_messaging/utils/chat_transcript.dart';
 import 'package:okay_messaging/util/routing.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:okay_messaging/tabs/chats_tab.dart';
@@ -1125,7 +1126,7 @@ void main() {
     expect(find.text('You blocked Bob Carter'), findsOneWidget);
   });
 
-  testWidgets('Chat menu: Wallpaper opens the picker, Export copies the chat',
+  testWidgets('Chat menu: Wallpaper opens the picker, Export saves the chat',
       (tester) async {
     await tester.pumpWidget(const OkayMessagingApp());
     await tester.pumpAndSettle();
@@ -1143,12 +1144,17 @@ void main() {
     await tester.pageBack();
     await tester.pumpAndSettle();
 
-    // Export copies the conversation and confirms via a snackbar.
+    // Export builds a transcript and hands it off (share/download), then
+    // confirms via a snackbar.
     await tester.tap(find.byIcon(Icons.more_vert));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Export chat'));
+    // The save goes through a real platform channel (path_provider), so let it
+    // run on the real event loop before the confirmation snackbar appears.
+    await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 50)));
     await tester.pumpAndSettle();
-    expect(find.text('Chat copied to clipboard'), findsOneWidget);
+    expect(find.byType(SnackBar), findsOneWidget);
   });
 
   testWidgets('Disappearing-messages menu sets a timer and shows the indicator',
@@ -3947,6 +3953,45 @@ void main() {
     test('returns empty on non-list / invalid json', () {
       expect(parsePhoton('{"features":"nope"}'), isEmpty);
       expect(parsePhoton('not json'), isEmpty);
+    });
+  });
+
+  group('Chat export', () {
+    test('transcriptFileName slugifies the contact name', () {
+      expect(transcriptFileName('Alice Bennett'), 'okay-chat-alice-bennett.txt');
+      expect(transcriptFileName('!!!'), 'okay-chat-export.txt');
+    });
+
+    test('buildChatTranscript groups by date and labels media', () {
+      final chat = Chat(
+        id: 'c_x',
+        contact: MockData.contacts().firstWhere((u) => u.name == 'Bob Carter'),
+        messages: [
+          Message(
+              id: 'a',
+              text: 'hey',
+              time: DateTime(2024, 1, 1, 9, 5),
+              isMe: false),
+          Message(
+              id: 'b',
+              text: 'hi!',
+              time: DateTime(2024, 1, 1, 9, 6),
+              isMe: true),
+          Message(
+              id: 'c',
+              text: '',
+              time: DateTime(2024, 1, 2, 8, 0),
+              isMe: true,
+              isImage: true),
+        ],
+      );
+      final out = buildChatTranscript(chat, 'Me');
+      expect(out, contains('Chat with Bob Carter'));
+      expect(out, contains('— 2024-01-01 —'));
+      expect(out, contains('— 2024-01-02 —'));
+      expect(out, contains('[09:05] Bob Carter: hey'));
+      expect(out, contains('[09:06] Me: hi!'));
+      expect(out, contains('[08:00] Me: [photo]'));
     });
   });
 
