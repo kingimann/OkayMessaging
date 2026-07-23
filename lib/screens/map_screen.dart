@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../app_state.dart';
 import '../models/chat.dart';
@@ -13,6 +14,7 @@ import '../state/chat_store.dart';
 import '../state/live_location_store.dart';
 import '../util/geolocation.dart';
 import '../utils/friend_locations.dart';
+import '../utils/maps_link.dart';
 import '../widgets/osm_map.dart';
 import '../widgets/user_avatar.dart';
 import 'chat_screen.dart';
@@ -81,7 +83,11 @@ class _MapScreenState extends State<MapScreen> {
       .where((u) => !u.isGroup)
       .toList();
 
-  void _showFriend(AppUser user) {
+  void _showFriend(AppUser user, LatLng at, {bool live = false}) {
+    final meters = const Distance().distance(_me, at);
+    final subtitle = live
+        ? 'Sharing live · ${formatDistance(meters)} away'
+        : '${formatDistance(meters)} away';
     showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
@@ -97,21 +103,37 @@ class _MapScreenState extends State<MapScreen> {
                   style: const TextStyle(
                       fontSize: 18, fontWeight: FontWeight.w600)),
               const SizedBox(height: 4),
-              Text('On the map', style: TextStyle(color: Colors.grey.shade600)),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (live) ...[
+                    Container(
+                      width: 8,
+                      height: 8,
+                      decoration: const BoxDecoration(
+                        color: Color(0xFF0A84FF),
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                  ],
+                  Text(subtitle, style: TextStyle(color: Colors.grey.shade600)),
+                ],
+              ),
               const SizedBox(height: 16),
+              FilledButton.icon(
+                onPressed: () {
+                  Navigator.of(sheetContext).pop();
+                  _message(user);
+                },
+                icon: const Icon(Icons.chat_bubble_outline),
+                label: const Text('Message'),
+                style:
+                    FilledButton.styleFrom(minimumSize: const Size.fromHeight(46)),
+              ),
+              const SizedBox(height: 10),
               Row(
                 children: [
-                  Expanded(
-                    child: FilledButton.icon(
-                      onPressed: () {
-                        Navigator.of(sheetContext).pop();
-                        _message(user);
-                      },
-                      icon: const Icon(Icons.chat_bubble_outline),
-                      label: const Text('Message'),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
                   Expanded(
                     child: OutlinedButton.icon(
                       onPressed: () {
@@ -120,6 +142,17 @@ class _MapScreenState extends State<MapScreen> {
                       },
                       icon: const Icon(Icons.call_outlined),
                       label: const Text('Call'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () {
+                        Navigator.of(sheetContext).pop();
+                        _directionsTo(at);
+                      },
+                      icon: const Icon(Icons.directions_outlined),
+                      label: const Text('Directions'),
                     ),
                   ),
                 ],
@@ -131,17 +164,30 @@ class _MapScreenState extends State<MapScreen> {
     );
   }
 
+  Future<void> _directionsTo(LatLng dest) async {
+    final isApple = Theme.of(context).platform == TargetPlatform.iOS ||
+        Theme.of(context).platform == TargetPlatform.macOS;
+    final uri =
+        directionsUrl(lat: dest.latitude, lng: dest.longitude, apple: isApple);
+    try {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } catch (_) {
+      /* ignore */
+    }
+  }
+
   /// A friend's map marker: their real live position (blue ring) when they're
   /// sharing and it's fresh, otherwise their stable demo spot (white ring).
   Marker _friendMarker(FriendPlace p) {
     final live = LiveLocationStore.instance
         .locationFor(RelayService.digits(p.user.phone));
+    final pos = live?.position ?? p.position;
     return Marker(
-      point: live?.position ?? p.position,
+      point: pos,
       width: 56,
       height: 56,
       child: GestureDetector(
-        onTap: () => _showFriend(p.user),
+        onTap: () => _showFriend(p.user, pos, live: live != null),
         child: _AvatarPin(
           user: p.user,
           ringColor: live != null ? const Color(0xFF0A84FF) : Colors.white,

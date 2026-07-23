@@ -50,7 +50,6 @@ import 'package:okay_messaging/screens/status_screen.dart';
 import 'package:okay_messaging/state/status_store.dart';
 import 'package:okay_messaging/state/chat_store.dart';
 import 'package:okay_messaging/state/live_location_store.dart';
-import 'package:okay_messaging/relay/relay_service.dart';
 import 'package:okay_messaging/state/recent_searches.dart';
 import 'package:okay_messaging/state/scheduler.dart';
 import 'package:okay_messaging/state/score_store.dart';
@@ -3841,6 +3840,23 @@ void main() {
           lat: 37.3349, lng: -122.009, label: 'Apple Park', apple: false);
       expect(uri.host, 'www.google.com');
       expect(uri.queryParameters['query'], '37.3349,-122.009');
+    });
+
+    test('directionsUrl targets Apple / Google with the destination', () {
+      final apple = directionsUrl(lat: 40.7, lng: -74.0, apple: true);
+      expect(apple.host, 'maps.apple.com');
+      expect(apple.queryParameters['daddr'], '40.7,-74.0');
+
+      final google = directionsUrl(lat: 40.7, lng: -74.0, apple: false);
+      expect(google.host, 'www.google.com');
+      expect(google.queryParameters['destination'], '40.7,-74.0');
+    });
+
+    test('formatDistance renders metres and kilometres sensibly', () {
+      expect(formatDistance(120), '120 m');
+      expect(formatDistance(950), '950 m');
+      expect(formatDistance(2300), '2.3 km');
+      expect(formatDistance(15400), '15 km');
     });
 
     testWidgets('picker falls back gracefully when GPS is unavailable',
