@@ -11,6 +11,7 @@ const String kOsmUserAgent = 'com.okay.messaging';
 /// The selectable base map styles. All use free, CORS-enabled tile servers.
 enum MapLayer {
   standard('Standard', Icons.map_outlined),
+  dark('Dark', Icons.dark_mode_outlined),
   satellite('Satellite', Icons.satellite_alt_outlined),
   terrain('Terrain', Icons.terrain_outlined);
 
@@ -23,6 +24,10 @@ enum MapLayer {
 }
 
 /// The raster tile layer for a given [layer].
+///
+/// Standard and Dark use CARTO's basemaps (rendered from up-to-date
+/// OpenStreetMap data): a clean, modern cartographic style served as crisp
+/// @2x retina tiles — a big visual upgrade over the classic OSM tiles.
 TileLayer tileLayerFor(MapLayer layer) {
   switch (layer) {
     case MapLayer.satellite:
@@ -39,11 +44,23 @@ TileLayer tileLayerFor(MapLayer layer) {
         userAgentPackageName: kOsmUserAgent,
         maxZoom: 17,
       );
+    case MapLayer.dark:
+      return TileLayer(
+        urlTemplate:
+            'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+        subdomains: const ['a', 'b', 'c', 'd'],
+        userAgentPackageName: kOsmUserAgent,
+        retinaMode: true,
+        maxZoom: 20,
+      );
     case MapLayer.standard:
       return TileLayer(
-        urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+        urlTemplate: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/'
+            '{z}/{x}/{y}{r}.png',
+        subdomains: const ['a', 'b', 'c', 'd'],
         userAgentPackageName: kOsmUserAgent,
-        maxZoom: 19,
+        retinaMode: true,
+        maxZoom: 20,
       );
   }
 }
@@ -52,7 +69,8 @@ TileLayer tileLayerFor(MapLayer layer) {
 String attributionFor(MapLayer layer) => switch (layer) {
       MapLayer.satellite => '© Esri, Maxar',
       MapLayer.terrain => '© OpenTopoMap (CC-BY-SA)',
-      MapLayer.standard => '© OpenStreetMap',
+      MapLayer.dark => '© OpenStreetMap · © CARTO',
+      MapLayer.standard => '© OpenStreetMap · © CARTO',
     };
 
 /// The OpenStreetMap raster tile layer used across the app. Free to use with

@@ -4476,6 +4476,7 @@ void main() {
     test('MapLayer.fromName maps names and defaults to standard', () {
       expect(MapLayer.fromName('satellite'), MapLayer.satellite);
       expect(MapLayer.fromName('terrain'), MapLayer.terrain);
+      expect(MapLayer.fromName('dark'), MapLayer.dark);
       expect(MapLayer.fromName('standard'), MapLayer.standard);
       expect(MapLayer.fromName('bogus'), MapLayer.standard);
       expect(MapLayer.fromName(null), MapLayer.standard);
@@ -4483,16 +4484,22 @@ void main() {
 
     test('each layer has a distinct tile URL and credit', () {
       final std = tileLayerFor(MapLayer.standard).urlTemplate!;
+      final dark = tileLayerFor(MapLayer.dark).urlTemplate!;
       final sat = tileLayerFor(MapLayer.satellite).urlTemplate!;
       final ter = tileLayerFor(MapLayer.terrain).urlTemplate!;
-      expect(std, contains('tile.openstreetmap.org'));
+      // The modern CARTO style, in crisp retina resolution.
+      expect(std, contains('basemaps.cartocdn.com'));
+      expect(std, contains('voyager'));
+      expect(std, contains('{r}'));
+      expect(dark, contains('dark_all'));
       expect(sat, contains('arcgisonline.com'));
       expect(ter, contains('opentopomap.org'));
-      expect({std, sat, ter}.length, 3);
+      expect({std, dark, sat, ter}.length, 4);
 
       expect(attributionFor(MapLayer.satellite), contains('Esri'));
       expect(attributionFor(MapLayer.terrain), contains('OpenTopoMap'));
-      expect(attributionFor(MapLayer.standard), contains('OpenStreetMap'));
+      expect(attributionFor(MapLayer.standard), contains('CARTO'));
+      expect(attributionFor(MapLayer.dark), contains('CARTO'));
     });
   });
 
