@@ -16,6 +16,7 @@ import 'package:okay_messaging/screens/blocked_contacts_screen.dart';
 import 'package:okay_messaging/screens/call_screen.dart';
 import 'package:okay_messaging/screens/contact_info_screen.dart';
 import 'package:okay_messaging/screens/forum_screen.dart';
+import 'package:okay_messaging/screens/score_screen.dart';
 import 'package:okay_messaging/models/chat.dart';
 import 'package:okay_messaging/state/call_log.dart';
 import 'package:okay_messaging/screens/media_gallery_screen.dart';
@@ -2696,6 +2697,29 @@ void main() {
       expect(ScoreStore.instance.featuredBadge, 'century');
       ScoreStore.instance.setFeatured(null);
       expect(ScoreStore.instance.featuredBadge, isNull);
+    });
+
+    testWidgets('the Score screen ranks chats by active streak',
+        (tester) async {
+      ChatStore.instance.reset();
+      StreakStore.instance.resetForTest();
+      final chats =
+          ChatStore.instance.chats.where((c) => !c.contact.isGroup).toList();
+      StreakStore.instance.seed(chats[0].id, 4);
+      StreakStore.instance.seed(chats[1].id, 19);
+
+      await tester.pumpWidget(const MaterialApp(home: ScoreScreen()));
+      await tester.pumpAndSettle();
+
+      expect(find.text('STREAKS'), findsOneWidget);
+      // Both streak counts are shown (as the chip labels).
+      expect(find.text('19'), findsOneWidget);
+      expect(find.text('4'), findsOneWidget);
+      // The longer streak (rank 1) appears above the shorter one.
+      final top =
+          tester.getTopLeft(find.text('19')).dy;
+      final bottom = tester.getTopLeft(find.text('4')).dy;
+      expect(top, lessThan(bottom));
     });
 
     test('sending a message grows the score', () {

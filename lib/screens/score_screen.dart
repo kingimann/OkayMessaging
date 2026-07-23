@@ -1,9 +1,27 @@
 import 'package:flutter/material.dart' hide Badge;
 
 import '../app_state.dart';
+import '../models/chat.dart';
+import '../state/chat_store.dart';
 import '../state/score_store.dart';
 import '../state/session.dart';
+import '../state/streak_store.dart';
+import '../widgets/streak_chip.dart';
+import '../widgets/user_avatar.dart';
 import '../widgets/verified_badge.dart';
+import 'chat_screen.dart';
+
+/// A section header used on the Okay Score screen.
+Widget _sectionHeader(BuildContext context, String text) => Text(
+      text,
+      style: TextStyle(
+        fontSize: 12,
+        fontWeight: FontWeight.w700,
+        letterSpacing: 0.7,
+        color:
+            Theme.of(context).colorScheme.primary.withValues(alpha: 0.7),
+      ),
+    );
 
 /// The Okay Score screen: a Snapchat-style running activity score, the badges
 /// it unlocks, and a way to feature one badge on your profile.
@@ -25,16 +43,8 @@ class ScoreScreen extends StatelessWidget {
               const SizedBox(height: 16),
               const _VerifiedRow(),
               const SizedBox(height: 20),
-              Text('BADGES',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0.7,
-                    color: Theme.of(context)
-                        .colorScheme
-                        .primary
-                        .withValues(alpha: 0.7),
-                  )),
+              const _StreaksSection(),
+              _sectionHeader(context, 'BADGES'),
               const SizedBox(height: 4),
               Text(
                 'Tap an earned badge to feature it on your profile.',
@@ -64,6 +74,105 @@ class ScoreScreen extends StatelessWidget {
             ],
           );
         },
+      ),
+    );
+  }
+}
+
+/// A leaderboard of the user's active conversation streaks, ranked longest
+/// first — the Snapchat "best friends" view.
+class _StreaksSection extends StatelessWidget {
+  const _StreaksSection();
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: Listenable.merge(
+          [StreakStore.instance, ChatStore.instance]),
+      builder: (context, _) {
+        final ranked = <(Chat, int)>[];
+        for (final chat in ChatStore.instance.chats) {
+          final s = StreakStore.instance.streakFor(chat.id);
+          if (s > 0) ranked.add((chat, s));
+        }
+        ranked.sort((a, b) => b.$2.compareTo(a.$2));
+        final top = ranked.take(10).toList();
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _sectionHeader(context, 'STREAKS'),
+            const SizedBox(height: 4),
+            Text('Message someone every day to grow a streak.',
+                style: TextStyle(color: Colors.grey.shade600, fontSize: 12.5)),
+            const SizedBox(height: 6),
+            if (top.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                child: Row(
+                  children: [
+                    Icon(Icons.local_fire_department_outlined,
+                        color: Colors.grey.shade400),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text('No streaks yet — keep a daily chat going.',
+                          style: TextStyle(color: Colors.grey.shade500)),
+                    ),
+                  ],
+                ),
+              )
+            else
+              for (var i = 0; i < top.length; i++)
+                _StreakRow(
+                  rank: i + 1,
+                  chat: top[i].$1,
+                  streak: top[i].$2,
+                  expiring:
+                      StreakStore.instance.isExpiringSoon(top[i].$1.id),
+                ),
+            const SizedBox(height: 20),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _StreakRow extends StatelessWidget {
+  final int rank;
+  final Chat chat;
+  final int streak;
+  final bool expiring;
+  const _StreakRow({
+    required this.rank,
+    required this.chat,
+    required this.streak,
+    required this.expiring,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+      leading: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SizedBox(
+            width: 22,
+            child: Text('$rank',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                    fontWeight: FontWeight.w700, color: Colors.grey.shade500)),
+          ),
+          UserAvatar(user: chat.contact, radius: 20),
+        ],
+      ),
+      title: Text(chat.contact.name,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(fontWeight: FontWeight.w600)),
+      trailing: StreakChip(count: streak, expiring: expiring, size: 18),
+      onTap: () => Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => ChatScreen(chat: chat)),
       ),
     );
   }
