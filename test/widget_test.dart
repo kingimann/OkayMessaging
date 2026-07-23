@@ -15,7 +15,10 @@ import 'package:okay_messaging/screens/auth/phone_login_screen.dart';
 import 'package:okay_messaging/screens/blocked_contacts_screen.dart';
 import 'package:okay_messaging/screens/call_screen.dart';
 import 'package:okay_messaging/screens/contact_info_screen.dart';
+import 'package:okay_messaging/screens/chats_settings_screen.dart';
+import 'package:okay_messaging/screens/okay_pro_screen.dart';
 import 'package:okay_messaging/screens/forum_screen.dart';
+import 'package:okay_messaging/widgets/message_bubble.dart';
 import 'package:okay_messaging/screens/score_screen.dart';
 import 'package:okay_messaging/models/chat.dart';
 import 'package:okay_messaging/state/call_log.dart';
@@ -3393,6 +3396,117 @@ void main() {
       expect(groups.every((g) => RegExp(r'^\d{5}$').hasMatch(g)), isTrue);
       // A different pair yields a different code.
       expect(a, isNot(E2eCrypto.safetyNumber('+1 555 0199', '+1 555 0123')));
+    });
+  });
+
+  group('Custom bubble color (Okay Pro)', () {
+    Color _outgoingBubbleColor(WidgetTester tester) {
+      final containers = tester.widgetList<Container>(
+        find.descendant(
+          of: find.byType(MessageBubble),
+          matching: find.byType(Container),
+        ),
+      );
+      final bubble = containers.firstWhere(
+        (c) => c.decoration is BoxDecoration &&
+            (c.decoration as BoxDecoration).color != null,
+      );
+      return (bubble.decoration as BoxDecoration).color!;
+    }
+
+    testWidgets('non-Pro sees the perk locked and is offered an upgrade',
+        (tester) async {
+      AppState.setVerified(false);
+      await tester.pumpWidget(
+        const MaterialApp(home: ChatsSettingsScreen()),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Chat bubble color'), findsOneWidget);
+      expect(find.text('An Okay Pro perk'), findsOneWidget);
+      expect(find.byIcon(Icons.lock_outline), findsOneWidget);
+
+      await tester.tap(find.text('Chat bubble color'));
+      await tester.pumpAndSettle();
+
+      // Upgrade prompt, not the picker.
+      expect(find.text('See Okay Pro'), findsOneWidget);
+      expect(find.text('Bubble color'), findsNothing);
+
+      await tester.tap(find.text('See Okay Pro'));
+      await tester.pumpAndSettle();
+      expect(find.byType(OkayProScreen), findsOneWidget);
+    });
+
+    testWidgets('Pro member can pick and reset a bubble color',
+        (tester) async {
+      AppState.setVerified(true);
+      await tester.pumpWidget(
+        const MaterialApp(home: ChatsSettingsScreen()),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('An Okay Pro perk'), findsNothing);
+      await tester.tap(find.text('Chat bubble color'));
+      await tester.pumpAndSettle();
+
+      // The picker sheet opens.
+      expect(find.text('Bubble color'), findsOneWidget);
+      // Tap the Pro purple swatch (third in the palette).
+      final swatch = find.descendant(
+        of: find.byType(BottomSheet),
+        matching: find.byType(GestureDetector),
+      );
+      await tester.tap(swatch.at(2));
+      await tester.pumpAndSettle();
+      expect(AppState.bubbleColor.value, const Color(0xFF7A5CFF));
+
+      // Reopen and reset to default.
+      await tester.tap(find.text('Chat bubble color'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Reset to default green'));
+      await tester.pumpAndSettle();
+      expect(AppState.bubbleColor.value, isNull);
+    });
+
+    testWidgets('outgoing bubble honors the custom color', (tester) async {
+      AppState.bubbleColor.value = const Color(0xFFEB4B7E);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: MessageBubble(
+              message: Message(
+                id: 'm1',
+                text: 'hello',
+                time: DateTime(2020, 1, 1, 10),
+                isMe: true,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(_outgoingBubbleColor(tester), const Color(0xFFEB4B7E));
+    });
+
+    testWidgets('incoming bubble ignores the custom color', (tester) async {
+      AppState.bubbleColor.value = const Color(0xFFEB4B7E);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: MessageBubble(
+              message: Message(
+                id: 'm2',
+                text: 'hi there',
+                time: DateTime(2020, 1, 1, 10),
+                isMe: false,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(_outgoingBubbleColor(tester), isNot(const Color(0xFFEB4B7E)));
     });
   });
 }

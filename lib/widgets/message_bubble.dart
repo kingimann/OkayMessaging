@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../app_state.dart';
 import '../models/message.dart';
 import '../payments/payment_amount_sheet.dart';
 import '../theme/app_theme.dart';
@@ -58,18 +59,29 @@ class MessageBubble extends StatelessWidget {
     // mode); incoming bubbles are a subtle grey. Text/meta/tick colors are
     // derived so they always contrast with the bubble they sit on.
     const ink = Color(0xFF0F1419);
-    final bubbleColor = isMe
-        ? (isDark
-            ? AppColors.outgoingBubbleDark
-            : AppColors.outgoingBubbleLight)
-        : (isDark
-            ? AppColors.incomingBubbleDark
-            : AppColors.incomingBubbleLight);
+    // Okay Pro members can pick a custom color for their own bubbles; it only
+    // ever applies to outgoing (isMe) bubbles. When set, text/meta/tick colors
+    // are derived from its luminance so they stay readable on any hue.
+    final Color? custom = isMe ? AppState.bubbleColor.value : null;
+    final bubbleColor = custom ??
+        (isMe
+            ? (isDark
+                ? AppColors.outgoingBubbleDark
+                : AppColors.outgoingBubbleLight)
+            : (isDark
+                ? AppColors.incomingBubbleDark
+                : AppColors.incomingBubbleLight));
 
     final Color textColor;
     final Color metaColor;
     final Color readTickColor;
-    if (isMe) {
+    if (custom != null) {
+      final onCustom =
+          custom.computeLuminance() > 0.5 ? ink : Colors.white;
+      textColor = onCustom;
+      metaColor = onCustom.withValues(alpha: 0.7);
+      readTickColor = onCustom;
+    } else if (isMe) {
       textColor = isDark ? ink : Colors.white;
       metaColor = isDark ? Colors.black54 : Colors.white70;
       readTickColor = isDark ? ink : Colors.white;

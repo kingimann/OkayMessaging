@@ -38,6 +38,11 @@ class AppState {
   static final ValueNotifier<Color?> chatWallpaper =
       ValueNotifier<Color?>(null);
 
+  /// Custom color for your own (outgoing) message bubbles; null uses the
+  /// default theme green. An Okay Pro perk — the picker is gated behind the
+  /// verified badge.
+  static final ValueNotifier<Color?> bubbleColor = ValueNotifier<Color?>(null);
+
   /// Whether to broadcast your online / last-seen status to people you chat
   /// with. When off, peers won't see you as "online".
   static final ValueNotifier<bool> shareLastSeen = ValueNotifier<bool>(true);
@@ -129,6 +134,7 @@ class AppState {
     themeMode.value = ThemeMode.light;
     profile.value = MockData.me;
     chatWallpaper.value = null;
+    bubbleColor.value = null;
     shareLastSeen.value = true;
     sendReadReceipts.value = true;
     sendTypingIndicators.value = true;

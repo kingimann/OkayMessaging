@@ -1418,9 +1418,14 @@ class _ChatScreenState extends State<ChatScreen> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final contact = widget.chat.contact;
 
-    return ValueListenableBuilder<Color?>(
-      valueListenable: AppState.chatWallpaper,
-      builder: (context, globalWallpaper, _) => Scaffold(
+    return ListenableBuilder(
+      // Rebuild on wallpaper changes and on the Okay Pro custom bubble color,
+      // so switching either updates the open conversation immediately.
+      listenable:
+          Listenable.merge([AppState.chatWallpaper, AppState.bubbleColor]),
+      builder: (context, _) {
+        final globalWallpaper = AppState.chatWallpaper.value;
+        return Scaffold(
         // A per-chat wallpaper overrides the global default.
         backgroundColor: (_store.wallpaperFor(_chatId) ?? globalWallpaper) ??
             (isDark ? AppColors.chatBgDark : AppColors.chatBgLight),
@@ -1746,7 +1751,8 @@ class _ChatScreenState extends State<ChatScreen> {
               ),
           ],
         ),
-      ),
+        );
+      },
     );
   }
 
