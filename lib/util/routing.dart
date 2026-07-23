@@ -14,11 +14,13 @@ enum TravelMode {
   final String profile;
 }
 
-/// A single turn-by-turn instruction.
+/// A single turn-by-turn instruction. [location] is where the maneuver
+/// happens (used by in-app navigation to advance to the next step).
 class RouteStep {
   final String instruction;
   final double distanceMeters;
-  const RouteStep(this.instruction, this.distanceMeters);
+  final LatLng? location;
+  const RouteStep(this.instruction, this.distanceMeters, {this.location});
 }
 
 /// A route: the path to draw, its length and time, and turn-by-turn steps.
@@ -106,9 +108,17 @@ RouteResult? parseOsrmRoute(String body) {
           final type = man is Map ? (man['type'] as String? ?? '') : '';
           final mod = man is Map ? (man['modifier'] as String? ?? '') : '';
           final name = s['name'] as String? ?? '';
+          LatLng? loc;
+          final rawLoc = man is Map ? man['location'] : null;
+          if (rawLoc is List && rawLoc.length >= 2) {
+            final lng = (rawLoc[0] as num?)?.toDouble();
+            final lat = (rawLoc[1] as num?)?.toDouble();
+            if (lat != null && lng != null) loc = LatLng(lat, lng);
+          }
           steps.add(RouteStep(
             instructionFor(type, mod, name),
             (s['distance'] as num?)?.toDouble() ?? 0,
+            location: loc,
           ));
         }
       }
@@ -146,6 +156,49 @@ Future<RouteResult?> fetchRoute({
   } catch (_) {
     return null;
   }
+}
+
+/// Advances the upcoming-maneuver index as the user reaches maneuver points:
+/// every maneuver the user is within [thresholdMeters] of is considered
+/// passed. Pure, so it's easy to test.
+int advanceStep({
+  required List<RouteStep> steps,
+  required int current,
+  required LatLng user,
+  double thresholdMeters = 35,
+}) {
+  var i = current;
+  while (i < steps.length - 1) {
+    final loc = steps[i].location;
+    if (loc == null) break;
+    if (const Distance().distance(user, loc) <= thresholdMeters) {
+      i++;
+    } else {
+      break;
+    }
+  }
+  return i;
+}
+
+/// Metres left to travel: from the user to the upcoming maneuver, plus every
+/// remaining step segment after it.
+double remainingMeters({
+  required RouteResult route,
+  required int current,
+  LatLng? user,
+}) {
+  if (route.steps.isEmpty || current >= route.steps.length) {
+    return current >= route.steps.length ? 0 : route.distanceMeters;
+  }
+  var total = 0.0;
+  for (var i = current; i < route.steps.length; i++) {
+    total += route.steps[i].distanceMeters;
+  }
+  final loc = route.steps[current].location;
+  if (user != null && loc != null) {
+    total += const Distance().distance(user, loc);
+  }
+  return total;
 }
 
 /// A short travel-time label, e.g. "8 min" or "1 h 5 min", from seconds.

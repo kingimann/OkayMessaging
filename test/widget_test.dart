@@ -25,6 +25,7 @@ import 'package:okay_messaging/utils/friend_locations.dart';
 import 'package:okay_messaging/util/geocoding.dart';
 import 'package:okay_messaging/utils/chat_transcript.dart';
 import 'package:okay_messaging/util/routing.dart';
+import 'package:okay_messaging/screens/route_map_screen.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:okay_messaging/tabs/chats_tab.dart';
 import 'package:okay_messaging/utils/maps_link.dart';
@@ -3894,6 +3895,116 @@ void main() {
       expect(r.steps.first.instruction, 'Head out on 13th Street');
       expect(r.steps[1].instruction, 'Turn left');
       expect(r.steps.last.instruction, 'Arrive at your destination');
+    });
+
+    test('parseOsrmRoute reads maneuver locations for navigation', () {
+      const body = '''
+      {"code":"Ok","routes":[{
+        "distance":100,"duration":60,
+        "geometry":{"coordinates":[[-122.42,37.77],[-122.41,37.78]]},
+        "legs":[{"steps":[
+          {"maneuver":{"type":"depart","location":[-122.42,37.77]},
+           "name":"A St","distance":100},
+          {"maneuver":{"type":"arrive","location":[-122.41,37.78]},
+           "name":"","distance":0}
+        ]}]
+      }]}''';
+      final r = parseOsrmRoute(body)!;
+      expect(r.steps.first.location!.latitude, closeTo(37.77, 0.0001));
+      expect(r.steps.first.location!.longitude, closeTo(-122.42, 0.0001));
+      expect(r.steps.last.location!.latitude, closeTo(37.78, 0.0001));
+    });
+
+    test('advanceStep passes maneuvers the user has reached', () {
+      final steps = [
+        RouteStep('Start', 100, location: const LatLng(37.7700, -122.4200)),
+        RouteStep('Turn left', 200,
+            location: const LatLng(37.7710, -122.4200)),
+        RouteStep('Arrive', 0, location: const LatLng(37.7730, -122.4200)),
+      ];
+      // Far from the upcoming maneuver: stays put.
+      expect(
+        advanceStep(
+            steps: steps, current: 1, user: const LatLng(37.7702, -122.4200)),
+        1,
+      );
+      // Standing on maneuver 1: advances to the next one.
+      expect(
+        advanceStep(
+            steps: steps, current: 1, user: const LatLng(37.7710, -122.4200)),
+        2,
+      );
+      // Never advances past the final (arrive) step.
+      expect(
+        advanceStep(
+            steps: steps, current: 2, user: const LatLng(37.7730, -122.4200)),
+        2,
+      );
+    });
+
+    test('remainingMeters sums the distance to go', () {
+      final route = RouteResult(
+        points: const [LatLng(37.77, -122.42), LatLng(37.78, -122.41)],
+        distanceMeters: 300,
+        durationSeconds: 120,
+        steps: [
+          RouteStep('Start', 100, location: const LatLng(37.7700, -122.4200)),
+          RouteStep('Turn', 200, location: const LatLng(37.7709, -122.4200)),
+          RouteStep('Arrive', 0, location: const LatLng(37.7727, -122.4200)),
+        ],
+      );
+      // ~100m short of maneuver 1, plus the 200m remaining segments.
+      final left = remainingMeters(
+          route: route, current: 1, user: const LatLng(37.7700, -122.4200));
+      expect(left, closeTo(300, 15));
+      // Past the end → nothing left.
+      expect(remainingMeters(route: route, current: 3), 0);
+    });
+
+    testWidgets('Go starts in-app navigation instead of leaving the app',
+        (tester) async {
+      final route = RouteResult(
+        points: const [
+          LatLng(37.7749, -122.4194),
+          LatLng(37.7757, -122.4180),
+          LatLng(37.7680, -122.4150),
+        ],
+        distanceMeters: 1120,
+        durationSeconds: 300,
+        steps: [
+          RouteStep('Head out on Market Street', 120,
+              location: const LatLng(37.7749, -122.4194)),
+          RouteStep('Turn right onto Valencia Street', 400,
+              location: const LatLng(37.7757, -122.4180)),
+          RouteStep('Arrive at your destination', 0,
+              location: const LatLng(37.7680, -122.4150)),
+        ],
+      );
+      await tester.pumpWidget(MaterialApp(
+        home: RouteMapScreen(
+          dest: const LatLng(37.7680, -122.4150),
+          from: const LatLng(37.7749, -122.4194),
+          label: 'To Alice',
+          initialRoute: route,
+        ),
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      expect(find.text('Go'), findsOneWidget);
+      await tester.tap(find.text('Go'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      // In-app navigation UI: the maneuver banner and End button are shown.
+      expect(find.text('Turn right onto Valencia Street'), findsOneWidget);
+      expect(find.text('End'), findsOneWidget);
+
+      // End navigation and unmount so the GPS timer is cancelled.
+      await tester.tap(find.text('End'));
+      await tester.pump();
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
     });
 
     test('instructionFor builds readable turn text', () {
