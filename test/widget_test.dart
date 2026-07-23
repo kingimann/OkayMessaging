@@ -2563,6 +2563,32 @@ void main() {
       StreakStore.instance.record('c', isMe: true, at: d1);
       expect(StreakStore.instance.streakFor('c', now: d1), 0);
     });
+
+    test('reconcile adopts a higher peer count and ignores lower/zero', () {
+      StreakStore.instance.resetForTest();
+      exchange('c', d1); // local streak = 1
+      StreakStore.instance.reconcile('c', 9, at: d1);
+      expect(StreakStore.instance.streakFor('c', now: d1), 9);
+      // A lower or zero broadcast never rolls it back.
+      StreakStore.instance.reconcile('c', 3, at: d1);
+      StreakStore.instance.reconcile('c', 0, at: d1);
+      expect(StreakStore.instance.streakFor('c', now: d1), 9);
+    });
+
+    test('a streak broadcast on an incoming message converges the receiver', () {
+      StreakStore.instance.resetForTest();
+      ChatStore.instance.reset();
+      final at = DateTime(2024, 5, 2, 9);
+      final payload = RelayService.encode(
+        message: Message(id: 'st1', text: 'hi', time: at, isMe: true),
+        fromPhone: '+1 555 0199',
+        fromName: 'Grace',
+        fromStreak: 8,
+      );
+      RelayService.applyIncoming(payload, myPhone: '+1 555 0100');
+      expect(
+          StreakStore.instance.streakFor('chat_+1 555 0199', now: at), 8);
+    });
   });
 
   group('Account service', () {

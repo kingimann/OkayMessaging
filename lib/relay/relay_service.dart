@@ -14,6 +14,7 @@ import '../state/chat_store.dart';
 import '../state/file_transfer.dart';
 import '../state/score_store.dart';
 import '../state/session.dart';
+import '../state/streak_store.dart';
 import 'relay_config.dart';
 
 /// Delivers messages between devices with **nothing stored on a server**.
@@ -77,6 +78,7 @@ class RelayService {
     String fromAbout = '',
     bool fromVerified = false,
     int fromScore = 0,
+    int fromStreak = 0,
     String toPhone = '',
     List<int>? ecdhSecret,
     String? senderPublicKey,
@@ -95,6 +97,7 @@ class RelayService {
       'fromAbout': fromAbout,
       'fromVerified': fromVerified,
       'fromScore': fromScore,
+      'fromStreak': fromStreak,
       'isImage': message.isImage,
       'imageSeed': message.imageSeed,
       'imageUrl': message.imageUrl,
@@ -256,6 +259,17 @@ class RelayService {
             : DateTime.tryParse(content['expiresAt'] as String),
       ),
     );
+    // Converge the streak with the sender's live count (they only broadcast a
+    // non-zero value while it's alive), so both devices show the same number.
+    final sharedStreak = (content['fromStreak'] as num?)?.toInt() ?? 0;
+    if (sharedStreak > 0 && !chat.contact.isGroup) {
+      StreakStore.instance.reconcile(
+        chat.id,
+        sharedStreak,
+        at: DateTime.tryParse(payload['ts'] as String? ?? '')?.toLocal() ??
+            DateTime.now(),
+      );
+    }
     return true;
   }
 
@@ -837,11 +851,14 @@ class RelayService {
     // Gate the profile fields by the sender's privacy audience for this
     // recipient. "My contacts" shares only with someone you already have a
     // chat with; "Nobody" withholds entirely (the field never leaves here).
-    final isContact = ChatStore.instance.chatWithContact(contactPhone) != null;
+    final myChat = ChatStore.instance.chatWithContact(contactPhone);
+    final isContact = myChat != null;
     final avatarColor = gatedProfileField(
         AppState.profilePhotoAudience.value, me.avatarColor, isContact);
     final about =
         gatedProfileField(AppState.aboutAudience.value, me.about, isContact);
+    final streak =
+        myChat == null ? 0 : StreakStore.instance.streakFor(myChat.id);
 
     final name = inboxChannel(contactPhone);
     final channel =
@@ -857,6 +874,7 @@ class RelayService {
         fromAbout: about,
         fromVerified: me.verified,
         fromScore: ScoreStore.instance.points,
+        fromStreak: streak,
         toPhone: contactPhone,
         ecdhSecret: ecdhSecret,
         senderPublicKey: senderPublicKey,

@@ -92,6 +92,29 @@ class StreakStore extends ChangeNotifier {
     return (d.lastDay == today || d.lastDay == yesterday) ? d.count : 0;
   }
 
+  /// Reconciles a streak with a peer's broadcast [count] for [chatId] as of a
+  /// message received at [at]. Peers only ever broadcast a *live* streak (0 if
+  /// lapsed), so adopting the higher value converges both devices on the same
+  /// number and keeps it marked alive through the day of this message.
+  void reconcile(String chatId, int count, {required DateTime at}) {
+    if (count <= 0) return;
+    final d = _data.putIfAbsent(chatId, StreakData.new);
+    final day = dayKey(at);
+    var changed = false;
+    if (count > d.count) {
+      d.count = count;
+      changed = true;
+    }
+    if (d.lastDay == null || day.compareTo(d.lastDay!) > 0) {
+      d.lastDay = day;
+      changed = true;
+    }
+    if (changed) {
+      _persist();
+      notifyListeners();
+    }
+  }
+
   /// Directly sets a chat's streak (used to seed demo data / tests).
   void seed(String chatId, int count, {DateTime? lastDay}) {
     final day = dayKey(lastDay ?? DateTime.now());
