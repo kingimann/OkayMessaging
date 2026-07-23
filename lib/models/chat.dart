@@ -12,8 +12,9 @@ class Chat {
   final bool isArchived;
   final bool isFavorite;
 
-  /// The id of the message pinned to the top of this chat, if any.
-  final String? pinnedMessageId;
+  /// Ids of messages pinned to the top of this chat, oldest first. Free
+  /// accounts can pin a few; Okay Pro lifts the limit.
+  final List<String> pinnedMessageIds;
 
   /// Participants of a group chat (empty for 1:1 conversations).
   final List<AppUser> members;
@@ -31,13 +32,21 @@ class Chat {
     this.isMuted = false,
     this.isArchived = false,
     this.isFavorite = false,
-    this.pinnedMessageId,
+    this.pinnedMessageIds = const [],
     this.members = const [],
     this.disappearingSeconds = 0,
   });
 
   /// Most recent message, or null when the conversation is empty.
   Message? get lastMessage => messages.isEmpty ? null : messages.last;
+
+  /// The most recently pinned message id, or null when nothing is pinned.
+  String? get pinnedMessageId =>
+      pinnedMessageIds.isEmpty ? null : pinnedMessageIds.last;
+
+  /// Whether [messageId] is currently pinned in this chat.
+  bool isPinnedMessage(String messageId) =>
+      pinnedMessageIds.contains(messageId);
 
   /// Preview text shown in the chat list.
   String get preview {
@@ -59,7 +68,7 @@ class Chat {
         'isMuted': isMuted,
         'isArchived': isArchived,
         'isFavorite': isFavorite,
-        'pinnedMessageId': pinnedMessageId,
+        'pinnedMessageIds': pinnedMessageIds,
         'members': members.map((m) => m.toJson()).toList(),
         'disappearingSeconds': disappearingSeconds,
       };
@@ -76,7 +85,7 @@ class Chat {
         isMuted: json['isMuted'] as bool? ?? false,
         isArchived: json['isArchived'] as bool? ?? false,
         isFavorite: json['isFavorite'] as bool? ?? false,
-        pinnedMessageId: json['pinnedMessageId'] as String?,
+        pinnedMessageIds: _readPinned(json),
         members: (json['members'] as List? ?? const [])
             .map((m) => AppUser.fromJson(Map<String, dynamic>.from(m as Map)))
             .toList(),
@@ -91,7 +100,7 @@ class Chat {
     bool? isMuted,
     bool? isArchived,
     bool? isFavorite,
-    String? pinnedMessageId,
+    List<String>? pinnedMessageIds,
     bool clearPinned = false,
     int? disappearingSeconds,
   }) {
@@ -104,10 +113,21 @@ class Chat {
       isMuted: isMuted ?? this.isMuted,
       isArchived: isArchived ?? this.isArchived,
       isFavorite: isFavorite ?? this.isFavorite,
-      pinnedMessageId:
-          clearPinned ? null : (pinnedMessageId ?? this.pinnedMessageId),
+      pinnedMessageIds:
+          clearPinned ? const [] : (pinnedMessageIds ?? this.pinnedMessageIds),
       members: members,
       disappearingSeconds: disappearingSeconds ?? this.disappearingSeconds,
     );
+  }
+
+  /// Reads the pinned-message ids, migrating the legacy single-id field from
+  /// chats saved before multi-pin support.
+  static List<String> _readPinned(Map<String, dynamic> json) {
+    final list = json['pinnedMessageIds'];
+    if (list is List) {
+      return list.map((e) => e.toString()).toList();
+    }
+    final legacy = json['pinnedMessageId'];
+    return legacy is String ? [legacy] : const [];
   }
 }

@@ -416,7 +416,6 @@ class ChatStore extends ChangeNotifier {
       {bool forEveryone = false}) {
     final i = _indexOf(chatId);
     if (i == -1) return;
-    final clearPin = _chats[i].pinnedMessageId == messageId;
     final List<Message> msgs;
     if (forEveryone) {
       msgs = _chats[i].messages.map((m) {
@@ -427,14 +426,36 @@ class ChatStore extends ChangeNotifier {
     } else {
       msgs = _chats[i].messages.where((m) => m.id != messageId).toList();
     }
-    _replace(i, _chats[i].copyWith(messages: msgs, clearPinned: clearPin));
+    // Drop the deleted message from the pin list (leaving other pins intact).
+    final pins = _chats[i]
+        .pinnedMessageIds
+        .where((id) => id != messageId)
+        .toList();
+    _replace(i, _chats[i].copyWith(messages: msgs, pinnedMessageIds: pins));
   }
 
+  /// Free accounts can pin up to this many messages per chat; Okay Pro lifts
+  /// the cap entirely.
+  static const int freePinLimit = 3;
+
+  /// Whether another message could be pinned in [chatId] right now, given the
+  /// caller's Pro status. Pro members are never capped.
+  bool canPinMore(String chatId, {required bool isPro}) {
+    if (isPro) return true;
+    final chat = chatById(chatId);
+    final count = chat?.pinnedMessageIds.length ?? 0;
+    return count < freePinLimit;
+  }
+
+  /// Pins [messageId] in [chatId] (most-recent last). No-op if already pinned.
+  /// Callers gate the free-tier limit via [canPinMore]; this method itself is
+  /// limit-agnostic so Pro pins aren't blocked.
   void pinMessage(String chatId, String messageId) {
     final i = _indexOf(chatId);
-    if (i != -1) {
-      _replace(i, _chats[i].copyWith(pinnedMessageId: messageId));
-    }
+    if (i == -1) return;
+    if (_chats[i].pinnedMessageIds.contains(messageId)) return;
+    final next = [..._chats[i].pinnedMessageIds, messageId];
+    _replace(i, _chats[i].copyWith(pinnedMessageIds: next));
   }
 
   /// Records the local user's vote on a poll message, moving their tally from
@@ -490,7 +511,18 @@ class ChatStore extends ChangeNotifier {
     _replace(i, _chats[i].copyWith(messages: msgs));
   }
 
-  void unpinMessage(String chatId) {
+  /// Removes a single pinned message from [chatId].
+  void unpinMessage(String chatId, String messageId) {
+    final i = _indexOf(chatId);
+    if (i == -1) return;
+    if (!_chats[i].pinnedMessageIds.contains(messageId)) return;
+    final next =
+        _chats[i].pinnedMessageIds.where((id) => id != messageId).toList();
+    _replace(i, _chats[i].copyWith(pinnedMessageIds: next));
+  }
+
+  /// Removes every pinned message from [chatId].
+  void unpinAll(String chatId) {
     final i = _indexOf(chatId);
     if (i != -1) _replace(i, _chats[i].copyWith(clearPinned: true));
   }

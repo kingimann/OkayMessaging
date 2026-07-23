@@ -34,6 +34,7 @@ import 'forward_screen.dart';
 import 'group_info_screen.dart';
 import 'image_view_screen.dart';
 import 'media_gallery_screen.dart';
+import 'okay_pro_screen.dart';
 import 'wallpaper_screen.dart';
 
 /// The conversation screen for a single [Chat], backed by [ChatStore].
@@ -757,6 +758,128 @@ class _ChatScreenState extends State<ChatScreen> {
     });
   }
 
+  /// Pins [message], enforcing the free-tier pin limit. Non-Pro users who hit
+  /// the cap are offered Okay Pro instead.
+  void _tryPin(Message message) {
+    final isPro = AppState.profile.value.verified;
+    if (_store.canPinMore(_chatId, isPro: isPro)) {
+      _store.pinMessage(_chatId, message.id);
+      return;
+    }
+    showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Pin limit reached'),
+        content: const Text(
+          'Free accounts can pin up to ${ChatStore.freePinLimit} messages per '
+          'chat. Upgrade to Okay Pro to pin as many as you like.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Not now'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('See Okay Pro'),
+          ),
+        ],
+      ),
+    ).then((go) {
+      if (go == true && mounted) {
+        Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => const OkayProScreen()),
+        );
+      }
+    });
+  }
+
+  /// A bottom sheet listing every pinned message, each with jump + unpin.
+  void _showPinnedSheet() {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => ListenableBuilder(
+        listenable: _store,
+        builder: (context, _) {
+          final chat = _store.chatById(_chatId);
+          final ids = chat?.pinnedMessageIds ?? const <String>[];
+          final msgs = <Message>[];
+          for (final id in ids.reversed) {
+            final match = chat!.messages.where((m) => m.id == id);
+            if (match.isNotEmpty) msgs.add(match.first);
+          }
+          if (msgs.isEmpty) {
+            // Nothing left pinned — close the sheet.
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (Navigator.of(sheetContext).canPop()) {
+                Navigator.of(sheetContext).pop();
+              }
+            });
+            return const SizedBox.shrink();
+          }
+          return SafeArea(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.push_pin, size: 18),
+                      const SizedBox(width: 8),
+                      Text('${msgs.length} pinned',
+                          style: const TextStyle(
+                              fontSize: 16, fontWeight: FontWeight.w600)),
+                      const Spacer(),
+                      TextButton(
+                        onPressed: () {
+                          _store.unpinAll(_chatId);
+                          Navigator.of(sheetContext).pop();
+                        },
+                        child: const Text('Unpin all'),
+                      ),
+                    ],
+                  ),
+                ),
+                Flexible(
+                  child: ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: msgs.length,
+                    itemBuilder: (context, i) {
+                      final m = msgs[i];
+                      return ListTile(
+                        leading: const Icon(Icons.push_pin_outlined),
+                        title: Text(
+                          m.isVoice
+                              ? 'Voice message'
+                              : m.isImage
+                                  ? 'Photo'
+                                  : m.text,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        trailing: IconButton(
+                          icon: const Icon(Icons.close),
+                          tooltip: 'Unpin',
+                          onPressed: () => _store.unpinMessage(_chatId, m.id),
+                        ),
+                        onTap: () {
+                          Navigator.of(sheetContext).pop();
+                          _jumpToMessage(m.id);
+                        },
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
   void _showMessageActions(Message message) {
     // A deleted tombstone only offers removal from this device.
     if (message.isDeleted) {
@@ -825,18 +948,19 @@ class _ChatScreenState extends State<ChatScreen> {
                 ),
                 Builder(builder: (context) {
                   final pinned =
-                      _store.chatById(_chatId)?.pinnedMessageId == message.id;
+                      _store.chatById(_chatId)?.isPinnedMessage(message.id) ??
+                          false;
                   return ListTile(
                     leading:
                         Icon(pinned ? Icons.push_pin : Icons.push_pin_outlined),
                     title: Text(pinned ? 'Unpin' : 'Pin'),
                     onTap: () {
-                      if (pinned) {
-                        _store.unpinMessage(_chatId);
-                      } else {
-                        _store.pinMessage(_chatId, message.id);
-                      }
                       Navigator.of(sheetContext).pop();
+                      if (pinned) {
+                        _store.unpinMessage(_chatId, message.id);
+                      } else {
+                        _tryPin(message);
+                      }
                     },
                   );
                 }),
@@ -1647,9 +1771,12 @@ class _ChatScreenState extends State<ChatScreen> {
                 if (pinnedId == null) return const SizedBox.shrink();
                 final matches = chat!.messages.where((m) => m.id == pinnedId);
                 if (matches.isEmpty) return const SizedBox.shrink();
+                final count = chat.pinnedMessageIds.length;
                 return _PinnedBanner(
                   message: matches.first,
-                  onUnpin: () => _store.unpinMessage(_chatId),
+                  count: count,
+                  onTap: count > 1 ? _showPinnedSheet : null,
+                  onUnpin: () => _store.unpinMessage(_chatId, pinnedId),
                 );
               },
             ),
@@ -1876,9 +2003,16 @@ class _EmptyConversation extends StatelessWidget {
 
 class _PinnedBanner extends StatelessWidget {
   final Message message;
+  final int count;
+  final VoidCallback? onTap;
   final VoidCallback onUnpin;
 
-  const _PinnedBanner({required this.message, required this.onUnpin});
+  const _PinnedBanner({
+    required this.message,
+    required this.count,
+    required this.onUnpin,
+    this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1886,7 +2020,7 @@ class _PinnedBanner extends StatelessWidget {
     return Material(
       color: isDark ? AppColors.darkAppBar : Colors.white,
       child: InkWell(
-        onTap: () {},
+        onTap: onTap,
         child: Container(
           padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
           decoration: const BoxDecoration(
@@ -1903,9 +2037,9 @@ class _PinnedBanner extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Text(
-                      'Pinned message',
-                      style: TextStyle(
+                    Text(
+                      count > 1 ? '$count pinned messages' : 'Pinned message',
+                      style: const TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w600,
                         color: AppColors.tealGreenDark,

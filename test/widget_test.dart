@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:okay_messaging/app_state.dart';
 import 'package:okay_messaging/crypto/e2e.dart';
+import 'package:okay_messaging/data/mock_data.dart';
 import 'package:okay_messaging/crypto/key_exchange.dart';
 import 'package:okay_messaging/main.dart';
 import 'package:okay_messaging/legal/legal_content.dart';
@@ -3584,6 +3585,97 @@ void main() {
       store.hydrate(snapshot);
       expect(store.chatById('c_alice')!.isFavorite, isTrue);
       expect(store.chatById('c_bob')!.isFavorite, isFalse);
+    });
+  });
+
+  group('Pinned messages (multi-pin)', () {
+    test('pins several messages and enforces the free limit', () {
+      final store = ChatStore.instance;
+      store.pinMessage('c_alice', 'm1');
+      store.pinMessage('c_alice', 'm2');
+      store.pinMessage('c_alice', 'm2b');
+      final chat = store.chatById('c_alice')!;
+      expect(chat.pinnedMessageIds, ['m1', 'm2', 'm2b']);
+      expect(chat.pinnedMessageId, 'm2b'); // latest
+      expect(chat.isPinnedMessage('m2'), isTrue);
+      // At the free limit (3): non-Pro blocked, Pro not.
+      expect(store.canPinMore('c_alice', isPro: false), isFalse);
+      expect(store.canPinMore('c_alice', isPro: true), isTrue);
+    });
+
+    test('pinMessage is idempotent', () {
+      final store = ChatStore.instance;
+      store.pinMessage('c_alice', 'm1');
+      store.pinMessage('c_alice', 'm1');
+      expect(store.chatById('c_alice')!.pinnedMessageIds, ['m1']);
+    });
+
+    test('unpinMessage removes only the given message', () {
+      final store = ChatStore.instance;
+      store.pinMessage('c_alice', 'm1');
+      store.pinMessage('c_alice', 'm2');
+      store.unpinMessage('c_alice', 'm1');
+      final chat = store.chatById('c_alice')!;
+      expect(chat.pinnedMessageIds, ['m2']);
+      expect(chat.isPinnedMessage('m1'), isFalse);
+    });
+
+    test('unpinAll clears every pin', () {
+      final store = ChatStore.instance;
+      store.pinMessage('c_alice', 'm1');
+      store.pinMessage('c_alice', 'm2');
+      store.unpinAll('c_alice');
+      expect(store.chatById('c_alice')!.pinnedMessageIds, isEmpty);
+    });
+
+    test('deleting a pinned message unpins just that message', () {
+      final store = ChatStore.instance;
+      store.pinMessage('c_alice', 'm1');
+      store.pinMessage('c_alice', 'm2');
+      store.deleteMessage('c_alice', 'm1');
+      expect(store.chatById('c_alice')!.pinnedMessageIds, ['m2']);
+    });
+
+    test('legacy single pinnedMessageId migrates to the list', () {
+      final chat = Chat.fromJson({
+        'id': 'c_x',
+        'contact': MockData.me.toJson(),
+        'messages': <dynamic>[],
+        'pinnedMessageId': 'legacy1',
+      });
+      expect(chat.pinnedMessageIds, ['legacy1']);
+      expect(chat.pinnedMessageId, 'legacy1');
+    });
+
+    testWidgets('banner shows a count and a sheet when several are pinned',
+        (tester) async {
+      await tester.pumpWidget(const OkayMessagingApp());
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Bob Carter'));
+      await tester.pumpAndSettle();
+
+      Future<void> pin(String text) async {
+        await tester.longPress(find.text(text));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Pin'));
+        await tester.pumpAndSettle();
+      }
+
+      await pin('Did you see the game last night?');
+      await pin('Yes! What a finish 🔥');
+
+      expect(find.text('2 pinned messages'), findsOneWidget);
+
+      // Tapping the banner opens the pinned-messages sheet.
+      await tester.tap(find.text('2 pinned messages'));
+      await tester.pumpAndSettle();
+      expect(find.text('2 pinned'), findsOneWidget);
+      expect(find.text('Unpin all'), findsOneWidget);
+
+      await tester.tap(find.text('Unpin all'));
+      await tester.pumpAndSettle();
+      expect(find.text('Pinned message'), findsNothing);
+      expect(find.text('2 pinned messages'), findsNothing);
     });
   });
 }
