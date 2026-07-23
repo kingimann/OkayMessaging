@@ -12,6 +12,32 @@ import 'chat_store.dart';
 import 'community_store.dart';
 import 'session.dart';
 
+/// How often the app should nudge the user to back up.
+enum BackupReminder {
+  off,
+  daily,
+  weekly,
+  monthly;
+
+  String get label => switch (this) {
+        BackupReminder.off => 'Off',
+        BackupReminder.daily => 'Daily',
+        BackupReminder.weekly => 'Weekly',
+        BackupReminder.monthly => 'Monthly',
+      };
+
+  /// The interval after which a backup is considered overdue (null when off).
+  Duration? get interval => switch (this) {
+        BackupReminder.off => null,
+        BackupReminder.daily => const Duration(days: 1),
+        BackupReminder.weekly => const Duration(days: 7),
+        BackupReminder.monthly => const Duration(days: 30),
+      };
+
+  static BackupReminder fromName(String? n) => BackupReminder.values
+      .firstWhere((r) => r.name == n, orElse: () => BackupReminder.off);
+}
+
 /// Creates and restores an **end-to-end encrypted** backup of the user's chats
 /// and profile, so it can be stored on iCloud Drive, Dropbox, or Google Drive
 /// without exposing anything. The backup is encrypted with a passphrase only
@@ -27,17 +53,39 @@ class BackupService extends ChangeNotifier {
   static const _version = 1;
   static const int iterations = 120000;
   static const _kLastBackup = 'last_backup_at';
+  static const _kReminder = 'backup_reminder';
 
   SharedPreferences? _prefs;
 
   /// When the last successful backup was created (null if never).
   DateTime? lastBackupAt;
 
+  /// How often to nudge the user to back up.
+  BackupReminder reminder = BackupReminder.off;
+
   Future<void> load() async {
     final prefs = _prefs ??= await SharedPreferences.getInstance();
     final raw = prefs.getString(_kLastBackup);
     lastBackupAt = raw == null ? null : DateTime.tryParse(raw);
+    reminder = BackupReminder.fromName(prefs.getString(_kReminder));
     notifyListeners();
+  }
+
+  /// Sets the reminder cadence and persists it.
+  void setReminder(BackupReminder value) {
+    reminder = value;
+    _prefs?.setString(_kReminder, value.name);
+    notifyListeners();
+  }
+
+  /// Whether a backup is overdue given the reminder cadence: true when a
+  /// reminder is set and either no backup exists yet or the last one is older
+  /// than the interval.
+  bool isBackupDue({DateTime? now}) {
+    final interval = reminder.interval;
+    if (interval == null) return false;
+    if (lastBackupAt == null) return true;
+    return (now ?? DateTime.now()).difference(lastBackupAt!) >= interval;
   }
 
   void _markBackedUp(DateTime when) {
@@ -167,6 +215,7 @@ class BackupService extends ChangeNotifier {
   @visibleForTesting
   void resetForTest() {
     lastBackupAt = null;
+    reminder = BackupReminder.off;
     _prefs = null;
     notifyListeners();
   }

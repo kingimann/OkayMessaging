@@ -73,6 +73,37 @@ class BackupScreen extends StatelessWidget {
     ));
   }
 
+  Future<void> _pickReminder(BuildContext context) async {
+    final chosen = await showModalBottomSheet<BackupReminder>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+              child: Text('Remind me to back up',
+                  style: Theme.of(sheetContext).textTheme.titleMedium),
+            ),
+            for (final r in BackupReminder.values)
+              ListTile(
+                title: Text(r.label),
+                trailing: r == BackupService.instance.reminder
+                    ? Icon(Icons.check,
+                        color: Theme.of(sheetContext).colorScheme.primary)
+                    : null,
+                onTap: () => Navigator.of(sheetContext).pop(r),
+              ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+    if (chosen != null) BackupService.instance.setReminder(chosen);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -90,6 +121,12 @@ class BackupScreen extends StatelessWidget {
             ),
           ),
           const _ProviderRow(),
+          ListenableBuilder(
+            listenable: BackupService.instance,
+            builder: (context, _) => BackupService.instance.isBackupDue()
+                ? _DueBanner(onBackUp: () => _backUp(context))
+                : const SizedBox.shrink(),
+          ),
           settingsSectionLabel(context, 'Backup'),
           InfoSection(children: [
             ListenableBuilder(
@@ -112,6 +149,16 @@ class BackupScreen extends StatelessWidget {
               subtitle: 'Import an .okaybak file',
               onTap: () => _restore(context),
             ),
+            ListenableBuilder(
+              listenable: BackupService.instance,
+              builder: (context, _) => InfoTile(
+                leading: const Icon(Icons.notifications_outlined),
+                title: 'Backup reminder',
+                subtitle: BackupService.instance.reminder.label,
+                trailing: const Icon(Icons.chevron_right, color: Colors.grey),
+                onTap: () => _pickReminder(context),
+              ),
+            ),
           ]),
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 14, 20, 8),
@@ -131,6 +178,36 @@ class BackupScreen extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 24),
+        ],
+      ),
+    );
+  }
+}
+
+/// An amber banner shown when a backup is overdue.
+class _DueBanner extends StatelessWidget {
+  final VoidCallback onBackUp;
+  const _DueBanner({required this.onBackUp});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+      padding: const EdgeInsets.fromLTRB(14, 12, 10, 12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF9A825).withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFF9A825).withValues(alpha: 0.4)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.schedule, color: Color(0xFFF57F17)),
+          const SizedBox(width: 12),
+          const Expanded(
+            child: Text('Your backup is due — keep your chats safe.',
+                style: TextStyle(fontWeight: FontWeight.w600)),
+          ),
+          TextButton(onPressed: onBackUp, child: const Text('Back up')),
         ],
       ),
     );

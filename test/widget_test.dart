@@ -2900,6 +2900,26 @@ void main() {
       expect(forum.posts, isNotEmpty);
     });
 
+    test('backup reminder marks a backup overdue by cadence', () {
+      BackupService.instance.resetForTest();
+      final now = DateTime(2024, 6, 10, 12);
+      // Off never nags.
+      expect(BackupService.instance.isBackupDue(now: now), isFalse);
+      // Weekly with no backup yet → due.
+      BackupService.instance.setReminder(BackupReminder.weekly);
+      expect(BackupService.instance.isBackupDue(now: now), isTrue);
+      // A backup 3 days ago is still fresh for weekly...
+      BackupService.instance
+          .createArchiveBytes('pw', now: now.subtract(const Duration(days: 3)));
+      expect(BackupService.instance.isBackupDue(now: now), isFalse);
+      // ...but stale after 8 days.
+      expect(
+          BackupService.instance
+              .isBackupDue(now: now.add(const Duration(days: 8))),
+          isTrue);
+      BackupService.instance.resetForTest();
+    });
+
     test('createArchiveBytes stamps the last-backup time', () {
       BackupService.instance.resetForTest();
       ChatStore.instance.reset();

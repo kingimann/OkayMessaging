@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../app_state.dart';
+import '../state/backup_service.dart';
 import '../state/chat_store.dart';
 import '../state/session.dart';
 import '../widgets/info_section.dart';
@@ -99,12 +100,18 @@ class SettingsView extends StatelessWidget {
               subtitle: 'Phone number, username',
               onTap: () => _showAccount(context),
             ),
-            InfoTile(
-              leading: const Icon(Icons.backup_outlined),
-              title: 'Chat backup',
-              subtitle: 'Encrypted backup to iCloud, Dropbox, or Drive',
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const BackupScreen()),
+            ListenableBuilder(
+              listenable: BackupService.instance,
+              builder: (context, _) => InfoTile(
+                leading: const Icon(Icons.backup_outlined),
+                title: 'Chat backup',
+                subtitle: 'Encrypted backup to iCloud, Dropbox, or Drive',
+                trailing: BackupService.instance.isBackupDue()
+                    ? const Icon(Icons.schedule, color: Color(0xFFF57F17))
+                    : null,
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const BackupScreen()),
+                ),
               ),
             ),
             InfoTile(
