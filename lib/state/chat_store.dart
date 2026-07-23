@@ -203,6 +203,14 @@ class ChatStore extends ChangeNotifier {
   bool get hasFavorites =>
       _chats.any((c) => c.isFavorite && !c.isArchived);
 
+  /// Turns the "confirm before sending" safeguard on or off for a chat.
+  void setConfirmBeforeSend(String id, bool value) {
+    final i = _indexOf(id);
+    if (i != -1 && _chats[i].confirmBeforeSend != value) {
+      _replace(i, _chats[i].copyWith(confirmBeforeSend: value));
+    }
+  }
+
   void setArchived(String id, bool archived) {
     final i = _indexOf(id);
     if (i != -1) {

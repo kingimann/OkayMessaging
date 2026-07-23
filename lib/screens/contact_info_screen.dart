@@ -152,6 +152,7 @@ class ContactInfoScreen extends StatelessWidget {
                 ),
               ],
             ),
+          if (chatId != null) _ConfirmBeforeSendSection(chatId: chatId!),
           InfoSection(
             children: [
               const InfoTile(
@@ -454,6 +455,38 @@ class _TonalAction extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// A safety toggle: when on, sending anything in this chat asks the user to
+/// confirm the recipient first — a guard against messaging the wrong person.
+class _ConfirmBeforeSendSection extends StatelessWidget {
+  final String chatId;
+  const _ConfirmBeforeSendSection({required this.chatId});
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: ChatStore.instance,
+      builder: (context, _) {
+        final chat = ChatStore.instance.chatById(chatId);
+        final on = chat?.confirmBeforeSend ?? false;
+        return InfoSection(
+          children: [
+            SwitchListTile(
+              secondary: Icon(on ? Icons.verified_user : Icons.shield_outlined),
+              title: const Text('Confirm before sending'),
+              subtitle: Text(on
+                  ? 'You\'ll confirm the recipient before each message sends'
+                  : 'Ask me to confirm before sending, to avoid mistakes'),
+              value: on,
+              onChanged: (v) =>
+                  ChatStore.instance.setConfirmBeforeSend(chatId, v),
+            ),
+          ],
+        );
+      },
     );
   }
 }

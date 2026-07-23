@@ -371,7 +371,8 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  void _handleSendImage() {
+  Future<void> _handleSendImage() async {
+    if (!await _confirmRecipient()) return;
     final now = DateTime.now();
     _deliver(Message(
       id: 'img_${now.microsecondsSinceEpoch}',
@@ -406,6 +407,7 @@ class _ChatScreenState extends State<ChatScreen> {
       _showComingSoon(context, 'Direct file sending (needs a real contact)');
       return;
     }
+    if (!await _confirmRecipient()) return;
     final result = await FilePicker.pickFiles(withData: true);
     if (result == null || result.files.isEmpty || !mounted) return;
     final f = result.files.first;
@@ -432,7 +434,8 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  void _handleSendLocation() {
+  Future<void> _handleSendLocation() async {
+    if (!await _confirmRecipient()) return;
     final now = DateTime.now();
     // No device GPS on web; share a representative current location. The card
     // is fully rendered and "Open in Maps" produces a real maps link.
@@ -494,7 +497,8 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  void _sendContactCard(AppUser contact) {
+  Future<void> _sendContactCard(AppUser contact) async {
+    if (!await _confirmRecipient()) return;
     final now = DateTime.now();
     _deliver(Message(
       id: 'contact_${now.microsecondsSinceEpoch}',
@@ -541,6 +545,45 @@ class _ChatScreenState extends State<ChatScreen> {
 
   /// Stores an outgoing [message] and either delivers it over the relay (to a
   /// real number-based peer) or triggers a simulated reply (demo contact).
+  /// When this chat has the "confirm before sending" safeguard on, asks the
+  /// user to confirm the recipient before anything is sent. Returns true when
+  /// it's safe to proceed (either off, or the user confirmed).
+  Future<bool> _confirmRecipient() async {
+    final chat = _store.chatById(_chatId);
+    if (chat == null || !chat.confirmBeforeSend) return true;
+    final contact = chat.contact;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Send to the right chat?'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            UserAvatar(user: contact, radius: 30),
+            const SizedBox(height: 12),
+            Text(
+              contact.isGroup
+                  ? 'This message will go to everyone in "${contact.name}".'
+                  : 'This message will be sent to ${contact.name}.',
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Send'),
+          ),
+        ],
+      ),
+    );
+    return ok ?? false;
+  }
+
   void _deliver(Message message) {
     _store.addMessage(_chatId, message);
     WidgetsBinding.instance.addPostFrameCallback((_) => _animateToBottom());
@@ -1395,6 +1438,8 @@ class _ChatScreenState extends State<ChatScreen> {
       _showComingSoon(context, 'Payments (needs a real contact)');
       return;
     }
+    if (!await _confirmRecipient()) return;
+    if (!mounted) return;
     final result = await showModalBottomSheet<({int cents, String note})>(
       context: context,
       isScrollControlled: true,
@@ -1682,6 +1727,17 @@ class _ChatScreenState extends State<ChatScreen> {
                                             : Colors.black45,
                                       ),
                                     ],
+                                    if (_store
+                                            .chatById(_chatId)
+                                            ?.confirmBeforeSend ??
+                                        false) ...[
+                                      const SizedBox(width: 6),
+                                      const Icon(
+                                        Icons.verified_user,
+                                        size: 15,
+                                        color: AppColors.tealGreenDark,
+                                      ),
+                                    ],
                                   ],
                                 ),
                                 _isTyping
@@ -1873,6 +1929,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     onCancelReply: () => setState(() => _replyTo = null),
                     initialText: _store.draftFor(_chatId),
                     onChanged: (t) => _store.setDraft(_chatId, t),
+                    confirmSend: _confirmRecipient,
                   );
                 },
               ),

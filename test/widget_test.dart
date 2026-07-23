@@ -3712,4 +3712,93 @@ void main() {
       expect(find.text('2 pinned messages'), findsNothing);
     });
   });
+
+  group('Confirm before sending (wrong-person guard)', () {
+    test('setConfirmBeforeSend toggles and persists via JSON', () {
+      final store = ChatStore.instance;
+      expect(store.chatById('c_bob')!.confirmBeforeSend, isFalse);
+      store.setConfirmBeforeSend('c_bob', true);
+      expect(store.chatById('c_bob')!.confirmBeforeSend, isTrue);
+
+      final snapshot =
+          jsonDecode(jsonEncode(store.toJson())) as Map<String, dynamic>;
+      store.reset();
+      store.hydrate(snapshot);
+      expect(store.chatById('c_bob')!.confirmBeforeSend, isTrue);
+    });
+
+    testWidgets('a guarded chat asks to confirm and only sends on confirm',
+        (tester) async {
+      ChatStore.instance.setConfirmBeforeSend('c_bob', true);
+      await tester.pumpWidget(const OkayMessagingApp());
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Bob Carter'));
+      await tester.pumpAndSettle();
+
+      bool sent() => ChatStore.instance
+          .chatById('c_bob')!
+          .messages
+          .any((m) => m.isMe && m.text == 'wrong chat?');
+      final before = ChatStore.instance.chatById('c_bob')!.messages.length;
+
+      // Type and send — a confirmation appears instead of sending.
+      await tester.enterText(find.byType(TextField).first, 'wrong chat?');
+      await tester.pumpAndSettle();
+      await tester.tap(find.byIcon(Icons.send));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Send to the right chat?'), findsOneWidget);
+
+      // Cancelling keeps the text and sends nothing.
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(ChatStore.instance.chatById('c_bob')!.messages.length, before);
+      expect(sent(), isFalse);
+      expect(find.text('wrong chat?'), findsOneWidget); // still in composer
+
+      // Sending again and confirming delivers the message.
+      await tester.tap(find.byIcon(Icons.send));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Send'));
+      await tester.pumpAndSettle();
+      expect(sent(), isTrue);
+    });
+
+    testWidgets('an unguarded chat sends without a prompt', (tester) async {
+      await tester.pumpWidget(const OkayMessagingApp());
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Bob Carter'));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextField).first, 'quick hello');
+      await tester.pumpAndSettle();
+      await tester.tap(find.byIcon(Icons.send));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Send to the right chat?'), findsNothing);
+      expect(
+        ChatStore.instance
+            .chatById('c_bob')!
+            .messages
+            .any((m) => m.isMe && m.text == 'quick hello'),
+        isTrue,
+      );
+    });
+
+    testWidgets('the contact info toggle turns the guard on', (tester) async {
+      await tester.pumpWidget(const OkayMessagingApp());
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Bob Carter'));
+      await tester.pumpAndSettle();
+      // Open contact info via the header.
+      await tester.tap(find.text('Bob Carter'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Confirm before sending'), findsOneWidget);
+      await tester.tap(find.text('Confirm before sending'));
+      await tester.pumpAndSettle();
+      expect(
+          ChatStore.instance.chatById('c_bob')!.confirmBeforeSend, isTrue);
+    });
+  });
 }

@@ -33,6 +33,10 @@ class ChatInputBar extends StatefulWidget {
   /// Called as the composer text changes, so the draft can be saved.
   final ValueChanged<String>? onChanged;
 
+  /// Optional guard run before a text or voice message is sent. When it
+  /// resolves false, the send is cancelled and the composer text is kept.
+  final Future<bool> Function()? confirmSend;
+
   const ChatInputBar({
     super.key,
     required this.onSend,
@@ -44,6 +48,7 @@ class ChatInputBar extends StatefulWidget {
     this.onSchedule,
     this.initialText = '',
     this.onChanged,
+    this.confirmSend,
   });
 
   @override
@@ -95,10 +100,11 @@ class _ChatInputBarState extends State<ChatInputBar> {
     setState(() => _recording = false);
   }
 
-  void _finishRecording() {
+  Future<void> _finishRecording() async {
     _recordTimer?.cancel();
     final seconds = _recordSeconds < 1 ? 1 : _recordSeconds;
     setState(() => _recording = false);
+    if (widget.confirmSend != null && !await widget.confirmSend!()) return;
     widget.onSendVoice?.call(seconds);
   }
 
@@ -108,9 +114,12 @@ class _ChatInputBarState extends State<ChatInputBar> {
     return '$m:${s.toString().padLeft(2, '0')}';
   }
 
-  void _send() {
+  Future<void> _send() async {
     final text = _controller.text.trim();
     if (text.isEmpty) return;
+    // Ask for confirmation first when the chat is guarded; keep the text if
+    // the user backs out.
+    if (widget.confirmSend != null && !await widget.confirmSend!()) return;
     widget.onSend(text);
     _controller.clear();
   }

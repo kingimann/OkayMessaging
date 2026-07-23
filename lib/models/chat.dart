@@ -12,6 +12,10 @@ class Chat {
   final bool isArchived;
   final bool isFavorite;
 
+  /// When true, sending anything in this chat asks for confirmation first —
+  /// a guard against accidentally messaging the wrong person.
+  final bool confirmBeforeSend;
+
   /// Ids of messages pinned to the top of this chat, oldest first. Free
   /// accounts can pin a few; Okay Pro lifts the limit.
   final List<String> pinnedMessageIds;
@@ -32,6 +36,7 @@ class Chat {
     this.isMuted = false,
     this.isArchived = false,
     this.isFavorite = false,
+    this.confirmBeforeSend = false,
     this.pinnedMessageIds = const [],
     this.members = const [],
     this.disappearingSeconds = 0,
@@ -68,6 +73,7 @@ class Chat {
         'isMuted': isMuted,
         'isArchived': isArchived,
         'isFavorite': isFavorite,
+        'confirmBeforeSend': confirmBeforeSend,
         'pinnedMessageIds': pinnedMessageIds,
         'members': members.map((m) => m.toJson()).toList(),
         'disappearingSeconds': disappearingSeconds,
@@ -85,6 +91,7 @@ class Chat {
         isMuted: json['isMuted'] as bool? ?? false,
         isArchived: json['isArchived'] as bool? ?? false,
         isFavorite: json['isFavorite'] as bool? ?? false,
+        confirmBeforeSend: json['confirmBeforeSend'] as bool? ?? false,
         pinnedMessageIds: _readPinned(json),
         members: (json['members'] as List? ?? const [])
             .map((m) => AppUser.fromJson(Map<String, dynamic>.from(m as Map)))
@@ -100,6 +107,7 @@ class Chat {
     bool? isMuted,
     bool? isArchived,
     bool? isFavorite,
+    bool? confirmBeforeSend,
     List<String>? pinnedMessageIds,
     bool clearPinned = false,
     int? disappearingSeconds,
@@ -113,6 +121,7 @@ class Chat {
       isMuted: isMuted ?? this.isMuted,
       isArchived: isArchived ?? this.isArchived,
       isFavorite: isFavorite ?? this.isFavorite,
+      confirmBeforeSend: confirmBeforeSend ?? this.confirmBeforeSend,
       pinnedMessageIds:
           clearPinned ? const [] : (pinnedMessageIds ?? this.pinnedMessageIds),
       members: members,

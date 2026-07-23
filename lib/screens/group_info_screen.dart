@@ -103,6 +103,23 @@ class GroupInfoScreen extends StatelessWidget {
                         ),
                     ],
                   ),
+                  if (chatId != null)
+                    InfoSection(
+                      children: [
+                        SwitchListTile(
+                          secondary: Icon(chat?.confirmBeforeSend ?? false
+                              ? Icons.verified_user
+                              : Icons.shield_outlined),
+                          title: const Text('Confirm before sending'),
+                          subtitle: Text(chat?.confirmBeforeSend ?? false
+                              ? 'You\'ll confirm before each message sends'
+                              : 'Ask me to confirm before sending to this group'),
+                          value: chat?.confirmBeforeSend ?? false,
+                          onChanged: (v) => ChatStore.instance
+                              .setConfirmBeforeSend(chatId!, v),
+                        ),
+                      ],
+                    ),
                   InfoSection(
                     children: [
                       InfoTile(
