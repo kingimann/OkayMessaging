@@ -43,6 +43,10 @@ class AppState {
   /// verified badge.
   static final ValueNotifier<Color?> bubbleColor = ValueNotifier<Color?>(null);
 
+  /// Snap-Map "Ghost Mode": when on, your own avatar is hidden from the map so
+  /// no one can see where you are.
+  static final ValueNotifier<bool> ghostMode = ValueNotifier<bool>(false);
+
   /// Whether to broadcast your online / last-seen status to people you chat
   /// with. When off, peers won't see you as "online".
   static final ValueNotifier<bool> shareLastSeen = ValueNotifier<bool>(true);
@@ -135,6 +139,7 @@ class AppState {
     profile.value = MockData.me;
     chatWallpaper.value = null;
     bubbleColor.value = null;
+    ghostMode.value = false;
     shareLastSeen.value = true;
     sendReadReceipts.value = true;
     sendTypingIndicators.value = true;

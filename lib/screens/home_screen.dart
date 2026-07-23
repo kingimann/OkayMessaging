@@ -7,6 +7,7 @@ import '../theme/app_theme.dart';
 import 'archived_chats_screen.dart';
 import 'chat_search_delegate.dart';
 import 'communities.dart';
+import 'map_screen.dart';
 import 'new_chat_screen.dart';
 import 'settings_screen.dart';
 import 'starred_messages_screen.dart';
@@ -66,6 +67,13 @@ class _HomeScreenState extends State<HomeScreen> {
             : Text(_titleForIndex),
         actions: [
           if (onChats) ...[
+            IconButton(
+              icon: const Icon(Icons.map_outlined),
+              tooltip: 'Map',
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const MapScreen()),
+              ),
+            ),
             IconButton(
               icon: const Icon(Icons.motion_photos_on_outlined),
               tooltip: 'Status',

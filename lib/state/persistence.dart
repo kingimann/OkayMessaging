@@ -16,6 +16,7 @@ class Persistence {
   static const _kProfile = 'profile';
   static const _kWallpaper = 'wallpaper';
   static const _kBubbleColor = 'bubble_color';
+  static const _kGhostMode = 'map_ghost_mode';
   static const _kChats = 'chats_v1';
   static const _kShareLastSeen = 'share_last_seen';
   static const _kReadReceipts = 'send_read_receipts';
@@ -66,6 +67,10 @@ class Persistence {
     if (prefs.containsKey(_kBubbleColor)) {
       final value = prefs.getInt(_kBubbleColor);
       AppState.bubbleColor.value = value == null ? null : Color(value);
+    }
+
+    if (prefs.containsKey(_kGhostMode)) {
+      AppState.ghostMode.value = prefs.getBool(_kGhostMode) ?? false;
     }
 
     final chats = prefs.getString(_kChats);
@@ -136,6 +141,7 @@ class Persistence {
     AppState.profile.addListener(_saveProfile);
     AppState.chatWallpaper.addListener(_saveWallpaper);
     AppState.bubbleColor.addListener(_saveBubbleColor);
+    AppState.ghostMode.addListener(_saveGhostMode);
     AppState.shareLastSeen.addListener(_saveShareLastSeen);
     AppState.sendReadReceipts.addListener(_saveReadReceipts);
     AppState.sendTypingIndicators.addListener(_saveTypingIndicators);
@@ -243,6 +249,10 @@ class Persistence {
     } else {
       _prefs?.setInt(_kBubbleColor, color.toARGB32());
     }
+  }
+
+  static void _saveGhostMode() {
+    _prefs?.setBool(_kGhostMode, AppState.ghostMode.value);
   }
 
   static void _saveChats() {
