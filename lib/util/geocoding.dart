@@ -60,6 +60,25 @@ String _label(Map<dynamic, dynamic> props) {
   return parts.take(3).join(', ');
 }
 
+/// Looks up a readable place name for a coordinate via Photon's reverse
+/// geocoder. Returns null on any error.
+Future<GeoResult?> reverseGeocode(double lat, double lng) async {
+  final uri = Uri.https('photon.komoot.io', '/reverse', {
+    'lat': '$lat',
+    'lon': '$lng',
+  });
+  try {
+    final res = await http
+        .get(uri, headers: {'Accept': 'application/json'})
+        .timeout(const Duration(seconds: 10));
+    if (res.statusCode != 200) return null;
+    final results = parsePhoton(res.body);
+    return results.isEmpty ? null : results.first;
+  } catch (_) {
+    return null;
+  }
+}
+
 /// Searches OpenStreetMap data for [query] via Komoot's Photon geocoder, which
 /// (unlike Nominatim) sends CORS headers so it works from the browser. Returns
 /// an empty list on any error.

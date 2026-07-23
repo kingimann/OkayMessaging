@@ -3867,13 +3867,18 @@ void main() {
       expect(formatDistance(15400), '15 km');
     });
 
-    test('parseOsrmRoute reads geometry, distance and duration', () {
+    test('parseOsrmRoute reads geometry, distance, duration and steps', () {
       const body = '''
       {"code":"Ok","routes":[{
         "distance":1965.6,"duration":242.8,
         "geometry":{"type":"LineString","coordinates":[
           [-122.42,37.77],[-122.419,37.771],[-122.41,37.78]
-        ]}
+        ]},
+        "legs":[{"steps":[
+          {"maneuver":{"type":"depart"},"name":"13th Street","distance":12},
+          {"maneuver":{"type":"turn","modifier":"left"},"name":"","distance":55},
+          {"maneuver":{"type":"arrive"},"name":"","distance":0}
+        ]}]
       }]}''';
       final r = parseOsrmRoute(body);
       expect(r, isNotNull);
@@ -3883,6 +3888,19 @@ void main() {
       expect(r.points.first.longitude, closeTo(-122.42, 0.0001));
       expect(r.distanceMeters, closeTo(1965.6, 0.1));
       expect(r.durationSeconds, closeTo(242.8, 0.1));
+      expect(r.steps.length, 3);
+      expect(r.steps.first.instruction, 'Head out on 13th Street');
+      expect(r.steps[1].instruction, 'Turn left');
+      expect(r.steps.last.instruction, 'Arrive at your destination');
+    });
+
+    test('instructionFor builds readable turn text', () {
+      expect(instructionFor('turn', 'right', 'Main St'),
+          'Turn right onto Main St');
+      expect(instructionFor('end of road', 'left', ''),
+          'At the end of the road, turn left');
+      expect(instructionFor('roundabout', '', 'A1'),
+          'Enter the roundabout onto A1');
     });
 
     test('parseOsrmRoute rejects non-Ok, empty, and junk responses', () {

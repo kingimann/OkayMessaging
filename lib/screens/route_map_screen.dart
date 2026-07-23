@@ -34,6 +34,7 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
   LatLng? _from;
   bool _loading = true;
   String? _error;
+  TravelMode _mode = TravelMode.car;
 
   @override
   void initState() {
@@ -42,7 +43,7 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
   }
 
   Future<void> _load() async {
-    var from = widget.from;
+    var from = _from ?? widget.from;
     if (from == null) {
       final pos = await getCurrentLatLng();
       if (pos != null) from = LatLng(pos.lat, pos.lng);
@@ -56,14 +57,25 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
       return;
     }
     _from = from;
-    final route = await fetchRoute(from: from, to: widget.dest);
+    final route = await fetchRoute(from: from, to: widget.dest, mode: _mode);
     if (!mounted) return;
     setState(() {
       _loading = false;
       _route = route;
-      if (route == null) _error = 'Couldn\'t find a route.';
+      _error = route == null ? 'Couldn\'t find a route.' : null;
     });
     _fit(from, route);
+  }
+
+  void _setMode(TravelMode mode) {
+    if (mode == _mode) return;
+    setState(() {
+      _mode = mode;
+      _loading = true;
+      _route = null;
+      _error = null;
+    });
+    _load();
   }
 
   void _fit(LatLng from, RouteResult? route) {
@@ -139,69 +151,154 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
               const LiveAttribution(),
             ],
           ),
-          MapControls(controller: _map, bottom: 110),
-          Positioned(
-            left: 12,
-            right: 12,
-            bottom: 20,
-            child: SafeArea(child: _summaryCard(context)),
+          MapControls(controller: _map, bottom: 260),
+          _DirectionsPanel(
+            loading: _loading,
+            route: _route,
+            error: _error,
+            mode: _mode,
+            onMode: _setMode,
+            onGo: _openExternally,
           ),
         ],
       ),
     );
   }
+}
 
-  Widget _summaryCard(BuildContext context) {
-    final route = _route;
-    return Material(
-      elevation: 4,
-      borderRadius: BorderRadius.circular(16),
-      color: Theme.of(context).colorScheme.surface,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-        child: Row(
+/// A draggable bottom panel: travel-mode picker, ETA + distance, a "Go"
+/// hand-off, and the scrollable turn-by-turn steps.
+class _DirectionsPanel extends StatelessWidget {
+  final bool loading;
+  final RouteResult? route;
+  final String? error;
+  final TravelMode mode;
+  final ValueChanged<TravelMode> onMode;
+  final VoidCallback onGo;
+
+  const _DirectionsPanel({
+    required this.loading,
+    required this.route,
+    required this.error,
+    required this.mode,
+    required this.onMode,
+    required this.onGo,
+  });
+
+  IconData _modeIcon(TravelMode m) => switch (m) {
+        TravelMode.car => Icons.directions_car,
+        TravelMode.foot => Icons.directions_walk,
+        TravelMode.bike => Icons.directions_bike,
+      };
+
+  @override
+  Widget build(BuildContext context) {
+    final surface = Theme.of(context).colorScheme.surface;
+    return DraggableScrollableSheet(
+      initialChildSize: 0.28,
+      minChildSize: 0.16,
+      maxChildSize: 0.85,
+      builder: (context, controller) => Material(
+        color: surface,
+        elevation: 8,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+        clipBehavior: Clip.antiAlias,
+        child: ListView(
+          controller: controller,
+          padding: EdgeInsets.zero,
           children: [
-            Expanded(
-              child: _loading
-                  ? const Row(
-                      children: [
-                        SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        ),
-                        SizedBox(width: 12),
-                        Text('Finding the best route…'),
-                      ],
-                    )
-                  : route != null
-                      ? Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              formatDuration(route.durationSeconds),
-                              style: const TextStyle(
-                                  fontSize: 20, fontWeight: FontWeight.w700),
-                            ),
-                            Text(
-                              '${formatDistance(route.distanceMeters)} · driving',
-                              style: TextStyle(color: Colors.grey.shade600),
-                            ),
-                          ],
-                        )
-                      : Text(_error ?? 'No route available',
-                          style: TextStyle(color: Colors.grey.shade700)),
+            Center(
+              child: Container(
+                margin: const EdgeInsets.only(top: 8),
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade400,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
             ),
-            const SizedBox(width: 12),
-            FilledButton.icon(
-              onPressed: _openExternally,
-              icon: const Icon(Icons.navigation_outlined, size: 18),
-              label: const Text('Go'),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+              child: SizedBox(
+                width: double.infinity,
+                child: SegmentedButton<TravelMode>(
+                  segments: [
+                    for (final m in TravelMode.values)
+                      ButtonSegment(
+                        value: m,
+                        icon: Icon(_modeIcon(m)),
+                        label: Text(m.label),
+                      ),
+                  ],
+                  selected: {mode},
+                  showSelectedIcon: false,
+                  onSelectionChanged: (s) => onMode(s.first),
+                ),
+              ),
             ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+              child: Row(
+                children: [
+                  Expanded(child: _summary(context)),
+                  const SizedBox(width: 12),
+                  FilledButton.icon(
+                    onPressed: onGo,
+                    icon: const Icon(Icons.navigation_outlined, size: 18),
+                    label: const Text('Go'),
+                  ),
+                ],
+              ),
+            ),
+            if (route != null && route!.steps.isNotEmpty) ...[
+              const Divider(height: 1),
+              for (final step in route!.steps)
+                ListTile(
+                  dense: true,
+                  leading: const Icon(Icons.turn_right, size: 20),
+                  title: Text(step.instruction),
+                  trailing: step.distanceMeters > 0
+                      ? Text(formatDistance(step.distanceMeters),
+                          style: TextStyle(color: Colors.grey.shade600))
+                      : null,
+                ),
+              const SizedBox(height: 12),
+            ],
           ],
         ),
       ),
+    );
+  }
+
+  Widget _summary(BuildContext context) {
+    if (loading) {
+      return const Row(
+        children: [
+          SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(strokeWidth: 2)),
+          SizedBox(width: 12),
+          Text('Finding the best route…'),
+        ],
+      );
+    }
+    final r = route;
+    if (r == null) {
+      return Text(error ?? 'No route available',
+          style: TextStyle(color: Colors.grey.shade700));
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(formatDuration(r.durationSeconds),
+            style:
+                const TextStyle(fontSize: 22, fontWeight: FontWeight.w700)),
+        Text('${formatDistance(r.distanceMeters)} · ${mode.label.toLowerCase()}',
+            style: TextStyle(color: Colors.grey.shade600)),
+      ],
     );
   }
 }

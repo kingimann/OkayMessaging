@@ -3,21 +3,76 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
 
-/// A driving route: the path to draw plus its length and estimated time.
+/// How to travel a route. Each maps to a free public OSRM profile server.
+enum TravelMode {
+  car('Drive', 'routed-car'),
+  foot('Walk', 'routed-foot'),
+  bike('Cycle', 'routed-bike');
+
+  const TravelMode(this.label, this.profile);
+  final String label;
+  final String profile;
+}
+
+/// A single turn-by-turn instruction.
+class RouteStep {
+  final String instruction;
+  final double distanceMeters;
+  const RouteStep(this.instruction, this.distanceMeters);
+}
+
+/// A route: the path to draw, its length and time, and turn-by-turn steps.
 class RouteResult {
   final List<LatLng> points;
   final double distanceMeters;
   final double durationSeconds;
+  final List<RouteStep> steps;
 
   const RouteResult({
     required this.points,
     required this.distanceMeters,
     required this.durationSeconds,
+    this.steps = const [],
   });
 }
 
-/// Parses an OSRM `/route` GeoJSON response. Pure and testable; returns null on
-/// anything malformed or a non-"Ok" result.
+/// Turns an OSRM maneuver into a human instruction like "Turn left onto Main
+/// St". Pure, so it's easy to test.
+String instructionFor(String type, String modifier, String name) {
+  final onto = name.isNotEmpty ? ' onto $name' : '';
+  final on = name.isNotEmpty ? ' on $name' : '';
+  final mod = modifier.trim();
+  switch (type) {
+    case 'depart':
+      return name.isNotEmpty ? 'Head out on $name' : 'Start';
+    case 'arrive':
+      return 'Arrive at your destination';
+    case 'turn':
+      return 'Turn ${mod.isEmpty ? 'ahead' : mod}$onto';
+    case 'continue':
+      return 'Continue ${mod.isEmpty ? 'straight' : mod}$on';
+    case 'new name':
+      return 'Continue$onto';
+    case 'merge':
+      return 'Merge${mod.isEmpty ? '' : ' $mod'}$onto';
+    case 'on ramp':
+      return 'Take the ramp$onto';
+    case 'off ramp':
+      return 'Take the exit$onto';
+    case 'fork':
+      return 'Keep ${mod.isEmpty ? 'straight' : mod}$onto';
+    case 'end of road':
+      return 'At the end of the road, turn ${mod.isEmpty ? 'ahead' : mod}$onto';
+    case 'roundabout':
+    case 'rotary':
+      return 'Enter the roundabout$onto';
+    default:
+      return name.isNotEmpty ? 'Continue on $name' : 'Continue';
+  }
+}
+
+/// Parses an OSRM `/route` GeoJSON response (with steps). Pure and testable;
+/// returns null on anything malformed or a non-"Ok" result.
 RouteResult? parseOsrmRoute(String body) {
   try {
     final data = jsonDecode(body);
@@ -39,30 +94,53 @@ RouteResult? parseOsrmRoute(String body) {
       }
     }
     if (pts.isEmpty) return null;
+
+    final steps = <RouteStep>[];
+    final legs = r['legs'];
+    if (legs is List && legs.isNotEmpty && legs.first is Map) {
+      final rawSteps = (legs.first as Map)['steps'];
+      if (rawSteps is List) {
+        for (final s in rawSteps) {
+          if (s is! Map) continue;
+          final man = s['maneuver'];
+          final type = man is Map ? (man['type'] as String? ?? '') : '';
+          final mod = man is Map ? (man['modifier'] as String? ?? '') : '';
+          final name = s['name'] as String? ?? '';
+          steps.add(RouteStep(
+            instructionFor(type, mod, name),
+            (s['distance'] as num?)?.toDouble() ?? 0,
+          ));
+        }
+      }
+    }
+
     return RouteResult(
       points: pts,
       distanceMeters: (r['distance'] as num?)?.toDouble() ?? 0,
       durationSeconds: (r['duration'] as num?)?.toDouble() ?? 0,
+      steps: steps,
     );
   } catch (_) {
     return null;
   }
 }
 
-/// Fetches a driving route between two points from the public OSRM server
-/// (the routing companion to OpenStreetMap). Returns null on any error.
+/// Fetches a route between two points for the given [mode] from the free OSRM
+/// servers (OpenStreetMap data). Returns null on any error.
 Future<RouteResult?> fetchRoute({
   required LatLng from,
   required LatLng to,
+  TravelMode mode = TravelMode.car,
 }) async {
-  final path = '/route/v1/driving/'
+  final path = '/${mode.profile}/route/v1/driving/'
       '${from.longitude},${from.latitude};${to.longitude},${to.latitude}';
-  final uri = Uri.https('router.project-osrm.org', path, {
+  final uri = Uri.https('routing.openstreetmap.de', path, {
     'overview': 'full',
     'geometries': 'geojson',
+    'steps': 'true',
   });
   try {
-    final res = await http.get(uri).timeout(const Duration(seconds: 12));
+    final res = await http.get(uri).timeout(const Duration(seconds: 15));
     if (res.statusCode != 200) return null;
     return parseOsrmRoute(res.body);
   } catch (_) {
