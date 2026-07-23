@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -29,7 +31,10 @@ const List<(IconData, String, String)> _categories = [
 /// them on the map, read details with distance, save favourites, and get
 /// in-app directions — no external maps needed.
 class ExploreMapScreen extends StatefulWidget {
-  const ExploreMapScreen({super.key});
+  /// Test/preview hook: a fixed "current location" fix, bypassing real GPS.
+  final LatLng? debugMyLocation;
+
+  const ExploreMapScreen({super.key, this.debugMyLocation});
 
   @override
   State<ExploreMapScreen> createState() => _ExploreMapScreenState();
@@ -45,23 +50,41 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
   GeoResult? _selected;
   bool _resolvingPin = false;
 
+  Timer? _locTimer;
+
   @override
   void initState() {
     super.initState();
-    _locate();
+    _locate(recenter: true);
+    // Keep the "you are here" dot fresh while the map is open.
+    _locTimer = Timer.periodic(
+        const Duration(seconds: 15), (_) => _locate(recenter: false));
   }
 
   @override
   void dispose() {
+    _locTimer?.cancel();
     _search.dispose();
     super.dispose();
   }
 
-  Future<void> _locate() async {
-    final pos = await getCurrentLatLng();
-    if (!mounted || pos == null) return;
-    setState(() => _me = LatLng(pos.lat, pos.lng));
-    _map.move(_me!, 14);
+  Future<void> _locate({required bool recenter}) async {
+    LatLng? fix = widget.debugMyLocation;
+    if (fix == null) {
+      final pos = await getCurrentLatLng();
+      if (pos != null) fix = LatLng(pos.lat, pos.lng);
+    }
+    if (!mounted || fix == null) return;
+    final first = _me == null;
+    final target = fix;
+    setState(() => _me = target);
+    if (recenter || first) {
+      // Defer so the FlutterMap has rendered at least once (initState can
+      // reach here synchronously via the debug hook).
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _map.move(target, 14);
+      });
+    }
   }
 
   LatLng get _center {
@@ -128,16 +151,26 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
   }
 
   Future<void> _goToMe() async {
-    final pos = await getCurrentLatLng();
+    LatLng? fix = widget.debugMyLocation;
+    if (fix == null) {
+      final pos = await getCurrentLatLng();
+      if (pos != null) fix = LatLng(pos.lat, pos.lng);
+    }
     if (!mounted) return;
-    if (pos == null) {
+    if (fix == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Couldn\'t get your location.')),
+        const SnackBar(
+          duration: Duration(seconds: 5),
+          content: Text(
+            'Couldn\'t get your location. Allow location access for this '
+            'site in your browser settings, then try again.',
+          ),
+        ),
       );
       return;
     }
-    setState(() => _me = LatLng(pos.lat, pos.lng));
-    _map.move(_me!, 15);
+    setState(() => _me = fix);
+    _map.move(fix, 15);
   }
 
   void _directions() {
@@ -269,6 +302,7 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
               const LiveTileLayer(),
               MarkerLayer(
                 markers: [
+                  if (_me != null) myLocationMarker(_me!),
                   for (final r in _results)
                     Marker(
                       point: LatLng(r.lat, r.lng),

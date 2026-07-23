@@ -77,6 +77,50 @@ String attributionFor(MapLayer layer) => switch (layer) {
 /// attribution — see [OsmAttribution].
 TileLayer osmTileLayer() => tileLayerFor(MapLayer.standard);
 
+/// The classic blue "you are here" dot with a white ring and a soft halo.
+class MyLocationDot extends StatelessWidget {
+  const MyLocationDot({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Container(
+        width: 44,
+        height: 44,
+        decoration: BoxDecoration(
+          color: const Color(0xFF0A84FF).withValues(alpha: 0.18),
+          shape: BoxShape.circle,
+        ),
+        child: Center(
+          child: Container(
+            width: 18,
+            height: 18,
+            decoration: BoxDecoration(
+              color: const Color(0xFF0A84FF),
+              shape: BoxShape.circle,
+              border: Border.all(color: Colors.white, width: 3),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.3),
+                  blurRadius: 4,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A marker rendering [MyLocationDot] at [point].
+Marker myLocationMarker(LatLng point) => Marker(
+      point: point,
+      width: 44,
+      height: 44,
+      child: const MyLocationDot(),
+    );
+
 /// A red map pin marker sitting on [point], with its tip at the coordinate.
 Marker mapPin(LatLng point, {Color color = const Color(0xFFEB4B3F)}) => Marker(
       point: point,

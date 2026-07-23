@@ -4039,6 +4039,30 @@ void main() {
       expect(RecentSearches.maps.queries, ['eiffel tower']);
     });
 
+    testWidgets('Maps shows the blue "you are here" dot when located',
+        (tester) async {
+      await tester.pumpWidget(const MaterialApp(
+        home: ExploreMapScreen(
+          debugMyLocation: LatLng(37.7749, -122.4194),
+        ),
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.byType(MyLocationDot), findsOneWidget);
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+    });
+
+    testWidgets('no location dot when the fix is unavailable', (tester) async {
+      // No debug fix and the test stub returns null → no dot, map still works.
+      await tester.pumpWidget(const MaterialApp(home: ExploreMapScreen()));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.byType(MyLocationDot), findsNothing);
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+    });
+
     testWidgets('Maps shows recent searches and can remove one',
         (tester) async {
       RecentSearches.maps.add('sushi');

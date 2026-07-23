@@ -25,9 +25,21 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
   final MapController _map = MapController();
   final TextEditingController _search = TextEditingController();
   late LatLng _center = widget.initialCenter;
+  LatLng? _myPos;
   bool _locating = false;
   bool _searching = false;
   List<GeoResult> _results = const [];
+
+  @override
+  void initState() {
+    super.initState();
+    // Show the "you are here" dot right away when location is available.
+    getCurrentLatLng().then((pos) {
+      if (mounted && pos != null) {
+        setState(() => _myPos = LatLng(pos.lat, pos.lng));
+      }
+    });
+  }
 
   @override
   void dispose() {
@@ -78,7 +90,10 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
     }
     final here = LatLng(pos.lat, pos.lng);
     _map.move(here, 16);
-    setState(() => _center = here);
+    setState(() {
+      _center = here;
+      _myPos = here;
+    });
   }
 
   @override
@@ -99,9 +114,11 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
               onPositionChanged: (camera, _) =>
                   setState(() => _center = camera.center),
             ),
-            children: const [
-              LiveTileLayer(),
-              LiveAttribution(),
+            children: [
+              const LiveTileLayer(),
+              if (_myPos != null)
+                MarkerLayer(markers: [myLocationMarker(_myPos!)]),
+              const LiveAttribution(),
             ],
           ),
           MapControls(controller: _map, bottom: 160),
