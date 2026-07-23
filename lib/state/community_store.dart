@@ -20,6 +20,21 @@ class CommunityStore extends ChangeNotifier {
 
   List<Community> get communities => List.unmodifiable(_communities);
 
+  /// A serializable snapshot of every community (used by chat backup).
+  List<Map<String, dynamic>> toJsonList() =>
+      _communities.map((c) => c.toJson()).toList();
+
+  /// Replaces all communities from a backup snapshot and persists them.
+  void hydrate(List<dynamic> json) {
+    try {
+      _communities = json
+          .map((c) => Community.fromJson(Map<String, dynamic>.from(c as Map)))
+          .toList();
+      _save();
+      notifyListeners();
+    } catch (_) {}
+  }
+
   /// Loads persisted communities, seeding a sample one on first run.
   Future<void> load() async {
     final prefs = await SharedPreferences.getInstance();

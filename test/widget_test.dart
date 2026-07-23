@@ -2869,23 +2869,35 @@ void main() {
           isNull);
     });
 
-    test('backing up then restoring reproduces the conversations', () {
+    test('backing up then restoring reproduces chats and servers', () {
       ChatStore.instance.reset();
-      final before = ChatStore.instance.chats.length;
-      expect(before, greaterThan(0));
+      CommunityStore.instance.resetForTest();
+      final beforeChats = ChatStore.instance.chats.length;
+      final beforeServers = CommunityStore.instance.communities.length;
+      expect(beforeChats, greaterThan(0));
+      expect(beforeServers, greaterThan(0));
 
       final archive = BackupService.encryptArchive(
           BackupService.buildBundle(), 'my-passphrase');
 
-      // Wipe every chat, then restore from the encrypted archive.
+      // Wipe chats and servers, then restore from the encrypted archive.
       ChatStore.instance.clearAll();
+      CommunityStore.instance.hydrate(const []);
       expect(ChatStore.instance.chats, isEmpty);
+      expect(CommunityStore.instance.communities, isEmpty);
 
       final bundle =
           BackupService.decryptArchive(archive, 'my-passphrase');
       expect(bundle, isNotNull);
       expect(BackupService.applyBundle(bundle!), isTrue);
-      expect(ChatStore.instance.chats.length, before);
+      expect(ChatStore.instance.chats.length, beforeChats);
+      expect(CommunityStore.instance.communities.length, beforeServers);
+      // Forum posts inside a server survive the round-trip too.
+      final forum = CommunityStore.instance
+          .byId('seed_design')!
+          .channels
+          .firstWhere((c) => c.id == 'seed_forum');
+      expect(forum.posts, isNotEmpty);
     });
 
     test('createArchiveBytes stamps the last-backup time', () {

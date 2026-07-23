@@ -83,9 +83,9 @@ class BackupScreen extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
             child: Text(
-              'Create an encrypted backup of your chats and keep it in the '
-              'cloud. Your backup is locked with a passphrase only you know — '
-              'neither Okay nor the cloud provider can read it.',
+              'Create an encrypted backup of your chats and servers and keep it '
+              'in the cloud. Your backup is locked with a passphrase only you '
+              'know — neither Okay nor the cloud provider can read it.',
               style: TextStyle(color: Colors.grey.shade600, fontSize: 13.5),
             ),
           ),

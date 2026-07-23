@@ -9,6 +9,7 @@ import '../app_state.dart';
 import '../crypto/e2e.dart';
 import '../models/user.dart';
 import 'chat_store.dart';
+import 'community_store.dart';
 import 'session.dart';
 
 /// Creates and restores an **end-to-end encrypted** backup of the user's chats
@@ -57,10 +58,11 @@ class BackupService extends ChangeNotifier {
     return d.process(Uint8List.fromList(utf8.encode(passphrase)));
   }
 
-  /// The plaintext bundle a backup contains: every conversation plus the
-  /// profile. (Community/server data is separate and not included.)
+  /// The plaintext bundle a backup contains: every conversation, the servers
+  /// (communities) you belong to, and your profile.
   static String buildBundle() => jsonEncode({
         'chats': ChatStore.instance.toJson(),
+        'communities': CommunityStore.instance.toJsonList(),
         'profile': AppState.profile.value.toJson(),
       });
 
@@ -108,6 +110,10 @@ class BackupService extends ChangeNotifier {
       final chats = m['chats'];
       if (chats is Map) {
         ChatStore.instance.hydrate(Map<String, dynamic>.from(chats));
+      }
+      final communities = m['communities'];
+      if (communities is List) {
+        CommunityStore.instance.hydrate(communities);
       }
       final profile = m['profile'];
       if (profile is Map) {
