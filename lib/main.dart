@@ -20,6 +20,7 @@ import 'state/score_store.dart';
 import 'state/session.dart';
 import 'state/status_store.dart';
 import 'state/streak_store.dart';
+import 'state/two_step.dart';
 import 'theme/app_theme.dart';
 import 'widgets/file_transfer_banner.dart';
 
@@ -33,6 +34,7 @@ Future<void> main() async {
   await Persistence.init();
   await SecureKeyExchange.instance.load();
   await AppLock.instance.load();
+  await TwoStepVerification.instance.load();
   await CommunityStore.instance.load();
   await CallLog.instance.load();
   await ScoreStore.instance.load();

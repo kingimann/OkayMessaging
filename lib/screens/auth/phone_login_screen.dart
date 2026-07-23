@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../../state/account_service.dart';
 import '../../state/session.dart';
+import '../../state/two_step.dart';
 import '../../theme/app_theme.dart';
 
 /// Phone-number sign-in.
@@ -51,6 +52,7 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
 
   Future<void> _continueLocal() async {
     if (!_formKey.currentState!.validate()) return;
+    if (!await _passTwoStep()) return;
     setState(() => _busy = true);
     await Session.instance.signIn(
       phone: _fullPhone,
@@ -58,6 +60,25 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
       username: _username.text.trim(),
     );
     // The auth gate reacts to the new session and shows the home screen.
+  }
+
+  /// When two-step verification is enabled on this device, require the PIN
+  /// before completing sign-in. Returns true when allowed to proceed.
+  Future<bool> _passTwoStep() async {
+    if (!TwoStepVerification.instance.enabled.value) return true;
+    final pin = await showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const _TwoStepPrompt(),
+    );
+    if (pin == null) return false;
+    if (!TwoStepVerification.instance.verify(pin)) {
+      if (mounted) {
+        setState(() => _error = 'Incorrect two-step verification PIN.');
+      }
+      return false;
+    }
+    return true;
   }
 
   // --- Verified (SMS OTP + server username) ------------------------------
@@ -117,6 +138,7 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
       setState(() => _error = 'Choose a username (3+ letters, numbers, _ or .).');
       return;
     }
+    if (!await _passTwoStep()) return;
     await _run(() async {
       final status =
           await AccountService.instance.checkUsername(_fullPhone, u);
@@ -370,4 +392,63 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
         const SizedBox(height: 24),
         _cta('Continue', _claimAndFinish),
       ];
+}
+
+/// Prompts for the two-step verification PIN during sign-in.
+class _TwoStepPrompt extends StatefulWidget {
+  const _TwoStepPrompt();
+
+  @override
+  State<_TwoStepPrompt> createState() => _TwoStepPromptState();
+}
+
+class _TwoStepPromptState extends State<_TwoStepPrompt> {
+  final _pin = TextEditingController();
+
+  @override
+  void dispose() {
+    _pin.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final email = TwoStepVerification.instance.email;
+    return AlertDialog(
+      title: const Text('Two-step verification'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text('Enter your 6-digit PIN to sign in.'),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _pin,
+            obscureText: true,
+            autofocus: true,
+            keyboardType: TextInputType.number,
+            maxLength: 6,
+            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 20, letterSpacing: 6),
+            decoration: const InputDecoration(counterText: ''),
+            onSubmitted: (v) => Navigator.of(context).pop(v),
+          ),
+          if (email.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text('Forgot it? Recovery email: $email',
+                  style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
+            ),
+        ],
+      ),
+      actions: [
+        TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel')),
+        TextButton(
+            onPressed: () => Navigator.of(context).pop(_pin.text),
+            child: const Text('Verify')),
+      ],
+    );
+  }
 }

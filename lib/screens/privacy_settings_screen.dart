@@ -3,9 +3,11 @@ import 'package:flutter/services.dart';
 
 import '../app_state.dart';
 import '../state/app_lock.dart';
+import '../state/two_step.dart';
 import '../widgets/info_section.dart';
 import 'blocked_contacts_screen.dart';
 import 'settings_widgets.dart';
+import 'two_step_screen.dart';
 
 /// Dedicated screen collecting every privacy and security control, grouped
 /// into "who can see me", messaging, calls, disappearing messages, and
@@ -59,6 +61,7 @@ class PrivacySettingsScreen extends StatelessWidget {
           InfoSection(children: [_buildDisappearingTile(context)]),
           settingsSectionLabel(context, 'Security'),
           InfoSection(children: [
+            _TwoStepTile(),
             _AppLockTile(),
             _buildBlockScreenshotsTile(),
             InfoTile(
@@ -212,6 +215,28 @@ class PrivacySettingsScreen extends StatelessWidget {
       ),
     );
     if (chosen != null) AppState.defaultDisappearingSeconds.value = chosen;
+  }
+}
+
+/// Entry to the two-step verification management screen.
+class _TwoStepTile extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<bool>(
+      valueListenable: TwoStepVerification.instance.enabled,
+      builder: (context, on, _) => ListTile(
+        shape: kSettingsTileShape,
+        leading: Icon(on ? Icons.verified_user : Icons.shield_outlined),
+        title: const Text('Two-step verification'),
+        subtitle: Text(on
+            ? 'On — a PIN is required to sign in'
+            : 'Add a PIN required to sign in'),
+        trailing: const Icon(Icons.chevron_right, color: Colors.grey),
+        onTap: () => Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => const TwoStepScreen()),
+        ),
+      ),
+    );
   }
 }
 

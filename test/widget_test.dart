@@ -43,6 +43,7 @@ import 'package:okay_messaging/state/scheduler.dart';
 import 'package:okay_messaging/state/score_store.dart';
 import 'package:okay_messaging/state/session.dart';
 import 'package:okay_messaging/state/streak_store.dart';
+import 'package:okay_messaging/state/two_step.dart';
 import 'package:okay_messaging/widgets/chat_input_bar.dart';
 import 'package:okay_messaging/widgets/heart_burst.dart';
 import 'package:okay_messaging/widgets/rich_message_text.dart';
@@ -2000,6 +2001,31 @@ void main() {
     expect(AppLock.instance.unlock('1234'), isTrue);
     await AppLock.instance.disable();
     expect(AppLock.instance.enabled.value, isFalse);
+  });
+
+  test('Two-step verification: set, verify, email, and disable', () async {
+    SharedPreferences.setMockInitialValues({});
+    final ts = TwoStepVerification.instance;
+    ts.resetForTest();
+    expect(ts.enabled.value, isFalse);
+    expect(TwoStepVerification.isValidPin('123456'), isTrue);
+    expect(TwoStepVerification.isValidPin('12ab56'), isFalse);
+    expect(TwoStepVerification.isValidPin('12345'), isFalse);
+
+    await ts.setPin('246810', recoveryEmail: 'me@example.com');
+    expect(ts.enabled.value, isTrue);
+    expect(ts.email, 'me@example.com');
+    expect(ts.verify('000000'), isFalse);
+    expect(ts.verify('246810'), isTrue);
+
+    await ts.setEmail('new@example.com');
+    expect(ts.email, 'new@example.com');
+
+    await ts.disable();
+    expect(ts.enabled.value, isFalse);
+    expect(ts.email, isEmpty);
+    // With nothing set, verify passes (nothing to check).
+    expect(ts.verify('anything'), isTrue);
   });
 
   testWidgets('The lock screen gates the app and unlocks with the right PIN',
