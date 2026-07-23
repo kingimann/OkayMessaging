@@ -19,6 +19,7 @@ import 'package:okay_messaging/screens/contact_info_screen.dart';
 import 'package:okay_messaging/screens/chats_settings_screen.dart';
 import 'package:okay_messaging/screens/okay_pro_screen.dart';
 import 'package:okay_messaging/screens/forum_screen.dart';
+import 'package:okay_messaging/screens/location_picker_screen.dart';
 import 'package:okay_messaging/tabs/chats_tab.dart';
 import 'package:okay_messaging/utils/maps_link.dart';
 import 'package:okay_messaging/widgets/message_bubble.dart';
@@ -3833,6 +3834,26 @@ void main() {
           lat: 37.3349, lng: -122.009, label: 'Apple Park', apple: false);
       expect(uri.host, 'www.google.com');
       expect(uri.queryParameters['query'], '37.3349,-122.009');
+    });
+
+    testWidgets('picker falls back gracefully when GPS is unavailable',
+        (tester) async {
+      await tester.pumpWidget(const MaterialApp(home: LocationPickerScreen()));
+      // FlutterMap tile timers never settle, so pump fixed frames.
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      // On native/tests the geolocation helper returns null (no browser GPS),
+      // so tapping "Use my location" shows a fallback message.
+      await tester.tap(find.byTooltip('Use my location'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      expect(find.textContaining('Couldn\'t get your location'), findsOneWidget);
+      expect(find.text('Send this location'), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
     });
   });
 }

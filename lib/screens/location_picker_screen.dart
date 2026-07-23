@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 
+import '../util/geolocation.dart';
 import '../widgets/osm_map.dart';
 
 /// Lets the user pick a point on an OpenStreetMap to share. The map pans under
@@ -20,7 +21,27 @@ class LocationPickerScreen extends StatefulWidget {
 }
 
 class _LocationPickerScreenState extends State<LocationPickerScreen> {
+  final MapController _map = MapController();
   late LatLng _center = widget.initialCenter;
+  bool _locating = false;
+
+  Future<void> _useMyLocation() async {
+    setState(() => _locating = true);
+    final pos = await getCurrentLatLng();
+    if (!mounted) return;
+    setState(() => _locating = false);
+    if (pos == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Couldn\'t get your location — pick it on the map.'),
+        ),
+      );
+      return;
+    }
+    final here = LatLng(pos.lat, pos.lng);
+    _map.move(here, 16);
+    setState(() => _center = here);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -30,6 +51,7 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
         alignment: Alignment.center,
         children: [
           FlutterMap(
+            mapController: _map,
             options: MapOptions(
               initialCenter: widget.initialCenter,
               initialZoom: 14,
@@ -48,6 +70,22 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
           const Padding(
             padding: EdgeInsets.only(bottom: 40),
             child: Icon(Icons.location_pin, size: 44, color: Color(0xFFEB4B3F)),
+          ),
+          Positioned(
+            right: 16,
+            bottom: 96,
+            child: FloatingActionButton.small(
+              heroTag: 'useMyLocation',
+              onPressed: _locating ? null : _useMyLocation,
+              tooltip: 'Use my location',
+              child: _locating
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.my_location),
+            ),
           ),
           Positioned(
             left: 16,
