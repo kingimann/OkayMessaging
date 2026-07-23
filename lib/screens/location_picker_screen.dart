@@ -99,11 +99,12 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
               onPositionChanged: (camera, _) =>
                   setState(() => _center = camera.center),
             ),
-            children: [
-              osmTileLayer(),
-              const OsmAttribution(),
+            children: const [
+              LiveTileLayer(),
+              LiveAttribution(),
             ],
           ),
+          MapControls(controller: _map, bottom: 160),
           // A fixed centre pin: its tip marks the spot the map is centred on.
           const Padding(
             padding: EdgeInsets.only(bottom: 40),

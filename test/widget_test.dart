@@ -28,6 +28,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:okay_messaging/tabs/chats_tab.dart';
 import 'package:okay_messaging/utils/maps_link.dart';
 import 'package:okay_messaging/widgets/message_bubble.dart';
+import 'package:okay_messaging/widgets/osm_map.dart';
 import 'package:okay_messaging/screens/score_screen.dart';
 import 'package:okay_messaging/models/chat.dart';
 import 'package:okay_messaging/state/call_log.dart';
@@ -3980,6 +3981,30 @@ void main() {
 
       // Unknown peer → null.
       expect(store.locationFor('99999999', now: t0), isNull);
+    });
+  });
+
+  group('Map layers', () {
+    test('MapLayer.fromName maps names and defaults to standard', () {
+      expect(MapLayer.fromName('satellite'), MapLayer.satellite);
+      expect(MapLayer.fromName('terrain'), MapLayer.terrain);
+      expect(MapLayer.fromName('standard'), MapLayer.standard);
+      expect(MapLayer.fromName('bogus'), MapLayer.standard);
+      expect(MapLayer.fromName(null), MapLayer.standard);
+    });
+
+    test('each layer has a distinct tile URL and credit', () {
+      final std = tileLayerFor(MapLayer.standard).urlTemplate!;
+      final sat = tileLayerFor(MapLayer.satellite).urlTemplate!;
+      final ter = tileLayerFor(MapLayer.terrain).urlTemplate!;
+      expect(std, contains('tile.openstreetmap.org'));
+      expect(sat, contains('arcgisonline.com'));
+      expect(ter, contains('opentopomap.org'));
+      expect({std, sat, ter}.length, 3);
+
+      expect(attributionFor(MapLayer.satellite), contains('Esri'));
+      expect(attributionFor(MapLayer.terrain), contains('OpenTopoMap'));
+      expect(attributionFor(MapLayer.standard), contains('OpenStreetMap'));
     });
   });
 

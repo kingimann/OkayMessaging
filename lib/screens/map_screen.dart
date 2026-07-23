@@ -264,7 +264,7 @@ class _MapScreenState extends State<MapScreen> {
                     ),
                   ),
                   children: [
-                    osmTileLayer(),
+                    const LiveTileLayer(),
                     MarkerLayer(
                       markers: [
                         for (final p in places)
@@ -282,9 +282,10 @@ class _MapScreenState extends State<MapScreen> {
                           ),
                       ],
                     ),
-                    const OsmAttribution(),
+                    const LiveAttribution(),
                   ],
                 ),
+                MapControls(controller: _map, bottom: 92),
                 if (ghost) const _GhostBanner(),
               ],
             ),

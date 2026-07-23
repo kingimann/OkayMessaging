@@ -107,7 +107,7 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
               ),
             ),
             children: [
-              osmTileLayer(),
+              const LiveTileLayer(),
               if (_route != null)
                 PolylineLayer(
                   polylines: [
@@ -136,9 +136,10 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
                   mapPin(widget.dest),
                 ],
               ),
-              const OsmAttribution(),
+              const LiveAttribution(),
             ],
           ),
+          MapControls(controller: _map, bottom: 110),
           Positioned(
             left: 12,
             right: 12,

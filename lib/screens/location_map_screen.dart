@@ -9,7 +9,7 @@ import 'route_map_screen.dart';
 
 /// A full-screen, interactive OpenStreetMap view of a shared location, with a
 /// button to hand off to the device's maps app (Apple Maps / Google Maps).
-class LocationMapScreen extends StatelessWidget {
+class LocationMapScreen extends StatefulWidget {
   final double lat;
   final double lng;
   final String label;
@@ -20,6 +20,17 @@ class LocationMapScreen extends StatelessWidget {
     required this.lng,
     this.label = '',
   });
+
+  @override
+  State<LocationMapScreen> createState() => _LocationMapScreenState();
+}
+
+class _LocationMapScreenState extends State<LocationMapScreen> {
+  final MapController _map = MapController();
+
+  double get lat => widget.lat;
+  double get lng => widget.lng;
+  String get label => widget.label;
 
   Future<void> _openExternally(BuildContext context) async {
     final isApple = Theme.of(context).platform == TargetPlatform.iOS ||
@@ -40,6 +51,7 @@ class LocationMapScreen extends StatelessWidget {
       body: Stack(
         children: [
           FlutterMap(
+            mapController: _map,
             options: MapOptions(
               initialCenter: point,
               initialZoom: 15,
@@ -48,11 +60,12 @@ class LocationMapScreen extends StatelessWidget {
               ),
             ),
             children: [
-              osmTileLayer(),
+              const LiveTileLayer(),
               MarkerLayer(markers: [mapPin(point)]),
-              const OsmAttribution(),
+              const LiveAttribution(),
             ],
           ),
+          MapControls(controller: _map, bottom: 96),
           Positioned(
             left: 16,
             right: 16,

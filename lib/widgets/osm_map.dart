@@ -2,17 +2,62 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 
+import '../app_state.dart';
+
 /// Identifies the app to the OpenStreetMap tile servers (required by their
 /// usage policy).
 const String kOsmUserAgent = 'com.okay.messaging';
 
+/// The selectable base map styles. All use free, CORS-enabled tile servers.
+enum MapLayer {
+  standard('Standard', Icons.map_outlined),
+  satellite('Satellite', Icons.satellite_alt_outlined),
+  terrain('Terrain', Icons.terrain_outlined);
+
+  const MapLayer(this.label, this.icon);
+  final String label;
+  final IconData icon;
+
+  static MapLayer fromName(String? name) =>
+      values.firstWhere((l) => l.name == name, orElse: () => MapLayer.standard);
+}
+
+/// The raster tile layer for a given [layer].
+TileLayer tileLayerFor(MapLayer layer) {
+  switch (layer) {
+    case MapLayer.satellite:
+      return TileLayer(
+        urlTemplate: 'https://server.arcgisonline.com/ArcGIS/rest/services/'
+            'World_Imagery/MapServer/tile/{z}/{y}/{x}',
+        userAgentPackageName: kOsmUserAgent,
+        maxZoom: 19,
+      );
+    case MapLayer.terrain:
+      return TileLayer(
+        urlTemplate: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
+        subdomains: const ['a', 'b', 'c'],
+        userAgentPackageName: kOsmUserAgent,
+        maxZoom: 17,
+      );
+    case MapLayer.standard:
+      return TileLayer(
+        urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+        userAgentPackageName: kOsmUserAgent,
+        maxZoom: 19,
+      );
+  }
+}
+
+/// The credit line a given [layer]'s tiles require.
+String attributionFor(MapLayer layer) => switch (layer) {
+      MapLayer.satellite => '© Esri, Maxar',
+      MapLayer.terrain => '© OpenTopoMap (CC-BY-SA)',
+      MapLayer.standard => '© OpenStreetMap',
+    };
+
 /// The OpenStreetMap raster tile layer used across the app. Free to use with
 /// attribution — see [OsmAttribution].
-TileLayer osmTileLayer() => TileLayer(
-      urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-      userAgentPackageName: kOsmUserAgent,
-      maxZoom: 19,
-    );
+TileLayer osmTileLayer() => tileLayerFor(MapLayer.standard);
 
 /// A red map pin marker sitting on [point], with its tip at the coordinate.
 Marker mapPin(LatLng point, {Color color = const Color(0xFFEB4B3F)}) => Marker(
@@ -23,9 +68,10 @@ Marker mapPin(LatLng point, {Color color = const Color(0xFFEB4B3F)}) => Marker(
       child: Icon(Icons.location_pin, color: color, size: 40),
     );
 
-/// The "© OpenStreetMap contributors" credit OSM's tile policy requires.
+/// The tile credit the active base layer requires (defaults to OSM).
 class OsmAttribution extends StatelessWidget {
-  const OsmAttribution({super.key});
+  final MapLayer layer;
+  const OsmAttribution({super.key, this.layer = MapLayer.standard});
 
   @override
   Widget build(BuildContext context) {
@@ -38,10 +84,107 @@ class OsmAttribution extends StatelessWidget {
           color: Colors.white.withValues(alpha: 0.8),
           borderRadius: BorderRadius.circular(4),
         ),
-        child: const Text(
-          '© OpenStreetMap',
-          style: TextStyle(fontSize: 10, color: Colors.black87),
+        child: Text(
+          attributionFor(layer),
+          style: const TextStyle(fontSize: 10, color: Colors.black87),
         ),
+      ),
+    );
+  }
+}
+
+/// The base tile layer bound to the user's chosen [MapLayer]; rebuilds when
+/// they switch styles.
+class LiveTileLayer extends StatelessWidget {
+  const LiveTileLayer({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<String>(
+      valueListenable: AppState.mapLayer,
+      builder: (context, name, _) => tileLayerFor(MapLayer.fromName(name)),
+    );
+  }
+}
+
+/// The credit for the user's chosen [MapLayer]; rebuilds on switch.
+class LiveAttribution extends StatelessWidget {
+  const LiveAttribution({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<String>(
+      valueListenable: AppState.mapLayer,
+      builder: (context, name, _) =>
+          OsmAttribution(layer: MapLayer.fromName(name)),
+    );
+  }
+}
+
+/// Floating controls stacked on the right of an interactive map: a base-layer
+/// switcher and zoom in / out buttons.
+class MapControls extends StatelessWidget {
+  final MapController controller;
+
+  /// Extra bottom offset so the controls clear a screen's own bottom UI.
+  final double bottom;
+
+  const MapControls({super.key, required this.controller, this.bottom = 120});
+
+  void _zoom(double delta) {
+    final cam = controller.camera;
+    controller.move(cam.center, (cam.zoom + delta).clamp(2.0, 19.0));
+  }
+
+  Future<void> _pickLayer(BuildContext context) async {
+    final chosen = await showModalBottomSheet<MapLayer>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final l in MapLayer.values)
+              ValueListenableBuilder<String>(
+                valueListenable: AppState.mapLayer,
+                builder: (context, name, _) => ListTile(
+                  leading: Icon(l.icon),
+                  title: Text(l.label),
+                  trailing: MapLayer.fromName(name) == l
+                      ? Icon(Icons.check,
+                          color: Theme.of(sheetContext).colorScheme.primary)
+                      : null,
+                  onTap: () => Navigator.of(sheetContext).pop(l),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (chosen != null) AppState.mapLayer.value = chosen.name;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    Widget btn(IconData icon, String tip, VoidCallback onTap) => Padding(
+          padding: const EdgeInsets.only(top: 8),
+          child: Material(
+            color: Theme.of(context).colorScheme.surface,
+            elevation: 3,
+            shape: const CircleBorder(),
+            child: IconButton(icon: Icon(icon), tooltip: tip, onPressed: onTap),
+          ),
+        );
+    return Positioned(
+      right: 12,
+      bottom: bottom,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          btn(Icons.layers_outlined, 'Map style', () => _pickLayer(context)),
+          btn(Icons.add, 'Zoom in', () => _zoom(1)),
+          btn(Icons.remove, 'Zoom out', () => _zoom(-1)),
+        ],
       ),
     );
   }

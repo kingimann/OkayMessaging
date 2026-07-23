@@ -43,6 +43,11 @@ class AppState {
   /// verified badge.
   static final ValueNotifier<Color?> bubbleColor = ValueNotifier<Color?>(null);
 
+  /// The chosen base map style (a [MapLayer] name: standard / satellite /
+  /// terrain), applied across every interactive map.
+  static final ValueNotifier<String> mapLayer =
+      ValueNotifier<String>('standard');
+
   /// Snap-Map "Ghost Mode": when on, your own avatar is hidden from the map so
   /// no one can see where you are.
   static final ValueNotifier<bool> ghostMode = ValueNotifier<bool>(false);
@@ -145,6 +150,7 @@ class AppState {
     profile.value = MockData.me;
     chatWallpaper.value = null;
     bubbleColor.value = null;
+    mapLayer.value = 'standard';
     ghostMode.value = false;
     shareLiveLocation.value = false;
     shareLastSeen.value = true;
