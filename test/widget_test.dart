@@ -4150,6 +4150,35 @@ void main() {
       expect(results.first.lng, closeTo(2.2945, 0.0001));
     });
 
+    test('address results keep their house number', () {
+      const body = '''
+      {"features":[
+        {"properties":{"housenumber":"1226","street":"Valencia Street",
+          "city":"San Francisco","country":"United States"},
+         "geometry":{"coordinates":[-122.4206,37.7539]}}
+      ]}''';
+      final r = parsePhoton(body).single;
+      expect(r.name, '1226 Valencia Street, San Francisco, United States');
+    });
+
+    test('dedupePlaces drops same-name results at the same spot', () {
+      const a = GeoResult(name: 'Blue Bottle', lat: 37.7763, lng: -122.4232);
+      const b = GeoResult(name: 'Blue Bottle', lat: 37.77631, lng: -122.42321);
+      const c = GeoResult(name: 'Blue Bottle', lat: 37.8044, lng: -122.2711);
+      final out = dedupePlaces(const [a, b, c]);
+      expect(out.length, 2); // the two distinct locations survive
+      expect(out.first.lat, a.lat);
+    });
+
+    test('sortPlacesByDistance ranks nearest first', () {
+      const near = GeoResult(name: 'Near', lat: 37.776, lng: -122.42);
+      const far = GeoResult(name: 'Far', lat: 37.90, lng: -122.30);
+      const mid = GeoResult(name: 'Mid', lat: 37.80, lng: -122.41);
+      final out =
+          sortPlacesByDistance(const [far, near, mid], 37.7749, -122.4194);
+      expect(out.map((r) => r.name).toList(), ['Near', 'Mid', 'Far']);
+    });
+
     test('parses a category from osm_value', () {
       const body = '''
       {"features":[

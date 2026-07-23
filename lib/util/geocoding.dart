@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:http/http.dart' as http;
 
@@ -67,7 +68,7 @@ String _category(Map<dynamic, dynamic> props) {
 }
 
 /// Builds a readable one-line label from Photon feature properties, e.g.
-/// "Eiffel Tower, Paris, France".
+/// "Eiffel Tower, Paris, France" or "1226 Valencia Street, San Francisco".
 String _label(Map<dynamic, dynamic> props) {
   final parts = <String>[];
   void add(Object? v) {
@@ -75,12 +76,48 @@ String _label(Map<dynamic, dynamic> props) {
     if (s.isNotEmpty && !parts.contains(s)) parts.add(s);
   }
 
+  // A street address keeps its house number ("1226 Valencia Street") —
+  // otherwise address results are ambiguous to the point of useless.
+  final street = props['street']?.toString().trim() ?? '';
+  final houseNo = props['housenumber']?.toString().trim() ?? '';
+  final address = houseNo.isNotEmpty && street.isNotEmpty
+      ? '$houseNo $street'
+      : street;
+
   add(props['name']);
-  add(props['street']);
+  add(address);
   add(props['city']);
   add(props['state']);
   add(props['country']);
   return parts.take(3).join(', ');
+}
+
+/// Removes near-duplicate results (same label at effectively the same spot —
+/// Photon frequently returns them for businesses).
+List<GeoResult> dedupePlaces(List<GeoResult> results) {
+  final seen = <String>{};
+  final out = <GeoResult>[];
+  for (final r in results) {
+    final key = '${r.name.toLowerCase()}|'
+        '${r.lat.toStringAsFixed(3)},${r.lng.toStringAsFixed(3)}';
+    if (seen.add(key)) out.add(r);
+  }
+  return out;
+}
+
+/// Orders [results] nearest-first from ([lat], [lng]) using an
+/// equirectangular approximation (plenty for ranking). Pure.
+List<GeoResult> sortPlacesByDistance(
+    List<GeoResult> results, double lat, double lng) {
+  final cosLat = math.cos(lat * math.pi / 180);
+  double d2(GeoResult r) {
+    final dx = (r.lng - lng) * cosLat;
+    final dy = r.lat - lat;
+    return dx * dx + dy * dy;
+  }
+
+  final sorted = [...results]..sort((a, b) => d2(a).compareTo(d2(b)));
+  return sorted;
 }
 
 /// Looks up a readable place name for a coordinate via Photon's reverse
@@ -113,19 +150,30 @@ Future<List<GeoResult>> searchPlaces(
 }) async {
   final q = query.trim();
   if (q.isEmpty) return const [];
+  final biased = lat != null && lng != null;
   final uri = Uri.https('photon.komoot.io', '/api', {
     'q': q,
-    'limit': '$limit',
-    // Bias results toward the map centre so "coffee" finds nearby coffee.
-    if (lat != null && lng != null) 'lat': '$lat',
-    if (lat != null && lng != null) 'lon': '$lng',
+    // Over-fetch so de-duplication still leaves a full page of results.
+    'limit': '${limit * 2}',
+    'lang': 'en',
+    if (biased) ...{
+      // Bias results toward the map centre so "coffee" finds *nearby*
+      // coffee: zoom sets the bias radius and location_bias_scale how
+      // strongly proximity outweighs global relevance.
+      'lat': '$lat',
+      'lon': '$lng',
+      'zoom': '13',
+      'location_bias_scale': '0.5',
+    },
   });
   try {
     final res = await http
         .get(uri, headers: {'Accept': 'application/json'})
         .timeout(const Duration(seconds: 12));
     if (res.statusCode != 200) return const [];
-    return parsePhoton(res.body);
+    var results = dedupePlaces(parsePhoton(res.body));
+    if (biased) results = sortPlacesByDistance(results, lat, lng);
+    return results.take(limit).toList();
   } catch (_) {
     return const [];
   }

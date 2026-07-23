@@ -343,6 +343,7 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
               controller: _search,
               searching: _searching,
               results: _results,
+              origin: _me,
               onSubmit: () => _runSearch(),
               onPick: _select,
             ),
@@ -537,6 +538,9 @@ class _CategoryChips extends StatelessWidget {
           return ActionChip(
             avatar: Icon(icon, size: 18),
             label: Text(label),
+            elevation: 2,
+            backgroundColor: Theme.of(context).colorScheme.surface,
+            shadowColor: Colors.black45,
             onPressed: () => onTap(term),
           );
         },
@@ -550,6 +554,7 @@ class _SearchBox extends StatelessWidget {
   final TextEditingController controller;
   final bool searching;
   final List<GeoResult> results;
+  final LatLng? origin;
   final VoidCallback onSubmit;
   final ValueChanged<GeoResult> onPick;
 
@@ -559,7 +564,20 @@ class _SearchBox extends StatelessWidget {
     required this.results,
     required this.onSubmit,
     required this.onPick,
+    this.origin,
   });
+
+  /// "Cafe · 350 m" style meta line for a result row.
+  String? _meta(GeoResult r) {
+    final parts = <String>[];
+    if (r.category.isNotEmpty) parts.add(r.category);
+    final o = origin;
+    if (o != null) {
+      parts.add(formatDistance(
+          const Distance().distance(o, LatLng(r.lat, r.lng))));
+    }
+    return parts.isEmpty ? null : parts.join(' · ');
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -611,12 +629,13 @@ class _SearchBox extends StatelessWidget {
                 separatorBuilder: (_, __) => const Divider(height: 1),
                 itemBuilder: (context, i) {
                   final r = results[i];
+                  final meta = _meta(r);
                   return ListTile(
                     dense: true,
                     leading: const Icon(Icons.place_outlined),
                     title: Text(r.name,
                         maxLines: 1, overflow: TextOverflow.ellipsis),
-                    subtitle: r.category.isEmpty ? null : Text(r.category),
+                    subtitle: meta == null ? null : Text(meta),
                     onTap: () => onPick(r),
                   );
                 },
