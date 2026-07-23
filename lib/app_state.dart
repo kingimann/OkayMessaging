@@ -47,6 +47,12 @@ class AppState {
   /// no one can see where you are.
   static final ValueNotifier<bool> ghostMode = ValueNotifier<bool>(false);
 
+  /// When on (and not in Ghost Mode), your live position is broadcast to your
+  /// contacts so they can see you move on their map. Off by default — location
+  /// is only ever shared when you opt in.
+  static final ValueNotifier<bool> shareLiveLocation =
+      ValueNotifier<bool>(false);
+
   /// Whether to broadcast your online / last-seen status to people you chat
   /// with. When off, peers won't see you as "online".
   static final ValueNotifier<bool> shareLastSeen = ValueNotifier<bool>(true);
@@ -140,6 +146,7 @@ class AppState {
     chatWallpaper.value = null;
     bubbleColor.value = null;
     ghostMode.value = false;
+    shareLiveLocation.value = false;
     shareLastSeen.value = true;
     sendReadReceipts.value = true;
     sendTypingIndicators.value = true;

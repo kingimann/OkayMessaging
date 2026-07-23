@@ -17,6 +17,7 @@ class Persistence {
   static const _kWallpaper = 'wallpaper';
   static const _kBubbleColor = 'bubble_color';
   static const _kGhostMode = 'map_ghost_mode';
+  static const _kShareLiveLocation = 'share_live_location';
   static const _kChats = 'chats_v1';
   static const _kShareLastSeen = 'share_last_seen';
   static const _kReadReceipts = 'send_read_receipts';
@@ -71,6 +72,10 @@ class Persistence {
 
     if (prefs.containsKey(_kGhostMode)) {
       AppState.ghostMode.value = prefs.getBool(_kGhostMode) ?? false;
+    }
+    if (prefs.containsKey(_kShareLiveLocation)) {
+      AppState.shareLiveLocation.value =
+          prefs.getBool(_kShareLiveLocation) ?? false;
     }
 
     final chats = prefs.getString(_kChats);
@@ -142,6 +147,7 @@ class Persistence {
     AppState.chatWallpaper.addListener(_saveWallpaper);
     AppState.bubbleColor.addListener(_saveBubbleColor);
     AppState.ghostMode.addListener(_saveGhostMode);
+    AppState.shareLiveLocation.addListener(_saveShareLiveLocation);
     AppState.shareLastSeen.addListener(_saveShareLastSeen);
     AppState.sendReadReceipts.addListener(_saveReadReceipts);
     AppState.sendTypingIndicators.addListener(_saveTypingIndicators);
@@ -253,6 +259,10 @@ class Persistence {
 
   static void _saveGhostMode() {
     _prefs?.setBool(_kGhostMode, AppState.ghostMode.value);
+  }
+
+  static void _saveShareLiveLocation() {
+    _prefs?.setBool(_kShareLiveLocation, AppState.shareLiveLocation.value);
   }
 
   static void _saveChats() {

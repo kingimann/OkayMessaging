@@ -12,6 +12,7 @@ import '../models/user.dart';
 import '../state/call_service.dart';
 import '../state/chat_store.dart';
 import '../state/file_transfer.dart';
+import '../state/live_location_store.dart';
 import '../state/score_store.dart';
 import '../state/session.dart';
 import '../state/streak_store.dart';
@@ -388,6 +389,15 @@ class RelayService {
             if (from == null || digits(from) == digits(me)) return;
             presenceFromDigits = digits(from);
             presencePing.value++;
+          },
+        )
+        .onBroadcast(
+          event: 'loc',
+          callback: (payload) {
+            final parsed = parseLocation(Map<String, dynamic>.from(payload));
+            if (parsed == null || parsed.fromDigits == digits(me)) return;
+            LiveLocationStore.instance
+                .update(parsed.fromDigits, parsed.lat, parsed.lng);
           },
         )
         .onBroadcast(
@@ -845,6 +855,32 @@ class RelayService {
     await channel.sendBroadcastMessage(
       event: 'receipt',
       payload: {'from': me.phone, 'kind': kind},
+    );
+  }
+
+  /// Parses an incoming 'loc' payload into the sender's digits and position,
+  /// or null when it's malformed. Pure, so it can be unit-tested.
+  static ({String fromDigits, double lat, double lng})? parseLocation(
+      Map<String, dynamic> payload) {
+    final from = payload['from'] as String?;
+    final lat = (payload['lat'] as num?)?.toDouble();
+    final lng = (payload['lng'] as num?)?.toDouble();
+    if (from == null || lat == null || lng == null) return null;
+    return (fromDigits: digits(from), lat: lat, lng: lng);
+  }
+
+  /// Broadcasts your live position to [contactPhone]'s inbox for the Snap Map.
+  Future<void> sendLocation(
+      String contactPhone, double lat, double lng) async {
+    if (!_initialized) return;
+    final me = Session.instance.user.value;
+    if (me == null) return;
+    final name = inboxChannel(contactPhone);
+    final channel =
+        _sendChannels.putIfAbsent(name, () => _client.channel(name));
+    await channel.sendBroadcastMessage(
+      event: 'loc',
+      payload: {'from': me.phone, 'lat': lat, 'lng': lng},
     );
   }
 

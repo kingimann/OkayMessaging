@@ -49,6 +49,8 @@ import 'package:okay_messaging/state/backup_service.dart';
 import 'package:okay_messaging/screens/status_screen.dart';
 import 'package:okay_messaging/state/status_store.dart';
 import 'package:okay_messaging/state/chat_store.dart';
+import 'package:okay_messaging/state/live_location_store.dart';
+import 'package:okay_messaging/relay/relay_service.dart';
 import 'package:okay_messaging/state/recent_searches.dart';
 import 'package:okay_messaging/state/scheduler.dart';
 import 'package:okay_messaging/state/score_store.dart';
@@ -73,6 +75,7 @@ void main() {
     AppLock.instance.resetForTest();
     CommunityStore.instance.resetForTest();
     ChatsTab.filtersVisible.value = false;
+    LiveLocationStore.instance.resetForTest();
   });
 
   testWidgets('App boots with Chats and Calls tabs (no Status)',
@@ -3895,6 +3898,40 @@ void main() {
     test('returns empty on non-list / invalid json', () {
       expect(parsePhoton('{"features":"nope"}'), isEmpty);
       expect(parsePhoton('not json'), isEmpty);
+    });
+  });
+
+  group('Live location sharing', () {
+    test('parseLocation reads a valid payload and rejects bad ones', () {
+      final ok = RelayService.parseLocation(
+          {'from': '+1 (555) 0142', 'lat': 40.7, 'lng': -74.0});
+      expect(ok, isNotNull);
+      expect(ok!.fromDigits, '15550142');
+      expect(ok.lat, 40.7);
+      expect(ok.lng, -74.0);
+
+      expect(RelayService.parseLocation({'from': '+1', 'lat': 1.0}), isNull);
+      expect(RelayService.parseLocation({'lat': 1.0, 'lng': 2.0}), isNull);
+    });
+
+    test('LiveLocationStore returns fresh locations and expires stale ones', () {
+      final store = LiveLocationStore.instance;
+      final t0 = DateTime(2024, 1, 1, 12);
+      store.update('15550142', 40.7, -74.0, at: t0);
+
+      // Fresh: within the TTL window.
+      final fresh = store.locationFor('15550142',
+          now: t0.add(const Duration(minutes: 2)));
+      expect(fresh, isNotNull);
+      expect(fresh!.position.latitude, 40.7);
+
+      // Stale: past the TTL window → treated as gone.
+      final stale = store.locationFor('15550142',
+          now: t0.add(const Duration(minutes: 20)));
+      expect(stale, isNull);
+
+      // Unknown peer → null.
+      expect(store.locationFor('99999999', now: t0), isNull);
     });
   });
 

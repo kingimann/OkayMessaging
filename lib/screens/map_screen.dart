@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
@@ -5,8 +7,10 @@ import 'package:latlong2/latlong.dart';
 import '../app_state.dart';
 import '../models/chat.dart';
 import '../models/user.dart';
+import '../relay/relay_service.dart';
 import '../state/call_service.dart';
 import '../state/chat_store.dart';
+import '../state/live_location_store.dart';
 import '../util/geolocation.dart';
 import '../utils/friend_locations.dart';
 import '../widgets/osm_map.dart';
@@ -27,18 +31,49 @@ class _MapScreenState extends State<MapScreen> {
   // Where "you" are. Starts at a neutral spot; recentres on real GPS if the
   // browser grants it.
   LatLng _me = const LatLng(37.7749, -122.4194);
+  bool _hasGps = false;
+  Timer? _shareTimer;
 
   @override
   void initState() {
     super.initState();
     _locate();
+    // While the map is open, re-broadcast our position periodically so friends
+    // see it move (only actually sends when sharing is on — see _broadcast).
+    _shareTimer =
+        Timer.periodic(const Duration(seconds: 30), (_) => _broadcast());
+  }
+
+  @override
+  void dispose() {
+    _shareTimer?.cancel();
+    super.dispose();
   }
 
   Future<void> _locate() async {
     final pos = await getCurrentLatLng();
     if (!mounted || pos == null) return;
-    setState(() => _me = LatLng(pos.lat, pos.lng));
+    setState(() {
+      _me = LatLng(pos.lat, pos.lng);
+      _hasGps = true;
+    });
     _map.move(_me, 13);
+    _broadcast();
+  }
+
+  /// Sends our real position to every contact — but only when the user has
+  /// opted into live sharing and isn't in Ghost Mode, and only once we have a
+  /// genuine GPS fix (never the placeholder centre).
+  void _broadcast() {
+    if (!_hasGps ||
+        !AppState.shareLiveLocation.value ||
+        AppState.ghostMode.value) {
+      return;
+    }
+    for (final f in _friends) {
+      RelayService.instance
+          .sendLocation(f.phone, _me.latitude, _me.longitude);
+    }
   }
 
   List<AppUser> get _friends => ChatStore.instance.chats
@@ -96,6 +131,26 @@ class _MapScreenState extends State<MapScreen> {
     );
   }
 
+  /// A friend's map marker: their real live position (blue ring) when they're
+  /// sharing and it's fresh, otherwise their stable demo spot (white ring).
+  Marker _friendMarker(FriendPlace p) {
+    final live = LiveLocationStore.instance
+        .locationFor(RelayService.digits(p.user.phone));
+    return Marker(
+      point: live?.position ?? p.position,
+      width: 56,
+      height: 56,
+      child: GestureDetector(
+        onTap: () => _showFriend(p.user),
+        child: _AvatarPin(
+          user: p.user,
+          ringColor: live != null ? const Color(0xFF0A84FF) : Colors.white,
+          live: live != null,
+        ),
+      ),
+    );
+  }
+
   void _message(AppUser user) {
     final chat = ChatStore.instance.chatWithContact(user.id) ??
         Chat(id: 'chat_${user.id}', contact: user, messages: const []);
@@ -110,6 +165,21 @@ class _MapScreenState extends State<MapScreen> {
       appBar: AppBar(
         title: const Text('Map'),
         actions: [
+          ValueListenableBuilder<bool>(
+            valueListenable: AppState.shareLiveLocation,
+            builder: (context, sharing, _) => IconButton(
+              tooltip: sharing
+                  ? 'Sharing your live location'
+                  : 'Share your live location',
+              icon: Icon(sharing
+                  ? Icons.share_location
+                  : Icons.location_off_outlined),
+              onPressed: () {
+                AppState.shareLiveLocation.value = !sharing;
+                if (!sharing) _broadcast(); // just turned on
+              },
+            ),
+          ),
           ValueListenableBuilder<bool>(
             valueListenable: AppState.ghostMode,
             builder: (context, ghost, _) => IconButton(
@@ -129,7 +199,9 @@ class _MapScreenState extends State<MapScreen> {
         child: const Icon(Icons.my_location),
       ),
       body: ListenableBuilder(
-        listenable: ChatStore.instance,
+        // Rebuild when the contact list or any friend's live location changes.
+        listenable: Listenable.merge(
+            [ChatStore.instance, LiveLocationStore.instance]),
         builder: (context, _) {
           final places = friendPlaces(_me, _friends);
           return ValueListenableBuilder<bool>(
@@ -150,15 +222,7 @@ class _MapScreenState extends State<MapScreen> {
                     MarkerLayer(
                       markers: [
                         for (final p in places)
-                          Marker(
-                            point: p.position,
-                            width: 56,
-                            height: 56,
-                            child: GestureDetector(
-                              onTap: () => _showFriend(p.user),
-                              child: _AvatarPin(user: p.user),
-                            ),
-                          ),
+                          _friendMarker(p),
                         if (!ghost)
                           Marker(
                             point: _me,
@@ -191,15 +255,19 @@ class _AvatarPin extends StatelessWidget {
   final Color ringColor;
   final bool isMe;
 
+  /// When true, shows a small blue "live" dot indicating a real-time position.
+  final bool live;
+
   const _AvatarPin({
     required this.user,
     this.ringColor = Colors.white,
     this.isMe = false,
+    this.live = false,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    final avatar = Container(
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         border: Border.all(color: ringColor, width: 3),
@@ -212,6 +280,26 @@ class _AvatarPin extends StatelessWidget {
         ],
       ),
       child: UserAvatar(user: user, radius: isMe ? 24 : 22),
+    );
+    if (!live) return avatar;
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        avatar,
+        Positioned(
+          right: 0,
+          top: 0,
+          child: Container(
+            width: 14,
+            height: 14,
+            decoration: BoxDecoration(
+              color: const Color(0xFF0A84FF),
+              shape: BoxShape.circle,
+              border: Border.all(color: Colors.white, width: 2),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
