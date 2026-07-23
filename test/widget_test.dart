@@ -25,6 +25,7 @@ import 'package:okay_messaging/utils/friend_locations.dart';
 import 'package:okay_messaging/util/geocoding.dart';
 import 'package:okay_messaging/utils/chat_transcript.dart';
 import 'package:okay_messaging/util/routing.dart';
+import 'package:okay_messaging/screens/explore_map_screen.dart';
 import 'package:okay_messaging/screens/forward_screen.dart';
 import 'package:okay_messaging/screens/route_map_screen.dart';
 import 'package:latlong2/latlong.dart';
@@ -82,6 +83,7 @@ void main() {
     ChatsTab.filtersVisible.value = false;
     LiveLocationStore.instance.resetForTest();
     SavedPlacesStore.instance.resetForTest();
+    RecentSearches.maps.resetForTest();
   });
 
   testWidgets('App boots with Chats and Calls tabs (no Status)',
@@ -4003,6 +4005,56 @@ void main() {
       // End navigation and unmount so the GPS timer is cancelled.
       await tester.tap(find.text('End'));
       await tester.pump();
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+    });
+
+    test('distanceToRouteMeters measures perpendicular and endpoint distance',
+        () {
+      // A ~2km segment running due north along a meridian.
+      const points = [LatLng(37.7700, -122.4200), LatLng(37.7880, -122.4200)];
+      // On the line → essentially zero.
+      expect(distanceToRouteMeters(const LatLng(37.7790, -122.4200), points),
+          lessThan(1));
+      // ~100 m east of the segment's interior → ~100 m.
+      final east = distanceToRouteMeters(
+          const LatLng(37.7790, -122.41886), points);
+      expect(east, closeTo(100, 8));
+      // Well past the north end → distance to the endpoint, not the line.
+      final past = distanceToRouteMeters(
+          const LatLng(37.7907, -122.4200), points);
+      expect(past, closeTo(300, 20));
+      // No route → infinity.
+      expect(distanceToRouteMeters(const LatLng(0, 0), const []),
+          double.infinity);
+    });
+
+    test('map recent searches are separate from chat recent searches', () {
+      RecentSearches.maps.add('coffee');
+      RecentSearches.maps.add('eiffel tower');
+      expect(RecentSearches.maps.queries, ['eiffel tower', 'coffee']);
+      expect(RecentSearches.instance.queries, isNot(contains('coffee')));
+      RecentSearches.maps.remove('coffee');
+      expect(RecentSearches.maps.queries, ['eiffel tower']);
+    });
+
+    testWidgets('Maps shows recent searches and can remove one',
+        (tester) async {
+      RecentSearches.maps.add('sushi');
+      RecentSearches.maps.add('coffee');
+      await tester.pumpWidget(const MaterialApp(home: ExploreMapScreen()));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      expect(find.text('coffee'), findsOneWidget);
+      expect(find.text('sushi'), findsOneWidget);
+
+      // Remove "coffee" via its X.
+      await tester.tap(find.byIcon(Icons.close).first);
+      await tester.pump();
+      expect(find.text('coffee'), findsNothing);
+      expect(find.text('sushi'), findsOneWidget);
+
       await tester.pumpWidget(const SizedBox());
       await tester.pump();
     });

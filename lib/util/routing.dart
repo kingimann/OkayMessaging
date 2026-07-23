@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
@@ -199,6 +200,44 @@ double remainingMeters({
     total += const Distance().distance(user, loc);
   }
   return total;
+}
+
+/// Metres from [user] to the nearest point on the route polyline. Used to
+/// detect when the user has strayed off-route during navigation. Pure.
+///
+/// Uses a local equirectangular projection around the user — accurate to
+/// well under a metre at the tens-to-hundreds-of-metres scales that matter
+/// for off-route checks.
+double distanceToRouteMeters(LatLng user, List<LatLng> points) {
+  if (points.isEmpty) return double.infinity;
+  const mPerDegLat = 110540.0;
+  final mPerDegLng = 111320.0 * math.cos(user.latitude * math.pi / 180);
+
+  double px(LatLng p) => (p.longitude - user.longitude) * mPerDegLng;
+  double py(LatLng p) => (p.latitude - user.latitude) * mPerDegLat;
+
+  var best = double.infinity;
+  for (var i = 0; i < points.length; i++) {
+    // Distance to the vertex itself.
+    final vx = px(points[i]);
+    final vy = py(points[i]);
+    best = math.min(best, math.sqrt(vx * vx + vy * vy));
+    if (i == points.length - 1) break;
+    // Distance to the segment [i, i+1] via projection.
+    final wx = px(points[i + 1]);
+    final wy = py(points[i + 1]);
+    final dx = wx - vx;
+    final dy = wy - vy;
+    final lenSq = dx * dx + dy * dy;
+    if (lenSq <= 0) continue;
+    // The user sits at the local origin; project it onto the segment.
+    final t = ((-vx * dx) + (-vy * dy)) / lenSq;
+    if (t <= 0 || t >= 1) continue;
+    final cx = vx + t * dx;
+    final cy = vy + t * dy;
+    best = math.min(best, math.sqrt(cx * cx + cy * cy));
+  }
+  return best;
 }
 
 /// A short travel-time label, e.g. "8 min" or "1 h 5 min", from seconds.

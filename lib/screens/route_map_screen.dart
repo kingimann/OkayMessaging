@@ -48,6 +48,8 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
   int _navStep = 0;
   LatLng? _navPos;
   Timer? _navTimer;
+  bool _rerouting = false;
+  DateTime? _lastReroute;
 
   @override
   void initState() {
@@ -148,6 +150,26 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
           advanceStep(steps: _route!.steps, current: _navStep, user: user);
     });
     _map.move(user, 16.5);
+
+    // Strayed off the route? Fetch a fresh one from where the user actually
+    // is (rate-limited so a failing router isn't hammered).
+    final off = distanceToRouteMeters(user, _route!.points) > 60;
+    final cooledDown = _lastReroute == null ||
+        DateTime.now().difference(_lastReroute!) > const Duration(seconds: 15);
+    if (off && !_rerouting && cooledDown) {
+      _lastReroute = DateTime.now();
+      setState(() => _rerouting = true);
+      final fresh =
+          await fetchRoute(from: user, to: widget.dest, mode: _mode);
+      if (!mounted || !_navigating) return;
+      setState(() {
+        _rerouting = false;
+        if (fresh != null) {
+          _route = fresh;
+          _navStep = fresh.steps.length > 1 ? 1 : 0;
+        }
+      });
+    }
   }
 
   void _endNav() {
@@ -243,6 +265,7 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
           if (_navigating && route != null) ...[
             _NavBanner(
               arrived: _arrived,
+              rerouting: _rerouting,
               step: route.steps.isEmpty ? null : route.steps[_navStep],
               user: _navPos,
             ),
@@ -270,10 +293,16 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
 /// The big instruction banner shown while navigating.
 class _NavBanner extends StatelessWidget {
   final bool arrived;
+  final bool rerouting;
   final RouteStep? step;
   final LatLng? user;
 
-  const _NavBanner({required this.arrived, required this.step, this.user});
+  const _NavBanner({
+    required this.arrived,
+    required this.step,
+    this.rerouting = false,
+    this.user,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -281,6 +310,8 @@ class _NavBanner extends StatelessWidget {
     String? sub;
     if (arrived) {
       title = 'You\'ve arrived';
+    } else if (rerouting) {
+      title = 'Re-routing…';
     } else if (step == null) {
       title = 'Follow the route';
     } else {

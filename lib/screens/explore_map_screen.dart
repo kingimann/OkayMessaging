@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 
+import '../state/recent_searches.dart';
 import '../state/saved_places_store.dart';
 import '../util/geocoding.dart';
 import '../util/geolocation.dart';
@@ -80,6 +81,8 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
     final results =
         await searchPlaces(q, lat: c.latitude, lng: c.longitude, limit: 12);
     if (!mounted) return;
+    // Remember typed queries that found something (not the category chips).
+    if (term == null && results.isNotEmpty) RecentSearches.maps.add(q);
     setState(() {
       _searching = false;
       _results = results;
@@ -297,13 +300,23 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
               onPick: _select,
             ),
           ),
-          if (_results.isEmpty && selected == null)
+          if (_results.isEmpty && selected == null) ...[
             Positioned(
               top: 70,
               left: 0,
               right: 0,
               child: _CategoryChips(onTap: (term) => _runSearch(term)),
             ),
+            Positioned(
+              top: 120,
+              left: 12,
+              right: 12,
+              child: _RecentMapSearches(onPick: (q) {
+                _search.text = q;
+                _runSearch();
+              }),
+            ),
+          ],
           if (selected != null)
             Positioned(
               left: 12,
@@ -411,6 +424,49 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// The user's recent map searches, shown while the map is idle.
+class _RecentMapSearches extends StatelessWidget {
+  final ValueChanged<String> onPick;
+  const _RecentMapSearches({required this.onPick});
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: RecentSearches.maps,
+      builder: (context, _) {
+        final queries = RecentSearches.maps.queries.take(5).toList();
+        if (queries.isEmpty) return const SizedBox.shrink();
+        return Material(
+          elevation: 2,
+          borderRadius: BorderRadius.circular(14),
+          clipBehavior: Clip.antiAlias,
+          color: Theme.of(context)
+              .colorScheme
+              .surface
+              .withValues(alpha: 0.95),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (final q in queries)
+                ListTile(
+                  dense: true,
+                  leading: const Icon(Icons.history, size: 20),
+                  title: Text(q,
+                      maxLines: 1, overflow: TextOverflow.ellipsis),
+                  trailing: IconButton(
+                    icon: const Icon(Icons.close, size: 18),
+                    onPressed: () => RecentSearches.maps.remove(q),
+                  ),
+                  onTap: () => onPick(q),
+                ),
+            ],
+          ),
+        );
+      },
     );
   }
 }

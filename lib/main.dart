@@ -41,6 +41,7 @@ Future<void> main() async {
   await ScoreStore.instance.load();
   await StreakStore.instance.load();
   await RecentSearches.instance.load();
+  await RecentSearches.maps.load();
   await BackupService.instance.load();
   await PaymentService.instance.load();
   await SavedPlacesStore.instance.load();
