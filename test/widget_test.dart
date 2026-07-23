@@ -789,6 +789,26 @@ void main() {
           direction: callmodel.CallDirection.outgoing,
         );
 
+    test('call duration formats and round-trips through JSON', () {
+      const user = AppUser(
+          id: 'x', name: 'X', avatarColor: '#000000', phone: '+1 555 0110');
+      callmodel.CallRecord withDuration(int s) => callmodel.CallRecord(
+            id: 'd',
+            user: user,
+            time: DateTime(2024, 1, 1),
+            type: callmodel.CallType.video,
+            direction: callmodel.CallDirection.outgoing,
+            durationSeconds: s,
+          );
+      expect(withDuration(0).durationLabel, isNull); // missed / unanswered
+      expect(withDuration(65).durationLabel, '1:05');
+      expect(withDuration(3661).durationLabel, '1:01:01');
+      final back =
+          callmodel.CallRecord.fromJson(withDuration(125).toJson());
+      expect(back.durationSeconds, 125);
+      expect(back.durationLabel, '2:05');
+    });
+
     test('records are ordered newest-first by time and clear empties them', () {
       CallLog.instance.add(rec('a', DateTime(2024, 1, 1)));
       CallLog.instance.add(rec('b', DateTime(2024, 1, 3)));

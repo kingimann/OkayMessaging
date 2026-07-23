@@ -289,6 +289,13 @@ class _CallTile extends StatelessWidget {
           Icon(_directionIcon, size: 16, color: color),
           const SizedBox(width: 4),
           Text(DateFormatter.callLabel(record.time)),
+          if (record.durationLabel != null) ...[
+            const SizedBox(width: 6),
+            Icon(Icons.timer_outlined, size: 13, color: Colors.grey.shade500),
+            const SizedBox(width: 2),
+            Text(record.durationLabel!,
+                style: TextStyle(color: Colors.grey.shade500)),
+          ],
         ],
       ),
       trailing: IconButton(

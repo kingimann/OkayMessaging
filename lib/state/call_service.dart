@@ -96,12 +96,16 @@ class CallService {
     final log.CallDirection dir = c.direction == CallDirection.outgoing
         ? log.CallDirection.outgoing
         : (connected ? log.CallDirection.incoming : log.CallDirection.missed);
+    final duration = c.connectedAt == null
+        ? 0
+        : DateTime.now().difference(c.connectedAt!).inSeconds;
     CallLog.instance.add(log.CallRecord(
       id: c.callId,
       user: c.peer,
       time: DateTime.now(),
       type: c.video ? log.CallType.video : log.CallType.voice,
       direction: dir,
+      durationSeconds: duration,
     ));
   }
 

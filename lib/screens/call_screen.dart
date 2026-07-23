@@ -3,8 +3,13 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 
+import '../models/chat.dart';
+import '../models/message.dart';
+import '../relay/relay_config.dart';
+import '../relay/relay_service.dart';
 import '../state/call_media.dart';
 import '../state/call_service.dart';
+import '../state/chat_store.dart';
 import '../theme/app_theme.dart';
 import '../widgets/user_avatar.dart';
 
@@ -303,23 +308,81 @@ class _CallScreenState extends State<CallScreen> {
   }
 
   Widget _incomingControls() {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+    return Column(
+      mainAxisSize: MainAxisSize.min,
       children: [
-        _CallControl(
-          icon: Icons.call_end,
-          label: 'Decline',
-          background: Colors.red,
-          onTap: () => CallService.instance.decline(),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            _CallControl(
+              icon: Icons.call_end,
+              label: 'Decline',
+              background: Colors.red,
+              onTap: () => CallService.instance.decline(),
+            ),
+            _CallControl(
+              icon: Icons.call,
+              label: 'Accept',
+              background: Colors.green,
+              onTap: () => CallService.instance.accept(),
+            ),
+          ],
         ),
-        _CallControl(
-          icon: Icons.call,
-          label: 'Accept',
-          background: Colors.green,
-          onTap: () => CallService.instance.accept(),
+        const SizedBox(height: 14),
+        TextButton.icon(
+          onPressed: _declineWithMessage,
+          icon: const Icon(Icons.chat_bubble_outline,
+              color: Colors.white70, size: 18),
+          label: const Text('Message',
+              style: TextStyle(color: Colors.white70)),
         ),
       ],
     );
+  }
+
+  /// Declines the incoming call and sends the caller a quick reply.
+  Future<void> _declineWithMessage() async {
+    const replies = [
+      'Can\'t talk right now',
+      'Call you back later',
+      'On my way',
+      'What\'s up?',
+    ];
+    final peer = widget.session.peer;
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final r in replies)
+              ListTile(
+                title: Text(r),
+                onTap: () => Navigator.of(sheetContext).pop(r),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (choice == null) return;
+    CallService.instance.decline();
+    // Deliver the quick reply into the conversation with the caller.
+    final store = ChatStore.instance;
+    var chat = store.chatWithContact(peer.id);
+    chat ??= Chat(id: 'chat_${peer.id}', contact: peer, messages: const []);
+    store.upsert(chat);
+    final msg = Message(
+      id: 'declmsg_${DateTime.now().microsecondsSinceEpoch}',
+      text: choice,
+      time: DateTime.now(),
+      isMe: true,
+      status: MessageStatus.sent,
+    );
+    store.addMessage(chat.id, msg);
+    if (RelayConfig.isEnabled && peer.phone.isNotEmpty) {
+      RelayService.instance.send(peer.phone, msg);
+    }
   }
 
   Widget _activeControls() {
