@@ -95,6 +95,7 @@ class ForumPost {
   final String body;
   final int score;
   final int myVote; // -1, 0, 1
+  final bool pinned;
   final List<ForumComment> comments;
 
   const ForumPost({
@@ -106,12 +107,14 @@ class ForumPost {
     this.body = '',
     this.score = 1,
     this.myVote = 1,
+    this.pinned = false,
     this.comments = const [],
   });
 
   ForumPost copyWith({
     int? score,
     int? myVote,
+    bool? pinned,
     List<ForumComment>? comments,
   }) =>
       ForumPost(
@@ -123,6 +126,7 @@ class ForumPost {
         body: body,
         score: score ?? this.score,
         myVote: myVote ?? this.myVote,
+        pinned: pinned ?? this.pinned,
         comments: comments ?? this.comments,
       );
 
@@ -135,6 +139,7 @@ class ForumPost {
         'body': body,
         'score': score,
         'myVote': myVote,
+        'pinned': pinned,
         'comments': comments.map((c) => c.toJson()).toList(),
       };
 
@@ -147,6 +152,7 @@ class ForumPost {
         body: j['body'] as String? ?? '',
         score: (j['score'] as num?)?.toInt() ?? 1,
         myVote: (j['myVote'] as num?)?.toInt() ?? 0,
+        pinned: j['pinned'] as bool? ?? false,
         comments: (j['comments'] as List? ?? const [])
             .map((c) => ForumComment.fromJson(Map<String, dynamic>.from(c as Map)))
             .toList(),

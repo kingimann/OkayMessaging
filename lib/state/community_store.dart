@@ -377,6 +377,63 @@ class CommunityStore extends ChangeNotifier {
     _replace(community.copyWith(channels: channels));
   }
 
+  /// Removes a forum post entirely.
+  void deleteForumPost(String communityId, String channelId, String postId) {
+    final community = byId(communityId);
+    if (community == null) return;
+    final channels = community.channels.map((ch) {
+      if (ch.id != channelId) return ch;
+      return ch.copyWith(
+          posts: ch.posts.where((p) => p.id != postId).toList());
+    }).toList();
+    _replace(community.copyWith(channels: channels));
+  }
+
+  /// Removes a comment from a forum post.
+  void deleteForumComment(String communityId, String channelId, String postId,
+      String commentId) {
+    final community = byId(communityId);
+    if (community == null) return;
+    final channels = community.channels.map((ch) {
+      if (ch.id != channelId) return ch;
+      final posts = ch.posts.map((p) {
+        if (p.id != postId) return p;
+        return p.copyWith(
+            comments: p.comments.where((c) => c.id != commentId).toList());
+      }).toList();
+      return ch.copyWith(posts: posts);
+    }).toList();
+    _replace(community.copyWith(channels: channels));
+  }
+
+  /// Pins or unpins a forum post (moderator action).
+  void togglePinForumPost(
+      String communityId, String channelId, String postId) {
+    final community = byId(communityId);
+    if (community == null) return;
+    final channels = community.channels.map((ch) {
+      if (ch.id != channelId) return ch;
+      final posts = ch.posts.map((p) {
+        if (p.id != postId) return p;
+        return p.copyWith(pinned: !p.pinned);
+      }).toList();
+      return ch.copyWith(posts: posts);
+    }).toList();
+    _replace(community.copyWith(channels: channels));
+  }
+
+  /// Whether the local user (always represented as member `me`) can moderate
+  /// [community] — i.e. is its owner or an admin.
+  bool canModerate(String communityId) {
+    final community = byId(communityId);
+    if (community == null) return false;
+    final me = community.members
+        .cast<Member?>()
+        .firstWhere((m) => m?.id == 'me', orElse: () => null);
+    return me != null &&
+        (me.role == MemberRole.owner || me.role == MemberRole.admin);
+  }
+
   void deleteCommunity(String communityId) {
     _communities.removeWhere((c) => c.id == communityId);
     _save();

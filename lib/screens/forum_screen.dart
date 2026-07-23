@@ -16,7 +16,8 @@ extension on ForumSort {
       };
 }
 
-/// Orders [posts] by the chosen [sort]. "Hot" blends score with recency.
+/// Orders [posts] by the chosen [sort], with pinned posts always floated to
+/// the top. "Hot" blends score with recency.
 List<ForumPost> sortPosts(List<ForumPost> posts, ForumSort sort,
     {DateTime? now}) {
   final list = [...posts];
@@ -31,8 +32,16 @@ List<ForumPost> sortPosts(List<ForumPost> posts, ForumSort sort,
           p.score - n.difference(p.time).inHours / 12.0;
       list.sort((a, b) => hot(b).compareTo(hot(a)));
   }
-  return list;
+  // Stable partition: pinned posts first, keeping the sorted order within each.
+  final pinned = list.where((p) => p.pinned).toList();
+  final rest = list.where((p) => !p.pinned).toList();
+  return [...pinned, ...rest];
 }
+
+/// Whether [authorId] is the local user (posts they created, or the seeded
+/// `me` member).
+bool isMineAuthor(String authorId) =>
+    authorId == 'me' || authorId == AppState.profile.value.id;
 
 /// A Reddit-style forum channel: a sorted feed of posts you can vote on and
 /// open to read comments.
@@ -186,6 +195,21 @@ class _PostCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const SizedBox(height: 4),
+                    if (post.pinned) ...[
+                      Row(
+                        children: [
+                          const Icon(Icons.push_pin,
+                              size: 13, color: Color(0xFF43B581)),
+                          const SizedBox(width: 3),
+                          Text('Pinned',
+                              style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.green.shade700)),
+                        ],
+                      ),
+                      const SizedBox(height: 2),
+                    ],
                     Text(post.title,
                         style: const TextStyle(
                             fontSize: 16, fontWeight: FontWeight.w700)),
@@ -213,6 +237,12 @@ class _PostCard extends StatelessWidget {
                         Text('${post.comments.length}',
                             style: TextStyle(
                                 fontSize: 12, color: Colors.grey.shade500)),
+                        if (isMineAuthor(post.authorId) ||
+                            CommunityStore.instance.canModerate(communityId))
+                          _PostMenu(
+                              communityId: communityId,
+                              channelId: channelId,
+                              post: post),
                       ],
                     ),
                   ],
@@ -222,6 +252,70 @@ class _PostCard extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Confirms and performs deletion of a post or comment.
+Future<bool> _confirmDelete(BuildContext context, String what) async {
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (_) => AlertDialog(
+      title: Text('Delete $what?'),
+      content: Text('This permanently removes the $what.'),
+      actions: [
+        TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel')),
+        TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Delete', style: TextStyle(color: Colors.red))),
+      ],
+    ),
+  );
+  return ok == true;
+}
+
+/// Overflow menu for a post: pin/unpin (moderators) and delete.
+class _PostMenu extends StatelessWidget {
+  final String communityId;
+  final String channelId;
+  final ForumPost post;
+
+  /// When set, called after a successful delete (e.g. to pop the detail view).
+  final VoidCallback? onDeleted;
+
+  const _PostMenu({
+    required this.communityId,
+    required this.channelId,
+    required this.post,
+    this.onDeleted,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final mod = CommunityStore.instance.canModerate(communityId);
+    return PopupMenuButton<String>(
+      icon: Icon(Icons.more_horiz, size: 18, color: Colors.grey.shade500),
+      padding: EdgeInsets.zero,
+      onSelected: (v) async {
+        if (v == 'pin') {
+          CommunityStore.instance
+              .togglePinForumPost(communityId, channelId, post.id);
+        } else if (v == 'delete') {
+          if (await _confirmDelete(context, 'post')) {
+            CommunityStore.instance
+                .deleteForumPost(communityId, channelId, post.id);
+            onDeleted?.call();
+          }
+        }
+      },
+      itemBuilder: (context) => [
+        if (mod)
+          PopupMenuItem(
+              value: 'pin', child: Text(post.pinned ? 'Unpin' : 'Pin')),
+        const PopupMenuItem(value: 'delete', child: Text('Delete')),
+      ],
     );
   }
 }
@@ -328,8 +422,21 @@ class _ForumPostScreenState extends State<ForumPostScreen> {
         }
         final comments = [...post.comments]
           ..sort((a, b) => b.score.compareTo(a.score));
+        final canManagePost = isMineAuthor(post.authorId) ||
+            CommunityStore.instance.canModerate(widget.communityId);
         return Scaffold(
-          appBar: AppBar(title: const Text('Post')),
+          appBar: AppBar(
+            title: const Text('Post'),
+            actions: [
+              if (canManagePost)
+                _PostMenu(
+                  communityId: widget.communityId,
+                  channelId: widget.channelId,
+                  post: post,
+                  onDeleted: () => Navigator.of(context).pop(),
+                ),
+            ],
+          ),
           body: Column(
             children: [
               Expanded(
@@ -393,6 +500,18 @@ class _ForumPostScreenState extends State<ForumPostScreen> {
                           onVote: (dir) => CommunityStore.instance
                               .voteForumComment(widget.communityId,
                                   widget.channelId, post.id, c.id, dir),
+                          onDelete: (isMineAuthor(c.authorId) ||
+                                  CommunityStore.instance
+                                      .canModerate(widget.communityId))
+                              ? () async {
+                                  if (await _confirmDelete(
+                                      context, 'comment')) {
+                                    CommunityStore.instance
+                                        .deleteForumComment(widget.communityId,
+                                            widget.channelId, post.id, c.id);
+                                  }
+                                }
+                              : null,
                         ),
                   ],
                 ),
@@ -436,7 +555,9 @@ class _ForumPostScreenState extends State<ForumPostScreen> {
 class _CommentTile extends StatelessWidget {
   final ForumComment comment;
   final ValueChanged<int> onVote;
-  const _CommentTile({required this.comment, required this.onVote});
+  final VoidCallback? onDelete;
+  const _CommentTile(
+      {required this.comment, required this.onVote, this.onDelete});
 
   @override
   Widget build(BuildContext context) {
@@ -453,12 +574,24 @@ class _CommentTile extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const SizedBox(height: 6),
-                Text(
-                    '${comment.authorName}  ·  ${DateFormatter.callLabel(comment.time)}',
-                    style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.grey.shade600)),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                          '${comment.authorName}  ·  ${DateFormatter.callLabel(comment.time)}',
+                          style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.grey.shade600)),
+                    ),
+                    if (onDelete != null)
+                      InkWell(
+                        onTap: onDelete,
+                        child: Icon(Icons.delete_outline,
+                            size: 17, color: Colors.grey.shade500),
+                      ),
+                  ],
+                ),
                 const SizedBox(height: 3),
                 Text(comment.body, style: const TextStyle(fontSize: 14.5)),
               ],

@@ -1310,6 +1310,42 @@ void main() {
       expect(post.comments.single.body, 'Rush mid.');
     });
 
+    test('delete post/comment and pin float, with moderator check', () {
+      CommunityStore.instance.resetForTest();
+      // The seeded Design Team makes the local user (member "me") the owner.
+      expect(CommunityStore.instance.canModerate('seed_design'), isTrue);
+
+      // Pin floats a post above a higher-scored, unpinned one.
+      CommunityStore.instance
+          .togglePinForumPost('seed_design', 'seed_forum', 'seed_post_2');
+      final posts = CommunityStore.instance
+          .byId('seed_design')!
+          .channels
+          .firstWhere((c) => c.id == 'seed_forum')
+          .posts;
+      expect(sortPosts(posts, ForumSort.top).first.id, 'seed_post_2');
+
+      // Delete a comment, then the whole post.
+      CommunityStore.instance.deleteForumComment(
+          'seed_design', 'seed_forum', 'seed_post_1', 'seed_c1');
+      var post1 = CommunityStore.instance
+          .byId('seed_design')!
+          .channels
+          .firstWhere((c) => c.id == 'seed_forum')
+          .posts
+          .firstWhere((p) => p.id == 'seed_post_1');
+      expect(post1.comments.any((c) => c.id == 'seed_c1'), isFalse);
+
+      CommunityStore.instance
+          .deleteForumPost('seed_design', 'seed_forum', 'seed_post_1');
+      final remaining = CommunityStore.instance
+          .byId('seed_design')!
+          .channels
+          .firstWhere((c) => c.id == 'seed_forum')
+          .posts;
+      expect(remaining.any((p) => p.id == 'seed_post_1'), isFalse);
+    });
+
     test('post ordering by hot / new / top', () {
       final base = DateTime(2024, 1, 10, 12);
       // 'old' has the higher raw score but is 5 days (120h) stale, costing it
