@@ -24,6 +24,9 @@ dependencies:
   flutter_webrtc: ^1.5.2
   file_picker: ^11.0.2
   path_provider: ^2.1.6
+  # Browser interop (Web Share API + downloads) for saving the encrypted chat
+  # backup on the web build. Guarded by a conditional import.
+  web: ^1.1.0
   # System share sheet, used only on mobile to send an encrypted chat backup to
   # iCloud Drive / Dropbox / Google Drive / Files (guarded by a conditional
   # import so the web build never references it).
