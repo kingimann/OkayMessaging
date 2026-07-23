@@ -51,13 +51,20 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
     final q = _search.text.trim();
     if (q.isEmpty) return;
     setState(() => _searching = true);
-    final results = await searchPlaces(q);
+    // Bias toward where the user is (or the map they're looking at).
+    final bias = _myPos ?? _center;
+    final results =
+        await searchPlaces(q, lat: bias.latitude, lng: bias.longitude);
     if (!mounted) return;
     setState(() {
       _searching = false;
-      _results = results;
+      _results = results ?? const [];
     });
-    if (results.isEmpty) {
+    if (results == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Search failed — try again.')),
+      );
+    } else if (results.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('No places found for "$q".')),
       );

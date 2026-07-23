@@ -4096,6 +4096,35 @@ void main() {
       await tester.pump();
     });
 
+    testWidgets('a failed suggestion fetch keeps the previous suggestions',
+        (tester) async {
+      var fail = false;
+      await tester.pumpWidget(MaterialApp(
+        home: ExploreMapScreen(
+          debugSearch: (q) async => fail
+              ? null
+              : const [GeoResult(name: 'Blue Bottle', lat: 37.7, lng: -122.4)],
+        ),
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      await tester.enterText(find.byType(TextField).first, 'blue');
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump();
+      expect(find.text('Blue Bottle'), findsOneWidget);
+
+      // The next keystroke's fetch fails — the list must NOT blank out.
+      fail = true;
+      await tester.enterText(find.byType(TextField).first, 'blue b');
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump();
+      expect(find.text('Blue Bottle'), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+    });
+
     testWidgets('the clear button resets the search', (tester) async {
       await tester.pumpWidget(MaterialApp(
         home: ExploreMapScreen(

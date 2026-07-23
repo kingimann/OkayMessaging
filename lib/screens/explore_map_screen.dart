@@ -34,8 +34,8 @@ class ExploreMapScreen extends StatefulWidget {
   /// Test/preview hook: a fixed "current location" fix, bypassing real GPS.
   final LatLng? debugMyLocation;
 
-  /// Test hook: replaces the network place search.
-  final Future<List<GeoResult>> Function(String query)? debugSearch;
+  /// Test hook: replaces the network place search (null = request failed).
+  final Future<List<GeoResult>?> Function(String query)? debugSearch;
 
   const ExploreMapScreen({super.key, this.debugMyLocation, this.debugSearch});
 
@@ -74,11 +74,19 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
     super.dispose();
   }
 
-  Future<List<GeoResult>> _doSearch(String q) {
+  /// True once the user has panned/zoomed the map themselves, making the
+  /// camera centre a meaningful "search here" point.
+  bool _mapTouched = false;
+
+  Future<List<GeoResult>?> _doSearch(String q) {
     final debug = widget.debugSearch;
     if (debug != null) return debug(q);
-    final c = _center;
-    return searchPlaces(q, lat: c.latitude, lng: c.longitude, limit: 12);
+    // Bias to where the user actually is — or where they've panned the map
+    // to. Never bias to the untouched placeholder centre: that would rank a
+    // far-away city's results first for everyone without a GPS fix.
+    final LatLng? bias = _me ?? (_mapTouched ? _center : null);
+    return searchPlaces(q,
+        lat: bias?.latitude, lng: bias?.longitude, limit: 12);
   }
 
   /// Live, Apple-Maps-style suggestions while typing (debounced; stale
@@ -102,7 +110,9 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
       if (!mounted || seq != _searchSeq) return;
       setState(() {
         _searching = false;
-        _results = results;
+        // A failed request (null) keeps the previous suggestions on screen
+        // instead of blanking them mid-typing.
+        if (results != null) _results = results;
       });
     });
   }
@@ -143,6 +153,15 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
     setState(() => _searching = true);
     final results = await _doSearch(q);
     if (!mounted || seq != _searchSeq) return;
+    if (results == null) {
+      setState(() => _searching = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('Search failed — check your connection and try '
+                'again.')),
+      );
+      return;
+    }
     // Remember typed queries that found something (not the category chips).
     if (term == null && results.isNotEmpty) RecentSearches.maps.add(q);
     setState(() {
@@ -349,6 +368,9 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
               interactionOptions: const InteractionOptions(
                 flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
               ),
+              onPositionChanged: (camera, hasGesture) {
+                if (hasGesture) _mapTouched = true;
+              },
               onLongPress: (_, point) => _dropPin(point),
             ),
             children: [

@@ -140,9 +140,12 @@ Future<GeoResult?> reverseGeocode(double lat, double lng) async {
 }
 
 /// Searches OpenStreetMap data for [query] via Komoot's Photon geocoder, which
-/// (unlike Nominatim) sends CORS headers so it works from the browser. Returns
-/// an empty list on any error.
-Future<List<GeoResult>> searchPlaces(
+/// (unlike Nominatim) sends CORS headers so it works from the browser.
+///
+/// Returns an empty list when nothing matched, and **null** when the request
+/// itself failed (offline, rate-limited, server error) — callers can then
+/// keep showing previous results instead of blanking the list.
+Future<List<GeoResult>?> searchPlaces(
   String query, {
   double? lat,
   double? lng,
@@ -170,11 +173,11 @@ Future<List<GeoResult>> searchPlaces(
     final res = await http
         .get(uri, headers: {'Accept': 'application/json'})
         .timeout(const Duration(seconds: 12));
-    if (res.statusCode != 200) return const [];
+    if (res.statusCode != 200) return null;
     var results = dedupePlaces(parsePhoton(res.body));
     if (biased) results = sortPlacesByDistance(results, lat, lng);
     return results.take(limit).toList();
   } catch (_) {
-    return const [];
+    return null;
   }
 }
