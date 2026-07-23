@@ -1769,6 +1769,12 @@ void main() {
     await tester.enterText(find.byType(TextField), 'general');
     await tester.pumpAndSettle();
     expect(find.text('Channels'), findsOneWidget);
+
+    // Forum post titles are searchable (seeded post mentions "design tools").
+    await tester.enterText(find.byType(TextField), 'design tools');
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Posts ('), findsOneWidget);
+    expect(find.widgetWithText(ChoiceChip, 'Posts'), findsOneWidget);
   });
 
   testWidgets('Submitting a search remembers it on the idle screen',

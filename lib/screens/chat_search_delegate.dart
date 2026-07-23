@@ -17,6 +17,7 @@ import '../widgets/linkable_text.dart';
 import '../widgets/user_avatar.dart';
 import 'communities.dart';
 import 'chat_screen.dart';
+import 'forum_screen.dart';
 
 /// A message that matched, with the chat it belongs to.
 class _MessageHit {
@@ -31,14 +32,23 @@ class _ChannelHit {
   const _ChannelHit(this.community, this.channel);
 }
 
+/// A forum post that matched, with the server & channel it lives in.
+class _PostHit {
+  final Community community;
+  final Channel channel;
+  final ForumPost post;
+  const _PostHit(this.community, this.channel, this.post);
+}
+
 /// Filters shown as chips above the results.
-enum _Filter { all, people, messages, servers, calls, links }
+enum _Filter { all, people, messages, posts, servers, calls, links }
 
 extension on _Filter {
   String get label => switch (this) {
         _Filter.all => 'All',
         _Filter.people => 'People',
         _Filter.messages => 'Messages',
+        _Filter.posts => 'Posts',
         _Filter.servers => 'Servers',
         _Filter.calls => 'Calls',
         _Filter.links => 'Links',
@@ -150,6 +160,23 @@ class _SearchBodyState extends State<_SearchBody> {
     return out;
   }
 
+  List<_PostHit> _forumPosts(String q) {
+    final out = <_PostHit>[];
+    for (final c in CommunityStore.instance.communities) {
+      for (final ch in c.channels) {
+        if (ch.type != ChannelType.forum) continue;
+        for (final p in ch.posts) {
+          if (p.title.toLowerCase().contains(q) ||
+              p.body.toLowerCase().contains(q)) {
+            out.add(_PostHit(c, ch, p));
+          }
+        }
+      }
+    }
+    out.sort((a, b) => b.post.score.compareTo(a.post.score));
+    return out;
+  }
+
   List<CallRecord> _calls(String q) => CallLog.instance.records
       .where((r) => r.user.name.toLowerCase().contains(q))
       .toList();
@@ -181,6 +208,12 @@ class _SearchBodyState extends State<_SearchBody> {
           builder: (_) => ChannelScreen(
               communityId: h.community.id, channelId: h.channel.id)));
 
+  void _openPost(_PostHit h) => Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => ForumPostScreen(
+          communityId: h.community.id,
+          channelId: h.channel.id,
+          postId: h.post.id)));
+
   // --- Build -------------------------------------------------------------
 
   @override
@@ -190,6 +223,7 @@ class _SearchBodyState extends State<_SearchBody> {
 
     final people = _show(_Filter.people) ? _people(q) : const <AppUser>[];
     final messages = _show(_Filter.messages) ? _messages(q) : const [];
+    final posts = _show(_Filter.posts) ? _forumPosts(q) : const <_PostHit>[];
     final servers = _show(_Filter.servers) ? _servers(q) : const <Community>[];
     final channels =
         _show(_Filter.servers) ? _channels(q) : const <_ChannelHit>[];
@@ -200,6 +234,7 @@ class _SearchBodyState extends State<_SearchBody> {
 
     final total = people.length +
         messages.length +
+        posts.length +
         servers.length +
         channels.length +
         calls.length +
@@ -232,6 +267,12 @@ class _SearchBodyState extends State<_SearchBody> {
                   const _Header('Channels'),
                   for (final h in channels)
                     _ChannelTile(hit: h, onTap: () => _openChannel(h)),
+                ],
+                if (posts.isNotEmpty) ...[
+                  _Header('Posts (${posts.length})'),
+                  for (final h in posts)
+                    _PostHitTile(
+                        hit: h, query: q, onTap: () => _openPost(h)),
                 ],
                 if (messages.isNotEmpty) ...[
                   _Header('Messages (${messages.length})'),
@@ -418,6 +459,31 @@ class _ChannelTile extends StatelessWidget {
         title: Text(hit.channel.name,
             style: const TextStyle(fontWeight: FontWeight.w600)),
         subtitle: Text('in ${hit.community.name}'),
+        onTap: onTap,
+      );
+}
+
+class _PostHitTile extends StatelessWidget {
+  final _PostHit hit;
+  final String query;
+  final VoidCallback onTap;
+  const _PostHitTile(
+      {required this.hit, required this.query, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) => ListTile(
+        leading: const CircleAvatar(
+          radius: 20,
+          backgroundColor: Color(0xFFFF4500),
+          child: Icon(Icons.forum_rounded, color: Colors.white, size: 20),
+        ),
+        title: _Highlighted(text: hit.post.title, query: query),
+        subtitle: Text(
+          '${hit.community.name} · ${hit.post.score} points · '
+          '${hit.post.comments.length} comments',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
         onTap: onTap,
       );
 }
