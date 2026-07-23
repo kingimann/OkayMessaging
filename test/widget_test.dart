@@ -25,6 +25,7 @@ import 'package:okay_messaging/utils/friend_locations.dart';
 import 'package:okay_messaging/util/geocoding.dart';
 import 'package:okay_messaging/utils/chat_transcript.dart';
 import 'package:okay_messaging/util/routing.dart';
+import 'package:okay_messaging/screens/forward_screen.dart';
 import 'package:okay_messaging/screens/route_map_screen.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:okay_messaging/tabs/chats_tab.dart';
@@ -3916,11 +3917,10 @@ void main() {
     });
 
     test('advanceStep passes maneuvers the user has reached', () {
-      final steps = [
-        RouteStep('Start', 100, location: const LatLng(37.7700, -122.4200)),
-        RouteStep('Turn left', 200,
-            location: const LatLng(37.7710, -122.4200)),
-        RouteStep('Arrive', 0, location: const LatLng(37.7730, -122.4200)),
+      const steps = [
+        RouteStep('Start', 100, location: LatLng(37.7700, -122.4200)),
+        RouteStep('Turn left', 200, location: LatLng(37.7710, -122.4200)),
+        RouteStep('Arrive', 0, location: LatLng(37.7730, -122.4200)),
       ];
       // Far from the upcoming maneuver: stays put.
       expect(
@@ -3943,14 +3943,14 @@ void main() {
     });
 
     test('remainingMeters sums the distance to go', () {
-      final route = RouteResult(
-        points: const [LatLng(37.77, -122.42), LatLng(37.78, -122.41)],
+      const route = RouteResult(
+        points: [LatLng(37.77, -122.42), LatLng(37.78, -122.41)],
         distanceMeters: 300,
         durationSeconds: 120,
         steps: [
-          RouteStep('Start', 100, location: const LatLng(37.7700, -122.4200)),
-          RouteStep('Turn', 200, location: const LatLng(37.7709, -122.4200)),
-          RouteStep('Arrive', 0, location: const LatLng(37.7727, -122.4200)),
+          RouteStep('Start', 100, location: LatLng(37.7700, -122.4200)),
+          RouteStep('Turn', 200, location: LatLng(37.7709, -122.4200)),
+          RouteStep('Arrive', 0, location: LatLng(37.7727, -122.4200)),
         ],
       );
       // ~100m short of maneuver 1, plus the 200m remaining segments.
@@ -3963,8 +3963,8 @@ void main() {
 
     testWidgets('Go starts in-app navigation instead of leaving the app',
         (tester) async {
-      final route = RouteResult(
-        points: const [
+      const route = RouteResult(
+        points: [
           LatLng(37.7749, -122.4194),
           LatLng(37.7757, -122.4180),
           LatLng(37.7680, -122.4150),
@@ -3973,17 +3973,17 @@ void main() {
         durationSeconds: 300,
         steps: [
           RouteStep('Head out on Market Street', 120,
-              location: const LatLng(37.7749, -122.4194)),
+              location: LatLng(37.7749, -122.4194)),
           RouteStep('Turn right onto Valencia Street', 400,
-              location: const LatLng(37.7757, -122.4180)),
+              location: LatLng(37.7757, -122.4180)),
           RouteStep('Arrive at your destination', 0,
-              location: const LatLng(37.7680, -122.4150)),
+              location: LatLng(37.7680, -122.4150)),
         ],
       );
-      await tester.pumpWidget(MaterialApp(
+      await tester.pumpWidget(const MaterialApp(
         home: RouteMapScreen(
-          dest: const LatLng(37.7680, -122.4150),
-          from: const LatLng(37.7749, -122.4194),
+          dest: LatLng(37.7680, -122.4150),
+          from: LatLng(37.7749, -122.4194),
           label: 'To Alice',
           initialRoute: route,
         ),
@@ -4100,6 +4100,33 @@ void main() {
     test('returns empty on non-list / invalid json', () {
       expect(parsePhoton('{"features":"nope"}'), isEmpty);
       expect(parsePhoton('not json'), isEmpty);
+    });
+  });
+
+  group('Send a place to a chat', () {
+    testWidgets('picking a chat sends a labelled location message',
+        (tester) async {
+      await tester.pumpWidget(const MaterialApp(
+        home: ForwardScreen(
+          text: '',
+          place: (lat: 48.8584, lng: 2.2945, label: 'Eiffel Tower'),
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Send to...'), findsOneWidget);
+      await tester.tap(find.text('Bob Carter'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byIcon(Icons.send));
+      await tester.pumpAndSettle();
+
+      final sent = ChatStore.instance
+          .chatById('c_bob')!
+          .messages
+          .lastWhere((m) => m.isLocation);
+      expect(sent.locationLabel, 'Eiffel Tower');
+      expect(sent.locationLat, closeTo(48.8584, 0.0001));
+      expect(sent.locationLng, closeTo(2.2945, 0.0001));
     });
   });
 

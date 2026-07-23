@@ -8,6 +8,7 @@ import '../util/geocoding.dart';
 import '../util/geolocation.dart';
 import '../utils/maps_link.dart';
 import '../widgets/osm_map.dart';
+import 'forward_screen.dart';
 import 'map_screen.dart';
 import 'route_map_screen.dart';
 
@@ -145,6 +146,23 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
           dest: LatLng(s.lat, s.lng),
           from: _me,
           label: s.name.isEmpty ? 'Directions' : s.name,
+        ),
+      ),
+    );
+  }
+
+  void _sendToChat() {
+    final s = _selected;
+    if (s == null) return;
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ForwardScreen(
+          text: '',
+          place: (
+            lat: s.lat,
+            lng: s.lng,
+            label: s.name.isEmpty ? 'Shared location' : s.name,
+          ),
         ),
       ),
     );
@@ -335,14 +353,20 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
                         style: TextStyle(color: Colors.grey.shade600)),
                   ],
                   const SizedBox(height: 10),
-                  Row(
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
                     children: [
                       FilledButton.icon(
                         onPressed: _directions,
                         icon: const Icon(Icons.directions, size: 18),
                         label: const Text('Directions'),
                       ),
-                      const SizedBox(width: 8),
+                      OutlinedButton.icon(
+                        onPressed: _sendToChat,
+                        icon: const Icon(Icons.chat_bubble_outline, size: 16),
+                        label: const Text('Send'),
+                      ),
                       OutlinedButton.icon(
                         onPressed: _share,
                         icon: const Icon(Icons.ios_share, size: 16),
