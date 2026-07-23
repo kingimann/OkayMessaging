@@ -103,6 +103,7 @@ class MessageBubble extends StatelessWidget {
               amountCents: message.paymentAmountCents,
               note: message.text,
               isMe: isMe,
+              status: message.paymentStatus,
             ),
           ),
         ),

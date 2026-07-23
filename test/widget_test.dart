@@ -2395,6 +2395,7 @@ void main() {
         isPayment: true,
         paymentAmountCents: 2050,
         paymentCurrency: 'cad',
+        paymentStatus: 'pending',
       );
       final payload = RelayService.encode(
           message: pay, fromPhone: '+1 555 0199', fromName: 'Grace');
@@ -2406,6 +2407,17 @@ void main() {
       expect(got.paymentCurrency, 'cad');
       expect(got.text, 'lunch 🍜'); // the note
       expect(got.paymentDisplay, r'$20.50');
+      // The pending status rides along, so the receipt shows live state.
+      expect(got.paymentStatus, 'pending');
+
+      // A later 'paid' update flips only the payment receipt.
+      ChatStore.instance.setPaymentStatus(
+          ChatStore.instance.chatWithContact('+1 555 0199')!.id,
+          'pay1',
+          'paid');
+      final paid =
+          ChatStore.instance.chatWithContact('+1 555 0199')!.messages.single;
+      expect(paid.paymentStatus, 'paid');
     });
 
     test('a reply, forward, and shared location survive the relay', () {

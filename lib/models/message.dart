@@ -94,6 +94,10 @@ class Message {
   final int paymentAmountCents;
   final String paymentCurrency;
 
+  /// Lifecycle of an in-chat payment: 'pending' while it's being confirmed,
+  /// 'paid' once it settles, or 'failed'. Empty for non-payment messages.
+  final String paymentStatus;
+
   /// True for a poll; [pollQuestion] / [pollOptions] describe it, [pollVotes]
   /// holds the tally per option, and [pollMyVote] is this device's choice
   /// (-1 = not voted yet).
@@ -130,6 +134,7 @@ class Message {
     this.isPayment = false,
     this.paymentAmountCents = 0,
     this.paymentCurrency = 'cad',
+    this.paymentStatus = '',
     this.isPoll = false,
     this.pollQuestion = '',
     this.pollOptions = const [],
@@ -167,6 +172,7 @@ class Message {
         'isPayment': isPayment,
         'paymentAmountCents': paymentAmountCents,
         'paymentCurrency': paymentCurrency,
+        'paymentStatus': paymentStatus,
         'isPoll': isPoll,
         'pollQuestion': pollQuestion,
         'pollOptions': pollOptions,
@@ -206,6 +212,7 @@ class Message {
         isPayment: json['isPayment'] as bool? ?? false,
         paymentAmountCents: json['paymentAmountCents'] as int? ?? 0,
         paymentCurrency: json['paymentCurrency'] as String? ?? 'cad',
+        paymentStatus: json['paymentStatus'] as String? ?? '',
         isPoll: json['isPoll'] as bool? ?? false,
         pollQuestion: json['pollQuestion'] as String? ?? '',
         pollOptions:
@@ -225,6 +232,7 @@ class Message {
     DateTime? expiresAt,
     List<int>? pollVotes,
     int? pollMyVote,
+    String? paymentStatus,
   }) {
     return Message(
       id: id,
@@ -253,6 +261,7 @@ class Message {
       isPayment: isPayment,
       paymentAmountCents: paymentAmountCents,
       paymentCurrency: paymentCurrency,
+      paymentStatus: paymentStatus ?? this.paymentStatus,
       isPoll: isPoll,
       pollQuestion: pollQuestion,
       pollOptions: pollOptions,

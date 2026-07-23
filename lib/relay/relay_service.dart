@@ -116,6 +116,7 @@ class RelayService {
       'isPayment': message.isPayment,
       'paymentAmountCents': message.paymentAmountCents,
       'paymentCurrency': message.paymentCurrency,
+      'paymentStatus': message.paymentStatus,
       'isPoll': message.isPoll,
       'pollQuestion': message.pollQuestion,
       'pollOptions': message.pollOptions,
@@ -246,6 +247,7 @@ class RelayService {
         isPayment: content['isPayment'] as bool? ?? false,
         paymentAmountCents: content['paymentAmountCents'] as int? ?? 0,
         paymentCurrency: content['paymentCurrency'] as String? ?? 'cad',
+        paymentStatus: content['paymentStatus'] as String? ?? '',
         isPoll: content['isPoll'] as bool? ?? false,
         pollQuestion: content['pollQuestion'] as String? ?? '',
         pollOptions:
@@ -422,6 +424,24 @@ class RelayService {
             if (from == null || id == null || digits(from) == digits(me)) return;
             final chat = ChatStore.instance.chatWithContact(from);
             if (chat != null) ChatStore.instance.deleteMessage(chat.id, id);
+          },
+        )
+        .onBroadcast(
+          event: 'payst',
+          callback: (payload) {
+            final from = payload['from'] as String?;
+            final id = payload['id'] as String?;
+            final status = payload['status'] as String?;
+            if (from == null ||
+                id == null ||
+                status == null ||
+                digits(from) == digits(me)) {
+              return;
+            }
+            final chat = ChatStore.instance.chatWithContact(from);
+            if (chat != null) {
+              ChatStore.instance.setPaymentStatus(chat.id, id, status);
+            }
           },
         )
         .onBroadcast(
@@ -766,6 +786,21 @@ class RelayService {
         'add': addOption,
         'remove': removeOption,
       },
+    );
+  }
+
+  /// Broadcasts a payment lifecycle change ('paid'/'failed') for the receipt
+  /// [messageId] to [contactPhone], so their bubble flips from pending.
+  Future<void> sendPaymentStatus(
+      String contactPhone, String messageId, String status) async {
+    if (!_initialized) return;
+    final me = Session.instance.user.value;
+    if (me == null) return;
+    final channel = _sendChannels.putIfAbsent(inboxChannel(contactPhone),
+        () => _client.channel(inboxChannel(contactPhone)));
+    await channel.sendBroadcastMessage(
+      event: 'payst',
+      payload: {'from': me.phone, 'id': messageId, 'status': status},
     );
   }
 

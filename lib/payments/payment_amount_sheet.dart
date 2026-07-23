@@ -155,24 +155,42 @@ class PaymentBubble extends StatelessWidget {
   final String note;
   final bool isMe;
 
+  /// 'pending', 'paid', 'failed', or '' (treated as settled for older
+  /// receipts that predate status tracking).
+  final String status;
+
   const PaymentBubble({
     super.key,
     required this.amountCents,
     required this.note,
     required this.isMe,
+    this.status = '',
   });
+
+  bool get _pending => status == 'pending';
+  bool get _failed => status == 'failed';
 
   @override
   Widget build(BuildContext context) {
     final amount = '\$${(amountCents / 100).toStringAsFixed(2)}';
+    final colors = _failed
+        ? const [Color(0xFF9AA4AE), Color(0xFF7E8892)]
+        : _pending
+            ? const [Color(0xFF3F8F6B), Color(0xFF2E7D5B)]
+            : const [Color(0xFF12B76A), Color(0xFF0E9F63)];
+    final title = _failed
+        ? 'Payment failed'
+        : isMe
+            ? 'Payment sent'
+            : 'Payment received';
     return Container(
       width: 210,
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
+        gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [Color(0xFF12B76A), Color(0xFF0E9F63)],
+          colors: colors,
         ),
         borderRadius: BorderRadius.circular(16),
       ),
@@ -182,9 +200,10 @@ class PaymentBubble extends StatelessWidget {
         children: [
           Row(
             children: [
-              const Icon(Icons.payments_rounded, color: Colors.white, size: 20),
+              Icon(_failed ? Icons.error_outline : Icons.payments_rounded,
+                  color: Colors.white, size: 20),
               const SizedBox(width: 8),
-              Text(isMe ? 'Payment sent' : 'Payment received',
+              Text(title,
                   style: const TextStyle(
                       color: Colors.white,
                       fontWeight: FontWeight.w600,
@@ -204,15 +223,55 @@ class PaymentBubble extends StatelessWidget {
                     color: Colors.white.withValues(alpha: 0.9), fontSize: 13)),
           ],
           const SizedBox(height: 8),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.18),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: const Text('Powered by Stripe',
-                style: TextStyle(color: Colors.white, fontSize: 10.5)),
+          Row(
+            children: [
+              _StatusPill(status: status),
+              const Spacer(),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.18),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Text('Stripe',
+                    style: TextStyle(color: Colors.white, fontSize: 10.5)),
+              ),
+            ],
           ),
+        ],
+      ),
+    );
+  }
+}
+
+/// A small status chip inside the payment bubble.
+class _StatusPill extends StatelessWidget {
+  final String status;
+  const _StatusPill({required this.status});
+
+  @override
+  Widget build(BuildContext context) {
+    final (icon, label) = switch (status) {
+      'pending' => (Icons.schedule, 'Pending'),
+      'failed' => (Icons.close, 'Failed'),
+      _ => (Icons.check_circle, 'Completed'),
+    };
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.22),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: Colors.white, size: 12),
+          const SizedBox(width: 3),
+          Text(label,
+              style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w600)),
         ],
       ),
     );

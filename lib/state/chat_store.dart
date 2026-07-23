@@ -343,6 +343,22 @@ class ChatStore extends ChangeNotifier {
     _replace(i, _chats[i].copyWith(messages: messages));
   }
 
+  /// Updates the lifecycle status ('pending' → 'paid' / 'failed') of a payment
+  /// message. No-ops if the message isn't found or already has that status.
+  void setPaymentStatus(String chatId, String messageId, String status) {
+    final i = _indexOf(chatId);
+    if (i == -1) return;
+    var changed = false;
+    final msgs = _chats[i].messages.map((m) {
+      if (m.id == messageId && m.isPayment && m.paymentStatus != status) {
+        changed = true;
+        return m.copyWith(paymentStatus: status);
+      }
+      return m;
+    }).toList();
+    if (changed) _replace(i, _chats[i].copyWith(messages: msgs));
+  }
+
   /// Upgrades the delivery status of the user's own (outgoing) messages in a
   /// chat to at least [status] — used to apply delivered/read receipts.
   void setOutgoingStatus(String chatId, MessageStatus status) {

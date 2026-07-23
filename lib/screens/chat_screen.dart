@@ -1258,31 +1258,45 @@ class _ChatScreenState extends State<ChatScreen> {
     if (result == null || result.cents <= 0 || !mounted) return;
 
     final messenger = ScaffoldMessenger.of(context);
+    final phone = widget.chat.contact.phone;
+    final now = DateTime.now();
+    final payId = 'pay_${now.microsecondsSinceEpoch}';
+
+    // Drop an optimistic "pending" receipt right away and relay it, so the
+    // recipient sees the payment as pending while it's confirmed.
+    _deliver(Message(
+      id: payId,
+      text: result.note,
+      time: now,
+      isMe: true,
+      status: MessageStatus.sent,
+      isPayment: true,
+      paymentAmountCents: result.cents,
+      paymentCurrency: 'cad',
+      paymentStatus: 'pending',
+    ));
+
+    void settle(String status) {
+      _store.setPaymentStatus(_chatId, payId, status);
+      RelayService.instance.sendPaymentStatus(phone, payId, status);
+    }
+
     try {
       final ok = await svc.sendMoney(
-        toPhone: widget.chat.contact.phone,
+        toPhone: phone,
         amountCents: result.cents,
         note: result.note,
       );
-      if (!ok) return; // cancelled or failed in the sheet
-      final now = DateTime.now();
-      _deliver(Message(
-        id: 'pay_${now.microsecondsSinceEpoch}',
-        text: result.note,
-        time: now,
-        isMe: true,
-        status: MessageStatus.sent,
-        isPayment: true,
-        paymentAmountCents: result.cents,
-        paymentCurrency: 'cad',
-      ));
+      settle(ok ? 'paid' : 'failed'); // false = cancelled/declined in the sheet
     } on PaymentException catch (e) {
+      settle('failed');
       messenger.showSnackBar(SnackBar(
         content: Text(e.code == 'receiver_not_onboarded'
             ? '${widget.chat.contact.name} hasn\'t set up payments yet'
             : 'Payment failed: ${e.code}'),
       ));
     } catch (_) {
+      settle('failed');
       messenger.showSnackBar(
           const SnackBar(content: Text('Payment could not be completed')));
     }
