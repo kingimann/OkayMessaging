@@ -131,6 +131,18 @@ class MessageBubble extends StatelessWidget {
       );
     }
 
+    if (message.isImage && message.viewOnce) {
+      return _ViewOnceBubble(
+        message: message,
+        isMe: isMe,
+        bubbleColor: bubbleColor,
+        textColor: textColor,
+        metaColor: metaColor,
+        onLongPress: onLongPress,
+        onTap: onTap,
+      );
+    }
+
     if (message.isImage) {
       return _ImageBubble(
         message: message,
@@ -384,6 +396,96 @@ class _ReplyQuote extends StatelessWidget {
           ),
         ],
       ),
+      ),
+    );
+  }
+}
+
+/// A "view once" photo bubble: a compact chip that opens the photo a single
+/// time for the recipient, then shows an "Opened" state (Snapchat style).
+class _ViewOnceBubble extends StatelessWidget {
+  final Message message;
+  final bool isMe;
+  final Color bubbleColor;
+  final Color textColor;
+  final Color metaColor;
+  final VoidCallback? onLongPress;
+  final VoidCallback? onTap;
+
+  const _ViewOnceBubble({
+    required this.message,
+    required this.isMe,
+    required this.bubbleColor,
+    required this.textColor,
+    required this.metaColor,
+    this.onLongPress,
+    this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    // Recipient's photo is "spent" once opened; the sender always sees a
+    // static label describing what they sent.
+    final spent = message.viewOnceOpened && !isMe;
+    final label = isMe
+        ? (message.viewOnceOpened ? 'Opened' : 'Photo · View once')
+        : (spent ? 'Opened' : 'View once');
+    final icon = spent
+        ? Icons.timer_off_outlined
+        : Icons.timer_outlined;
+    final faded = spent || (isMe && message.viewOnceOpened);
+    return Align(
+      alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+      child: GestureDetector(
+        onLongPress: onLongPress,
+        onTap: spent ? null : onTap,
+        child: Container(
+          margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+          padding: const EdgeInsets.fromLTRB(12, 10, 13, 10),
+          decoration: BoxDecoration(
+            color: faded ? bubbleColor.withValues(alpha: 0.55) : bubbleColor,
+            borderRadius: const BorderRadius.all(Radius.circular(20)),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 20, color: textColor),
+              const SizedBox(width: 8),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    label,
+                    style: TextStyle(
+                      color: textColor,
+                      fontSize: 14.5,
+                      fontWeight: FontWeight.w600,
+                      fontStyle: faded ? FontStyle.italic : FontStyle.normal,
+                    ),
+                  ),
+                  if (!isMe && !spent)
+                    Text('Tap to view',
+                        style: TextStyle(color: metaColor, fontSize: 11.5)),
+                ],
+              ),
+              const SizedBox(width: 10),
+              Text(
+                DateFormatter.messageTime(message.time),
+                style: TextStyle(color: metaColor, fontSize: 11),
+              ),
+              if (isMe) ...[
+                const SizedBox(width: 4),
+                MessageStatusIcon(
+                  status: message.status,
+                  size: 15,
+                  color: metaColor,
+                  readColor: textColor,
+                ),
+              ],
+            ],
+          ),
+        ),
       ),
     );
   }

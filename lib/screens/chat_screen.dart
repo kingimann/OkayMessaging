@@ -374,7 +374,7 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  Future<void> _handleSendImage() async {
+  Future<void> _handleSendImage({bool viewOnce = false}) async {
     if (!await _confirmRecipient()) return;
     final now = DateTime.now();
     _deliver(Message(
@@ -385,6 +385,7 @@ class _ChatScreenState extends State<ChatScreen> {
       status: MessageStatus.sent,
       isImage: true,
       imageSeed: now.microsecondsSinceEpoch % 6,
+      viewOnce: viewOnce,
       replyTo: _replyTo,
     ));
     setState(() => _replyTo = null);
@@ -726,7 +727,9 @@ class _ChatScreenState extends State<ChatScreen> {
         onLongPress: _selectionMode ? null : () => _showMessageActions(m),
         onTap: _searching
             ? () => _exitSearchToMessage(m.id)
-            : (m.isImage && !_selectionMode ? () => _openImage(m) : null),
+            : (_canOpenImage(m) && !_selectionMode
+                ? () => _openImage(m)
+                : null),
         onDoubleTapDown:
             _selectionMode ? null : (d) => _lastDoubleTapPos = d.globalPosition,
         onDoubleTap: _selectionMode ? null : () => _quickReact(m),
@@ -1419,8 +1422,20 @@ class _ChatScreenState extends State<ChatScreen> {
     CallService.instance.startOutgoing(widget.chat.contact, video: video);
   }
 
-  void _openImage(Message message) {
-    Navigator.of(context).push(
+  /// Whether tapping an image should open the viewer. A spent view-once photo
+  /// is no longer openable by the recipient.
+  bool _canOpenImage(Message m) {
+    if (!m.isImage) return false;
+    if (!m.viewOnce) return true;
+    if (m.isMe) return true; // the sender can still review what they sent
+    return !m.viewOnceOpened;
+  }
+
+  Future<void> _openImage(Message message) async {
+    // A received "view once" photo is consumed after this single viewing.
+    final consume =
+        message.viewOnce && !message.isMe && !message.viewOnceOpened;
+    await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => ImageViewScreen(
           message: message,
@@ -1428,6 +1443,11 @@ class _ChatScreenState extends State<ChatScreen> {
         ),
       ),
     );
+    if (consume) {
+      _store.markViewOnceOpened(_chatId, message.id);
+      RelayService.instance
+          .sendViewOnceOpened(widget.chat.contact.phone, message.id);
+    }
   }
 
   /// Sends money to this chat's contact via Stripe Connect. Opens the amount
@@ -1545,8 +1565,8 @@ class _ChatScreenState extends State<ChatScreen> {
           (Icons.camera_alt, 'Camera', const Color(0xFFEF5DA8),
               _handleSendImage),
           (Icons.photo, 'Gallery', const Color(0xFFC861F9), _handleSendImage),
-          (Icons.headphones, 'Audio', const Color(0xFFF97052),
-              () => _showComingSoon(context, 'Audio')),
+          (Icons.timer_outlined, 'View once', const Color(0xFF0A84FF),
+              () => _handleSendImage(viewOnce: true)),
           (Icons.location_on, 'Location', const Color(0xFF1FA855),
               _handleSendLocation),
           (Icons.person, 'Contact', const Color(0xFF009DE2),

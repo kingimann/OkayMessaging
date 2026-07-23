@@ -78,6 +78,13 @@ class Message {
   /// A real image URL (from backend storage), when available.
   final String? imageUrl;
 
+  /// True for a "view once" photo — it can be opened a single time, then it's
+  /// consumed and shows an "Opened" tombstone (Snapchat / WhatsApp style).
+  final bool viewOnce;
+
+  /// Whether a [viewOnce] photo has already been opened (and thus spent).
+  final bool viewOnceOpened;
+
   /// When set, the message is deleted from the device after this time
   /// (disappearing messages).
   final DateTime? expiresAt;
@@ -130,6 +137,8 @@ class Message {
     this.isImage = false,
     this.imageSeed = 0,
     this.imageUrl,
+    this.viewOnce = false,
+    this.viewOnceOpened = false,
     this.edited = false,
     this.originalText,
     this.isDeleted = false,
@@ -170,6 +179,8 @@ class Message {
         'isImage': isImage,
         'imageSeed': imageSeed,
         'imageUrl': imageUrl,
+        'viewOnce': viewOnce,
+        'viewOnceOpened': viewOnceOpened,
         'edited': edited,
         'originalText': originalText,
         'isDeleted': isDeleted,
@@ -210,6 +221,8 @@ class Message {
         isImage: json['isImage'] as bool? ?? false,
         imageSeed: json['imageSeed'] as int? ?? 0,
         imageUrl: json['imageUrl'] as String?,
+        viewOnce: json['viewOnce'] as bool? ?? false,
+        viewOnceOpened: json['viewOnceOpened'] as bool? ?? false,
         edited: json['edited'] as bool? ?? false,
         originalText: json['originalText'] as String?,
         isDeleted: json['isDeleted'] as bool? ?? false,
@@ -245,6 +258,7 @@ class Message {
     bool? edited,
     String? originalText,
     bool? isDeleted,
+    bool? viewOnceOpened,
     DateTime? expiresAt,
     List<int>? pollVotes,
     int? pollMyVote,
@@ -265,6 +279,8 @@ class Message {
       isImage: isImage,
       imageSeed: imageSeed,
       imageUrl: imageUrl,
+      viewOnce: viewOnce,
+      viewOnceOpened: viewOnceOpened ?? this.viewOnceOpened,
       edited: edited ?? this.edited,
       originalText: originalText ?? this.originalText,
       isDeleted: isDeleted ?? this.isDeleted,

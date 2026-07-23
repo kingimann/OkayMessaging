@@ -519,6 +519,21 @@ class ChatStore extends ChangeNotifier {
     _replace(i, _chats[i].copyWith(messages: msgs));
   }
 
+  /// Marks a "view once" photo as opened, so it can't be viewed again.
+  void markViewOnceOpened(String chatId, String messageId) {
+    final i = _indexOf(chatId);
+    if (i == -1) return;
+    var changed = false;
+    final msgs = _chats[i].messages.map((m) {
+      if (m.id == messageId && m.viewOnce && !m.viewOnceOpened) {
+        changed = true;
+        return m.copyWith(viewOnceOpened: true);
+      }
+      return m;
+    }).toList();
+    if (changed) _replace(i, _chats[i].copyWith(messages: msgs));
+  }
+
   /// Removes a single pinned message from [chatId].
   void unpinMessage(String chatId, String messageId) {
     final i = _indexOf(chatId);

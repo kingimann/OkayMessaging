@@ -401,6 +401,20 @@ class RelayService {
           },
         )
         .onBroadcast(
+          event: 'vopen',
+          callback: (payload) {
+            final from = payload['from'] as String?;
+            final id = payload['id'] as String?;
+            if (from == null || id == null || digits(from) == digits(me)) {
+              return;
+            }
+            final chat = ChatStore.instance.chatWithContact(from);
+            if (chat != null) {
+              ChatStore.instance.markViewOnceOpened(chat.id, id);
+            }
+          },
+        )
+        .onBroadcast(
           event: 'receipt',
           callback: (payload) {
             final from = payload['from'] as String?;
@@ -840,6 +854,21 @@ class RelayService {
         inboxChannel(contactPhone), () => _client.channel(inboxChannel(contactPhone)));
     await channel.sendBroadcastMessage(
       event: 'delete',
+      payload: {'from': me.phone, 'id': messageId},
+    );
+  }
+
+  /// Tells [contactPhone] that their "view once" photo [messageId] was opened,
+  /// so their copy flips to the "Opened" state.
+  Future<void> sendViewOnceOpened(
+      String contactPhone, String messageId) async {
+    if (!_initialized) return;
+    final me = Session.instance.user.value;
+    if (me == null) return;
+    final channel = _sendChannels.putIfAbsent(
+        inboxChannel(contactPhone), () => _client.channel(inboxChannel(contactPhone)));
+    await channel.sendBroadcastMessage(
+      event: 'vopen',
       payload: {'from': me.phone, 'id': messageId},
     );
   }

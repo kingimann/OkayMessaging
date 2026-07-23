@@ -3950,6 +3950,96 @@ void main() {
     });
   });
 
+  group('View once photos', () {
+    test('viewOnce fields survive a JSON roundtrip', () {
+      final m = Message(
+        id: 'v1',
+        text: '',
+        time: DateTime(2024, 1, 1, 9),
+        isMe: false,
+        isImage: true,
+        viewOnce: true,
+      );
+      final back =
+          Message.fromJson(jsonDecode(jsonEncode(m.toJson())) as Map<String, dynamic>);
+      expect(back.viewOnce, isTrue);
+      expect(back.viewOnceOpened, isFalse);
+    });
+
+    test('markViewOnceOpened spends only unopened view-once photos', () {
+      final store = ChatStore.instance;
+      store.addMessage(
+        'c_bob',
+        Message(
+          id: 'vo1',
+          text: '',
+          time: DateTime(2024, 1, 1, 9),
+          isMe: false,
+          isImage: true,
+          viewOnce: true,
+        ),
+      );
+      store.markViewOnceOpened('c_bob', 'vo1');
+      final m = store
+          .chatById('c_bob')!
+          .messages
+          .firstWhere((x) => x.id == 'vo1');
+      expect(m.viewOnceOpened, isTrue);
+      // A normal (non-view-once) message is never affected.
+      store.addMessage(
+        'c_bob',
+        Message(
+            id: 'plain',
+            text: 'hi',
+            time: DateTime(2024, 1, 1, 9),
+            isMe: false),
+      );
+      store.markViewOnceOpened('c_bob', 'plain');
+      expect(
+        store.chatById('c_bob')!.messages
+            .firstWhere((x) => x.id == 'plain')
+            .viewOnceOpened,
+        isFalse,
+      );
+    });
+
+    testWidgets('opening a received view-once photo spends it', (tester) async {
+      ChatStore.instance.addMessage(
+        'c_bob',
+        Message(
+          id: 'vo_widget',
+          text: '',
+          time: DateTime(2024, 1, 1, 9),
+          isMe: false,
+          isImage: true,
+          viewOnce: true,
+        ),
+      );
+      await tester.pumpWidget(const OkayMessagingApp());
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Bob Carter'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('View once'), findsOneWidget);
+      expect(find.text('Tap to view'), findsOneWidget);
+
+      await tester.tap(find.text('View once'));
+      await tester.pumpAndSettle();
+      // The full-screen viewer opened; go back to consume it.
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+
+      expect(
+        ChatStore.instance.chatById('c_bob')!.messages
+            .firstWhere((m) => m.id == 'vo_widget')
+            .viewOnceOpened,
+        isTrue,
+      );
+      expect(find.text('Opened'), findsOneWidget);
+      expect(find.text('View once'), findsNothing);
+    });
+  });
+
   group('Live location sharing', () {
     test('parseLocation reads a valid payload and rejects bad ones', () {
       final ok = RelayService.parseLocation(
