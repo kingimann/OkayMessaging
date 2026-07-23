@@ -34,6 +34,7 @@ import '../widgets/streak_chip.dart';
 import '../widgets/user_avatar.dart';
 import '../widgets/verified_badge.dart';
 import '../state/call_service.dart';
+import 'chat_places_screen.dart';
 import 'contact_info_screen.dart';
 import 'forward_screen.dart';
 import 'group_info_screen.dart';
@@ -1264,6 +1265,15 @@ class _ChatScreenState extends State<ChatScreen> {
         );
       case 'media':
         _openMediaGallery();
+      case 'places':
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => ChatPlacesScreen(
+              chatId: _chatId,
+              contactName: contact.name,
+            ),
+          ),
+        );
       case 'pin':
         _store.togglePin(_chatId);
         final pinned = _store.chatById(_chatId)?.isPinned ?? false;
@@ -1839,6 +1849,9 @@ class _ChatScreenState extends State<ChatScreen> {
                             const PopupMenuItem(
                                 value: 'media',
                                 child: Text('Media, links, and docs')),
+                            const PopupMenuItem(
+                                value: 'places',
+                                child: Text('Shared places')),
                             PopupMenuItem(
                                 value: 'pin',
                                 child:

@@ -25,6 +25,7 @@ import 'package:okay_messaging/utils/friend_locations.dart';
 import 'package:okay_messaging/util/geocoding.dart';
 import 'package:okay_messaging/utils/chat_transcript.dart';
 import 'package:okay_messaging/util/routing.dart';
+import 'package:okay_messaging/screens/chat_places_screen.dart';
 import 'package:okay_messaging/screens/explore_map_screen.dart';
 import 'package:okay_messaging/screens/forward_screen.dart';
 import 'package:okay_messaging/screens/route_map_screen.dart';
@@ -4152,6 +4153,72 @@ void main() {
     test('returns empty on non-list / invalid json', () {
       expect(parsePhoton('{"features":"nope"}'), isEmpty);
       expect(parsePhoton('not json'), isEmpty);
+    });
+  });
+
+  group('Shared places map', () {
+    testWidgets('plots each shared location and shows its card on tap',
+        (tester) async {
+      final store = ChatStore.instance;
+      store.addMessage(
+        'c_bob',
+        Message(
+          id: 'p1',
+          text: 'Shared location',
+          time: DateTime(2024, 1, 1, 10),
+          isMe: true,
+          isLocation: true,
+          locationLat: 48.8584,
+          locationLng: 2.2945,
+          locationLabel: 'Eiffel Tower',
+        ),
+      );
+      store.addMessage(
+        'c_bob',
+        Message(
+          id: 'p2',
+          text: 'Shared location',
+          time: DateTime(2024, 1, 2, 11),
+          isMe: false,
+          isLocation: true,
+          locationLat: 48.8606,
+          locationLng: 2.3376,
+          locationLabel: 'Louvre',
+        ),
+      );
+
+      await tester.pumpWidget(const MaterialApp(
+        home: ChatPlacesScreen(chatId: 'c_bob', contactName: 'Bob Carter'),
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      // Both shared locations are plotted.
+      expect(find.byIcon(Icons.location_pin), findsNWidgets(2));
+
+      // Tapping a pin opens its card with the label, sharer, and Directions.
+      await tester.tap(find.byIcon(Icons.location_pin).last);
+      await tester.pump();
+      final hasEiffel =
+          find.text('Eiffel Tower').evaluate().isNotEmpty;
+      final hasLouvre = find.text('Louvre').evaluate().isNotEmpty;
+      expect(hasEiffel || hasLouvre, isTrue);
+      expect(find.textContaining('Shared by'), findsOneWidget);
+      expect(find.text('Directions'), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+    });
+
+    testWidgets('shows an empty state when nothing was shared',
+        (tester) async {
+      await tester.pumpWidget(const MaterialApp(
+        home: ChatPlacesScreen(chatId: 'c_bob', contactName: 'Bob Carter'),
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(
+          find.text('No places shared in this chat yet'), findsOneWidget);
     });
   });
 
