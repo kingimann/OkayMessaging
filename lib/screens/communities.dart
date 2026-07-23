@@ -57,7 +57,7 @@ class CommunitiesTab extends StatelessWidget {
                 )
               : ListView(
                   physics: const AlwaysScrollableScrollPhysics(),
-                  padding: const EdgeInsets.fromLTRB(12, 12, 12, 24),
+                  padding: const EdgeInsets.fromLTRB(12, 12, 12, 96),
                   children: [
                     for (final c in communities) _CommunityCard(community: c),
                   ],

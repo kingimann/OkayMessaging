@@ -1,3 +1,5 @@
+import 'dart:ui' show ImageFilter;
+
 import 'package:flutter/material.dart';
 
 import '../state/call_log.dart';
@@ -117,6 +119,8 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
         ],
       ),
+      // Let the content flow behind the floating glass bar so it blurs through.
+      extendBody: true,
       body: IndexedStack(
         index: _index,
         children: const [
@@ -151,8 +155,9 @@ class _HomeScreenState extends State<HomeScreen> {
       };
 }
 
-/// A sleek, minimal bottom bar with an animated "pill" behind the selected
-/// destination — the label slides in only for the active tab.
+/// A floating "liquid glass" bottom bar: a translucent, blurred pill that
+/// hovers over the content (which shows through it), with an animated
+/// highlight behind the selected destination.
 class _ModernNavBar extends StatelessWidget {
   final int index;
   final int missedCalls;
@@ -167,20 +172,37 @@ class _ModernNavBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final bg = isDark ? const Color(0xFF16181C) : Colors.white;
-    final border = isDark ? const Color(0xFF2F3336) : const Color(0xFFEFF3F4);
-    return Container(
-      decoration: BoxDecoration(
-        color: bg,
-        border: Border(top: BorderSide(color: border, width: 0.6)),
-      ),
-      child: SafeArea(
-        top: false,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
+    // A frosted tint over the blur — light and airy in light mode, deep in
+    // dark mode — with a soft highlight border to catch the "glass" edge.
+    final glass = (isDark ? const Color(0xFF1C1F24) : Colors.white)
+        .withValues(alpha: isDark ? 0.62 : 0.68);
+    final border = (isDark ? Colors.white : Colors.black)
+        .withValues(alpha: isDark ? 0.14 : 0.06);
+    final bottomInset = MediaQuery.of(context).viewPadding.bottom;
+    return Padding(
+      padding: EdgeInsets.fromLTRB(14, 0, 14, bottomInset > 0 ? bottomInset : 10),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(30),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: glass,
+              borderRadius: BorderRadius.circular(30),
+              border: Border.all(color: border, width: 0.8),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: isDark ? 0.35 : 0.12),
+                  blurRadius: 20,
+                  offset: const Offset(0, 6),
+                ),
+              ],
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
               _NavPill(
                 icon: Icons.chat_bubble_outline,
                 activeIcon: Icons.chat_bubble,
@@ -213,7 +235,9 @@ class _ModernNavBar extends StatelessWidget {
                 selected: index == 3,
                 onTap: () => onSelect(3),
               ),
-            ],
+                ],
+              ),
+            ),
           ),
         ),
       ),

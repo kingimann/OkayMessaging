@@ -195,6 +195,8 @@ class _ChatsTabState extends State<ChatsTab> {
       onRefresh: _refresh,
       child: ListView.separated(
         physics: const AlwaysScrollableScrollPhysics(),
+        // Clear the floating glass nav bar at the bottom.
+        padding: const EdgeInsets.only(bottom: 96),
         itemCount: chats.length,
         separatorBuilder: (_, __) => const Divider(
           height: 1,

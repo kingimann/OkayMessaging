@@ -68,7 +68,7 @@ class CallsTab extends StatelessWidget {
         final calls = CallLog.instance.records;
         final voicemails = _receivedVoicemails();
         return ListView(
-          padding: const EdgeInsets.only(bottom: 16),
+          padding: const EdgeInsets.only(bottom: 96),
           children: [
             const _SearchField(),
             const _CreateCallLinkTile(),

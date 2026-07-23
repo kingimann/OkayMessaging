@@ -40,6 +40,7 @@ class SettingsView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListView(
+      padding: const EdgeInsets.only(bottom: 96),
       children: [
         const SizedBox(height: 6),
         _ProfileCard(),
