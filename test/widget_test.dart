@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -89,6 +90,9 @@ void main() {
     // Plugin platform channels never complete inside the fake-async test
     // zone, so resolve GPS lookups immediately (with no fix) in tests.
     debugGeolocationOverride = () async => null;
+    // The cancellable (dio) tile provider leaves timeout timers pending in
+    // the test zone — use the plain provider, whose requests 400 instantly.
+    debugTileProviderOverride = NetworkTileProvider.new;
   });
 
   testWidgets('App boots with Chats and Calls tabs (no Status)',

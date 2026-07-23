@@ -132,6 +132,13 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
     if (!mounted || fix == null) return;
     final first = _me == null;
     final target = fix;
+    // The periodic refresh only rebuilds when the dot actually moved —
+    // pointless full-map rebuilds every 15 s make panning feel janky.
+    if (!first &&
+        !recenter &&
+        const Distance().distance(_me!, target) < 3) {
+      return;
+    }
     setState(() => _me = target);
     if (recenter || first) {
       // Defer so the FlutterMap has rendered at least once (initState can

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
+import 'package:flutter_map_cancellable_tile_provider/flutter_map_cancellable_tile_provider.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../app_state.dart';
@@ -28,13 +29,25 @@ enum MapLayer {
 /// Standard and Dark use CARTO's basemaps (rendered from up-to-date
 /// OpenStreetMap data): a clean, modern cartographic style served as crisp
 /// @2x retina tiles — a big visual upgrade over the classic OSM tiles.
+/// Test hook: replaces the tile provider (the cancellable provider's dio
+/// timers never settle inside the fake-async test zone).
+@visibleForTesting
+TileProvider Function()? debugTileProviderOverride;
+
 TileLayer tileLayerFor(MapLayer layer) {
+  // Cancels tile requests the moment their tile pans out of view. Browsers
+  // only run a handful of requests per host at once, so without this a fast
+  // pan/zoom queues dozens of stale tiles ahead of the visible ones and the
+  // map sits grey — the single biggest map speed fix on the web.
+  final provider =
+      debugTileProviderOverride?.call() ?? CancellableNetworkTileProvider();
   switch (layer) {
     case MapLayer.satellite:
       return TileLayer(
         urlTemplate: 'https://server.arcgisonline.com/ArcGIS/rest/services/'
             'World_Imagery/MapServer/tile/{z}/{y}/{x}',
         userAgentPackageName: kOsmUserAgent,
+        tileProvider: provider,
         maxZoom: 19,
       );
     case MapLayer.terrain:
@@ -42,6 +55,7 @@ TileLayer tileLayerFor(MapLayer layer) {
         urlTemplate: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
         subdomains: const ['a', 'b', 'c'],
         userAgentPackageName: kOsmUserAgent,
+        tileProvider: provider,
         maxZoom: 17,
       );
     case MapLayer.dark:
@@ -50,6 +64,7 @@ TileLayer tileLayerFor(MapLayer layer) {
             'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
         subdomains: const ['a', 'b', 'c', 'd'],
         userAgentPackageName: kOsmUserAgent,
+        tileProvider: provider,
         retinaMode: true,
         maxZoom: 20,
       );
@@ -59,6 +74,7 @@ TileLayer tileLayerFor(MapLayer layer) {
             '{z}/{x}/{y}{r}.png',
         subdomains: const ['a', 'b', 'c', 'd'],
         userAgentPackageName: kOsmUserAgent,
+        tileProvider: provider,
         retinaMode: true,
         maxZoom: 20,
       );

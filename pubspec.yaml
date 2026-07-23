@@ -40,6 +40,7 @@ dependencies:
   latlong2: ^0.10.1
   http: ^1.6.0
   geolocator: ^14.0.2
+  flutter_map_cancellable_tile_provider: ^3.1.1
 
 dev_dependencies:
   flutter_test:
