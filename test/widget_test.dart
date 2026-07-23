@@ -23,6 +23,7 @@ import 'package:okay_messaging/screens/location_picker_screen.dart';
 import 'package:okay_messaging/screens/map_screen.dart';
 import 'package:okay_messaging/utils/friend_locations.dart';
 import 'package:okay_messaging/util/geocoding.dart';
+import 'package:okay_messaging/util/routing.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:okay_messaging/tabs/chats_tab.dart';
 import 'package:okay_messaging/utils/maps_link.dart';
@@ -3857,6 +3858,37 @@ void main() {
       expect(formatDistance(950), '950 m');
       expect(formatDistance(2300), '2.3 km');
       expect(formatDistance(15400), '15 km');
+    });
+
+    test('parseOsrmRoute reads geometry, distance and duration', () {
+      const body = '''
+      {"code":"Ok","routes":[{
+        "distance":1965.6,"duration":242.8,
+        "geometry":{"type":"LineString","coordinates":[
+          [-122.42,37.77],[-122.419,37.771],[-122.41,37.78]
+        ]}
+      }]}''';
+      final r = parseOsrmRoute(body);
+      expect(r, isNotNull);
+      expect(r!.points.length, 3);
+      // GeoJSON is [lng, lat]; make sure we store LatLng correctly.
+      expect(r.points.first.latitude, closeTo(37.77, 0.0001));
+      expect(r.points.first.longitude, closeTo(-122.42, 0.0001));
+      expect(r.distanceMeters, closeTo(1965.6, 0.1));
+      expect(r.durationSeconds, closeTo(242.8, 0.1));
+    });
+
+    test('parseOsrmRoute rejects non-Ok, empty, and junk responses', () {
+      expect(parseOsrmRoute('{"code":"NoRoute","routes":[]}'), isNull);
+      expect(parseOsrmRoute('{"code":"Ok","routes":[]}'), isNull);
+      expect(parseOsrmRoute('not json'), isNull);
+    });
+
+    test('formatDuration renders minutes and hours', () {
+      expect(formatDuration(240), '4 min');
+      expect(formatDuration(30), '1 min');
+      expect(formatDuration(3600), '1 h');
+      expect(formatDuration(3900), '1 h 5 min');
     });
 
     testWidgets('picker falls back gracefully when GPS is unavailable',

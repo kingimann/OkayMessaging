@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../app_state.dart';
 import '../models/chat.dart';
@@ -18,6 +17,7 @@ import '../utils/maps_link.dart';
 import '../widgets/osm_map.dart';
 import '../widgets/user_avatar.dart';
 import 'chat_screen.dart';
+import 'route_map_screen.dart';
 
 /// A Snapchat-style "Snap Map": a full-screen OpenStreetMap with your friends
 /// shown as avatar pins around you. A privacy Ghost Mode hides your own pin.
@@ -149,7 +149,7 @@ class _MapScreenState extends State<MapScreen> {
                     child: OutlinedButton.icon(
                       onPressed: () {
                         Navigator.of(sheetContext).pop();
-                        _directionsTo(at);
+                        _directionsTo(at, user.name);
                       },
                       icon: const Icon(Icons.directions_outlined),
                       label: const Text('Directions'),
@@ -164,16 +164,16 @@ class _MapScreenState extends State<MapScreen> {
     );
   }
 
-  Future<void> _directionsTo(LatLng dest) async {
-    final isApple = Theme.of(context).platform == TargetPlatform.iOS ||
-        Theme.of(context).platform == TargetPlatform.macOS;
-    final uri =
-        directionsUrl(lat: dest.latitude, lng: dest.longitude, apple: isApple);
-    try {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    } catch (_) {
-      /* ignore */
-    }
+  void _directionsTo(LatLng dest, String name) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => RouteMapScreen(
+          dest: dest,
+          from: _hasGps ? _me : null,
+          label: 'To $name',
+        ),
+      ),
+    );
   }
 
   /// A friend's map marker: their real live position (blue ring) when they're
