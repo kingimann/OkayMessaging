@@ -32,6 +32,7 @@ import 'package:okay_messaging/state/app_lock.dart';
 import 'package:okay_messaging/state/call_service.dart';
 import 'package:okay_messaging/state/community_store.dart';
 import 'package:okay_messaging/state/file_transfer.dart';
+import 'package:okay_messaging/payments/payment_service.dart';
 import 'package:okay_messaging/state/backup_service.dart';
 import 'package:okay_messaging/state/chat_store.dart';
 import 'package:okay_messaging/state/recent_searches.dart';
@@ -3030,6 +3031,31 @@ void main() {
       RelayService.applyIncoming(payload, myPhone: '+1 555 0100');
       expect(
           StreakStore.instance.streakFor('chat_+1 555 0199', now: at), 8);
+    });
+  });
+
+  group('Payments test mode', () {
+    test('test mode makes payments usable and simulates a send', () async {
+      final svc = PaymentService.instance;
+      svc.setTestMode(false);
+      // Without real Stripe config, payments are off by default.
+      expect(svc.isConfigured, isFalse);
+
+      svc.setTestMode(true);
+      expect(svc.isConfigured, isTrue);
+      expect(svc.canSendOnThisDevice, isTrue); // works anywhere in test mode
+
+      // A simulated send always succeeds without touching Stripe/Supabase.
+      final ok = await svc.sendMoney(toPhone: '+1 555 0111', amountCents: 500);
+      expect(ok, isTrue);
+
+      // The sandbox wallet reports a usable, receivable balance.
+      final status = await svc.status();
+      expect(status.canReceive, isTrue);
+      expect(status.availableCents, greaterThan(0));
+
+      svc.setTestMode(false);
+      expect(svc.isConfigured, isFalse);
     });
   });
 

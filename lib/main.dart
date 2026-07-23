@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'app_state.dart';
 import 'crypto/key_exchange.dart';
+import 'payments/payment_service.dart';
 import 'relay/relay_service.dart';
 import 'screens/auth/auth_gate.dart';
 import 'screens/call_screen.dart';
@@ -37,6 +38,7 @@ Future<void> main() async {
   await StreakStore.instance.load();
   await RecentSearches.instance.load();
   await BackupService.instance.load();
+  await PaymentService.instance.load();
   if (StreakStore.instance.isEmpty) {
     // Seed a couple of demo streaks so the feature is visible on first run;
     // real streaks then build (and lapse) from actual conversation activity.

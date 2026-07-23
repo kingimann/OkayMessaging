@@ -1266,7 +1266,8 @@ class _ChatScreenState extends State<ChatScreen> {
       _showComingSoon(context, 'Sending money (use the mobile app)');
       return;
     }
-    if (!_isRealPeer(widget.chat.contact)) {
+    // Test mode simulates locally, so it works with any contact.
+    if (!svc.testMode.value && !_isRealPeer(widget.chat.contact)) {
       _showComingSoon(context, 'Payments (needs a real contact)');
       return;
     }

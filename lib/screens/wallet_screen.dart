@@ -23,6 +23,19 @@ class _WalletScreenState extends State<WalletScreen> {
   void initState() {
     super.initState();
     if (PaymentService.instance.isConfigured) _future = _load();
+    PaymentService.instance.testMode.addListener(_onTestMode);
+  }
+
+  @override
+  void dispose() {
+    PaymentService.instance.testMode.removeListener(_onTestMode);
+    super.dispose();
+  }
+
+  void _onTestMode() {
+    if (!mounted) return;
+    setState(() =>
+        _future = PaymentService.instance.isConfigured ? _load() : null);
   }
 
   Future<WalletStatus> _load() => PaymentService.instance.status();
@@ -75,6 +88,8 @@ class _WalletScreenState extends State<WalletScreen> {
                 return ListView(
                   padding: const EdgeInsets.all(16),
                   children: [
+                    if (PaymentService.instance.testMode.value)
+                      const _TestModeBanner(),
                     _BalanceCard(status: s),
                     const SizedBox(height: 16),
                     if (!s.canReceive)
@@ -82,6 +97,8 @@ class _WalletScreenState extends State<WalletScreen> {
                     else
                       _PayoutCard(status: s),
                     const SizedBox(height: 16),
+                    const _TestModeTile(),
+                    const SizedBox(height: 8),
                     const _InfoFooter(),
                   ],
                 );
@@ -308,7 +325,77 @@ class _NotConfigured extends StatelessWidget {
               textAlign: TextAlign.center,
               style: TextStyle(color: Colors.grey.shade500, height: 1.4),
             ),
+            const SizedBox(height: 20),
+            FilledButton.tonalIcon(
+              onPressed: () => PaymentService.instance.setTestMode(true),
+              icon: const Icon(Icons.science_outlined),
+              label: const Text('Try test mode'),
+            ),
+            const SizedBox(height: 6),
+            Text('Simulates payments — no real money moves.',
+                style: TextStyle(color: Colors.grey.shade500, fontSize: 12)),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// A banner shown across payment surfaces while sandbox mode is on.
+class _TestModeBanner extends StatelessWidget {
+  const _TestModeBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 14),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF9A825).withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(12),
+        border:
+            Border.all(color: const Color(0xFFF9A825).withValues(alpha: 0.4)),
+      ),
+      child: const Row(
+        children: [
+          Icon(Icons.science_outlined, color: Color(0xFFF57F17)),
+          SizedBox(width: 10),
+          Expanded(
+            child: Text('Test mode — payments are simulated, no real money '
+                'moves.'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Toggles sandbox mode on/off.
+class _TestModeTile extends StatelessWidget {
+  const _TestModeTile();
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<bool>(
+      valueListenable: PaymentService.instance.testMode,
+      builder: (context, on, _) => Container(
+        decoration: BoxDecoration(
+          color: Theme.of(context)
+              .colorScheme
+              .surfaceContainerHighest
+              .withValues(alpha: 0.4),
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: SwitchListTile(
+          secondary: const Icon(Icons.science_outlined),
+          title: const Text('Test mode'),
+          subtitle: Text(on
+              ? 'Payments are simulated'
+              : 'Simulate payments without Stripe'),
+          value: on,
+          shape: const RoundedRectangleBorder(
+              borderRadius: BorderRadius.all(Radius.circular(14))),
+          onChanged: PaymentService.instance.setTestMode,
         ),
       ),
     );

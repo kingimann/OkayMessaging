@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide Session;
 
 import '../relay/relay_config.dart';
@@ -59,12 +60,34 @@ class PaymentService {
 
   static const String _publishableKey =
       String.fromEnvironment('STRIPE_PUBLISHABLE_KEY', defaultValue: '');
+  static const _kTestMode = 'payments_test_mode';
 
-  /// Payments require a configured Stripe key and a relay/Supabase backend.
-  bool get isConfigured => _publishableKey.isNotEmpty && RelayConfig.isEnabled;
+  /// Sandbox mode: simulates the whole send/receive flow with no real Stripe
+  /// call and no money movement, so payments can be tried anywhere. Persisted.
+  final ValueNotifier<bool> testMode = ValueNotifier<bool>(false);
 
-  /// Only the mobile builds can present the native payment sheet.
-  bool get canSendOnThisDevice => isConfigured && StripeSheet.isSupported;
+  SharedPreferences? _prefs;
+
+  Future<void> load() async {
+    _prefs = await SharedPreferences.getInstance();
+    testMode.value = _prefs!.getBool(_kTestMode) ?? false;
+  }
+
+  void setTestMode(bool value) {
+    testMode.value = value;
+    _prefs?.setBool(_kTestMode, value);
+  }
+
+  bool get _realConfigured =>
+      _publishableKey.isNotEmpty && RelayConfig.isEnabled;
+
+  /// Payments are usable when really configured, or in test mode.
+  bool get isConfigured => testMode.value || _realConfigured;
+
+  /// Whether money can be sent here. Test mode works everywhere (it just
+  /// simulates); the real flow needs the native sheet (mobile only).
+  bool get canSendOnThisDevice =>
+      testMode.value || (_realConfigured && StripeSheet.isSupported);
 
   SupabaseClient get _client => Supabase.instance.client;
 
@@ -86,16 +109,32 @@ class PaymentService {
   }
 
   /// The caller's current wallet + payout status.
-  Future<WalletStatus> status() async =>
-      WalletStatus.fromJson(await _invoke('payments-status'));
+  Future<WalletStatus> status() async {
+    if (testMode.value) {
+      // A believable sandbox wallet so the screens have something to show.
+      return const WalletStatus(
+        onboarded: true,
+        chargesEnabled: true,
+        payoutsEnabled: true,
+        availableCents: 4215,
+        pendingCents: 800,
+      );
+    }
+    return WalletStatus.fromJson(await _invoke('payments-status'));
+  }
 
   /// Full send flow: create a destination PaymentIntent for [toPhone], then
-  /// present the native sheet. Returns true when the payment completes.
+  /// present the native sheet. Returns true when the payment completes. In
+  /// test mode the charge is simulated (brief delay, always succeeds).
   Future<bool> sendMoney({
     required String toPhone,
     required int amountCents,
     String? note,
   }) async {
+    if (testMode.value) {
+      await Future<void>.delayed(const Duration(milliseconds: 1200));
+      return true;
+    }
     final intent = await _invoke('payments-create-intent', {
       'toPhone': toPhone,
       'amountCents': amountCents,
