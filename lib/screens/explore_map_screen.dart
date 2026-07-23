@@ -78,6 +78,10 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
   /// camera centre a meaningful "search here" point.
   bool _mapTouched = false;
 
+  /// True while the suggestion dropdown is dismissed (map tap) — the result
+  /// pins stay on the map; typing brings the list back.
+  bool _hideSuggestions = false;
+
   Future<List<GeoResult>?> _doSearch(String q) {
     final debug = widget.debugSearch;
     if (debug != null) return debug(q);
@@ -98,10 +102,12 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
       setState(() {
         _results = const [];
         _searching = false;
+        _hideSuggestions = false;
       });
       return;
     }
-    setState(() {}); // refresh the clear button on the first keystroke
+    // Refresh the clear button and re-show a dismissed suggestion list.
+    setState(() => _hideSuggestions = false);
     _debounce = Timer(const Duration(milliseconds: 350), () async {
       if (!mounted) return;
       final seq = ++_searchSeq;
@@ -140,7 +146,7 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
     try {
       return _map.camera.center;
     } catch (_) {
-      return _me ?? const LatLng(37.7749, -122.4194);
+      return _me ?? const LatLng(20, 0);
     }
   }
 
@@ -167,6 +173,7 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
     setState(() {
       _searching = false;
       _results = results;
+      _hideSuggestions = false;
       _selected = results.length == 1 ? results.first : null;
     });
     if (results.isEmpty) {
@@ -336,26 +343,40 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
     final selected = _selected;
     // Full-bleed, Apple-Maps-style: the map fills the screen and every
     // control floats over it.
+    final dark = Theme.of(context).brightness == Brightness.dark;
     return Scaffold(
       extendBodyBehindAppBar: true,
-      floatingActionButton: FloatingActionButton.small(
-        heroTag: 'exploreMe',
-        onPressed: _goToMe,
-        tooltip: 'My location',
-        child: const Icon(Icons.my_location),
-      ),
+      // Hidden while a place card is up — it would sit right on top of it.
+      floatingActionButton: selected == null
+          ? FloatingActionButton.small(
+              heroTag: 'exploreMe',
+              onPressed: _goToMe,
+              tooltip: 'My location',
+              child: const Icon(Icons.my_location),
+            )
+          : null,
       body: Stack(
         children: [
           FlutterMap(
             mapController: _map,
             options: MapOptions(
-              initialCenter: _me ?? const LatLng(37.7749, -122.4194),
-              initialZoom: 13,
+              // Without a GPS fix, an honest world view beats pretending
+              // everyone is in San Francisco; we fly to the fix on arrival.
+              initialCenter: _me ?? const LatLng(20, 0),
+              initialZoom: _me == null ? 2.2 : 13,
               interactionOptions: const InteractionOptions(
                 flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
               ),
               onPositionChanged: (camera, hasGesture) {
                 if (hasGesture) _mapTouched = true;
+              },
+              onTap: (_, __) {
+                // Tapping the map puts the map first: drop the keyboard and
+                // tuck the suggestion list away (pins stay).
+                FocusScope.of(context).unfocus();
+                if (_results.isNotEmpty && !_hideSuggestions) {
+                  setState(() => _hideSuggestions = true);
+                }
               },
               onLongPress: (_, point) => _dropPin(point),
             ),
@@ -379,9 +400,14 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
                     mapPin(LatLng(selected.lat, selected.lng)),
                 ],
               ),
-              const Scalebar(
+              Scalebar(
                 alignment: Alignment.bottomLeft,
-                padding: EdgeInsets.fromLTRB(10, 0, 0, 14),
+                padding: const EdgeInsets.fromLTRB(10, 0, 0, 14),
+                textStyle: TextStyle(
+                  color: dark ? Colors.white70 : Colors.black87,
+                  fontSize: 12,
+                ),
+                lineColor: dark ? Colors.white70 : Colors.black87,
               ),
               const LiveAttribution(),
             ],
@@ -408,8 +434,9 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
                           controller: _search,
                           searching: _searching,
                           // Hide the suggestion list once a place is selected
-                          // (its card is showing); the result pins stay.
-                          results: selected == null
+                          // (its card is showing) or the user tapped the map;
+                          // the result pins stay either way.
+                          results: selected == null && !_hideSuggestions
                               ? _results
                               : const <GeoResult>[],
                           origin: _me,
@@ -424,6 +451,7 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
                               _results = const [];
                               _selected = null;
                               _searching = false;
+                              _hideSuggestions = false;
                             });
                           },
                         ),
@@ -433,7 +461,22 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
                   if (_results.isEmpty && selected == null) ...[
                     const SizedBox(height: 10),
                     _CategoryChips(
-                      onTap: (term) => _runSearch(term),
+                      onTap: (term) {
+                        // Nearby search needs a "near" — a GPS fix or a spot
+                        // the user has panned to. Without one the results
+                        // would be random places around the globe.
+                        if (_me == null && !_mapTouched) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Move the map to an area first — '
+                                  'or tap the location button — so nearby '
+                                  'search knows where to look.'),
+                            ),
+                          );
+                          return;
+                        }
+                        _runSearch(term);
+                      },
                       onSaved: _showSaved,
                       onFriends: () => Navigator.of(context).push(
                         MaterialPageRoute(builder: (_) => const MapScreen()),
@@ -495,7 +538,10 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
                   if (meta.isNotEmpty) ...[
                     const SizedBox(height: 2),
                     Text(meta.join(' · '),
-                        style: TextStyle(color: Colors.grey.shade600)),
+                        style: TextStyle(
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onSurfaceVariant)),
                   ],
                   const SizedBox(height: 10),
                   Wrap(

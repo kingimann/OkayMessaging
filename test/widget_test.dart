@@ -4119,6 +4119,9 @@ void main() {
       await tester.pump(const Duration(milliseconds: 300));
       expect(find.text('Directions'), findsOneWidget);
       expect(RecentSearches.maps.queries, contains('Blue Bottle'));
+      // The my-location FAB hides while the place card is up (it would
+      // overlap the card).
+      expect(find.byTooltip('My location'), findsNothing);
 
       await tester.pumpWidget(const SizedBox());
       await tester.pump();
@@ -4173,6 +4176,63 @@ void main() {
       expect(find.text('Somewhere'), findsNothing);
       final field = tester.widget<TextField>(find.byType(TextField).first);
       expect(field.controller!.text, isEmpty);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+    });
+
+    testWidgets('tapping the map dismisses suggestions; typing re-shows them',
+        (tester) async {
+      await tester.pumpWidget(MaterialApp(
+        home: ExploreMapScreen(
+          debugSearch: (q) async =>
+              const [GeoResult(name: 'Somewhere', lat: 1, lng: 2)],
+        ),
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      await tester.enterText(find.byType(TextField).first, 'some');
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump();
+      expect(find.text('Somewhere'), findsOneWidget);
+
+      // Tap the bare map (double-tap-zoom disambiguation delays the tap).
+      await tester.tapAt(const Offset(195, 500));
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump();
+      expect(find.text('Somewhere'), findsNothing);
+
+      // Typing again brings the list back.
+      await tester.enterText(find.byType(TextField).first, 'somewh');
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump();
+      expect(find.text('Somewhere'), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+    });
+
+    testWidgets('category chips ask for a location before a nearby search',
+        (tester) async {
+      var called = false;
+      await tester.pumpWidget(MaterialApp(
+        home: ExploreMapScreen(
+          debugSearch: (q) async {
+            called = true;
+            return const [];
+          },
+        ),
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      // No GPS fix and an untouched map → a hint instead of garbage results.
+      await tester.tap(find.text('Food'));
+      await tester.pump();
+      await tester.pump();
+      expect(find.textContaining('Move the map'), findsOneWidget);
+      expect(called, isFalse);
 
       await tester.pumpWidget(const SizedBox());
       await tester.pump();
