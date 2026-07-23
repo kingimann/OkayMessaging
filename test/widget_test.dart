@@ -15,6 +15,7 @@ import 'package:okay_messaging/screens/auth/phone_login_screen.dart';
 import 'package:okay_messaging/screens/blocked_contacts_screen.dart';
 import 'package:okay_messaging/screens/call_screen.dart';
 import 'package:okay_messaging/screens/contact_info_screen.dart';
+import 'package:okay_messaging/screens/forum_screen.dart';
 import 'package:okay_messaging/models/chat.dart';
 import 'package:okay_messaging/state/call_log.dart';
 import 'package:okay_messaging/screens/media_gallery_screen.dart';
@@ -1229,6 +1230,146 @@ void main() {
       CommunityStore.instance.byId(c.id)!.channels.first.messages.length,
       1,
     );
+  });
+
+  group('Forum channels', () {
+    test('Reddit-style vote toggles and switches direction', () {
+      // Up from neutral.
+      expect(applyVote(5, 0, 1), (6, 1));
+      // Tapping up again clears it.
+      expect(applyVote(6, 1, 1), (5, 0));
+      // Down from neutral.
+      expect(applyVote(5, 0, -1), (4, -1));
+      // Switching from up to down moves two.
+      expect(applyVote(6, 1, -1), (4, -1));
+      // Switching from down to up moves two.
+      expect(applyVote(4, -1, 1), (6, 1));
+    });
+
+    test('a forum channel holds votable posts with comments', () {
+      CommunityStore.instance.resetForTest();
+      final c = CommunityStore.instance.createCommunity('Gamers');
+      CommunityStore.instance.addChannel(c.id, 'discussion',
+          type: ChannelType.forum);
+      final chId = CommunityStore.instance
+          .byId(c.id)!
+          .channels
+          .firstWhere((ch) => ch.type == ChannelType.forum)
+          .id;
+
+      CommunityStore.instance.addForumPost(
+        c.id,
+        chId,
+        ForumPost(
+          id: 'p1',
+          authorId: 'me',
+          authorName: 'You',
+          time: DateTime(2024, 1, 1),
+          title: 'Best strategy?',
+          body: 'Share yours',
+        ),
+      );
+      var post = CommunityStore.instance
+          .byId(c.id)!
+          .channels
+          .firstWhere((ch) => ch.id == chId)
+          .posts
+          .single;
+      expect(post.title, 'Best strategy?');
+      expect(post.score, 1); // author's own upvote
+
+      CommunityStore.instance.voteForumPost(c.id, chId, 'p1', 1);
+      // Already self-upvoted, so tapping up again clears to 0.
+      post = CommunityStore.instance
+          .byId(c.id)!
+          .channels
+          .firstWhere((ch) => ch.id == chId)
+          .posts
+          .single;
+      expect(post.score, 0);
+      expect(post.myVote, 0);
+
+      CommunityStore.instance.addForumComment(
+        c.id,
+        chId,
+        'p1',
+        ForumComment(
+          id: 'cm1',
+          authorId: 'm2',
+          authorName: 'Ada',
+          time: DateTime(2024, 1, 1, 1),
+          body: 'Rush mid.',
+        ),
+      );
+      post = CommunityStore.instance
+          .byId(c.id)!
+          .channels
+          .firstWhere((ch) => ch.id == chId)
+          .posts
+          .single;
+      expect(post.comments.single.body, 'Rush mid.');
+    });
+
+    test('post ordering by hot / new / top', () {
+      final base = DateTime(2024, 1, 10, 12);
+      // 'old' has the higher raw score but is 5 days (120h) stale, costing it
+      // 10 hot points; 'fresh' is brand new.
+      final old = ForumPost(
+          id: 'old',
+          authorId: 'a',
+          authorName: 'A',
+          time: base.subtract(const Duration(days: 5)),
+          title: 'old',
+          score: 20);
+      final fresh = ForumPost(
+          id: 'fresh',
+          authorId: 'b',
+          authorName: 'B',
+          time: base,
+          title: 'fresh',
+          score: 12);
+      final posts = [old, fresh];
+      expect(sortPosts(posts, ForumSort.newest, now: base).first.id, 'fresh');
+      expect(sortPosts(posts, ForumSort.top, now: base).first.id, 'old');
+      // Hot: old 20-10=10 vs fresh 12-0=12 → fresh wins despite lower score.
+      expect(sortPosts(posts, ForumSort.hot, now: base).first.id, 'fresh');
+    });
+
+    test('a forum channel survives a JSON round-trip', () {
+      final channel = Channel(
+        id: 'f1',
+        name: 'discussion',
+        type: ChannelType.forum,
+        category: 'Forums',
+        posts: [
+          ForumPost(
+            id: 'p1',
+            authorId: 'me',
+            authorName: 'You',
+            time: DateTime(2024, 1, 1),
+            title: 'Hi',
+            body: 'body',
+            score: 3,
+            myVote: 1,
+            comments: [
+              ForumComment(
+                id: 'c1',
+                authorId: 'a',
+                authorName: 'A',
+                time: DateTime(2024, 1, 1, 1),
+                body: 'nice',
+                score: 2,
+              ),
+            ],
+          ),
+        ],
+      );
+      final back = Channel.fromJson(channel.toJson());
+      expect(back.type, ChannelType.forum);
+      expect(back.posts.single.title, 'Hi');
+      expect(back.posts.single.score, 3);
+      expect(back.posts.single.comments.single.body, 'nice');
+    });
   });
 
   test('Communities: voice channels keep their casing and group by category',

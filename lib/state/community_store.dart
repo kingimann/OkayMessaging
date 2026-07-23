@@ -82,6 +82,55 @@ class CommunityStore extends ChangeNotifier {
                 topic: 'Pitch and refine concepts.'),
             const Channel(
                 id: 'seed_random', name: 'random', category: 'Text Channels'),
+            Channel(
+              id: 'seed_forum',
+              name: 'discussion',
+              type: ChannelType.forum,
+              category: 'Forums',
+              topic: 'Ask questions, share wins, and vote.',
+              posts: [
+                ForumPost(
+                  id: 'seed_post_1',
+                  authorId: 'm_ada',
+                  authorName: 'Ada Lovelace',
+                  time: DateTime(2024, 1, 2, 9),
+                  title: 'What design tools is everyone using in 2024?',
+                  body: 'Curious what the team has settled on for handoff — '
+                      'still Figma, or has anyone moved on?',
+                  score: 42,
+                  myVote: 0,
+                  comments: [
+                    ForumComment(
+                      id: 'seed_c1',
+                      authorId: 'm_grace',
+                      authorName: 'Grace Hopper',
+                      time: DateTime(2024, 1, 2, 10),
+                      body: 'Figma + a few Framer prototypes for motion.',
+                      score: 12,
+                    ),
+                    ForumComment(
+                      id: 'seed_c2',
+                      authorId: 'm_alan',
+                      authorName: 'Alan Turing',
+                      time: DateTime(2024, 1, 2, 11),
+                      body: 'Same here. Dev-mode has been a big help.',
+                      score: 5,
+                    ),
+                  ],
+                ),
+                ForumPost(
+                  id: 'seed_post_2',
+                  authorId: 'm_grace',
+                  authorName: 'Grace Hopper',
+                  time: DateTime(2024, 1, 3, 14),
+                  title: 'New brand palette — feedback wanted 🎨',
+                  body: 'Dropped v2 of the palette in the files. '
+                      'Vote and comment if the contrast works for you.',
+                  score: 27,
+                  myVote: 1,
+                ),
+              ],
+            ),
             const Channel(
                 id: 'seed_lounge',
                 name: 'Lounge',
@@ -183,6 +232,7 @@ class CommunityStore extends ChangeNotifier {
         switch (type) {
           ChannelType.voice => 'Voice Channels',
           ChannelType.announcement => 'Information',
+          ChannelType.forum => 'Forums',
           ChannelType.text => 'Text Channels',
         };
     final channel = Channel(
@@ -255,6 +305,74 @@ class CommunityStore extends ChangeNotifier {
         return m.copyWith(pollVotes: votes, pollMyVote: option);
       }).toList();
       return ch.copyWith(messages: msgs);
+    }).toList();
+    _replace(community.copyWith(channels: channels));
+  }
+
+  // --- Forum channels ----------------------------------------------------
+
+  /// Adds a Reddit-style [post] to a forum channel (newest additions are
+  /// prepended so they show first under "New").
+  void addForumPost(String communityId, String channelId, ForumPost post) {
+    final community = byId(communityId);
+    if (community == null) return;
+    final channels = community.channels.map((ch) {
+      if (ch.id != channelId) return ch;
+      return ch.copyWith(posts: [post, ...ch.posts]);
+    }).toList();
+    _replace(community.copyWith(channels: channels));
+  }
+
+  /// Applies a [dir] (+1/-1) vote to a forum post.
+  void voteForumPost(
+      String communityId, String channelId, String postId, int dir) {
+    final community = byId(communityId);
+    if (community == null) return;
+    final channels = community.channels.map((ch) {
+      if (ch.id != channelId) return ch;
+      final posts = ch.posts.map((p) {
+        if (p.id != postId) return p;
+        final (score, myVote) = applyVote(p.score, p.myVote, dir);
+        return p.copyWith(score: score, myVote: myVote);
+      }).toList();
+      return ch.copyWith(posts: posts);
+    }).toList();
+    _replace(community.copyWith(channels: channels));
+  }
+
+  /// Adds a [comment] under a forum post.
+  void addForumComment(String communityId, String channelId, String postId,
+      ForumComment comment) {
+    final community = byId(communityId);
+    if (community == null) return;
+    final channels = community.channels.map((ch) {
+      if (ch.id != channelId) return ch;
+      final posts = ch.posts.map((p) {
+        if (p.id != postId) return p;
+        return p.copyWith(comments: [...p.comments, comment]);
+      }).toList();
+      return ch.copyWith(posts: posts);
+    }).toList();
+    _replace(community.copyWith(channels: channels));
+  }
+
+  /// Applies a [dir] (+1/-1) vote to a comment under a forum post.
+  void voteForumComment(String communityId, String channelId, String postId,
+      String commentId, int dir) {
+    final community = byId(communityId);
+    if (community == null) return;
+    final channels = community.channels.map((ch) {
+      if (ch.id != channelId) return ch;
+      final posts = ch.posts.map((p) {
+        if (p.id != postId) return p;
+        final comments = p.comments.map((c) {
+          if (c.id != commentId) return c;
+          final (score, myVote) = applyVote(c.score, c.myVote, dir);
+          return c.copyWith(score: score, myVote: myVote);
+        }).toList();
+        return p.copyWith(comments: comments);
+      }).toList();
+      return ch.copyWith(posts: posts);
     }).toList();
     _replace(community.copyWith(channels: channels));
   }

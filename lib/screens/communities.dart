@@ -7,6 +7,7 @@ import '../theme/app_theme.dart';
 import '../utils/date_formatter.dart';
 import '../widgets/poll_widgets.dart';
 import 'community_settings_screen.dart';
+import 'forum_screen.dart';
 
 Color _hex(String s) =>
     Color(int.parse(s.replaceFirst('#', 'ff'), radix: 16));
@@ -14,6 +15,7 @@ Color _hex(String s) =>
 IconData _channelIcon(ChannelType type) => switch (type) {
       ChannelType.voice => Icons.volume_up_rounded,
       ChannelType.announcement => Icons.campaign_rounded,
+      ChannelType.forum => Icons.forum_rounded,
       ChannelType.text => Icons.tag,
     };
 
@@ -326,10 +328,13 @@ class CommunityScreen extends StatelessWidget {
                     title: Text(ch.name),
                     subtitle: ch.type == ChannelType.voice
                         ? const Text('Voice channel')
-                        : (ch.messages.isNotEmpty
-                            ? Text(ch.messages.last.text,
-                                maxLines: 1, overflow: TextOverflow.ellipsis)
-                            : (ch.topic.isEmpty ? null : Text(ch.topic))),
+                        : ch.type == ChannelType.forum
+                            ? Text('Forum · ${ch.posts.length} '
+                                '${ch.posts.length == 1 ? 'post' : 'posts'}')
+                            : (ch.messages.isNotEmpty
+                                ? Text(ch.messages.last.text,
+                                    maxLines: 1, overflow: TextOverflow.ellipsis)
+                                : (ch.topic.isEmpty ? null : Text(ch.topic))),
                     trailing: IconButton(
                       icon: const Icon(Icons.more_vert, size: 20),
                       tooltip: 'Channel options',
@@ -337,11 +342,14 @@ class CommunityScreen extends StatelessWidget {
                     ),
                     onLongPress: () => _channelActions(context, ch),
                     onTap: () => Navigator.of(context).push(MaterialPageRoute(
-                      builder: (_) => ch.type == ChannelType.voice
-                          ? VoiceChannelScreen(
-                              communityId: communityId, channelId: ch.id)
-                          : ChannelScreen(
-                              communityId: communityId, channelId: ch.id),
+                      builder: (_) => switch (ch.type) {
+                        ChannelType.voice => VoiceChannelScreen(
+                            communityId: communityId, channelId: ch.id),
+                        ChannelType.forum => ForumChannelScreen(
+                            communityId: communityId, channelId: ch.id),
+                        _ => ChannelScreen(
+                            communityId: communityId, channelId: ch.id),
+                      },
                     )),
                   ),
               ],
@@ -981,26 +989,35 @@ Future<(String, ChannelType)?> _promptNewChannel(BuildContext context) {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            SegmentedButton<ChannelType>(
-              segments: const [
-                ButtonSegment(
-                    value: ChannelType.text,
-                    icon: Icon(Icons.tag),
-                    label: Text('Text')),
-                ButtonSegment(
-                    value: ChannelType.voice,
-                    icon: Icon(Icons.volume_up_rounded),
-                    label: Text('Voice')),
-                ButtonSegment(
-                    value: ChannelType.announcement,
-                    icon: Icon(Icons.campaign_rounded),
-                    label: Text('News')),
+            Wrap(
+              spacing: 8,
+              children: [
+                for (final t in const [
+                  (ChannelType.text, Icons.tag, 'Text'),
+                  (ChannelType.voice, Icons.volume_up_rounded, 'Voice'),
+                  (ChannelType.announcement, Icons.campaign_rounded, 'News'),
+                  (ChannelType.forum, Icons.forum_rounded, 'Forum'),
+                ])
+                  ChoiceChip(
+                    avatar: Icon(t.$2,
+                        size: 18,
+                        color: type == t.$1
+                            ? Theme.of(dialogContext).colorScheme.onSecondaryContainer
+                            : null),
+                    label: Text(t.$3),
+                    selected: type == t.$1,
+                    onSelected: (_) => setState(() => type = t.$1),
+                  ),
               ],
-              selected: {type},
-              showSelectedIcon: false,
-              onSelectionChanged: (s) => setState(() => type = s.first),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 8),
+            if (type == ChannelType.forum)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Text('A Reddit-style board of posts you can vote on.',
+                    style:
+                        TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+              ),
             TextField(
               controller: controller,
               autofocus: true,
