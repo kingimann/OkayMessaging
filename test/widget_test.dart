@@ -20,6 +20,7 @@ import 'package:okay_messaging/screens/chats_settings_screen.dart';
 import 'package:okay_messaging/screens/okay_pro_screen.dart';
 import 'package:okay_messaging/screens/forum_screen.dart';
 import 'package:okay_messaging/tabs/chats_tab.dart';
+import 'package:okay_messaging/utils/maps_link.dart';
 import 'package:okay_messaging/widgets/message_bubble.dart';
 import 'package:okay_messaging/screens/score_screen.dart';
 import 'package:okay_messaging/models/chat.dart';
@@ -3799,6 +3800,29 @@ void main() {
       await tester.pumpAndSettle();
       expect(
           ChatStore.instance.chatById('c_bob')!.confirmBeforeSend, isTrue);
+    });
+  });
+
+  group('Maps links (Apple Maps on Apple devices)', () {
+    test('Apple devices get an Apple Maps link with a titled pin', () {
+      final uri = mapsUrl(
+          lat: 37.3349, lng: -122.009, label: 'Apple Park', apple: true);
+      expect(uri.host, 'maps.apple.com');
+      expect(uri.queryParameters['ll'], '37.3349,-122.009');
+      expect(uri.queryParameters['q'], 'Apple Park');
+    });
+
+    test('Apple Maps link omits the pin title when there is no label', () {
+      final uri = mapsUrl(lat: 1.0, lng: 2.0, apple: true);
+      expect(uri.host, 'maps.apple.com');
+      expect(uri.queryParameters.containsKey('q'), isFalse);
+    });
+
+    test('non-Apple devices get a Google Maps link', () {
+      final uri = mapsUrl(
+          lat: 37.3349, lng: -122.009, label: 'Apple Park', apple: false);
+      expect(uri.host, 'www.google.com');
+      expect(uri.queryParameters['query'], '37.3349,-122.009');
     });
   });
 }

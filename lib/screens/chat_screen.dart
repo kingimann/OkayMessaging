@@ -1,8 +1,10 @@
 import 'dart:async';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../app_state.dart';
 import '../models/chat.dart';
@@ -19,6 +21,7 @@ import '../state/file_transfer.dart';
 import '../state/scheduler.dart';
 import '../theme/app_theme.dart';
 import '../utils/date_formatter.dart';
+import '../utils/maps_link.dart';
 import '../widgets/chat_input_bar.dart';
 import '../widgets/emoji_data.dart';
 import '../widgets/heart_burst.dart';
@@ -512,14 +515,32 @@ class _ChatScreenState extends State<ChatScreen> {
     ));
   }
 
-  /// Copies a maps link for a shared-location message.
-  void _openLocation(Message m) {
-    final link =
-        'https://maps.google.com/?q=${m.locationLat},${m.locationLng}';
-    Clipboard.setData(ClipboardData(text: link));
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Maps link copied to clipboard')),
+  /// Opens a shared-location message in the platform's maps app — Apple Maps
+  /// on iPhone/Mac, Google Maps everywhere else — falling back to copying the
+  /// link if nothing can handle it.
+  Future<void> _openLocation(Message m) async {
+    final isApple = defaultTargetPlatform == TargetPlatform.iOS ||
+        defaultTargetPlatform == TargetPlatform.macOS;
+    final uri = mapsUrl(
+      lat: m.locationLat ?? 0,
+      lng: m.locationLng ?? 0,
+      label: m.locationLabel ?? '',
+      apple: isApple,
     );
+    var opened = false;
+    try {
+      opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } catch (_) {
+      opened = false;
+    }
+    if (!opened && mounted) {
+      await Clipboard.setData(ClipboardData(text: uri.toString()));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Maps link copied to clipboard')),
+        );
+      }
+    }
   }
 
   /// Opens (or starts) a chat with a shared contact card's person.
