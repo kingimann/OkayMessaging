@@ -12,6 +12,7 @@ import 'state/call_service.dart';
 import 'state/community_store.dart';
 import 'state/chat_store.dart';
 import 'state/persistence.dart';
+import 'state/recent_searches.dart';
 import 'state/scheduler.dart';
 import 'state/score_store.dart';
 import 'state/session.dart';
@@ -33,6 +34,7 @@ Future<void> main() async {
   await CallLog.instance.load();
   await ScoreStore.instance.load();
   await StreakStore.instance.load();
+  await RecentSearches.instance.load();
   if (StreakStore.instance.isEmpty) {
     // Seed a couple of demo streaks so the feature is visible on first run;
     // real streaks then build (and lapse) from actual conversation activity.

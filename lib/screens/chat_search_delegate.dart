@@ -9,6 +9,7 @@ import '../models/user.dart';
 import '../state/call_log.dart';
 import '../state/chat_store.dart';
 import '../state/community_store.dart';
+import '../state/recent_searches.dart';
 import '../theme/app_theme.dart';
 import '../utils/date_formatter.dart';
 import '../widgets/chat_list_tile.dart';
@@ -63,16 +64,31 @@ class ChatSearchDelegate extends SearchDelegate<void> {
         onPressed: () => close(context, null),
       );
 
-  @override
-  Widget buildResults(BuildContext context) => _SearchBody(query: query);
+  /// Sets [query] and shows results — used when tapping a remembered search.
+  void _run(BuildContext context, String q) {
+    query = q;
+    showResults(context);
+  }
 
   @override
-  Widget buildSuggestions(BuildContext context) => _SearchBody(query: query);
+  Widget buildResults(BuildContext context) {
+    // A submitted query is worth remembering for one-tap re-runs.
+    RecentSearches.instance.add(query);
+    return _SearchBody(query: query, onRun: (q) => _run(context, q));
+  }
+
+  @override
+  Widget buildSuggestions(BuildContext context) =>
+      _SearchBody(query: query, onRun: (q) => _run(context, q));
 }
 
 class _SearchBody extends StatefulWidget {
   final String query;
-  const _SearchBody({required this.query});
+
+  /// Re-runs a tapped remembered query.
+  final void Function(String) onRun;
+
+  const _SearchBody({required this.query, required this.onRun});
 
   @override
   State<_SearchBody> createState() => _SearchBodyState();
@@ -271,32 +287,65 @@ class _SearchBodyState extends State<_SearchBody> {
     );
   }
 
-  /// Idle state: quick tips + your most recent chats to tap into.
+  /// Idle state: recent searches, quick tips, and your most recent chats.
   Widget _idle() {
     final recents = ChatStore.instance.chats.take(6).toList();
-    return ListView(
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(20, 20, 20, 4),
-          child: Row(
-            children: [
-              Icon(Icons.search, size: 18, color: Colors.grey.shade500),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  'Search people, messages, servers, channels, calls and links',
-                  style: TextStyle(color: Colors.grey.shade500, fontSize: 13),
+    return AnimatedBuilder(
+      animation: RecentSearches.instance,
+      builder: (context, _) {
+        final searches = RecentSearches.instance.queries;
+        return ListView(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 20, 20, 4),
+              child: Row(
+                children: [
+                  Icon(Icons.search, size: 18, color: Colors.grey.shade500),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Search people, messages, servers, channels, calls and links',
+                      style:
+                          TextStyle(color: Colors.grey.shade500, fontSize: 13),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (searches.isNotEmpty) ...[
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 14, 8, 0),
+                child: Row(
+                  children: [
+                    const Expanded(child: _Header('Recent searches')),
+                    TextButton(
+                      onPressed: () => RecentSearches.instance.clear(),
+                      child: const Text('Clear'),
+                    ),
+                  ],
                 ),
               ),
+              for (final q in searches)
+                ListTile(
+                  dense: true,
+                  leading: Icon(Icons.history, color: Colors.grey.shade500),
+                  title: Text(q),
+                  trailing: IconButton(
+                    icon: const Icon(Icons.close, size: 18),
+                    tooltip: 'Remove',
+                    onPressed: () => RecentSearches.instance.remove(q),
+                  ),
+                  onTap: () => widget.onRun(q),
+                ),
             ],
-          ),
-        ),
-        if (recents.isNotEmpty) ...[
-          const _Header('Recent chats'),
-          for (final chat in recents)
-            ChatListTile(chat: chat, onTap: () => _openChat(chat)),
-        ],
-      ],
+            if (recents.isNotEmpty) ...[
+              const _Header('Recent chats'),
+              for (final chat in recents)
+                ChatListTile(chat: chat, onTap: () => _openChat(chat)),
+            ],
+          ],
+        );
+      },
     );
   }
 }

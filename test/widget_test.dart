@@ -31,6 +31,7 @@ import 'package:okay_messaging/state/call_service.dart';
 import 'package:okay_messaging/state/community_store.dart';
 import 'package:okay_messaging/state/file_transfer.dart';
 import 'package:okay_messaging/state/chat_store.dart';
+import 'package:okay_messaging/state/recent_searches.dart';
 import 'package:okay_messaging/state/scheduler.dart';
 import 'package:okay_messaging/state/score_store.dart';
 import 'package:okay_messaging/state/session.dart';
@@ -1591,6 +1592,60 @@ void main() {
     await tester.enterText(find.byType(TextField), 'general');
     await tester.pumpAndSettle();
     expect(find.text('Channels'), findsOneWidget);
+  });
+
+  testWidgets('Submitting a search remembers it on the idle screen',
+      (tester) async {
+    RecentSearches.instance.resetForTest();
+    await tester.pumpWidget(const OkayMessagingApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.search));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField), 'Alice');
+    await tester.testTextInput.receiveAction(TextInputAction.search);
+    await tester.pumpAndSettle();
+    expect(RecentSearches.instance.queries, contains('Alice'));
+
+    // Clearing the field returns to the idle screen, which now offers it.
+    await tester.enterText(find.byType(TextField), '');
+    await tester.pumpAndSettle();
+    expect(find.text('Recent searches'), findsOneWidget);
+    expect(find.text('Alice'), findsOneWidget);
+
+    // Tapping the remembered search re-runs it.
+    await tester.tap(find.text('Alice'));
+    await tester.pumpAndSettle();
+    expect(find.text('Alice Bennett'), findsWidgets);
+  });
+
+  group('Recent searches store', () {
+    test('add de-duplicates case-insensitively and moves to front', () {
+      RecentSearches.instance.resetForTest();
+      RecentSearches.instance.add('hello');
+      RecentSearches.instance.add('World');
+      RecentSearches.instance.add('  hello  '); // trims + dedupes
+      expect(RecentSearches.instance.queries, ['hello', 'World']);
+      RecentSearches.instance.add('HELLO'); // case-insensitive dedupe, to front
+      expect(RecentSearches.instance.queries.first, 'HELLO');
+      expect(RecentSearches.instance.queries.length, 2);
+      RecentSearches.instance.add('   '); // blank ignored
+      expect(RecentSearches.instance.queries.length, 2);
+    });
+
+    test('caps history and supports remove/clear', () {
+      RecentSearches.instance.resetForTest();
+      for (var i = 0; i < 12; i++) {
+        RecentSearches.instance.add('q$i');
+      }
+      expect(RecentSearches.instance.queries.length, 8); // capped
+      expect(RecentSearches.instance.queries.first, 'q11'); // newest first
+      RecentSearches.instance.remove('q11');
+      expect(RecentSearches.instance.queries, isNot(contains('q11')));
+      RecentSearches.instance.clear();
+      expect(RecentSearches.instance.isEmpty, isTrue);
+    });
   });
 
   testWidgets('Creating a group adds it to the chat list with its members',
