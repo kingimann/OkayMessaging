@@ -1498,7 +1498,11 @@ class _ChatScreenState extends State<ChatScreen> {
                                           final s = StreakStore.instance
                                               .streakFor(_chatId);
                                           return s > 0
-                                              ? StreakChip(count: s)
+                                              ? StreakChip(
+                                                  count: s,
+                                                  expiring: StreakStore.instance
+                                                      .isExpiringSoon(_chatId),
+                                                )
                                               : null;
                                         }(),
                                       ),

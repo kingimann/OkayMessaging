@@ -2575,6 +2575,23 @@ void main() {
       expect(StreakStore.instance.streakFor('c', now: d1), 9);
     });
 
+    test('a streak is "expiring" only when it lapses without today\'s message',
+        () {
+      StreakStore.instance.resetForTest();
+      exchange('c', d1); // kept up on d1
+      // Same day: safe, not expiring.
+      expect(StreakStore.instance.isExpiringSoon('c', now: d1), isFalse);
+      // Next day, before a mutual exchange: alive but at risk.
+      expect(StreakStore.instance.isExpiringSoon('c', now: d2), isTrue);
+      // Keep it up on d2: no longer expiring.
+      exchange('c', d2);
+      expect(StreakStore.instance.isExpiringSoon('c', now: d2), isFalse);
+      // Two days on it has lapsed entirely — not "expiring", just gone.
+      final gone = d2.add(const Duration(days: 2));
+      expect(StreakStore.instance.streakFor('c', now: gone), 0);
+      expect(StreakStore.instance.isExpiringSoon('c', now: gone), isFalse);
+    });
+
     test('a streak broadcast on an incoming message converges the receiver', () {
       StreakStore.instance.resetForTest();
       ChatStore.instance.reset();

@@ -60,7 +60,11 @@ class ChatListTile extends StatelessWidget {
                             final streak =
                                 StreakStore.instance.streakFor(chat.id);
                             return streak > 0
-                                ? StreakChip(count: streak)
+                                ? StreakChip(
+                                    count: streak,
+                                    expiring: StreakStore.instance
+                                        .isExpiringSoon(chat.id),
+                                  )
                                 : null;
                           }(),
                         ),

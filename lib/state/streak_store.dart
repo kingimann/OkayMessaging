@@ -115,6 +115,17 @@ class StreakStore extends ChangeNotifier {
     }
   }
 
+  /// Whether [chatId]'s streak is alive but at risk of lapsing: it hasn't yet
+  /// been kept up today, so a mutual message is needed before midnight. Drives
+  /// the hourglass warning, à la Snapchat.
+  bool isExpiringSoon(String chatId, {DateTime? now}) {
+    final d = _data[chatId];
+    if (d == null || d.lastDay == null) return false;
+    final n = now ?? DateTime.now();
+    if (streakFor(chatId, now: n) == 0) return false; // not alive
+    return d.lastDay != dayKey(n); // last advanced yesterday → act today
+  }
+
   /// Directly sets a chat's streak (used to seed demo data / tests).
   void seed(String chatId, int count, {DateTime? lastDay}) {
     final day = dayKey(lastDay ?? DateTime.now());
