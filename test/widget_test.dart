@@ -2790,6 +2790,66 @@ void main() {
       expect(ScoreStore.instance.isEarned('caller'), isTrue);
     });
 
+    test('levels derive from points with progress to the next', () {
+      ScoreStore.instance.resetForTest();
+      expect(ScoreStore.instance.level, 1);
+      expect(ScoreStore.instance.levelTitle, 'Newcomer');
+      ScoreStore.instance.award(50); // level 2 threshold
+      expect(ScoreStore.instance.level, 2);
+      expect(ScoreStore.instance.levelTitle, 'Rookie');
+      ScoreStore.instance.award(50); // 100 pts, halfway to level 3 (150)
+      expect(ScoreStore.instance.nextLevelAt, 150);
+      expect(ScoreStore.instance.levelProgress, closeTo(0.5, 0.001));
+      ScoreStore.instance.award(5000); // max out
+      expect(ScoreStore.instance.level, ScoreStore.levelTitles.length);
+      expect(ScoreStore.instance.nextLevelAt, isNull);
+      expect(ScoreStore.instance.levelProgress, 1.0);
+    });
+
+    test('voting a poll and posting to a forum award points and badges', () {
+      ScoreStore.instance.resetForTest();
+      ChatStore.instance.reset();
+      CommunityStore.instance.resetForTest();
+
+      // A poll vote awards a point and unlocks the pollster badge.
+      final bob = ChatStore.instance.chatWithContact('u_bob')!;
+      ChatStore.instance.addMessage(
+        bob.id,
+        Message(
+          id: 'pv',
+          text: '',
+          time: DateTime(2024),
+          isMe: false,
+          isPoll: true,
+          pollQuestion: 'Q',
+          pollOptions: const ['A', 'B'],
+          pollVotes: const [0, 0],
+        ),
+      );
+      final before = ScoreStore.instance.points;
+      ChatStore.instance.votePoll(bob.id, 'pv', 0);
+      expect(ScoreStore.instance.points,
+          before + ScoreStore.pointsPerPollVote);
+      expect(ScoreStore.instance.isEarned('pollster'), isTrue);
+
+      // Creating a forum post awards points and unlocks the contributor badge.
+      final p2 = ScoreStore.instance.points;
+      CommunityStore.instance.addForumPost(
+        'seed_design',
+        'seed_forum',
+        ForumPost(
+          id: 'np',
+          authorId: 'me',
+          authorName: 'You',
+          time: DateTime(2024),
+          title: 'Hello',
+        ),
+      );
+      expect(ScoreStore.instance.points,
+          p2 + ScoreStore.pointsPerForumPost);
+      expect(ScoreStore.instance.isEarned('poster'), isTrue);
+    });
+
     test('featured badge must be earned and can be cleared', () {
       ScoreStore.instance.resetForTest();
       ScoreStore.instance.setFeatured('century'); // not earned yet → ignored

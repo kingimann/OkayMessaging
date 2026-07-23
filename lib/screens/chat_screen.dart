@@ -11,6 +11,7 @@ import '../models/user.dart';
 import '../payments/payment_amount_sheet.dart';
 import '../payments/payment_service.dart';
 import '../relay/relay_config.dart';
+import '../state/score_store.dart';
 import '../widgets/poll_widgets.dart';
 import '../relay/relay_service.dart';
 import '../state/chat_store.dart';
@@ -965,6 +966,8 @@ class _ChatScreenState extends State<ChatScreen> {
   /// Toggles a reaction locally and mirrors it to a real peer over the relay.
   void _react(String messageId, String emoji) {
     _store.toggleReaction(_chatId, messageId, emoji);
+    ScoreStore.instance.award(ScoreStore.pointsPerReaction);
+    ScoreStore.instance.recordFlag('reacted');
     if (RelayConfig.isEnabled && _isRealPeer(widget.chat.contact)) {
       final present = _store
               .chatById(_chatId)

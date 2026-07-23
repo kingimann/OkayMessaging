@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/community.dart';
 import '../models/message.dart';
+import 'score_store.dart';
 
 /// Local store for Discord-style communities (servers) and their channels.
 /// Everything lives on the device and is persisted to [SharedPreferences];
@@ -338,6 +339,8 @@ class CommunityStore extends ChangeNotifier {
       return ch.copyWith(posts: [post, ...ch.posts]);
     }).toList();
     _replace(community.copyWith(channels: channels));
+    ScoreStore.instance.award(ScoreStore.pointsPerForumPost);
+    ScoreStore.instance.recordFlag('forum_post');
   }
 
   /// Applies a [dir] (+1/-1) vote to a forum post.
@@ -371,6 +374,7 @@ class CommunityStore extends ChangeNotifier {
       return ch.copyWith(posts: posts);
     }).toList();
     _replace(community.copyWith(channels: channels));
+    ScoreStore.instance.award(ScoreStore.pointsPerForumComment);
   }
 
   /// Applies a [dir] (+1/-1) vote to a comment under a forum post.

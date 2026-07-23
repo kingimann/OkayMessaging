@@ -449,6 +449,10 @@ class ChatStore extends ChangeNotifier {
       return m.copyWith(pollVotes: votes, pollMyVote: option);
     }).toList();
     _replace(i, _chats[i].copyWith(messages: msgs));
+    if (previous != option) {
+      ScoreStore.instance.award(ScoreStore.pointsPerPollVote);
+      ScoreStore.instance.recordFlag('voted_poll');
+    }
     return previous;
   }
 

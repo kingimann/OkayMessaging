@@ -218,8 +218,55 @@ class _ScoreCard extends StatelessWidget {
           const SizedBox(height: 8),
           Text('$earned ${earned == 1 ? 'badge' : 'badges'} earned',
               style: const TextStyle(color: Colors.white70, fontSize: 12.5)),
+          const SizedBox(height: 14),
+          _LevelBar(),
         ],
       ),
+    );
+  }
+}
+
+/// The level pill + progress-to-next-level bar shown inside the score card.
+class _LevelBar extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final store = ScoreStore.instance;
+    final next = store.nextLevelAt;
+    return Column(
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.22),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Text('Level ${store.level} · ${store.levelTitle}',
+                  style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 12.5)),
+            ),
+            Text(
+              next == null ? 'Max level' : '${next - store.points} to level up',
+              style: const TextStyle(color: Colors.white70, fontSize: 11.5),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: LinearProgressIndicator(
+            value: store.levelProgress,
+            minHeight: 7,
+            backgroundColor: Colors.white.withValues(alpha: 0.22),
+            valueColor: const AlwaysStoppedAnimation(Colors.white),
+          ),
+        ),
+      ],
     );
   }
 }

@@ -35,6 +35,22 @@ class ScoreStore extends ChangeNotifier {
   static const int pointsPerSend = 2;
   static const int pointsPerReceive = 1;
   static const int pointsPerCall = 5;
+  static const int pointsPerReaction = 1;
+  static const int pointsPerPollVote = 1;
+  static const int pointsPerForumPost = 3;
+  static const int pointsPerForumComment = 2;
+
+  /// Level titles and the score at which each unlocks (index 0 = level 1).
+  static const List<String> levelTitles = [
+    'Newcomer',
+    'Rookie',
+    'Regular',
+    'Pro',
+    'Star',
+    'Legend',
+    'Icon',
+  ];
+  static const List<int> levelThresholds = [0, 50, 150, 350, 700, 1200, 2000];
 
   /// The full badge catalog, ordered from easiest to rarest.
   static const List<Badge> catalog = [
@@ -62,6 +78,24 @@ class ScoreStore extends ChangeNotifier {
         label: 'Century',
         description: 'Reach 100 points',
         threshold: 100),
+    Badge(
+        id: 'reactor',
+        emoji: '😀',
+        label: 'Reactor',
+        description: 'React to a message',
+        flag: 'reacted'),
+    Badge(
+        id: 'pollster',
+        emoji: '📊',
+        label: 'Pollster',
+        description: 'Vote in a poll',
+        flag: 'voted_poll'),
+    Badge(
+        id: 'poster',
+        emoji: '📝',
+        label: 'Contributor',
+        description: 'Create a forum post',
+        flag: 'forum_post'),
     Badge(
         id: 'social',
         emoji: '🎉',
@@ -107,6 +141,30 @@ class ScoreStore extends ChangeNotifier {
 
   int get points => _points;
   Set<String> get flags => Set.unmodifiable(_flags);
+
+  /// The current level (1-based) derived from [points].
+  int get level {
+    var lvl = 1;
+    for (var i = 0; i < levelThresholds.length; i++) {
+      if (_points >= levelThresholds[i]) lvl = i + 1;
+    }
+    return lvl;
+  }
+
+  /// The title for the current level (e.g. "Regular").
+  String get levelTitle => levelTitles[level - 1];
+
+  /// The score at which the next level unlocks, or null at the max level.
+  int? get nextLevelAt =>
+      level < levelThresholds.length ? levelThresholds[level] : null;
+
+  /// Progress toward the next level in [0, 1] (1.0 at max level).
+  double get levelProgress {
+    final next = nextLevelAt;
+    if (next == null) return 1.0;
+    final base = levelThresholds[level - 1];
+    return ((_points - base) / (next - base)).clamp(0.0, 1.0);
+  }
 
   /// The badge the user has chosen to show on their profile, if still earned.
   String? get featuredBadge =>
