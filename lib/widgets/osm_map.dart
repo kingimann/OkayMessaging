@@ -168,34 +168,51 @@ class OsmAttribution extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
     return Align(
       alignment: Alignment.bottomRight,
       child: Container(
         margin: const EdgeInsets.all(6),
         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
         decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.8),
+          color: (dark ? Colors.black : Colors.white).withValues(alpha: 0.7),
           borderRadius: BorderRadius.circular(4),
         ),
         child: Text(
           attributionFor(layer),
-          style: const TextStyle(fontSize: 10, color: Colors.black87),
+          style: TextStyle(
+            fontSize: 10,
+            color: dark ? Colors.white70 : Colors.black87,
+          ),
         ),
       ),
     );
   }
 }
 
+/// The effective layer for the current theme: when the user hasn't picked a
+/// special style (satellite/terrain/dark), the Standard map automatically
+/// switches to the Dark style in dark mode so the map matches the app.
+MapLayer effectiveLayer(String name, Brightness brightness) {
+  final chosen = MapLayer.fromName(name);
+  if (chosen == MapLayer.standard && brightness == Brightness.dark) {
+    return MapLayer.dark;
+  }
+  return chosen;
+}
+
 /// The base tile layer bound to the user's chosen [MapLayer]; rebuilds when
-/// they switch styles.
+/// they switch styles and follows the app theme for the Standard style.
 class LiveTileLayer extends StatelessWidget {
   const LiveTileLayer({super.key});
 
   @override
   Widget build(BuildContext context) {
+    final brightness = Theme.of(context).brightness;
     return ValueListenableBuilder<String>(
       valueListenable: AppState.mapLayer,
-      builder: (context, name, _) => tileLayerFor(MapLayer.fromName(name)),
+      builder: (context, name, _) =>
+          tileLayerFor(effectiveLayer(name, brightness)),
     );
   }
 }
@@ -206,10 +223,11 @@ class LiveAttribution extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final brightness = Theme.of(context).brightness;
     return ValueListenableBuilder<String>(
       valueListenable: AppState.mapLayer,
       builder: (context, name, _) =>
-          OsmAttribution(layer: MapLayer.fromName(name)),
+          OsmAttribution(layer: effectiveLayer(name, brightness)),
     );
   }
 }

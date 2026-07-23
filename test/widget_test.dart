@@ -4052,6 +4052,34 @@ void main() {
       expect(iconForPlaceCategory('Sculpture'), Icons.place_outlined);
     });
 
+    test('effectiveLayer follows the app theme for the Standard style', () {
+      expect(effectiveLayer('standard', Brightness.light), MapLayer.standard);
+      // Standard auto-switches to the Dark map in dark mode…
+      expect(effectiveLayer('standard', Brightness.dark), MapLayer.dark);
+      // …but explicit picks are always respected.
+      expect(effectiveLayer('satellite', Brightness.dark), MapLayer.satellite);
+      expect(effectiveLayer('terrain', Brightness.dark), MapLayer.terrain);
+      expect(effectiveLayer('dark', Brightness.light), MapLayer.dark);
+    });
+
+    testWidgets('Maps is full-bleed with a floating back button and chips',
+        (tester) async {
+      await tester.pumpWidget(const MaterialApp(home: ExploreMapScreen()));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      // No app bar — the map runs edge to edge under floating controls.
+      expect(find.byType(AppBar), findsNothing);
+      expect(find.byTooltip('Back'), findsOneWidget);
+      // Saved and Friends live in the category chip row.
+      expect(find.text('Saved'), findsOneWidget);
+      expect(find.text('Friends'), findsOneWidget);
+      expect(find.text('Food'), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+    });
+
     testWidgets('typing shows live suggestions; picking one selects the place',
         (tester) async {
       const cafe = GeoResult(

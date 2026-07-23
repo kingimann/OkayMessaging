@@ -334,24 +334,10 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
   @override
   Widget build(BuildContext context) {
     final selected = _selected;
+    // Full-bleed, Apple-Maps-style: the map fills the screen and every
+    // control floats over it.
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Maps'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.bookmark_border),
-            tooltip: 'Saved places',
-            onPressed: _showSaved,
-          ),
-          IconButton(
-            icon: const Icon(Icons.group_outlined),
-            tooltip: 'Friends',
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const MapScreen()),
-            ),
-          ),
-        ],
-      ),
+      extendBodyBehindAppBar: true,
       floatingActionButton: FloatingActionButton.small(
         heroTag: 'exploreMe',
         onPressed: _goToMe,
@@ -401,49 +387,68 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
             ],
           ),
           MapControls(controller: _map, bottom: selected == null ? 96 : 220),
-          Positioned(
-            top: 10,
-            left: 12,
-            right: 12,
-            child: _SearchBox(
-              controller: _search,
-              searching: _searching,
-              // Hide the suggestion list once a place is selected (its card
-              // is showing); the pins for other results stay on the map.
-              results: selected == null ? _results : const <GeoResult>[],
-              origin: _me,
-              onSubmit: () => _runSearch(),
-              onPick: _select,
-              onChanged: _onQueryChanged,
-              onClear: () {
-                _debounce?.cancel();
-                ++_searchSeq;
-                _search.clear();
-                setState(() {
-                  _results = const [];
-                  _selected = null;
-                  _searching = false;
-                });
-              },
+          SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _CircleButton(
+                        icon: Icons.arrow_back,
+                        tooltip: 'Back',
+                        onTap: () => Navigator.of(context).maybePop(),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: _SearchBox(
+                          controller: _search,
+                          searching: _searching,
+                          // Hide the suggestion list once a place is selected
+                          // (its card is showing); the result pins stay.
+                          results: selected == null
+                              ? _results
+                              : const <GeoResult>[],
+                          origin: _me,
+                          onSubmit: () => _runSearch(),
+                          onPick: _select,
+                          onChanged: _onQueryChanged,
+                          onClear: () {
+                            _debounce?.cancel();
+                            ++_searchSeq;
+                            _search.clear();
+                            setState(() {
+                              _results = const [];
+                              _selected = null;
+                              _searching = false;
+                            });
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (_results.isEmpty && selected == null) ...[
+                    const SizedBox(height: 10),
+                    _CategoryChips(
+                      onTap: (term) => _runSearch(term),
+                      onSaved: _showSaved,
+                      onFriends: () => Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => const MapScreen()),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    _RecentMapSearches(onPick: (q) {
+                      _search.text = q;
+                      _runSearch();
+                    }),
+                  ],
+                ],
+              ),
             ),
           ),
-          if (_results.isEmpty && selected == null) ...[
-            Positioned(
-              top: 70,
-              left: 0,
-              right: 0,
-              child: _CategoryChips(onTap: (term) => _runSearch(term)),
-            ),
-            Positioned(
-              top: 120,
-              left: 12,
-              right: 12,
-              child: _RecentMapSearches(onPick: (q) {
-                _search.text = q;
-                _runSearch();
-              }),
-            ),
-          ],
           if (selected != null)
             Positioned(
               left: 12,
@@ -555,6 +560,29 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
   }
 }
 
+/// A floating circular surface button (back, etc.) matching the search pill.
+class _CircleButton extends StatelessWidget {
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onTap;
+
+  const _CircleButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      elevation: 3,
+      shape: const CircleBorder(),
+      color: Theme.of(context).colorScheme.surface,
+      child: IconButton(icon: Icon(icon), tooltip: tooltip, onPressed: onTap),
+    );
+  }
+}
+
 /// The user's recent map searches, shown while the map is idle.
 class _RecentMapSearches extends StatelessWidget {
   final ValueChanged<String> onPick;
@@ -598,30 +626,42 @@ class _RecentMapSearches extends StatelessWidget {
   }
 }
 
-/// A horizontal row of "search nearby" category chips.
+/// A horizontal row of chips: Saved places and Friends first, then the
+/// "search nearby" categories.
 class _CategoryChips extends StatelessWidget {
   final ValueChanged<String> onTap;
-  const _CategoryChips({required this.onTap});
+  final VoidCallback onSaved;
+  final VoidCallback onFriends;
+
+  const _CategoryChips({
+    required this.onTap,
+    required this.onSaved,
+    required this.onFriends,
+  });
 
   @override
   Widget build(BuildContext context) {
+    final surface = Theme.of(context).colorScheme.surface;
+    ActionChip chip(IconData icon, String label, VoidCallback onPressed) =>
+        ActionChip(
+          avatar: Icon(icon, size: 18),
+          label: Text(label),
+          elevation: 2,
+          backgroundColor: surface,
+          shadowColor: Colors.black45,
+          onPressed: onPressed,
+        );
     return SizedBox(
       height: 40,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-        itemCount: _categories.length,
+        itemCount: _categories.length + 2,
         separatorBuilder: (_, __) => const SizedBox(width: 8),
         itemBuilder: (context, i) {
-          final (icon, label, term) = _categories[i];
-          return ActionChip(
-            avatar: Icon(icon, size: 18),
-            label: Text(label),
-            elevation: 2,
-            backgroundColor: Theme.of(context).colorScheme.surface,
-            shadowColor: Colors.black45,
-            onPressed: () => onTap(term),
-          );
+          if (i == 0) return chip(Icons.bookmark, 'Saved', onSaved);
+          if (i == 1) return chip(Icons.group, 'Friends', onFriends);
+          final (icon, label, term) = _categories[i - 2];
+          return chip(icon, label, () => onTap(term));
         },
       ),
     );
