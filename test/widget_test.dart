@@ -53,6 +53,7 @@ import 'package:okay_messaging/screens/status_screen.dart';
 import 'package:okay_messaging/state/status_store.dart';
 import 'package:okay_messaging/state/chat_store.dart';
 import 'package:okay_messaging/state/live_location_store.dart';
+import 'package:okay_messaging/state/saved_places_store.dart';
 import 'package:okay_messaging/state/recent_searches.dart';
 import 'package:okay_messaging/state/scheduler.dart';
 import 'package:okay_messaging/state/score_store.dart';
@@ -78,6 +79,7 @@ void main() {
     CommunityStore.instance.resetForTest();
     ChatsTab.filtersVisible.value = false;
     LiveLocationStore.instance.resetForTest();
+    SavedPlacesStore.instance.resetForTest();
   });
 
   testWidgets('App boots with Chats and Calls tabs (no Status)',
@@ -3956,6 +3958,22 @@ void main() {
       expect(results.first.lng, closeTo(2.2945, 0.0001));
     });
 
+    test('parses a category from osm_value', () {
+      const body = '''
+      {"features":[
+        {"properties":{"name":"Blue Bottle","osm_value":"cafe"},
+         "geometry":{"coordinates":[2.0,48.0]}},
+        {"properties":{"name":"Joe's","osm_value":"fast_food"},
+         "geometry":{"coordinates":[2.1,48.1]}},
+        {"properties":{"name":"Somewhere","osm_value":"yes"},
+         "geometry":{"coordinates":[2.2,48.2]}}
+      ]}''';
+      final r = parsePhoton(body);
+      expect(r[0].category, 'Cafe');
+      expect(r[1].category, 'Fast food');
+      expect(r[2].category, ''); // "yes" is generic
+    });
+
     test('skips malformed features and tolerates junk', () {
       const body = '''
       {"features":[
@@ -3971,6 +3989,26 @@ void main() {
     test('returns empty on non-list / invalid json', () {
       expect(parsePhoton('{"features":"nope"}'), isEmpty);
       expect(parsePhoton('not json'), isEmpty);
+    });
+  });
+
+  group('Saved places', () {
+    test('toggle saves, reports state, and de-dupes; remove works', () {
+      final store = SavedPlacesStore.instance;
+      const p = SavedPlace('Eiffel Tower', 48.8584, 2.2945);
+      expect(store.isSaved(p.lat, p.lng), isFalse);
+
+      expect(store.toggle(p), isTrue); // now saved
+      expect(store.isSaved(48.8584, 2.2945), isTrue);
+      expect(store.places.length, 1);
+
+      // Toggling the same coordinates again removes it.
+      expect(store.toggle(const SavedPlace('Eiffel', 48.8584, 2.2945)), isFalse);
+      expect(store.places, isEmpty);
+
+      store.toggle(p);
+      store.remove(const SavedPlace('x', 48.8584, 2.2945));
+      expect(store.places, isEmpty);
     });
   });
 

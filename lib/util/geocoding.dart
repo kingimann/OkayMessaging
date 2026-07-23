@@ -9,7 +9,15 @@ class GeoResult {
   final double lat;
   final double lng;
 
-  const GeoResult({required this.name, required this.lat, required this.lng});
+  /// A human category label (e.g. "Restaurant", "Cafe"), or '' when unknown.
+  final String category;
+
+  const GeoResult({
+    required this.name,
+    required this.lat,
+    required this.lng,
+    this.category = '',
+  });
 }
 
 /// Parses a Photon (`/api`) GeoJSON response into results. Pure and testable;
@@ -38,9 +46,24 @@ List<GeoResult> parsePhoton(String body) {
     final props = f['properties'];
     final name = props is Map ? _label(props) : null;
     if (name == null || name.isEmpty) continue;
-    out.add(GeoResult(name: name, lat: lat, lng: lng));
+    out.add(GeoResult(
+      name: name,
+      lat: lat,
+      lng: lng,
+      category: props is Map ? _category(props) : '',
+    ));
   }
   return out;
+}
+
+/// A human category label from Photon's osm_value (e.g. "fast_food" →
+/// "Fast food"), or '' for generic places.
+String _category(Map<dynamic, dynamic> props) {
+  final raw = props['osm_value']?.toString() ?? '';
+  if (raw.isEmpty || raw == 'yes') return '';
+  final words = raw.replaceAll('_', ' ').trim();
+  if (words.isEmpty) return '';
+  return words[0].toUpperCase() + words.substring(1);
 }
 
 /// Builds a readable one-line label from Photon feature properties, e.g.
@@ -82,12 +105,20 @@ Future<GeoResult?> reverseGeocode(double lat, double lng) async {
 /// Searches OpenStreetMap data for [query] via Komoot's Photon geocoder, which
 /// (unlike Nominatim) sends CORS headers so it works from the browser. Returns
 /// an empty list on any error.
-Future<List<GeoResult>> searchPlaces(String query) async {
+Future<List<GeoResult>> searchPlaces(
+  String query, {
+  double? lat,
+  double? lng,
+  int limit = 6,
+}) async {
   final q = query.trim();
   if (q.isEmpty) return const [];
   final uri = Uri.https('photon.komoot.io', '/api', {
     'q': q,
-    'limit': '6',
+    'limit': '$limit',
+    // Bias results toward the map centre so "coffee" finds nearby coffee.
+    if (lat != null && lng != null) 'lat': '$lat',
+    if (lat != null && lng != null) 'lon': '$lng',
   });
   try {
     final res = await http

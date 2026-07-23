@@ -15,6 +15,7 @@ import 'state/community_store.dart';
 import 'state/chat_store.dart';
 import 'state/persistence.dart';
 import 'state/recent_searches.dart';
+import 'state/saved_places_store.dart';
 import 'state/scheduler.dart';
 import 'state/score_store.dart';
 import 'state/session.dart';
@@ -42,6 +43,7 @@ Future<void> main() async {
   await RecentSearches.instance.load();
   await BackupService.instance.load();
   await PaymentService.instance.load();
+  await SavedPlacesStore.instance.load();
   await StatusStore.instance.load();
   if (StreakStore.instance.isEmpty) {
     // Seed a couple of demo streaks so the feature is visible on first run;

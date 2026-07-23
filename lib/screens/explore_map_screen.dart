@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 
+import '../state/saved_places_store.dart';
 import '../util/geocoding.dart';
 import '../util/geolocation.dart';
 import '../utils/maps_link.dart';
@@ -10,8 +11,21 @@ import '../widgets/osm_map.dart';
 import 'map_screen.dart';
 import 'route_map_screen.dart';
 
-/// A standalone, Apple-Maps-style map: search any place, see it on the map,
-/// read its details, and get in-app directions — no external maps needed.
+/// Quick "search nearby" categories, à la Apple Maps.
+const List<(IconData, String, String)> _categories = [
+  (Icons.restaurant, 'Food', 'restaurant'),
+  (Icons.local_cafe, 'Coffee', 'cafe'),
+  (Icons.local_bar, 'Bars', 'bar'),
+  (Icons.local_gas_station, 'Fuel', 'fuel'),
+  (Icons.hotel, 'Hotels', 'hotel'),
+  (Icons.shopping_cart, 'Shops', 'supermarket'),
+  (Icons.local_atm, 'ATMs', 'atm'),
+  (Icons.local_parking, 'Parking', 'parking'),
+];
+
+/// A standalone, Apple-Maps-style map: search places or nearby categories, see
+/// them on the map, read details with distance, save favourites, and get
+/// in-app directions — no external maps needed.
 class ExploreMapScreen extends StatefulWidget {
   const ExploreMapScreen({super.key});
 
@@ -25,10 +39,15 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
   bool _searching = false;
   List<GeoResult> _results = const [];
 
-  // The currently selected place (from search, a tap, or a long-press).
-  LatLng? _pin;
-  String _pinName = '';
+  LatLng? _me;
+  GeoResult? _selected;
   bool _resolvingPin = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _locate();
+  }
 
   @override
   void dispose() {
@@ -36,47 +55,71 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
     super.dispose();
   }
 
-  Future<void> _runSearch() async {
-    final q = _search.text.trim();
+  Future<void> _locate() async {
+    final pos = await getCurrentLatLng();
+    if (!mounted || pos == null) return;
+    setState(() => _me = LatLng(pos.lat, pos.lng));
+    _map.move(_me!, 14);
+  }
+
+  LatLng get _center {
+    try {
+      return _map.camera.center;
+    } catch (_) {
+      return _me ?? const LatLng(37.7749, -122.4194);
+    }
+  }
+
+  Future<void> _runSearch([String? term]) async {
+    final q = (term ?? _search.text).trim();
     if (q.isEmpty) return;
+    FocusScope.of(context).unfocus();
     setState(() => _searching = true);
-    final results = await searchPlaces(q);
+    final c = _center;
+    final results =
+        await searchPlaces(q, lat: c.latitude, lng: c.longitude, limit: 12);
     if (!mounted) return;
     setState(() {
       _searching = false;
       _results = results;
+      _selected = results.length == 1 ? results.first : null;
     });
     if (results.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('No places found for "$q".')),
+        SnackBar(content: Text('Nothing found for "$q" nearby.')),
       );
+    } else {
+      _map.move(LatLng(results.first.lat, results.first.lng), 14);
     }
   }
 
-  void _selectResult(GeoResult r) {
+  void _select(GeoResult r) {
     FocusScope.of(context).unfocus();
     setState(() {
-      _results = const [];
+      _selected = r;
       _search.text = r.name;
-      _pin = LatLng(r.lat, r.lng);
-      _pinName = r.name;
+      _results = const [];
     });
-    _map.move(_pin!, 15);
+    _map.move(LatLng(r.lat, r.lng), 16);
   }
 
   Future<void> _dropPin(LatLng point) async {
     setState(() {
-      _pin = point;
-      _pinName = '';
+      _selected = GeoResult(name: '', lat: point.latitude, lng: point.longitude);
       _resolvingPin = true;
+      _results = const [];
     });
     final place = await reverseGeocode(point.latitude, point.longitude);
     if (!mounted) return;
     setState(() {
       _resolvingPin = false;
-      _pinName = place?.name ??
-          '${point.latitude.toStringAsFixed(5)}, '
-              '${point.longitude.toStringAsFixed(5)}';
+      _selected = place ??
+          GeoResult(
+            name: '${point.latitude.toStringAsFixed(5)}, '
+                '${point.longitude.toStringAsFixed(5)}',
+            lat: point.latitude,
+            lng: point.longitude,
+          );
     });
   }
 
@@ -89,42 +132,91 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
       );
       return;
     }
-    _map.move(LatLng(pos.lat, pos.lng), 15);
+    setState(() => _me = LatLng(pos.lat, pos.lng));
+    _map.move(_me!, 15);
   }
 
   void _directions() {
-    if (_pin == null) return;
+    final s = _selected;
+    if (s == null) return;
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => RouteMapScreen(
-          dest: _pin!,
-          label: _pinName.isEmpty ? 'Directions' : _pinName,
+          dest: LatLng(s.lat, s.lng),
+          from: _me,
+          label: s.name.isEmpty ? 'Directions' : s.name,
         ),
       ),
     );
   }
 
-  void _sharePlace() {
-    if (_pin == null) return;
+  void _share() {
+    final s = _selected;
+    if (s == null) return;
     final isApple = Theme.of(context).platform == TargetPlatform.iOS ||
         Theme.of(context).platform == TargetPlatform.macOS;
-    final uri = mapsUrl(
-        lat: _pin!.latitude,
-        lng: _pin!.longitude,
-        label: _pinName,
-        apple: isApple);
+    final uri =
+        mapsUrl(lat: s.lat, lng: s.lng, label: s.name, apple: isApple);
     Clipboard.setData(ClipboardData(text: uri.toString()));
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Place link copied to clipboard')),
     );
   }
 
+  void _showSaved() {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: ListenableBuilder(
+          listenable: SavedPlacesStore.instance,
+          builder: (context, _) {
+            final places = SavedPlacesStore.instance.places;
+            if (places.isEmpty) {
+              return const Padding(
+                padding: EdgeInsets.fromLTRB(20, 8, 20, 28),
+                child: Text('No saved places yet. Tap the star on a place to '
+                    'save it here.'),
+              );
+            }
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                for (final p in places)
+                  ListTile(
+                    leading: const Icon(Icons.bookmark, color: Color(0xFFEB4B3F)),
+                    title: Text(p.name, maxLines: 1,
+                        overflow: TextOverflow.ellipsis),
+                    trailing: IconButton(
+                      icon: const Icon(Icons.close),
+                      onPressed: () => SavedPlacesStore.instance.remove(p),
+                    ),
+                    onTap: () {
+                      Navigator.of(sheetContext).pop();
+                      _select(GeoResult(name: p.name, lat: p.lat, lng: p.lng));
+                    },
+                  ),
+                const SizedBox(height: 8),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final selected = _selected;
     return Scaffold(
       appBar: AppBar(
         title: const Text('Maps'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.bookmark_border),
+            tooltip: 'Saved places',
+            onPressed: _showSaved,
+          ),
           IconButton(
             icon: const Icon(Icons.group_outlined),
             tooltip: 'Friends',
@@ -145,8 +237,8 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
           FlutterMap(
             mapController: _map,
             options: MapOptions(
-              initialCenter: const LatLng(37.7749, -122.4194),
-              initialZoom: 12,
+              initialCenter: _me ?? const LatLng(37.7749, -122.4194),
+              initialZoom: 13,
               interactionOptions: const InteractionOptions(
                 flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
               ),
@@ -154,11 +246,27 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
             ),
             children: [
               const LiveTileLayer(),
-              if (_pin != null) MarkerLayer(markers: [mapPin(_pin!)]),
+              MarkerLayer(
+                markers: [
+                  for (final r in _results)
+                    Marker(
+                      point: LatLng(r.lat, r.lng),
+                      width: 30,
+                      height: 30,
+                      child: GestureDetector(
+                        onTap: () => _select(r),
+                        child: const Icon(Icons.place,
+                            color: Color(0xFF0A84FF), size: 30),
+                      ),
+                    ),
+                  if (selected != null)
+                    mapPin(LatLng(selected.lat, selected.lng)),
+                ],
+              ),
               const LiveAttribution(),
             ],
           ),
-          MapControls(controller: _map, bottom: _pin == null ? 96 : 220),
+          MapControls(controller: _map, bottom: selected == null ? 96 : 220),
           Positioned(
             top: 10,
             left: 12,
@@ -167,23 +275,37 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
               controller: _search,
               searching: _searching,
               results: _results,
-              onSubmit: _runSearch,
-              onPick: _selectResult,
+              onSubmit: () => _runSearch(),
+              onPick: _select,
             ),
           ),
-          if (_pin != null)
+          if (_results.isEmpty && selected == null)
+            Positioned(
+              top: 70,
+              left: 0,
+              right: 0,
+              child: _CategoryChips(onTap: (term) => _runSearch(term)),
+            ),
+          if (selected != null)
             Positioned(
               left: 12,
               right: 12,
               bottom: 20,
-              child: SafeArea(child: _placeCard(context)),
+              child: SafeArea(child: _placeCard(context, selected)),
             ),
         ],
       ),
     );
   }
 
-  Widget _placeCard(BuildContext context) {
+  Widget _placeCard(BuildContext context, GeoResult place) {
+    final meta = <String>[];
+    if (_me != null) {
+      final d = const Distance()
+          .distance(_me!, LatLng(place.lat, place.lng));
+      meta.add('${formatDistance(d)} away');
+    }
+    if (place.category.isNotEmpty) meta.add(place.category);
     return Material(
       elevation: 6,
       borderRadius: BorderRadius.circular(16),
@@ -191,6 +313,7 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
       child: Padding(
         padding: const EdgeInsets.fromLTRB(16, 14, 8, 14),
         child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Expanded(
               child: Column(
@@ -200,13 +323,18 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
                   Text(
                     _resolvingPin
                         ? 'Dropped pin…'
-                        : (_pinName.isEmpty ? 'Dropped pin' : _pinName),
+                        : (place.name.isEmpty ? 'Dropped pin' : place.name),
                     style: const TextStyle(
                         fontSize: 16, fontWeight: FontWeight.w600),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                   ),
-                  const SizedBox(height: 8),
+                  if (meta.isNotEmpty) ...[
+                    const SizedBox(height: 2),
+                    Text(meta.join(' · '),
+                        style: TextStyle(color: Colors.grey.shade600)),
+                  ],
+                  const SizedBox(height: 10),
                   Row(
                     children: [
                       FilledButton.icon(
@@ -216,7 +344,7 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
                       ),
                       const SizedBox(width: 8),
                       OutlinedButton.icon(
-                        onPressed: _sharePlace,
+                        onPressed: _share,
                         icon: const Icon(Icons.ios_share, size: 16),
                         label: const Text('Share'),
                       ),
@@ -225,16 +353,66 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
                 ],
               ),
             ),
-            IconButton(
-              icon: const Icon(Icons.close),
-              tooltip: 'Clear',
-              onPressed: () => setState(() {
-                _pin = null;
-                _pinName = '';
-              }),
+            Column(
+              children: [
+                ListenableBuilder(
+                  listenable: SavedPlacesStore.instance,
+                  builder: (context, _) {
+                    final saved =
+                        SavedPlacesStore.instance.isSaved(place.lat, place.lng);
+                    return IconButton(
+                      icon: Icon(saved ? Icons.bookmark : Icons.bookmark_border,
+                          color: saved ? const Color(0xFFEB4B3F) : null),
+                      tooltip: saved ? 'Saved' : 'Save',
+                      onPressed: () {
+                        final now = SavedPlacesStore.instance.toggle(SavedPlace(
+                            place.name.isEmpty ? 'Dropped pin' : place.name,
+                            place.lat,
+                            place.lng));
+                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                          content: Text(now ? 'Saved' : 'Removed'),
+                          duration: const Duration(seconds: 1),
+                        ));
+                      },
+                    );
+                  },
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close),
+                  tooltip: 'Clear',
+                  onPressed: () => setState(() => _selected = null),
+                ),
+              ],
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// A horizontal row of "search nearby" category chips.
+class _CategoryChips extends StatelessWidget {
+  final ValueChanged<String> onTap;
+  const _CategoryChips({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 40,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        itemCount: _categories.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 8),
+        itemBuilder: (context, i) {
+          final (icon, label, term) = _categories[i];
+          return ActionChip(
+            avatar: Icon(icon, size: 18),
+            label: Text(label),
+            onPressed: () => onTap(term),
+          );
+        },
       ),
     );
   }
@@ -292,7 +470,7 @@ class _SearchBox extends StatelessWidget {
             ),
           ),
         ),
-        if (results.isNotEmpty)
+        if (results.length > 1)
           Container(
             margin: const EdgeInsets.only(top: 6),
             constraints: const BoxConstraints(maxHeight: 300),
@@ -307,9 +485,11 @@ class _SearchBox extends StatelessWidget {
                 itemBuilder: (context, i) {
                   final r = results[i];
                   return ListTile(
+                    dense: true,
                     leading: const Icon(Icons.place_outlined),
                     title: Text(r.name,
-                        maxLines: 2, overflow: TextOverflow.ellipsis),
+                        maxLines: 1, overflow: TextOverflow.ellipsis),
+                    subtitle: r.category.isEmpty ? null : Text(r.category),
                     onTap: () => onPick(r),
                   );
                 },
