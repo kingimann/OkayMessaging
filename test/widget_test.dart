@@ -4185,6 +4185,58 @@ void main() {
       await tester.pump();
     });
 
+    testWidgets('a submitted search lists its hits in a bottom results sheet',
+        (tester) async {
+      const hits = [
+        GeoResult(
+            name: 'Cafe A, Toronto', lat: 43.65, lng: -79.38, category: 'Cafe'),
+        GeoResult(
+            name: 'Cafe B, Toronto', lat: 43.66, lng: -79.39, category: 'Cafe'),
+        GeoResult(
+            name: 'Cafe C, Toronto', lat: 43.67, lng: -79.40, category: 'Cafe'),
+      ];
+      await tester.pumpWidget(MaterialApp(
+        home: ExploreMapScreen(
+          debugMyLocation: const LatLng(43.6, -79.3),
+          debugSearch: (q) async => hits,
+        ),
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      await tester.enterText(find.byType(TextField).first, 'cafe');
+      await tester.testTextInput.receiveAction(TextInputAction.search);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // The sheet lists every hit; the dropdown stays out of the way.
+      expect(find.text('3 places'), findsOneWidget);
+      expect(find.text('Cafe A'), findsOneWidget);
+      expect(find.text('Cafe C'), findsOneWidget);
+
+      // Picking one opens its card and hides the sheet…
+      await tester.tap(find.text('Cafe B'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.text('Directions'), findsOneWidget);
+      expect(find.text('3 places'), findsNothing);
+
+      // …and closing the card brings the results sheet back.
+      await tester.tap(find.byTooltip('Clear'));
+      await tester.pump();
+      expect(find.text('3 places'), findsOneWidget);
+
+      // Closing the sheet clears the search entirely.
+      await tester.tap(find.byTooltip('Close results'));
+      await tester.pump();
+      expect(find.text('3 places'), findsNothing);
+      final field = tester.widget<TextField>(find.byType(TextField).first);
+      expect(field.controller!.text, isEmpty);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+    });
+
     testWidgets('tapping the map dismisses suggestions; typing re-shows them',
         (tester) async {
       await tester.pumpWidget(MaterialApp(

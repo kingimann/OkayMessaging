@@ -82,6 +82,10 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
   /// pins stay on the map; typing brings the list back.
   bool _hideSuggestions = false;
 
+  /// True after a submitted search with several hits: they're listed in a
+  /// bottom results sheet (Apple-Maps style) instead of the dropdown.
+  bool _showResultsSheet = false;
+
   Future<List<GeoResult>?> _doSearch(String q) {
     final debug = widget.debugSearch;
     if (debug != null) return debug(q);
@@ -180,7 +184,9 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
     setState(() {
       _searching = false;
       _results = results;
-      _hideSuggestions = false;
+      // Several hits go to the bottom results sheet, not the dropdown.
+      _hideSuggestions = results.length > 1;
+      _showResultsSheet = results.length > 1;
       _selected = results.length == 1 ? results.first : null;
     });
     if (results.isEmpty) {
@@ -210,7 +216,9 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
     setState(() {
       _selected = r;
       _search.text = r.name;
-      _results = const [];
+      // Picks from the results sheet keep the other pins (and the sheet
+      // comes back when the place card is closed); dropdown picks clear.
+      if (!_showResultsSheet) _results = const [];
       _searching = false;
     });
     _map.move(LatLng(r.lat, r.lng), 16);
@@ -221,6 +229,7 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
       _selected = GeoResult(name: '', lat: point.latitude, lng: point.longitude);
       _resolvingPin = true;
       _results = const [];
+      _showResultsSheet = false;
     });
     final place = await reverseGeocode(point.latitude, point.longitude);
     if (!mounted) return;
@@ -419,7 +428,14 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
               const LiveAttribution(),
             ],
           ),
-          MapControls(controller: _map, bottom: selected == null ? 96 : 220),
+          MapControls(
+            controller: _map,
+            bottom: selected != null
+                ? 220
+                : _showResultsSheet && _results.length > 1
+                    ? 340
+                    : 96,
+          ),
           SafeArea(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
@@ -459,6 +475,7 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
                               _selected = null;
                               _searching = false;
                               _hideSuggestions = false;
+                              _showResultsSheet = false;
                             });
                           },
                         ),
@@ -499,6 +516,8 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
               ),
             ),
           ),
+          if (_showResultsSheet && selected == null && _results.length > 1)
+            _resultsSheet(context),
           if (selected != null)
             Positioned(
               left: 12,
@@ -507,6 +526,83 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
               child: SafeArea(child: _placeCard(context, selected)),
             ),
         ],
+      ),
+    );
+  }
+
+  /// "Cafe · 350 m" meta line for a results-sheet row.
+  String? _placeMeta(GeoResult r) {
+    final parts = <String>[];
+    if (r.category.isNotEmpty) parts.add(r.category);
+    final me = _me;
+    if (me != null) {
+      parts.add(formatDistance(
+          const Distance().distance(me, LatLng(r.lat, r.lng))));
+    }
+    return parts.isEmpty ? null : parts.join(' · ');
+  }
+
+  /// The Apple-Maps-style bottom sheet listing a submitted search's results.
+  Widget _resultsSheet(BuildContext context) {
+    return Positioned(
+      left: 0,
+      right: 0,
+      bottom: 0,
+      child: SafeArea(
+        top: false,
+        child: Material(
+          elevation: 12,
+          color: Theme.of(context).colorScheme.surface,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+          clipBehavior: Clip.antiAlias,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 10, 8, 0),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        '${_results.length} places',
+                        style: const TextStyle(
+                            fontSize: 16, fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close),
+                      tooltip: 'Close results',
+                      onPressed: () => setState(() {
+                        _showResultsSheet = false;
+                        _results = const [];
+                        _search.clear();
+                      }),
+                    ),
+                  ],
+                ),
+              ),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 236),
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  padding: const EdgeInsets.only(bottom: 8),
+                  itemCount: _results.length,
+                  itemBuilder: (context, i) {
+                    final r = _results[i];
+                    final meta = _placeMeta(r);
+                    return ListTile(
+                      leading: Icon(iconForPlaceCategory(r.category)),
+                      title: Text(r.name.split(',').first.trim(),
+                          maxLines: 1, overflow: TextOverflow.ellipsis),
+                      subtitle: meta == null ? null : Text(meta),
+                      onTap: () => _select(r),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
