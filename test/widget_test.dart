@@ -4456,6 +4456,105 @@ void main() {
       await tester.pump();
     });
 
+    test('categoryFilterFor spots category intents, not names', () {
+      expect(categoryFilterFor('coffee'), isNotNull);
+      expect(categoryFilterFor('  Gas Station '), isNotNull);
+      expect(categoryFilterFor('pharmacy'), isNotNull);
+      expect(categoryFilterFor('Blue Bottle'), isNull);
+      expect(categoryFilterFor('1226 valencia street'), isNull);
+    });
+
+    testWidgets('typing a category word like "coffee" runs a nearby search',
+        (tester) async {
+      String? asked;
+      await tester.pumpWidget(MaterialApp(
+        home: ExploreMapScreen(
+          debugMyLocation: const LatLng(44.05, -79.46),
+          debugSearch: (q) async {
+            asked = q;
+            return const [
+              GeoResult(name: 'Cafe One', lat: 44.05, lng: -79.45),
+              GeoResult(name: 'Cafe Two', lat: 44.06, lng: -79.47),
+            ];
+          },
+        ),
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      await tester.enterText(find.byType(TextField).first, 'coffee');
+      await tester.testTextInput.receiveAction(TextInputAction.search);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // The nearby (category) path took over: the pill shows the label and
+      // the query was remembered.
+      expect(asked, 'coffee');
+      expect(find.text('2 places'), findsOneWidget);
+      final field = tester.widget<TextField>(find.byType(TextField).first);
+      expect(field.controller!.text, 'Coffee');
+      expect(RecentSearches.maps.queries, contains('coffee'));
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+    });
+
+    test('parseOsrmRoutes returns the primary and its alternatives', () {
+      const body = '''
+      {"code":"Ok","routes":[
+        {"geometry":{"coordinates":[[-79.0,43.0],[-79.2,43.2]]},
+         "distance":5000,"duration":840,"legs":[{"steps":[]}]},
+        {"geometry":{"coordinates":[[-79.0,43.0],[-79.3,43.1],[-79.2,43.2]]},
+         "distance":6000,"duration":1020,"legs":[{"steps":[]}]}
+      ]}''';
+      final routes = parseOsrmRoutes(body)!;
+      expect(routes.length, 2);
+      expect(routes.first.durationSeconds, 840);
+      expect(routes.last.points.length, 3);
+      // The single-route parser still returns the primary.
+      expect(parseOsrmRoute(body)!.distanceMeters, 5000);
+    });
+
+    testWidgets('directions offers route alternatives to switch between',
+        (tester) async {
+      const steps = [
+        RouteStep('Head out on A', 100,
+            location: LatLng(43.1, -79.1), type: 'depart'),
+        RouteStep('Arrive at your destination', 0,
+            location: LatLng(43.2, -79.2), type: 'arrive'),
+      ];
+      const r1 = RouteResult(
+          points: [LatLng(43.0, -79.0), LatLng(43.2, -79.2)],
+          distanceMeters: 5000,
+          durationSeconds: 840,
+          steps: steps);
+      const r2 = RouteResult(
+          points: [LatLng(43.0, -79.0), LatLng(43.1, -79.3), LatLng(43.2, -79.2)],
+          distanceMeters: 6000,
+          durationSeconds: 1020,
+          steps: steps);
+      await tester.pumpWidget(const MaterialApp(
+        home: RouteMapScreen(
+          dest: LatLng(43.2, -79.2),
+          from: LatLng(43.0, -79.0),
+          initialRoutes: [r1, r2],
+        ),
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      expect(find.text('Route 1 · 14 min'), findsOneWidget);
+      expect(find.text('Route 2 · 17 min'), findsOneWidget);
+      expect(find.text('14 min'), findsOneWidget); // the summary
+
+      await tester.tap(find.text('Route 2 · 17 min'));
+      await tester.pump();
+      expect(find.text('17 min'), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+    });
+
     test('instructionFor builds readable turn text', () {
       expect(instructionFor('turn', 'right', 'Main St'),
           'Turn right onto Main St');

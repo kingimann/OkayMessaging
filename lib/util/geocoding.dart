@@ -173,6 +173,46 @@ Future<List<GeoResult>?> searchNearby({
   return null;
 }
 
+const String _fFood = r'amenity~"^(restaurant|fast_food|food_court)$"';
+const String _fCafe = r'amenity~"^(cafe|ice_cream)$"';
+const String _fBar = r'amenity~"^(bar|pub|biergarten)$"';
+const String _fFuel = r'amenity~"^(fuel|charging_station)$"';
+const String _fHotel = r'tourism~"^(hotel|hostel|motel|guest_house)$"';
+const String _fShop = r'shop~"^(supermarket|convenience|mall|department_store)$"';
+const String _fAtm = r'amenity~"^(atm|bank)$"';
+const String _fHealth = r'amenity~"^(hospital|clinic|doctors)$"';
+
+/// Typed queries that are really *category intents*: "coffee" means "cafes
+/// near me", not places named Coffee. Maps a query to an Overpass filter.
+const Map<String, String> _categoryAliases = {
+  'food': _fFood, 'restaurant': _fFood, 'restaurants': _fFood,
+  'fast food': 'amenity=fast_food', 'takeout': 'amenity=fast_food',
+  'coffee': _fCafe, 'coffee shop': _fCafe, 'cafe': _fCafe, 'cafes': _fCafe,
+  'bar': _fBar, 'bars': _fBar, 'pub': _fBar, 'pubs': _fBar,
+  'gas': _fFuel, 'gas station': _fFuel, 'fuel': _fFuel,
+  'petrol': _fFuel, 'petrol station': _fFuel,
+  'charging': 'amenity=charging_station',
+  'ev charging': 'amenity=charging_station',
+  'hotel': _fHotel, 'hotels': _fHotel, 'motel': _fHotel, 'hostel': _fHotel,
+  'grocery': _fShop, 'groceries': _fShop, 'grocery store': _fShop,
+  'supermarket': _fShop, 'supermarkets': _fShop,
+  'atm': _fAtm, 'atms': _fAtm, 'bank': _fAtm, 'banks': _fAtm,
+  'parking': 'amenity=parking',
+  'pharmacy': 'amenity=pharmacy', 'drugstore': 'amenity=pharmacy',
+  'hospital': _fHealth, 'clinic': _fHealth, 'doctor': _fHealth,
+  'park': 'leisure=park', 'parks': 'leisure=park',
+  'playground': 'leisure=playground',
+  'school': 'amenity=school', 'schools': 'amenity=school',
+  'gym': 'leisure=fitness_centre',
+  'police': 'amenity=police',
+  'library': 'amenity=library',
+};
+
+/// The Overpass filter for a typed query that's really a category intent
+/// ("coffee", "gas station"), or null for genuine name/address queries.
+String? categoryFilterFor(String query) =>
+    _categoryAliases[query.trim().toLowerCase()];
+
 /// Removes near-duplicate results (same label at effectively the same spot —
 /// Photon frequently returns them for businesses).
 List<GeoResult> dedupePlaces(List<GeoResult> results) {

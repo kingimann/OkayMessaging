@@ -182,6 +182,18 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
   Future<void> _runSearch({String? term, bool nearCenter = false}) async {
     final q = (term ?? _search.text).trim();
     if (q.isEmpty) return;
+    // "coffee" typed into the box is a category intent, not a name — divert
+    // to the true nearby search whenever we know where "nearby" is.
+    final filter = categoryFilterFor(q);
+    if (filter != null) {
+      final bias =
+          nearCenter ? _center : (_me ?? (_mapTouched ? _center : null));
+      if (bias != null) {
+        if (term == null) RecentSearches.maps.add(q.toLowerCase());
+        final label = q[0].toUpperCase() + q.substring(1).toLowerCase();
+        return _runNearby(label, filter, biasOverride: bias);
+      }
+    }
     _debounce?.cancel();
     FocusScope.of(context).unfocus();
     final seq = ++_searchSeq;

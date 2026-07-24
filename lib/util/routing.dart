@@ -112,16 +112,32 @@ String instructionFor(String type, String modifier, String name) {
   }
 }
 
-/// Parses an OSRM `/route` GeoJSON response (with steps). Pure and testable;
-/// returns null on anything malformed or a non-"Ok" result.
-RouteResult? parseOsrmRoute(String body) {
+/// Parses an OSRM `/route` GeoJSON response into every returned route
+/// (the primary first, then alternatives). Pure and testable; returns null
+/// on anything malformed or a non-"Ok" result.
+List<RouteResult>? parseOsrmRoutes(String body) {
   try {
     final data = jsonDecode(body);
     if (data is! Map || data['code'] != 'Ok') return null;
     final routes = data['routes'];
     if (routes is! List || routes.isEmpty) return null;
-    final r = routes.first;
-    if (r is! Map) return null;
+    final out = <RouteResult>[];
+    for (final r in routes) {
+      if (r is! Map) continue;
+      final parsed = _parseOneRoute(r);
+      if (parsed != null) out.add(parsed);
+    }
+    return out.isEmpty ? null : out;
+  } catch (_) {
+    return null;
+  }
+}
+
+/// The primary route from an OSRM response, or null.
+RouteResult? parseOsrmRoute(String body) => parseOsrmRoutes(body)?.first;
+
+RouteResult? _parseOneRoute(Map<dynamic, dynamic> r) {
+  try {
     final geom = r['geometry'];
     final coords = geom is Map ? geom['coordinates'] : null;
     if (coords is! List) return null;
@@ -176,12 +192,14 @@ RouteResult? parseOsrmRoute(String body) {
   }
 }
 
-/// Fetches a route between two points for the given [mode] from the free OSRM
-/// servers (OpenStreetMap data). Returns null on any error.
-Future<RouteResult?> fetchRoute({
+/// Fetches routes between two points for the given [mode] from the free OSRM
+/// servers (OpenStreetMap data): the best route first, then up to two
+/// alternatives when [alternatives] is on. Returns null on any error.
+Future<List<RouteResult>?> fetchRoutes({
   required LatLng from,
   required LatLng to,
   TravelMode mode = TravelMode.car,
+  bool alternatives = true,
 }) async {
   final path = '/${mode.profile}/route/v1/driving/'
       '${from.longitude},${from.latitude};${to.longitude},${to.latitude}';
@@ -189,14 +207,26 @@ Future<RouteResult?> fetchRoute({
     'overview': 'full',
     'geometries': 'geojson',
     'steps': 'true',
+    if (alternatives) 'alternatives': 'true',
   });
   try {
     final res = await http.get(uri).timeout(const Duration(seconds: 15));
     if (res.statusCode != 200) return null;
-    return parseOsrmRoute(res.body);
+    return parseOsrmRoutes(res.body);
   } catch (_) {
     return null;
   }
+}
+
+/// The single best route between two points, or null on any error.
+Future<RouteResult?> fetchRoute({
+  required LatLng from,
+  required LatLng to,
+  TravelMode mode = TravelMode.car,
+}) async {
+  final routes =
+      await fetchRoutes(from: from, to: to, mode: mode, alternatives: false);
+  return routes == null || routes.isEmpty ? null : routes.first;
 }
 
 /// Advances the upcoming-maneuver index as the user reaches maneuver points:

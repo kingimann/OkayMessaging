@@ -23,12 +23,16 @@ class RouteMapScreen extends StatefulWidget {
   /// Test/preview hook: a pre-computed route, skipping the network fetch.
   final RouteResult? initialRoute;
 
+  /// Test/preview hook: pre-computed routes with alternatives.
+  final List<RouteResult>? initialRoutes;
+
   const RouteMapScreen({
     super.key,
     required this.dest,
     this.from,
     this.label = '',
     this.initialRoute,
+    this.initialRoutes,
   });
 
   @override
@@ -37,11 +41,16 @@ class RouteMapScreen extends StatefulWidget {
 
 class _RouteMapScreenState extends State<RouteMapScreen> {
   final MapController _map = MapController();
-  RouteResult? _route;
+  List<RouteResult> _routes = const [];
+  int _routeIndex = 0;
   LatLng? _from;
   bool _loading = true;
   String? _error;
   TravelMode _mode = TravelMode.car;
+
+  /// The currently chosen route (primary or a picked alternative).
+  RouteResult? get _route =>
+      _routes.isEmpty ? null : _routes[_routeIndex.clamp(0, _routes.length - 1)];
 
   // In-app navigation state.
   bool _navigating = false;
@@ -64,13 +73,14 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
   }
 
   Future<void> _load() async {
-    if (widget.initialRoute != null) {
+    if (widget.initialRoutes != null || widget.initialRoute != null) {
       setState(() {
         _from = widget.from;
-        _route = widget.initialRoute;
+        _routes = widget.initialRoutes ?? [widget.initialRoute!];
+        _routeIndex = 0;
         _loading = false;
       });
-      _fit(widget.from, widget.initialRoute);
+      _fit(widget.from, _route);
       return;
     }
     var from = _from ?? widget.from;
@@ -87,14 +97,15 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
       return;
     }
     _from = from;
-    final route = await fetchRoute(from: from, to: widget.dest, mode: _mode);
+    final routes = await fetchRoutes(from: from, to: widget.dest, mode: _mode);
     if (!mounted) return;
     setState(() {
       _loading = false;
-      _route = route;
-      _error = route == null ? 'Couldn\'t find a route.' : null;
+      _routes = routes ?? const [];
+      _routeIndex = 0;
+      _error = routes == null ? 'Couldn\'t find a route.' : null;
     });
-    _fit(from, route);
+    _fit(from, _route);
   }
 
   void _setMode(TravelMode mode) {
@@ -102,10 +113,17 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
     setState(() {
       _mode = mode;
       _loading = true;
-      _route = null;
+      _routes = const [];
+      _routeIndex = 0;
       _error = null;
     });
     _load();
+  }
+
+  void _pickRoute(int i) {
+    if (i == _routeIndex || i < 0 || i >= _routes.length) return;
+    setState(() => _routeIndex = i);
+    _fit(_from, _route);
   }
 
   void _fit(LatLng? from, RouteResult? route) {
@@ -144,12 +162,19 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
     final pos = await getCurrentLatLng();
     if (!mounted || !_navigating || pos == null || _route == null) return;
     final user = LatLng(pos.lat, pos.lng);
+    final prev = _navPos;
     setState(() {
       _navPos = user;
       _navStep =
           advanceStep(steps: _route!.steps, current: _navStep, user: user);
     });
-    _map.move(user, 16.5);
+    // Rotate the map so the direction of travel points up, like real
+    // turn-by-turn navigation (only once actually moving).
+    if (prev != null && const Distance().distance(prev, user) > 5) {
+      _map.moveAndRotate(user, 16.5, -const Distance().bearing(prev, user));
+    } else {
+      _map.move(user, 16.5);
+    }
 
     // Strayed off the route? Fetch a fresh one from where the user actually
     // is (rate-limited so a failing router isn't hammered).
@@ -165,7 +190,8 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
       setState(() {
         _rerouting = false;
         if (fresh != null) {
-          _route = fresh;
+          _routes = [fresh];
+          _routeIndex = 0;
           _navStep = fresh.steps.length > 1 ? 1 : 0;
         }
       });
@@ -176,6 +202,7 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
     _navTimer?.cancel();
     _navTimer = null;
     setState(() => _navigating = false);
+    _map.rotate(0); // back to north-up
     _fit(_from, _route);
   }
 
@@ -233,6 +260,18 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
               if (route != null)
                 PolylineLayer(
                   polylines: [
+                    // Unpicked alternatives sit under the chosen route in
+                    // grey, Apple-Maps style.
+                    if (!_navigating)
+                      for (var i = 0; i < _routes.length; i++)
+                        if (i != _routeIndex)
+                          Polyline(
+                            points: _routes[i].points,
+                            strokeWidth: 5,
+                            color: const Color(0xFF9E9E9E),
+                            borderStrokeWidth: 2,
+                            borderColor: Colors.white,
+                          ),
                     // Cased like Apple Maps: a white border makes the route
                     // pop on any base map.
                     Polyline(
@@ -287,10 +326,17 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
             _DirectionsPanel(
               loading: _loading,
               route: route,
+              routes: _routes,
+              routeIndex: _routeIndex,
               error: _error,
               mode: _mode,
               onMode: _setMode,
+              onRoute: _pickRoute,
               onGo: _startNav,
+              onStep: (step) {
+                final loc = step.location;
+                if (loc != null) _map.move(loc, 17);
+              },
             ),
         ],
       ),
@@ -448,18 +494,26 @@ class _NavBottomBar extends StatelessWidget {
 class _DirectionsPanel extends StatelessWidget {
   final bool loading;
   final RouteResult? route;
+  final List<RouteResult> routes;
+  final int routeIndex;
   final String? error;
   final TravelMode mode;
   final ValueChanged<TravelMode> onMode;
+  final ValueChanged<int> onRoute;
   final VoidCallback onGo;
+  final ValueChanged<RouteStep> onStep;
 
   const _DirectionsPanel({
     required this.loading,
     required this.route,
+    required this.routes,
+    required this.routeIndex,
     required this.error,
     required this.mode,
     required this.onMode,
+    required this.onRoute,
     required this.onGo,
+    required this.onStep,
   });
 
   IconData _modeIcon(TravelMode m) => switch (m) {
@@ -514,6 +568,24 @@ class _DirectionsPanel extends StatelessWidget {
                 ),
               ),
             ),
+            // Route alternatives, when OSRM offers more than one.
+            if (routes.length > 1)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                child: Wrap(
+                  spacing: 8,
+                  children: [
+                    for (var i = 0; i < routes.length; i++)
+                      ChoiceChip(
+                        label: Text(
+                            'Route ${i + 1} · '
+                            '${formatDuration(routes[i].durationSeconds)}'),
+                        selected: i == routeIndex,
+                        onSelected: (_) => onRoute(i),
+                      ),
+                  ],
+                ),
+              ),
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
               child: Row(
@@ -540,6 +612,8 @@ class _DirectionsPanel extends StatelessWidget {
                       ? Text(formatDistance(step.distanceMeters),
                           style: TextStyle(color: Colors.grey.shade600))
                       : null,
+                  // Peek at this turn on the map.
+                  onTap: () => onStep(step),
                 ),
               const SizedBox(height: 12),
             ],
