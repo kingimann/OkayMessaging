@@ -4207,12 +4207,15 @@ void main() {
       await tester.enterText(find.byType(TextField).first, 'cafe');
       await tester.testTextInput.receiveAction(TextInputAction.search);
       await tester.pump();
-      await tester.pump(const Duration(milliseconds: 100));
+      // Long enough for the FAB's scale-out animation to finish.
+      await tester.pump(const Duration(milliseconds: 400));
 
-      // The sheet lists every hit; the dropdown stays out of the way.
+      // The sheet lists every hit; the dropdown stays out of the way, and
+      // the my-location FAB hides so it can't overlap the sheet.
       expect(find.text('3 places'), findsOneWidget);
       expect(find.text('Cafe A'), findsOneWidget);
       expect(find.text('Cafe C'), findsOneWidget);
+      expect(find.byTooltip('My location'), findsNothing);
 
       // Picking one opens its card and hides the sheet…
       await tester.tap(find.text('Cafe B'));
@@ -4226,12 +4229,57 @@ void main() {
       await tester.pump();
       expect(find.text('3 places'), findsOneWidget);
 
-      // Closing the sheet clears the search entirely.
+      // Closing the sheet clears the search entirely (and the FAB returns).
       await tester.tap(find.byTooltip('Close results'));
       await tester.pump();
       expect(find.text('3 places'), findsNothing);
       final field = tester.widget<TextField>(find.byType(TextField).first);
       expect(field.controller!.text, isEmpty);
+      expect(find.byTooltip('My location'), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+    });
+
+    testWidgets('panning away from results offers "Search this area"',
+        (tester) async {
+      var calls = 0;
+      await tester.pumpWidget(MaterialApp(
+        home: ExploreMapScreen(
+          debugMyLocation: const LatLng(43.6, -79.3),
+          debugSearch: (q) async {
+            calls++;
+            return const [
+              GeoResult(name: 'Cafe A', lat: 43.65, lng: -79.38),
+              GeoResult(name: 'Cafe B', lat: 43.66, lng: -79.39),
+            ];
+          },
+        ),
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      await tester.enterText(find.byType(TextField).first, 'cafe');
+      await tester.testTextInput.receiveAction(TextInputAction.search);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(calls, 1);
+      expect(find.text('2 places'), findsOneWidget);
+      expect(find.text('Search this area'), findsNothing);
+
+      // Pan the map — the re-search button appears.
+      await tester.dragFrom(const Offset(400, 250), const Offset(-120, 40));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.text('Search this area'), findsOneWidget);
+
+      // Tapping it re-runs the same query around the new centre.
+      await tester.tap(find.text('Search this area'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(calls, 2);
+      expect(find.text('Search this area'), findsNothing);
+      expect(find.text('2 places'), findsOneWidget);
 
       await tester.pumpWidget(const SizedBox());
       await tester.pump();

@@ -86,13 +86,21 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
   /// bottom results sheet (Apple-Maps style) instead of the dropdown.
   bool _showResultsSheet = false;
 
-  Future<List<GeoResult>?> _doSearch(String q) {
+  /// The last submitted query, so "Search this area" can re-run it where the
+  /// user has panned to.
+  String? _lastQuery;
+
+  /// True once the user pans away from a search's results — shows the
+  /// "Search this area" button.
+  bool _showSearchHere = false;
+
+  Future<List<GeoResult>?> _doSearch(String q, {LatLng? biasOverride}) {
     final debug = widget.debugSearch;
     if (debug != null) return debug(q);
     // Bias to where the user actually is — or where they've panned the map
     // to. Never bias to the untouched placeholder centre: that would rank a
     // far-away city's results first for everyone without a GPS fix.
-    final LatLng? bias = _me ?? (_mapTouched ? _center : null);
+    final LatLng? bias = biasOverride ?? _me ?? (_mapTouched ? _center : null);
     return searchPlaces(q,
         lat: bias?.latitude, lng: bias?.longitude, limit: 12);
   }
@@ -161,14 +169,18 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
     }
   }
 
-  Future<void> _runSearch([String? term]) async {
+  Future<void> _runSearch({String? term, bool nearCenter = false}) async {
     final q = (term ?? _search.text).trim();
     if (q.isEmpty) return;
     _debounce?.cancel();
     FocusScope.of(context).unfocus();
     final seq = ++_searchSeq;
-    setState(() => _searching = true);
-    final results = await _doSearch(q);
+    setState(() {
+      _searching = true;
+      _showSearchHere = false;
+    });
+    final results =
+        await _doSearch(q, biasOverride: nearCenter ? _center : null);
     if (!mounted || seq != _searchSeq) return;
     if (results == null) {
       setState(() => _searching = false);
@@ -184,6 +196,7 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
     setState(() {
       _searching = false;
       _results = results;
+      _lastQuery = q;
       // Several hits go to the bottom results sheet, not the dropdown.
       _hideSuggestions = results.length > 1;
       _showResultsSheet = results.length > 1;
@@ -220,6 +233,7 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
       // comes back when the place card is closed); dropdown picks clear.
       if (!_showResultsSheet) _results = const [];
       _searching = false;
+      _showSearchHere = false;
     });
     _map.move(LatLng(r.lat, r.lng), 16);
   }
@@ -362,8 +376,12 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
     final dark = Theme.of(context).brightness == Brightness.dark;
     return Scaffold(
       extendBodyBehindAppBar: true,
-      // Hidden while a place card is up — it would sit right on top of it.
-      floatingActionButton: selected == null
+      // The map must not squish (and reload tiles) every time the keyboard
+      // opens — search UI floats over it instead, like Apple Maps.
+      resizeToAvoidBottomInset: false,
+      // Hidden while a place card or the results sheet is up — it would sit
+      // right on top of them.
+      floatingActionButton: selected == null && !_showResultsSheet
           ? FloatingActionButton.small(
               heroTag: 'exploreMe',
               onPressed: _goToMe,
@@ -384,7 +402,15 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
                 flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
               ),
               onPositionChanged: (camera, hasGesture) {
-                if (hasGesture) _mapTouched = true;
+                if (!hasGesture) return;
+                _mapTouched = true;
+                // Panning away from a search's results offers to re-run it
+                // around the new spot, Apple-Maps style.
+                if (_results.isNotEmpty &&
+                    _lastQuery != null &&
+                    !_showSearchHere) {
+                  setState(() => _showSearchHere = true);
+                }
               },
               onTap: (_, __) {
                 // Tapping the map puts the map first: drop the keyboard and
@@ -476,6 +502,8 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
                               _searching = false;
                               _hideSuggestions = false;
                               _showResultsSheet = false;
+                              _showSearchHere = false;
+                              _lastQuery = null;
                             });
                           },
                         ),
@@ -499,7 +527,7 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
                           );
                           return;
                         }
-                        _runSearch(term);
+                        _runSearch(term: term);
                       },
                       onSaved: _showSaved,
                       onFriends: () => Navigator.of(context).push(
@@ -511,6 +539,19 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
                       _search.text = q;
                       _runSearch();
                     }),
+                  ],
+                  if (_showSearchHere &&
+                      selected == null &&
+                      _results.isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    Center(
+                      child: FilledButton.tonalIcon(
+                        onPressed: () =>
+                            _runSearch(term: _lastQuery, nearCenter: true),
+                        icon: const Icon(Icons.refresh, size: 18),
+                        label: const Text('Search this area'),
+                      ),
+                    ),
                   ],
                 ],
               ),
@@ -624,6 +665,16 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            CircleAvatar(
+              radius: 20,
+              backgroundColor:
+                  Theme.of(context).colorScheme.primaryContainer,
+              child: Icon(
+                iconForPlaceCategory(place.category),
+                color: Theme.of(context).colorScheme.onPrimaryContainer,
+              ),
+            ),
+            const SizedBox(width: 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
