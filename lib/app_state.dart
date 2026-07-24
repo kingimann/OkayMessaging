@@ -48,6 +48,10 @@ class AppState {
   static final ValueNotifier<String> mapLayer =
       ValueNotifier<String>('standard');
 
+  /// Low data mode: maps load lighter (non-retina) tiles — a quarter of the
+  /// pixels per tile — so they stay usable on slow cellular connections.
+  static final ValueNotifier<bool> mapLowData = ValueNotifier<bool>(false);
+
   /// Snap-Map "Ghost Mode": when on, your own avatar is hidden from the map so
   /// no one can see where you are.
   static final ValueNotifier<bool> ghostMode = ValueNotifier<bool>(false);
@@ -151,6 +155,7 @@ class AppState {
     chatWallpaper.value = null;
     bubbleColor.value = null;
     mapLayer.value = 'standard';
+    mapLowData.value = false;
     ghostMode.value = false;
     shareLiveLocation.value = false;
     shareLastSeen.value = true;

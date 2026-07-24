@@ -34,13 +34,16 @@ enum MapLayer {
 @visibleForTesting
 TileProvider Function()? debugTileProviderOverride;
 
-TileLayer tileLayerFor(MapLayer layer) {
+TileLayer tileLayerFor(MapLayer layer, {bool lowData = false}) {
   // Cancels tile requests the moment their tile pans out of view. Browsers
   // only run a handful of requests per host at once, so without this a fast
   // pan/zoom queues dozens of stale tiles ahead of the visible ones and the
   // map sits grey — the single biggest map speed fix on the web.
   final provider =
       debugTileProviderOverride?.call() ?? CancellableNetworkTileProvider();
+  // Low data mode drops the crisp @2x tiles for standard 1x ones — about a
+  // quarter of the pixels per tile — for slow cellular connections.
+  final retina = !lowData;
   switch (layer) {
     case MapLayer.satellite:
       return TileLayer(
@@ -65,7 +68,7 @@ TileLayer tileLayerFor(MapLayer layer) {
         subdomains: const ['a', 'b', 'c', 'd'],
         userAgentPackageName: kOsmUserAgent,
         tileProvider: provider,
-        retinaMode: true,
+        retinaMode: retina,
         maxZoom: 20,
       );
     case MapLayer.standard:
@@ -75,7 +78,7 @@ TileLayer tileLayerFor(MapLayer layer) {
         subdomains: const ['a', 'b', 'c', 'd'],
         userAgentPackageName: kOsmUserAgent,
         tileProvider: provider,
-        retinaMode: true,
+        retinaMode: retina,
         maxZoom: 20,
       );
   }
@@ -227,8 +230,11 @@ class LiveTileLayer extends StatelessWidget {
     final brightness = Theme.of(context).brightness;
     return ValueListenableBuilder<String>(
       valueListenable: AppState.mapLayer,
-      builder: (context, name, _) =>
-          tileLayerFor(effectiveLayer(name, brightness)),
+      builder: (context, name, _) => ValueListenableBuilder<bool>(
+        valueListenable: AppState.mapLowData,
+        builder: (context, lowData, _) =>
+            tileLayerFor(effectiveLayer(name, brightness), lowData: lowData),
+      ),
     );
   }
 }
@@ -284,6 +290,17 @@ class MapControls extends StatelessWidget {
                   onTap: () => Navigator.of(sheetContext).pop(l),
                 ),
               ),
+            const Divider(height: 1),
+            ValueListenableBuilder<bool>(
+              valueListenable: AppState.mapLowData,
+              builder: (context, lowData, _) => SwitchListTile.adaptive(
+                secondary: const Icon(Icons.data_saver_on_outlined),
+                title: const Text('Low data mode'),
+                subtitle: const Text('Lighter tiles for slow connections'),
+                value: lowData,
+                onChanged: (v) => AppState.mapLowData.value = v,
+              ),
+            ),
           ],
         ),
       ),
@@ -349,7 +366,9 @@ class MiniMapPreview extends StatelessWidget {
                 const InteractionOptions(flags: InteractiveFlag.none),
           ),
           children: [
-            osmTileLayer(),
+            // Follows the chosen style, theme, and low-data mode like the
+            // full-screen maps do.
+            const LiveTileLayer(),
             MarkerLayer(markers: [mapPin(point)]),
           ],
         ),

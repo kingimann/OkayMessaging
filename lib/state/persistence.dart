@@ -18,6 +18,7 @@ class Persistence {
   static const _kBubbleColor = 'bubble_color';
   static const _kGhostMode = 'map_ghost_mode';
   static const _kMapLayer = 'map_layer';
+  static const _kMapLowData = 'map_low_data';
   static const _kShareLiveLocation = 'share_live_location';
   static const _kChats = 'chats_v1';
   static const _kShareLastSeen = 'share_last_seen';
@@ -76,6 +77,9 @@ class Persistence {
     }
     if (prefs.containsKey(_kMapLayer)) {
       AppState.mapLayer.value = prefs.getString(_kMapLayer) ?? 'standard';
+    }
+    if (prefs.containsKey(_kMapLowData)) {
+      AppState.mapLowData.value = prefs.getBool(_kMapLowData) ?? false;
     }
     if (prefs.containsKey(_kShareLiveLocation)) {
       AppState.shareLiveLocation.value =
@@ -152,6 +156,7 @@ class Persistence {
     AppState.bubbleColor.addListener(_saveBubbleColor);
     AppState.ghostMode.addListener(_saveGhostMode);
     AppState.mapLayer.addListener(_saveMapLayer);
+    AppState.mapLowData.addListener(_saveMapLowData);
     AppState.shareLiveLocation.addListener(_saveShareLiveLocation);
     AppState.shareLastSeen.addListener(_saveShareLastSeen);
     AppState.sendReadReceipts.addListener(_saveReadReceipts);
@@ -268,6 +273,10 @@ class Persistence {
 
   static void _saveMapLayer() {
     _prefs?.setString(_kMapLayer, AppState.mapLayer.value);
+  }
+
+  static void _saveMapLowData() {
+    _prefs?.setBool(_kMapLowData, AppState.mapLowData.value);
   }
 
   static void _saveShareLiveLocation() {

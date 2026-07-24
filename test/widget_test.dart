@@ -4816,6 +4816,18 @@ void main() {
       expect(attributionFor(MapLayer.standard), contains('CARTO'));
       expect(attributionFor(MapLayer.dark), contains('CARTO'));
     });
+
+    test('low data mode swaps crisp retina tiles for light ones', () {
+      expect(tileLayerFor(MapLayer.standard).resolvedRetinaMode,
+          RetinaMode.server);
+      expect(tileLayerFor(MapLayer.standard, lowData: true).resolvedRetinaMode,
+          RetinaMode.disabled);
+      expect(tileLayerFor(MapLayer.dark, lowData: true).resolvedRetinaMode,
+          RetinaMode.disabled);
+      // Satellite/terrain servers have no retina variant either way.
+      expect(tileLayerFor(MapLayer.satellite, lowData: true).resolvedRetinaMode,
+          RetinaMode.disabled);
+    });
   });
 
   group('Snap Map', () {
