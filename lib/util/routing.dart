@@ -310,6 +310,18 @@ double distanceToRouteMeters(LatLng user, List<LatLng> points) {
   return best;
 }
 
+/// A distance phrased for voice prompts: "400 metres", "1.2 kilometres".
+String spokenDistance(double meters) {
+  if (meters < 950) {
+    final m = (meters / 10).round() * 10;
+    return '${m < 10 ? 10 : m} metres';
+  }
+  final km = meters / 1000;
+  return km >= 10
+      ? '${km.round()} kilometres'
+      : '${km.toStringAsFixed(1)} kilometres';
+}
+
 /// A short travel-time label, e.g. "8 min" or "1 h 5 min", from seconds.
 String formatDuration(double seconds) {
   final mins = (seconds / 60).round();

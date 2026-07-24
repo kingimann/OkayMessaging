@@ -27,6 +27,7 @@ import 'package:okay_messaging/util/geocoding.dart';
 import 'package:okay_messaging/util/geolocation.dart';
 import 'package:okay_messaging/utils/chat_transcript.dart';
 import 'package:okay_messaging/util/routing.dart';
+import 'package:okay_messaging/util/speech.dart';
 import 'package:okay_messaging/screens/chat_places_screen.dart';
 import 'package:okay_messaging/screens/explore_map_screen.dart';
 import 'package:okay_messaging/screens/forward_screen.dart';
@@ -3970,6 +3971,90 @@ void main() {
       expect(left, closeTo(300, 15));
       // Past the end → nothing left.
       expect(remainingMeters(route: route, current: 3), 0);
+    });
+
+    test('spokenDistance phrases distances for voice prompts', () {
+      expect(spokenDistance(384), '380 metres');
+      expect(spokenDistance(4), '10 metres');
+      expect(spokenDistance(1200), '1.2 kilometres');
+      expect(spokenDistance(12600), '13 kilometres');
+    });
+
+    testWidgets('navigation speaks turns, can be muted, and shares the ETA',
+        (tester) async {
+      final spoken = <String>[];
+      debugSpeakOverride = spoken.add;
+      addTearDown(() => debugSpeakOverride = null);
+      const route = RouteResult(
+        points: [LatLng(37.7749, -122.4194), LatLng(37.7680, -122.4150)],
+        distanceMeters: 1120,
+        durationSeconds: 300,
+        steps: [
+          RouteStep('Head out on Market Street', 120,
+              location: LatLng(37.7749, -122.4194), type: 'depart'),
+          RouteStep('Turn right onto Valencia Street', 400,
+              location: LatLng(37.7757, -122.4180), type: 'turn',
+              modifier: 'right'),
+          RouteStep('Arrive at your destination', 0,
+              location: LatLng(37.7680, -122.4150), type: 'arrive'),
+        ],
+      );
+      await tester.pumpWidget(const MaterialApp(
+        home: RouteMapScreen(
+          dest: LatLng(37.7680, -122.4150),
+          from: LatLng(37.7749, -122.4194),
+          label: 'Blue Bottle',
+          initialRoute: route,
+        ),
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      await tester.tap(find.text('Go'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      // The upcoming turn was announced out loud.
+      expect(spoken, isNotEmpty);
+      expect(spoken.first, contains('Turn right onto Valencia Street'));
+
+      // Mute flips the toggle.
+      await tester.tap(find.byTooltip('Mute voice'));
+      await tester.pump();
+      expect(find.byTooltip('Unmute voice'), findsOneWidget);
+
+      // Share ETA drafts an on-my-way message to send in a chat.
+      await tester.tap(find.byTooltip('Share ETA'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.text('Forward to...'), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+    });
+
+    testWidgets('saved places pin onto the idle map and open their card',
+        (tester) async {
+      SavedPlacesStore.instance
+          .toggle(const SavedPlace('Home Cafe', 43.61, -79.31));
+      await tester.pumpWidget(const MaterialApp(
+        home: ExploreMapScreen(debugMyLocation: LatLng(43.6, -79.3)),
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      final pin = find.byWidgetPredicate(
+          (w) => w is Icon && w.icon == Icons.bookmark && w.size == 26);
+      expect(pin, findsOneWidget);
+
+      await tester.tap(pin);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.text('Home Cafe'), findsWidgets);
+      expect(find.text('Directions'), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
     });
 
     testWidgets('Go starts in-app navigation instead of leaving the app',

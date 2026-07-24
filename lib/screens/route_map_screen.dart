@@ -7,8 +7,10 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../util/geolocation.dart';
 import '../util/routing.dart';
+import '../util/speech.dart';
 import '../utils/maps_link.dart';
 import '../widgets/osm_map.dart';
+import 'forward_screen.dart';
 
 /// Draws a route on an OpenStreetMap from the user's location to [dest] with
 /// a Drive / Walk / Cycle selector and turn-by-turn steps — and a fully
@@ -59,6 +61,10 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
   Timer? _navTimer;
   bool _rerouting = false;
   DateTime? _lastReroute;
+
+  // Voice guidance: which step was last announced (-1 = none yet).
+  bool _voiceOn = true;
+  int _lastSpoken = -1;
 
   @override
   void initState() {
@@ -154,9 +160,36 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
     });
     final start = _navPos ?? r.points.first;
     _map.move(start, 16.5);
+    _lastSpoken = -1;
+    _maybeAnnounce();
     _navTimer = Timer.periodic(const Duration(seconds: 4), (_) => _navTick());
     _navTick();
   }
+
+  /// Speaks the upcoming maneuver whenever it changes (and the arrival).
+  void _maybeAnnounce() {
+    final r = _route;
+    if (!_voiceOn || !_navigating || r == null || r.steps.isEmpty) return;
+    if (_arrived) {
+      if (_lastSpoken != _kSpokenArrived) {
+        _lastSpoken = _kSpokenArrived;
+        speak('You have arrived at your destination.');
+      }
+      return;
+    }
+    if (_navStep == _lastSpoken || _navStep >= r.steps.length) return;
+    _lastSpoken = _navStep;
+    final step = r.steps[_navStep];
+    final user = _navPos;
+    final loc = step.location;
+    final dist =
+        user != null && loc != null ? const Distance().distance(user, loc) : null;
+    speak(dist != null && dist >= 60
+        ? 'In ${spokenDistance(dist)}, ${step.instruction}.'
+        : '${step.instruction}.');
+  }
+
+  static const int _kSpokenArrived = 1 << 20;
 
   Future<void> _navTick() async {
     final pos = await getCurrentLatLng();
@@ -168,6 +201,7 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
       _navStep =
           advanceStep(steps: _route!.steps, current: _navStep, user: user);
     });
+    _maybeAnnounce();
     // Rotate the map so the direction of travel points up, like real
     // turn-by-turn navigation (only once actually moving).
     if (prev != null && const Distance().distance(prev, user) > 5) {
@@ -193,17 +227,42 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
           _routes = [fresh];
           _routeIndex = 0;
           _navStep = fresh.steps.length > 1 ? 1 : 0;
+          _lastSpoken = -1; // announce the new route's first turn
         }
       });
+      _maybeAnnounce();
     }
   }
 
   void _endNav() {
     _navTimer?.cancel();
     _navTimer = null;
+    stopSpeaking();
     setState(() => _navigating = false);
     _map.rotate(0); // back to north-up
     _fit(_from, _route);
+  }
+
+  /// Sends "on my way, arriving ~HH:MM" into a chat.
+  void _shareEta() {
+    final route = _route;
+    if (route == null) return;
+    final left =
+        remainingMeters(route: route, current: _navStep, user: _navPos);
+    final frac =
+        route.distanceMeters <= 0 ? 0.0 : left / route.distanceMeters;
+    final secs = route.durationSeconds * frac.clamp(0.0, 1.0);
+    final arrive = TimeOfDay.fromDateTime(
+            DateTime.now().add(Duration(seconds: secs.round())))
+        .format(context);
+    final where = widget.label.isEmpty ? 'my destination' : widget.label;
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) =>
+            ForwardScreen(text: 'On my way to $where — arriving around '
+                '$arrive.'),
+      ),
+    );
   }
 
   bool get _arrived {
@@ -320,6 +379,12 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
               route: route,
               navStep: _navStep,
               user: _navPos,
+              voiceOn: _voiceOn,
+              onToggleVoice: () {
+                setState(() => _voiceOn = !_voiceOn);
+                if (!_voiceOn) stopSpeaking();
+              },
+              onShareEta: _shareEta,
               onEnd: _endNav,
             ),
           ] else
@@ -429,12 +494,18 @@ class _NavBottomBar extends StatelessWidget {
   final RouteResult route;
   final int navStep;
   final LatLng? user;
+  final bool voiceOn;
+  final VoidCallback onToggleVoice;
+  final VoidCallback onShareEta;
   final VoidCallback onEnd;
 
   const _NavBottomBar({
     required this.route,
     required this.navStep,
     required this.user,
+    required this.voiceOn,
+    required this.onToggleVoice,
+    required this.onShareEta,
     required this.onEnd,
   });
 
@@ -472,6 +543,16 @@ class _NavBottomBar extends StatelessWidget {
                           style: TextStyle(color: Colors.grey.shade600)),
                     ],
                   ),
+                ),
+                IconButton(
+                  icon: Icon(voiceOn ? Icons.volume_up : Icons.volume_off),
+                  tooltip: voiceOn ? 'Mute voice' : 'Unmute voice',
+                  onPressed: onToggleVoice,
+                ),
+                IconButton(
+                  icon: const Icon(Icons.ios_share),
+                  tooltip: 'Share ETA',
+                  onPressed: onShareEta,
                 ),
                 FilledButton.icon(
                   onPressed: onEnd,

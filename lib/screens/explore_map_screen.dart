@@ -487,23 +487,46 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
             ),
             children: [
               const LiveTileLayer(),
-              MarkerLayer(
-                markers: [
-                  if (_me != null) myLocationMarker(_me!),
-                  for (final r in _results)
-                    Marker(
-                      point: LatLng(r.lat, r.lng),
-                      width: 30,
-                      height: 30,
-                      child: GestureDetector(
-                        onTap: () => _select(r),
-                        child: const Icon(Icons.place,
-                            color: Color(0xFF0A84FF), size: 30),
+              ListenableBuilder(
+                listenable: SavedPlacesStore.instance,
+                builder: (context, _) => MarkerLayer(
+                  markers: [
+                    // Saved places live on the idle map like Apple Maps
+                    // favourites; hidden while browsing search results.
+                    if (_results.isEmpty && selected == null)
+                      for (final p in SavedPlacesStore.instance.places)
+                        Marker(
+                          point: LatLng(p.lat, p.lng),
+                          width: 30,
+                          height: 30,
+                          alignment: Alignment.topCenter,
+                          child: GestureDetector(
+                            onTap: () => _select(GeoResult(
+                                name: p.name, lat: p.lat, lng: p.lng)),
+                            child: const Icon(Icons.bookmark,
+                                color: Color(0xFFEB4B3F),
+                                size: 26,
+                                shadows: [
+                                  Shadow(blurRadius: 4, color: Colors.black45)
+                                ]),
+                          ),
+                        ),
+                    if (_me != null) myLocationMarker(_me!),
+                    for (final r in _results)
+                      Marker(
+                        point: LatLng(r.lat, r.lng),
+                        width: 30,
+                        height: 30,
+                        child: GestureDetector(
+                          onTap: () => _select(r),
+                          child: const Icon(Icons.place,
+                              color: Color(0xFF0A84FF), size: 30),
+                        ),
                       ),
-                    ),
-                  if (selected != null)
-                    mapPin(LatLng(selected.lat, selected.lng)),
-                ],
+                    if (selected != null)
+                      mapPin(LatLng(selected.lat, selected.lng)),
+                  ],
+                ),
               ),
               Scalebar(
                 alignment: Alignment.bottomLeft,
