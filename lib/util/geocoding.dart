@@ -57,15 +57,18 @@ List<GeoResult> parsePhoton(String body) {
   return out;
 }
 
-/// A human category label from Photon's osm_value (e.g. "fast_food" →
-/// "Fast food"), or '' for generic places.
-String _category(Map<dynamic, dynamic> props) {
-  final raw = props['osm_value']?.toString() ?? '';
+/// Turns a raw OSM tag value ('fast_food') into a human label ('Fast food'),
+/// or '' for generic values.
+String _humanize(String raw) {
   if (raw.isEmpty || raw == 'yes') return '';
   final words = raw.replaceAll('_', ' ').trim();
   if (words.isEmpty) return '';
   return words[0].toUpperCase() + words.substring(1);
 }
+
+/// A human category label from Photon's osm_value, or '' for generic places.
+String _category(Map<dynamic, dynamic> props) =>
+    _humanize(props['osm_value']?.toString() ?? '');
 
 /// Builds a readable one-line label from Photon feature properties, e.g.
 /// "Eiffel Tower, Paris, France" or "1226 Valencia Street, San Francisco".
@@ -90,6 +93,84 @@ String _label(Map<dynamic, dynamic> props) {
   add(props['state']);
   add(props['country']);
   return parts.take(3).join(', ');
+}
+
+/// Parses an Overpass API response into places. Ways/relations use their
+/// computed `center`; unnamed POIs fall back to their category label (so a
+/// nameless car park still shows as "Parking"). Pure and testable.
+List<GeoResult> parseOverpass(String body) {
+  final Object? decoded;
+  try {
+    decoded = jsonDecode(body);
+  } catch (_) {
+    return const [];
+  }
+  if (decoded is! Map) return const [];
+  final elements = decoded['elements'];
+  if (elements is! List) return const [];
+
+  final out = <GeoResult>[];
+  for (final e in elements) {
+    if (e is! Map) continue;
+    final center = e['center'];
+    final lat = (e['lat'] as num?)?.toDouble() ??
+        (center is Map ? (center['lat'] as num?)?.toDouble() : null);
+    final lng = (e['lon'] as num?)?.toDouble() ??
+        (center is Map ? (center['lon'] as num?)?.toDouble() : null);
+    if (lat == null || lng == null) continue;
+    final tags = e['tags'];
+    if (tags is! Map) continue;
+    final category = _humanize((tags['amenity'] ??
+            tags['shop'] ??
+            tags['tourism'] ??
+            tags['leisure'] ??
+            '')
+        .toString());
+    final name = (tags['name'] ?? '').toString().trim();
+    if (name.isEmpty && category.isEmpty) continue;
+    out.add(GeoResult(
+      name: name.isEmpty ? category : name,
+      lat: lat,
+      lng: lng,
+      category: category,
+    ));
+  }
+  return out;
+}
+
+/// True category search — every matching POI around a point, like Apple
+/// Maps' nearby categories — via the Overpass API. The Photon text geocoder
+/// can't do this: it matches *names*, so "restaurant" finds places called
+/// Restaurant instead of restaurants.
+///
+/// [filter] is an Overpass tag filter such as 'amenity=cafe' or
+/// 'amenity~"^(restaurant|fast_food)\$"'. Same contract as [searchPlaces]:
+/// null = the request failed, empty = nothing matched.
+Future<List<GeoResult>?> searchNearby({
+  required String filter,
+  required double lat,
+  required double lng,
+  int radiusMeters = 4000,
+  int limit = 25,
+}) async {
+  final query = '[out:json][timeout:10];'
+      'nwr[$filter](around:$radiusMeters,$lat,$lng);'
+      'out center ${limit * 3};';
+  // Two independent public servers; fall through on overload.
+  for (final host in const ['overpass.kumi.systems', 'overpass-api.de']) {
+    try {
+      final res = await http.get(
+        Uri.https(host, '/api/interpreter', {'data': query}),
+        headers: {'Accept': 'application/json'},
+      ).timeout(const Duration(seconds: 12));
+      if (res.statusCode != 200) continue;
+      final results = dedupePlaces(parseOverpass(res.body));
+      return sortPlacesByDistance(results, lat, lng).take(limit).toList();
+    } catch (_) {
+      continue;
+    }
+  }
+  return null;
 }
 
 /// Removes near-duplicate results (same label at effectively the same spot —

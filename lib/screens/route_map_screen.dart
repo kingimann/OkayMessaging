@@ -233,10 +233,14 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
               if (route != null)
                 PolylineLayer(
                   polylines: [
+                    // Cased like Apple Maps: a white border makes the route
+                    // pop on any base map.
                     Polyline(
                       points: route.points,
-                      strokeWidth: 5,
+                      strokeWidth: 6,
                       color: const Color(0xFF0A84FF),
+                      borderStrokeWidth: 2,
+                      borderColor: Colors.white,
                     ),
                   ],
                 ),
@@ -337,8 +341,15 @@ class _NavBanner extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
           child: Row(
             children: [
-              Icon(arrived ? Icons.flag : Icons.navigation,
-                  color: Colors.white, size: 28),
+              Icon(
+                arrived
+                    ? Icons.flag
+                    : step == null
+                        ? Icons.navigation
+                        : iconForManeuver(step!.type, step!.modifier),
+                color: Colors.white,
+                size: 30,
+              ),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
@@ -387,6 +398,9 @@ class _NavBottomBar extends StatelessWidget {
     final frac =
         route.distanceMeters <= 0 ? 0.0 : (left / route.distanceMeters);
     final etaLeft = route.durationSeconds * frac.clamp(0.0, 1.0);
+    final arrive = TimeOfDay.fromDateTime(
+            DateTime.now().add(Duration(seconds: etaLeft.round())))
+        .format(context);
     return Positioned(
       left: 12,
       right: 12,
@@ -408,7 +422,7 @@ class _NavBottomBar extends StatelessWidget {
                       Text(formatDuration(etaLeft),
                           style: const TextStyle(
                               fontSize: 20, fontWeight: FontWeight.w700)),
-                      Text('${formatDistance(left)} left',
+                      Text('${formatDistance(left)} left · arrive $arrive',
                           style: TextStyle(color: Colors.grey.shade600)),
                     ],
                   ),
@@ -519,7 +533,8 @@ class _DirectionsPanel extends StatelessWidget {
               for (final step in route!.steps)
                 ListTile(
                   dense: true,
-                  leading: const Icon(Icons.turn_right, size: 20),
+                  leading:
+                      Icon(iconForManeuver(step.type, step.modifier), size: 22),
                   title: Text(step.instruction),
                   trailing: step.distanceMeters > 0
                       ? Text(formatDistance(step.distanceMeters),
@@ -552,6 +567,9 @@ class _DirectionsPanel extends StatelessWidget {
       return Text(error ?? 'No route available',
           style: TextStyle(color: Colors.grey.shade700));
     }
+    final arrive = TimeOfDay.fromDateTime(
+            DateTime.now().add(Duration(seconds: r.durationSeconds.round())))
+        .format(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
@@ -559,7 +577,9 @@ class _DirectionsPanel extends StatelessWidget {
         Text(formatDuration(r.durationSeconds),
             style:
                 const TextStyle(fontSize: 22, fontWeight: FontWeight.w700)),
-        Text('${formatDistance(r.distanceMeters)} · ${mode.label.toLowerCase()}',
+        Text(
+            '${formatDistance(r.distanceMeters)} · '
+            '${mode.label.toLowerCase()} · arrive $arrive',
             style: TextStyle(color: Colors.grey.shade600)),
       ],
     );

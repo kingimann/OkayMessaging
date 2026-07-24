@@ -4387,6 +4387,75 @@ void main() {
       await tester.pump();
     });
 
+    test('parseOverpass reads nodes, way centers, and unnamed POIs', () {
+      const body = '''
+      {"elements": [
+        {"type":"node","lat":44.05,"lon":-79.46,
+         "tags":{"name":"Wimpy's Diner","amenity":"restaurant"}},
+        {"type":"way","center":{"lat":44.06,"lon":-79.47},
+         "tags":{"name":"Upper Canada Mall","shop":"mall"}},
+        {"type":"node","lat":44.07,"lon":-79.48,
+         "tags":{"amenity":"parking"}},
+        {"type":"node","lat":44.08,"lon":-79.49}
+      ]}''';
+      final places = parseOverpass(body);
+      expect(places.length, 3);
+      expect(places[0].name, "Wimpy's Diner");
+      expect(places[0].category, 'Restaurant');
+      expect(places[1].name, 'Upper Canada Mall');
+      expect(places[1].lat, 44.06);
+      // Unnamed POIs fall back to their category; tagless ones are skipped.
+      expect(places[2].name, 'Parking');
+      expect(parseOverpass('not json'), isEmpty);
+    });
+
+    test('iconForManeuver picks matching turn arrows', () {
+      expect(iconForManeuver('turn', 'right'), Icons.turn_right);
+      expect(iconForManeuver('turn', 'sharp left'), Icons.turn_sharp_left);
+      expect(iconForManeuver('turn', 'slight right'), Icons.turn_slight_right);
+      expect(iconForManeuver('roundabout', ''), Icons.roundabout_right);
+      expect(iconForManeuver('arrive', ''), Icons.sports_score);
+      expect(iconForManeuver('depart', ''), Icons.trip_origin);
+      expect(iconForManeuver('fork', 'slight left'), Icons.fork_left);
+      expect(iconForManeuver('continue', 'uturn'), Icons.u_turn_left);
+      expect(iconForManeuver('continue', ''), Icons.straight);
+    });
+
+    testWidgets('a category chip runs a nearby search into the results sheet',
+        (tester) async {
+      String? asked;
+      await tester.pumpWidget(MaterialApp(
+        home: ExploreMapScreen(
+          debugMyLocation: const LatLng(44.05, -79.46),
+          debugSearch: (q) async {
+            asked = q;
+            return const [
+              GeoResult(
+                  name: 'Cafe One', lat: 44.05, lng: -79.45, category: 'Cafe'),
+              GeoResult(
+                  name: 'Cafe Two', lat: 44.06, lng: -79.47, category: 'Cafe'),
+            ];
+          },
+        ),
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      await tester.tap(find.text('Coffee'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(asked, 'coffee');
+      expect(find.text('2 places'), findsOneWidget);
+      expect(find.text('Cafe One'), findsOneWidget);
+      // The search pill reflects the category being browsed.
+      final field = tester.widget<TextField>(find.byType(TextField).first);
+      expect(field.controller!.text, 'Coffee');
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+    });
+
     test('instructionFor builds readable turn text', () {
       expect(instructionFor('turn', 'right', 'Main St'),
           'Turn right onto Main St');

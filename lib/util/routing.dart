@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:math' as math;
 
+import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
 
@@ -21,7 +22,44 @@ class RouteStep {
   final String instruction;
   final double distanceMeters;
   final LatLng? location;
-  const RouteStep(this.instruction, this.distanceMeters, {this.location});
+
+  /// The raw OSRM maneuver type/modifier ('turn' / 'sharp left') — used to
+  /// pick the matching turn arrow via [iconForManeuver].
+  final String type;
+  final String modifier;
+
+  const RouteStep(this.instruction, this.distanceMeters,
+      {this.location, this.type = '', this.modifier = ''});
+}
+
+/// The turn arrow for an OSRM maneuver — Apple-Maps-style step icons. Pure.
+IconData iconForManeuver(String type, String modifier) {
+  final t = type.toLowerCase();
+  final m = modifier.toLowerCase();
+  if (t == 'arrive') return Icons.sports_score;
+  if (t == 'depart') return Icons.trip_origin;
+  if (t == 'roundabout' || t == 'rotary') {
+    return m.contains('left') ? Icons.roundabout_left : Icons.roundabout_right;
+  }
+  if (m.contains('uturn')) return Icons.u_turn_left;
+  if (t == 'merge') return Icons.merge;
+  if (t == 'fork') {
+    return m.contains('left') ? Icons.fork_left : Icons.fork_right;
+  }
+  if (t == 'on ramp' || t == 'off ramp') {
+    return m.contains('left') ? Icons.ramp_left : Icons.ramp_right;
+  }
+  if (m.contains('left')) {
+    if (m.contains('sharp')) return Icons.turn_sharp_left;
+    if (m.contains('slight')) return Icons.turn_slight_left;
+    return Icons.turn_left;
+  }
+  if (m.contains('right')) {
+    if (m.contains('sharp')) return Icons.turn_sharp_right;
+    if (m.contains('slight')) return Icons.turn_slight_right;
+    return Icons.turn_right;
+  }
+  return Icons.straight;
 }
 
 /// A route: the path to draw, its length and time, and turn-by-turn steps.
@@ -120,6 +158,8 @@ RouteResult? parseOsrmRoute(String body) {
             instructionFor(type, mod, name),
             (s['distance'] as num?)?.toDouble() ?? 0,
             location: loc,
+            type: type,
+            modifier: mod,
           ));
         }
       }

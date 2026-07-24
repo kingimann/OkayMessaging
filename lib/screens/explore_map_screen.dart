@@ -15,16 +15,22 @@ import 'forward_screen.dart';
 import 'map_screen.dart';
 import 'route_map_screen.dart';
 
-/// Quick "search nearby" categories, à la Apple Maps.
+/// Quick "search nearby" categories, à la Apple Maps. The third field is an
+/// Overpass tag filter — a *category* lookup (every cafe near here), not a
+/// name search.
 const List<(IconData, String, String)> _categories = [
-  (Icons.restaurant, 'Food', 'restaurant'),
-  (Icons.local_cafe, 'Coffee', 'cafe'),
-  (Icons.local_bar, 'Bars', 'bar'),
-  (Icons.local_gas_station, 'Fuel', 'fuel'),
-  (Icons.hotel, 'Hotels', 'hotel'),
-  (Icons.shopping_cart, 'Shops', 'supermarket'),
-  (Icons.local_atm, 'ATMs', 'atm'),
-  (Icons.local_parking, 'Parking', 'parking'),
+  (Icons.restaurant, 'Food', 'amenity~"^(restaurant|fast_food|food_court)\$"'),
+  (Icons.local_cafe, 'Coffee', 'amenity~"^(cafe|ice_cream)\$"'),
+  (Icons.local_bar, 'Bars', 'amenity~"^(bar|pub|biergarten)\$"'),
+  (Icons.local_gas_station, 'Fuel', 'amenity~"^(fuel|charging_station)\$"'),
+  (Icons.hotel, 'Hotels', 'tourism~"^(hotel|hostel|motel|guest_house)\$"'),
+  (
+    Icons.shopping_cart,
+    'Shops',
+    'shop~"^(supermarket|convenience|mall|department_store)\$"'
+  ),
+  (Icons.local_atm, 'ATMs', 'amenity~"^(atm|bank)\$"'),
+  (Icons.local_parking, 'Parking', 'amenity=parking'),
 ];
 
 /// A standalone, Apple-Maps-style map: search places or nearby categories, see
@@ -89,6 +95,10 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
   /// The last submitted query, so "Search this area" can re-run it where the
   /// user has panned to.
   String? _lastQuery;
+
+  /// The last category chip search (label, Overpass filter) — the nearby
+  /// counterpart of [_lastQuery] for "Search this area".
+  (String, String)? _lastNearby;
 
   /// True once the user pans away from a search's results — shows the
   /// "Search this area" button.
@@ -193,10 +203,51 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
     }
     // Remember typed queries that found something (not the category chips).
     if (term == null && results.isNotEmpty) RecentSearches.maps.add(q);
+    _lastQuery = q;
+    _lastNearby = null;
+    _showFound(results, 'Nothing found for "$q" nearby.');
+  }
+
+  /// A true nearby-category search (every cafe/restaurant/… around [bias])
+  /// via Overpass — what the chips run instead of a name search.
+  Future<void> _runNearby(String label, String filter,
+      {LatLng? biasOverride}) async {
+    final bias = biasOverride ?? _me ?? (_mapTouched ? _center : null);
+    if (bias == null) return; // callers guard and explain
+    _debounce?.cancel();
+    FocusScope.of(context).unfocus();
+    final seq = ++_searchSeq;
+    setState(() {
+      _searching = true;
+      _showSearchHere = false;
+      _search.text = label;
+    });
+    final debug = widget.debugSearch;
+    final results = debug != null
+        ? await debug(label.toLowerCase())
+        : await searchNearby(
+            filter: filter, lat: bias.latitude, lng: bias.longitude);
+    if (!mounted || seq != _searchSeq) return;
+    if (results == null) {
+      setState(() => _searching = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('Search failed — check your connection and try '
+                'again.')),
+      );
+      return;
+    }
+    _lastQuery = null;
+    _lastNearby = (label, filter);
+    _showFound(results, 'No ${label.toLowerCase()} found nearby.');
+  }
+
+  /// Shared landing for search results: sheet/card state, camera framing,
+  /// and the empty-result message.
+  void _showFound(List<GeoResult> results, String emptyMessage) {
     setState(() {
       _searching = false;
       _results = results;
-      _lastQuery = q;
       // Several hits go to the bottom results sheet, not the dropdown.
       _hideSuggestions = results.length > 1;
       _showResultsSheet = results.length > 1;
@@ -204,7 +255,7 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
     });
     if (results.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Nothing found for "$q" nearby.')),
+        SnackBar(content: Text(emptyMessage)),
       );
     } else if (results.length == 1) {
       _map.move(LatLng(results.first.lat, results.first.lng), 15);
@@ -407,7 +458,7 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
                 // Panning away from a search's results offers to re-run it
                 // around the new spot, Apple-Maps style.
                 if (_results.isNotEmpty &&
-                    _lastQuery != null &&
+                    (_lastQuery != null || _lastNearby != null) &&
                     !_showSearchHere) {
                   setState(() => _showSearchHere = true);
                 }
@@ -504,6 +555,7 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
                               _showResultsSheet = false;
                               _showSearchHere = false;
                               _lastQuery = null;
+                              _lastNearby = null;
                             });
                           },
                         ),
@@ -513,7 +565,7 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
                   if (_results.isEmpty && selected == null) ...[
                     const SizedBox(height: 10),
                     _CategoryChips(
-                      onTap: (term) {
+                      onTap: (label, filter) {
                         // Nearby search needs a "near" — a GPS fix or a spot
                         // the user has panned to. Without one the results
                         // would be random places around the globe.
@@ -527,7 +579,7 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
                           );
                           return;
                         }
-                        _runSearch(term: term);
+                        _runNearby(label, filter);
                       },
                       onSaved: _showSaved,
                       onFriends: () => Navigator.of(context).push(
@@ -546,8 +598,15 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
                     const SizedBox(height: 10),
                     Center(
                       child: FilledButton.tonalIcon(
-                        onPressed: () =>
-                            _runSearch(term: _lastQuery, nearCenter: true),
+                        onPressed: () {
+                          final nearby = _lastNearby;
+                          if (nearby != null) {
+                            _runNearby(nearby.$1, nearby.$2,
+                                biasOverride: _center);
+                          } else {
+                            _runSearch(term: _lastQuery, nearCenter: true);
+                          }
+                        },
                         icon: const Icon(Icons.refresh, size: 18),
                         label: const Text('Search this area'),
                       ),
@@ -829,7 +888,7 @@ class _RecentMapSearches extends StatelessWidget {
 /// A horizontal row of chips: Saved places and Friends first, then the
 /// "search nearby" categories.
 class _CategoryChips extends StatelessWidget {
-  final ValueChanged<String> onTap;
+  final void Function(String label, String filter) onTap;
   final VoidCallback onSaved;
   final VoidCallback onFriends;
 
@@ -860,8 +919,8 @@ class _CategoryChips extends StatelessWidget {
         itemBuilder: (context, i) {
           if (i == 0) return chip(Icons.bookmark, 'Saved', onSaved);
           if (i == 1) return chip(Icons.group, 'Friends', onFriends);
-          final (icon, label, term) = _categories[i - 2];
-          return chip(icon, label, () => onTap(term));
+          final (icon, label, filter) = _categories[i - 2];
+          return chip(icon, label, () => onTap(label, filter));
         },
       ),
     );
