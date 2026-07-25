@@ -19,18 +19,22 @@ import 'route_map_screen.dart';
 /// Overpass tag filter — a *category* lookup (every cafe near here), not a
 /// name search.
 const List<(IconData, String, String)> _categories = [
-  (Icons.restaurant, 'Food', 'amenity~"^(restaurant|fast_food|food_court)\$"'),
-  (Icons.local_cafe, 'Coffee', 'amenity~"^(cafe|ice_cream)\$"'),
-  (Icons.local_bar, 'Bars', 'amenity~"^(bar|pub|biergarten)\$"'),
-  (Icons.local_gas_station, 'Fuel', 'amenity~"^(fuel|charging_station)\$"'),
-  (Icons.hotel, 'Hotels', 'tourism~"^(hotel|hostel|motel|guest_house)\$"'),
+  (
+    Icons.restaurant,
+    'Food',
+    r'[amenity~"^(restaurant|fast_food|food_court)$"]'
+  ),
+  (Icons.local_cafe, 'Coffee', r'[amenity~"^(cafe|ice_cream)$"]'),
+  (Icons.local_bar, 'Bars', r'[amenity~"^(bar|pub|biergarten)$"]'),
+  (Icons.local_gas_station, 'Fuel', r'[amenity~"^(fuel|charging_station)$"]'),
+  (Icons.hotel, 'Hotels', r'[tourism~"^(hotel|hostel|motel|guest_house)$"]'),
   (
     Icons.shopping_cart,
     'Shops',
-    'shop~"^(supermarket|convenience|mall|department_store)\$"'
+    r'[shop~"^(supermarket|convenience|mall|department_store)$"]'
   ),
-  (Icons.local_atm, 'ATMs', 'amenity~"^(atm|bank)\$"'),
-  (Icons.local_parking, 'Parking', 'amenity=parking'),
+  (Icons.local_atm, 'ATMs', r'[amenity~"^(atm|bank)$"]'),
+  (Icons.local_parking, 'Parking', '[amenity=parking]'),
 ];
 
 /// A standalone, Apple-Maps-style map: search places or nearby categories, see
@@ -104,15 +108,20 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
   /// "Search this area" button.
   bool _showSearchHere = false;
 
-  Future<List<GeoResult>?> _doSearch(String q, {LatLng? biasOverride}) {
+  Future<List<GeoResult>?> _doSearch(String q, {LatLng? biasOverride}) async {
     final debug = widget.debugSearch;
     if (debug != null) return debug(q);
     // Bias to where the user actually is — or where they've panned the map
     // to. Never bias to the untouched placeholder centre: that would rank a
     // far-away city's results first for everyone without a GPS fix.
     final LatLng? bias = biasOverride ?? _me ?? (_mapTouched ? _center : null);
-    return searchPlaces(q,
+    final results = await searchPlaces(q,
         lat: bias?.latitude, lng: bias?.longitude, limit: 12);
+    if (results != null) return results;
+    // Geocoder unreachable — try a nearby name match on the independent
+    // Overpass servers before declaring search dead.
+    if (bias == null) return null;
+    return searchNamesNearby(q, lat: bias.latitude, lng: bias.longitude);
   }
 
   /// Live, Apple-Maps-style suggestions while typing (debounced; stale
@@ -238,7 +247,7 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
     final results = debug != null
         ? await debug(label.toLowerCase())
         : await searchNearby(
-            filter: filter, lat: bias.latitude, lng: bias.longitude);
+            filters: [filter], lat: bias.latitude, lng: bias.longitude);
     if (!mounted || seq != _searchSeq) return;
     if (results == null) {
       setState(() => _searching = false);

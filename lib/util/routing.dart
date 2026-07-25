@@ -201,21 +201,36 @@ Future<List<RouteResult>?> fetchRoutes({
   TravelMode mode = TravelMode.car,
   bool alternatives = true,
 }) async {
-  final path = '/${mode.profile}/route/v1/driving/'
+  final coords =
       '${from.longitude},${from.latitude};${to.longitude},${to.latitude}';
-  final uri = Uri.https('routing.openstreetmap.de', path, {
+  final params = {
     'overview': 'full',
     'geometries': 'geojson',
     'steps': 'true',
     if (alternatives) 'alternatives': 'true',
-  });
-  try {
-    final res = await http.get(uri).timeout(const Duration(seconds: 15));
-    if (res.statusCode != 200) return null;
-    return parseOsrmRoutes(res.body);
-  } catch (_) {
-    return null;
+  };
+  // Primary: the FOSSGIS profile servers (car/foot/bike). Fallback for
+  // driving: the OSRM demo server, an independent deployment — directions
+  // shouldn't die with one host.
+  final uris = [
+    Uri.https(
+        'routing.openstreetmap.de', '/${mode.profile}/route/v1/driving/$coords',
+        params),
+    if (mode == TravelMode.car)
+      Uri.https('router.project-osrm.org', '/route/v1/driving/$coords',
+          params),
+  ];
+  for (final uri in uris) {
+    try {
+      final res = await http.get(uri).timeout(const Duration(seconds: 15));
+      if (res.statusCode != 200) continue;
+      final routes = parseOsrmRoutes(res.body);
+      if (routes != null) return routes;
+    } catch (_) {
+      continue;
+    }
   }
+  return null;
 }
 
 /// The single best route between two points, or null on any error.

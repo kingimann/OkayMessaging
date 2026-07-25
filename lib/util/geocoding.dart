@@ -143,19 +143,19 @@ List<GeoResult> parseOverpass(String body) {
 /// can't do this: it matches *names*, so "restaurant" finds places called
 /// Restaurant instead of restaurants.
 ///
-/// [filter] is an Overpass tag filter such as 'amenity=cafe' or
-/// 'amenity~"^(restaurant|fast_food)\$"'. Same contract as [searchPlaces]:
-/// null = the request failed, empty = nothing matched.
+/// Each entry in [filters] is a full Overpass bracket group such as
+/// '[amenity=cafe]' or '[amenity][name~"tims",i]'; the groups are OR-ed.
+/// Same contract as [searchPlaces]: null = failed, empty = nothing matched.
 Future<List<GeoResult>?> searchNearby({
-  required String filter,
+  required List<String> filters,
   required double lat,
   required double lng,
   int radiusMeters = 4000,
   int limit = 25,
 }) async {
-  final query = '[out:json][timeout:10];'
-      'nwr[$filter](around:$radiusMeters,$lat,$lng);'
-      'out center ${limit * 3};';
+  final around = '(around:$radiusMeters,$lat,$lng)';
+  final union = filters.map((f) => 'nwr$f$around;').join();
+  final query = '[out:json][timeout:10];($union);out center ${limit * 3};';
   // Two independent public servers; fall through on overload.
   for (final host in const ['overpass.kumi.systems', 'overpass-api.de']) {
     try {
@@ -164,7 +164,16 @@ Future<List<GeoResult>?> searchNearby({
         headers: {'Accept': 'application/json'},
       ).timeout(const Duration(seconds: 12));
       if (res.statusCode != 200) continue;
-      final results = dedupePlaces(parseOverpass(res.body));
+      // Overload and timeouts come back as HTTP 200: either an HTML error
+      // page, or valid JSON with a runtime-error "remark". Both are
+      // failures, not "no matches here".
+      final body = res.body;
+      if (!body.trimLeft().startsWith('{')) continue;
+      final decoded = jsonDecode(body);
+      final remark =
+          decoded is Map ? decoded['remark']?.toString() ?? '' : '';
+      if (remark.contains('error') || remark.contains('timed out')) continue;
+      final results = dedupePlaces(parseOverpass(body));
       return sortPlacesByDistance(results, lat, lng).take(limit).toList();
     } catch (_) {
       continue;
@@ -173,45 +182,74 @@ Future<List<GeoResult>?> searchNearby({
   return null;
 }
 
-const String _fFood = r'amenity~"^(restaurant|fast_food|food_court)$"';
-const String _fCafe = r'amenity~"^(cafe|ice_cream)$"';
-const String _fBar = r'amenity~"^(bar|pub|biergarten)$"';
-const String _fFuel = r'amenity~"^(fuel|charging_station)$"';
-const String _fHotel = r'tourism~"^(hotel|hostel|motel|guest_house)$"';
-const String _fShop = r'shop~"^(supermarket|convenience|mall|department_store)$"';
-const String _fAtm = r'amenity~"^(atm|bank)$"';
-const String _fHealth = r'amenity~"^(hospital|clinic|doctors)$"';
+const String _fFood = r'[amenity~"^(restaurant|fast_food|food_court)$"]';
+const String _fCafe = r'[amenity~"^(cafe|ice_cream)$"]';
+const String _fBar = r'[amenity~"^(bar|pub|biergarten)$"]';
+const String _fFuel = r'[amenity~"^(fuel|charging_station)$"]';
+const String _fHotel = r'[tourism~"^(hotel|hostel|motel|guest_house)$"]';
+const String _fShop =
+    r'[shop~"^(supermarket|convenience|mall|department_store)$"]';
+const String _fAtm = r'[amenity~"^(atm|bank)$"]';
+const String _fHealth = r'[amenity~"^(hospital|clinic|doctors)$"]';
 
 /// Typed queries that are really *category intents*: "coffee" means "cafes
 /// near me", not places named Coffee. Maps a query to an Overpass filter.
 const Map<String, String> _categoryAliases = {
   'food': _fFood, 'restaurant': _fFood, 'restaurants': _fFood,
-  'fast food': 'amenity=fast_food', 'takeout': 'amenity=fast_food',
+  'fast food': '[amenity=fast_food]', 'takeout': '[amenity=fast_food]',
   'coffee': _fCafe, 'coffee shop': _fCafe, 'cafe': _fCafe, 'cafes': _fCafe,
   'bar': _fBar, 'bars': _fBar, 'pub': _fBar, 'pubs': _fBar,
   'gas': _fFuel, 'gas station': _fFuel, 'fuel': _fFuel,
   'petrol': _fFuel, 'petrol station': _fFuel,
-  'charging': 'amenity=charging_station',
-  'ev charging': 'amenity=charging_station',
+  'charging': '[amenity=charging_station]',
+  'ev charging': '[amenity=charging_station]',
   'hotel': _fHotel, 'hotels': _fHotel, 'motel': _fHotel, 'hostel': _fHotel,
   'grocery': _fShop, 'groceries': _fShop, 'grocery store': _fShop,
   'supermarket': _fShop, 'supermarkets': _fShop,
   'atm': _fAtm, 'atms': _fAtm, 'bank': _fAtm, 'banks': _fAtm,
-  'parking': 'amenity=parking',
-  'pharmacy': 'amenity=pharmacy', 'drugstore': 'amenity=pharmacy',
+  'parking': '[amenity=parking]',
+  'pharmacy': '[amenity=pharmacy]', 'drugstore': '[amenity=pharmacy]',
   'hospital': _fHealth, 'clinic': _fHealth, 'doctor': _fHealth,
-  'park': 'leisure=park', 'parks': 'leisure=park',
-  'playground': 'leisure=playground',
-  'school': 'amenity=school', 'schools': 'amenity=school',
-  'gym': 'leisure=fitness_centre',
-  'police': 'amenity=police',
-  'library': 'amenity=library',
+  'park': '[leisure=park]', 'parks': '[leisure=park]',
+  'playground': '[leisure=playground]',
+  'school': '[amenity=school]', 'schools': '[amenity=school]',
+  'gym': '[leisure=fitness_centre]',
+  'police': '[amenity=police]',
+  'library': '[amenity=library]',
 };
 
 /// The Overpass filter for a typed query that's really a category intent
 /// ("coffee", "gas station"), or null for genuine name/address queries.
 String? categoryFilterFor(String query) =>
     _categoryAliases[query.trim().toLowerCase()];
+
+/// Fallback name search when the geocoder is unreachable: case-insensitive
+/// match over OSM place names around a point, via Overpass. Nearby-only
+/// (no worldwide addresses), but far better than search simply dying.
+Future<List<GeoResult>?> searchNamesNearby(
+  String query, {
+  required double lat,
+  required double lng,
+  int limit = 12,
+}) {
+  final q = query.replaceAll('"', '').replaceAll(r'\', '').trim();
+  if (q.isEmpty) return Future.value(const []);
+  // Constrained to POI-tagged objects: an unconstrained name regex scans
+  // every building and road in radius and times the server out.
+  final name = '[name~"${RegExp.escape(q)}",i]';
+  return searchNearby(
+    filters: [
+      '[amenity]$name',
+      '[shop]$name',
+      '[tourism]$name',
+      '[leisure]$name',
+    ],
+    lat: lat,
+    lng: lng,
+    radiusMeters: 15000,
+    limit: limit,
+  );
+}
 
 /// Removes near-duplicate results (same label at effectively the same spot —
 /// Photon frequently returns them for businesses).

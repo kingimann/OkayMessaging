@@ -29,8 +29,51 @@
   <!-- Favicon -->
   <link rel="icon" type="image/png" href="favicon.png"/>
 
-  <title>okay_messaging</title>
+  <title>Okay Messaging</title>
   <link rel="manifest" href="manifest.json">
+
+  <!--
+    Deployments must reach users on their NEXT visit, not two visits later.
+    Flutter's service worker caches the whole app; by default a new version
+    installs but sits "waiting" until every tab is closed, so phones keep
+    running stale (and, mid-deploy, mixed) builds. This activates a waiting
+    update immediately and reloads once so the fresh build takes over.
+  -->
+  <script>
+    (function () {
+      if (!('serviceWorker' in navigator)) return;
+      var reloaded = false;
+      // Only reload for *updates*: on a first visit the page has no
+      // controller yet, and that initial claim must not trigger a reload.
+      var hadController = !!navigator.serviceWorker.controller;
+      function activate(reg) {
+        if (reg && reg.waiting) {
+          reg.waiting.postMessage('skipWaiting');
+        }
+      }
+      navigator.serviceWorker.addEventListener('controllerchange', function () {
+        if (!hadController) { hadController = true; return; }
+        if (reloaded) return;
+        reloaded = true;
+        window.location.reload();
+      });
+      window.addEventListener('load', function () {
+        navigator.serviceWorker.getRegistration().then(function (reg) {
+          if (!reg) return;
+          activate(reg);
+          reg.addEventListener('updatefound', function () {
+            var sw = reg.installing;
+            if (!sw) return;
+            sw.addEventListener('statechange', function () {
+              if (sw.state === 'installed') activate(reg);
+            });
+          });
+          // Also ask the browser to check for a newer build right now.
+          reg.update().catch(function () {});
+        });
+      });
+    })();
+  </script>
 </head>
 <body>
   <!--

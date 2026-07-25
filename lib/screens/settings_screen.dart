@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../app_state.dart';
 import '../state/backup_service.dart';
+import '../util/build_info.dart';
 import '../state/chat_store.dart';
 import '../state/session.dart';
 import '../widgets/info_section.dart';
@@ -153,6 +154,17 @@ class SettingsView extends StatelessWidget {
               onTap: () => Navigator.of(context).push(
                 MaterialPageRoute(builder: (_) => LegalScreen.terms()),
               ),
+            ),
+            InfoTile(
+              leading: const Icon(Icons.numbers),
+              title: 'Version',
+              subtitle: kBuildStamp,
+              onTap: () {
+                Clipboard.setData(const ClipboardData(text: kBuildStamp));
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Version copied')),
+                );
+              },
             ),
           ],
         ),
