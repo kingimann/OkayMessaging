@@ -11,6 +11,7 @@ import '../models/message.dart';
 import '../models/user.dart';
 import '../state/call_service.dart';
 import '../state/chat_store.dart';
+import '../state/feed_store.dart';
 import '../state/file_transfer.dart';
 import '../state/live_location_store.dart';
 import '../state/score_store.dart';
@@ -34,6 +35,7 @@ class RelayService {
 
   bool _initialized = false;
   RealtimeChannel? _inbox;
+  RealtimeChannel? _feedChannel;
   final Map<String, RealtimeChannel> _sendChannels = {};
 
   /// Phone digits we've already sent our public key to this session (avoids
@@ -589,6 +591,42 @@ class RelayService {
           },
         )
         .subscribe();
+
+    // The shared server-feed channel: posts are public-to-the-server by
+    // nature, so they ride a common broadcast (memory-only, like messages).
+    _feedChannel = _client
+        .channel('server_feed')
+        .onBroadcast(
+          event: 'post',
+          callback: (payload) {
+            final map = Map<String, dynamic>.from(payload);
+            final from = map['from'] as String?;
+            if (from == null || digits(from) == digits(me)) return;
+            final raw = map['post'];
+            if (raw is! Map) return;
+            try {
+              FeedStore.instance.addRemote(
+                  FeedPost.fromJson(Map<String, dynamic>.from(raw)));
+            } catch (_) {}
+          },
+        )
+        .subscribe();
+  }
+
+  /// Broadcasts a feed post to everyone in the server channel.
+  Future<void> sendFeedPost(FeedPost post) async {
+    if (!_initialized) return;
+    final me = Session.instance.user.value;
+    if (me == null) return;
+    final channel = _feedChannel ??
+        _sendChannels.putIfAbsent(
+            'server_feed', () => _client.channel('server_feed'));
+    try {
+      await channel.sendBroadcastMessage(
+        event: 'post',
+        payload: {'from': me.phone, 'post': post.toJson()},
+      );
+    } catch (_) {}
   }
 
   /// Encrypts a call/file signaling string ([plaintext] — an SDP or a JSON ICE

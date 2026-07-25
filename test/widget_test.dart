@@ -4026,6 +4026,36 @@ void main() {
       expect(AppState.defaultTravelMode.value, 'foot');
     });
 
+    test('remote feed posts merge once and bump their parent thread', () {
+      final now = DateTime.now().toIso8601String();
+      final post = FeedPost.fromJson({
+        'id': 'r1',
+        'communityId': 'c1',
+        'authorName': 'Grace Hopper',
+        'authorUsername': 'gracehop',
+        'time': now,
+        'text': 'hi from another phone',
+      });
+      FeedStore.instance.addRemote(post);
+      FeedStore.instance.addRemote(post); // duplicate delivery is ignored
+      expect(FeedStore.instance.postsFor('c1').single.text,
+          'hi from another phone');
+
+      FeedStore.instance.addRemote(FeedPost.fromJson({
+        'id': 'r2',
+        'communityId': 'c1',
+        'authorName': 'You',
+        'authorUsername': 'you',
+        'time': now,
+        'text': 'welcome!',
+        'parentId': 'r1',
+      }));
+      // The reply threads under its parent and bumps the count.
+      expect(FeedStore.instance.postById('r1')!.replies, 1);
+      expect(FeedStore.instance.repliesTo('r1').single.text, 'welcome!');
+      expect(FeedStore.instance.postsFor('c1').length, 1);
+    });
+
     test('feed moderation hides posts and mutes authors', () {
       FeedStore.instance.hydratePosts([
         {

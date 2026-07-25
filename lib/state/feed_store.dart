@@ -4,6 +4,8 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../app_state.dart';
+import '../relay/relay_config.dart';
+import '../relay/relay_service.dart';
 
 /// One post in a server's X-style feed.
 class FeedPost {
@@ -175,7 +177,25 @@ class FeedStore extends ChangeNotifier {
     _posts.add(post);
     _save();
     notifyListeners();
+    // Real-time: everyone in the server sees the post, like messages.
+    if (RelayConfig.isEnabled) RelayService.instance.sendFeedPost(post);
     return post;
+  }
+
+  /// Merges a post that arrived over the relay from another device.
+  /// Dedupes by id; incoming replies bump their parent's count.
+  void addRemote(FeedPost post) {
+    if (_posts.any((p) => p.id == post.id)) return;
+    _posts.add(post);
+    final parentId = post.parentId;
+    if (parentId != null) {
+      final i = _posts.indexWhere((p) => p.id == parentId);
+      if (i >= 0) {
+        _posts[i] = _posts[i].copyWith(replies: _posts[i].replies + 1);
+      }
+    }
+    _save();
+    notifyListeners();
   }
 
   /// A threaded reply: lives under its parent and bumps its reply count.
