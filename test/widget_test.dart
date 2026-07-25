@@ -2438,6 +2438,47 @@ void main() {
       expect(chat.messages.single.isMe, isFalse);
     });
 
+    test('looksLikeSpam applies keyword and stranger-link filters', () {
+      addTearDown(() {
+        AppState.spamKeywords.value = '';
+        AppState.blockLinksFromStrangers.value = false;
+      });
+      AppState.spamKeywords.value = 'free money, crypto';
+      expect(AppState.looksLikeSpam('win FREE MONEY now', isKnownContact: true),
+          isTrue);
+      expect(AppState.looksLikeSpam('hey how are you', isKnownContact: true),
+          isFalse);
+
+      AppState.spamKeywords.value = '';
+      AppState.blockLinksFromStrangers.value = true;
+      // Links from strangers are spam; from contacts they're fine.
+      expect(
+          AppState.looksLikeSpam('check http://x.io', isKnownContact: false),
+          isTrue);
+      expect(
+          AppState.looksLikeSpam('check http://x.io', isKnownContact: true),
+          isFalse);
+      expect(AppState.looksLikeSpam('no link here', isKnownContact: false),
+          isFalse);
+    });
+
+    test('applyIncoming drops spam before it reaches the store', () {
+      ChatStore.instance.reset();
+      AppState.blockLinksFromStrangers.value = true;
+      addTearDown(() => AppState.blockLinksFromStrangers.value = false);
+      final payload = {
+        'id': 'spam1',
+        'from': '+1 555 7777',
+        'fromName': 'Bot',
+        'text': 'Claim your prize at http://scam.xyz',
+        'ts': DateTime(2024, 1, 1, 9).toIso8601String(),
+      };
+      final added =
+          RelayService.applyIncoming(payload, myPhone: '+1 555 0100');
+      expect(added, isFalse);
+      expect(ChatStore.instance.chatWithContact('+1 555 7777'), isNull);
+    });
+
     test('applyIncoming ignores our own echo and duplicate ids', () {
       ChatStore.instance.reset();
       final mine = {

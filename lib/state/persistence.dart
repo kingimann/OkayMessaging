@@ -20,6 +20,8 @@ class Persistence {
   static const _kMapLayer = 'map_layer';
   static const _kMapLowData = 'map_low_data';
   static const _kMapUnits = 'map_units';
+  static const _kBlockLinks = 'spam_block_links';
+  static const _kSpamKeywords = 'spam_keywords';
   static const _kNavVoice = 'nav_voice';
   static const _kTravelMode = 'default_travel_mode';
   static const _kShareLiveLocation = 'share_live_location';
@@ -86,6 +88,13 @@ class Persistence {
     }
     if (prefs.containsKey(_kMapUnits)) {
       AppState.mapUnits.value = prefs.getString(_kMapUnits) ?? 'metric';
+    }
+    if (prefs.containsKey(_kBlockLinks)) {
+      AppState.blockLinksFromStrangers.value =
+          prefs.getBool(_kBlockLinks) ?? false;
+    }
+    if (prefs.containsKey(_kSpamKeywords)) {
+      AppState.spamKeywords.value = prefs.getString(_kSpamKeywords) ?? '';
     }
     if (prefs.containsKey(_kNavVoice)) {
       AppState.navVoice.value = prefs.getBool(_kNavVoice) ?? true;
@@ -171,6 +180,8 @@ class Persistence {
     AppState.mapLayer.addListener(_saveMapLayer);
     AppState.mapLowData.addListener(_saveMapLowData);
     AppState.mapUnits.addListener(_saveMapUnits);
+    AppState.blockLinksFromStrangers.addListener(_saveBlockLinks);
+    AppState.spamKeywords.addListener(_saveSpamKeywords);
     AppState.navVoice.addListener(_saveNavVoice);
     AppState.defaultTravelMode.addListener(_saveTravelMode);
     AppState.shareLiveLocation.addListener(_saveShareLiveLocation);
@@ -297,6 +308,14 @@ class Persistence {
 
   static void _saveMapUnits() {
     _prefs?.setString(_kMapUnits, AppState.mapUnits.value);
+  }
+
+  static void _saveBlockLinks() {
+    _prefs?.setBool(_kBlockLinks, AppState.blockLinksFromStrangers.value);
+  }
+
+  static void _saveSpamKeywords() {
+    _prefs?.setString(_kSpamKeywords, AppState.spamKeywords.value);
   }
 
   static void _saveNavVoice() {

@@ -57,6 +57,16 @@ class AppState {
   static final ValueNotifier<String> mapUnits =
       ValueNotifier<String>('metric');
 
+  /// Spam & bots: drop incoming messages that contain a link when they come
+  /// from someone who isn't already a contact (a classic bot vector).
+  static final ValueNotifier<bool> blockLinksFromStrangers =
+      ValueNotifier<bool>(false);
+
+  /// Spam & bots: drop incoming messages whose text contains any of these
+  /// keywords (comma-separated, case-insensitive).
+  static final ValueNotifier<String> spamKeywords =
+      ValueNotifier<String>('');
+
   /// Whether turn-by-turn navigation starts with voice guidance on.
   static final ValueNotifier<bool> navVoice = ValueNotifier<bool>(true);
 
@@ -148,6 +158,23 @@ class AppState {
   static bool isBlocked(String phone) =>
       blockedContacts.value.contains(_digits(phone));
 
+  /// True when an incoming [text] from a stranger ([isKnownContact] false)
+  /// should be dropped as spam under the current filters. Pure and testable.
+  static bool looksLikeSpam(String text, {required bool isKnownContact}) {
+    final lower = text.toLowerCase();
+    if (!isKnownContact && blockLinksFromStrangers.value) {
+      if (RegExp(r'https?://|www\.|\b\S+\.(com|net|org|io|xyz|ru|link)\b')
+          .hasMatch(lower)) {
+        return true;
+      }
+    }
+    for (final raw in spamKeywords.value.split(',')) {
+      final kw = raw.trim().toLowerCase();
+      if (kw.isNotEmpty && lower.contains(kw)) return true;
+    }
+    return false;
+  }
+
   /// Blocks or unblocks [phone].
   static void setBlocked(String phone, bool blocked) {
     final next = Set<String>.from(blockedContacts.value);
@@ -169,6 +196,8 @@ class AppState {
     mapLayer.value = 'standard';
     mapLowData.value = false;
     mapUnits.value = 'metric';
+    blockLinksFromStrangers.value = false;
+    spamKeywords.value = '';
     navVoice.value = true;
     defaultTravelMode.value = 'car';
     ghostMode.value = false;

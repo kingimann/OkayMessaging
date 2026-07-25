@@ -181,6 +181,14 @@ class RelayService {
       return false;
     }
 
+    // Spam & bots filter: drop keyword-matched messages, and links from
+    // strangers, before they ever reach the chat store.
+    final incomingText = (content['text'] as String?) ?? '';
+    if (incomingText.isNotEmpty &&
+        AppState.looksLikeSpam(incomingText, isKnownContact: knownChat != null)) {
+      return false;
+    }
+
     // Profile fields the sender chose to share (empty when withheld by their
     // privacy settings).
     final sharedColor = (content['fromAvatarColor'] as String?)?.trim() ?? '';
