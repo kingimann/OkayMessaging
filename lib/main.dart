@@ -13,6 +13,8 @@ import 'state/call_log.dart';
 import 'state/call_service.dart';
 import 'state/community_store.dart';
 import 'state/chat_store.dart';
+import 'state/feed_store.dart';
+import 'state/follow_store.dart';
 import 'state/persistence.dart';
 import 'state/recent_searches.dart';
 import 'state/saved_places_store.dart';
@@ -45,6 +47,8 @@ Future<void> main() async {
   await BackupService.instance.load();
   await PaymentService.instance.load();
   await SavedPlacesStore.instance.load();
+  await FollowStore.instance.load();
+  await FeedStore.instance.load();
   await StatusStore.instance.load();
   if (StreakStore.instance.isEmpty) {
     // Seed a couple of demo streaks so the feature is visible on first run;

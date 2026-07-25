@@ -262,7 +262,20 @@ class MapControls extends StatelessWidget {
   /// Extra bottom offset so the controls clear a screen's own bottom UI.
   final double bottom;
 
-  const MapControls({super.key, required this.controller, this.bottom = 120});
+  /// When set, the controls anchor below the top edge instead (Apple-Maps
+  /// style, clear of bottom sheets); [bottom] is ignored.
+  final double? top;
+
+  /// When set, a my-location button leads the control stack.
+  final VoidCallback? onMyLocation;
+
+  const MapControls({
+    super.key,
+    required this.controller,
+    this.bottom = 120,
+    this.top,
+    this.onMyLocation,
+  });
 
   void _zoom(double delta) {
     final cam = controller.camera;
@@ -321,10 +334,13 @@ class MapControls extends StatelessWidget {
         );
     return Positioned(
       right: 12,
-      bottom: bottom,
+      top: top,
+      bottom: top == null ? bottom : null,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          if (onMyLocation != null)
+            btn(Icons.my_location, 'My location', onMyLocation!),
           btn(Icons.layers_outlined, 'Map style', () => _pickLayer(context)),
           btn(Icons.add, 'Zoom in', () => _zoom(1)),
           btn(Icons.remove, 'Zoom out', () => _zoom(-1)),

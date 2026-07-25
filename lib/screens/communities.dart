@@ -7,6 +7,7 @@ import '../theme/app_theme.dart';
 import '../utils/date_formatter.dart';
 import '../widgets/poll_widgets.dart';
 import 'community_settings_screen.dart';
+import 'feed_screen.dart';
 import 'forum_screen.dart';
 
 Color _hex(String s) =>
@@ -325,6 +326,21 @@ class CommunityScreen extends StatelessWidget {
                       style: TextStyle(
                           fontSize: 13.5, color: Colors.grey.shade700)),
                 ),
+              // The server's X-style feed lives above the channel list.
+              ListTile(
+                dense: true,
+                leading: Icon(Icons.dynamic_feed,
+                    color: Theme.of(context).colorScheme.primary, size: 22),
+                title: const Text('Feed',
+                    style: TextStyle(fontWeight: FontWeight.w600)),
+                subtitle: const Text('Posts from members'),
+                onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => FeedScreen(
+                    communityId: communityId,
+                    communityName: community.name,
+                  ),
+                )),
+              ),
               for (final category in community.categories) ...[
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),

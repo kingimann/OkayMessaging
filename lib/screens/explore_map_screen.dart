@@ -56,6 +56,7 @@ class ExploreMapScreen extends StatefulWidget {
 class _ExploreMapScreenState extends State<ExploreMapScreen> {
   final MapController _map = MapController();
   final TextEditingController _search = TextEditingController();
+  final DraggableScrollableController _sheet = DraggableScrollableController();
   bool _searching = false;
   List<GeoResult> _results = const [];
 
@@ -81,6 +82,7 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
     _locTimer?.cancel();
     _debounce?.cancel();
     _search.dispose();
+    _sheet.dispose();
     super.dispose();
   }
 
@@ -139,6 +141,14 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
     }
     // Refresh the clear button and re-show a dismissed suggestion list.
     setState(() => _hideSuggestions = false);
+    // Typing means searching — raise the sheet so suggestions have room.
+    try {
+      if (_sheet.isAttached && _sheet.size < 0.6) {
+        _sheet.animateTo(0.88,
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeOut);
+      }
+    } catch (_) {}
     _debounce = Timer(const Duration(milliseconds: 350), () async {
       if (!mounted) return;
       final seq = ++_searchSeq;
@@ -451,16 +461,6 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
       // The map must not squish (and reload tiles) every time the keyboard
       // opens — search UI floats over it instead, like Apple Maps.
       resizeToAvoidBottomInset: false,
-      // Hidden while a place card or the results sheet is up — it would sit
-      // right on top of them.
-      floatingActionButton: selected == null && !_showResultsSheet
-          ? FloatingActionButton.small(
-              heroTag: 'exploreMe',
-              onPressed: _goToMe,
-              tooltip: 'My location',
-              child: const Icon(Icons.my_location),
-            )
-          : null,
       body: Stack(
         children: [
           FlutterMap(
@@ -539,48 +539,101 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
               ),
               Scalebar(
                 alignment: Alignment.bottomLeft,
-                padding: const EdgeInsets.fromLTRB(10, 0, 0, 14),
+                // Lifted clear of the collapsed search sheet.
+                padding: EdgeInsets.fromLTRB(
+                    10, 0, 0, MediaQuery.of(context).size.height * 0.14 + 12),
                 textStyle: TextStyle(
                   color: dark ? Colors.white70 : Colors.black87,
                   fontSize: 12,
                 ),
                 lineColor: dark ? Colors.white70 : Colors.black87,
               ),
-              const LiveAttribution(),
+              Padding(
+                padding: EdgeInsets.only(
+                    bottom: MediaQuery.of(context).size.height * 0.14 + 4),
+                child: const LiveAttribution(),
+              ),
             ],
           ),
+          // Controls ride the top right, Apple-Maps style, clear of the
+          // bottom sheet; the my-location button joins them.
           MapControls(
             controller: _map,
-            bottom: selected != null
-                ? 220
-                : _showResultsSheet && _results.length > 1
-                    ? 340
-                    : 96,
+            top: MediaQuery.of(context).padding.top + 64,
+            onMyLocation:
+                selected == null && !_showResultsSheet ? _goToMe : null,
           ),
-          SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _CircleButton(
-                        icon: Icons.arrow_back,
-                        tooltip: 'Back',
-                        onTap: () => Navigator.of(context).maybePop(),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: _SearchBox(
+          Positioned(
+            top: MediaQuery.of(context).padding.top + 8,
+            left: 12,
+            child: _CircleButton(
+              icon: Icons.arrow_back,
+              tooltip: 'Back',
+              onTap: () => Navigator.of(context).maybePop(),
+            ),
+          ),
+          if (_showSearchHere && selected == null && _results.isNotEmpty)
+            Positioned(
+              top: MediaQuery.of(context).padding.top + 12,
+              left: 0,
+              right: 0,
+              child: Center(
+                child: FilledButton.tonalIcon(
+                  onPressed: () {
+                    final nearby = _lastNearby;
+                    if (nearby != null) {
+                      _runNearby(nearby.$1, nearby.$2, biasOverride: _center);
+                    } else {
+                      _runSearch(term: _lastQuery, nearCenter: true);
+                    }
+                  },
+                  icon: const Icon(Icons.refresh, size: 18),
+                  label: const Text('Search this area'),
+                ),
+              ),
+            ),
+          // Apple Maps' signature: everything lives in a draggable bottom
+          // search sheet over the full-bleed map.
+          if (selected == null && !_showResultsSheet)
+            Positioned.fill(
+              child: AnimatedPadding(
+                duration: const Duration(milliseconds: 150),
+                padding: EdgeInsets.only(
+                    bottom: MediaQuery.of(context).viewInsets.bottom),
+                child: DraggableScrollableSheet(
+                  controller: _sheet,
+                  initialChildSize: 0.42,
+                  minChildSize: 0.14,
+                  maxChildSize: 0.88,
+                  snap: true,
+                  snapSizes: const [0.14, 0.42, 0.88],
+                  builder: (context, scroll) => Material(
+                    color: Theme.of(context).colorScheme.surface,
+                    elevation: 12,
+                    borderRadius: const BorderRadius.vertical(
+                        top: Radius.circular(20)),
+                    clipBehavior: Clip.antiAlias,
+                    child: ListView(
+                      controller: scroll,
+                      padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
+                      children: [
+                        Center(
+                          child: Container(
+                            width: 40,
+                            height: 4,
+                            margin: const EdgeInsets.only(bottom: 10),
+                            decoration: BoxDecoration(
+                              color: Colors.grey.shade400,
+                              borderRadius: BorderRadius.circular(2),
+                            ),
+                          ),
+                        ),
+                        _SearchBox(
                           controller: _search,
                           searching: _searching,
-                          // Hide the suggestion list once a place is selected
-                          // (its card is showing) or the user tapped the map;
-                          // the result pins stay either way.
-                          results: selected == null && !_hideSuggestions
+                          // Hide the suggestion list when the user tapped
+                          // the map; the result pins stay either way.
+                          results: !_hideSuggestions
                               ? _results
                               : const <GeoResult>[],
                           origin: _me,
@@ -603,63 +656,47 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
                             });
                           },
                         ),
-                      ),
-                    ],
-                  ),
-                  if (_results.isEmpty && selected == null) ...[
-                    const SizedBox(height: 10),
-                    _CategoryChips(
-                      onTap: (label, filter) {
-                        // Nearby search needs a "near" — a GPS fix or a spot
-                        // the user has panned to. Without one the results
-                        // would be random places around the globe.
-                        if (_me == null && !_mapTouched) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Move the map to an area first — '
-                                  'or tap the location button — so nearby '
-                                  'search knows where to look.'),
+                        if (_results.isEmpty) ...[
+                          _FavoritesRow(
+                            onPick: (p) => _select(GeoResult(
+                                name: p.name, lat: p.lat, lng: p.lng)),
+                          ),
+                          const SizedBox(height: 10),
+                          _CategoryChips(
+                            onTap: (label, filter) {
+                              // Nearby search needs a "near" — a GPS fix or
+                              // a spot the user has panned to.
+                              if (_me == null && !_mapTouched) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text(
+                                        'Move the map to an area first — or '
+                                        'tap the location button — so nearby '
+                                        'search knows where to look.'),
+                                  ),
+                                );
+                                return;
+                              }
+                              _runNearby(label, filter);
+                            },
+                            onSaved: _showSaved,
+                            onFriends: () => Navigator.of(context).push(
+                              MaterialPageRoute(
+                                  builder: (_) => const MapScreen()),
                             ),
-                          );
-                          return;
-                        }
-                        _runNearby(label, filter);
-                      },
-                      onSaved: _showSaved,
-                      onFriends: () => Navigator.of(context).push(
-                        MaterialPageRoute(builder: (_) => const MapScreen()),
-                      ),
+                          ),
+                          const SizedBox(height: 10),
+                          _RecentMapSearches(onPick: (q) {
+                            _search.text = q;
+                            _runSearch();
+                          }),
+                        ],
+                      ],
                     ),
-                    const SizedBox(height: 8),
-                    _RecentMapSearches(onPick: (q) {
-                      _search.text = q;
-                      _runSearch();
-                    }),
-                  ],
-                  if (_showSearchHere &&
-                      selected == null &&
-                      _results.isNotEmpty) ...[
-                    const SizedBox(height: 10),
-                    Center(
-                      child: FilledButton.tonalIcon(
-                        onPressed: () {
-                          final nearby = _lastNearby;
-                          if (nearby != null) {
-                            _runNearby(nearby.$1, nearby.$2,
-                                biasOverride: _center);
-                          } else {
-                            _runSearch(term: _lastQuery, nearCenter: true);
-                          }
-                        },
-                        icon: const Icon(Icons.refresh, size: 18),
-                        label: const Text('Search this area'),
-                      ),
-                    ),
-                  ],
-                ],
+                  ),
+                ),
               ),
             ),
-          ),
           if (_showResultsSheet && selected == null && _results.length > 1)
             _resultsSheet(context),
           if (selected != null)
@@ -707,10 +744,28 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
                 child: Row(
                   children: [
                     Expanded(
-                      child: Text(
-                        '${_results.length} places',
-                        style: const TextStyle(
-                            fontSize: 16, fontWeight: FontWeight.w600),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (_search.text.trim().isNotEmpty)
+                            Text(
+                              _search.text.trim(),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                  fontSize: 16, fontWeight: FontWeight.w700),
+                            ),
+                          Text(
+                            '${_results.length} places',
+                            style: _search.text.trim().isEmpty
+                                ? const TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w600)
+                                : TextStyle(
+                                    fontSize: 13,
+                                    color: Colors.grey.shade600),
+                          ),
+                        ],
                       ),
                     ),
                     IconButton(
@@ -882,6 +937,76 @@ class _CircleButton extends StatelessWidget {
       shape: const CircleBorder(),
       color: Theme.of(context).colorScheme.surface,
       child: IconButton(icon: Icon(icon), tooltip: tooltip, onPressed: onTap),
+    );
+  }
+}
+
+/// Apple-Maps-style Favourites: saved places as a row of tappable circles
+/// at the top of the search sheet. Hidden until something is saved.
+class _FavoritesRow extends StatelessWidget {
+  final ValueChanged<SavedPlace> onPick;
+  const _FavoritesRow({required this.onPick});
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: SavedPlacesStore.instance,
+      builder: (context, _) {
+        final places = SavedPlacesStore.instance.places;
+        if (places.isEmpty) return const SizedBox.shrink();
+        return Padding(
+          padding: const EdgeInsets.only(top: 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.only(left: 4, bottom: 6),
+                child: Text('Favourites',
+                    style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.grey.shade600)),
+              ),
+              SizedBox(
+                height: 82,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: places.length,
+                  separatorBuilder: (_, __) => const SizedBox(width: 14),
+                  itemBuilder: (context, i) {
+                    final p = places[i];
+                    return InkWell(
+                      onTap: () => onPick(p),
+                      borderRadius: BorderRadius.circular(12),
+                      child: SizedBox(
+                        width: 62,
+                        child: Column(
+                          children: [
+                            CircleAvatar(
+                              radius: 24,
+                              backgroundColor: const Color(0xFFEB4B3F)
+                                  .withValues(alpha: 0.14),
+                              child: const Icon(Icons.bookmark,
+                                  color: Color(0xFFEB4B3F), size: 22),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              p.name.split(',').first.trim(),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(fontSize: 11.5),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }

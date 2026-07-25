@@ -30,6 +30,7 @@ import 'package:okay_messaging/util/routing.dart';
 import 'package:okay_messaging/util/speech.dart';
 import 'package:okay_messaging/screens/chat_places_screen.dart';
 import 'package:okay_messaging/screens/explore_map_screen.dart';
+import 'package:okay_messaging/screens/feed_screen.dart';
 import 'package:okay_messaging/screens/forward_screen.dart';
 import 'package:okay_messaging/screens/route_map_screen.dart';
 import 'package:latlong2/latlong.dart';
@@ -61,6 +62,8 @@ import 'package:okay_messaging/state/status_store.dart';
 import 'package:okay_messaging/state/chat_store.dart';
 import 'package:okay_messaging/state/live_location_store.dart';
 import 'package:okay_messaging/state/saved_places_store.dart';
+import 'package:okay_messaging/state/feed_store.dart';
+import 'package:okay_messaging/state/follow_store.dart';
 import 'package:okay_messaging/state/recent_searches.dart';
 import 'package:okay_messaging/state/scheduler.dart';
 import 'package:okay_messaging/state/score_store.dart';
@@ -94,6 +97,8 @@ void main() {
     // The cancellable (dio) tile provider leaves timeout timers pending in
     // the test zone — use the plain provider, whose requests 400 instantly.
     debugTileProviderOverride = NetworkTileProvider.new;
+    FollowStore.instance.resetForTest();
+    FeedStore.instance.resetForTest();
   });
 
   testWidgets('App boots with Chats and Calls tabs (no Status)',
@@ -3836,6 +3841,10 @@ void main() {
       await tester.tap(find.text('Bob Carter'));
       await tester.pumpAndSettle();
 
+      // The Follow section pushed the toggle below the fold — scroll to it.
+      await tester.scrollUntilVisible(
+          find.text('Confirm before sending'), 200,
+          scrollable: find.byType(Scrollable).first);
       expect(find.text('Confirm before sending'), findsOneWidget);
       await tester.tap(find.text('Confirm before sending'));
       await tester.pumpAndSettle();
@@ -4031,6 +4040,78 @@ void main() {
 
       await tester.pumpWidget(const SizedBox());
       await tester.pump();
+    });
+
+    test('FollowStore toggles follows and followerCountFor stays stable', () {
+      expect(FollowStore.instance.isFollowing('gracehop'), isFalse);
+      expect(FollowStore.instance.toggle('@GraceHop'), isTrue);
+      expect(FollowStore.instance.isFollowing('gracehop'), isTrue);
+      expect(FollowStore.instance.followingCount, 1);
+      final base = followerCountFor('gracehop', youFollow: false);
+      expect(followerCountFor('gracehop', youFollow: false), base);
+      expect(followerCountFor('gracehop', youFollow: true), base + 1);
+      expect(FollowStore.instance.toggle('gracehop'), isFalse);
+      expect(FollowStore.instance.followingCount, 0);
+    });
+
+    testWidgets('contact page follows and unfollows a user', (tester) async {
+      final user = MockData.contacts()
+          .firstWhere((c) => c.username.isNotEmpty && !c.isGroup);
+      await tester.pumpWidget(MaterialApp(home: ContactInfoScreen(user: user)));
+      await tester.pump();
+
+      expect(find.text('Follow'), findsOneWidget);
+      expect(find.textContaining('followers'), findsOneWidget);
+      await tester.tap(find.text('Follow'));
+      await tester.pump();
+      expect(find.text('Following'), findsOneWidget);
+      expect(FollowStore.instance.isFollowing(user.username), isTrue);
+    });
+
+    test('feedAge renders compact X-style ages', () {
+      final now = DateTime(2026, 7, 24, 12, 0);
+      expect(feedAge(now.subtract(const Duration(seconds: 20)), now: now),
+          'now');
+      expect(feedAge(now.subtract(const Duration(minutes: 5)), now: now),
+          '5m');
+      expect(feedAge(now.subtract(const Duration(hours: 3)), now: now), '3h');
+      expect(feedAge(now.subtract(const Duration(days: 2)), now: now), '2d');
+    });
+
+    testWidgets('the server feed posts, likes, and filters to Following',
+        (tester) async {
+      await tester.pumpWidget(const MaterialApp(
+        home: FeedScreen(communityId: 'c1', communityName: 'Okay HQ'),
+      ));
+      await tester.pump();
+
+      // Seeded timeline is alive.
+      expect(find.text('Grace Hopper'), findsOneWidget);
+      expect(find.textContaining('reading old code'), findsOneWidget);
+
+      // Compose a post — it lands on top with a delete affordance.
+      await tester.enterText(
+          find.byType(TextField).first, 'First post from me!');
+      await tester.tap(find.text('Post'));
+      await tester.pump();
+      expect(find.text('First post from me!'), findsOneWidget);
+      expect(find.byTooltip('Delete post'), findsOneWidget);
+
+      // Like Grace's post: 41 → 42.
+      expect(find.text('41'), findsOneWidget);
+      await tester.tap(find.text('41'));
+      await tester.pump();
+      expect(find.text('42'), findsOneWidget);
+
+      // "Following" keeps my posts and people I follow — nobody else.
+      await tester.tap(find.text('Following'));
+      await tester.pump();
+      expect(find.text('First post from me!'), findsOneWidget);
+      expect(find.text('Grace Hopper'), findsNothing);
+      FollowStore.instance.toggle('gracehop');
+      await tester.pump();
+      expect(find.text('Grace Hopper'), findsOneWidget);
+      expect(find.text('Alice Bennett'), findsNothing);
     });
 
     testWidgets('saved places pin onto the idle map and open their card',
@@ -4386,8 +4467,9 @@ void main() {
       await tester.pump();
       expect(find.text('Somewhere'), findsOneWidget);
 
-      // Tap the bare map (double-tap-zoom disambiguation delays the tap).
-      await tester.tapAt(const Offset(195, 500));
+      // Tap the bare map strip above the raised search sheet (double-tap
+      // zoom disambiguation delays the tap).
+      await tester.tapAt(const Offset(300, 50));
       await tester.pump(const Duration(milliseconds: 400));
       await tester.pump();
       expect(find.text('Somewhere'), findsNothing);
@@ -4533,9 +4615,8 @@ void main() {
       expect(asked, 'coffee');
       expect(find.text('2 places'), findsOneWidget);
       expect(find.text('Cafe One'), findsOneWidget);
-      // The search pill reflects the category being browsed.
-      final field = tester.widget<TextField>(find.byType(TextField).first);
-      expect(field.controller!.text, 'Coffee');
+      // The results sheet header names the category being browsed.
+      expect(find.text('Coffee'), findsOneWidget);
 
       await tester.pumpWidget(const SizedBox());
       await tester.pump();
@@ -4572,12 +4653,11 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
 
-      // The nearby (category) path took over: the pill shows the label and
-      // the query was remembered.
+      // The nearby (category) path took over: the results header shows the
+      // capitalised label and the query was remembered.
       expect(asked, 'coffee');
       expect(find.text('2 places'), findsOneWidget);
-      final field = tester.widget<TextField>(find.byType(TextField).first);
-      expect(field.controller!.text, 'Coffee');
+      expect(find.text('Coffee'), findsOneWidget);
       expect(RecentSearches.maps.queries, contains('coffee'));
 
       await tester.pumpWidget(const SizedBox());

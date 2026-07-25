@@ -5,6 +5,7 @@ import '../app_state.dart';
 import '../models/user.dart';
 import '../state/call_service.dart';
 import '../state/chat_store.dart';
+import '../state/follow_store.dart';
 import '../theme/app_theme.dart';
 import '../widgets/info_section.dart';
 import '../widgets/user_avatar.dart';
@@ -108,6 +109,44 @@ class ContactInfoScreen extends StatelessWidget {
                   fontSize: 15,
                   fontWeight: FontWeight.w600,
                 ),
+              ),
+            ),
+          ],
+          if (user.username.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Center(
+              child: ListenableBuilder(
+                listenable: FollowStore.instance,
+                builder: (context, _) {
+                  final following =
+                      FollowStore.instance.isFollowing(user.username);
+                  final followers = followerCountFor(user.username,
+                      youFollow: following);
+                  return Column(
+                    children: [
+                      Text(
+                        '$followers followers',
+                        style: TextStyle(
+                            color: Colors.grey.shade600, fontSize: 13.5),
+                      ),
+                      const SizedBox(height: 8),
+                      following
+                          ? OutlinedButton.icon(
+                              onPressed: () =>
+                                  FollowStore.instance.toggle(user.username),
+                              icon: const Icon(Icons.check, size: 18),
+                              label: const Text('Following'),
+                            )
+                          : FilledButton.icon(
+                              onPressed: () =>
+                                  FollowStore.instance.toggle(user.username),
+                              icon: const Icon(Icons.person_add_alt_1,
+                                  size: 18),
+                              label: const Text('Follow'),
+                            ),
+                    ],
+                  );
+                },
               ),
             ),
           ],
