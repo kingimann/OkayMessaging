@@ -4208,12 +4208,17 @@ void main() {
       ));
       await tester.pump();
 
-      // No fake accounts: a fresh feed is honestly empty.
+      // No fake accounts: a fresh feed is honestly empty, and Post stays
+      // disabled until there's text.
       expect(find.textContaining('No posts yet'), findsOneWidget);
+      await tester.tap(find.text('Post'), warnIfMissed: false);
+      await tester.pump();
+      expect(FeedStore.instance.postsFor('c1'), isEmpty);
 
       // Compose a post — it appears with a delete affordance.
       await tester.enterText(
           find.byType(TextField).first, 'First post from me!');
+      await tester.pump(); // the Post button enables on the next frame
       await tester.tap(find.text('Post'));
       await tester.pump();
       expect(find.text('First post from me!'), findsOneWidget);

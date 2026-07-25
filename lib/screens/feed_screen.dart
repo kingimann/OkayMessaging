@@ -342,7 +342,14 @@ class _Composer extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 8),
-          FilledButton(onPressed: onPost, child: const Text('Post')),
+          // Live-enabled only once there's something to say.
+          ValueListenableBuilder<TextEditingValue>(
+            valueListenable: controller,
+            builder: (context, value, _) => FilledButton(
+              onPressed: value.text.trim().isEmpty ? null : onPost,
+              child: const Text('Post'),
+            ),
+          ),
         ],
       ),
     );
