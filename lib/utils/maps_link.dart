@@ -1,3 +1,5 @@
+import '../app_state.dart';
+
 /// Builds a maps deep-link for a shared location. iPhone and Mac users get an
 /// Apple Maps link (which opens the Apple Maps app); everyone else gets a
 /// Google Maps link. An optional [label] titles the dropped pin.
@@ -32,6 +34,12 @@ Uri directionsUrl({
 /// A short human distance label, e.g. "850 m" or "2.3 km", from a distance in
 /// metres.
 String formatDistance(double meters) {
+  if (AppState.mapUnits.value == 'imperial') {
+    final feet = meters * 3.28084;
+    if (feet < 1000) return '${(feet / 10).round() * 10} ft';
+    final mi = meters / 1609.344;
+    return mi >= 10 ? '${mi.round()} mi' : '${mi.toStringAsFixed(1)} mi';
+  }
   if (meters < 1000) return '${meters.round()} m';
   final km = meters / 1000;
   return km >= 10 ? '${km.round()} km' : '${km.toStringAsFixed(1)} km';

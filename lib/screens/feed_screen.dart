@@ -180,6 +180,40 @@ class _FeedScreenState extends State<FeedScreen> {
                 _openThread(post);
               },
             ),
+            if (!mine) ...[
+              ListTile(
+                leading: const Icon(Icons.visibility_off_outlined),
+                title: const Text('Hide post'),
+                onTap: () {
+                  FeedStore.instance.hidePost(post.id);
+                  Navigator.of(sheetContext).pop();
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.flag_outlined),
+                title: const Text('Report post'),
+                onTap: () {
+                  FeedStore.instance.hidePost(post.id);
+                  Navigator.of(sheetContext).pop();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                        content:
+                            Text('Reported — the post is hidden for you.')),
+                  );
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.volume_off_outlined),
+                title: Text(
+                    FeedStore.instance.isMuted(post.authorUsername)
+                        ? 'Unmute @${post.authorUsername}'
+                        : 'Mute @${post.authorUsername}'),
+                onTap: () {
+                  FeedStore.instance.toggleMute(post.authorUsername);
+                  Navigator.of(sheetContext).pop();
+                },
+              ),
+            ],
             if (mine)
               ListTile(
                 leading: const Icon(Icons.delete_outline, color: Colors.red),

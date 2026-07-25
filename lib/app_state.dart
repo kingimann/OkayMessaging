@@ -52,6 +52,18 @@ class AppState {
   /// pixels per tile — so they stay usable on slow cellular connections.
   static final ValueNotifier<bool> mapLowData = ValueNotifier<bool>(false);
 
+  /// Distance units for maps and navigation: 'metric' (km/m) or 'imperial'
+  /// (mi/ft).
+  static final ValueNotifier<String> mapUnits =
+      ValueNotifier<String>('metric');
+
+  /// Whether turn-by-turn navigation starts with voice guidance on.
+  static final ValueNotifier<bool> navVoice = ValueNotifier<bool>(true);
+
+  /// The travel mode directions open with: 'car', 'foot', or 'bike'.
+  static final ValueNotifier<String> defaultTravelMode =
+      ValueNotifier<String>('car');
+
   /// Snap-Map "Ghost Mode": when on, your own avatar is hidden from the map so
   /// no one can see where you are.
   static final ValueNotifier<bool> ghostMode = ValueNotifier<bool>(false);
@@ -156,6 +168,9 @@ class AppState {
     bubbleColor.value = null;
     mapLayer.value = 'standard';
     mapLowData.value = false;
+    mapUnits.value = 'metric';
+    navVoice.value = true;
+    defaultTravelMode.value = 'car';
     ghostMode.value = false;
     shareLiveLocation.value = false;
     shareLastSeen.value = true;

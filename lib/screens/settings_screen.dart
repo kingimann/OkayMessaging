@@ -13,6 +13,7 @@ import 'chats_settings_screen.dart';
 import 'cloud_sync_screen.dart';
 import 'edit_profile_screen.dart';
 import 'legal_screen.dart';
+import 'maps_settings_screen.dart';
 import 'my_qr_screen.dart';
 import 'okay_pro_screen.dart';
 import 'privacy_settings_screen.dart';
@@ -115,6 +116,14 @@ class SettingsView extends StatelessWidget {
                 onTap: () => Navigator.of(context).push(
                   MaterialPageRoute(builder: (_) => const BackupScreen()),
                 ),
+              ),
+            ),
+            InfoTile(
+              leading: const Icon(Icons.map_outlined),
+              title: 'Maps',
+              subtitle: 'Style, units, voice guidance, data use',
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const MapsSettingsScreen()),
               ),
             ),
             InfoTile(

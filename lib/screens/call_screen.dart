@@ -12,6 +12,7 @@ import '../state/call_service.dart';
 import '../state/chat_store.dart';
 import '../theme/app_theme.dart';
 import '../widgets/user_avatar.dart';
+import 'chat_screen.dart';
 
 /// The full-screen call UI, driven entirely by [CallService].
 ///
@@ -444,6 +445,24 @@ class _CallScreenState extends State<CallScreen> {
                   label: 'Flip',
                   onTap: () => CallMedia.instance.switchCamera(),
                 ),
+              // Text mid-call: the call collapses to the return banner and
+              // the conversation opens underneath.
+              _CallControl(
+                icon: Icons.chat_bubble_outline,
+                label: 'Message',
+                onTap: () {
+                  final chat = ChatStore.instance
+                          .chatWithContact(widget.session.peer.id) ??
+                      ChatStore.instance
+                          .chatWithContact(widget.session.peer.phone);
+                  if (chat == null) return;
+                  CallService.instance.minimized.value = true;
+                  Navigator.of(context, rootNavigator: true).push(
+                    MaterialPageRoute(
+                        builder: (_) => ChatScreen(chat: chat)),
+                  );
+                },
+              ),
             ],
           ),
         ),

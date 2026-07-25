@@ -19,6 +19,9 @@ class Persistence {
   static const _kGhostMode = 'map_ghost_mode';
   static const _kMapLayer = 'map_layer';
   static const _kMapLowData = 'map_low_data';
+  static const _kMapUnits = 'map_units';
+  static const _kNavVoice = 'nav_voice';
+  static const _kTravelMode = 'default_travel_mode';
   static const _kShareLiveLocation = 'share_live_location';
   static const _kChats = 'chats_v1';
   static const _kShareLastSeen = 'share_last_seen';
@@ -80,6 +83,16 @@ class Persistence {
     }
     if (prefs.containsKey(_kMapLowData)) {
       AppState.mapLowData.value = prefs.getBool(_kMapLowData) ?? false;
+    }
+    if (prefs.containsKey(_kMapUnits)) {
+      AppState.mapUnits.value = prefs.getString(_kMapUnits) ?? 'metric';
+    }
+    if (prefs.containsKey(_kNavVoice)) {
+      AppState.navVoice.value = prefs.getBool(_kNavVoice) ?? true;
+    }
+    if (prefs.containsKey(_kTravelMode)) {
+      AppState.defaultTravelMode.value =
+          prefs.getString(_kTravelMode) ?? 'car';
     }
     if (prefs.containsKey(_kShareLiveLocation)) {
       AppState.shareLiveLocation.value =
@@ -157,6 +170,9 @@ class Persistence {
     AppState.ghostMode.addListener(_saveGhostMode);
     AppState.mapLayer.addListener(_saveMapLayer);
     AppState.mapLowData.addListener(_saveMapLowData);
+    AppState.mapUnits.addListener(_saveMapUnits);
+    AppState.navVoice.addListener(_saveNavVoice);
+    AppState.defaultTravelMode.addListener(_saveTravelMode);
     AppState.shareLiveLocation.addListener(_saveShareLiveLocation);
     AppState.shareLastSeen.addListener(_saveShareLastSeen);
     AppState.sendReadReceipts.addListener(_saveReadReceipts);
@@ -277,6 +293,18 @@ class Persistence {
 
   static void _saveMapLowData() {
     _prefs?.setBool(_kMapLowData, AppState.mapLowData.value);
+  }
+
+  static void _saveMapUnits() {
+    _prefs?.setString(_kMapUnits, AppState.mapUnits.value);
+  }
+
+  static void _saveNavVoice() {
+    _prefs?.setBool(_kNavVoice, AppState.navVoice.value);
+  }
+
+  static void _saveTravelMode() {
+    _prefs?.setString(_kTravelMode, AppState.defaultTravelMode.value);
   }
 
   static void _saveShareLiveLocation() {

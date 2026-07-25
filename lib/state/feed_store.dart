@@ -102,13 +102,42 @@ class FeedStore extends ChangeNotifier {
   final List<FeedPost> _posts = [];
   int _nextId = 1;
 
+  // Moderation: locally hidden posts and muted authors.
+  final Set<String> _hiddenIds = {};
+  final Set<String> _mutedUsernames = {};
+
+  Set<String> get mutedUsernames => Set.unmodifiable(_mutedUsernames);
+
+  bool isMuted(String username) =>
+      _mutedUsernames.contains(username.toLowerCase());
+
+  /// Hides a post from this device (report uses the same mechanism).
+  void hidePost(String postId) {
+    _hiddenIds.add(postId);
+    _save();
+    notifyListeners();
+  }
+
+  /// Mutes/unmutes every post from [username]; returns true when now muted.
+  bool toggleMute(String username) {
+    final u = username.toLowerCase();
+    final nowMuted = !_mutedUsernames.remove(u);
+    if (nowMuted) _mutedUsernames.add(u);
+    _save();
+    notifyListeners();
+    return nowMuted;
+  }
+
   /// Top-level posts for [communityId], newest first — replies live under
   /// their parent (see [repliesTo]). With [onlyUsernames], keeps posts from
   /// those authors and your own. No seeded/demo content: every post here
   /// was written by a real person on this device or community.
   List<FeedPost> postsFor(String communityId, {Set<String>? onlyUsernames}) {
-    var posts = _posts
-        .where((p) => p.communityId == communityId && p.parentId == null);
+    var posts = _posts.where((p) =>
+        p.communityId == communityId &&
+        p.parentId == null &&
+        !_hiddenIds.contains(p.id) &&
+        !_mutedUsernames.contains(p.authorUsername.toLowerCase()));
     if (onlyUsernames != null) {
       posts = posts.where((p) =>
           p.authorUsername == 'you' ||
@@ -209,10 +238,27 @@ class FeedStore extends ChangeNotifier {
       final raw = prefs.getString(_kKey);
       if (raw == null) return;
       final decoded = jsonDecode(raw);
-      if (decoded is! List) return;
+      // Older builds stored a bare list of posts; now it's a map that also
+      // carries moderation state.
+      final List<dynamic> rawPosts;
+      if (decoded is Map) {
+        rawPosts = decoded['posts'] as List? ?? const [];
+        _hiddenIds
+          ..clear()
+          ..addAll(
+              (decoded['hidden'] as List? ?? const []).whereType<String>());
+        _mutedUsernames
+          ..clear()
+          ..addAll(
+              (decoded['muted'] as List? ?? const []).whereType<String>());
+      } else if (decoded is List) {
+        rawPosts = decoded;
+      } else {
+        return;
+      }
       _posts
         ..clear()
-        ..addAll(decoded.whereType<Map<String, dynamic>>().map(
+        ..addAll(rawPosts.whereType<Map<String, dynamic>>().map(
             FeedPost.fromJson));
       // Drop any demo posts persisted by earlier builds — real posts only.
       _posts.removeWhere((p) => p.id.startsWith('seed_'));
@@ -224,13 +270,20 @@ class FeedStore extends ChangeNotifier {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(
-          _kKey, jsonEncode([for (final p in _posts) p.toJson()]));
+          _kKey,
+          jsonEncode({
+            'posts': [for (final p in _posts) p.toJson()],
+            'hidden': _hiddenIds.toList(),
+            'muted': _mutedUsernames.toList(),
+          }));
     } catch (_) {}
   }
 
   @visibleForTesting
   void resetForTest() {
     _posts.clear();
+    _hiddenIds.clear();
+    _mutedUsernames.clear();
     _nextId = 1;
     notifyListeners();
   }

@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
 
+import '../app_state.dart';
+
 /// How to travel a route. Each maps to a free public OSRM profile server.
 enum TravelMode {
   car('Drive', 'routed-car'),
@@ -325,8 +327,20 @@ double distanceToRouteMeters(LatLng user, List<LatLng> points) {
   return best;
 }
 
-/// A distance phrased for voice prompts: "400 metres", "1.2 kilometres".
+/// A distance phrased for voice prompts, honouring the units setting:
+/// "400 metres" / "1.2 kilometres", or "500 feet" / "1.2 miles".
 String spokenDistance(double meters) {
+  if (AppState.mapUnits.value == 'imperial') {
+    final feet = meters * 3.28084;
+    if (feet < 1000) {
+      final f = (feet / 10).round() * 10;
+      return '${f < 10 ? 10 : f} feet';
+    }
+    final mi = meters / 1609.344;
+    return mi >= 10
+        ? '${mi.round()} miles'
+        : '${mi.toStringAsFixed(1)} miles';
+  }
   if (meters < 950) {
     final m = (meters / 10).round() * 10;
     return '${m < 10 ? 10 : m} metres';

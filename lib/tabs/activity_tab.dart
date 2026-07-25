@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/chat.dart';
 import '../state/call_log.dart';
+import '../state/call_service.dart';
 import '../state/chat_store.dart';
 import '../screens/chat_screen.dart';
 import '../utils/date_formatter.dart';
@@ -104,8 +105,18 @@ class ActivityTab extends StatelessWidget {
                       style: const TextStyle(fontWeight: FontWeight.w600)),
                   subtitle: Text('Missed ${r.type.name} call · '
                       '${DateFormatter.callLabel(r.time)}'),
-                  trailing:
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
                       const Icon(Icons.call_missed, color: Colors.red),
+                      IconButton(
+                        icon: const Icon(Icons.call),
+                        tooltip: 'Call back',
+                        onPressed: () => CallService.instance
+                            .startOutgoing(r.user, video: false),
+                      ),
+                    ],
+                  ),
                   onTap: () {
                     final chat =
                         ChatStore.instance.chatWithContact(r.user.id);

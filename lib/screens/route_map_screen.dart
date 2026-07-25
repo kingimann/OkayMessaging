@@ -5,6 +5,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../app_state.dart';
 import '../util/geolocation.dart';
 import '../util/routing.dart';
 import '../util/speech.dart';
@@ -48,7 +49,9 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
   LatLng? _from;
   bool _loading = true;
   String? _error;
-  TravelMode _mode = TravelMode.car;
+  TravelMode _mode = TravelMode.values.firstWhere(
+      (m) => m.name == AppState.defaultTravelMode.value,
+      orElse: () => TravelMode.car);
 
   /// The currently chosen route (primary or a picked alternative).
   RouteResult? get _route =>
@@ -63,7 +66,7 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
   DateTime? _lastReroute;
 
   // Voice guidance: which step was last announced (-1 = none yet).
-  bool _voiceOn = true;
+  bool _voiceOn = AppState.navVoice.value;
   int _lastSpoken = -1;
 
   @override
@@ -236,6 +239,36 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
     }
   }
 
+  /// The full step list mid-navigation (tap the banner) with the upcoming
+  /// maneuver highlighted.
+  void _showNavSteps(RouteResult route) {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            for (var i = 0; i < route.steps.length; i++)
+              ListTile(
+                dense: true,
+                selected: i == _navStep,
+                leading: Icon(
+                    iconForManeuver(
+                        route.steps[i].type, route.steps[i].modifier),
+                    size: 22),
+                title: Text(route.steps[i].instruction),
+                trailing: route.steps[i].distanceMeters > 0
+                    ? Text(formatDistance(route.steps[i].distanceMeters))
+                    : null,
+              ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+
   void _endNav() {
     _navTimer?.cancel();
     _navTimer = null;
@@ -377,7 +410,11 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
               arrived: _arrived,
               rerouting: _rerouting,
               step: route.steps.isEmpty ? null : route.steps[_navStep],
+              nextStep: _navStep + 1 < route.steps.length
+                  ? route.steps[_navStep + 1]
+                  : null,
               user: _navPos,
+              onTap: () => _showNavSteps(route),
             ),
             _NavBottomBar(
               route: route,
@@ -418,13 +455,17 @@ class _NavBanner extends StatelessWidget {
   final bool arrived;
   final bool rerouting;
   final RouteStep? step;
+  final RouteStep? nextStep;
   final LatLng? user;
+  final VoidCallback? onTap;
 
   const _NavBanner({
     required this.arrived,
     required this.step,
+    this.nextStep,
     this.rerouting = false,
     this.user,
+    this.onTap,
   });
 
   @override
@@ -452,40 +493,81 @@ class _NavBanner extends StatelessWidget {
         color: const Color(0xFF0A84FF),
         borderRadius: BorderRadius.circular(16),
         elevation: 6,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-          child: Row(
-            children: [
-              Icon(
-                arrived
-                    ? Icons.flag
-                    : step == null
-                        ? Icons.navigation
-                        : iconForManeuver(step!.type, step!.modifier),
-                color: Colors.white,
-                size: 30,
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
                   children: [
-                    Text(
-                      title,
-                      style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 17,
-                          fontWeight: FontWeight.w700),
+                    Icon(
+                      arrived
+                          ? Icons.flag
+                          : step == null
+                              ? Icons.navigation
+                              : iconForManeuver(step!.type, step!.modifier),
+                      color: Colors.white,
+                      size: 30,
                     ),
-                    if (sub != null)
-                      Text(sub,
-                          style: const TextStyle(
-                              color: Colors.white70, fontSize: 13.5)),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            title,
+                            style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 17,
+                                fontWeight: FontWeight.w700),
+                          ),
+                          if (sub != null)
+                            Text(sub,
+                                style: const TextStyle(
+                                    color: Colors.white70, fontSize: 13.5)),
+                        ],
+                      ),
+                    ),
                   ],
                 ),
-              ),
-            ],
+                // Apple-style "then" preview of the maneuver after this one.
+                if (!arrived && !rerouting && nextStep != null) ...[
+                  const SizedBox(height: 8),
+                  Container(
+                    width: double.infinity,
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.14),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                            iconForManeuver(
+                                nextStep!.type, nextStep!.modifier),
+                            color: Colors.white70,
+                            size: 18),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'then ${nextStep!.instruction}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                                color: Colors.white70, fontSize: 13.5),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ],
+            ),
           ),
         ),
       ),

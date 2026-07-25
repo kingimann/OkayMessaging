@@ -22,6 +22,7 @@ import 'package:okay_messaging/screens/okay_pro_screen.dart';
 import 'package:okay_messaging/screens/forum_screen.dart';
 import 'package:okay_messaging/screens/location_picker_screen.dart';
 import 'package:okay_messaging/screens/map_screen.dart';
+import 'package:okay_messaging/screens/maps_settings_screen.dart';
 import 'package:okay_messaging/util/geocoding.dart';
 import 'package:okay_messaging/util/geolocation.dart';
 import 'package:okay_messaging/utils/chat_transcript.dart';
@@ -3987,6 +3988,71 @@ void main() {
       expect(remainingMeters(route: route, current: 3), 0);
     });
 
+    test('imperial units switch distances to feet and miles', () {
+      AppState.mapUnits.value = 'imperial';
+      addTearDown(() => AppState.mapUnits.value = 'metric');
+      expect(formatDistance(150), '490 ft');
+      expect(formatDistance(1609.344), '1.0 mi');
+      expect(formatDistance(32187), '20 mi');
+      expect(spokenDistance(1609.344), '1.0 miles');
+      expect(spokenDistance(152), '500 feet');
+      AppState.mapUnits.value = 'metric';
+      expect(formatDistance(150), '150 m');
+      expect(spokenDistance(400), '400 metres');
+    });
+
+    testWidgets('Maps settings switch units and voice guidance',
+        (tester) async {
+      addTearDown(() {
+        AppState.mapUnits.value = 'metric';
+        AppState.navVoice.value = true;
+        AppState.defaultTravelMode.value = 'car';
+      });
+      await tester.pumpWidget(
+          const MaterialApp(home: MapsSettingsScreen()));
+      await tester.pump();
+
+      await tester.tap(find.text('Miles'));
+      await tester.pump();
+      expect(AppState.mapUnits.value, 'imperial');
+
+      await tester.tap(find.text('Voice guidance'));
+      await tester.pump();
+      expect(AppState.navVoice.value, isFalse);
+
+      await tester.tap(find.text('Walk'));
+      await tester.pump();
+      expect(AppState.defaultTravelMode.value, 'foot');
+    });
+
+    test('feed moderation hides posts and mutes authors', () {
+      FeedStore.instance.hydratePosts([
+        {
+          'id': 'p1',
+          'communityId': 'c1',
+          'authorName': 'Troll',
+          'authorUsername': 'troll',
+          'time': DateTime.now().toIso8601String(),
+          'text': 'spam',
+        },
+        {
+          'id': 'p2',
+          'communityId': 'c1',
+          'authorName': 'Nice',
+          'authorUsername': 'nice',
+          'time': DateTime.now().toIso8601String(),
+          'text': 'hello',
+        },
+      ]);
+      expect(FeedStore.instance.postsFor('c1').length, 2);
+      FeedStore.instance.hidePost('p1');
+      expect(FeedStore.instance.postsFor('c1').single.id, 'p2');
+      expect(FeedStore.instance.toggleMute('Nice'), isTrue);
+      expect(FeedStore.instance.postsFor('c1'), isEmpty);
+      expect(FeedStore.instance.toggleMute('nice'), isFalse);
+      expect(FeedStore.instance.postsFor('c1').single.id, 'p2');
+    });
+
     test('spokenDistance phrases distances for voice prompts', () {
       expect(spokenDistance(384), '380 metres');
       expect(spokenDistance(4), '10 metres');
@@ -4028,9 +4094,11 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
 
-      // The upcoming turn was announced out loud.
+      // The upcoming turn was announced out loud, and the banner previews
+      // the maneuver after it, Apple-style.
       expect(spoken, isNotEmpty);
       expect(spoken.first, contains('Turn right onto Valencia Street'));
+      expect(find.textContaining('then Arrive'), findsOneWidget);
 
       // Mute flips the toggle.
       await tester.tap(find.byTooltip('Mute voice'));
