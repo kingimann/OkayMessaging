@@ -49,7 +49,7 @@ class ActivityTab extends StatelessWidget {
                     style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.w600,
-                        color: Colors.grey.shade600)),
+                        color: Theme.of(context).colorScheme.onSurfaceVariant)),
                 const SizedBox(height: 4),
                 Text('New messages and missed calls land here.',
                     style: TextStyle(

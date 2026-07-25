@@ -109,7 +109,7 @@ class _PeopleScreenState extends State<PeopleScreen> {
                 Padding(
                   padding: const EdgeInsets.all(24),
                   child: Text('No contacts yet — add a friend above.',
-                      style: TextStyle(color: Colors.grey.shade600)),
+                      style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
                 ),
               for (final u in people)
                 ListTile(

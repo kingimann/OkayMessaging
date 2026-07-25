@@ -94,6 +94,8 @@ class AppTheme {
         backgroundColor: AppColors.tealGreenDark,
         foregroundColor: Colors.white,
       ),
+      dividerTheme: DividerThemeData(
+          thickness: 0.6, color: Colors.black.withValues(alpha: 0.08)),
       chipTheme: base.chipTheme.copyWith(
         side: BorderSide.none,
         backgroundColor: const Color(0xFFEFF2F3),
@@ -155,6 +157,8 @@ class AppTheme {
         backgroundColor: AppColors.tealGreenDark,
         foregroundColor: Colors.white,
       ),
+      dividerTheme: DividerThemeData(
+          thickness: 0.6, color: Colors.white.withValues(alpha: 0.10)),
       chipTheme: base.chipTheme.copyWith(
         side: BorderSide.none,
         backgroundColor: const Color(0xFF2A2E34),

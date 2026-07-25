@@ -93,11 +93,11 @@ class _FeedScreenState extends State<FeedScreen> {
                   style: const TextStyle(
                       fontSize: 17, fontWeight: FontWeight.w700)),
               Text('@${post.authorUsername}',
-                  style: TextStyle(color: Colors.grey.shade600)),
+                  style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
               const SizedBox(height: 14),
               if (mine)
                 Text('This is you.',
-                    style: TextStyle(color: Colors.grey.shade600))
+                    style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant))
               else
                 ListenableBuilder(
                   listenable: FollowStore.instance,
@@ -263,7 +263,7 @@ class _FeedScreenState extends State<FeedScreen> {
                     child: Text(
                       'No posts yet. Be the first to say something!',
                       textAlign: TextAlign.center,
-                      style: TextStyle(color: Colors.grey.shade600),
+                      style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
                     ),
                   ),
                 ),
@@ -325,7 +325,7 @@ class _Composer extends StatelessWidget {
                   currentLength > 200
                       ? Text('$currentLength/$maxLength',
                           style: TextStyle(
-                              fontSize: 11, color: Colors.grey.shade600))
+                              fontSize: 11, color: Theme.of(context).colorScheme.onSurfaceVariant))
                       : null,
               decoration: const InputDecoration(
                 hintText: "What's happening?",
@@ -361,7 +361,7 @@ class _PostCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final grey = Colors.grey.shade600;
+    final grey = Theme.of(context).colorScheme.onSurfaceVariant;
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 12, 6),
       child: Row(
@@ -485,7 +485,7 @@ class _PostAction extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = active ? activeColor : Colors.grey.shade600;
+    final color = active ? activeColor : Theme.of(context).colorScheme.onSurfaceVariant;
     return Tooltip(
       message: tooltip,
       child: InkWell(
@@ -567,7 +567,7 @@ class _FeedPostScreenState extends State<FeedPostScreen> {
                         child: Center(
                           child: Text('No replies yet.',
                               style:
-                                  TextStyle(color: Colors.grey.shade600)),
+                                  TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
                         ),
                       ),
                     for (final r in replies) ...[

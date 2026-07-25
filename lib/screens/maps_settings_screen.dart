@@ -75,7 +75,7 @@ class MapsSettingsScreen extends StatelessWidget {
                 children: [
                   Text('Directions open with',
                       style: TextStyle(
-                          fontSize: 13, color: Colors.grey.shade600)),
+                          fontSize: 13, color: Theme.of(context).colorScheme.onSurfaceVariant)),
                   const SizedBox(height: 6),
                   SegmentedButton<String>(
                     segments: const [

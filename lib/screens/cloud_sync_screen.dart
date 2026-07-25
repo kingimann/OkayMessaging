@@ -66,7 +66,7 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
                         'if you lose the passphrase, nobody can recover the '
                         'backup. Not even us.',
                         style: TextStyle(
-                            fontSize: 13.5, color: Colors.grey.shade600),
+                            fontSize: 13.5, color: Theme.of(context).colorScheme.onSurfaceVariant),
                       ),
                     ],
                   ),
@@ -148,7 +148,7 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
                 Text(
                   'Last synced: ${sync.lastSync}',
                   style:
-                      TextStyle(fontSize: 12.5, color: Colors.grey.shade600),
+                      TextStyle(fontSize: 12.5, color: Theme.of(context).colorScheme.onSurfaceVariant),
                 ),
               if (sync.lastError != null) ...[
                 const SizedBox(height: 8),

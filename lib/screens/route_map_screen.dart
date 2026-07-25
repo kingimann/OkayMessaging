@@ -626,7 +626,7 @@ class _NavBottomBar extends StatelessWidget {
                           style: const TextStyle(
                               fontSize: 20, fontWeight: FontWeight.w700)),
                       Text('${formatDistance(left)} left · arrive $arrive',
-                          style: TextStyle(color: Colors.grey.shade600)),
+                          style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
                     ],
                   ),
                 ),
@@ -777,7 +777,7 @@ class _DirectionsPanel extends StatelessWidget {
                   title: Text(step.instruction),
                   trailing: step.distanceMeters > 0
                       ? Text(formatDistance(step.distanceMeters),
-                          style: TextStyle(color: Colors.grey.shade600))
+                          style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant))
                       : null,
                   // Peek at this turn on the map.
                   onTap: () => onStep(step),
@@ -821,7 +821,7 @@ class _DirectionsPanel extends StatelessWidget {
         Text(
             '${formatDistance(r.distanceMeters)} · '
             '${mode.label.toLowerCase()} · arrive $arrive',
-            style: TextStyle(color: Colors.grey.shade600)),
+            style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
       ],
     );
   }
