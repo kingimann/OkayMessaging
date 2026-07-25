@@ -3,6 +3,8 @@ import 'dart:ui' show ImageFilter;
 import 'package:flutter/material.dart';
 
 import '../state/call_log.dart';
+import '../state/chat_store.dart';
+import '../tabs/activity_tab.dart';
 import '../tabs/calls_tab.dart';
 import '../tabs/chats_tab.dart';
 import '../theme/app_theme.dart';
@@ -127,14 +129,19 @@ class _HomeScreenState extends State<HomeScreen> {
           ChatsTab(),
           CommunitiesTab(),
           CallsTab(),
+          ActivityTab(),
           SettingsView(),
         ],
       ),
       bottomNavigationBar: ListenableBuilder(
-        listenable: CallLog.instance,
+        listenable:
+            Listenable.merge([CallLog.instance, ChatStore.instance]),
         builder: (context, _) => _ModernNavBar(
           index: _index,
           missedCalls: CallLog.instance.newMissedCount,
+          activityCount: CallLog.instance.newMissedCount +
+              ChatStore.instance.chats
+                  .fold(0, (n, c) => n + (c.unreadCount > 0 ? 1 : 0)),
           onSelect: _onSelectTab,
         ),
       ),
@@ -150,7 +157,8 @@ class _HomeScreenState extends State<HomeScreen> {
   String get _titleForIndex => switch (_index) {
         1 => 'Communities',
         2 => 'Calls',
-        3 => 'You',
+        3 => 'Notifications',
+        4 => 'You',
         _ => 'Okay Messaging',
       };
 }
@@ -161,12 +169,14 @@ class _HomeScreenState extends State<HomeScreen> {
 class _ModernNavBar extends StatelessWidget {
   final int index;
   final int missedCalls;
+  final int activityCount;
   final ValueChanged<int> onSelect;
 
   const _ModernNavBar({
     required this.index,
     required this.onSelect,
     this.missedCalls = 0,
+    this.activityCount = 0,
   });
 
   @override
@@ -229,11 +239,20 @@ class _ModernNavBar extends StatelessWidget {
               ),
               const SizedBox(width: 6),
               _NavPill(
+                icon: Icons.notifications_none,
+                activeIcon: Icons.notifications,
+                label: 'Alerts',
+                selected: index == 3,
+                badgeCount: activityCount,
+                onTap: () => onSelect(3),
+              ),
+              const SizedBox(width: 6),
+              _NavPill(
                 icon: Icons.person_outline,
                 activeIcon: Icons.person,
                 label: 'You',
-                selected: index == 3,
-                onTap: () => onSelect(3),
+                selected: index == 4,
+                onTap: () => onSelect(4),
               ),
                 ],
               ),

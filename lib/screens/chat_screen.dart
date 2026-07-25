@@ -66,7 +66,6 @@ class _ChatScreenState extends State<ChatScreen> {
   ReplyInfo? _replyTo;
   bool _isTyping = false;
   bool _showScrollToBottom = false;
-  int _autoReplyCounter = 0;
 
   bool _searching = false;
   String _searchQuery = '';
@@ -619,47 +618,14 @@ class _ChatScreenState extends State<ChatScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) => _animateToBottom());
     if (RelayConfig.isEnabled && _isRealPeer(widget.chat.contact)) {
       RelayService.instance.send(widget.chat.contact.phone, message);
-    } else {
-      _scheduleAutoReply();
     }
+    // No simulated replies: only real people answer here.
   }
 
   /// A real, number-identified peer (chat started with an actual phone number),
   /// as opposed to a seeded demo contact or a group.
   bool _isRealPeer(AppUser c) =>
       !c.isGroup && c.phone.isNotEmpty && c.id == c.phone;
-
-  /// Simulates the other person typing then replying so the demo feels alive.
-  void _scheduleAutoReply() {
-    _autoReplyCounter++;
-    const replies = [
-      'Got it 👍',
-      'Sounds good!',
-      'Haha nice 😄',
-      'Let me check and get back to you.',
-      'Okay 👌',
-    ];
-    final reply = replies[_autoReplyCounter % replies.length];
-
-    setState(() => _isTyping = true);
-    Future.delayed(const Duration(milliseconds: 1400), () {
-      if (!mounted) return;
-      setState(() => _isTyping = false);
-
-      // Mark my messages as read now that a reply has arrived.
-      final updated = _messages
-          .map((m) => m.isMe ? m.copyWith(status: MessageStatus.read) : m)
-          .toList()
-        ..add(Message(
-          id: 'reply_${DateTime.now().microsecondsSinceEpoch}',
-          text: reply,
-          time: DateTime.now(),
-          isMe: false,
-        ));
-      _store.replaceMessages(_chatId, updated);
-      WidgetsBinding.instance.addPostFrameCallback((_) => _animateToBottom());
-    });
-  }
 
   void _startReply(Message message) {
     setState(() {

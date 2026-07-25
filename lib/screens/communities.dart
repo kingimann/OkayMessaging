@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/community.dart';
 import '../models/message.dart';
 import '../state/community_store.dart';
+import '../state/feed_store.dart';
 import '../theme/app_theme.dart';
 import '../utils/date_formatter.dart';
 import '../widgets/poll_widgets.dart';
@@ -327,19 +328,34 @@ class CommunityScreen extends StatelessWidget {
                           fontSize: 13.5, color: Colors.grey.shade700)),
                 ),
               // The server's X-style feed lives above the channel list.
-              ListTile(
-                dense: true,
-                leading: Icon(Icons.dynamic_feed,
-                    color: Theme.of(context).colorScheme.primary, size: 22),
-                title: const Text('Feed',
-                    style: TextStyle(fontWeight: FontWeight.w600)),
-                subtitle: const Text('Posts from members'),
-                onTap: () => Navigator.of(context).push(MaterialPageRoute(
-                  builder: (_) => FeedScreen(
-                    communityId: communityId,
-                    communityName: community.name,
-                  ),
-                )),
+              ListenableBuilder(
+                listenable: FeedStore.instance,
+                builder: (context, _) {
+                  final latest = FeedStore.instance.postsFor(communityId);
+                  return ListTile(
+                    dense: true,
+                    leading: Icon(Icons.dynamic_feed,
+                        color: Theme.of(context).colorScheme.primary,
+                        size: 22),
+                    title: const Text('Feed',
+                        style: TextStyle(fontWeight: FontWeight.w600)),
+                    subtitle: Text(
+                      latest.isEmpty
+                          ? 'Posts from members'
+                          : '${latest.first.authorName}: '
+                              '${latest.first.text}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    onTap: () =>
+                        Navigator.of(context).push(MaterialPageRoute(
+                      builder: (_) => FeedScreen(
+                        communityId: communityId,
+                        communityName: community.name,
+                      ),
+                    )),
+                  );
+                },
               ),
               for (final category in community.categories) ...[
                 Padding(

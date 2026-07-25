@@ -21,6 +21,9 @@ class FeedPost {
   final bool liked;
   final bool reposted;
 
+  /// The post this one replies to, or null for a top-level post.
+  final String? parentId;
+
   const FeedPost({
     required this.id,
     required this.communityId,
@@ -33,6 +36,7 @@ class FeedPost {
     this.replies = 0,
     this.liked = false,
     this.reposted = false,
+    this.parentId,
   });
 
   FeedPost copyWith({
@@ -54,6 +58,7 @@ class FeedPost {
         replies: replies ?? this.replies,
         liked: liked ?? this.liked,
         reposted: reposted ?? this.reposted,
+        parentId: parentId,
       );
 
   Map<String, dynamic> toJson() => {
@@ -68,6 +73,7 @@ class FeedPost {
         'replies': replies,
         'liked': liked,
         'reposted': reposted,
+        if (parentId != null) 'parentId': parentId,
       };
 
   factory FeedPost.fromJson(Map<String, dynamic> j) => FeedPost(
@@ -82,6 +88,7 @@ class FeedPost {
         replies: j['replies'] as int? ?? 0,
         liked: j['liked'] as bool? ?? false,
         reposted: j['reposted'] as bool? ?? false,
+        parentId: j['parentId'] as String?,
       );
 }
 
@@ -93,61 +100,39 @@ class FeedStore extends ChangeNotifier {
   static const _kKey = 'server_feed_v1';
 
   final List<FeedPost> _posts = [];
-  final Set<String> _seeded = {};
   int _nextId = 1;
 
-  /// Posts for [communityId], newest first. With [onlyUsernames], keeps
-  /// posts from those authors and your own.
+  /// Top-level posts for [communityId], newest first — replies live under
+  /// their parent (see [repliesTo]). With [onlyUsernames], keeps posts from
+  /// those authors and your own. No seeded/demo content: every post here
+  /// was written by a real person on this device or community.
   List<FeedPost> postsFor(String communityId, {Set<String>? onlyUsernames}) {
-    var posts = _posts.where((p) => p.communityId == communityId);
+    var posts = _posts
+        .where((p) => p.communityId == communityId && p.parentId == null);
     if (onlyUsernames != null) {
       posts = posts.where((p) =>
           p.authorUsername == 'you' ||
+          p.authorUsername == AppState.profile.value.username ||
           onlyUsernames.contains(p.authorUsername.toLowerCase()));
     }
     final list = posts.toList()..sort((a, b) => b.time.compareTo(a.time));
     return list;
   }
 
-  /// Seeds a few demo posts the first time a server's feed is opened.
-  void seedIfEmpty(String communityId) {
-    if (_seeded.contains(communityId) ||
-        _posts.any((p) => p.communityId == communityId)) {
-      return;
-    }
-    _seeded.add(communityId);
-    final now = DateTime.now();
-    const demo = [
-      ('Alice Bennett', 'aliceb', 'Shipped a little side project tonight — '
-          'nothing fancy, but it works and that feels great.', 12, 3, 2, 190),
-      ('Grace Hopper', 'gracehop', 'Hot take: reading old code teaches you '
-          'more than writing new code.', 41, 9, 6, 130),
-      ('Bob Carter', 'bobc',
-          'Anyone else here basically living in this server now?', 7, 1, 4,
-          75),
-      ('Erin Foster', 'erinf', 'Morning run done, coffee in hand, feed '
-          'checked. Perfect start.', 15, 2, 1, 30),
-    ];
-    for (final (name, username, text, likes, reposts, replies, minsAgo)
-        in demo) {
-      _posts.add(FeedPost(
-        id: 'seed_${communityId}_${_nextId++}',
-        communityId: communityId,
-        authorName: name,
-        authorUsername: username,
-        time: now.subtract(Duration(minutes: minsAgo)),
-        text: text,
-        likes: likes,
-        reposts: reposts,
-        replies: replies,
-      ));
-    }
-    _save();
-    notifyListeners();
+  /// The replies under a post, oldest first (thread order).
+  List<FeedPost> repliesTo(String postId) {
+    final list = _posts.where((p) => p.parentId == postId).toList()
+      ..sort((a, b) => a.time.compareTo(b.time));
+    return list;
+  }
+
+  FeedPost? postById(String id) {
+    final i = _posts.indexWhere((p) => p.id == id);
+    return i < 0 ? null : _posts[i];
   }
 
   /// Posts [text] as the signed-in user. Returns the new post.
-  FeedPost add(String communityId, String text) {
+  FeedPost add(String communityId, String text, {String? parentId}) {
     final me = AppState.profile.value;
     final post = FeedPost(
       id: 'post_${DateTime.now().microsecondsSinceEpoch}_${_nextId++}',
@@ -156,6 +141,7 @@ class FeedStore extends ChangeNotifier {
       authorUsername: me.username.isEmpty ? 'you' : me.username,
       time: DateTime.now(),
       text: text.trim(),
+      parentId: parentId,
     );
     _posts.add(post);
     _save();
@@ -163,13 +149,12 @@ class FeedStore extends ChangeNotifier {
     return post;
   }
 
-  /// A reply: posts as a new entry and bumps the original's reply count.
+  /// A threaded reply: lives under its parent and bumps its reply count.
   void reply(String postId, String text) {
     final i = _posts.indexWhere((p) => p.id == postId);
     if (i < 0) return;
     final original = _posts[i];
-    add(original.communityId,
-        '@${original.authorUsername} ${text.trim()}');
+    add(original.communityId, text, parentId: postId);
     _posts[i] = original.copyWith(replies: original.replies + 1);
     _save();
     notifyListeners();
@@ -197,7 +182,8 @@ class FeedStore extends ChangeNotifier {
   }
 
   void deletePost(String postId) {
-    _posts.removeWhere((p) => p.id == postId);
+    // Removes the post and its whole reply thread.
+    _posts.removeWhere((p) => p.id == postId || p.parentId == postId);
     _save();
     notifyListeners();
   }
@@ -213,8 +199,8 @@ class FeedStore extends ChangeNotifier {
         ..clear()
         ..addAll(decoded.whereType<Map<String, dynamic>>().map(
             FeedPost.fromJson));
-      // Anything already stored counts as seeded.
-      _seeded.addAll(_posts.map((p) => p.communityId));
+      // Drop any demo posts persisted by earlier builds — real posts only.
+      _posts.removeWhere((p) => p.id.startsWith('seed_'));
       notifyListeners();
     } catch (_) {}
   }
@@ -230,7 +216,6 @@ class FeedStore extends ChangeNotifier {
   @visibleForTesting
   void resetForTest() {
     _posts.clear();
-    _seeded.clear();
     _nextId = 1;
     notifyListeners();
   }

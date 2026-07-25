@@ -120,16 +120,8 @@ class ContactInfoScreen extends StatelessWidget {
                 builder: (context, _) {
                   final following =
                       FollowStore.instance.isFollowing(user.username);
-                  final followers = followerCountFor(user.username,
-                      youFollow: following);
                   return Column(
                     children: [
-                      Text(
-                        '$followers followers',
-                        style: TextStyle(
-                            color: Colors.grey.shade600, fontSize: 13.5),
-                      ),
-                      const SizedBox(height: 8),
                       following
                           ? OutlinedButton.icon(
                               onPressed: () =>

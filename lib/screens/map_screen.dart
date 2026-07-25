@@ -249,7 +249,14 @@ class _MapScreenState extends State<MapScreen> {
         listenable: Listenable.merge(
             [ChatStore.instance, LiveLocationStore.instance]),
         builder: (context, _) {
-          final places = friendPlaces(_me, _friends);
+          // Only real, live-shared positions — no simulated friend pins.
+          final places = <FriendPlace>[
+            for (final f in _friends)
+              if (LiveLocationStore.instance
+                      .locationFor(RelayService.digits(f.phone))
+                  case final live?)
+                FriendPlace(f, live.position),
+          ];
           return ValueListenableBuilder<bool>(
             valueListenable: AppState.ghostMode,
             builder: (context, ghost, __) => Stack(
@@ -289,6 +296,29 @@ class _MapScreenState extends State<MapScreen> {
                 ),
                 MapControls(controller: _map, bottom: 92),
                 if (ghost) const _GhostBanner(),
+                if (places.isEmpty)
+                  Positioned(
+                    left: 16,
+                    right: 16,
+                    bottom: 24,
+                    child: SafeArea(
+                      child: Material(
+                        elevation: 4,
+                        borderRadius: BorderRadius.circular(14),
+                        color: Theme.of(context).colorScheme.surface,
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+                          child: Text(
+                            'No friends on the map yet. Friends appear here '
+                            'when they turn on live location sharing.',
+                            style: TextStyle(
+                                fontSize: 13.5,
+                                color: Colors.grey.shade600),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
               ],
             ),
           );

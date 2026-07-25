@@ -26,12 +26,6 @@ class _FeedScreenState extends State<FeedScreen> {
   bool _followingOnly = false;
 
   @override
-  void initState() {
-    super.initState();
-    FeedStore.instance.seedIfEmpty(widget.communityId);
-  }
-
-  @override
   void dispose() {
     _composer.dispose();
     super.dispose();
@@ -45,49 +39,10 @@ class _FeedScreenState extends State<FeedScreen> {
     FocusScope.of(context).unfocus();
   }
 
-  Future<void> _reply(FeedPost post) async {
-    final controller = TextEditingController();
-    final sent = await showModalBottomSheet<bool>(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (sheetContext) => Padding(
-        padding: EdgeInsets.only(
-            left: 16,
-            right: 16,
-            bottom: MediaQuery.of(sheetContext).viewInsets.bottom + 16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Replying to @${post.authorUsername}',
-                style: TextStyle(
-                    color: Colors.grey.shade600, fontSize: 13.5)),
-            const SizedBox(height: 8),
-            TextField(
-              controller: controller,
-              autofocus: true,
-              maxLines: 4,
-              minLines: 1,
-              decoration:
-                  const InputDecoration(hintText: 'Post your reply'),
-            ),
-            const SizedBox(height: 12),
-            Align(
-              alignment: Alignment.centerRight,
-              child: FilledButton(
-                onPressed: () => Navigator.of(sheetContext).pop(true),
-                child: const Text('Reply'),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-    if (sent == true && controller.text.trim().isNotEmpty) {
-      FeedStore.instance.reply(post.id, controller.text);
-    }
-    controller.dispose();
+  void _openThread(FeedPost post) {
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => FeedPostScreen(postId: post.id),
+    ));
   }
 
   @override
@@ -136,24 +91,27 @@ class _FeedScreenState extends State<FeedScreen> {
                       _followingOnly
                           ? 'Nothing here yet — follow people from their '
                               'profile to build this timeline.'
-                          : 'No posts yet. Say something!',
+                          : 'No posts yet. Be the first to say something!',
                       textAlign: TextAlign.center,
                       style: TextStyle(color: Colors.grey.shade600),
                     ),
                   ),
                 ),
               for (final post in posts) ...[
-                _PostCard(
-                  post: post,
-                  onLike: () => FeedStore.instance.toggleLike(post.id),
-                  onRepost: () => FeedStore.instance.toggleRepost(post.id),
-                  onReply: () => _reply(post),
-                  // Only your own posts are deletable.
-                  onDelete: post.authorUsername == 'you' ||
-                          post.authorUsername ==
-                              AppState.profile.value.username
-                      ? () => FeedStore.instance.deletePost(post.id)
-                      : null,
+                InkWell(
+                  onTap: () => _openThread(post),
+                  child: _PostCard(
+                    post: post,
+                    onLike: () => FeedStore.instance.toggleLike(post.id),
+                    onRepost: () => FeedStore.instance.toggleRepost(post.id),
+                    onReply: () => _openThread(post),
+                    // Only your own posts are deletable.
+                    onDelete: post.authorUsername == 'you' ||
+                            post.authorUsername ==
+                                AppState.profile.value.username
+                        ? () => FeedStore.instance.deletePost(post.id)
+                        : null,
+                  ),
                 ),
                 const Divider(height: 1),
               ],
@@ -353,6 +311,127 @@ class _PostAction extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// A post opened as a thread: the post up top, its replies below, and a
+/// reply composer pinned to the bottom.
+class FeedPostScreen extends StatefulWidget {
+  final String postId;
+  const FeedPostScreen({super.key, required this.postId});
+
+  @override
+  State<FeedPostScreen> createState() => _FeedPostScreenState();
+}
+
+class _FeedPostScreenState extends State<FeedPostScreen> {
+  final TextEditingController _reply = TextEditingController();
+
+  @override
+  void dispose() {
+    _reply.dispose();
+    super.dispose();
+  }
+
+  void _send() {
+    final text = _reply.text.trim();
+    if (text.isEmpty) return;
+    FeedStore.instance.reply(widget.postId, text);
+    _reply.clear();
+    FocusScope.of(context).unfocus();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Post')),
+      body: ListenableBuilder(
+        listenable: FeedStore.instance,
+        builder: (context, _) {
+          final post = FeedStore.instance.postById(widget.postId);
+          if (post == null) {
+            return const Center(child: Text('This post was deleted.'));
+          }
+          final replies = FeedStore.instance.repliesTo(post.id);
+          return Column(
+            children: [
+              Expanded(
+                child: ListView(
+                  children: [
+                    _PostCard(
+                      post: post,
+                      onLike: () => FeedStore.instance.toggleLike(post.id),
+                      onRepost: () =>
+                          FeedStore.instance.toggleRepost(post.id),
+                      onReply: () {},
+                    ),
+                    const Divider(height: 1),
+                    if (replies.isEmpty)
+                      Padding(
+                        padding: const EdgeInsets.all(28),
+                        child: Center(
+                          child: Text('No replies yet.',
+                              style:
+                                  TextStyle(color: Colors.grey.shade600)),
+                        ),
+                      ),
+                    for (final r in replies) ...[
+                      Padding(
+                        padding: const EdgeInsets.only(left: 16),
+                        child: _PostCard(
+                          post: r,
+                          onLike: () =>
+                              FeedStore.instance.toggleLike(r.id),
+                          onRepost: () =>
+                              FeedStore.instance.toggleRepost(r.id),
+                          onReply: () {},
+                        ),
+                      ),
+                      const Divider(height: 1),
+                    ],
+                  ],
+                ),
+              ),
+              SafeArea(
+                top: false,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 12, 10),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _reply,
+                          minLines: 1,
+                          maxLines: 3,
+                          onSubmitted: (_) => _send(),
+                          decoration: InputDecoration(
+                            hintText:
+                                'Reply to @${post.authorUsername}',
+                            filled: true,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(24),
+                              borderSide: BorderSide.none,
+                            ),
+                            contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 16, vertical: 8),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      IconButton.filled(
+                        icon: const Icon(Icons.send, size: 18),
+                        tooltip: 'Send reply',
+                        onPressed: _send,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
       ),
     );
   }

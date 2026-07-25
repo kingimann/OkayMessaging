@@ -55,14 +55,3 @@ class FollowStore extends ChangeNotifier {
     notifyListeners();
   }
 }
-
-/// A believable follower count for a demo profile: stable per username, and
-/// +1 while you follow them.
-int followerCountFor(String username, {required bool youFollow}) {
-  final u = username.replaceFirst('@', '').trim().toLowerCase();
-  var h = 0;
-  for (final c in u.codeUnits) {
-    h = (h * 31 + c) & 0x7fffffff;
-  }
-  return 24 + (h % 380) + (youFollow ? 1 : 0);
-}

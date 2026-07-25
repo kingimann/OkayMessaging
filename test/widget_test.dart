@@ -22,7 +22,6 @@ import 'package:okay_messaging/screens/okay_pro_screen.dart';
 import 'package:okay_messaging/screens/forum_screen.dart';
 import 'package:okay_messaging/screens/location_picker_screen.dart';
 import 'package:okay_messaging/screens/map_screen.dart';
-import 'package:okay_messaging/utils/friend_locations.dart';
 import 'package:okay_messaging/util/geocoding.dart';
 import 'package:okay_messaging/util/geolocation.dart';
 import 'package:okay_messaging/utils/chat_transcript.dart';
@@ -34,6 +33,8 @@ import 'package:okay_messaging/screens/feed_screen.dart';
 import 'package:okay_messaging/screens/forward_screen.dart';
 import 'package:okay_messaging/screens/route_map_screen.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:okay_messaging/screens/chat_screen.dart';
+import 'package:okay_messaging/tabs/activity_tab.dart';
 import 'package:okay_messaging/tabs/chats_tab.dart';
 import 'package:okay_messaging/utils/maps_link.dart';
 import 'package:okay_messaging/widgets/message_bubble.dart';
@@ -3845,6 +3846,8 @@ void main() {
       await tester.scrollUntilVisible(
           find.text('Confirm before sending'), 200,
           scrollable: find.byType(Scrollable).first);
+      await tester.ensureVisible(find.text('Confirm before sending'));
+      await tester.pumpAndSettle();
       expect(find.text('Confirm before sending'), findsOneWidget);
       await tester.tap(find.text('Confirm before sending'));
       await tester.pumpAndSettle();
@@ -4042,16 +4045,33 @@ void main() {
       await tester.pump();
     });
 
-    test('FollowStore toggles follows and followerCountFor stays stable', () {
+    test('FollowStore toggles follows by normalised username', () {
       expect(FollowStore.instance.isFollowing('gracehop'), isFalse);
       expect(FollowStore.instance.toggle('@GraceHop'), isTrue);
       expect(FollowStore.instance.isFollowing('gracehop'), isTrue);
       expect(FollowStore.instance.followingCount, 1);
-      final base = followerCountFor('gracehop', youFollow: false);
-      expect(followerCountFor('gracehop', youFollow: false), base);
-      expect(followerCountFor('gracehop', youFollow: true), base + 1);
       expect(FollowStore.instance.toggle('gracehop'), isFalse);
       expect(FollowStore.instance.followingCount, 0);
+    });
+
+    testWidgets('the Notifications tab lists unread chats and missed calls',
+        (tester) async {
+      await tester.pumpWidget(
+          const MaterialApp(home: Scaffold(body: ActivityTab())));
+      await tester.pump();
+
+      // The demo data ships chats with unread messages — they surface here.
+      final unread = ChatStore.instance.chats
+          .where((c) => c.unreadCount > 0)
+          .toList();
+      expect(unread, isNotEmpty);
+      expect(find.text('NEW MESSAGES'), findsOneWidget);
+      expect(find.text(unread.first.contact.name), findsWidgets);
+
+      // Opening a chat from a notification works.
+      await tester.tap(find.text(unread.first.contact.name).first);
+      await tester.pumpAndSettle();
+      expect(find.byType(ChatScreen), findsOneWidget);
     });
 
     testWidgets('contact page follows and unfollows a user', (tester) async {
@@ -4061,7 +4081,8 @@ void main() {
       await tester.pump();
 
       expect(find.text('Follow'), findsOneWidget);
-      expect(find.textContaining('followers'), findsOneWidget);
+      // No invented follower counts anywhere.
+      expect(find.textContaining('followers'), findsNothing);
       await tester.tap(find.text('Follow'));
       await tester.pump();
       expect(find.text('Following'), findsOneWidget);
@@ -4078,18 +4099,17 @@ void main() {
       expect(feedAge(now.subtract(const Duration(days: 2)), now: now), '2d');
     });
 
-    testWidgets('the server feed posts, likes, and filters to Following',
+    testWidgets('the server feed starts empty, posts, likes, and threads',
         (tester) async {
       await tester.pumpWidget(const MaterialApp(
         home: FeedScreen(communityId: 'c1', communityName: 'Okay HQ'),
       ));
       await tester.pump();
 
-      // Seeded timeline is alive.
-      expect(find.text('Grace Hopper'), findsOneWidget);
-      expect(find.textContaining('reading old code'), findsOneWidget);
+      // No fake accounts: a fresh feed is honestly empty.
+      expect(find.textContaining('No posts yet'), findsOneWidget);
 
-      // Compose a post — it lands on top with a delete affordance.
+      // Compose a post — it appears with a delete affordance.
       await tester.enterText(
           find.byType(TextField).first, 'First post from me!');
       await tester.tap(find.text('Post'));
@@ -4097,21 +4117,31 @@ void main() {
       expect(find.text('First post from me!'), findsOneWidget);
       expect(find.byTooltip('Delete post'), findsOneWidget);
 
-      // Like Grace's post: 41 → 42.
-      expect(find.text('41'), findsOneWidget);
-      await tester.tap(find.text('41'));
+      // Like it: the heart count appears.
+      await tester.tap(find.byTooltip('Like'));
       await tester.pump();
-      expect(find.text('42'), findsOneWidget);
+      expect(find.text('1'), findsWidgets);
 
-      // "Following" keeps my posts and people I follow — nobody else.
+      // Open the thread and reply — the reply shows under the post.
+      await tester.tap(find.byTooltip('Reply'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.text('Post'), findsWidgets); // thread screen title
+      await tester.enterText(find.byType(TextField).last, 'And a reply');
+      await tester.tap(find.byTooltip('Send reply'));
+      await tester.pump();
+      expect(find.text('And a reply'), findsOneWidget);
+
+      // Back on the timeline the reply lives in the thread, not inline.
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      expect(find.text('First post from me!'), findsOneWidget);
+      expect(find.text('And a reply'), findsNothing); // threaded, not inline
+
+      // "Following" keeps my own posts visible.
       await tester.tap(find.text('Following'));
       await tester.pump();
       expect(find.text('First post from me!'), findsOneWidget);
-      expect(find.text('Grace Hopper'), findsNothing);
-      FollowStore.instance.toggle('gracehop');
-      await tester.pump();
-      expect(find.text('Grace Hopper'), findsOneWidget);
-      expect(find.text('Alice Bennett'), findsNothing);
     });
 
     testWidgets('saved places pin onto the idle map and open their card',
@@ -5281,22 +5311,28 @@ void main() {
   group('Snap Map', () {
     const base = LatLng(37.7749, -122.4194);
 
-    test('friendPlaces is deterministic, complete, and clustered nearby', () {
-      final friends =
-          ChatStore.instance.chats.map((c) => c.contact).toList();
-      final a = friendPlaces(base, friends);
-      final b = friendPlaces(base, friends);
-      expect(a.length, friends.length);
-      // Stable between calls (no randomness).
-      for (var i = 0; i < a.length; i++) {
-        expect(a[i].position.latitude, b[i].position.latitude);
-        expect(a[i].position.longitude, b[i].position.longitude);
-      }
-      // Every friend sits within ~0.03° of the base point.
-      for (final p in a) {
-        expect((p.position.latitude - base.latitude).abs(), lessThan(0.031));
-        expect((p.position.longitude - base.longitude).abs(), lessThan(0.031));
-      }
+    testWidgets('the friends map shows only real live shares — no fakes',
+        (tester) async {
+      await tester.pumpWidget(const MaterialApp(home: MapScreen()));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      // Nobody is sharing live location → no invented pins, an honest
+      // empty state instead.
+      expect(find.textContaining('No friends on the map yet'), findsOneWidget);
+
+      // A real live share puts that friend on the map.
+      final friend = ChatStore.instance.chats
+          .firstWhere((c) => !c.contact.isGroup && c.contact.phone.isNotEmpty)
+          .contact;
+      LiveLocationStore.instance.update(
+          RelayService.digits(friend.phone), base.latitude, base.longitude);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.textContaining('No friends on the map yet'), findsNothing);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
     });
 
     testWidgets('Ghost Mode hides you and shows the banner', (tester) async {

@@ -545,7 +545,7 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
                 alignment: Alignment.bottomLeft,
                 // Lifted clear of the collapsed search sheet.
                 padding: EdgeInsets.fromLTRB(
-                    10, 0, 0, MediaQuery.of(context).size.height * 0.14 + 12),
+                    10, 0, 0, MediaQuery.of(context).size.height * 0.10 + 12),
                 textStyle: TextStyle(
                   color: dark ? Colors.white70 : Colors.black87,
                   fontSize: 12,
@@ -554,7 +554,7 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
               ),
               Padding(
                 padding: EdgeInsets.only(
-                    bottom: MediaQuery.of(context).size.height * 0.14 + 4),
+                    bottom: MediaQuery.of(context).size.height * 0.10 + 4),
                 child: const LiveAttribution(),
               ),
             ],
@@ -606,11 +606,13 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
                     bottom: MediaQuery.of(context).viewInsets.bottom),
                 child: DraggableScrollableSheet(
                   controller: _sheet,
-                  initialChildSize: 0.42,
-                  minChildSize: 0.14,
+                  // Compact by default — the map is the star; drag up for
+                  // favourites and recents, down for a slim handle.
+                  initialChildSize: 0.30,
+                  minChildSize: 0.10,
                   maxChildSize: 0.88,
                   snap: true,
-                  snapSizes: const [0.14, 0.42, 0.88],
+                  snapSizes: const [0.10, 0.30, 0.88],
                   builder: (context, scroll) => Material(
                     color: Theme.of(context).colorScheme.surface,
                     elevation: 12,
