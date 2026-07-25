@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../data/mock_data.dart';
@@ -86,7 +87,8 @@ class NewChatScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final contacts = MockData.contacts();
+    // Sample contacts are dev/test-only; a real install starts empty.
+    final contacts = kReleaseMode ? <AppUser>[] : MockData.contacts();
     return Scaffold(
       appBar: AppBar(title: const Text('New chat')),
       body: ListView(

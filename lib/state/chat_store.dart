@@ -15,7 +15,9 @@ import 'streak_store.dart';
 /// screen. Kept deliberately simple (a [ChangeNotifier]) for this demo.
 class ChatStore extends ChangeNotifier {
   ChatStore._() {
-    _chats = MockData.chats();
+    // Sample conversations exist only for development and tests. A real
+    // (release) install starts with an empty chat list — no bot contacts.
+    _chats = kReleaseMode ? [] : MockData.chats();
   }
 
   static final ChatStore instance = ChatStore._();
@@ -62,6 +64,11 @@ class ChatStore extends ChangeNotifier {
     _chats = (json['chats'] as List)
         .map((c) => Chat.fromJson(Map<String, dynamic>.from(c as Map)))
         .toList();
+    if (kReleaseMode) {
+      // Purge sample conversations persisted by earlier builds: demo chats
+      // use 'c_*' ids; real ones are created as 'chat_<number>'.
+      _chats.removeWhere((c) => c.id.startsWith('c_'));
+    }
     _starred
       ..clear()
       ..addAll((json['starred'] as List? ?? const []).map((e) => '$e'));
