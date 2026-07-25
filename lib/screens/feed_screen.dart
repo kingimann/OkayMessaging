@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../app_state.dart';
 import '../state/feed_store.dart';
-import '../state/follow_store.dart';
 
 /// An X-style feed for a server: a composer up top, then a timeline of
 /// short posts with reply / repost / like actions. "Following" narrows the
@@ -23,7 +23,6 @@ class FeedScreen extends StatefulWidget {
 
 class _FeedScreenState extends State<FeedScreen> {
   final TextEditingController _composer = TextEditingController();
-  bool _followingOnly = false;
 
   @override
   void dispose() {
@@ -45,40 +44,62 @@ class _FeedScreenState extends State<FeedScreen> {
     ));
   }
 
+  void _postOptions(FeedPost post) {
+    final mine = post.authorUsername == 'you' ||
+        post.authorUsername == AppState.profile.value.username;
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.copy),
+              title: const Text('Copy text'),
+              onTap: () {
+                Clipboard.setData(ClipboardData(text: post.text));
+                Navigator.of(sheetContext).pop();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Copied')),
+                );
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.forum_outlined),
+              title: const Text('View thread'),
+              onTap: () {
+                Navigator.of(sheetContext).pop();
+                _openThread(post);
+              },
+            ),
+            if (mine)
+              ListTile(
+                leading: const Icon(Icons.delete_outline, color: Colors.red),
+                title: const Text('Delete post',
+                    style: TextStyle(color: Colors.red)),
+                onTap: () {
+                  FeedStore.instance.deletePost(post.id);
+                  Navigator.of(sheetContext).pop();
+                },
+              ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text('${widget.communityName} · Feed'),
-        actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: Center(
-              child: SegmentedButton<bool>(
-                style: const ButtonStyle(
-                    visualDensity: VisualDensity.compact),
-                segments: const [
-                  ButtonSegment(value: false, label: Text('For you')),
-                  ButtonSegment(value: true, label: Text('Following')),
-                ],
-                selected: {_followingOnly},
-                showSelectedIcon: false,
-                onSelectionChanged: (s) =>
-                    setState(() => _followingOnly = s.first),
-              ),
-            ),
-          ),
-        ],
-      ),
+      appBar: AppBar(title: Text('${widget.communityName} · Feed')),
       body: ListenableBuilder(
-        listenable: Listenable.merge(
-            [FeedStore.instance, FollowStore.instance]),
+        listenable: FeedStore.instance,
         builder: (context, _) {
-          final posts = FeedStore.instance.postsFor(
-            widget.communityId,
-            onlyUsernames:
-                _followingOnly ? FollowStore.instance.following : null,
-          );
+          // One timeline for everyone in the server — no For-you/Following
+          // split.
+          final posts = FeedStore.instance.postsFor(widget.communityId);
           return ListView(
             children: [
               _Composer(controller: _composer, onPost: _post),
@@ -88,10 +109,7 @@ class _FeedScreenState extends State<FeedScreen> {
                   padding: const EdgeInsets.all(32),
                   child: Center(
                     child: Text(
-                      _followingOnly
-                          ? 'Nothing here yet — follow people from their '
-                              'profile to build this timeline.'
-                          : 'No posts yet. Be the first to say something!',
+                      'No posts yet. Be the first to say something!',
                       textAlign: TextAlign.center,
                       style: TextStyle(color: Colors.grey.shade600),
                     ),
@@ -100,6 +118,7 @@ class _FeedScreenState extends State<FeedScreen> {
               for (final post in posts) ...[
                 InkWell(
                   onTap: () => _openThread(post),
+                  onLongPress: () => _postOptions(post),
                   child: _PostCard(
                     post: post,
                     onLike: () => FeedStore.instance.toggleLike(post.id),

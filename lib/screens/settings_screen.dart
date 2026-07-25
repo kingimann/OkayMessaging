@@ -10,6 +10,7 @@ import '../widgets/info_section.dart';
 import '../widgets/user_avatar.dart';
 import 'backup_screen.dart';
 import 'chats_settings_screen.dart';
+import 'cloud_sync_screen.dart';
 import 'edit_profile_screen.dart';
 import 'legal_screen.dart';
 import 'my_qr_screen.dart';
@@ -114,6 +115,14 @@ class SettingsView extends StatelessWidget {
                 onTap: () => Navigator.of(context).push(
                   MaterialPageRoute(builder: (_) => const BackupScreen()),
                 ),
+              ),
+            ),
+            InfoTile(
+              leading: const Icon(Icons.cloud_sync_outlined),
+              title: 'Encrypted cloud sync',
+              subtitle: 'On the server, unreadable to the server',
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const CloudSyncScreen()),
               ),
             ),
             InfoTile(

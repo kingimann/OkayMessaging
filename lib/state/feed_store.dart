@@ -188,6 +188,21 @@ class FeedStore extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Every post as JSON, for the encrypted cloud backup.
+  List<Map<String, dynamic>> exportPosts() =>
+      [for (final p in _posts) p.toJson()];
+
+  /// Replaces the feed with posts from a decrypted cloud backup.
+  void hydratePosts(List<dynamic> raw) {
+    _posts
+      ..clear()
+      ..addAll(raw
+          .whereType<Map>()
+          .map((m) => FeedPost.fromJson(Map<String, dynamic>.from(m))));
+    _save();
+    notifyListeners();
+  }
+
   Future<void> load() async {
     try {
       final prefs = await SharedPreferences.getInstance();

@@ -53,6 +53,7 @@ import 'package:okay_messaging/relay/relay_service.dart';
 import 'package:okay_messaging/state/account_service.dart';
 import 'package:okay_messaging/state/app_lock.dart';
 import 'package:okay_messaging/state/call_service.dart';
+import 'package:okay_messaging/state/cloud_sync.dart';
 import 'package:okay_messaging/state/community_store.dart';
 import 'package:okay_messaging/state/file_transfer.dart';
 import 'package:okay_messaging/models/status_update.dart';
@@ -4132,16 +4133,72 @@ void main() {
       await tester.pump();
       expect(find.text('And a reply'), findsOneWidget);
 
-      // Back on the timeline the reply lives in the thread, not inline.
+      // Back on the timeline the reply lives in the thread, not inline —
+      // and there is no For you / Following split, just one timeline.
       await tester.pageBack();
       await tester.pumpAndSettle();
       expect(find.text('First post from me!'), findsOneWidget);
       expect(find.text('And a reply'), findsNothing); // threaded, not inline
+      expect(find.text('For you'), findsNothing);
+      expect(find.text('Following'), findsNothing);
+    });
 
-      // "Following" keeps my own posts visible.
-      await tester.tap(find.text('Following'));
+    test('cloud sync stores only ciphertext and restores everything',
+        () async {
+      CloudSync.debugServerOverride = {};
+      addTearDown(() {
+        CloudSync.debugServerOverride = null;
+        CloudSync.instance.resetForTest();
+      });
+      await CloudSync.instance
+          .configure(passphrase: 'correct horse battery', on: false);
+
+      FeedStore.instance.add('c1', 'Backed up post');
+      FollowStore.instance.toggle('gracehop');
+      SavedPlacesStore.instance.toggle(const SavedPlace('Cafe', 43.6, -79.3));
+
+      expect(await CloudSync.instance.syncNow(), isNull);
+      final blob = CloudSync.debugServerOverride!.values.single;
+      // Heavily encrypted: the stored blob leaks nothing readable.
+      expect(blob.contains('Backed up post'), isFalse);
+      expect(blob.contains('gracehop'), isFalse);
+      expect(blob.contains('Cafe'), isFalse);
+
+      // Wipe local state, then restore from the encrypted blob.
+      FeedStore.instance.resetForTest();
+      FollowStore.instance.resetForTest();
+      SavedPlacesStore.instance.resetForTest();
+      expect(await CloudSync.instance.restore(), isNull);
+      expect(FeedStore.instance.postsFor('c1').single.text, 'Backed up post');
+      expect(FollowStore.instance.isFollowing('gracehop'), isTrue);
+      expect(SavedPlacesStore.instance.places.single.name, 'Cafe');
+
+      // The wrong passphrase cannot find (let alone decrypt) the backup.
+      await CloudSync.instance
+          .configure(passphrase: 'wrong passphrase', on: false);
+      expect(await CloudSync.instance.restore(), isNotNull);
+    });
+
+    testWidgets('a minimized call shows the return-to-call banner',
+        (tester) async {
+      final session = CallSession(
+        callId: 'x1',
+        peer: MockData.contacts().firstWhere((c) => !c.isGroup),
+        video: false,
+        direction: CallDirection.outgoing,
+        status: CallStatus.connected,
+        connectedAt: DateTime.now(),
+      );
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Stack(children: [ReturnToCallBanner(session: session)]),
+        ),
+      ));
       await tester.pump();
-      expect(find.text('First post from me!'), findsOneWidget);
+      expect(find.textContaining('tap to return'), findsOneWidget);
+      expect(find.byTooltip('Hang up'), findsOneWidget);
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
     });
 
     testWidgets('saved places pin onto the idle map and open their card',

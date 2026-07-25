@@ -42,6 +42,15 @@ class FollowStore extends ChangeNotifier {
     return nowFollowing;
   }
 
+  /// Replaces the follow list (from a decrypted cloud backup).
+  void setAll(Iterable<String> usernames) {
+    _following
+      ..clear()
+      ..addAll(usernames.map(_clean).where((u) => u.isNotEmpty));
+    _save();
+    notifyListeners();
+  }
+
   Future<void> _save() async {
     try {
       final prefs = await SharedPreferences.getInstance();

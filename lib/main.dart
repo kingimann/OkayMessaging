@@ -13,6 +13,7 @@ import 'state/call_log.dart';
 import 'state/call_service.dart';
 import 'state/community_store.dart';
 import 'state/chat_store.dart';
+import 'state/cloud_sync.dart';
 import 'state/feed_store.dart';
 import 'state/follow_store.dart';
 import 'state/persistence.dart';
@@ -49,6 +50,7 @@ Future<void> main() async {
   await SavedPlacesStore.instance.load();
   await FollowStore.instance.load();
   await FeedStore.instance.load();
+  await CloudSync.instance.load();
   await StatusStore.instance.load();
   if (StreakStore.instance.isEmpty) {
     // Seed a couple of demo streaks so the feature is visible on first run;
@@ -75,12 +77,17 @@ class _CallOverlay extends StatelessWidget {
     return ValueListenableBuilder<CallSession?>(
       valueListenable: CallService.instance.current,
       builder: (context, session, _) {
-        return Stack(
-          children: [
-            child,
-            if (session != null)
-              Positioned.fill(child: CallScreen(session: session)),
-          ],
+        return ValueListenableBuilder<bool>(
+          valueListenable: CallService.instance.minimized,
+          builder: (context, minimized, __) => Stack(
+            children: [
+              child,
+              if (session != null && !minimized)
+                Positioned.fill(child: CallScreen(session: session)),
+              if (session != null && minimized)
+                ReturnToCallBanner(session: session),
+            ],
+          ),
         );
       },
     );

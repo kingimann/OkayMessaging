@@ -66,6 +66,10 @@ class CallService {
   /// shows the call screen whenever it is non-null.
   final ValueNotifier<CallSession?> current = ValueNotifier<CallSession?>(null);
 
+  /// When true, the in-call UI collapses to a "return to call" banner so
+  /// the user can keep using the app mid-call.
+  final ValueNotifier<bool> minimized = ValueNotifier<bool>(false);
+
   int _seq = 0;
 
   /// True when a call is already ringing or connected (used to send "busy").
@@ -117,6 +121,7 @@ class CallService {
     ScoreStore.instance.recordFlag('made_call');
     final id = _newCallId(peer.phone);
     RelayService.instance.currentCallId = id;
+    minimized.value = false;
     current.value = CallSession(
       callId: id,
       peer: peer,
@@ -166,6 +171,7 @@ class CallService {
     _pendingOfferSdp = null;
     CallMedia.instance.hangUp();
     current.value = null;
+    minimized.value = false;
   }
 
   /// Hangs up (cancels a ringing outgoing call, or ends a connected one).
@@ -178,11 +184,13 @@ class CallService {
     _pendingOfferSdp = null;
     CallMedia.instance.hangUp();
     current.value = null;
+    minimized.value = false;
   }
 
   /// Clears a terminal (ended/declined) session once the UI has shown it.
   void clear() {
     current.value = null;
+    minimized.value = false;
   }
 
   /// Leaves a voicemail for [peer] after an unanswered call: records a voice
@@ -233,6 +241,7 @@ class CallService {
     }
     _pendingOfferSdp = sdp;
     RelayService.instance.currentCallId = callId;
+    minimized.value = false;
     current.value = CallSession(
       callId: callId,
       peer: peer,
@@ -287,6 +296,7 @@ class CallService {
   @visibleForTesting
   void resetForTest() {
     current.value = null;
+    minimized.value = false;
     _seq = 0;
     _loggedCallIds.clear();
   }

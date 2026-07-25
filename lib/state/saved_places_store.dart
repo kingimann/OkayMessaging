@@ -33,6 +33,20 @@ class SavedPlacesStore extends ChangeNotifier {
 
   List<SavedPlace> get places => List.unmodifiable(_places);
 
+  /// Every saved place as JSON, for the encrypted cloud backup.
+  List<Map<String, dynamic>> exportPlaces() =>
+      [for (final p in _places) p.toJson()];
+
+  /// Replaces saved places (from a decrypted cloud backup).
+  void hydratePlaces(List<dynamic> raw) {
+    _places = raw
+        .whereType<Map>()
+        .map((m) => SavedPlace.fromJson(Map<String, dynamic>.from(m)))
+        .toList();
+    _persist();
+    notifyListeners();
+  }
+
   Future<void> load() async {
     final prefs = _prefs ??= await SharedPreferences.getInstance();
     final raw = prefs.getString(_key);

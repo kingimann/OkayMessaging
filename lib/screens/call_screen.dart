@@ -184,6 +184,18 @@ class _CallScreenState extends State<CallScreen> {
                 child: RTCVideoView(localRenderer, mirror: true),
               ),
             ),
+          // Collapse the call into a floating banner and keep using the app.
+          if (session.status == CallStatus.connected)
+            Positioned(
+              top: MediaQuery.of(context).padding.top + 8,
+              left: 8,
+              child: IconButton(
+                icon: const Icon(Icons.keyboard_arrow_down,
+                    color: Colors.white, size: 30),
+                tooltip: 'Minimize call',
+                onPressed: () => CallService.instance.minimized.value = true,
+              ),
+            ),
           SafeArea(
             child: Column(
               children: [
@@ -602,6 +614,88 @@ class _VoicemailRecorderState extends State<_VoicemailRecorder>
               ],
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The floating "return to call" pill shown while the call UI is minimized:
+/// the call continues, the user browses the app, and one tap brings the
+/// full-screen call back.
+class ReturnToCallBanner extends StatefulWidget {
+  final CallSession session;
+  const ReturnToCallBanner({super.key, required this.session});
+
+  @override
+  State<ReturnToCallBanner> createState() => _ReturnToCallBannerState();
+}
+
+class _ReturnToCallBannerState extends State<ReturnToCallBanner> {
+  Timer? _tick;
+
+  @override
+  void initState() {
+    super.initState();
+    // Keep the elapsed-time label live.
+    _tick = Timer.periodic(
+        const Duration(seconds: 1), (_) => setState(() {}));
+  }
+
+  @override
+  void dispose() {
+    _tick?.cancel();
+    super.dispose();
+  }
+
+  String get _elapsed {
+    final at = widget.session.connectedAt;
+    if (at == null) return 'Ringing…';
+    final d = DateTime.now().difference(at);
+    final m = d.inMinutes;
+    final s = d.inSeconds % 60;
+    return '$m:${s.toString().padLeft(2, '0')}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned(
+      top: MediaQuery.of(context).padding.top + 6,
+      left: 12,
+      right: 12,
+      child: Material(
+        color: const Color(0xFF1DB954),
+        borderRadius: BorderRadius.circular(26),
+        elevation: 8,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(26),
+          onTap: () => CallService.instance.minimized.value = false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 6, 8),
+            child: Row(
+              children: [
+                Icon(widget.session.video ? Icons.videocam : Icons.call,
+                    color: Colors.white, size: 18),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    '${widget.session.peer.name} · $_elapsed — tap to return',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600),
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.call_end, color: Colors.white),
+                  tooltip: 'Hang up',
+                  onPressed: () => CallService.instance.end(),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );
