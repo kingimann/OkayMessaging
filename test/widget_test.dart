@@ -55,6 +55,7 @@ import 'package:okay_messaging/models/user.dart';
 import 'package:okay_messaging/relay/relay_service.dart';
 import 'package:okay_messaging/state/account_service.dart';
 import 'package:okay_messaging/state/app_lock.dart';
+import 'package:okay_messaging/state/call_media.dart';
 import 'package:okay_messaging/state/call_service.dart';
 import 'package:okay_messaging/state/cloud_sync.dart';
 import 'package:okay_messaging/state/community_store.dart';
@@ -4393,6 +4394,29 @@ void main() {
       });
       await tester.pump();
       expect(find.text('typing…'), findsOneWidget);
+    });
+
+    testWidgets('the left sidebar opens with shortcuts', (tester) async {
+      await tester.pumpWidget(const OkayMessagingApp());
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byTooltip('Open navigation menu'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Maps'), findsOneWidget);
+      expect(find.text('People'), findsOneWidget);
+      expect(find.text('Starred messages'), findsOneWidget);
+      expect(find.text('Encrypted cloud sync'), findsOneWidget);
+
+      // Shortcuts navigate: People opens with its add-a-friend field.
+      await tester.tap(find.text('People'));
+      await tester.pumpAndSettle();
+      expect(find.text('YOUR PEOPLE'), findsOneWidget);
+    });
+
+    test('screen share reports an honest error with no active call', () async {
+      expect(await CallMedia.instance.toggleScreenShare(), isNotNull);
+      expect(CallMedia.instance.screenSharing.value, isFalse);
     });
 
     testWidgets('a minimized call shows the return-to-call banner',

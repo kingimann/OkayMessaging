@@ -14,8 +14,14 @@ import 'communities.dart';
 import 'explore_map_screen.dart';
 import 'new_chat_screen.dart';
 import 'settings_screen.dart';
+import 'cloud_sync_screen.dart';
+import 'edit_profile_screen.dart';
+import 'my_qr_screen.dart';
+import 'people_screen.dart';
 import 'starred_messages_screen.dart';
 import 'status_screen.dart';
+import '../app_state.dart';
+import '../widgets/user_avatar.dart';
 
 /// The top-level screen: a modern pill bottom bar switching between Chats and
 /// Calls, with a compose FAB.
@@ -123,6 +129,7 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       // Let the content flow behind the floating glass bar so it blurs through.
       extendBody: true,
+      drawer: const _AppSideBar(),
       body: IndexedStack(
         index: _index,
         children: const [
@@ -257,6 +264,99 @@ class _ModernNavBar extends StatelessWidget {
                 ],
               ),
             ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The left sidebar: profile up top, then one-tap shortcuts to the places
+/// that otherwise live several taps deep.
+class _AppSideBar extends StatelessWidget {
+  const _AppSideBar();
+
+  void _go(BuildContext context, Widget screen) {
+    Navigator.of(context).pop(); // close the drawer first
+    Navigator.of(context)
+        .push(MaterialPageRoute(builder: (_) => screen));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Drawer(
+      child: SafeArea(
+        child: ValueListenableBuilder(
+          valueListenable: AppState.profile,
+          builder: (context, me, _) => ListView(
+            padding: EdgeInsets.zero,
+            children: [
+              InkWell(
+                onTap: () => _go(context, const EditProfileScreen()),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 20, 16, 16),
+                  child: Row(
+                    children: [
+                      UserAvatar(user: me, radius: 28),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(me.name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                    fontSize: 17,
+                                    fontWeight: FontWeight.w700)),
+                            if (me.handle.isNotEmpty)
+                              Text(me.handle,
+                                  style: TextStyle(
+                                      fontSize: 13.5,
+                                      color: Colors.grey.shade600)),
+                          ],
+                        ),
+                      ),
+                      const Icon(Icons.edit_outlined,
+                          size: 18, color: Colors.grey),
+                    ],
+                  ),
+                ),
+              ),
+              const Divider(height: 1),
+              ListTile(
+                leading: const Icon(Icons.map_outlined),
+                title: const Text('Maps'),
+                onTap: () => _go(context, const ExploreMapScreen()),
+              ),
+              ListTile(
+                leading: const Icon(Icons.group_outlined),
+                title: const Text('People'),
+                onTap: () => _go(context, const PeopleScreen()),
+              ),
+              ListTile(
+                leading: const Icon(Icons.qr_code),
+                title: const Text('My QR code'),
+                onTap: () => _go(context, const MyQrScreen()),
+              ),
+              const Divider(height: 1),
+              ListTile(
+                leading: const Icon(Icons.star_outline),
+                title: const Text('Starred messages'),
+                onTap: () => _go(context, const StarredMessagesScreen()),
+              ),
+              ListTile(
+                leading: const Icon(Icons.archive_outlined),
+                title: const Text('Archived chats'),
+                onTap: () => _go(context, const ArchivedChatsScreen()),
+              ),
+              const Divider(height: 1),
+              ListTile(
+                leading: const Icon(Icons.cloud_sync_outlined),
+                title: const Text('Encrypted cloud sync'),
+                onTap: () => _go(context, const CloudSyncScreen()),
+              ),
+            ],
           ),
         ),
       ),

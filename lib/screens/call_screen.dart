@@ -409,8 +409,10 @@ class _CallScreenState extends State<CallScreen> {
             color: Colors.white.withValues(alpha: 0.08),
             borderRadius: BorderRadius.circular(28),
           ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          child: Wrap(
+            alignment: WrapAlignment.center,
+            spacing: 6,
+            runSpacing: 8,
             children: [
               _CallControl(
                 icon: _muted ? Icons.mic_off : Icons.mic,
@@ -445,6 +447,27 @@ class _CallScreenState extends State<CallScreen> {
                   label: 'Flip',
                   onTap: () => CallMedia.instance.switchCamera(),
                 ),
+              // Share this screen into the call (desktop/Android Chrome;
+              // iPhone Safari doesn't allow web screen capture).
+              ValueListenableBuilder<bool>(
+                valueListenable: CallMedia.instance.screenSharing,
+                builder: (context, sharing, _) => _CallControl(
+                  icon: sharing
+                      ? Icons.stop_screen_share
+                      : Icons.screen_share_outlined,
+                  label: sharing ? 'Stop share' : 'Share screen',
+                  active: sharing,
+                  onTap: () async {
+                    final error =
+                        await CallMedia.instance.toggleScreenShare();
+                    if (error != null && context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text(error)),
+                      );
+                    }
+                  },
+                ),
+              ),
               // Text mid-call: the call collapses to the return banner and
               // the conversation opens underneath.
               _CallControl(

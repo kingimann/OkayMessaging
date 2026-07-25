@@ -180,6 +180,73 @@ class CallMedia {
     } catch (_) {}
   }
 
+  MediaStream? _screenStream;
+
+  /// True while this device is sharing its screen into the call.
+  final ValueNotifier<bool> screenSharing = ValueNotifier<bool>(false);
+
+  /// Starts/stops sharing this screen by swapping the outgoing video track.
+  /// Returns null on success, or a human-readable reason it couldn't start
+  /// (browsers gate this: desktop and Android Chrome allow it, iPhone
+  /// Safari does not).
+  Future<String?> toggleScreenShare() async {
+    if (!isSupported || _pc == null) return 'No active call connection.';
+    if (screenSharing.value) {
+      await _stopScreenShare();
+      return null;
+    }
+    try {
+      final display = await navigator.mediaDevices
+          .getDisplayMedia({'video': true, 'audio': false});
+      final tracks = display.getVideoTracks();
+      if (tracks.isEmpty) return 'Screen capture returned no video.';
+      final track = tracks.first;
+      final senders = await _pc!.getSenders();
+      RTCRtpSender? videoSender;
+      for (final s in senders) {
+        if (s.track?.kind == 'video') {
+          videoSender = s;
+          break;
+        }
+      }
+      if (videoSender != null) {
+        await videoSender.replaceTrack(track);
+      } else {
+        await _pc!.addTrack(track, display);
+      }
+      localRenderer?.srcObject = display;
+      // The browser's own "Stop sharing" bar ends the track — follow it.
+      track.onEnded = () => _stopScreenShare();
+      _screenStream = display;
+      screenSharing.value = true;
+      return null;
+    } catch (_) {
+      return 'Screen sharing isn\'t available in this browser — iPhone '
+          'Safari doesn\'t allow web screen capture; Android Chrome and '
+          'desktop browsers do.';
+    }
+  }
+
+  Future<void> _stopScreenShare() async {
+    try {
+      _screenStream?.getTracks().forEach((t) => t.stop());
+      await _screenStream?.dispose();
+    } catch (_) {}
+    _screenStream = null;
+    screenSharing.value = false;
+    // Put the camera back on the wire and in the local preview.
+    try {
+      final cam = _localStream?.getVideoTracks() ?? [];
+      final senders = await _pc?.getSenders() ?? <RTCRtpSender>[];
+      for (final s in senders) {
+        if (s.track?.kind == 'video' && cam.isNotEmpty) {
+          await s.replaceTrack(cam.first);
+        }
+      }
+      if (_localStream != null) localRenderer?.srcObject = _localStream;
+    } catch (_) {}
+  }
+
   void setMuted(bool muted) {
     _localStream?.getAudioTracks().forEach((t) => t.enabled = !muted);
   }
@@ -212,6 +279,12 @@ class CallMedia {
   Future<void> hangUp() async {
     remoteReady.value = false;
     connectionState.value = 'closed';
+    screenSharing.value = false;
+    try {
+      _screenStream?.getTracks().forEach((t) => t.stop());
+      await _screenStream?.dispose();
+    } catch (_) {}
+    _screenStream = null;
     try {
       _localStream?.getTracks().forEach((t) => t.stop());
       await _localStream?.dispose();
