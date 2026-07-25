@@ -318,6 +318,7 @@ class _Composer extends StatelessWidget {
               minLines: 1,
               maxLines: 4,
               maxLength: 280,
+              textCapitalization: TextCapitalization.sentences,
               buildCounter: (context,
                       {required currentLength,
                       required isFocused,
@@ -327,9 +328,16 @@ class _Composer extends StatelessWidget {
                           style: TextStyle(
                               fontSize: 11, color: Theme.of(context).colorScheme.onSurfaceVariant))
                       : null,
-              decoration: const InputDecoration(
+              decoration: InputDecoration(
                 hintText: "What's happening?",
-                border: InputBorder.none,
+                filled: true,
+                isDense: true,
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(22),
+                  borderSide: BorderSide.none,
+                ),
               ),
             ),
           ),

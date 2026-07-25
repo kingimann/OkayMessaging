@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 
@@ -71,6 +72,22 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
   @override
   void initState() {
     super.initState();
+    // Reopen where the user last left the map (GPS recenters on a fix).
+    SharedPreferences.getInstance().then((prefs) {
+      final raw = prefs.getString('map_last_view');
+      if (raw == null || !mounted || _me != null || _mapTouched) return;
+      final parts = raw.split(',');
+      if (parts.length != 3) return;
+      final lat = double.tryParse(parts[0]);
+      final lng = double.tryParse(parts[1]);
+      final zoom = double.tryParse(parts[2]);
+      if (lat == null || lng == null || zoom == null) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _me == null && !_mapTouched) {
+          _map.move(LatLng(lat, lng), zoom.clamp(2.0, 17.0));
+        }
+      });
+    });
     _locate(recenter: true);
     // Keep the "you are here" dot fresh while the map is open.
     _locTimer = Timer.periodic(
@@ -79,6 +96,14 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
 
   @override
   void dispose() {
+    // Remember the view for next time.
+    try {
+      final cam = _map.camera;
+      final view = '${cam.center.latitude},${cam.center.longitude},'
+          '${cam.zoom}';
+      SharedPreferences.getInstance()
+          .then((p) => p.setString('map_last_view', view));
+    } catch (_) {}
     _locTimer?.cancel();
     _debounce?.cancel();
     _search.dispose();

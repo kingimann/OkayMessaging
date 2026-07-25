@@ -4403,10 +4403,12 @@ void main() {
       await tester.tap(find.byTooltip('Open navigation menu'));
       await tester.pumpAndSettle();
 
+      // Only destinations the bottom bar can't reach live here.
       expect(find.text('Maps'), findsOneWidget);
       expect(find.text('People'), findsOneWidget);
-      expect(find.text('Starred messages'), findsOneWidget);
-      expect(find.text('Encrypted cloud sync'), findsOneWidget);
+      expect(find.text('Starred messages'), findsNothing);
+      expect(find.text('Encrypted cloud sync'), findsNothing);
+      expect(find.text('My QR code'), findsNothing);
 
       // Shortcuts navigate: People opens with its add-a-friend field.
       await tester.tap(find.text('People'));

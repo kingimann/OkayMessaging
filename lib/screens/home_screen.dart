@@ -14,9 +14,7 @@ import 'communities.dart';
 import 'explore_map_screen.dart';
 import 'new_chat_screen.dart';
 import 'settings_screen.dart';
-import 'cloud_sync_screen.dart';
 import 'edit_profile_screen.dart';
-import 'my_qr_screen.dart';
 import 'people_screen.dart';
 import 'starred_messages_screen.dart';
 import 'status_screen.dart';
@@ -324,37 +322,19 @@ class _AppSideBar extends StatelessWidget {
                 ),
               ),
               const Divider(height: 1),
+              // Only the destinations the bottom bar can't cover — the
+              // full apps that live outside the five tabs.
               ListTile(
                 leading: const Icon(Icons.map_outlined),
                 title: const Text('Maps'),
+                subtitle: const Text('Search, navigate, share places'),
                 onTap: () => _go(context, const ExploreMapScreen()),
               ),
               ListTile(
                 leading: const Icon(Icons.group_outlined),
                 title: const Text('People'),
+                subtitle: const Text('Add and follow friends'),
                 onTap: () => _go(context, const PeopleScreen()),
-              ),
-              ListTile(
-                leading: const Icon(Icons.qr_code),
-                title: const Text('My QR code'),
-                onTap: () => _go(context, const MyQrScreen()),
-              ),
-              const Divider(height: 1),
-              ListTile(
-                leading: const Icon(Icons.star_outline),
-                title: const Text('Starred messages'),
-                onTap: () => _go(context, const StarredMessagesScreen()),
-              ),
-              ListTile(
-                leading: const Icon(Icons.archive_outlined),
-                title: const Text('Archived chats'),
-                onTap: () => _go(context, const ArchivedChatsScreen()),
-              ),
-              const Divider(height: 1),
-              ListTile(
-                leading: const Icon(Icons.cloud_sync_outlined),
-                title: const Text('Encrypted cloud sync'),
-                onTap: () => _go(context, const CloudSyncScreen()),
               ),
             ],
           ),
