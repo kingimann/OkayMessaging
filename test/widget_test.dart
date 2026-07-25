@@ -16,6 +16,7 @@ import 'package:okay_messaging/models/call.dart' as callmodel;
 import 'package:okay_messaging/screens/auth/phone_login_screen.dart';
 import 'package:okay_messaging/screens/blocked_contacts_screen.dart';
 import 'package:okay_messaging/screens/call_screen.dart';
+import 'package:okay_messaging/screens/communities.dart';
 import 'package:okay_messaging/screens/contact_info_screen.dart';
 import 'package:okay_messaging/screens/chats_settings_screen.dart';
 import 'package:okay_messaging/screens/okay_pro_screen.dart';
@@ -4318,6 +4319,50 @@ void main() {
       await tester.pump();
       expect(FollowStore.instance.isFollowing('gracehop'), isTrue);
       expect(find.text('Following'), findsOneWidget);
+    });
+
+    test('filterCommunities matches names and descriptions', () {
+      final all = CommunityStore.instance.communities;
+      expect(filterCommunities(all, ''), all);
+      final byName = filterCommunities(all, all.first.name.toLowerCase());
+      expect(byName, isNotEmpty);
+      expect(filterCommunities(all, 'zzz-no-such-server'), isEmpty);
+    });
+
+    testWidgets('the servers tab search filters the list', (tester) async {
+      await tester.pumpWidget(
+          const MaterialApp(home: Scaffold(body: CommunitiesTab())));
+      await tester.pump();
+
+      final firstName = CommunityStore.instance.communities.first.name;
+      expect(find.text(firstName), findsWidgets);
+
+      await tester.enterText(
+          find.byType(TextField).first, 'zzz-no-such-server');
+      await tester.pump();
+      expect(find.text('No servers match your search.'), findsOneWidget);
+
+      await tester.tap(find.byTooltip('Clear server search'));
+      await tester.pump();
+      expect(find.text(firstName), findsWidgets);
+    });
+
+    testWidgets('the chat list shows a live typing indicator',
+        (tester) async {
+      await tester.pumpWidget(const OkayMessagingApp());
+      await tester.pumpAndSettle();
+      expect(find.text('typing…'), findsNothing);
+
+      final bob = ChatStore.instance.chatById('c_bob')!.contact;
+      RelayService.instance.typingFromDigits =
+          RelayService.digits(bob.phone);
+      RelayService.instance.typingPing.value++;
+      addTearDown(() {
+        RelayService.instance.typingFromDigits = null;
+        RelayService.instance.typingPing.value++;
+      });
+      await tester.pump();
+      expect(find.text('typing…'), findsOneWidget);
     });
 
     testWidgets('a minimized call shows the return-to-call banner',

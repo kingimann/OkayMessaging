@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/chat.dart';
 import '../models/message.dart';
 import '../state/chat_store.dart';
+import '../relay/relay_service.dart';
 import '../state/streak_store.dart';
 import '../theme/app_theme.dart';
 import '../utils/date_formatter.dart';
@@ -100,45 +101,47 @@ class ChatListTile extends StatelessWidget {
                         const SizedBox(width: 3),
                       ],
                       Expanded(
-                        child: draft.isNotEmpty
-                            ? Row(
-                                children: [
-                                  const Text(
-                                    'Draft: ',
-                                    style: TextStyle(
-                                      fontSize: 14.5,
-                                      color: Color(0xFFEB4B3F),
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                                  ),
-                                  Expanded(
-                                    child: Text(
-                                      draft,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(
-                                          fontSize: 14.5, color: subtitleColor),
-                                    ),
-                                  ),
-                                ],
-                              )
-                            : Text(
-                                chat.preview,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
+                        child: ValueListenableBuilder<int>(
+                          valueListenable: RelayService.instance.typingPing,
+                          builder: (context, _, child) {
+                            // Live "typing…" straight from the relay ping.
+                            final digits =
+                                RelayService.digits(chat.contact.phone);
+                            if (digits.isNotEmpty &&
+                                RelayService.instance.typingFromDigits ==
+                                    digits) {
+                              return const Text(
+                                'typing…',
                                 style: TextStyle(
                                   fontSize: 14.5,
-                                  color: hasUnread
-                                      ? Theme.of(context)
-                                          .textTheme
-                                          .bodyLarge
-                                          ?.color
-                                      : subtitleColor,
-                                  fontWeight: hasUnread
-                                      ? FontWeight.w500
-                                      : FontWeight.normal,
+                                  color: AppColors.lightGreen,
+                                  fontWeight: FontWeight.w600,
                                 ),
-                              ),
+                              );
+                            }
+                            return child!;
+                          },
+                          child: draft.isNotEmpty
+                              ? _DraftPreview(
+                                  draft: draft, subtitleColor: subtitleColor)
+                              : Text(
+                                  chat.preview,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 14.5,
+                                    color: hasUnread
+                                        ? Theme.of(context)
+                                            .textTheme
+                                            .bodyLarge
+                                            ?.color
+                                        : subtitleColor,
+                                    fontWeight: hasUnread
+                                        ? FontWeight.w500
+                                        : FontWeight.normal,
+                                  ),
+                                ),
+                        ),
                       ),
                       if (chat.isMuted)
                         const Padding(
@@ -190,4 +193,35 @@ class ChatListTile extends StatelessWidget {
 /// Small helper to expose the last message type where needed.
 extension ChatLastMessage on Chat {
   Message? get latest => messages.isEmpty ? null : messages.last;
+}
+
+/// The red "Draft:" prefix plus the saved draft text.
+class _DraftPreview extends StatelessWidget {
+  final String draft;
+  final Color subtitleColor;
+  const _DraftPreview({required this.draft, required this.subtitleColor});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        const Text(
+          'Draft: ',
+          style: TextStyle(
+            fontSize: 14.5,
+            color: Color(0xFFEB4B3F),
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+        Expanded(
+          child: Text(
+            draft,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(fontSize: 14.5, color: subtitleColor),
+          ),
+        ),
+      ],
+    );
+  }
 }

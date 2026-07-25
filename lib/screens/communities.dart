@@ -35,8 +35,27 @@ Future<void> createCommunityFlow(BuildContext context) async {
 
 /// The "Communities" tab: Discord-style servers you can create and open,
 /// shown as tappable cards.
-class CommunitiesTab extends StatelessWidget {
+/// Case-insensitive server search over name and description. Pure.
+List<Community> filterCommunities(List<Community> all, String query) {
+  final q = query.trim().toLowerCase();
+  if (q.isEmpty) return all;
+  return [
+    for (final c in all)
+      if (c.name.toLowerCase().contains(q) ||
+          c.description.toLowerCase().contains(q))
+        c
+  ];
+}
+
+class CommunitiesTab extends StatefulWidget {
   const CommunitiesTab({super.key});
+
+  @override
+  State<CommunitiesTab> createState() => _CommunitiesTabState();
+}
+
+class _CommunitiesTabState extends State<CommunitiesTab> {
+  final TextEditingController _search = TextEditingController();
 
   Future<void> _refresh() async {
     // Local-first: just give the list a beat to refresh from the store.
@@ -45,14 +64,21 @@ class CommunitiesTab extends StatelessWidget {
   }
 
   @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
       listenable: CommunityStore.instance,
       builder: (context, _) {
-        final communities = CommunityStore.instance.communities;
+        final all = CommunityStore.instance.communities;
+        final communities = filterCommunities(all, _search.text);
         return RefreshIndicator(
           onRefresh: _refresh,
-          child: communities.isEmpty
+          child: all.isEmpty
               ? ListView(
                   physics: const AlwaysScrollableScrollPhysics(),
                   children: const [SizedBox(height: 100), _Empty()],
@@ -61,6 +87,40 @@ class CommunitiesTab extends StatelessWidget {
                   physics: const AlwaysScrollableScrollPhysics(),
                   padding: const EdgeInsets.fromLTRB(12, 12, 12, 96),
                   children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(2, 0, 2, 10),
+                      child: TextField(
+                        controller: _search,
+                        onChanged: (_) => setState(() {}),
+                        decoration: InputDecoration(
+                          hintText: 'Search servers',
+                          prefixIcon: const Icon(Icons.search),
+                          suffixIcon: _search.text.isEmpty
+                              ? null
+                              : IconButton(
+                                  icon: const Icon(Icons.close),
+                                  tooltip: 'Clear server search',
+                                  onPressed: () =>
+                                      setState(() => _search.clear()),
+                                ),
+                          isDense: true,
+                          filled: true,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(24),
+                            borderSide: BorderSide.none,
+                          ),
+                        ),
+                      ),
+                    ),
+                    if (communities.isEmpty)
+                      Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Center(
+                          child: Text('No servers match your search.',
+                              style:
+                                  TextStyle(color: Colors.grey.shade600)),
+                        ),
+                      ),
                     for (final c in communities) _CommunityCard(community: c),
                   ],
                 ),
@@ -308,6 +368,51 @@ class CommunityScreen extends StatelessWidget {
           ),
           body: ListView(
             children: [
+              // A colour-washed banner gives each server its own identity.
+              Container(
+                margin: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+                padding: const EdgeInsets.fromLTRB(16, 18, 16, 18),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(16),
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      _hex(community.color),
+                      _hex(community.color).withValues(alpha: 0.55),
+                    ],
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    CircleAvatar(
+                      radius: 24,
+                      backgroundColor: Colors.white.withValues(alpha: 0.25),
+                      child: Text(
+                        community.name.isEmpty
+                            ? '?'
+                            : community.name[0].toUpperCase(),
+                        style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 20,
+                            fontWeight: FontWeight.w800),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        community.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 20,
+                            fontWeight: FontWeight.w800),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
                 child: Row(

@@ -431,13 +431,41 @@ class _ProfileCard extends StatelessWidget {
                 );
               },
             ),
-            subtitle: Text(me.handle.isNotEmpty ? me.handle : me.about),
-            trailing: IconButton(
-              icon: const Icon(Icons.qr_code, color: Colors.grey),
-              tooltip: 'My QR code',
-              onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const MyQrScreen()),
-              ),
+            subtitle: Text(
+              [
+                if (me.handle.isNotEmpty) me.handle,
+                if (me.about.isNotEmpty) me.about,
+              ].join(' · '),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.ios_share, color: Colors.grey),
+                  tooltip: 'Share profile',
+                  onPressed: () {
+                    final who =
+                        me.handle.isNotEmpty ? me.handle : me.name;
+                    Clipboard.setData(ClipboardData(
+                        text: 'Chat with me ($who) on Okay Messaging: '
+                            'https://kingimann.github.io/OkayMessaging/'));
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                          content: Text('Profile link copied — share it '
+                              'anywhere.')),
+                    );
+                  },
+                ),
+                IconButton(
+                  icon: const Icon(Icons.qr_code, color: Colors.grey),
+                  tooltip: 'My QR code',
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const MyQrScreen()),
+                  ),
+                ),
+              ],
             ),
             shape: kSettingsTileShape,
             onTap: () => Navigator.of(context).push(
