@@ -19,6 +19,7 @@ import 'people_screen.dart';
 import 'starred_messages_screen.dart';
 import 'status_screen.dart';
 import '../app_state.dart';
+import '../util/build_info.dart';
 import '../widgets/user_avatar.dart';
 
 /// The top-level screen: a modern pill bottom bar switching between Chats and
@@ -335,6 +336,16 @@ class _AppSideBar extends StatelessWidget {
                 title: const Text('People'),
                 subtitle: const Text('Add and follow friends'),
                 onTap: () => _go(context, const PeopleScreen()),
+              ),
+              const SizedBox(height: 12),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Text(
+                  'Okay Messaging · $kBuildStamp',
+                  style: TextStyle(
+                      fontSize: 12,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant),
+                ),
               ),
             ],
           ),
