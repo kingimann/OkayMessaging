@@ -297,6 +297,8 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
           bounds: LatLngBounds.fromPoints(
               [for (final r in results) LatLng(r.lat, r.lng)]),
           padding: const EdgeInsets.fromLTRB(50, 140, 50, 120),
+          // Clustered results must not zoom past the deepest real tiles.
+          maxZoom: 16.5,
         ),
       );
     }
@@ -466,6 +468,8 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
           FlutterMap(
             mapController: _map,
             options: MapOptions(
+              minZoom: 2,
+              maxZoom: 20.5,
               // Without a GPS fix, an honest world view beats pretending
               // everyone is in San Francisco; we fly to the fix on arrival.
               initialCenter: _me ?? const LatLng(20, 0),

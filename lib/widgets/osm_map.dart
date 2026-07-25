@@ -44,6 +44,10 @@ TileLayer tileLayerFor(MapLayer layer, {bool lowData = false}) {
   // Low data mode drops the crisp @2x tiles for standard 1x ones — about a
   // quarter of the pixels per tile — for slow cellular connections.
   final retina = !lowData;
+  // maxZoom is a hard display cutoff — past it the map renders NOTHING
+  // (framing a 20 m route zooms right past every server's deepest tiles and
+  // the screen goes grey). maxNativeZoom marks the deepest tiles the server
+  // actually has; beyond that, flutter_map scales those tiles up instead.
   switch (layer) {
     case MapLayer.satellite:
       return TileLayer(
@@ -51,7 +55,8 @@ TileLayer tileLayerFor(MapLayer layer, {bool lowData = false}) {
             'World_Imagery/MapServer/tile/{z}/{y}/{x}',
         userAgentPackageName: kOsmUserAgent,
         tileProvider: provider,
-        maxZoom: 19,
+        maxNativeZoom: 19,
+        maxZoom: 22,
       );
     case MapLayer.terrain:
       return TileLayer(
@@ -59,7 +64,8 @@ TileLayer tileLayerFor(MapLayer layer, {bool lowData = false}) {
         subdomains: const ['a', 'b', 'c'],
         userAgentPackageName: kOsmUserAgent,
         tileProvider: provider,
-        maxZoom: 17,
+        maxNativeZoom: 17,
+        maxZoom: 22,
       );
     case MapLayer.dark:
       return TileLayer(
@@ -69,7 +75,8 @@ TileLayer tileLayerFor(MapLayer layer, {bool lowData = false}) {
         userAgentPackageName: kOsmUserAgent,
         tileProvider: provider,
         retinaMode: retina,
-        maxZoom: 20,
+        maxNativeZoom: 20,
+        maxZoom: 22,
       );
     case MapLayer.standard:
       return TileLayer(
@@ -79,7 +86,8 @@ TileLayer tileLayerFor(MapLayer layer, {bool lowData = false}) {
         userAgentPackageName: kOsmUserAgent,
         tileProvider: provider,
         retinaMode: retina,
-        maxZoom: 20,
+        maxNativeZoom: 20,
+        maxZoom: 22,
       );
   }
 }

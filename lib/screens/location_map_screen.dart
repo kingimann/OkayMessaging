@@ -53,6 +53,8 @@ class _LocationMapScreenState extends State<LocationMapScreen> {
           FlutterMap(
             mapController: _map,
             options: MapOptions(
+              minZoom: 2,
+              maxZoom: 20.5,
               initialCenter: point,
               initialZoom: 15,
               interactionOptions: const InteractionOptions(

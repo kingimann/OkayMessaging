@@ -54,6 +54,8 @@ class _ChatPlacesScreenState extends State<ChatPlacesScreen> {
             for (final m in places) LatLng(m.locationLat!, m.locationLng!),
           ]),
           padding: const EdgeInsets.fromLTRB(60, 80, 60, 160),
+          // Clustered pins must not zoom past the deepest real tiles.
+          maxZoom: 16.5,
         ),
       );
     });
@@ -104,6 +106,8 @@ class _ChatPlacesScreenState extends State<ChatPlacesScreen> {
               FlutterMap(
                 mapController: _map,
                 options: MapOptions(
+                  minZoom: 2,
+                  maxZoom: 20.5,
                   initialCenter: LatLng(
                       places.first.locationLat!, places.first.locationLng!),
                   initialZoom: 13,

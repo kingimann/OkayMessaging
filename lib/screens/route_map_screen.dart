@@ -141,6 +141,8 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
         CameraFit.bounds(
           bounds: LatLngBounds.fromPoints(pts),
           padding: const EdgeInsets.fromLTRB(50, 80, 50, 180),
+          // A 20 m route must not zoom past the deepest real tiles.
+          maxZoom: 17.5,
         ),
       );
     });
@@ -308,6 +310,8 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
           FlutterMap(
             mapController: _map,
             options: MapOptions(
+              minZoom: 2,
+              maxZoom: 20.5,
               initialCenter: widget.dest,
               initialZoom: 13,
               interactionOptions: const InteractionOptions(

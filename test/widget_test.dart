@@ -5250,6 +5250,21 @@ void main() {
       expect(attributionFor(MapLayer.dark), contains('CARTO'));
     });
 
+    test('tile layers scale up past native zoom instead of going grey', () {
+      // maxZoom is a hard display cutoff: if it equals the server's deepest
+      // tile level, framing a short route zooms past it and the whole map
+      // renders grey. Every layer must allow over-zoom with scaled tiles.
+      for (final l in MapLayer.values) {
+        final t = tileLayerFor(l);
+        expect(t.maxZoom, 22, reason: '${l.name} display cutoff');
+        expect(t.maxNativeZoom, lessThanOrEqualTo(20),
+            reason: '${l.name} native tiles');
+      }
+      expect(tileLayerFor(MapLayer.standard).maxNativeZoom, 20);
+      expect(tileLayerFor(MapLayer.terrain).maxNativeZoom, 17);
+      expect(tileLayerFor(MapLayer.satellite).maxNativeZoom, 19);
+    });
+
     test('low data mode swaps crisp retina tiles for light ones', () {
       expect(tileLayerFor(MapLayer.standard).resolvedRetinaMode,
           RetinaMode.server);

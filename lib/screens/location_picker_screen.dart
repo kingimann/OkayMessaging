@@ -115,6 +115,8 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
           FlutterMap(
             mapController: _map,
             options: MapOptions(
+              minZoom: 2,
+              maxZoom: 20.5,
               initialCenter: widget.initialCenter,
               initialZoom: 14,
               interactionOptions: const InteractionOptions(
