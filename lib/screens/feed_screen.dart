@@ -2,7 +2,31 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../app_state.dart';
+import '../state/chat_store.dart';
 import '../state/feed_store.dart';
+import '../state/follow_store.dart';
+import 'chat_screen.dart';
+import 'people_screen.dart';
+
+/// Splits post text into styled spans: @mentions, #tags, and links pop in
+/// the accent colour. Pure, so it's easy to test.
+List<TextSpan> feedSpans(String text, TextStyle base, TextStyle accent) {
+  final spans = <TextSpan>[];
+  final pattern =
+      RegExp(r'(@[A-Za-z0-9_]+|#[A-Za-z0-9_]+|https?://\S+)');
+  var last = 0;
+  for (final m in pattern.allMatches(text)) {
+    if (m.start > last) {
+      spans.add(TextSpan(text: text.substring(last, m.start), style: base));
+    }
+    spans.add(TextSpan(text: m.group(0), style: accent));
+    last = m.end;
+  }
+  if (last < text.length) {
+    spans.add(TextSpan(text: text.substring(last), style: base));
+  }
+  return spans.isEmpty ? [TextSpan(text: text, style: base)] : spans;
+}
 
 /// An X-style feed for a server: a composer up top, then a timeline of
 /// short posts with reply / repost / like actions. "Following" narrows the
@@ -42,6 +66,89 @@ class _FeedScreenState extends State<FeedScreen> {
     Navigator.of(context).push(MaterialPageRoute(
       builder: (_) => FeedPostScreen(postId: post.id),
     ));
+  }
+
+  /// Tapping an author: follow/unfollow them, or jump to your chat.
+  void _authorSheet(FeedPost post) {
+    final mine = post.authorUsername == 'you' ||
+        post.authorUsername == AppState.profile.value.username;
+    final contact = ChatStore.instance.chats
+        .map((c) => c.contact)
+        .where((u) =>
+            u.username.toLowerCase() == post.authorUsername.toLowerCase())
+        .toList();
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _FeedAvatar(
+                  name: post.authorName, username: post.authorUsername),
+              const SizedBox(height: 8),
+              Text(post.authorName,
+                  style: const TextStyle(
+                      fontSize: 17, fontWeight: FontWeight.w700)),
+              Text('@${post.authorUsername}',
+                  style: TextStyle(color: Colors.grey.shade600)),
+              const SizedBox(height: 14),
+              if (mine)
+                Text('This is you.',
+                    style: TextStyle(color: Colors.grey.shade600))
+              else
+                ListenableBuilder(
+                  listenable: FollowStore.instance,
+                  builder: (context, _) {
+                    final following = FollowStore.instance
+                        .isFollowing(post.authorUsername);
+                    return Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        following
+                            ? OutlinedButton.icon(
+                                onPressed: () => FollowStore.instance
+                                    .toggle(post.authorUsername),
+                                icon: const Icon(Icons.check, size: 18),
+                                label: const Text('Following'),
+                              )
+                            : FilledButton.icon(
+                                onPressed: () => FollowStore.instance
+                                    .toggle(post.authorUsername),
+                                icon: const Icon(Icons.person_add_alt_1,
+                                    size: 18),
+                                label: const Text('Follow'),
+                              ),
+                        if (contact.isNotEmpty) ...[
+                          const SizedBox(width: 10),
+                          OutlinedButton.icon(
+                            onPressed: () {
+                              Navigator.of(sheetContext).pop();
+                              final chat = ChatStore.instance
+                                  .chatWithContact(contact.first.id);
+                              if (chat != null) {
+                                Navigator.of(context).push(
+                                    MaterialPageRoute(
+                                        builder: (_) =>
+                                            ChatScreen(chat: chat)));
+                              }
+                            },
+                            icon: const Icon(Icons.chat_bubble_outline,
+                                size: 16),
+                            label: const Text('Message'),
+                          ),
+                        ],
+                      ],
+                    );
+                  },
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   void _postOptions(FeedPost post) {
@@ -93,7 +200,18 @@ class _FeedScreenState extends State<FeedScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text('${widget.communityName} · Feed')),
+      appBar: AppBar(
+        title: Text('${widget.communityName} · Feed'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.person_add_alt),
+            tooltip: 'Add and follow people',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const PeopleScreen()),
+            ),
+          ),
+        ],
+      ),
       body: ListenableBuilder(
         listenable: FeedStore.instance,
         builder: (context, _) {
@@ -124,6 +242,7 @@ class _FeedScreenState extends State<FeedScreen> {
                     onLike: () => FeedStore.instance.toggleLike(post.id),
                     onRepost: () => FeedStore.instance.toggleRepost(post.id),
                     onReply: () => _openThread(post),
+                    onAuthor: () => _authorSheet(post),
                     // Only your own posts are deletable.
                     onDelete: post.authorUsername == 'you' ||
                             post.authorUsername ==
@@ -195,6 +314,7 @@ class _PostCard extends StatelessWidget {
   final VoidCallback onRepost;
   final VoidCallback onReply;
   final VoidCallback? onDelete;
+  final VoidCallback? onAuthor;
 
   const _PostCard({
     required this.post,
@@ -202,6 +322,7 @@ class _PostCard extends StatelessWidget {
     required this.onRepost,
     required this.onReply,
     this.onDelete,
+    this.onAuthor,
   });
 
   @override
@@ -212,7 +333,11 @@ class _PostCard extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _FeedAvatar(name: post.authorName, username: post.authorUsername),
+          GestureDetector(
+            onTap: onAuthor,
+            child: _FeedAvatar(
+                name: post.authorName, username: post.authorUsername),
+          ),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -221,11 +346,14 @@ class _PostCard extends StatelessWidget {
                 Row(
                   children: [
                     Flexible(
-                      child: Text(post.authorName,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                              fontWeight: FontWeight.w700, fontSize: 15)),
+                      child: GestureDetector(
+                        onTap: onAuthor,
+                        child: Text(post.authorName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                                fontWeight: FontWeight.w700, fontSize: 15)),
+                      ),
                     ),
                     const SizedBox(width: 6),
                     Flexible(
@@ -251,7 +379,19 @@ class _PostCard extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 2),
-                Text(post.text, style: const TextStyle(fontSize: 15)),
+                Text.rich(
+                  TextSpan(
+                    children: feedSpans(
+                      post.text,
+                      const TextStyle(fontSize: 15),
+                      TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                    ),
+                  ),
+                ),
                 const SizedBox(height: 6),
                 Row(
                   children: [

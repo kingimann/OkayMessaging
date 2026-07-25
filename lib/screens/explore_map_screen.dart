@@ -528,12 +528,26 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
                     for (final r in _results)
                       Marker(
                         point: LatLng(r.lat, r.lng),
-                        width: 30,
-                        height: 30,
+                        width: 32,
+                        height: 32,
                         child: GestureDetector(
                           onTap: () => _select(r),
-                          child: const Icon(Icons.place,
-                              color: Color(0xFF0A84FF), size: 30),
+                          // Category glyph pins, Apple-Maps style: a cafe
+                          // looks like a cafe from across the map.
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: Theme.of(context).colorScheme.surface,
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                  color: const Color(0xFF0A84FF), width: 2),
+                              boxShadow: const [
+                                BoxShadow(
+                                    color: Colors.black38, blurRadius: 4),
+                              ],
+                            ),
+                            child: Icon(iconForPlaceCategory(r.category),
+                                size: 16, color: const Color(0xFF0A84FF)),
+                          ),
                         ),
                       ),
                     if (selected != null)

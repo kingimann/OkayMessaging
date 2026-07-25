@@ -320,6 +320,45 @@ class CommunityScreen extends StatelessWidget {
                   ],
                 ),
               ),
+              // A face wall of members makes the server feel inhabited.
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 6, 16, 2),
+                child: SizedBox(
+                  height: 34,
+                  child: Stack(
+                    children: [
+                      for (var i = 0;
+                          i < community.members.length && i < 9;
+                          i++)
+                        Positioned(
+                          left: i * 24.0,
+                          child: CircleAvatar(
+                            radius: 16,
+                            backgroundColor:
+                                Theme.of(context).colorScheme.surface,
+                            child: CircleAvatar(
+                              radius: 14,
+                              backgroundColor: Colors.primaries[
+                                      community.members[i].name.hashCode %
+                                          Colors.primaries.length]
+                                  .shade600,
+                              child: Text(
+                                community.members[i].name.isEmpty
+                                    ? '?'
+                                    : community.members[i].name[0]
+                                        .toUpperCase(),
+                                style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700),
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
               if (community.description.isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 2, 16, 4),

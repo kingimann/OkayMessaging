@@ -30,6 +30,7 @@ import 'package:okay_messaging/util/speech.dart';
 import 'package:okay_messaging/screens/chat_places_screen.dart';
 import 'package:okay_messaging/screens/explore_map_screen.dart';
 import 'package:okay_messaging/screens/feed_screen.dart';
+import 'package:okay_messaging/screens/people_screen.dart';
 import 'package:okay_messaging/screens/forward_screen.dart';
 import 'package:okay_messaging/screens/route_map_screen.dart';
 import 'package:latlong2/latlong.dart';
@@ -4177,6 +4178,78 @@ void main() {
       await CloudSync.instance
           .configure(passphrase: 'wrong passphrase', on: false);
       expect(await CloudSync.instance.restore(), isNotNull);
+    });
+
+    test('feedSpans highlights mentions, tags, and links', () {
+      const base = TextStyle(fontSize: 15);
+      const accent = TextStyle(fontSize: 15, color: Colors.blue);
+      final spans =
+          feedSpans('hey @grace check https://osm.org #maps', base, accent);
+      expect(spans.map((s) => s.text).toList(),
+          ['hey ', '@grace', ' check ', 'https://osm.org', ' ', '#maps']);
+      expect(spans[1].style, accent);
+      expect(spans[3].style, accent);
+      expect(spans[0].style, base);
+      // Plain text stays one plain span.
+      expect(feedSpans('no tokens here', base, accent).length, 1);
+    });
+
+    testWidgets('People screen adds a friend and follows contacts',
+        (tester) async {
+      await tester.pumpWidget(const MaterialApp(home: PeopleScreen()));
+      await tester.pump();
+
+      // Existing contacts are listed with Follow buttons.
+      expect(find.text('Alice Bennett'), findsOneWidget);
+      expect(find.text('Follow'), findsWidgets);
+
+      // Follow the first person.
+      await tester.tap(find.text('Follow').first);
+      await tester.pump();
+      expect(find.text('Following'), findsOneWidget);
+      expect(FollowStore.instance.followingCount, 1);
+
+      // Add a friend by number — they join the list and the chat store.
+      await tester.enterText(
+          find.byType(TextField).first, '+1 222 333 0000');
+      await tester.tap(find.text('Add'));
+      await tester.pump();
+      expect(find.textContaining('say hi'), findsOneWidget);
+      expect(
+          ChatStore.instance.chatWithContact('+1 222 333 0000'), isNotNull);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+    });
+
+    testWidgets('tapping a feed author offers Follow and Message',
+        (tester) async {
+      // A post by a real contact (arrives via sync/relay in production).
+      FeedStore.instance.hydratePosts([
+        {
+          'id': 'p1',
+          'communityId': 'c1',
+          'authorName': 'Grace Hopper',
+          'authorUsername': 'gracehop',
+          'time': DateTime.now().toIso8601String(),
+          'text': 'hello from @gracehop',
+        }
+      ]);
+      await tester.pumpWidget(const MaterialApp(
+        home: FeedScreen(communityId: 'c1', communityName: 'Okay HQ'),
+      ));
+      await tester.pump();
+
+      await tester.tap(find.text('Grace Hopper'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.text('@gracehop'), findsWidgets);
+      expect(find.text('Follow'), findsOneWidget);
+
+      await tester.tap(find.text('Follow'));
+      await tester.pump();
+      expect(FollowStore.instance.isFollowing('gracehop'), isTrue);
+      expect(find.text('Following'), findsOneWidget);
     });
 
     testWidgets('a minimized call shows the return-to-call banner',
