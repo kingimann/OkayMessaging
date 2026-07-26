@@ -14,6 +14,15 @@
 		<string>OkayMessenger needs access to your photos so you can send pictures and set your profile photo.</string>
 		<key>NSPhotoLibraryAddUsageDescription</key>
 		<string>OkayMessenger needs permission to save photos and videos you receive to your library.</string>
+		<!--
+		  Export compliance. OkayMessenger uses only standard, published
+		  encryption (AES-256-GCM, PBKDF2, HKDF for the encrypted sync, plus
+		  HTTPS) — no proprietary crypto — which qualifies for the mass-market
+		  exemption, so no non-exempt encryption is used. Declaring this here
+		  stops App Store Connect asking the compliance question on every build.
+		-->
+		<key>ITSAppUsesNonExemptEncryption</key>
+		<false/>
 		<key>CADisableMinimumFrameDurationOnPhone</key>
 		<true/>
 		<key>CFBundleDevelopmentRegion</key>
