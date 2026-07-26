@@ -1,7 +1,28 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:http/http.dart' as http;
+
+/// Completes with the first future that succeeds, ignoring failures. Errors
+/// only if every future fails. Used to race several servers and take whichever
+/// answers first, instead of waiting on a slow one before trying the next.
+Future<T> _firstSuccess<T>(List<Future<T>> futures) {
+  final completer = Completer<T>();
+  var pending = futures.length;
+  if (pending == 0) {
+    return Future.error(StateError('no futures'));
+  }
+  for (final f in futures) {
+    f.then((v) {
+      if (!completer.isCompleted) completer.complete(v);
+    }).catchError((Object e) {
+      pending--;
+      if (pending == 0 && !completer.isCompleted) completer.completeError(e);
+    });
+  }
+  return completer.future;
+}
 
 /// A place returned by the geocoder.
 class GeoResult {
@@ -155,38 +176,47 @@ Future<List<GeoResult>?> searchNearby({
 }) async {
   final around = '(around:$radiusMeters,$lat,$lng)';
   final union = filters.map((f) => 'nwr$f$around;').join();
-  final query = '[out:json][timeout:10];($union);out center ${limit * 3};';
-  // Several independent public servers (all share the /api/interpreter path);
-  // fall through on overload/rate-limit. The main instance is tried first,
-  // then mirrors, so one server being swamped no longer kills category search.
-  for (final host in const [
+  final query = '[out:json][timeout:8];($union);out center ${limit * 3};';
+  // Query several independent public servers (all share the /api/interpreter
+  // path) IN PARALLEL and take whichever answers first, so one overloaded
+  // server no longer makes the whole search wait. Each host's request throws
+  // on failure so the race skips it. Returns null only if every host fails.
+  const hosts = [
     'overpass-api.de',
     'overpass.private.coffee',
     'overpass.kumi.systems',
     'overpass.osm.ch',
-  ]) {
-    try {
-      final res = await http.get(
-        Uri.https(host, '/api/interpreter', {'data': query}),
-        headers: {'Accept': 'application/json'},
-      ).timeout(const Duration(seconds: 12));
-      if (res.statusCode != 200) continue;
-      // Overload and timeouts come back as HTTP 200: either an HTML error
-      // page, or valid JSON with a runtime-error "remark". Both are
-      // failures, not "no matches here".
-      final body = res.body;
-      if (!body.trimLeft().startsWith('{')) continue;
-      final decoded = jsonDecode(body);
-      final remark =
-          decoded is Map ? decoded['remark']?.toString() ?? '' : '';
-      if (remark.contains('error') || remark.contains('timed out')) continue;
-      final results = dedupePlaces(parseOverpass(body));
-      return sortPlacesByDistance(results, lat, lng).take(limit).toList();
-    } catch (_) {
-      continue;
-    }
+  ];
+  try {
+    return await _firstSuccess(
+      hosts.map((h) => _overpassHost(h, query, lat, lng, limit)).toList(),
+    );
+  } catch (_) {
+    return null;
   }
-  return null;
+}
+
+/// Queries one Overpass host; returns the parsed results or throws on any
+/// failure (non-200, HTML error page, runtime-error "remark", or network
+/// error) so [_firstSuccess] treats it as a loser in the race.
+Future<List<GeoResult>> _overpassHost(
+    String host, String query, double lat, double lng, int limit) async {
+  final res = await http.get(
+    Uri.https(host, '/api/interpreter', {'data': query}),
+    headers: {'Accept': 'application/json'},
+  ).timeout(const Duration(seconds: 10));
+  if (res.statusCode != 200) throw StateError('overpass ${res.statusCode}');
+  final body = res.body;
+  // Overload/timeout comes back as HTTP 200 with an HTML error page or JSON
+  // carrying a runtime-error "remark" — both are failures, not "no matches".
+  if (!body.trimLeft().startsWith('{')) throw StateError('overpass html');
+  final decoded = jsonDecode(body);
+  final remark = decoded is Map ? decoded['remark']?.toString() ?? '' : '';
+  if (remark.contains('error') || remark.contains('timed out')) {
+    throw StateError('overpass remark');
+  }
+  final results = dedupePlaces(parseOverpass(body));
+  return sortPlacesByDistance(results, lat, lng).take(limit).toList();
 }
 
 const String _fFood = r'[amenity~"^(restaurant|fast_food|food_court)$"]';
@@ -338,7 +368,7 @@ Future<List<GeoResult>?> searchPlaces(
   try {
     final res = await http
         .get(uri, headers: {'Accept': 'application/json'})
-        .timeout(const Duration(seconds: 12));
+        .timeout(const Duration(seconds: 8));
     if (res.statusCode != 200) return null;
     var results = dedupePlaces(parsePhoton(res.body));
     if (biased) results = sortPlacesByDistance(results, lat, lng);

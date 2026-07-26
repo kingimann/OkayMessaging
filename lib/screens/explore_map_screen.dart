@@ -174,7 +174,7 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
             curve: Curves.easeOut);
       }
     } catch (_) {}
-    _debounce = Timer(const Duration(milliseconds: 350), () async {
+    _debounce = Timer(const Duration(milliseconds: 250), () async {
       if (!mounted) return;
       final seq = ++_searchSeq;
       setState(() => _searching = true);
