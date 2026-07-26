@@ -79,6 +79,7 @@ import 'package:okay_messaging/state/session.dart';
 import 'package:okay_messaging/state/streak_store.dart';
 import 'package:okay_messaging/state/two_step.dart';
 import 'package:okay_messaging/screens/find_people_screen.dart';
+import 'package:okay_messaging/state/contacts_sync.dart';
 import 'package:okay_messaging/widgets/chat_input_bar.dart';
 import 'package:okay_messaging/widgets/heart_burst.dart';
 import 'package:okay_messaging/widgets/rich_message_text.dart';
@@ -3431,6 +3432,31 @@ void main() {
         () async {
       expect(await AccountService.instance.searchByUsername('a'), isEmpty);
       expect(await AccountService.instance.searchByUsername(''), isEmpty);
+    });
+  });
+
+  group('Contacts sync (phone matching)', () {
+    test('phoneCandidates handles international and bare local numbers', () {
+      // Already fully qualified (11 digits) → just itself.
+      expect(ContactsSync.phoneCandidates('+1 (555) 012-3456'),
+          {'15550123456'});
+      // Bare 10-digit NANP number → itself and the +1 form.
+      expect(ContactsSync.phoneCandidates('555-012-3456'),
+          {'5550123456', '15550123456'});
+      // Too short to dial → nothing.
+      expect(ContactsSync.phoneCandidates('123'), isEmpty);
+    });
+
+    test('hashesFor dedupes and hashes every candidate', () {
+      final hashes = ContactsSync.hashesFor(['555-012-3456']);
+      // Two candidates → two distinct hashes, matching AccountService's hash.
+      expect(hashes.toSet().length, 2);
+      expect(hashes, contains(AccountService.phoneHashHex('15550123456')));
+      expect(hashes, contains(AccountService.phoneHashHex('5550123456')));
+      // De-duplication across numbers that normalise to the same thing.
+      final dupes =
+          ContactsSync.hashesFor(['15550123456', '+1 555 012 3456']);
+      expect(dupes.toSet().length, dupes.length);
     });
   });
 

@@ -41,6 +41,11 @@ dependencies:
   http: ^1.6.0
   geolocator: ^14.0.2
   flutter_map_cancellable_tile_provider: ^3.1.1
+  # Contact sync (mobile only, guarded by kIsWeb): reads the device address
+  # book to find which contacts already use the app. Only sha256 hashes of
+  # phone numbers ever leave the device. flutter_contacts handles the OS
+  # permission prompt itself, so no separate permission plugin is needed.
+  flutter_contacts: ^1.1.9+2
 
 dev_dependencies:
   flutter_test:

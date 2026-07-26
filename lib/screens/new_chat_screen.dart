@@ -5,8 +5,10 @@ import '../data/mock_data.dart';
 import '../models/chat.dart';
 import '../models/user.dart';
 import '../state/chat_store.dart';
+import '../state/contacts_sync.dart';
 import '../widgets/user_avatar.dart';
 import 'chat_screen.dart';
+import 'contacts_on_app_screen.dart';
 import 'create_group_screen.dart';
 import 'find_people_screen.dart';
 
@@ -101,6 +103,14 @@ class NewChatScreen extends StatelessWidget {
               MaterialPageRoute(builder: (_) => const FindPeopleScreen()),
             ),
           ),
+          if (ContactsSync.instance.supported)
+            _ActionTile(
+              icon: Icons.contacts_outlined,
+              label: 'Find contacts on OkayMessenger',
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const ContactsOnAppScreen()),
+              ),
+            ),
           _ActionTile(
             icon: Icons.dialpad,
             label: 'Chat with a number',

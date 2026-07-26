@@ -10,6 +10,8 @@
 		<string>OkayMessenger uses your location to show you on the map, share places, and give directions.</string>
 		<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 		<string>OkayMessenger uses your location to show you on the map, share places, and give directions.</string>
+		<key>NSContactsUsageDescription</key>
+		<string>OkayMessenger checks your contacts to show which of them already use the app so you can message and call them. Your contacts are never uploaded.</string>
 		<key>NSPhotoLibraryUsageDescription</key>
 		<string>OkayMessenger needs access to your photos so you can send pictures and set your profile photo.</string>
 		<key>NSPhotoLibraryAddUsageDescription</key>
