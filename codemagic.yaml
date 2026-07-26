@@ -83,7 +83,55 @@ workflows:
           success: true
           failure: true
 
+  # --- iOS build with NO Apple account or signing needed ------------------
+  # Start here: this proves the iOS app compiles and produces a runnable
+  # simulator build without certificates, provisioning profiles, or an App
+  # Store Connect key. Download the artifact and drag it onto a running
+  # Simulator (or use `xcrun simctl install booted Runner.app`).
+  ios-simulator:
+    name: iOS simulator build (no signing)
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    environment:
+      flutter: 3.44.7
+      xcode: latest
+      cocoapods: default
+    scripts:
+      - name: Get packages
+        script: flutter pub get
+      - name: Analyze & test
+        script: |
+          flutter analyze
+          flutter test
+      - name: Install CocoaPods
+        script: |
+          find . -name "Podfile" -execdir pod install \;
+      - name: Build for the simulator (unsigned)
+        script: |
+          flutter build ios --simulator --debug \
+            --dart-define=SUPABASE_URL=https://trbdqucphtsstnrwwfnw.supabase.co \
+            --dart-define=SUPABASE_ANON_KEY=sb_publishable_PrY-Aru0AryWyhHgfD2Tow_uXca1owt \
+            --dart-define=REQUIRE_OTP=true
+      - name: Zip the .app for download
+        script: |
+          cd build/ios/iphonesimulator
+          zip -r $CM_BUILD_DIR/OkayMessaging-simulator.zip Runner.app
+    artifacts:
+      - OkayMessaging-simulator.zip
+      - flutter_drive.log
+    publishing:
+      email:
+        recipients:
+          - ifakhargomi@gmail.com
+        notify:
+          success: true
+          failure: true
+
   # --- iOS archive for the App Store -------------------------------------
+  # Requires: a paid Apple Developer account, an App Store Connect API key
+  # saved in Codemagic as the integration named below, and an environment
+  # group "supabase" holding SUPABASE_URL / SUPABASE_ANON_KEY /
+  # STRIPE_PUBLISHABLE_KEY. Use ios-simulator until those exist.
   ios-release:
     name: iOS release (App Store)
     max_build_duration: 90
