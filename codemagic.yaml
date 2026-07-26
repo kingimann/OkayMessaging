@@ -88,6 +88,12 @@ workflows:
       flutter: stable
       xcode: latest
       cocoapods: default
+      # CERTIFICATE_PRIVATE_KEY lives in the "test" variable group in the
+      # Codemagic UI. UI variables only reach a workflow when their group is
+      # imported here, so this line is what makes @env:CERTIFICATE_PRIVATE_KEY
+      # resolve during the signing step below.
+      groups:
+        - test
       vars:
         BUNDLE_ID: "com.okaymessaging"
     # `integrations` is a SIBLING of `environment`, never nested inside it.
