@@ -134,6 +134,13 @@ workflows:
             --type IOS_APP_STORE \
             --certificate-key="@env:CERTIFICATE_PRIVATE_KEY" \
             --create
+      # THE FIX for the second failure. `fetch-signing-files` only downloads
+      # the distribution certificate to disk; it does NOT put it in the
+      # keychain. Without this import the archive signs, but the IPA *export*
+      # dies with "exportArchive No signing certificate 'iOS Distribution'
+      # found" — a false "successful" build with no artifact to publish.
+      - name: Add the distribution certificate to the keychain
+        script: keychain add-certificates
       - name: Set up provisioning profiles
         script: xcode-project use-profiles
       - name: Build IPA
