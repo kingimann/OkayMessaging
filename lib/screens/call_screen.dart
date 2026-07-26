@@ -312,13 +312,6 @@ class _CallScreenState extends State<CallScreen> {
                 ],
               ),
               const Spacer(),
-              Text(
-                'End-to-end encrypted',
-                style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.45),
-                  fontSize: 12.5,
-                ),
-              ),
               const SizedBox(height: 24),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 28),
@@ -332,6 +325,9 @@ class _CallScreenState extends State<CallScreen> {
             ],
           ),
         ),
+          // Floating emoji reactions drift up over everything mid-call.
+          if (session.status == CallStatus.connected)
+            const Positioned.fill(child: _CallReactionsOverlay()),
           ],
       ),
     );
@@ -469,6 +465,40 @@ class _CallScreenState extends State<CallScreen> {
     }
   }
 
+  /// A quick emoji picker; the chosen emoji floats up on both devices.
+  void _showReactions(BuildContext context) {
+    const emojis = ['👍', '❤️', '😂', '😮', '🎉', '👏', '🔥', '😢'];
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xFF1B1D22),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
+          child: Wrap(
+            alignment: WrapAlignment.center,
+            children: [
+              for (final e in emojis)
+                InkWell(
+                  borderRadius: BorderRadius.circular(30),
+                  onTap: () {
+                    CallService.instance.sendReaction(e);
+                    Navigator.pop(sheetContext);
+                  },
+                  child: Padding(
+                    padding: const EdgeInsets.all(10),
+                    child: Text(e, style: const TextStyle(fontSize: 32)),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _activeControls() {
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -549,6 +579,12 @@ class _CallScreenState extends State<CallScreen> {
                     }
                   },
                 ),
+              ),
+              // Send a floating emoji reaction to the other person.
+              _CallControl(
+                icon: Icons.add_reaction_outlined,
+                label: 'React',
+                onTap: () => _showReactions(context),
               ),
               // Text mid-call: the call collapses to the return banner and
               // the conversation opens underneath.
@@ -834,6 +870,120 @@ class _ReturnToCallBannerState extends State<ReturnToCallBanner> {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Full-screen overlay that spawns a floating emoji whenever a reaction
+/// arrives (yours or the peer's) and animates it drifting up and fading.
+class _CallReactionsOverlay extends StatefulWidget {
+  const _CallReactionsOverlay();
+
+  @override
+  State<_CallReactionsOverlay> createState() => _CallReactionsOverlayState();
+}
+
+class _CallReactionsOverlayState extends State<_CallReactionsOverlay> {
+  final List<CallReaction> _items = [];
+  int _lastSeq = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    CallService.instance.reaction.addListener(_onReaction);
+  }
+
+  @override
+  void dispose() {
+    CallService.instance.reaction.removeListener(_onReaction);
+    super.dispose();
+  }
+
+  void _onReaction() {
+    final r = CallService.instance.reaction.value;
+    if (r == null || r.seq == _lastSeq) return;
+    _lastSeq = r.seq;
+    setState(() => _items.add(r));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          for (final r in _items)
+            _FloatingReaction(
+              key: ValueKey(r.seq),
+              reaction: r,
+              onDone: () => setState(() => _items.remove(r)),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FloatingReaction extends StatefulWidget {
+  final CallReaction reaction;
+  final VoidCallback onDone;
+  const _FloatingReaction(
+      {super.key, required this.reaction, required this.onDone});
+
+  @override
+  State<_FloatingReaction> createState() => _FloatingReactionState();
+}
+
+class _FloatingReactionState extends State<_FloatingReaction>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 2000),
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    _c.forward();
+    _c.addStatusListener((s) {
+      if (s == AnimationStatus.completed) widget.onDone();
+    });
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Mine drift up the right side, the peer's up the left; a little sideways
+    // offset by sequence keeps repeats from perfectly overlapping.
+    final baseX = widget.reaction.fromMe ? 0.5 : -0.5;
+    final jitter = ((widget.reaction.seq % 3) - 1) * 0.12;
+    final x = (baseX + jitter).clamp(-0.9, 0.9);
+    return AnimatedBuilder(
+      animation: _c,
+      builder: (context, _) {
+        final t = _c.value;
+        final y = 0.7 - t * 1.3; // rise from lower-middle toward the top
+        final opacity = t < 0.15
+            ? t / 0.15
+            : (t > 0.75 ? (1 - (t - 0.75) / 0.25) : 1.0);
+        final scale = 0.6 + (t < 0.2 ? t / 0.2 : 1.0) * 0.6;
+        return Align(
+          alignment: Alignment(x.toDouble(), y),
+          child: Opacity(
+            opacity: opacity.clamp(0.0, 1.0),
+            child: Transform.scale(
+              scale: scale,
+              child: Text(widget.reaction.emoji,
+                  style: const TextStyle(fontSize: 56)),
+            ),
+          ),
+        );
+      },
     );
   }
 }

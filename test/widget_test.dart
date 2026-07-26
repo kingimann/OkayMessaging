@@ -3528,6 +3528,41 @@ void main() {
     expect(find.text(r'Send $10.00 tip'), findsOneWidget);
   });
 
+  group('In-call reactions', () {
+    setUp(() => CallService.instance.resetForTest());
+
+    CallSession connected(CallDirection dir) => CallSession(
+          callId: 'c1',
+          peer: const AppUser(
+              id: '1', name: 'A', avatarColor: '#000000', phone: '15551234567'),
+          video: false,
+          direction: dir,
+          status: CallStatus.connected,
+        );
+
+    test('sendReaction emits locally and bumps the sequence', () {
+      CallService.instance.current.value = connected(CallDirection.outgoing);
+      CallService.instance.sendReaction('👍');
+      final r1 = CallService.instance.reaction.value!;
+      expect(r1.emoji, '👍');
+      expect(r1.fromMe, isTrue);
+      CallService.instance.sendReaction('❤️');
+      final r2 = CallService.instance.reaction.value!;
+      expect(r2.emoji, '❤️');
+      expect(r2.seq, greaterThan(r1.seq));
+    });
+
+    test('onRemoteReaction only fires for the active call', () {
+      CallService.instance.current.value = connected(CallDirection.incoming);
+      CallService.instance.onRemoteReaction('c1', '🎉');
+      expect(CallService.instance.reaction.value!.emoji, '🎉');
+      expect(CallService.instance.reaction.value!.fromMe, isFalse);
+      final before = CallService.instance.reaction.value!.seq;
+      CallService.instance.onRemoteReaction('other-call', '😮');
+      expect(CallService.instance.reaction.value!.seq, before); // ignored
+    });
+  });
+
   group('Call favourites store', () {
     setUp(() => FavouritesStore.instance.resetForTest());
 

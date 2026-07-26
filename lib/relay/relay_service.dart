@@ -561,6 +561,9 @@ class RelayService {
               case 'end':
                 call.onRemoteEnd(callId);
                 break;
+              case 'reaction':
+                call.onRemoteReaction(callId, p['emoji'] as String?);
+                break;
             }
           },
         )
@@ -781,6 +784,7 @@ class RelayService {
     required String callId,
     required bool video,
     String? sdp,
+    String? emoji,
   }) async {
     if (!_initialized) return;
     final me = Session.instance.user.value;
@@ -797,6 +801,7 @@ class RelayService {
         'kind': kind,
         'callId': callId,
         'video': video,
+        if (emoji != null) 'emoji': emoji,
         ..._sealSignalPair(contactPhone, sdp: sdp),
       },
     );

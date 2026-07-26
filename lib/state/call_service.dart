@@ -70,6 +70,12 @@ class CallService {
   /// the user can keep using the app mid-call.
   final ValueNotifier<bool> minimized = ValueNotifier<bool>(false);
 
+  /// The most recent in-call reaction (a floating emoji). Bumped on every
+  /// reaction — even a repeat of the same emoji — so the UI animates each one.
+  final ValueNotifier<CallReaction?> reaction =
+      ValueNotifier<CallReaction?>(null);
+  int _reactionSeq = 0;
+
   int _seq = 0;
 
   /// True when a call is already ringing or connected (used to send "busy").
@@ -293,11 +299,48 @@ class CallService {
     current.value = c.copyWith(status: CallStatus.ended);
   }
 
+  // --- In-call reactions (floating emoji) ---
+
+  /// Sends an emoji reaction to the peer and shows it locally right away.
+  void sendReaction(String emoji) {
+    final c = current.value;
+    if (c == null || emoji.isEmpty) return;
+    _emitReaction(emoji, fromMe: true);
+    RelayService.instance.sendCall(c.peer.phone,
+        kind: 'reaction', callId: c.callId, video: c.video, emoji: emoji);
+  }
+
+  /// Handles a reaction sent by the peer during [callId].
+  void onRemoteReaction(String callId, String? emoji) {
+    final c = current.value;
+    if (c == null || c.callId != callId || emoji == null || emoji.isEmpty) {
+      return;
+    }
+    _emitReaction(emoji, fromMe: false);
+  }
+
+  void _emitReaction(String emoji, {required bool fromMe}) {
+    reaction.value =
+        CallReaction(emoji: emoji, fromMe: fromMe, seq: ++_reactionSeq);
+  }
+
   @visibleForTesting
   void resetForTest() {
     current.value = null;
     minimized.value = false;
+    reaction.value = null;
     _seq = 0;
+    _reactionSeq = 0;
     _loggedCallIds.clear();
   }
+}
+
+/// A one-shot in-call reaction. [seq] increases with each reaction so the UI
+/// can animate repeats of the same emoji.
+class CallReaction {
+  final String emoji;
+  final bool fromMe;
+  final int seq;
+  const CallReaction(
+      {required this.emoji, required this.fromMe, required this.seq});
 }

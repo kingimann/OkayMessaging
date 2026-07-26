@@ -1,20 +1,12 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:permission_handler/permission_handler.dart';
+import 'package:geolocator/geolocator.dart';
 
-/// One manageable OS permission.
-class _PermItem {
-  final Permission permission;
-  final IconData icon;
-  final String title;
-  final String why;
-  const _PermItem(this.permission, this.icon, this.title, this.why);
-}
-
-/// A settings screen that shows the status of every OS permission the app can
-/// use and lets the user grant it or jump to system settings. The app never
-/// assumes a permission is granted — each feature requests at point of use, and
-/// this screen makes the state visible and manageable.
+/// A settings screen that explains the permissions OkayMessenger uses and lets
+/// the user manage them. The app never assumes a permission is granted — each
+/// feature requests it at the point of use (calls → camera/mic, maps →
+/// location, sending a photo → photos). Location has a live status here; the
+/// rest are managed in the system Settings via the button below.
 class PermissionsScreen extends StatefulWidget {
   const PermissionsScreen({super.key});
 
@@ -24,22 +16,7 @@ class PermissionsScreen extends StatefulWidget {
 
 class _PermissionsScreenState extends State<PermissionsScreen>
     with WidgetsBindingObserver {
-  static const _items = [
-    _PermItem(Permission.camera, Icons.videocam_outlined, 'Camera',
-        'For video calls and taking photos to send.'),
-    _PermItem(Permission.microphone, Icons.mic_none, 'Microphone',
-        'For voice and video calls and voice messages.'),
-    _PermItem(Permission.locationWhenInUse, Icons.location_on_outlined,
-        'Location', 'To show you on the map, share places and get directions.'),
-    _PermItem(Permission.photos, Icons.photo_library_outlined, 'Photos',
-        'To send pictures and set your profile photo.'),
-    _PermItem(Permission.contacts, Icons.contacts_outlined, 'Contacts',
-        'To find which of your contacts already use OkayMessenger.'),
-    _PermItem(Permission.notification, Icons.notifications_none,
-        'Notifications', 'To alert you about new messages and calls.'),
-  ];
-
-  final Map<Permission, PermissionStatus> _status = {};
+  LocationPermission? _location;
   bool _loading = true;
 
   @override
@@ -57,36 +34,39 @@ class _PermissionsScreenState extends State<PermissionsScreen>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // Re-read statuses when returning from the system Settings app.
     if (state == AppLifecycleState.resumed) _refresh();
   }
 
   Future<void> _refresh() async {
-    if (kIsWeb) {
-      setState(() => _loading = false);
-      return;
-    }
-    for (final item in _items) {
-      try {
-        _status[item.permission] = await item.permission.status;
-      } catch (_) {
-        // Some permissions aren't available on every platform.
-      }
+    try {
+      _location = await Geolocator.checkPermission();
+    } catch (_) {
+      _location = null;
     }
     if (mounted) setState(() => _loading = false);
   }
 
-  Future<void> _handle(_PermItem item) async {
-    final current = _status[item.permission] ?? PermissionStatus.denied;
-    if (current.isPermanentlyDenied || current.isRestricted) {
-      await openAppSettings();
-      return;
-    }
+  Future<void> _handleLocation() async {
+    final current = _location ?? LocationPermission.denied;
     try {
-      final result = await item.permission.request();
-      if (mounted) setState(() => _status[item.permission] = result);
+      if (current == LocationPermission.deniedForever) {
+        await Geolocator.openAppSettings();
+      } else {
+        final result = await Geolocator.requestPermission();
+        if (mounted) setState(() => _location = result);
+      }
     } catch (_) {}
   }
+
+  Future<void> _openSettings() async {
+    try {
+      await Geolocator.openAppSettings();
+    } catch (_) {}
+  }
+
+  bool get _locationGranted =>
+      _location == LocationPermission.always ||
+      _location == LocationPermission.whileInUse;
 
   @override
   Widget build(BuildContext context) {
@@ -94,84 +74,91 @@ class _PermissionsScreenState extends State<PermissionsScreen>
       appBar: AppBar(title: const Text('Permissions')),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
-          : kIsWeb
-              ? _webNote()
-              : ListView(
-                  children: [
-                    const Padding(
-                      padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
-                      child: Text(
-                        'OkayMessenger only asks for a permission when you use a '
-                        'feature that needs it. Review and change them here any '
-                        'time.',
-                        style: TextStyle(fontSize: 13.5, color: Colors.grey),
+          : ListView(
+              children: [
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
+                  child: Text(
+                    'OkayMessenger only asks for a permission when you use a '
+                    'feature that needs it. You can review and change them any '
+                    'time in Settings.',
+                    style: TextStyle(fontSize: 13.5, color: Colors.grey),
+                  ),
+                ),
+                // Location has a live status and in-app request.
+                ListTile(
+                  leading: const Icon(Icons.location_on_outlined),
+                  title: const Text('Location',
+                      style: TextStyle(fontWeight: FontWeight.w600)),
+                  subtitle: const Text(
+                      'To show you on the map, share places and get directions.'),
+                  isThreeLine: true,
+                  trailing: kIsWeb
+                      ? null
+                      : _locationGranted
+                          ? Chip(
+                              label: const Text('Allowed'),
+                              backgroundColor:
+                                  Colors.green.withValues(alpha: 0.12),
+                              labelStyle: const TextStyle(
+                                  color: Colors.green,
+                                  fontWeight: FontWeight.w600),
+                              side: BorderSide.none,
+                              visualDensity: VisualDensity.compact,
+                            )
+                          : OutlinedButton(
+                              onPressed: _handleLocation,
+                              child: Text(
+                                  _location == LocationPermission.deniedForever
+                                      ? 'Settings'
+                                      : 'Allow'),
+                            ),
+                ),
+                // The rest are requested at point of use; managed in Settings.
+                for (final p in const [
+                  (Icons.videocam_outlined, 'Camera',
+                      'For video calls and taking photos to send.'),
+                  (Icons.mic_none, 'Microphone',
+                      'For voice and video calls and voice messages.'),
+                  (Icons.photo_library_outlined, 'Photos',
+                      'To send pictures and set your profile photo.'),
+                  (Icons.notifications_none, 'Notifications',
+                      'To alert you about new messages and calls.'),
+                ])
+                  ListTile(
+                    leading: Icon(p.$1),
+                    title: Text(p.$2,
+                        style: const TextStyle(fontWeight: FontWeight.w600)),
+                    subtitle: Text(p.$3),
+                    isThreeLine: true,
+                    trailing: Text('On use',
+                        style: TextStyle(
+                            color: Colors.grey.shade500, fontSize: 12.5)),
+                  ),
+                if (!kIsWeb)
+                  Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: OutlinedButton.icon(
+                      onPressed: _openSettings,
+                      icon: const Icon(Icons.settings_outlined),
+                      label: const Text('Open iOS Settings'),
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size.fromHeight(48),
                       ),
                     ),
-                    for (final item in _items) _tile(item),
-                    const SizedBox(height: 16),
-                  ],
-                ),
-    );
-  }
-
-  Widget _tile(_PermItem item) {
-    final status = _status[item.permission] ?? PermissionStatus.denied;
-    final (label, color) = _statusLabel(status);
-    final granted = status.isGranted || status.isLimited;
-    return ListTile(
-      leading: Icon(item.icon),
-      title: Text(item.title,
-          style: const TextStyle(fontWeight: FontWeight.w600)),
-      subtitle: Text(item.why),
-      isThreeLine: true,
-      trailing: granted
-          ? Chip(
-              label: Text(label),
-              backgroundColor: color.withValues(alpha: 0.12),
-              labelStyle: TextStyle(color: color, fontWeight: FontWeight.w600),
-              side: BorderSide.none,
-              visualDensity: VisualDensity.compact,
-            )
-          : OutlinedButton(
-              onPressed: () => _handle(item),
-              child: Text(
-                  status.isPermanentlyDenied || status.isRestricted
-                      ? 'Settings'
-                      : 'Allow'),
+                  )
+                else
+                  Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Text(
+                      'On the web, camera, microphone and location are granted '
+                      'through your browser when you first use each feature.',
+                      style:
+                          TextStyle(color: Colors.grey.shade600, fontSize: 13),
+                    ),
+                  ),
+              ],
             ),
-    );
-  }
-
-  (String, Color) _statusLabel(PermissionStatus s) {
-    if (s.isGranted) return ('Allowed', Colors.green);
-    if (s.isLimited) return ('Limited', Colors.orange);
-    if (s.isPermanentlyDenied) return ('Denied', Colors.red);
-    if (s.isRestricted) return ('Restricted', Colors.red);
-    return ('Not set', Colors.grey);
-  }
-
-  Widget _webNote() {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(40),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.public, size: 52, color: Colors.grey.shade400),
-            const SizedBox(height: 16),
-            const Text('Managed by your browser',
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
-            const SizedBox(height: 8),
-            Text(
-              'On the web, camera, microphone and location permissions are '
-              'granted through your browser when you first use each feature.',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.grey.shade600, fontSize: 14),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }

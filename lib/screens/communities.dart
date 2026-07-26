@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+import 'dart:async';
+
+import '../app_state.dart';
 import '../models/community.dart';
 import '../models/message.dart';
 import '../state/community_store.dart';
@@ -7,6 +10,7 @@ import '../state/feed_store.dart';
 import '../theme/app_theme.dart';
 import '../utils/date_formatter.dart';
 import '../widgets/poll_widgets.dart';
+import '../widgets/user_avatar.dart';
 import 'community_settings_screen.dart';
 import 'feed_screen.dart';
 import 'forum_screen.dart';
@@ -569,6 +573,49 @@ class VoiceChannelScreen extends StatefulWidget {
 class _VoiceChannelScreenState extends State<VoiceChannelScreen> {
   bool _joined = false;
   bool _muted = false;
+  bool _deafened = false;
+  bool _video = false;
+  bool _screen = false;
+  DateTime? _joinedAt;
+  Timer? _tick;
+
+  @override
+  void dispose() {
+    _tick?.cancel();
+    super.dispose();
+  }
+
+  void _join() {
+    setState(() {
+      _joined = true;
+      _joinedAt = DateTime.now();
+    });
+    _tick = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  void _leave() {
+    _tick?.cancel();
+    _tick = null;
+    setState(() {
+      _joined = false;
+      _muted = false;
+      _deafened = false;
+      _video = false;
+      _screen = false;
+      _joinedAt = null;
+    });
+  }
+
+  String get _elapsed {
+    final at = _joinedAt;
+    if (at == null) return '';
+    final d = DateTime.now().difference(at);
+    final m = d.inMinutes;
+    final s = d.inSeconds % 60;
+    return '$m:${s.toString().padLeft(2, '0')}';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -582,109 +629,35 @@ class _VoiceChannelScreenState extends State<VoiceChannelScreen> {
         if (channel == null) {
           return const Scaffold(body: Center(child: Text('Channel not found')));
         }
-        final present = _joined
-            ? community!.members.where((m) => m.online).toList()
-            : <Member>[];
+        // Other online members already gathered here, plus yourself once joined.
+        final others =
+            community!.members.where((m) => m.online && m.id != 'me').toList();
         return Scaffold(
           appBar: AppBar(
             title: Row(
               children: [
                 const Icon(Icons.volume_up_rounded, size: 20),
                 const SizedBox(width: 6),
-                Text(channel.name),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(channel.name, style: const TextStyle(fontSize: 17)),
+                      if (_joined)
+                        Text('Connected · $_elapsed',
+                            style: const TextStyle(
+                                fontSize: 12, color: Colors.green)),
+                    ],
+                  ),
+                ),
               ],
             ),
           ),
           body: Column(
             children: [
-              Expanded(
-                child: present.isEmpty
-                    ? Center(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.headset_mic_outlined,
-                                size: 56, color: Colors.grey.shade400),
-                            const SizedBox(height: 12),
-                            Text('No one is in ${channel.name}',
-                                style:
-                                    TextStyle(color: Colors.grey.shade500)),
-                            const SizedBox(height: 4),
-                            Text('Join to start the conversation',
-                                style: TextStyle(
-                                    color: Colors.grey.shade400,
-                                    fontSize: 12.5)),
-                          ],
-                        ),
-                      )
-                    : GridView.count(
-                        crossAxisCount: 3,
-                        padding: const EdgeInsets.all(16),
-                        children: [
-                          for (final m in present)
-                            Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                CircleAvatar(
-                                  radius: 30,
-                                  backgroundColor: _hex(community!.color),
-                                  child: Text(
-                                    m.name.isEmpty
-                                        ? '?'
-                                        : m.name[0].toUpperCase(),
-                                    style: const TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 22,
-                                        fontWeight: FontWeight.w700),
-                                  ),
-                                ),
-                                const SizedBox(height: 8),
-                                Text(m.name,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(fontSize: 12.5)),
-                              ],
-                            ),
-                        ],
-                      ),
-              ),
-              SafeArea(
-                top: false,
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      if (_joined) ...[
-                        _voiceButton(
-                          icon: _muted ? Icons.mic_off : Icons.mic,
-                          color: _muted ? Colors.grey : AppColors.tealGreenDark,
-                          onTap: () => setState(() => _muted = !_muted),
-                        ),
-                        const SizedBox(width: 16),
-                        _voiceButton(
-                          icon: Icons.call_end,
-                          color: Colors.red,
-                          onTap: () => setState(() {
-                            _joined = false;
-                            _muted = false;
-                          }),
-                        ),
-                      ] else
-                        FilledButton.icon(
-                          style: FilledButton.styleFrom(
-                            backgroundColor: AppColors.tealGreenDark,
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 28, vertical: 14),
-                          ),
-                          icon: const Icon(Icons.headset_mic),
-                          label: const Text('Join Voice'),
-                          onPressed: () => setState(() => _joined = true),
-                        ),
-                    ],
-                  ),
-                ),
-              ),
+              Expanded(child: _grid(community, channel, others)),
+              _controlBar(),
             ],
           ),
         );
@@ -692,21 +665,213 @@ class _VoiceChannelScreenState extends State<VoiceChannelScreen> {
     );
   }
 
-  Widget _voiceButton(
-          {required IconData icon,
-          required Color color,
-          required VoidCallback onTap}) =>
-      Material(
-        color: color,
-        shape: const CircleBorder(),
-        child: InkWell(
-          customBorder: const CircleBorder(),
-          onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Icon(icon, color: Colors.white, size: 26),
+  Widget _grid(Community community, Channel channel, List<Member> others) {
+    if (!_joined && others.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.headset_mic_outlined,
+                size: 56, color: Colors.grey.shade400),
+            const SizedBox(height: 12),
+            Text('No one is in ${channel.name}',
+                style: TextStyle(color: Colors.grey.shade500)),
+            const SizedBox(height: 4),
+            Text('Join to start the conversation',
+                style: TextStyle(color: Colors.grey.shade400, fontSize: 12.5)),
+          ],
+        ),
+      );
+    }
+    final me = AppState.profile.value;
+    return GridView.count(
+      crossAxisCount: 3,
+      padding: const EdgeInsets.all(16),
+      children: [
+        if (_joined)
+          _memberTile(
+            label: 'You',
+            avatar: UserAvatar(user: me, radius: 30),
+            speaking: !_muted && !_deafened,
+            muted: _muted || _deafened,
+            deafened: _deafened,
+            video: _video,
+            screen: _screen,
+          ),
+        for (final m in others)
+          _memberTile(
+            label: m.name,
+            avatar: CircleAvatar(
+              radius: 30,
+              backgroundColor: _hex(community.color),
+              child: Text(m.name.isEmpty ? '?' : m.name[0].toUpperCase(),
+                  style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 22,
+                      fontWeight: FontWeight.w700)),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _memberTile({
+    required String label,
+    required Widget avatar,
+    bool speaking = false,
+    bool muted = false,
+    bool deafened = false,
+    bool video = false,
+    bool screen = false,
+  }) {
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Container(
+          padding: const EdgeInsets.all(3),
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: speaking ? Colors.green : Colors.transparent,
+              width: 3,
+            ),
+          ),
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              avatar,
+              if (muted || deafened || video || screen)
+                Positioned(
+                  right: -2,
+                  bottom: -2,
+                  child: Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: BoxDecoration(
+                      color: deafened || muted ? Colors.red : Colors.black54,
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                          color: Theme.of(context).canvasColor, width: 2),
+                    ),
+                    child: Icon(
+                      deafened
+                          ? Icons.headset_off
+                          : muted
+                              ? Icons.mic_off
+                              : screen
+                                  ? Icons.screen_share
+                                  : Icons.videocam,
+                      size: 12,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+            ],
           ),
         ),
+        const SizedBox(height: 8),
+        Text(label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 12.5)),
+      ],
+    );
+  }
+
+  Widget _controlBar() {
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+        child: _joined
+            ? Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  _voiceButton(
+                    icon: _muted ? Icons.mic_off : Icons.mic,
+                    label: _muted ? 'Unmute' : 'Mute',
+                    color:
+                        _muted ? Colors.grey.shade700 : AppColors.tealGreenDark,
+                    onTap: () => setState(() {
+                      _muted = !_muted;
+                      if (!_muted) _deafened = false;
+                    }),
+                  ),
+                  _voiceButton(
+                    icon: _deafened ? Icons.headset_off : Icons.headset_mic,
+                    label: 'Deafen',
+                    color: _deafened ? Colors.red : Colors.grey.shade700,
+                    onTap: () => setState(() {
+                      _deafened = !_deafened;
+                      // Deafening also mutes you, à la Discord.
+                      if (_deafened) _muted = true;
+                    }),
+                  ),
+                  _voiceButton(
+                    icon: _video ? Icons.videocam : Icons.videocam_off,
+                    label: 'Video',
+                    color: _video ? AppColors.tealGreenDark : Colors.grey.shade700,
+                    onTap: () => setState(() => _video = !_video),
+                  ),
+                  _voiceButton(
+                    icon: _screen
+                        ? Icons.stop_screen_share
+                        : Icons.screen_share,
+                    label: 'Screen',
+                    color:
+                        _screen ? AppColors.tealGreenDark : Colors.grey.shade700,
+                    onTap: () => setState(() => _screen = !_screen),
+                  ),
+                  _voiceButton(
+                    icon: Icons.call_end,
+                    label: 'Leave',
+                    color: Colors.red,
+                    onTap: _leave,
+                  ),
+                ],
+              )
+            : Center(
+                child: FilledButton.icon(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppColors.tealGreenDark,
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 28, vertical: 14),
+                  ),
+                  icon: const Icon(Icons.headset_mic),
+                  label: const Text('Join Voice'),
+                  onPressed: _join,
+                ),
+              ),
+      ),
+    );
+  }
+
+  Widget _voiceButton({
+    required IconData icon,
+    required Color color,
+    required VoidCallback onTap,
+    String? label,
+  }) =>
+      Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Material(
+            color: color,
+            shape: const CircleBorder(),
+            child: InkWell(
+              customBorder: const CircleBorder(),
+              onTap: onTap,
+              child: Padding(
+                padding: const EdgeInsets.all(14),
+                child: Icon(icon, color: Colors.white, size: 24),
+              ),
+            ),
+          ),
+          if (label != null) ...[
+            const SizedBox(height: 6),
+            Text(label,
+                style: TextStyle(fontSize: 11.5, color: Colors.grey.shade600)),
+          ],
+        ],
       );
 }
 
