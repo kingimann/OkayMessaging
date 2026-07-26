@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -35,12 +37,91 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
   _Step _step = _Step.phone;
   String? _error;
 
-  static const _dialCodes = ['+1', '+44', '+91', '+61', '+81', '+49', '+234'];
+  /// (flag, name, dial code) — shown in the Telegram-style country sheet.
+  static const _countries = [
+    ('🇺🇸', 'United States', '+1'),
+    ('🇨🇦', 'Canada', '+1'),
+    ('🇬🇧', 'United Kingdom', '+44'),
+    ('🇮🇳', 'India', '+91'),
+    ('🇦🇺', 'Australia', '+61'),
+    ('🇯🇵', 'Japan', '+81'),
+    ('🇩🇪', 'Germany', '+49'),
+    ('🇫🇷', 'France', '+33'),
+    ('🇧🇷', 'Brazil', '+55'),
+    ('🇲🇽', 'Mexico', '+52'),
+    ('🇳🇬', 'Nigeria', '+234'),
+    ('🇿🇦', 'South Africa', '+27'),
+    ('🇦🇪', 'UAE', '+971'),
+    ('🇸🇦', 'Saudi Arabia', '+966'),
+    ('🇹🇷', 'Türkiye', '+90'),
+    ('🇮🇷', 'Iran', '+98'),
+    ('🇵🇰', 'Pakistan', '+92'),
+    ('🇵🇭', 'Philippines', '+63'),
+    ('🇰🇷', 'South Korea', '+82'),
+    ('🇨🇳', 'China', '+86'),
+  ];
+  String _flag = '🇨🇦';
+  Timer? _resendTimer;
+  int _resendIn = 0;
+
+  void _startResendCountdown() {
+    _resendTimer?.cancel();
+    setState(() => _resendIn = 30);
+    _resendTimer = Timer.periodic(const Duration(seconds: 1), (t) {
+      if (!mounted) return t.cancel();
+      setState(() {
+        _resendIn--;
+        if (_resendIn <= 0) t.cancel();
+      });
+    });
+  }
+
+  /// Telegram-style searchable country sheet.
+  Future<void> _pickCountry() async {
+    final chosen = await showModalBottomSheet<(String, String, String)>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (sheetContext) => DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: 0.6,
+        maxChildSize: 0.9,
+        builder: (context, controller) => ListView(
+          controller: controller,
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(20, 4, 20, 10),
+              child: Text('Choose a country',
+                  style:
+                      TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+            ),
+            for (final c in _countries)
+              ListTile(
+                leading: Text(c.$1, style: const TextStyle(fontSize: 24)),
+                title: Text(c.$2),
+                trailing: Text(c.$3,
+                    style: TextStyle(
+                        color: Colors.grey.shade600,
+                        fontWeight: FontWeight.w600)),
+                onTap: () => Navigator.pop(sheetContext, c),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (chosen != null) {
+      setState(() {
+        _flag = chosen.$1;
+        _dialCode = chosen.$3;
+      });
+    }
+  }
 
   String get _fullPhone => '$_dialCode ${_phone.text.trim()}';
 
   @override
   void dispose() {
+    _resendTimer?.cancel();
     _name.dispose();
     _username.dispose();
     _phone.dispose();
@@ -109,7 +190,10 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
     if (!_formKey.currentState!.validate()) return;
     await _run(() async {
       await AccountService.instance.sendCode(_fullPhone);
-      if (mounted) setState(() => _step = _Step.code);
+      if (mounted) {
+        setState(() => _step = _Step.code);
+        _startResendCountdown();
+      }
     });
   }
 
@@ -225,10 +309,25 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
                   ..._body(),
                   if (_error != null) ...[
                     const SizedBox(height: 14),
-                    Text(
-                      _error!,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(color: Colors.red, fontSize: 13),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: Colors.red.withValues(alpha: 0.10),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.error_outline,
+                              size: 18, color: Colors.red),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(_error!,
+                                style: const TextStyle(
+                                    color: Colors.red, fontSize: 13)),
+                          ),
+                        ],
+                      ),
                     ),
                   ],
                   const SizedBox(height: 12),
@@ -326,20 +425,23 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SizedBox(
-            width: 104,
-            child: DropdownButtonFormField<String>(
-              initialValue: _dialCode,
-              isExpanded: true,
-              decoration: _dec('').copyWith(
-                labelText: null,
-                contentPadding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 15),
+            width: 112,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(14),
+              onTap: _pickCountry,
+              child: InputDecorator(
+                decoration: _dec('').copyWith(labelText: null),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(_flag, style: const TextStyle(fontSize: 18)),
+                    const SizedBox(width: 6),
+                    Text(_dialCode,
+                        style:
+                            const TextStyle(fontWeight: FontWeight.w600)),
+                  ],
+                ),
               ),
-              items: [
-                for (final code in _dialCodes)
-                  DropdownMenuItem(value: code, child: Text(code)),
-              ],
-              onChanged: (v) => setState(() => _dialCode = v ?? _dialCode),
             ),
           ),
           const SizedBox(width: 10),
@@ -415,13 +517,33 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
           ],
           decoration: _dec('Code'),
           onFieldSubmitted: (_) => _verifyCode(),
+          // Telegram-style: verify the moment all six digits are in.
+          onChanged: (v) {
+            if (v.length == 6 && !_busy) _verifyCode();
+          },
         ),
         const SizedBox(height: 24),
         _cta('Verify', _verifyCode),
         const SizedBox(height: 8),
-        TextButton(
-          onPressed: _busy ? null : () => setState(() => _step = _Step.phone),
-          child: const Text('Change number'),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            TextButton(
+              onPressed:
+                  _busy ? null : () => setState(() => _step = _Step.phone),
+              child: const Text('Change number'),
+            ),
+            TextButton(
+              onPressed: (_busy || _resendIn > 0)
+                  ? null
+                  : () {
+                      _startResendCountdown();
+                      _sendCode();
+                    },
+              child: Text(
+                  _resendIn > 0 ? 'Resend in ${_resendIn}s' : 'Resend code'),
+            ),
+          ],
         ),
       ];
 
