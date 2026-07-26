@@ -74,6 +74,64 @@ workflows:
           success: true
           failure: true
 
+  # --- Signed iOS build for TestFlight / the App Store --------------------
+  # Uses the Apple Developer Portal integration named "OkayMessenger"
+  # (App Store Connect API key) that's connected in Codemagic. Codemagic
+  # issues the distribution certificate and provisioning profile itself.
+  ios-release:
+    name: iOS release (TestFlight)
+    max_build_duration: 90
+    instance_type: mac_mini_m2
+    environment:
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.okaymessaging
+    # `integrations` is a sibling of `environment`, never nested inside it.
+    integrations:
+      app_store_connect: OkayMessenger
+    scripts:
+      - name: Get packages
+        script: flutter pub get
+      - name: Analyze & test
+        script: |
+          flutter analyze
+          flutter test
+      - name: Install CocoaPods
+        script: |
+          find . -name "Podfile" -execdir pod install \;
+      - name: Set the build number from the Codemagic build counter
+        script: |
+          cd $CM_BUILD_DIR
+          agvtool new-version -all $(($BUILD_NUMBER + 1)) || true
+      - name: Set up provisioning profiles
+        script: xcode-project use-profiles
+      - name: Build IPA
+        script: |
+          flutter build ipa --release \
+            --dart-define=SUPABASE_URL=https://trbdqucphtsstnrwwfnw.supabase.co \
+            --dart-define=SUPABASE_ANON_KEY=sb_publishable_PrY-Aru0AryWyhHgfD2Tow_uXca1owt \
+            --dart-define=REQUIRE_OTP=true \
+            --export-options-plist=/Users/builder/export_options.plist
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+    publishing:
+      app_store_connect:
+        auth: integration
+        # Uploads to TestFlight. Flip to true only when you're ready for
+        # a real App Store review submission.
+        submit_to_testflight: true
+        submit_to_app_store: false
+      email:
+        recipients:
+          - ifakhargomi@gmail.com
+        notify:
+          success: true
+          failure: true
+
   # --- iOS build with NO Apple account or signing needed ------------------
   # Proves the iOS target compiles and gives you a Simulator build. Unzip
   # the artifact and drag Runner.app onto a running Simulator, or:

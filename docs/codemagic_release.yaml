@@ -49,52 +49,6 @@ android-release:
     - build/**/outputs/**/mapping.txt
 
 # ---------------------------------------------------------------------------
-# ios-release — needs, in the Codemagic UI:
-#   1. A paid Apple Developer Program membership ($99/year)
-#   2. Integrations → App Store Connect API key, named: okay_app_store
-#   3. An App Store Connect app record with bundle id com.okaymessaging
-#   4. Environment variables → group "supabase" (as above)
-# Codemagic then issues/fetches the distribution certificate and profile
-# automatically via `xcode-project use-profiles`.
+# ios-release now lives in codemagic.yaml — the Apple Developer Portal
+# integration ("OkayMessenger") exists, so it can actually run.
 # ---------------------------------------------------------------------------
-ios-release:
-  name: iOS release (App Store)
-  max_build_duration: 90
-  instance_type: mac_mini_m2
-  environment:
-    flutter: stable
-    xcode: latest
-    cocoapods: default
-    groups:
-      - supabase
-    ios_signing:
-      distribution_type: app_store
-      bundle_identifier: com.okaymessaging
-  # NOTE: `integrations` is a sibling of `environment`, never nested inside
-  # it. Nesting it produces: "ios-release -> environment -> integrations:
-  # extra fields not permitted", which invalidates the whole file.
-  integrations:
-    app_store_connect: okay_app_store
-  scripts:
-    - name: Get packages
-      script: flutter pub get
-    - name: Analyze & test
-      script: |
-        flutter analyze
-        flutter test
-    - name: Install CocoaPods
-      script: |
-        find . -name "Podfile" -execdir pod install \;
-    - name: Set up provisioning profiles
-      script: xcode-project use-profiles
-    - name: Build IPA
-      script: |
-        flutter build ipa --release \
-          --dart-define=SUPABASE_URL="$SUPABASE_URL" \
-          --dart-define=SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY" \
-          --dart-define=STRIPE_PUBLISHABLE_KEY="$STRIPE_PUBLISHABLE_KEY" \
-          --dart-define=REQUIRE_OTP=true \
-          --export-options-plist=/Users/builder/export_options.plist
-  artifacts:
-    - build/ios/ipa/*.ipa
-    - /tmp/xcodebuild_logs/*.log
