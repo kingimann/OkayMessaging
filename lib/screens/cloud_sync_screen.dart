@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../state/cloud_sync.dart';
+import '../utils/date_formatter.dart';
 
 /// Settings for end-to-end encrypted cloud sync: everything is encrypted on
 /// this device with a passphrase-derived key before it ever leaves it.
@@ -146,7 +147,7 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
                 )),
               if (sync.lastSync != null)
                 Text(
-                  'Last synced: ${sync.lastSync}',
+                  'Last synced: ${DateFormatter.callLabel(sync.lastSync!)}',
                   style:
                       TextStyle(fontSize: 12.5, color: Theme.of(context).colorScheme.onSurfaceVariant),
                 ),
