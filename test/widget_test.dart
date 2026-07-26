@@ -81,6 +81,7 @@ import 'package:okay_messaging/state/two_step.dart';
 import 'package:okay_messaging/screens/find_people_screen.dart';
 import 'package:okay_messaging/state/contacts_sync.dart';
 import 'package:okay_messaging/state/favourites_store.dart';
+import 'package:okay_messaging/state/onboarding_store.dart';
 import 'package:okay_messaging/widgets/chat_input_bar.dart';
 import 'package:okay_messaging/widgets/heart_burst.dart';
 import 'package:okay_messaging/widgets/rich_message_text.dart';
@@ -110,6 +111,10 @@ void main() {
     debugTileProviderOverride = NetworkTileProvider.new;
     FollowStore.instance.resetForTest();
     FeedStore.instance.resetForTest();
+    FavouritesStore.instance.resetForTest();
+    // Treat the new-user nudge as already dismissed so it doesn't overlay
+    // unrelated Chats-tab tests; the onboarding test opts back in.
+    OnboardingStore.instance.markDoneForTest();
   });
 
   testWidgets('App boots with Chats and Calls tabs (no Status)',
@@ -3483,6 +3488,22 @@ void main() {
           ContactsSync.hashesFor(['15550123456', '+1 555 012 3456']);
       expect(dupes.toSet().length, dupes.length);
     });
+  });
+
+  testWidgets('new-user nudge shows once and dismisses', (tester) async {
+    OnboardingStore.instance.resetForTest(); // opt back into the nudge
+    await tester.pumpWidget(const OkayMessagingApp());
+    await tester.pumpAndSettle();
+
+    expect(find.text('Welcome to OkayMessenger 👋'), findsOneWidget);
+    expect(find.text('Set up your profile'), findsOneWidget);
+    expect(find.text('Find people by username'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Dismiss'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Welcome to OkayMessenger 👋'), findsNothing);
+    expect(OnboardingStore.instance.done, isTrue);
   });
 
   group('Call favourites store', () {

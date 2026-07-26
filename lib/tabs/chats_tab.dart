@@ -4,7 +4,12 @@ import '../models/chat.dart';
 import '../relay/relay_config.dart';
 import '../relay/relay_service.dart';
 import '../screens/chat_screen.dart';
+import '../screens/contacts_on_app_screen.dart';
+import '../screens/edit_profile_screen.dart';
+import '../screens/find_people_screen.dart';
 import '../state/chat_store.dart';
+import '../state/contacts_sync.dart';
+import '../state/onboarding_store.dart';
 import '../theme/app_theme.dart';
 import '../widgets/chat_list_tile.dart';
 
@@ -134,8 +139,23 @@ class _ChatsTabState extends State<ChatsTab> {
   Widget build(BuildContext context) {
     final store = ChatStore.instance;
     return ListenableBuilder(
-      listenable: store,
+      listenable: Listenable.merge([store, OnboardingStore.instance]),
       builder: (context, _) {
+        final content = _content(context, store);
+        if (OnboardingStore.instance.done) return content;
+        return Column(
+          children: [
+            _GetStartedCard(onDismiss: OnboardingStore.instance.complete),
+            Expanded(child: content),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _content(BuildContext context, ChatStore store) {
+    return Builder(
+      builder: (context) {
         final allChats = store.chats;
         if (allChats.isEmpty) {
           return RefreshIndicator(
@@ -305,6 +325,119 @@ class _EmptyFilter extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// One-time "get started" nudge shown to new users above the chat list,
+/// guiding them to set up a profile and find people. Dismissible; never
+/// reappears once dismissed.
+class _GetStartedCard extends StatelessWidget {
+  final VoidCallback onDismiss;
+  const _GetStartedCard({required this.onDismiss});
+
+  void _push(BuildContext context, Widget screen) {
+    Navigator.of(context).push(MaterialPageRoute(builder: (_) => screen));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+      padding: const EdgeInsets.fromLTRB(16, 12, 8, 10),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.primaryContainer.withValues(alpha: 0.45),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Expanded(
+                child: Text('Welcome to OkayMessenger 👋',
+                    style:
+                        TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+              ),
+              IconButton(
+                icon: const Icon(Icons.close, size: 20),
+                tooltip: 'Dismiss',
+                onPressed: onDismiss,
+              ),
+            ],
+          ),
+          Padding(
+            padding: const EdgeInsets.only(right: 8, bottom: 8),
+            child: Text('Get set up in a few taps.',
+                style: TextStyle(
+                    fontSize: 13, color: theme.colorScheme.onSurfaceVariant)),
+          ),
+          _StepRow(
+            icon: Icons.person_outline,
+            title: 'Set up your profile',
+            subtitle: 'Name, avatar emoji, username',
+            onTap: () => _push(context, const EditProfileScreen()),
+          ),
+          _StepRow(
+            icon: Icons.alternate_email,
+            title: 'Find people by username',
+            subtitle: 'Search and start chatting',
+            onTap: () => _push(context, const FindPeopleScreen()),
+          ),
+          if (ContactsSync.instance.supported)
+            _StepRow(
+              icon: Icons.contacts_outlined,
+              title: 'Find your contacts',
+              subtitle: 'See who already uses OkayMessenger',
+              onTap: () => _push(context, const ContactsOnAppScreen()),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _StepRow extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+  const _StepRow({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+        child: Row(
+          children: [
+            Icon(icon, size: 22, color: Theme.of(context).colorScheme.primary),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title,
+                      style: const TextStyle(
+                          fontSize: 14.5, fontWeight: FontWeight.w600)),
+                  Text(subtitle,
+                      style: TextStyle(
+                          fontSize: 12.5, color: Colors.grey.shade600)),
+                ],
+              ),
+            ),
+            const Icon(Icons.chevron_right, size: 20, color: Colors.grey),
+          ],
+        ),
+      ),
     );
   }
 }
