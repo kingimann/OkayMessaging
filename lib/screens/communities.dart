@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import 'dart:async';
 
+import 'package:flutter/services.dart';
+
 import '../app_state.dart';
 import '../models/community.dart';
 import '../models/message.dart';
@@ -10,6 +12,7 @@ import '../state/feed_store.dart';
 import '../theme/app_theme.dart';
 import '../utils/date_formatter.dart';
 import '../widgets/poll_widgets.dart';
+import '../widgets/rich_message_text.dart';
 import '../widgets/user_avatar.dart';
 import 'community_settings_screen.dart';
 import 'feed_screen.dart';
@@ -990,9 +993,21 @@ class _ChannelScreenState extends State<ChannelScreen> {
                         itemCount: channel.messages.length,
                         itemBuilder: (context, i) {
                           final m = channel.messages[i];
-                          return _ChannelBubble(
-                            message: m,
-                            onVote: m.isPoll ? (opt) => _votePoll(m, opt) : null,
+                          final showDate = i == 0 ||
+                              !_sameDay(channel.messages[i - 1].time, m.time);
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              if (showDate) _DateSeparator(time: m.time),
+                              _ChannelBubble(
+                                message: m,
+                                communityId: widget.communityId,
+                                channelId: widget.channelId,
+                                onVote: m.isPoll
+                                    ? (opt) => _votePoll(m, opt)
+                                    : null,
+                              ),
+                            ],
                           );
                         },
                       ),
@@ -1218,10 +1233,115 @@ class _RoleBadge extends StatelessWidget {
   }
 }
 
+/// Whether two timestamps fall on the same calendar day.
+bool _sameDay(DateTime a, DateTime b) =>
+    a.year == b.year && a.month == b.month && a.day == b.day;
+
+/// A centered "Today / Yesterday / date" divider between days of messages.
+class _DateSeparator extends StatelessWidget {
+  final DateTime time;
+  const _DateSeparator({required this.time});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      child: Center(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+          decoration: BoxDecoration(
+            color: Theme.of(context)
+                .colorScheme
+                .surfaceContainerHighest
+                .withValues(alpha: 0.6),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Text(DateFormatter.messageDayHeader(time),
+              style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey.shade600)),
+        ),
+      ),
+    );
+  }
+}
+
 class _ChannelBubble extends StatelessWidget {
   final Message message;
+  final String communityId;
+  final String channelId;
   final ValueChanged<int>? onVote;
-  const _ChannelBubble({required this.message, this.onVote});
+  const _ChannelBubble({
+    required this.message,
+    required this.communityId,
+    required this.channelId,
+    this.onVote,
+  });
+
+  static const _quickEmojis = ['👍', '❤️', '😂', '🎉', '🔥', '👏'];
+
+  void _react(String emoji) => CommunityStore.instance
+      .toggleChannelReaction(communityId, channelId, message.id, emoji);
+
+  Future<void> _showActions(BuildContext context) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Quick reactions row.
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              child: Wrap(
+                alignment: WrapAlignment.center,
+                children: [
+                  for (final e in _quickEmojis)
+                    InkWell(
+                      borderRadius: BorderRadius.circular(24),
+                      onTap: () {
+                        _react(e);
+                        Navigator.pop(sheetContext);
+                      },
+                      child: Padding(
+                        padding: const EdgeInsets.all(8),
+                        child: Text(e, style: const TextStyle(fontSize: 26)),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            if (!message.isPoll)
+              ListTile(
+                leading: const Icon(Icons.copy),
+                title: const Text('Copy text'),
+                onTap: () {
+                  Clipboard.setData(ClipboardData(text: message.text));
+                  Navigator.pop(sheetContext);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Copied')),
+                  );
+                },
+              ),
+            if (message.isMe)
+              ListTile(
+                leading: const Icon(Icons.delete_outline, color: Colors.red),
+                title: const Text('Delete',
+                    style: TextStyle(color: Colors.red)),
+                onTap: () {
+                  CommunityStore.instance.deleteChannelMessage(
+                      communityId, channelId, message.id);
+                  Navigator.pop(sheetContext);
+                },
+              ),
+          ],
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1234,44 +1354,93 @@ class _ChannelBubble extends StatelessWidget {
         : Colors.grey;
     return Align(
       alignment: message.isMe ? Alignment.centerRight : Alignment.centerLeft,
-      child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-        padding: const EdgeInsets.fromLTRB(13, 8, 13, 7),
-        constraints: BoxConstraints(
-            maxWidth: MediaQuery.of(context).size.width * 0.78),
-        decoration: BoxDecoration(
-          color: message.isMe
-              ? (isDark ? AppColors.outgoingBubbleDark : AppColors.tealGreenDark)
-              : (isDark
-                  ? AppColors.incomingBubbleDark
-                  : AppColors.incomingBubbleLight),
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (message.isPoll)
-              PollBubble(
-                message: message,
-                textColor: onBubble,
-                metaColor: metaColor,
-                onVote: (i) => onVote?.call(i),
-              )
-            else
-              Text(
-                message.text,
-                style: TextStyle(color: onBubble, fontSize: 15.5),
+      child: Column(
+        crossAxisAlignment:
+            message.isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+        children: [
+          GestureDetector(
+            onLongPress: () => _showActions(context),
+            child: Container(
+              margin: const EdgeInsets.fromLTRB(10, 3, 10, 1),
+              padding: const EdgeInsets.fromLTRB(13, 8, 13, 7),
+              constraints: BoxConstraints(
+                  maxWidth: MediaQuery.of(context).size.width * 0.78),
+              decoration: BoxDecoration(
+                color: message.isMe
+                    ? (isDark
+                        ? AppColors.outgoingBubbleDark
+                        : AppColors.tealGreenDark)
+                    : (isDark
+                        ? AppColors.incomingBubbleDark
+                        : AppColors.incomingBubbleLight),
+                borderRadius: BorderRadius.circular(16),
               ),
-            const SizedBox(height: 2),
-            Text(
-              DateFormatter.messageTime(message.time),
-              style: TextStyle(color: metaColor, fontSize: 10.5),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (message.isPoll)
+                    PollBubble(
+                      message: message,
+                      textColor: onBubble,
+                      metaColor: metaColor,
+                      onVote: (i) => onVote?.call(i),
+                    )
+                  else
+                    RichMessageText(
+                      text: message.text,
+                      textColor: onBubble,
+                      linkColor: message.isMe
+                          ? (isDark ? Colors.tealAccent : Colors.white)
+                          : AppColors.tealGreenDark,
+                    ),
+                  const SizedBox(height: 2),
+                  Text(
+                    DateFormatter.messageTime(message.time),
+                    style: TextStyle(color: metaColor, fontSize: 10.5),
+                  ),
+                ],
+              ),
             ),
-          ],
-        ),
+          ),
+          // Reaction chips under the bubble; tap to remove yours.
+          if (message.reactions.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(10, 0, 10, 4),
+              child: Wrap(
+                spacing: 4,
+                children: [
+                  for (final e in _countReactions(message.reactions).entries)
+                    GestureDetector(
+                      onTap: () => _react(e.key),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context)
+                              .colorScheme
+                              .surfaceContainerHighest,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                            e.value > 1 ? '${e.key} ${e.value}' : e.key,
+                            style: const TextStyle(fontSize: 13)),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+        ],
       ),
     );
+  }
+
+  Map<String, int> _countReactions(List<String> reactions) {
+    final counts = <String, int>{};
+    for (final r in reactions) {
+      counts[r] = (counts[r] ?? 0) + 1;
+    }
+    return counts;
   }
 }
 

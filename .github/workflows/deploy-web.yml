@@ -43,8 +43,10 @@ jobs:
       - name: Build web
         run: |
           flutter build web --release --base-href "/OkayMessaging/" \
+            --no-web-resources-cdn \
             --dart-define=SUPABASE_URL=https://trbdqucphtsstnrwwfnw.supabase.co \
             --dart-define=SUPABASE_ANON_KEY=sb_publishable_PrY-Aru0AryWyhHgfD2Tow_uXca1owt \
+            --dart-define=STRIPE_PUBLISHABLE_KEY=pk_live_7XicY3iffHhInOt6LERz8uR9003yCOMM3P \
             --dart-define=REQUIRE_OTP=true \
             --dart-define=BUILD_STAMP="${GITHUB_SHA::7} $(date -u +%Y-%m-%d)"
 

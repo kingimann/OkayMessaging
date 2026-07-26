@@ -1347,6 +1347,34 @@ void main() {
     );
   });
 
+  test('Channel messages: react (toggle) and delete', () {
+    CommunityStore.instance.resetForTest();
+    final c = CommunityStore.instance.createCommunity('Team');
+    final chan = c.channels.firstWhere((ch) => ch.type == ChannelType.text);
+    CommunityStore.instance.postMessage(c.id, chan.id,
+        Message(id: 'm1', text: 'hello', time: DateTime(2024), isMe: true));
+
+    Message msg() => CommunityStore.instance
+        .byId(c.id)!
+        .channels
+        .firstWhere((ch) => ch.id == chan.id)
+        .messages
+        .firstWhere((m) => m.id == 'm1');
+
+    CommunityStore.instance.toggleChannelReaction(c.id, chan.id, 'm1', '👍');
+    expect(msg().reactions, contains('👍'));
+    // Toggling the same emoji removes it.
+    CommunityStore.instance.toggleChannelReaction(c.id, chan.id, 'm1', '👍');
+    expect(msg().reactions, isNot(contains('👍')));
+
+    CommunityStore.instance.deleteChannelMessage(c.id, chan.id, 'm1');
+    final chanAfter = CommunityStore.instance
+        .byId(c.id)!
+        .channels
+        .firstWhere((ch) => ch.id == chan.id);
+    expect(chanAfter.messages.any((m) => m.id == 'm1'), isFalse);
+  });
+
   group('Forum channels', () {
     test('Reddit-style vote toggles and switches direction', () {
       // Up from neutral.

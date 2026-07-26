@@ -1,5 +1,6 @@
 import 'dart:ui' show ImageFilter;
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
 import '../state/call_log.dart';
@@ -179,30 +180,32 @@ class _ModernNavBar extends StatelessWidget {
     final border = (isDark ? Colors.white : Colors.black)
         .withValues(alpha: isDark ? 0.14 : 0.06);
     final bottomInset = MediaQuery.of(context).viewPadding.bottom;
-    return Padding(
-      padding: EdgeInsets.fromLTRB(14, 0, 14, bottomInset > 0 ? bottomInset : 10),
-      child: ClipRRect(
+    // A live backdrop blur is gorgeous on native but very expensive on Flutter
+    // web (CanvasKit re-reads and blurs the whole screen every frame, which
+    // makes scrolling stutter). On web, drop the blur and use a near-opaque
+    // bar instead — same look, none of the per-frame cost.
+    final barColor = kIsWeb
+        ? (isDark ? const Color(0xFF1C1F24) : Colors.white)
+            .withValues(alpha: isDark ? 0.97 : 0.98)
+        : glass;
+    final decorated = DecoratedBox(
+      decoration: BoxDecoration(
+        color: barColor,
         borderRadius: BorderRadius.circular(30),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              color: glass,
-              borderRadius: BorderRadius.circular(30),
-              border: Border.all(color: border, width: 0.8),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: isDark ? 0.35 : 0.12),
-                  blurRadius: 20,
-                  offset: const Offset(0, 6),
-                ),
-              ],
-            ),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
+        border: Border.all(color: border, width: 0.8),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: isDark ? 0.35 : 0.12),
+            blurRadius: 20,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
               _NavPill(
                 icon: Icons.chat_bubble_outline,
                 activeIcon: Icons.chat_bubble,
@@ -247,8 +250,19 @@ class _ModernNavBar extends StatelessWidget {
                 ],
               ),
             ),
-          ),
-        ),
+          );
+
+    return Padding(
+      padding:
+          EdgeInsets.fromLTRB(14, 0, 14, bottomInset > 0 ? bottomInset : 10),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(30),
+        child: kIsWeb
+            ? decorated
+            : BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
+                child: decorated,
+              ),
       ),
     );
   }
