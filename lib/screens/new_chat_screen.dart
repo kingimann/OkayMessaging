@@ -8,6 +8,7 @@ import '../state/chat_store.dart';
 import '../widgets/user_avatar.dart';
 import 'chat_screen.dart';
 import 'create_group_screen.dart';
+import 'find_people_screen.dart';
 
 /// Contact picker shown from the Chats FAB. Start a chat with a sample contact
 /// or with any phone number — everything is created and stored locally.
@@ -93,6 +94,13 @@ class NewChatScreen extends StatelessWidget {
       appBar: AppBar(title: const Text('New chat')),
       body: ListView(
         children: [
+          _ActionTile(
+            icon: Icons.alternate_email,
+            label: 'Find people by username',
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const FindPeopleScreen()),
+            ),
+          ),
           _ActionTile(
             icon: Icons.dialpad,
             label: 'Chat with a number',

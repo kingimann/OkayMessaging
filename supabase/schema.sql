@@ -12,12 +12,24 @@
 create table if not exists public.usernames (
   phone      text primary key,           -- E.164 digits, e.g. 15551234567
   username   text not null,
+  name       text not null default '',   -- display name, for the people directory
+  phone_hash text,                       -- sha256(E.164), for contact-sync matching
   updated_at timestamptz not null default now()
 );
+
+-- Migration for projects created before the directory columns existed. Safe to
+-- run repeatedly; adds the columns only if they're missing.
+alter table public.usernames add column if not exists name text not null default '';
+alter table public.usernames add column if not exists phone_hash text;
 
 -- Case-insensitive uniqueness: "Ada" and "ada" are the same username.
 create unique index if not exists usernames_username_lower_idx
   on public.usernames (lower(username));
+
+-- Fast lookup for "which of my contacts use the app" (contact sync sends
+-- sha256 hashes of phone numbers, never the raw numbers).
+create index if not exists usernames_phone_hash_idx
+  on public.usernames (phone_hash);
 
 alter table public.usernames enable row level security;
 

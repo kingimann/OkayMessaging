@@ -78,6 +78,7 @@ import 'package:okay_messaging/state/score_store.dart';
 import 'package:okay_messaging/state/session.dart';
 import 'package:okay_messaging/state/streak_store.dart';
 import 'package:okay_messaging/state/two_step.dart';
+import 'package:okay_messaging/screens/find_people_screen.dart';
 import 'package:okay_messaging/widgets/chat_input_bar.dart';
 import 'package:okay_messaging/widgets/heart_burst.dart';
 import 'package:okay_messaging/widgets/rich_message_text.dart';
@@ -3411,6 +3412,35 @@ void main() {
       // instant local login is used.
       expect(AccountService.isEnabled, isFalse);
     });
+
+    test('phoneHashHex is deterministic, format-independent, and distinct', () {
+      // Same number in different formats hashes identically...
+      expect(
+        AccountService.phoneHashHex('+1 (555) 012-3456'),
+        AccountService.phoneHashHex('15550123456'),
+      );
+      // ...it's a 64-char hex SHA-256...
+      final h = AccountService.phoneHashHex('15550123456');
+      expect(h.length, 64);
+      expect(RegExp(r'^[0-9a-f]{64}$').hasMatch(h), isTrue);
+      // ...and different numbers hash differently.
+      expect(h, isNot(AccountService.phoneHashHex('15550009999')));
+    });
+
+    test('searchByUsername returns empty for short queries without network',
+        () async {
+      expect(await AccountService.instance.searchByUsername('a'), isEmpty);
+      expect(await AccountService.instance.searchByUsername(''), isEmpty);
+    });
+  });
+
+  testWidgets('Find people screen shows the username search prompt',
+      (tester) async {
+    await tester.pumpWidget(const MaterialApp(home: FindPeopleScreen()));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Search by username'), findsOneWidget); // the field hint
+    expect(find.text('Find people by username'), findsOneWidget); // empty state
   });
 
   test('file transfer chunking splits and losslessly reassembles', () {

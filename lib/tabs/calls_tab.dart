@@ -10,6 +10,7 @@ import '../models/chat.dart';
 import '../models/message.dart';
 import '../models/user.dart';
 import '../screens/chat_screen.dart';
+import '../screens/find_people_screen.dart';
 import '../state/call_log.dart';
 import '../state/call_service.dart' show CallService;
 import '../state/chat_store.dart';
@@ -114,19 +115,26 @@ class _SearchField extends StatelessWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return Padding(
       padding: const EdgeInsets.fromLTRB(14, 12, 14, 6),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        decoration: BoxDecoration(
-          color: isDark ? const Color(0xFF22252B) : const Color(0xFFF0F2F3),
-          borderRadius: BorderRadius.circular(26),
-        ),
-        child: Row(
-          children: [
-            Icon(Icons.search, size: 22, color: Colors.grey.shade500),
-            const SizedBox(width: 12),
-            Text('Search calls',
-                style: TextStyle(color: Colors.grey.shade500, fontSize: 15)),
-          ],
+      child: Material(
+        color: isDark ? const Color(0xFF22252B) : const Color(0xFFF0F2F3),
+        borderRadius: BorderRadius.circular(26),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const FindPeopleScreen()),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            child: Row(
+              children: [
+                Icon(Icons.search, size: 22, color: Colors.grey.shade500),
+                const SizedBox(width: 12),
+                Text('Find people by username',
+                    style:
+                        TextStyle(color: Colors.grey.shade500, fontSize: 15)),
+              ],
+            ),
+          ),
         ),
       ),
     );

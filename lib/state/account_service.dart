@@ -1,6 +1,11 @@
+import 'dart:convert';
+
+import 'package:crypto/crypto.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide Session;
 
+import '../models/user.dart';
 import '../relay/relay_config.dart';
+import 'session.dart';
 
 /// Result of checking a username against the server registry.
 enum UsernameStatus {
@@ -36,6 +41,12 @@ class AccountService {
   /// E.164 digits (no spaces, no '+') — the format Supabase Auth stores the
   /// verified phone as, and the key used in the registry.
   static String e164(String phone) => phone.replaceAll(RegExp(r'\D'), '');
+
+  /// SHA-256 (hex) of the E.164 phone. The directory stores this so contact
+  /// sync can match people by hash — the client sends hashes, never its raw
+  /// address book — instead of uploading everyone's number in the clear.
+  static String phoneHashHex(String phone) =>
+      sha256.convert(utf8.encode(e164(phone))).toString();
 
   /// Lowercases and strips a leading '@' / invalid characters.
   static String normalizeUsername(String raw) => raw
@@ -95,20 +106,102 @@ class AccountService {
   /// violation (23505), which makes uniqueness authoritative even if the
   /// pre-check was bypassed. Other/transient errors return true (best-effort;
   /// the username is still stored locally by [Session]).
-  Future<bool> claimUsername(String phone, String username) async {
+  Future<bool> claimUsername(String phone, String username,
+      {String name = ''}) async {
+    final core = {
+      'phone': e164(phone),
+      'username': normalizeUsername(username),
+      'updated_at': DateTime.now().toUtc().toIso8601String(),
+    };
+    // The directory columns (name, phone_hash) only exist once the schema
+    // migration has been run; if the write fails because they're missing we
+    // retry with just the core fields so username claiming still works.
+    final full = {
+      ...core,
+      'name': name.trim(),
+      'phone_hash': phoneHashHex(phone),
+    };
     try {
-      await _client.from(_table).upsert({
-        'phone': e164(phone),
-        'username': normalizeUsername(username),
-        'updated_at': DateTime.now().toUtc().toIso8601String(),
-      });
+      await _client.from(_table).upsert(full);
       return true;
     } on PostgrestException catch (e) {
       if (e.code == '23505') return false; // username taken (unique violation)
+      try {
+        await _client.from(_table).upsert(core);
+      } catch (_) {}
       return true;
     } catch (_) {
       return true;
     }
+  }
+
+  /// Finds people whose username starts with [query] (case-insensitive) in the
+  /// server directory. Returns an empty list when the backend is unavailable
+  /// or nothing matches. Never throws.
+  Future<List<AppUser>> searchByUsername(String query) async {
+    final q = normalizeUsername(query);
+    if (q.length < 2) return const [];
+    final me = Session.instance.user.value?.phone;
+    try {
+      final rows = await _client
+          .from(_table)
+          .select('phone, username, name')
+          .ilike('username', '$q%')
+          .limit(25);
+      final out = <AppUser>[];
+      for (final row in rows) {
+        final user = _rowToUser(Map<String, dynamic>.from(row));
+        // Don't offer to message/call yourself.
+        if (user != null && (me == null || e164(user.phone) != e164(me))) {
+          out.add(user);
+        }
+      }
+      out.sort((a, b) => a.username.compareTo(b.username));
+      return out;
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  /// Looks up directory entries for a set of E.164 phone hashes — the contact
+  /// sync path. Returns the matching people (those who use OkayMessenger).
+  Future<List<AppUser>> lookupByPhoneHashes(List<String> hashes) async {
+    if (hashes.isEmpty) return const [];
+    final me = Session.instance.user.value?.phone;
+    try {
+      final rows = await _client
+          .from(_table)
+          .select('phone, username, name')
+          .inFilter('phone_hash', hashes)
+          .limit(500);
+      final out = <AppUser>[];
+      for (final row in rows) {
+        final user = _rowToUser(Map<String, dynamic>.from(row));
+        if (user != null && (me == null || e164(user.phone) != e164(me))) {
+          out.add(user);
+        }
+      }
+      return out;
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  /// Builds an [AppUser] from a directory row. Avatar colour is derived from
+  /// the phone number so it isn't stored server-side. Returns null if the row
+  /// is missing the phone key.
+  static AppUser? _rowToUser(Map<String, dynamic> row) {
+    final phone = row['phone'] as String?;
+    if (phone == null || phone.isEmpty) return null;
+    final username = (row['username'] as String?) ?? '';
+    final name = (row['name'] as String?)?.trim() ?? '';
+    return AppUser(
+      id: phone,
+      name: name.isNotEmpty ? name : (username.isNotEmpty ? '@$username' : phone),
+      avatarColor: Session.colorForPhone(phone),
+      phone: phone,
+      username: username,
+    );
   }
 
   /// Looks up the username currently linked to [phone] (null if none).

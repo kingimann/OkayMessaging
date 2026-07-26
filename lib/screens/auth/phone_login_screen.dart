@@ -153,8 +153,8 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
         case UsernameStatus.mine:
           // Claim is authoritative — the DB unique index rejects a name taken
           // between the check and now.
-          final claimed =
-              await AccountService.instance.claimUsername(_fullPhone, u);
+          final claimed = await AccountService.instance
+              .claimUsername(_fullPhone, u, name: _name.text.trim());
           if (!claimed) {
             if (mounted) setState(() => _error = '@$u was just taken.');
             return;

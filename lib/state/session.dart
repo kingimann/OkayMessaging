@@ -47,7 +47,7 @@ class Session {
     final me = AppUser(
       id: phone,
       name: trimmedName,
-      avatarColor: _colorForPhone(phone),
+      avatarColor: colorForPhone(phone),
       about: 'Available',
       phone: phone,
       username: _normalizeUsername(username),
@@ -134,7 +134,7 @@ class Session {
     final me = AppUser(
       id: phone,
       name: name,
-      avatarColor: _colorForPhone(phone),
+      avatarColor: colorForPhone(phone),
       about: 'Available',
       phone: phone,
       username: username,
@@ -148,7 +148,9 @@ class Session {
     user.value = null;
   }
 
-  static String _colorForPhone(String phone) {
+  /// Deterministic avatar colour for a phone number (shared with the server
+  /// directory so a person looks the same everywhere).
+  static String colorForPhone(String phone) {
     const palette = [
       '#E57373', '#64B5F6', '#BA68C8', '#4DB6AC',
       '#FFB74D', '#A1887F', '#4DD0E1', '#81C784',
