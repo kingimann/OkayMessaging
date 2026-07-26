@@ -427,50 +427,65 @@ class _PostCard extends StatelessWidget {
                       ),
                   ],
                 ),
-                const SizedBox(height: 2),
+                const SizedBox(height: 3),
                 Text.rich(
                   TextSpan(
                     children: feedSpans(
                       post.text,
-                      const TextStyle(fontSize: 15),
+                      const TextStyle(fontSize: 15.5, height: 1.35),
                       TextStyle(
-                        fontSize: 15,
+                        fontSize: 15.5,
+                        height: 1.35,
                         fontWeight: FontWeight.w600,
                         color: Theme.of(context).colorScheme.primary,
                       ),
                     ),
                   ),
                 ),
-                const SizedBox(height: 6),
-                Row(
-                  children: [
-                    _PostAction(
-                      icon: Icons.chat_bubble_outline,
-                      count: post.replies,
-                      onTap: onReply,
-                      tooltip: 'Reply',
-                    ),
-                    const SizedBox(width: 28),
-                    _PostAction(
-                      icon: Icons.repeat,
-                      count: post.reposts,
-                      active: post.reposted,
-                      activeColor: const Color(0xFF00BA7C),
-                      onTap: onRepost,
-                      tooltip: 'Repost',
-                    ),
-                    const SizedBox(width: 28),
-                    _PostAction(
-                      icon: post.liked
-                          ? Icons.favorite
-                          : Icons.favorite_border,
-                      count: post.likes,
-                      active: post.liked,
-                      activeColor: const Color(0xFFF91880),
-                      onTap: onLike,
-                      tooltip: 'Like',
-                    ),
-                  ],
+                const SizedBox(height: 8),
+                // Evenly-spread actions, X-style, with share (copy) last.
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 320),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      _PostAction(
+                        icon: Icons.chat_bubble_outline,
+                        count: post.replies,
+                        onTap: onReply,
+                        tooltip: 'Reply',
+                      ),
+                      _PostAction(
+                        icon: Icons.repeat,
+                        count: post.reposts,
+                        active: post.reposted,
+                        activeColor: const Color(0xFF00BA7C),
+                        onTap: onRepost,
+                        tooltip: 'Repost',
+                      ),
+                      _PostAction(
+                        icon: post.liked
+                            ? Icons.favorite
+                            : Icons.favorite_border,
+                        count: post.likes,
+                        active: post.liked,
+                        activeColor: const Color(0xFFF91880),
+                        onTap: onLike,
+                        tooltip: 'Like',
+                      ),
+                      _PostAction(
+                        icon: Icons.ios_share,
+                        count: 0,
+                        tooltip: 'Copy text',
+                        onTap: () {
+                          Clipboard.setData(ClipboardData(text: post.text));
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Post copied')),
+                          );
+                        },
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),

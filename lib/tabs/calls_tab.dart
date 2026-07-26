@@ -9,6 +9,7 @@ import '../models/chat.dart';
 import '../models/message.dart';
 import '../models/user.dart';
 import '../screens/chat_screen.dart';
+import '../screens/dialer_screen.dart';
 import '../screens/find_people_screen.dart';
 import '../state/call_log.dart';
 import '../state/favourites_store.dart';
@@ -80,6 +81,8 @@ class CallsTab extends StatelessWidget {
           children: [
             const _SearchField(),
             const _CreateCallLinkTile(),
+            const _DialTile(),
+            const _CallContactTile(),
             const _FavouritesRow(),
             if (voicemails.isNotEmpty) ...[
               const _SectionHeader('Voicemail'),
@@ -281,6 +284,140 @@ class _CallLinkSheet extends StatelessWidget {
       if (!context.mounted) return;
       _copy(context);
     }
+  }
+}
+
+/// Everyone callable from local state: people from chats and the call log,
+/// deduped, no groups.
+List<AppUser> callableContacts() {
+  final seen = <String>{};
+  final out = <AppUser>[];
+  void consider(AppUser u) {
+    if (u.isGroup || u.phone.isEmpty) return;
+    if (seen.add(u.id)) out.add(u);
+  }
+
+  for (final c in ChatStore.instance.allChats) {
+    consider(c.contact);
+  }
+  for (final r in CallLog.instance.records) {
+    consider(r.user);
+  }
+  out.sort((a, b) => a.name.compareTo(b.name));
+  return out;
+}
+
+/// Opens the dial pad to call any typed number.
+class _DialTile extends StatelessWidget {
+  const _DialTile();
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      leading: CircleAvatar(
+        radius: 22,
+        backgroundColor: AppColors.tealGreenDark.withValues(alpha: 0.15),
+        child: const Icon(Icons.dialpad, color: AppColors.tealGreenDark),
+      ),
+      title: const Text('Dial a number',
+          style: TextStyle(fontWeight: FontWeight.w600)),
+      subtitle: const Text('Call any number directly'),
+      onTap: () => Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => const DialerScreen()),
+      ),
+    );
+  }
+}
+
+/// Picks a contact (from chats and call history) and calls them.
+class _CallContactTile extends StatelessWidget {
+  const _CallContactTile();
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      leading: CircleAvatar(
+        radius: 22,
+        backgroundColor: AppColors.tealGreenDark.withValues(alpha: 0.15),
+        child: const Icon(Icons.contact_phone_outlined,
+            color: AppColors.tealGreenDark),
+      ),
+      title: const Text('Call a contact',
+          style: TextStyle(fontWeight: FontWeight.w600)),
+      subtitle: const Text('Pick someone from your chats'),
+      onTap: () {
+        final contacts = callableContacts();
+        showModalBottomSheet<void>(
+          context: context,
+          isScrollControlled: true,
+          showDragHandle: true,
+          builder: (sheetContext) => SafeArea(
+            child: contacts.isEmpty
+                ? Padding(
+                    padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          'No contacts yet. Find people by username or dial '
+                          'a number to make your first call.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: Colors.grey.shade600),
+                        ),
+                        const SizedBox(height: 14),
+                        FilledButton.icon(
+                          onPressed: () {
+                            Navigator.pop(sheetContext);
+                            Navigator.of(context).push(MaterialPageRoute(
+                                builder: (_) => const FindPeopleScreen()));
+                          },
+                          icon: const Icon(Icons.person_add_alt),
+                          label: const Text('Find people'),
+                        ),
+                      ],
+                    ),
+                  )
+                : ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: contacts.length,
+                    itemBuilder: (context, i) {
+                      final user = contacts[i];
+                      return ListTile(
+                        leading: UserAvatar(user: user, radius: 22),
+                        title: Text(user.name),
+                        subtitle: user.username.isEmpty
+                            ? null
+                            : Text('@${user.username}'),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.call,
+                                  color: AppColors.tealGreenDark),
+                              tooltip: 'Voice call',
+                              onPressed: () {
+                                Navigator.pop(sheetContext);
+                                _startCall(context, user, video: false);
+                              },
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.videocam,
+                                  color: AppColors.tealGreenDark),
+                              tooltip: 'Video call',
+                              onPressed: () {
+                                Navigator.pop(sheetContext);
+                                _startCall(context, user, video: true);
+                              },
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+          ),
+        );
+      },
+    );
   }
 }
 

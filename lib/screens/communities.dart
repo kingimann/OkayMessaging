@@ -946,6 +946,16 @@ class _ChannelScreenState extends State<ChannelScreen> {
         widget.communityId, widget.channelId, message.id, option);
   }
 
+  /// Whether the local user may post in [channel]: everyone in text channels;
+  /// only the owner/admins in announcement (news) channels.
+  bool _canPost(Community community, Channel channel) {
+    if (channel.type != ChannelType.announcement) return true;
+    final me = community.members.where((m) => m.id == 'me').toList();
+    if (me.isEmpty) return false;
+    return me.first.role == MemberRole.owner ||
+        me.first.role == MemberRole.admin;
+  }
+
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
@@ -1003,6 +1013,8 @@ class _ChannelScreenState extends State<ChannelScreen> {
                                 message: m,
                                 communityId: widget.communityId,
                                 channelId: widget.channelId,
+                                announcement:
+                                    channel.type == ChannelType.announcement,
                                 onVote: m.isPoll
                                     ? (opt) => _votePoll(m, opt)
                                     : null,
@@ -1012,7 +1024,34 @@ class _ChannelScreenState extends State<ChannelScreen> {
                         },
                       ),
               ),
-              SafeArea(
+              // Announcement channels are broadcast-only: members read, and
+              // only the owner/admins can post — like every news channel.
+              if (!_canPost(community!, channel))
+                SafeArea(
+                  top: false,
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 14),
+                    color: Theme.of(context)
+                        .colorScheme
+                        .surfaceContainerHighest
+                        .withValues(alpha: 0.5),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.campaign_outlined,
+                            size: 18, color: Colors.grey.shade600),
+                        const SizedBox(width: 8),
+                        Text('Only admins can post in this channel',
+                            style: TextStyle(
+                                color: Colors.grey.shade600, fontSize: 13.5)),
+                      ],
+                    ),
+                  ),
+                )
+              else
+                SafeArea(
                 top: false,
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
@@ -1271,11 +1310,13 @@ class _ChannelBubble extends StatelessWidget {
   final Message message;
   final String communityId;
   final String channelId;
+  final bool announcement;
   final ValueChanged<int>? onVote;
   const _ChannelBubble({
     required this.message,
     required this.communityId,
     required this.channelId,
+    this.announcement = false,
     this.onVote,
   });
 
@@ -1343,8 +1384,57 @@ class _ChannelBubble extends StatelessWidget {
     );
   }
 
+  /// Announcement messages render as full-width news cards, not chat bubbles.
+  Widget _newsCard(BuildContext context) {
+    const accent = Color(0xFF7A5CFF);
+    return GestureDetector(
+      onLongPress: () => _showActions(context),
+      child: Container(
+        margin: const EdgeInsets.fromLTRB(12, 5, 12, 3),
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
+        decoration: BoxDecoration(
+          color: Theme.of(context)
+              .colorScheme
+              .surfaceContainerHighest
+              .withValues(alpha: 0.55),
+          borderRadius: BorderRadius.circular(14),
+          border: const Border(left: BorderSide(color: accent, width: 3)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.campaign, size: 15, color: accent),
+                const SizedBox(width: 5),
+                const Text('ANNOUNCEMENT',
+                    style: TextStyle(
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0.8,
+                        color: accent)),
+                const Spacer(),
+                Text(DateFormatter.messageTime(message.time),
+                    style:
+                        TextStyle(fontSize: 11, color: Colors.grey.shade500)),
+              ],
+            ),
+            const SizedBox(height: 8),
+            RichMessageText(
+              text: message.text,
+              textColor:
+                  Theme.of(context).colorScheme.onSurface,
+              linkColor: accent,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    if (announcement && !message.isPoll) return _newsCard(context);
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final onBubble = message.isMe
         ? (isDark ? Colors.black : Colors.white)

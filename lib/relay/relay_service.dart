@@ -995,6 +995,8 @@ class RelayService {
   /// the phone-derived key and kicks off a key exchange for next time.
   Future<void> send(String contactPhone, Message message) async {
     if (!_initialized) return;
+    // A contact without a number (e.g. the note-to-self chat) has no inbox.
+    if (digits(contactPhone).isEmpty) return;
     final me = Session.instance.user.value;
     if (me == null) return;
 

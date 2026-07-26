@@ -150,6 +150,19 @@ class FeedStore extends ChangeNotifier {
     return list;
   }
 
+  /// The most recent top-level posts across every server, newest first —
+  /// what the notifications tab shows as server activity.
+  List<FeedPost> recentPosts({int limit = 5}) {
+    final list = _posts
+        .where((p) =>
+            p.parentId == null &&
+            !_hiddenIds.contains(p.id) &&
+            !_mutedUsernames.contains(p.authorUsername.toLowerCase()))
+        .toList()
+      ..sort((a, b) => b.time.compareTo(a.time));
+    return list.take(limit).toList();
+  }
+
   /// The replies under a post, oldest first (thread order).
   List<FeedPost> repliesTo(String postId) {
     final list = _posts.where((p) => p.parentId == postId).toList()

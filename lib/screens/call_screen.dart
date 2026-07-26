@@ -38,6 +38,10 @@ class _CallScreenState extends State<CallScreen> {
   bool _speaker = false;
   late bool _video = widget.session.video;
 
+  /// Tap the remote video to hide the controls for an unobstructed view;
+  /// tap again to bring them back. Only applies while video is showing.
+  bool _hideControls = false;
+
   @override
   void initState() {
     super.initState();
@@ -189,9 +193,13 @@ class _CallScreenState extends State<CallScreen> {
         children: [
           // Remote video fills the screen once it arrives; otherwise a gradient.
           if (showingRemoteVideo)
-            RTCVideoView(remoteRenderer,
-                objectFit:
-                    RTCVideoViewObjectFit.RTCVideoViewObjectFitCover)
+            GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () => setState(() => _hideControls = !_hideControls),
+              child: RTCVideoView(remoteRenderer,
+                  objectFit:
+                      RTCVideoViewObjectFit.RTCVideoViewObjectFitCover),
+            )
           else
             DecoratedBox(
               // Tinted with the caller's own colour so each call feels
@@ -232,7 +240,12 @@ class _CallScreenState extends State<CallScreen> {
                 onPressed: () => CallService.instance.minimized.value = true,
               ),
             ),
-          SafeArea(
+          AnimatedOpacity(
+            duration: const Duration(milliseconds: 200),
+            opacity: _hideControls && showingRemoteVideo ? 0.0 : 1.0,
+            child: IgnorePointer(
+              ignoring: _hideControls && showingRemoteVideo,
+              child: SafeArea(
             child: Column(
               children: [
                 const SizedBox(height: 44),
@@ -374,6 +387,8 @@ class _CallScreenState extends State<CallScreen> {
             ],
           ),
         ),
+            ),
+          ),
           // Floating emoji reactions drift up over everything mid-call.
           if (session.status == CallStatus.connected)
             const Positioned.fill(child: _CallReactionsOverlay()),

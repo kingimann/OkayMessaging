@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import '../app_state.dart';
 import '../data/mock_data.dart';
 import '../models/chat.dart';
 import '../models/user.dart';
@@ -88,6 +89,34 @@ class NewChatScreen extends StatelessWidget {
     _openChat(context, chat);
   }
 
+  /// Opens (or creates) the private notes chat with yourself: a place for
+  /// reminders, links, and drafts. Nothing leaves the device — the "peer"
+  /// is you, so the relay never delivers it anywhere else.
+  void _openNoteToSelf(BuildContext context) {
+    final store = ChatStore.instance;
+    final me = AppState.profile.value;
+    final existing = store.chatWithContact('self');
+    final Chat chat;
+    if (existing != null) {
+      chat = existing;
+    } else {
+      chat = Chat(
+        id: 'chat_self',
+        contact: AppUser(
+          id: 'self',
+          name: 'Note to self',
+          avatarColor: me.avatarColor,
+          about: 'Your private notes',
+          phone: '',
+          emoji: '📝',
+        ),
+        messages: const [],
+      );
+      store.upsert(chat);
+    }
+    _openChat(context, chat);
+  }
+
   @override
   Widget build(BuildContext context) {
     // Sample contacts are dev/test-only; a real install starts empty.
@@ -96,6 +125,11 @@ class NewChatScreen extends StatelessWidget {
       appBar: AppBar(title: const Text('New chat')),
       body: ListView(
         children: [
+          _ActionTile(
+            icon: Icons.edit_note,
+            label: 'Note to self',
+            onTap: () => _openNoteToSelf(context),
+          ),
           _ActionTile(
             icon: Icons.alternate_email,
             label: 'Find people by username',
