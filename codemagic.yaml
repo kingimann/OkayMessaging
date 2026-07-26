@@ -1,23 +1,26 @@
 # Codemagic CI/CD configuration for Okay Messaging.
 #
-# Before your first build, set these up in the Codemagic UI
-# (App settings → Environment variables, and Code signing):
+# Every workflow here runs with NO setup in the Codemagic UI: no variable
+# groups, no code-signing certificates, no App Store Connect key. That is
+# deliberate — Codemagic rejects the whole file as "invalid configuration"
+# when it references an environment group, keystore, or integration that
+# doesn't exist in your account yet.
 #
-#   • Variable group "supabase" with:
-#       SUPABASE_URL           – your project URL (e.g. https://xxxx.supabase.co)
-#       SUPABASE_ANON_KEY      – the publishable/anon key (safe to ship in the app)
-#       STRIPE_PUBLISHABLE_KEY – pk_test_.../pk_live_... for in-chat payments
-#     Optionally in the same group, for calls behind strict NATs:
-#       TURN_URL, TURN_USERNAME, TURN_CREDENTIAL
+# Workflows:
+#   test           – analyze + the full test suite (Linux, fast)
+#   android-build  – installable debug-signed APK (sideload it on a phone)
+#   ios-simulator  – unsigned iOS build you can run in the Simulator
 #
-#   • Android code signing → reference name "okay_keystore"
-#       (upload your upload keystore; Codemagic injects it at build time).
+# When you have a Play Console / Apple Developer account, add the signed
+# store-release workflows from docs/codemagic_release.yaml — that file
+# explains exactly which Codemagic resources each one needs first.
 #
-#   • iOS code signing → connect an App Store Connect API key integration
-#       named "okay_app_store" and let Codemagic manage the certificate/profile.
+# The bundle identifier is com.okaymessaging on both platforms; register
+# that exact id in App Store Connect and the Play Console.
 #
-#   • The bundle identifier is com.okaymessaging — register that exact id when
-#     you create the app in App Store Connect and the Play Console.
+# The Supabase URL and publishable key below are client-safe by design
+# (the publishable key is meant to ship inside the app), so they're inlined
+# rather than hidden in a variable group you'd have to create.
 
 workflows:
   # --- Fast feedback on every push / pull request ------------------------
@@ -26,7 +29,7 @@ workflows:
     max_build_duration: 30
     instance_type: linux_x2
     environment:
-      flutter: 3.44.7
+      flutter: stable
     triggering:
       events:
         - push
@@ -39,19 +42,15 @@ workflows:
       - name: Unit & widget tests
         script: flutter test
 
-  # --- Android App Bundle for Google Play --------------------------------
-  android-release:
-    name: Android release (Play Store)
+  # --- Installable Android APK (no keystore needed) ----------------------
+  # Debug-signed, so it installs on any phone with "install unknown apps"
+  # enabled. Good enough to carry the app around and test it for real.
+  android-build:
+    name: Android APK (sideload)
     max_build_duration: 60
     instance_type: linux_x2
     environment:
-      flutter: 3.44.7
-      groups:
-        - supabase
-      android_signing:
-        - okay_keystore
-      vars:
-        PACKAGE_NAME: "com.okaymessaging"
+      flutter: stable
     scripts:
       - name: Get packages
         script: flutter pub get
@@ -59,23 +58,15 @@ workflows:
         script: |
           flutter analyze
           flutter test
-      - name: Build app bundle
+      - name: Build APK
         script: |
-          flutter build appbundle --release \
-            --dart-define=SUPABASE_URL="$SUPABASE_URL" \
-            --dart-define=SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY" \
-            --dart-define=STRIPE_PUBLISHABLE_KEY="$STRIPE_PUBLISHABLE_KEY" \
+          flutter build apk --debug \
+            --dart-define=SUPABASE_URL=https://trbdqucphtsstnrwwfnw.supabase.co \
+            --dart-define=SUPABASE_ANON_KEY=sb_publishable_PrY-Aru0AryWyhHgfD2Tow_uXca1owt \
             --dart-define=REQUIRE_OTP=true
     artifacts:
-      - build/**/outputs/bundle/**/*.aab
-      - build/**/outputs/apk/**/*.apk
-      - build/**/outputs/mapping/**/*.txt
+      - build/**/outputs/**/*.apk
     publishing:
-      # Uncomment once a Google Play service-account key is added to Codemagic.
-      # google_play:
-      #   credentials: $GCLOUD_SERVICE_ACCOUNT_CREDENTIALS
-      #   track: internal
-      #   submit_as_draft: true
       email:
         recipients:
           - ifakhargomi@gmail.com
@@ -84,16 +75,15 @@ workflows:
           failure: true
 
   # --- iOS build with NO Apple account or signing needed ------------------
-  # Start here: this proves the iOS app compiles and produces a runnable
-  # simulator build without certificates, provisioning profiles, or an App
-  # Store Connect key. Download the artifact and drag it onto a running
-  # Simulator (or use `xcrun simctl install booted Runner.app`).
+  # Proves the iOS target compiles and gives you a Simulator build. Unzip
+  # the artifact and drag Runner.app onto a running Simulator, or:
+  #   xcrun simctl install booted Runner.app
   ios-simulator:
     name: iOS simulator build (no signing)
     max_build_duration: 60
     instance_type: mac_mini_m2
     environment:
-      flutter: 3.44.7
+      flutter: stable
       xcode: latest
       cocoapods: default
     scripts:
@@ -118,63 +108,7 @@ workflows:
           zip -r $CM_BUILD_DIR/OkayMessaging-simulator.zip Runner.app
     artifacts:
       - OkayMessaging-simulator.zip
-      - flutter_drive.log
     publishing:
-      email:
-        recipients:
-          - ifakhargomi@gmail.com
-        notify:
-          success: true
-          failure: true
-
-  # --- iOS archive for the App Store -------------------------------------
-  # Requires: a paid Apple Developer account, an App Store Connect API key
-  # saved in Codemagic as the integration named below, and an environment
-  # group "supabase" holding SUPABASE_URL / SUPABASE_ANON_KEY /
-  # STRIPE_PUBLISHABLE_KEY. Use ios-simulator until those exist.
-  ios-release:
-    name: iOS release (App Store)
-    max_build_duration: 90
-    instance_type: mac_mini_m2
-    environment:
-      flutter: 3.44.7
-      xcode: latest
-      cocoapods: default
-      groups:
-        - supabase
-      ios_signing:
-        distribution_type: app_store
-        bundle_identifier: com.okaymessaging
-      integrations:
-        app_store_connect: okay_app_store
-    scripts:
-      - name: Get packages
-        script: flutter pub get
-      - name: Analyze & test
-        script: |
-          flutter analyze
-          flutter test
-      - name: Install CocoaPods
-        script: |
-          find . -name "Podfile" -execdir pod install \;
-      - name: Set up provisioning profiles
-        script: xcode-project use-profiles
-      - name: Build IPA
-        script: |
-          flutter build ipa --release \
-            --dart-define=SUPABASE_URL="$SUPABASE_URL" \
-            --dart-define=SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY" \
-            --dart-define=STRIPE_PUBLISHABLE_KEY="$STRIPE_PUBLISHABLE_KEY" \
-            --dart-define=REQUIRE_OTP=true \
-            --export-options-plist=/Users/builder/export_options.plist
-    artifacts:
-      - build/ios/ipa/*.ipa
-      - /tmp/xcodebuild_logs/*.log
-    publishing:
-      # Uncomment to push builds to TestFlight automatically.
-      # app_store_connect:
-      #   auth: integration
-      #   submit_to_testflight: true
       email:
         recipients:
           - ifakhargomi@gmail.com

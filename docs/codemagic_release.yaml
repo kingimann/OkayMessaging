@@ -1,0 +1,97 @@
+# Store-release workflows for Okay Messaging — NOT active.
+#
+# These are kept out of codemagic.yaml on purpose: each one references a
+# resource that must already exist in your Codemagic account, and Codemagic
+# rejects the ENTIRE configuration file as "invalid configuration file" if
+# any referenced group, keystore, or integration is missing.
+#
+# When you're ready to publish, create the resources listed under each
+# workflow in the Codemagic UI, then paste that workflow into the
+# `workflows:` section of codemagic.yaml.
+#
+# ---------------------------------------------------------------------------
+# android-release — needs, in the Codemagic UI:
+#   1. Code signing → Android keystore, reference name: okay_keystore
+#      (upload the upload-keystore you generate for the Play Console)
+#   2. Environment variables → group "supabase" containing
+#      SUPABASE_URL, SUPABASE_ANON_KEY, STRIPE_PUBLISHABLE_KEY
+#      (only needed if you'd rather keep them in a group than inline)
+#   3. A Play Console app registered with package name com.okaymessaging
+# ---------------------------------------------------------------------------
+android-release:
+  name: Android release (Play Store)
+  max_build_duration: 60
+  instance_type: linux_x2
+  environment:
+    flutter: stable
+    groups:
+      - supabase
+    android_signing:
+      - okay_keystore
+    vars:
+      PACKAGE_NAME: "com.okaymessaging"
+  scripts:
+    - name: Get packages
+      script: flutter pub get
+    - name: Analyze & test
+      script: |
+        flutter analyze
+        flutter test
+    - name: Build App Bundle
+      script: |
+        flutter build appbundle --release \
+          --dart-define=SUPABASE_URL="$SUPABASE_URL" \
+          --dart-define=SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY" \
+          --dart-define=STRIPE_PUBLISHABLE_KEY="$STRIPE_PUBLISHABLE_KEY" \
+          --dart-define=REQUIRE_OTP=true
+  artifacts:
+    - build/**/outputs/**/*.aab
+    - build/**/outputs/**/mapping.txt
+
+# ---------------------------------------------------------------------------
+# ios-release — needs, in the Codemagic UI:
+#   1. A paid Apple Developer Program membership ($99/year)
+#   2. Integrations → App Store Connect API key, named: okay_app_store
+#   3. An App Store Connect app record with bundle id com.okaymessaging
+#   4. Environment variables → group "supabase" (as above)
+# Codemagic then issues/fetches the distribution certificate and profile
+# automatically via `xcode-project use-profiles`.
+# ---------------------------------------------------------------------------
+ios-release:
+  name: iOS release (App Store)
+  max_build_duration: 90
+  instance_type: mac_mini_m2
+  environment:
+    flutter: stable
+    xcode: latest
+    cocoapods: default
+    groups:
+      - supabase
+    ios_signing:
+      distribution_type: app_store
+      bundle_identifier: com.okaymessaging
+    integrations:
+      app_store_connect: okay_app_store
+  scripts:
+    - name: Get packages
+      script: flutter pub get
+    - name: Analyze & test
+      script: |
+        flutter analyze
+        flutter test
+    - name: Install CocoaPods
+      script: |
+        find . -name "Podfile" -execdir pod install \;
+    - name: Set up provisioning profiles
+      script: xcode-project use-profiles
+    - name: Build IPA
+      script: |
+        flutter build ipa --release \
+          --dart-define=SUPABASE_URL="$SUPABASE_URL" \
+          --dart-define=SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY" \
+          --dart-define=STRIPE_PUBLISHABLE_KEY="$STRIPE_PUBLISHABLE_KEY" \
+          --dart-define=REQUIRE_OTP=true \
+          --export-options-plist=/Users/builder/export_options.plist
+  artifacts:
+    - build/ios/ipa/*.ipa
+    - /tmp/xcodebuild_logs/*.log
