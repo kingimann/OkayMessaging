@@ -164,12 +164,18 @@ class _CallScreenState extends State<CallScreen> {
                 objectFit:
                     RTCVideoViewObjectFit.RTCVideoViewObjectFitCover)
           else
-            const DecoratedBox(
+            DecoratedBox(
+              // Tinted with the caller's own colour so each call feels
+              // like *that* person, not a generic black screen.
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
-                  colors: [Color(0xFF16181C), Color(0xFF000000)],
+                  colors: [
+                    Color.lerp(const Color(0xFF16181C),
+                        _peerColor(session.peer.avatarColor), 0.35)!,
+                    const Color(0xFF000000),
+                  ],
                 ),
               ),
             ),
@@ -237,6 +243,22 @@ class _CallScreenState extends State<CallScreen> {
                   Text(
                     _statusLabel,
                     style: const TextStyle(color: Colors.white70, fontSize: 16),
+                  ),
+                ],
+              ),
+              // The call handshake rides the encrypted relay path — say so,
+              // the way every serious calling app does.
+              const SizedBox(height: 10),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.lock, size: 12, color: Colors.white38),
+                  const SizedBox(width: 5),
+                  Text(
+                    'End-to-end encrypted',
+                    style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.38),
+                        fontSize: 12.5),
                   ),
                 ],
               ),
@@ -742,4 +764,11 @@ class _ReturnToCallBannerState extends State<ReturnToCallBanner> {
       ),
     );
   }
+}
+
+/// The caller's avatar colour, for tinting the call backdrop.
+Color _peerColor(String avatarColor) {
+  var hex = avatarColor.replaceFirst('#', '');
+  if (hex.length == 6) hex = 'FF$hex';
+  return Color(int.tryParse(hex, radix: 16) ?? 0xFF9E9E9E);
 }
