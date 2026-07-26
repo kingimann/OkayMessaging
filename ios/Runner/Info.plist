@@ -8,6 +8,12 @@
 		<string>OkayMessenger needs the microphone for voice and video calls.</string>
 		<key>NSLocationWhenInUseUsageDescription</key>
 		<string>OkayMessenger uses your location to show you on the map, share places, and give directions.</string>
+		<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+		<string>OkayMessenger uses your location to show you on the map, share places, and give directions.</string>
+		<key>NSPhotoLibraryUsageDescription</key>
+		<string>OkayMessenger needs access to your photos so you can send pictures and set your profile photo.</string>
+		<key>NSPhotoLibraryAddUsageDescription</key>
+		<string>OkayMessenger needs permission to save photos and videos you receive to your library.</string>
 		<key>CADisableMinimumFrameDurationOnPhone</key>
 		<true/>
 		<key>CFBundleDevelopmentRegion</key>

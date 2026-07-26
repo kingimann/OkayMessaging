@@ -112,10 +112,6 @@ workflows:
       - name: Install CocoaPods
         script: |
           find . -name "Podfile" -execdir pod install \;
-      - name: Set the build number from the Codemagic build counter
-        script: |
-          cd $CM_BUILD_DIR
-          agvtool new-version -all $(($BUILD_NUMBER + 1)) || true
       - name: Initialise the keychain
         script: keychain initialize
       # THE FIX. A brand-new app has no App Store provisioning profile, and
@@ -143,9 +139,17 @@ workflows:
         script: keychain add-certificates
       - name: Set up provisioning profiles
         script: xcode-project use-profiles
+      # Every App Store upload needs a build number higher than the last one
+      # Apple accepted. agvtool doesn't survive `flutter build ipa` (which
+      # reads the number from pubspec.yaml, so builds kept coming out as
+      # "Build 1" and Apple rejects a duplicate). --build-number is the value
+      # flutter actually uses; $BUILD_NUMBER is Codemagic's monotonic build
+      # counter, so it always increases run to run.
       - name: Build IPA
         script: |
           flutter build ipa --release \
+            --build-name=1.0.0 \
+            --build-number=$BUILD_NUMBER \
             --dart-define=SUPABASE_URL=https://trbdqucphtsstnrwwfnw.supabase.co \
             --dart-define=SUPABASE_ANON_KEY=sb_publishable_PrY-Aru0AryWyhHgfD2Tow_uXca1owt \
             --dart-define=REQUIRE_OTP=true \
