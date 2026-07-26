@@ -28,6 +28,11 @@ class CallMedia {
   /// Flips true once a remote track arrives, so the UI can show remote video.
   final ValueNotifier<bool> remoteReady = ValueNotifier<bool>(false);
 
+  /// True while the local camera is capturing and enabled. Unlike the call's
+  /// initial video flag, this tracks the LIVE state — a voice call where the
+  /// user later turns the camera on flips this true, and the UI keys off it.
+  final ValueNotifier<bool> localVideo = ValueNotifier<bool>(false);
+
   /// Live media connection state: 'new' | 'connecting' | 'connected' |
   /// 'disconnected' | 'failed' | 'closed'. The call UI reflects this so the
   /// user sees "Connecting…" / "Reconnecting…" rather than silence.
@@ -131,6 +136,7 @@ class CallMedia {
       connectionState.value = _mapState(state);
     };
     connectionState.value = 'connecting';
+    localVideo.value = video;
     _startStatsMonitor();
   }
 
@@ -182,6 +188,92 @@ class CallMedia {
     } catch (_) {}
   }
 
+  // --- Mid-call renegotiation -------------------------------------------
+  // Adding a brand-new track after the call is connected (camera on in a
+  // voice call, or screen share when no video sender exists) does NOT reach
+  // the peer until a fresh offer/answer round runs over the signaling relay.
+  // Without this, "share screen" looked on but showed nothing remotely.
+
+  /// Set when a new track was added and the connection must be re-offered.
+  bool _renegotiateNeeded = false;
+
+  /// Reads and clears the renegotiation flag (consumed by CallService).
+  bool takeRenegotiateNeeded() {
+    final v = _renegotiateNeeded;
+    _renegotiateNeeded = false;
+    return v;
+  }
+
+  /// Creates a fresh SDP offer on the LIVE connection (renegotiation).
+  Future<String?> createRenegotiationOffer() async {
+    if (!isSupported || _pc == null) return null;
+    try {
+      final offer = await _pc!.createOffer();
+      await _pc!.setLocalDescription(offer);
+      return offer.sdp;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Answers a renegotiation offer received mid-call.
+  Future<String?> answerRenegotiation(String offerSdp) async {
+    if (!isSupported || _pc == null) return null;
+    try {
+      await _pc!
+          .setRemoteDescription(RTCSessionDescription(offerSdp, 'offer'));
+      final answer = await _pc!.createAnswer();
+      await _pc!.setLocalDescription(answer);
+      return answer.sdp;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Turns the camera on/off, CAPTURING one on demand for calls that started
+  /// voice-only (setVideoEnabled can only toggle tracks that already exist).
+  /// Returns true when a new track was added — the caller must renegotiate.
+  Future<bool> enableCamera(bool on) async {
+    if (!isSupported) return false;
+    try {
+      final existing = _localStream?.getVideoTracks() ?? [];
+      if (!on) {
+        for (final t in existing) {
+          t.enabled = false;
+        }
+        localVideo.value = false;
+        return false;
+      }
+      if (existing.isNotEmpty) {
+        for (final t in existing) {
+          t.enabled = true;
+        }
+        if (!screenSharing.value && _localStream != null) {
+          localRenderer?.srcObject = _localStream;
+        }
+        localVideo.value = true;
+        return false;
+      }
+      // Voice call with no camera track yet: capture and add one.
+      final cam = await navigator.mediaDevices.getUserMedia({
+        'video': {'facingMode': 'user'},
+      });
+      final track = cam.getVideoTracks().first;
+      if (_localStream != null) {
+        await _localStream!.addTrack(track);
+        if (_pc != null) {
+          await _pc!.addTrack(track, _localStream!);
+          _renegotiateNeeded = true;
+        }
+        if (!screenSharing.value) localRenderer?.srcObject = _localStream;
+      }
+      localVideo.value = true;
+      return _renegotiateNeeded;
+    } catch (_) {
+      return false;
+    }
+  }
+
   MediaStream? _screenStream;
 
   /// True while this device is sharing its screen into the call.
@@ -214,7 +306,10 @@ class CallMedia {
       if (videoSender != null) {
         await videoSender.replaceTrack(track);
       } else {
+        // No video sender yet (the call started voice-only): adding the
+        // track needs a renegotiation round before the peer can see it.
         await _pc!.addTrack(track, display);
+        _renegotiateNeeded = true;
       }
       localRenderer?.srcObject = display;
       // The browser's own "Stop sharing" bar ends the track — follow it.
@@ -345,6 +440,8 @@ class CallMedia {
     remoteReady.value = false;
     connectionState.value = 'closed';
     screenSharing.value = false;
+    localVideo.value = false;
+    _renegotiateNeeded = false;
     onHold.value = false;
     _statsTimer?.cancel();
     _statsTimer = null;

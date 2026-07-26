@@ -76,6 +76,11 @@ class CallService {
       ValueNotifier<CallReaction?>(null);
   int _reactionSeq = 0;
 
+  /// The peer's live media state (camera on / sharing screen), announced by
+  /// their device over the relay so this side can show it.
+  final ValueNotifier<({bool video, bool screen})> peerMedia =
+      ValueNotifier((video: false, screen: false));
+
   int _seq = 0;
 
   /// True when a call is already ringing or connected (used to send "busy").
@@ -128,6 +133,7 @@ class CallService {
     final id = _newCallId(peer.phone);
     RelayService.instance.currentCallId = id;
     minimized.value = false;
+    peerMedia.value = (video: false, screen: false);
     current.value = CallSession(
       callId: id,
       peer: peer,
@@ -197,6 +203,7 @@ class CallService {
   void clear() {
     current.value = null;
     minimized.value = false;
+    peerMedia.value = (video: false, screen: false);
   }
 
   /// Leaves a voicemail for [peer] after an unanswered call: records a voice
@@ -231,6 +238,16 @@ class CallService {
   // --- Remote signaling (called by RelayService when events arrive) ---
 
   void onRemoteOffer(AppUser peer, String callId, bool video, {String? sdp}) {
+    // A fresh offer for the call we're ALREADY on is a renegotiation (the
+    // peer turned on their camera or started sharing their screen mid-call)
+    // — answer it in place, never treat it as a second incoming call.
+    final active = current.value;
+    if (active != null &&
+        active.callId == callId &&
+        active.status == CallStatus.connected) {
+      if (sdp != null) _answerRenegotiation(active, sdp);
+      return;
+    }
     if (isBusy) {
       // We're already on a call — tell them we're busy (a decline).
       RelayService.instance
@@ -248,6 +265,7 @@ class CallService {
     _pendingOfferSdp = sdp;
     RelayService.instance.currentCallId = callId;
     minimized.value = false;
+    peerMedia.value = (video: false, screen: false);
     current.value = CallSession(
       callId: callId,
       peer: peer,
@@ -268,10 +286,21 @@ class CallService {
     return !known;
   }
 
+  /// Applies the peer's answer to a mid-call renegotiation offer.
+  Future<void> _answerRenegotiation(CallSession c, String offerSdp) async {
+    final answer = await CallMedia.instance.answerRenegotiation(offerSdp);
+    if (answer == null) return;
+    RelayService.instance.sendCall(c.peer.phone,
+        kind: 'answer', callId: c.callId, video: c.video, sdp: answer);
+  }
+
   void onRemoteAnswer(String callId, {String? sdp}) {
     final c = current.value;
     if (c == null || c.callId != callId) return;
     if (sdp != null) CallMedia.instance.setRemoteAnswer(sdp);
+    // A renegotiation answer arrives on an already-connected call — applying
+    // the SDP is all it needs; don't reset the call timer.
+    if (c.status == CallStatus.connected) return;
     current.value =
         c.copyWith(status: CallStatus.connected, connectedAt: DateTime.now());
   }
@@ -297,6 +326,63 @@ class CallService {
     _logCall(c);
     CallMedia.instance.hangUp();
     current.value = c.copyWith(status: CallStatus.ended);
+  }
+
+  // --- Mid-call media: camera / screen with renegotiation + announcements ---
+
+  /// Turns the camera on/off mid-call. Captures a camera for voice-only calls
+  /// (with the renegotiation round the new track needs) and tells the peer.
+  Future<void> setVideo(bool on) async {
+    final c = current.value;
+    if (c == null) return;
+    final addedTrack = await CallMedia.instance.enableCamera(on);
+    if (addedTrack || CallMedia.instance.takeRenegotiateNeeded()) {
+      await _renegotiate(c);
+    }
+    _announceMedia(c);
+  }
+
+  /// Starts/stops screen sharing, renegotiating when the share added a brand
+  /// new track (voice calls), and announces the state. Returns the
+  /// human-readable error, or null on success.
+  Future<String?> toggleScreenShare() async {
+    final c = current.value;
+    if (c == null) return 'No active call.';
+    final error = await CallMedia.instance.toggleScreenShare();
+    if (error == null) {
+      if (CallMedia.instance.takeRenegotiateNeeded()) await _renegotiate(c);
+      _announceMedia(c);
+    }
+    return error;
+  }
+
+  /// Sends a fresh offer for the LIVE call so a newly added track (camera or
+  /// screen) actually starts flowing to the peer.
+  Future<void> _renegotiate(CallSession c) async {
+    final sdp = await CallMedia.instance.createRenegotiationOffer();
+    if (sdp == null) return;
+    RelayService.instance.sendCall(c.peer.phone,
+        kind: 'offer', callId: c.callId, video: c.video, sdp: sdp);
+  }
+
+  /// Announces this side's camera/screen state so the peer's UI can show it.
+  void _announceMedia(CallSession c) {
+    RelayService.instance.sendCall(c.peer.phone,
+        kind: 'media',
+        callId: c.callId,
+        video: c.video,
+        media: {
+          'video': CallMedia.instance.localVideo.value,
+          'screen': CallMedia.instance.screenSharing.value,
+        });
+  }
+
+  /// The peer announced their camera/screen state.
+  void onRemoteMediaState(String callId, Map<String, dynamic>? media) {
+    final c = current.value;
+    if (c == null || c.callId != callId || media == null) return;
+    peerMedia.value =
+        (video: media['video'] == true, screen: media['screen'] == true);
   }
 
   // --- In-call reactions (floating emoji) ---
@@ -329,6 +415,7 @@ class CallService {
     current.value = null;
     minimized.value = false;
     reaction.value = null;
+    peerMedia.value = (video: false, screen: false);
     _seq = 0;
     _reactionSeq = 0;
     _loggedCallIds.clear();

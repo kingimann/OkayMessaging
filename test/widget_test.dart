@@ -3580,6 +3580,54 @@ void main() {
       expect(r2.seq, greaterThan(r1.seq));
     });
 
+    test('peer media state updates only for the active call', () {
+      CallService.instance.current.value = connected(CallDirection.outgoing);
+      expect(CallService.instance.peerMedia.value.video, isFalse);
+
+      CallService.instance
+          .onRemoteMediaState('c1', {'video': true, 'screen': false});
+      expect(CallService.instance.peerMedia.value.video, isTrue);
+      expect(CallService.instance.peerMedia.value.screen, isFalse);
+
+      CallService.instance
+          .onRemoteMediaState('c1', {'video': false, 'screen': true});
+      expect(CallService.instance.peerMedia.value.screen, isTrue);
+
+      // A stale/foreign call id or a missing payload changes nothing.
+      CallService.instance
+          .onRemoteMediaState('other', {'video': false, 'screen': false});
+      expect(CallService.instance.peerMedia.value.screen, isTrue);
+      CallService.instance.onRemoteMediaState('c1', null);
+      expect(CallService.instance.peerMedia.value.screen, isTrue);
+
+      // Clearing the call resets the announced state.
+      CallService.instance.clear();
+      expect(CallService.instance.peerMedia.value.video, isFalse);
+      expect(CallService.instance.peerMedia.value.screen, isFalse);
+    });
+
+    test('an offer for the live call renegotiates instead of busy-declining',
+        () {
+      final session = connected(CallDirection.outgoing);
+      CallService.instance.current.value = session;
+      // Same callId while connected: must NOT be treated as a new incoming
+      // call (which would flip the session to ringing or decline as busy).
+      CallService.instance.onRemoteOffer(
+          session.peer, 'c1', false,
+          sdp: 'v=0 renegotiation');
+      final after = CallService.instance.current.value!;
+      expect(after.callId, 'c1');
+      expect(after.status, CallStatus.connected);
+      expect(after.direction, CallDirection.outgoing);
+    });
+
+    test('setVideo and toggleScreenShare are safe with no active call',
+        () async {
+      CallService.instance.current.value = null;
+      await CallService.instance.setVideo(true); // must not throw
+      expect(await CallService.instance.toggleScreenShare(), isNotNull);
+    });
+
     test('onRemoteReaction only fires for the active call', () {
       CallService.instance.current.value = connected(CallDirection.incoming);
       CallService.instance.onRemoteReaction('c1', '🎉');

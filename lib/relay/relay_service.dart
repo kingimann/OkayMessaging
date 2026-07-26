@@ -564,6 +564,11 @@ class RelayService {
               case 'reaction':
                 call.onRemoteReaction(callId, p['emoji'] as String?);
                 break;
+              case 'media':
+                final m = p['media'];
+                call.onRemoteMediaState(
+                    callId, m is Map ? Map<String, dynamic>.from(m) : null);
+                break;
             }
           },
         )
@@ -785,6 +790,7 @@ class RelayService {
     required bool video,
     String? sdp,
     String? emoji,
+    Map<String, dynamic>? media,
   }) async {
     if (!_initialized) return;
     final me = Session.instance.user.value;
@@ -802,6 +808,7 @@ class RelayService {
         'callId': callId,
         'video': video,
         if (emoji != null) 'emoji': emoji,
+        if (media != null) 'media': media,
         ..._sealSignalPair(contactPhone, sdp: sdp),
       },
     );

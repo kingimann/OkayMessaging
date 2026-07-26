@@ -44,16 +44,33 @@ class _CallScreenState extends State<CallScreen> {
     _syncForStatus();
     CallMedia.instance.remoteReady.addListener(_onRemoteReady);
     CallMedia.instance.connectionState.addListener(_onRemoteReady);
+    CallMedia.instance.localVideo.addListener(_onRemoteReady);
+    CallMedia.instance.screenSharing.addListener(_onRemoteReady);
+    CallService.instance.peerMedia.addListener(_onRemoteReady);
   }
 
   void _onRemoteReady() {
     if (mounted) setState(() {});
   }
 
-  bool get _showVideo =>
+  /// Local preview: show whenever the camera is live or the screen is being
+  /// shared — NOT just when the call started as a video call. A voice call
+  /// where the user turns on video/screen must show it too.
+  bool get _showLocalPreview =>
       CallMedia.instance.isSupported &&
-      widget.session.video &&
-      widget.session.status == CallStatus.connected;
+      widget.session.status == CallStatus.connected &&
+      (CallMedia.instance.localVideo.value ||
+          CallMedia.instance.screenSharing.value);
+
+  /// Remote video: a stream has arrived and the peer is sending video or a
+  /// screen (their announcement), or the call was a video call from the start.
+  bool get _showRemoteVideo {
+    if (!CallMedia.instance.isSupported) return false;
+    if (widget.session.status != CallStatus.connected) return false;
+    if (!CallMedia.instance.remoteReady.value) return false;
+    final pm = CallService.instance.peerMedia.value;
+    return widget.session.video || pm.video || pm.screen;
+  }
 
   /// True while the media path is still negotiating on a connected call.
   bool get _connecting {
@@ -116,6 +133,9 @@ class _CallScreenState extends State<CallScreen> {
     _dismiss?.cancel();
     CallMedia.instance.remoteReady.removeListener(_onRemoteReady);
     CallMedia.instance.connectionState.removeListener(_onRemoteReady);
+    CallMedia.instance.localVideo.removeListener(_onRemoteReady);
+    CallMedia.instance.screenSharing.removeListener(_onRemoteReady);
+    CallService.instance.peerMedia.removeListener(_onRemoteReady);
     super.dispose();
   }
 
@@ -160,9 +180,7 @@ class _CallScreenState extends State<CallScreen> {
 
     final remoteRenderer = CallMedia.instance.remoteRenderer;
     final localRenderer = CallMedia.instance.localRenderer;
-    final showingRemoteVideo = _showVideo &&
-        CallMedia.instance.remoteReady.value &&
-        remoteRenderer != null;
+    final showingRemoteVideo = _showRemoteVideo && remoteRenderer != null;
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -190,8 +208,8 @@ class _CallScreenState extends State<CallScreen> {
                 ),
               ),
             ),
-          // Local camera preview (top-right) during a video call.
-          if (_showVideo && localRenderer != null)
+          // Local camera/screen preview (top-right) whenever we're sending.
+          if (_showLocalPreview && localRenderer != null)
             Positioned(
               top: 48,
               right: 16,
@@ -311,6 +329,37 @@ class _CallScreenState extends State<CallScreen> {
                   ),
                 ],
               ),
+              // Who is sending what: make camera/screen state visible to
+              // both sides, so nobody broadcasts without knowing it.
+              if (session.status == CallStatus.connected) ...[
+                const SizedBox(height: 10),
+                Wrap(
+                  alignment: WrapAlignment.center,
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    if (CallMedia.instance.screenSharing.value)
+                      _mediaBadge(
+                          Icons.screen_share, 'You\'re sharing your screen'),
+                    if (!CallMedia.instance.screenSharing.value &&
+                        !session.video &&
+                        CallMedia.instance.localVideo.value)
+                      _mediaBadge(Icons.videocam, 'Your camera is on'),
+                    if (CallService.instance.peerMedia.value.screen)
+                      _mediaBadge(
+                          Icons.screen_share,
+                          '${session.peer.name.split(' ').first} is sharing '
+                          'their screen'),
+                    if (!CallService.instance.peerMedia.value.screen &&
+                        !session.video &&
+                        CallService.instance.peerMedia.value.video)
+                      _mediaBadge(
+                          Icons.videocam,
+                          '${session.peer.name.split(' ').first}\'s camera '
+                          'is on'),
+                  ],
+                ),
+              ],
               const Spacer(),
               const SizedBox(height: 24),
               Padding(
@@ -465,6 +514,26 @@ class _CallScreenState extends State<CallScreen> {
     }
   }
 
+  /// A small translucent pill announcing a live camera/screen state.
+  Widget _mediaBadge(IconData icon, String label) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 13, color: Colors.greenAccent.shade100),
+          const SizedBox(width: 5),
+          Text(label,
+              style: const TextStyle(color: Colors.white70, fontSize: 12)),
+        ],
+      ),
+    );
+  }
+
   /// A quick emoji picker; the chosen emoji floats up on both devices.
   void _showReactions(BuildContext context) {
     const emojis = ['👍', '❤️', '😂', '😮', '🎉', '👏', '🔥', '😢'];
@@ -550,7 +619,9 @@ class _CallScreenState extends State<CallScreen> {
                 active: _video,
                 onTap: () {
                   setState(() => _video = !_video);
-                  CallMedia.instance.setVideoEnabled(_video);
+                  // Captures a camera on demand for voice calls, runs the
+                  // renegotiation the new track needs, and tells the peer.
+                  CallService.instance.setVideo(_video);
                 },
               ),
               if (_video)
@@ -571,7 +642,7 @@ class _CallScreenState extends State<CallScreen> {
                   active: sharing,
                   onTap: () async {
                     final error =
-                        await CallMedia.instance.toggleScreenShare();
+                        await CallService.instance.toggleScreenShare();
                     if (error != null && context.mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(content: Text(error)),
