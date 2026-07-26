@@ -138,6 +138,25 @@ void main() {
     expect(find.text('Alice Bennett'), findsOneWidget);
   });
 
+  testWidgets('Create call link opens a sheet with a shareable link',
+      (tester) async {
+    await tester.pumpWidget(const OkayMessagingApp());
+    await tester.pumpAndSettle();
+
+    // Go to the Calls tab.
+    await tester.tap(find.byIcon(Icons.call_outlined));
+    await tester.pumpAndSettle();
+
+    // Tapping the tile used to do nothing; it must now open the sheet.
+    await tester.tap(find.text('Create call link'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Call link ready'), findsOneWidget);
+    expect(find.textContaining('https://okay.chat/call/'), findsOneWidget);
+    expect(find.widgetWithText(OutlinedButton, 'Copy'), findsOneWidget);
+    expect(find.widgetWithText(FilledButton, 'Share'), findsOneWidget);
+  });
+
   testWidgets('Opening a chat shows the message input bar', (tester) async {
     await tester.pumpWidget(const OkayMessagingApp());
     await tester.pumpAndSettle();

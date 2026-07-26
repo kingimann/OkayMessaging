@@ -1,4 +1,8 @@
+import 'dart:math';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../data/mock_data.dart';
 import '../models/call.dart';
@@ -129,6 +133,15 @@ class _SearchField extends StatelessWidget {
   }
 }
 
+/// Builds a fresh, shareable call link. Mirrors the community invite-link
+/// scheme (`https://okay.chat/...`) so every link in the app looks the same.
+String _newCallLink() {
+  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  final r = Random();
+  final code = List.generate(10, (_) => chars[r.nextInt(chars.length)]).join();
+  return 'https://okay.chat/call/$code';
+}
+
 class _CreateCallLinkTile extends StatelessWidget {
   const _CreateCallLinkTile();
 
@@ -143,8 +156,120 @@ class _CreateCallLinkTile extends StatelessWidget {
       title: const Text('Create call link',
           style: TextStyle(fontWeight: FontWeight.w600)),
       subtitle: const Text('Share a link for your call'),
-      onTap: () {},
+      onTap: () => showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        showDragHandle: true,
+        builder: (_) => _CallLinkSheet(link: _newCallLink()),
+      ),
     );
+  }
+}
+
+/// Sheet shown after tapping "Create call link": presents the generated link
+/// with Copy and Share actions.
+class _CallLinkSheet extends StatelessWidget {
+  final String link;
+  const _CallLinkSheet({required this.link});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: CircleAvatar(
+                radius: 28,
+                backgroundColor: AppColors.tealGreenDark.withValues(alpha: 0.15),
+                child: const Icon(Icons.link,
+                    color: AppColors.tealGreenDark, size: 30),
+              ),
+            ),
+            const SizedBox(height: 14),
+            const Text('Call link ready',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 6),
+            Text(
+              'Share this link with anyone you want on the call. They can join '
+              'straight from it — no number needed.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.grey.shade600, fontSize: 13.5),
+            ),
+            const SizedBox(height: 18),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              decoration: BoxDecoration(
+                color: isDark ? const Color(0xFF22252B) : const Color(0xFFF0F2F3),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.link, size: 18, color: Colors.grey),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(link,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            fontSize: 14.5, fontWeight: FontWeight.w500)),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => _copy(context),
+                    icon: const Icon(Icons.copy, size: 18),
+                    label: const Text('Copy'),
+                    style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14)),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: () => _share(context),
+                    icon: const Icon(Icons.ios_share, size: 18),
+                    label: const Text('Share'),
+                    style: FilledButton.styleFrom(
+                        backgroundColor: AppColors.tealGreenDark,
+                        padding: const EdgeInsets.symmetric(vertical: 14)),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _copy(BuildContext context) {
+    Clipboard.setData(ClipboardData(text: link));
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Call link copied')),
+    );
+  }
+
+  Future<void> _share(BuildContext context) async {
+    try {
+      await Share.share('Join my call on OkayMessenger: $link',
+          subject: 'OkayMessenger call');
+    } catch (_) {
+      // Web browsers without the Share API (and headless tests) fall back to
+      // the clipboard so the button always does something useful.
+      if (!context.mounted) return;
+      _copy(context);
+    }
   }
 }
 
