@@ -97,3 +97,29 @@ create table if not exists public.payout_status (
   updated_at        timestamptz not null default now()
 );
 alter table public.payout_status enable row level security;
+
+-- =============================================================================
+-- Push notifications (APNs)
+-- =============================================================================
+-- One device token per verified phone. Written by the signed-in owner from
+-- the app; read ONLY by the push-send Edge Function (service role).
+create table if not exists public.push_tokens (
+  phone      text primary key,           -- E.164 digits
+  token      text not null,              -- APNs device token (hex)
+  platform   text not null default 'ios',
+  updated_at timestamptz not null default now()
+);
+
+alter table public.push_tokens enable row level security;
+
+drop policy if exists push_tokens_upsert_own on public.push_tokens;
+create policy push_tokens_upsert_own on public.push_tokens
+  for insert to authenticated
+  with check (phone = (auth.jwt() ->> 'phone'));
+
+drop policy if exists push_tokens_update_own on public.push_tokens;
+create policy push_tokens_update_own on public.push_tokens
+  for update to authenticated
+  using (phone = (auth.jwt() ->> 'phone'))
+  with check (phone = (auth.jwt() ->> 'phone'));
+-- No select policy for clients: tokens are readable only by the service role.
