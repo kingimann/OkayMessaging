@@ -9,7 +9,9 @@ import '../relay/relay_config.dart';
 import '../relay/relay_service.dart';
 import 'call_log.dart';
 import 'call_media.dart';
+import 'push_service.dart';
 import 'score_store.dart';
+import 'session.dart';
 import 'chat_store.dart';
 
 /// Whether a call is incoming (they rang us) or outgoing (we rang them).
@@ -149,6 +151,12 @@ class CallService {
     final sdp = await CallMedia.instance.createOffer(phone, video);
     RelayService.instance
         .sendCall(phone, kind: 'offer', callId: id, video: video, sdp: sdp);
+    // Wake their device over APNs too, so the call rings even when the
+    // app is closed (no-op until push is configured).
+    final me = Session.instance.user.value;
+    PushService.instance.notify(phone,
+        title: me == null || me.name.isEmpty ? 'Incoming call' : me.name,
+        body: video ? 'Incoming video call' : 'Incoming call');
   }
 
   /// Accepts the current incoming call.
