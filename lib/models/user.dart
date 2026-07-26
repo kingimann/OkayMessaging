@@ -24,7 +24,7 @@ class AppUser {
     required this.id,
     required this.name,
     required this.avatarColor,
-    this.about = 'Hey there! I am using Okay Messaging.',
+    this.about = 'Hey there! I am using OkayMessenger.',
     this.phone = '',
     this.username = '',
     this.isOnline = false,

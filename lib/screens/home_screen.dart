@@ -66,7 +66,7 @@ class _HomeScreenState extends State<HomeScreen> {
         titleSpacing: 20,
         title: _index == 0
             ? Text(
-                'Okay Messaging',
+                'OkayMessenger',
                 style: TextStyle(
                   color: isDark ? Colors.white : AppColors.tealGreen,
                   fontWeight: FontWeight.bold,
@@ -165,7 +165,7 @@ class _HomeScreenState extends State<HomeScreen> {
         2 => 'Calls',
         3 => 'Notifications',
         4 => 'You',
-        _ => 'Okay Messaging',
+        _ => 'OkayMessenger',
       };
 }
 
@@ -341,7 +341,7 @@ class _AppSideBar extends StatelessWidget {
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: Text(
-                  'Okay Messaging · $kBuildStamp',
+                  'OkayMessenger · $kBuildStamp',
                   style: TextStyle(
                       fontSize: 12,
                       color: Theme.of(context).colorScheme.onSurfaceVariant),

@@ -6,7 +6,7 @@ import '../models/user.dart';
 import '../widgets/user_avatar.dart';
 
 /// Shows a scannable QR code for the signed-in user, so someone can add them
-/// on Okay Messaging by scanning instead of typing a number.
+/// on OkayMessenger by scanning instead of typing a number.
 class MyQrScreen extends StatelessWidget {
   const MyQrScreen({super.key});
 
@@ -79,7 +79,7 @@ class MyQrScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 22),
                 Text(
-                  'Scan this code with Okay Messaging to add ${me.name}.',
+                  'Scan this code with OkayMessenger to add ${me.name}.',
                   textAlign: TextAlign.center,
                   style: TextStyle(color: Colors.grey.shade600, height: 1.4),
                 ),

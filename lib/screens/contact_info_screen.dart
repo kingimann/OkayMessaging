@@ -251,7 +251,7 @@ class ContactInfoScreen extends StatelessWidget {
     final buf = StringBuffer(user.name);
     if (user.handle.isNotEmpty) buf.write(' (${user.handle})');
     if (user.phone.isNotEmpty) buf.write('\n${user.phone}');
-    buf.write('\nMessage me on Okay Messaging.');
+    buf.write('\nMessage me on OkayMessenger.');
     Clipboard.setData(ClipboardData(text: buf.toString()));
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Contact copied to clipboard')),

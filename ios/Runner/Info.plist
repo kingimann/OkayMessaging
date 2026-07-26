@@ -3,17 +3,17 @@
 <plist version="1.0">
 	<dict>
 		<key>NSCameraUsageDescription</key>
-		<string>Okay Messaging needs the camera for video calls.</string>
+		<string>OkayMessenger needs the camera for video calls.</string>
 		<key>NSMicrophoneUsageDescription</key>
-		<string>Okay Messaging needs the microphone for voice and video calls.</string>
+		<string>OkayMessenger needs the microphone for voice and video calls.</string>
 		<key>NSLocationWhenInUseUsageDescription</key>
-		<string>Okay Messaging uses your location to show you on the map, share places, and give directions.</string>
+		<string>OkayMessenger uses your location to show you on the map, share places, and give directions.</string>
 		<key>CADisableMinimumFrameDurationOnPhone</key>
 		<true/>
 		<key>CFBundleDevelopmentRegion</key>
 		<string>$(DEVELOPMENT_LANGUAGE)</string>
 		<key>CFBundleDisplayName</key>
-		<string>Okay Messaging</string>
+		<string>OkayMessenger</string>
 		<key>CFBundleExecutable</key>
 		<string>$(EXECUTABLE_NAME)</string>
 		<key>CFBundleIdentifier</key>

@@ -114,7 +114,7 @@ void main() {
     await tester.pumpWidget(const OkayMessagingApp());
     await tester.pumpAndSettle();
 
-    expect(find.text('Okay Messaging'), findsOneWidget);
+    expect(find.text('OkayMessenger'), findsOneWidget);
     // The modern pill bar labels only the active tab; Chats is active.
     expect(find.text('Chats'), findsOneWidget);
     expect(find.text('Status'), findsNothing);
@@ -2098,19 +2098,19 @@ void main() {
 
     await tester.pumpWidget(const OkayMessagingApp());
     await tester.pumpAndSettle();
-    expect(find.text('Okay Messaging is locked'), findsOneWidget);
+    expect(find.text('OkayMessenger is locked'), findsOneWidget);
 
     // Wrong PIN keeps it locked.
     await tester.enterText(find.byType(TextField).first, '0000');
     await tester.tap(find.text('Unlock'));
     await tester.pumpAndSettle();
-    expect(find.text('Okay Messaging is locked'), findsOneWidget);
+    expect(find.text('OkayMessenger is locked'), findsOneWidget);
 
     // Correct PIN unlocks.
     await tester.enterText(find.byType(TextField).first, '4321');
     await tester.tap(find.text('Unlock'));
     await tester.pumpAndSettle();
-    expect(find.text('Okay Messaging is locked'), findsNothing);
+    expect(find.text('OkayMessenger is locked'), findsNothing);
   });
 
   test('My QR payload encodes username, phone and name as an app URI', () {

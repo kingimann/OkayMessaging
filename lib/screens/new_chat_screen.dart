@@ -108,7 +108,7 @@ class NewChatScreen extends StatelessWidget {
           const Padding(
             padding: EdgeInsets.fromLTRB(16, 12, 16, 4),
             child: Text(
-              'Contacts on Okay Messaging',
+              'Contacts on OkayMessenger',
               style: TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.w600,

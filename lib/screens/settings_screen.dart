@@ -149,7 +149,7 @@ class SettingsView extends StatelessWidget {
             InfoTile(
               leading: const Icon(Icons.help_outline),
               title: 'Help',
-              subtitle: 'About Okay Messaging',
+              subtitle: 'About OkayMessenger',
               onTap: () => _showHelp(context),
             ),
             InfoTile(
@@ -200,7 +200,7 @@ class SettingsView extends StatelessWidget {
         const SizedBox(height: 20),
         Center(
           child: Text(
-            'Okay Messaging · v1.0.0',
+            'OkayMessenger · v1.0.0',
             style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
           ),
         ),
@@ -299,7 +299,7 @@ class SettingsView extends StatelessWidget {
   void _showHelp(BuildContext context) {
     showAboutDialog(
       context: context,
-      applicationName: 'Okay Messaging',
+      applicationName: 'OkayMessenger',
       applicationVersion: '1.0.0',
       children: const [
         SizedBox(height: 12),
@@ -316,7 +316,7 @@ class SettingsView extends StatelessWidget {
     final me = AppState.profile.value;
     final who = me.handle.isNotEmpty ? me.handle : me.name;
     final invite =
-        'Message me on Okay Messaging! I\'m $who. Grab the app and say hi.';
+        'Message me on OkayMessenger! I\'m $who. Grab the app and say hi.';
     Clipboard.setData(ClipboardData(text: invite));
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Invite copied to clipboard')),
@@ -449,7 +449,7 @@ class _ProfileCard extends StatelessWidget {
                     final who =
                         me.handle.isNotEmpty ? me.handle : me.name;
                     Clipboard.setData(ClipboardData(
-                        text: 'Chat with me ($who) on Okay Messaging: '
+                        text: 'Chat with me ($who) on OkayMessenger: '
                             'https://kingimann.github.io/OkayMessaging/'));
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(

@@ -135,7 +135,7 @@ class OkayMessagingApp extends StatelessWidget {
       valueListenable: AppState.themeMode,
       builder: (context, mode, _) {
         return MaterialApp(
-          title: 'Okay Messaging',
+          title: 'OkayMessenger',
           debugShowCheckedModeBanner: false,
           theme: AppTheme.light,
           darkTheme: AppTheme.dark,

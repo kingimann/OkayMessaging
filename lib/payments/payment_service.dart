@@ -144,7 +144,7 @@ class PaymentService {
     await StripeSheet.init(_publishableKey);
     return StripeSheet.presentPayment(
       clientSecret: intent['clientSecret'] as String,
-      merchantName: 'Okay Messaging',
+      merchantName: 'OkayMessenger',
     );
   }
 }

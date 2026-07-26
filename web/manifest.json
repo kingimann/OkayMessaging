@@ -1,6 +1,6 @@
 {
-    "name": "okay_messaging",
-    "short_name": "okay_messaging",
+    "name": "OkayMessenger",
+    "short_name": "OkayMessenger",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#6A3CE0",

@@ -289,7 +289,7 @@ class _InfoFooter extends StatelessWidget {
         const SizedBox(width: 8),
         Expanded(
           child: Text(
-            'Payments are processed by Stripe. Okay Messaging never holds your '
+            'Payments are processed by Stripe. OkayMessenger never holds your '
             'funds or sees your card details, and your messages stay private.',
             style: TextStyle(color: Colors.grey.shade500, fontSize: 12, height: 1.4),
           ),

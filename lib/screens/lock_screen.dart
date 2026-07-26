@@ -45,7 +45,7 @@ class _LockScreenState extends State<LockScreen> {
             children: [
               Icon(Icons.lock_outline, size: 56, color: ink),
               const SizedBox(height: 18),
-              Text('Okay Messaging is locked',
+              Text('OkayMessenger is locked',
                   style: TextStyle(
                       fontSize: 18, fontWeight: FontWeight.w600, color: ink)),
               const SizedBox(height: 6),

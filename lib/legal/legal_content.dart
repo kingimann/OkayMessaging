@@ -16,7 +16,7 @@ const String legalLastUpdated = 'Last updated: 2026';
 const List<LegalSection> privacyPolicy = [
   LegalSection(
     'The short version',
-    'Okay Messaging is built to know as little about you as possible. Your '
+    'OkayMessenger is built to know as little about you as possible. Your '
         'messages, calls, and media are never stored on our servers. They are '
         'end-to-end encrypted, relayed live between devices, and kept only in '
         'each device’s local storage — so they disappear when you '
@@ -83,7 +83,7 @@ const List<LegalSection> privacyPolicy = [
   ),
   LegalSection(
     'Children',
-    'Okay Messaging is not directed to children under 13 (or the minimum age '
+    'OkayMessenger is not directed to children under 13 (or the minimum age '
         'in your region), and we do not knowingly collect their information.',
   ),
   LegalSection(
@@ -96,12 +96,12 @@ const List<LegalSection> privacyPolicy = [
 const List<LegalSection> termsOfService = [
   LegalSection(
     'Acceptance',
-    'By using Okay Messaging you agree to these Terms. If you don’t '
+    'By using OkayMessenger you agree to these Terms. If you don’t '
         'agree, please don’t use the app.',
   ),
   LegalSection(
     'The service',
-    'Okay Messaging is a private, local-first messenger. You are responsible '
+    'OkayMessenger is a private, local-first messenger. You are responsible '
         'for the content you send and for keeping your device secure. Because '
         'messages are stored only on devices, keep your own backups if you '
         'want to preserve them.',
@@ -110,7 +110,7 @@ const List<LegalSection> termsOfService = [
     'Payments',
     'In-chat payments are processed by Stripe. When you send or receive money '
         'you agree to the Stripe Connected Account Agreement and Stripe’s '
-        'terms. Okay Messaging is not a bank or money-services business, does '
+        'terms. OkayMessenger is not a bank or money-services business, does '
         'not hold your funds, and never takes custody of the money — funds '
         'move from the sender’s card through Stripe to the recipient’s '
         'Stripe account and are paid out to their bank by Stripe. We charge a '
@@ -119,7 +119,7 @@ const List<LegalSection> termsOfService = [
   ),
   LegalSection(
     'Acceptable use',
-    'Don’t use Okay Messaging to break the law, harass others, send spam, '
+    'Don’t use OkayMessenger to break the law, harass others, send spam, '
         'infringe rights, or transmit malware. We may limit or end access that '
         'violates these Terms. Use the in-app block and report tools if someone '
         'is abusing the service.',
@@ -133,7 +133,7 @@ const List<LegalSection> termsOfService = [
   ),
   LegalSection(
     'Limitation of liability',
-    'To the extent permitted by law, Okay Messaging is not liable for '
+    'To the extent permitted by law, OkayMessenger is not liable for '
         'indirect or consequential damages arising from your use of the app.',
   ),
   LegalSection(

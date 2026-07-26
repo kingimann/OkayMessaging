@@ -24,7 +24,7 @@ String _body(Message m) {
 String buildChatTranscript(Chat chat, String myName) {
   final b = StringBuffer()
     ..writeln('Chat with ${chat.contact.name}')
-    ..writeln('Exported from Okay Messaging')
+    ..writeln('Exported from OkayMessenger')
     ..writeln();
   String? lastDate;
   for (final m in chat.messages) {

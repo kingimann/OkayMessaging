@@ -186,7 +186,7 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
                       size: 64, color: AppColors.tealGreenDark),
                   const SizedBox(height: 12),
                   Text(
-                    'Okay Messaging',
+                    'OkayMessenger',
                     textAlign: TextAlign.center,
                     style: Theme.of(context)
                         .textTheme
