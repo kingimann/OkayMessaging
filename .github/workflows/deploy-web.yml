@@ -40,13 +40,11 @@ jobs:
       # broadcast only — no database, no tables). SUPABASE_ANON_KEY is a
       # *publishable* key: it is designed to be shipped in the client bundle,
       # so it is provided here as a build arg rather than a secret.
-      # --wasm compiles to WebAssembly with the skwasm renderer (plus a JS
-      # fallback bundle for browsers without WasmGC, e.g. older Safari).
-      # Chrome/Edge/Firefox pick the wasm path automatically — dramatically
-      # smoother than the JS+CanvasKit build the site shipped before.
+      # NOTE: --wasm (skwasm) was tried for Chrome speed but broke loading on
+      # iPhone Safari, so the deploy ships the universally-compatible JS build.
       - name: Build web
         run: |
-          flutter build web --wasm --release --base-href "/OkayMessaging/" \
+          flutter build web --release --base-href "/OkayMessaging/" \
             --no-web-resources-cdn \
             --dart-define=SUPABASE_URL=https://trbdqucphtsstnrwwfnw.supabase.co \
             --dart-define=SUPABASE_ANON_KEY=sb_publishable_PrY-Aru0AryWyhHgfD2Tow_uXca1owt \
