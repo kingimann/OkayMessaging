@@ -738,6 +738,64 @@ class _CallTile extends StatelessWidget {
       ),
       onTap: () =>
           _startCall(context, record.user, video: record.type == CallType.video),
+      onLongPress: () => _showActions(context),
+    );
+  }
+
+  /// Long-press actions for one history entry.
+  void _showActions(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.call),
+              title: const Text('Voice call'),
+              onTap: () {
+                Navigator.pop(sheetContext);
+                _startCall(context, record.user, video: false);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.videocam),
+              title: const Text('Video call'),
+              onTap: () {
+                Navigator.pop(sheetContext);
+                _startCall(context, record.user, video: true);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.chat_bubble_outline),
+              title: const Text('Message'),
+              onTap: () {
+                Navigator.pop(sheetContext);
+                final store = ChatStore.instance;
+                final existing = store.chatWithContact(record.user.id);
+                final chat = existing ??
+                    Chat(
+                        id: 'chat_${record.user.id}',
+                        contact: record.user,
+                        messages: const []);
+                if (existing == null) store.upsert(chat);
+                Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => ChatScreen(chat: chat)));
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.delete_outline, color: Colors.red),
+              title: const Text('Remove from history',
+                  style: TextStyle(color: Colors.red)),
+              onTap: () {
+                CallLog.instance.remove(record.id);
+                Navigator.pop(sheetContext);
+              },
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

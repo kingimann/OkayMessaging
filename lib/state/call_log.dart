@@ -76,6 +76,13 @@ class CallLog extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Removes a single entry from the history.
+  void remove(String id) {
+    _records.removeWhere((r) => r.id == id);
+    _save();
+    notifyListeners();
+  }
+
   void clear() {
     _records = [];
     _save();

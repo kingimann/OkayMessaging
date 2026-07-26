@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../models/user.dart';
+import '../state/call_log.dart';
 import '../state/call_service.dart' show CallService;
 import '../state/session.dart';
 import '../theme/app_theme.dart';
@@ -55,6 +56,9 @@ class _DialerScreenState extends State<DialerScreen> {
       body: SafeArea(
         child: Column(
           children: [
+            const Spacer(),
+            // Quick redial: the last few people/numbers called.
+            _RecentsRow(onPick: (phone) => setState(() => _number = phone)),
             const Spacer(),
             // The number being typed, large and centred like a phone app.
             Padding(
@@ -127,6 +131,42 @@ class _DialerScreenState extends State<DialerScreen> {
             const SizedBox(height: 28),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// The last few distinct numbers from the call history, as one-tap chips
+/// that fill the dial pad for a quick redial.
+class _RecentsRow extends StatelessWidget {
+  final ValueChanged<String> onPick;
+  const _RecentsRow({required this.onPick});
+
+  @override
+  Widget build(BuildContext context) {
+    final seen = <String>{};
+    final recents = <({String label, String phone})>[];
+    for (final r in CallLog.instance.records) {
+      final phone = r.user.phone;
+      if (phone.isEmpty || !seen.add(phone)) continue;
+      recents.add((label: r.user.name, phone: phone));
+      if (recents.length == 3) break;
+    }
+    if (recents.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 6,
+        alignment: WrapAlignment.center,
+        children: [
+          for (final r in recents)
+            ActionChip(
+              avatar: const Icon(Icons.history, size: 16),
+              label: Text(r.label, overflow: TextOverflow.ellipsis),
+              onPressed: () => onPick(r.phone),
+            ),
+        ],
       ),
     );
   }
