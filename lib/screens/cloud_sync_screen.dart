@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
 
+import '../state/chat_store.dart';
+import 'cloud_sync_count.dart';
 import '../state/cloud_sync.dart';
+import '../state/feed_store.dart';
+import '../state/follow_store.dart';
+import '../state/saved_places_store.dart';
 import '../utils/date_formatter.dart';
 
 /// Settings for end-to-end encrypted cloud sync: everything is encrypted on
@@ -72,6 +77,46 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
                     ],
                   ),
                 ),
+              ),
+              const SizedBox(height: 12),
+              // What's actually in the backup, so "Sync now" isn't a
+              // leap of faith.
+              ListenableBuilder(
+                listenable: Listenable.merge([
+                  ChatStore.instance,
+                  FeedStore.instance,
+                  FollowStore.instance,
+                  SavedPlacesStore.instance,
+                ]),
+                builder: (context, _) {
+                  final parts = <String>[
+                    backupCount(ChatStore.instance.chats.length, 'chat'),
+                    backupCount(FeedStore.instance.exportPosts().length, 'post'),
+                    backupCount(FollowStore.instance.followingCount, 'follow'),
+                    backupCount(
+                        SavedPlacesStore.instance.places.length, 'saved place'),
+                  ];
+                  return Row(
+                    children: [
+                      Icon(Icons.inventory_2_outlined,
+                          size: 16,
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurfaceVariant),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'In this backup: ${parts.join(' · ')}',
+                          style: TextStyle(
+                              fontSize: 12.5,
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onSurfaceVariant),
+                        ),
+                      ),
+                    ],
+                  );
+                },
               ),
               const SizedBox(height: 16),
               TextField(

@@ -57,6 +57,7 @@ import 'package:okay_messaging/state/account_service.dart';
 import 'package:okay_messaging/state/app_lock.dart';
 import 'package:okay_messaging/state/call_media.dart';
 import 'package:okay_messaging/state/call_service.dart';
+import 'package:okay_messaging/screens/cloud_sync_count.dart';
 import 'package:okay_messaging/state/cloud_sync.dart';
 import 'package:okay_messaging/state/community_store.dart';
 import 'package:okay_messaging/state/file_transfer.dart';
@@ -4288,6 +4289,12 @@ void main() {
       expect(find.text('And a reply'), findsNothing); // threaded, not inline
       expect(find.text('For you'), findsNothing);
       expect(find.text('Following'), findsNothing);
+    });
+
+    test('backupCount pluralises the backup summary', () {
+      expect(backupCount(0, 'chat'), '0 chats');
+      expect(backupCount(1, 'chat'), '1 chat');
+      expect(backupCount(5, 'saved place'), '5 saved places');
     });
 
     test('cloud sync stores only ciphertext and restores everything',
