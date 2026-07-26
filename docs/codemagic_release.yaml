@@ -70,8 +70,11 @@ ios-release:
     ios_signing:
       distribution_type: app_store
       bundle_identifier: com.okaymessaging
-    integrations:
-      app_store_connect: okay_app_store
+  # NOTE: `integrations` is a sibling of `environment`, never nested inside
+  # it. Nesting it produces: "ios-release -> environment -> integrations:
+  # extra fields not permitted", which invalidates the whole file.
+  integrations:
+    app_store_connect: okay_app_store
   scripts:
     - name: Get packages
       script: flutter pub get
