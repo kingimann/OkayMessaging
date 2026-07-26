@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 
@@ -130,6 +131,7 @@ class CallMedia {
       connectionState.value = _mapState(state);
     };
     connectionState.value = 'connecting';
+    _startStatsMonitor();
   }
 
   /// Caller side: opens the mic/camera and returns the SDP offer to signal.
@@ -250,6 +252,56 @@ class CallMedia {
   /// True while the call is on hold (nothing sent, nothing played).
   final ValueNotifier<bool> onHold = ValueNotifier<bool>(false);
 
+  /// Link quality from live WebRTC stats: 3 = good, 2 = fair, 1 = poor,
+  /// 0 = unknown/no data yet. Drives the signal bars on the call screen.
+  final ValueNotifier<int> quality = ValueNotifier<int>(0);
+
+  Timer? _statsTimer;
+  int _lastLost = 0;
+  int _lastReceived = 0;
+
+  /// Maps a packet-loss ratio to quality bars. Pure, so it's easy to test.
+  static int qualityForLoss(double lossRatio) {
+    if (lossRatio >= 0.08) return 1; // audible dropouts
+    if (lossRatio >= 0.02) return 2; // noticeable but usable
+    return 3;
+  }
+
+  /// Polls the peer connection for inbound packet loss while a call runs.
+  void _startStatsMonitor() {
+    _statsTimer?.cancel();
+    _lastLost = 0;
+    _lastReceived = 0;
+    _statsTimer =
+        Timer.periodic(const Duration(seconds: 3), (_) => _sampleStats());
+  }
+
+  Future<void> _sampleStats() async {
+    final pc = _pc;
+    if (pc == null) return;
+    try {
+      final reports = await pc.getStats();
+      var lost = 0;
+      var received = 0;
+      for (final r in reports) {
+        if (r.type != 'inbound-rtp') continue;
+        lost += (r.values['packetsLost'] as num?)?.toInt() ?? 0;
+        received += (r.values['packetsReceived'] as num?)?.toInt() ?? 0;
+      }
+      // Compare against the previous sample so quality reflects *now*,
+      // not the whole call's history.
+      final dLost = (lost - _lastLost).clamp(0, 1 << 30);
+      final dReceived = (received - _lastReceived).clamp(0, 1 << 30);
+      _lastLost = lost;
+      _lastReceived = received;
+      final total = dLost + dReceived;
+      if (total <= 0) return; // no traffic in this window — keep last reading
+      quality.value = qualityForLoss(dLost / total);
+    } catch (_) {
+      // Stats are unavailable on some platforms; leave the last reading.
+    }
+  }
+
   /// Holds/resumes the call: stops sending audio and video, and silences
   /// the incoming stream, without tearing the connection down.
   void setHold(bool held) {
@@ -294,6 +346,9 @@ class CallMedia {
     connectionState.value = 'closed';
     screenSharing.value = false;
     onHold.value = false;
+    _statsTimer?.cancel();
+    _statsTimer = null;
+    quality.value = 0;
     try {
       _screenStream?.getTracks().forEach((t) => t.stop());
       await _screenStream?.dispose();

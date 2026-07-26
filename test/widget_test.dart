@@ -4515,6 +4515,13 @@ void main() {
       await tester.pump();
     });
 
+    test('qualityForLoss maps packet loss to signal bars', () {
+      expect(CallMedia.qualityForLoss(0), 3);
+      expect(CallMedia.qualityForLoss(0.01), 3);
+      expect(CallMedia.qualityForLoss(0.03), 2);
+      expect(CallMedia.qualityForLoss(0.12), 1);
+    });
+
     test('hold silences the call without ending it', () {
       expect(CallMedia.instance.onHold.value, isFalse);
       CallMedia.instance.setHold(true);

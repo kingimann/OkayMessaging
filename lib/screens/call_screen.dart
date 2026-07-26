@@ -257,6 +257,44 @@ class _CallScreenState extends State<CallScreen> {
                   ),
                 ],
               ),
+              // Live link quality from WebRTC packet-loss stats, so a bad
+              // call is visibly the network's fault rather than a mystery.
+              if (session.status == CallStatus.connected)
+                ValueListenableBuilder<int>(
+                  valueListenable: CallMedia.instance.quality,
+                  builder: (context, bars, _) => bars == 0
+                      ? const SizedBox.shrink()
+                      : Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              for (var i = 1; i <= 3; i++)
+                                Container(
+                                  width: 4,
+                                  height: 5.0 + i * 4,
+                                  margin: const EdgeInsets.symmetric(
+                                      horizontal: 1.5),
+                                  decoration: BoxDecoration(
+                                    color: i <= bars
+                                        ? (bars == 1
+                                            ? Colors.orangeAccent
+                                            : Colors.white70)
+                                        : Colors.white24,
+                                    borderRadius: BorderRadius.circular(1.5),
+                                  ),
+                                ),
+                              if (bars == 1) ...[
+                                const SizedBox(width: 6),
+                                const Text('Weak connection',
+                                    style: TextStyle(
+                                        color: Colors.orangeAccent,
+                                        fontSize: 12.5)),
+                              ],
+                            ],
+                          ),
+                        ),
+                ),
               // The call handshake rides the encrypted relay path — say so,
               // the way every serious calling app does.
               const SizedBox(height: 10),
