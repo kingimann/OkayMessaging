@@ -4485,6 +4485,11 @@ void main() {
       await tester.pump();
       expect(find.textContaining('tap to return'), findsOneWidget);
       expect(find.byTooltip('Hang up'), findsOneWidget);
+      // Mute without reopening the full call screen.
+      expect(find.byTooltip('Mute'), findsOneWidget);
+      await tester.tap(find.byTooltip('Mute'));
+      await tester.pump();
+      expect(find.byTooltip('Unmute'), findsOneWidget);
       await tester.pumpWidget(const SizedBox());
       await tester.pump();
     });

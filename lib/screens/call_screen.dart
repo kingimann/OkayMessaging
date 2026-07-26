@@ -697,6 +697,7 @@ class ReturnToCallBanner extends StatefulWidget {
 
 class _ReturnToCallBannerState extends State<ReturnToCallBanner> {
   Timer? _tick;
+  bool _muted = false;
 
   @override
   void initState() {
@@ -751,6 +752,17 @@ class _ReturnToCallBannerState extends State<ReturnToCallBanner> {
                         fontSize: 14,
                         fontWeight: FontWeight.w600),
                   ),
+                ),
+                // Mute without reopening the call — the reason you
+                // minimized it in the first place.
+                IconButton(
+                  icon: Icon(_muted ? Icons.mic_off : Icons.mic,
+                      color: Colors.white),
+                  tooltip: _muted ? 'Unmute' : 'Mute',
+                  onPressed: () {
+                    setState(() => _muted = !_muted);
+                    CallMedia.instance.setMuted(_muted);
+                  },
                 ),
                 IconButton(
                   icon: const Icon(Icons.call_end, color: Colors.white),
