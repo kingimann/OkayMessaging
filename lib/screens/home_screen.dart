@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../state/call_log.dart';
 import '../state/chat_store.dart';
+import '../state/follow_store.dart';
 import '../tabs/activity_tab.dart';
 import '../tabs/calls_tab.dart';
 import '../tabs/chats_tab.dart';
@@ -316,6 +317,15 @@ class _AppSideBar extends StatelessWidget {
                                   style: TextStyle(
                                       fontSize: 12.5,
                                       color: Colors.grey.shade500)),
+                            ListenableBuilder(
+                              listenable: FollowStore.instance,
+                              builder: (context, _) => Text(
+                                  '${FollowStore.instance.followingCount} '
+                                  'following',
+                                  style: TextStyle(
+                                      fontSize: 12.5,
+                                      color: Colors.grey.shade500)),
+                            ),
                           ],
                         ),
                       ),

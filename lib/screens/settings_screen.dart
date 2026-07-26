@@ -251,29 +251,52 @@ class SettingsView extends StatelessWidget {
 
   void _showAccount(BuildContext context) {
     final me = AppState.profile.value;
-    showDialog<void>(
+    Widget row(IconData icon, String label, String value) => ListTile(
+          leading: Icon(icon, size: 22),
+          title: Text(label,
+              style: TextStyle(fontSize: 12.5, color: Colors.grey.shade500)),
+          subtitle: Text(value,
+              style:
+                  const TextStyle(fontSize: 15.5, fontWeight: FontWeight.w600)),
+          trailing: value == 'Not set'
+              ? null
+              : IconButton(
+                  icon: const Icon(Icons.copy, size: 18),
+                  tooltip: 'Copy',
+                  onPressed: () {
+                    Clipboard.setData(ClipboardData(text: value));
+                    ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('$label copied')));
+                  },
+                ),
+        );
+    showModalBottomSheet<void>(
       context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Account'),
-        content: Column(
+      showDragHandle: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (_) => SafeArea(
+        child: Column(
           mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Phone number',
-                style: TextStyle(fontWeight: FontWeight.w600)),
-            Text(me.phone.isEmpty ? 'Not set' : me.phone),
+            UserAvatar(user: me, radius: 34),
+            const SizedBox(height: 10),
+            Text(me.name,
+                style: const TextStyle(
+                    fontSize: 18, fontWeight: FontWeight.w700)),
+            if (me.pronouns.trim().isNotEmpty)
+              Text(me.pronouns.trim(),
+                  style:
+                      TextStyle(fontSize: 13, color: Colors.grey.shade500)),
+            const SizedBox(height: 8),
+            row(Icons.phone_outlined, 'Phone number',
+                me.phone.isEmpty ? 'Not set' : me.phone),
+            row(Icons.alternate_email, 'Username',
+                me.handle.isNotEmpty ? me.handle : 'Not set'),
             const SizedBox(height: 12),
-            const Text('Username',
-                style: TextStyle(fontWeight: FontWeight.w600)),
-            Text(me.handle.isNotEmpty ? me.handle : 'Not set'),
           ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Close'),
-          ),
-        ],
       ),
     );
   }
