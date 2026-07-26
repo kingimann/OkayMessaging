@@ -60,6 +60,14 @@ class PaymentService {
 
   static const String _publishableKey =
       String.fromEnvironment('STRIPE_PUBLISHABLE_KEY', defaultValue: '');
+
+  /// The developer's own verified phone (E.164 digits) that tips are sent to.
+  /// Set with --dart-define=DEVELOPER_PHONE=1XXXXXXXXXX; the developer onboards
+  /// their Stripe account once (Wallet) to receive real tips. Empty = tips only
+  /// work in payments test mode (simulated).
+  static const String developerPhone =
+      String.fromEnvironment('DEVELOPER_PHONE', defaultValue: '');
+
   static const _kTestMode = 'payments_test_mode';
 
   /// Sandbox mode: simulates the whole send/receive flow with no real Stripe
@@ -145,6 +153,26 @@ class PaymentService {
     return StripeSheet.presentPayment(
       clientSecret: intent['clientSecret'] as String,
       merchantName: 'OkayMessenger',
+    );
+  }
+
+  /// Whether a tip can be sent from this device: test mode works everywhere;
+  /// the real flow needs Stripe configured, a developer phone, and the native
+  /// sheet (mobile).
+  bool get canTip =>
+      testMode.value ||
+      (_realConfigured && developerPhone.isNotEmpty && StripeSheet.isSupported);
+
+  /// Sends a tip to the developer. Reuses the normal send flow (a destination
+  /// charge to the developer's connected account), or simulates in test mode.
+  Future<bool> tip({required int amountCents}) {
+    if (!testMode.value && developerPhone.isEmpty) {
+      throw PaymentException('not_configured');
+    }
+    return sendMoney(
+      toPhone: developerPhone,
+      amountCents: amountCents,
+      note: 'Support OkayMessenger',
     );
   }
 }

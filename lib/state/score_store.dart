@@ -106,13 +106,13 @@ class ScoreStore extends ChangeNotifier {
         id: 'verified',
         emoji: '✅',
         label: 'Verified',
-        description: 'Get the blue check with Okay Pro',
+        description: 'Add the blue check to your account',
         flag: 'verified'),
     Badge(
         id: 'pro',
-        emoji: '⭐',
-        label: 'Okay Pro',
-        description: 'Subscribe to Okay Pro',
+        emoji: '💜',
+        label: 'Supporter',
+        description: 'Support the developer',
         flag: 'pro'),
     Badge(
         id: 'legend',

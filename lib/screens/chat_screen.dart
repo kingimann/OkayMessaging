@@ -42,7 +42,6 @@ import 'image_view_screen.dart';
 import 'location_map_screen.dart';
 import 'location_picker_screen.dart';
 import 'media_gallery_screen.dart';
-import 'okay_pro_screen.dart';
 import 'wallpaper_screen.dart';
 
 /// The conversation screen for a single [Chat], backed by [ChatStore].
@@ -799,40 +798,9 @@ class _ChatScreenState extends State<ChatScreen> {
     });
   }
 
-  /// Pins [message], enforcing the free-tier pin limit. Non-Pro users who hit
-  /// the cap are offered Okay Pro instead.
+  /// Pins [message]. Pinning is unlimited and free for everyone.
   void _tryPin(Message message) {
-    final isPro = AppState.profile.value.verified;
-    if (_store.canPinMore(_chatId, isPro: isPro)) {
-      _store.pinMessage(_chatId, message.id);
-      return;
-    }
-    showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Pin limit reached'),
-        content: const Text(
-          'Free accounts can pin up to ${ChatStore.freePinLimit} messages per '
-          'chat. Upgrade to Okay Pro to pin as many as you like.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('Not now'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('See Okay Pro'),
-          ),
-        ],
-      ),
-    ).then((go) {
-      if (go == true && mounted) {
-        Navigator.of(context).push(
-          MaterialPageRoute(builder: (_) => const OkayProScreen()),
-        );
-      }
-    });
+    _store.pinMessage(_chatId, message.id);
   }
 
   /// A bottom sheet listing every pinned message, each with jump + unpin.

@@ -356,7 +356,7 @@ class _ScorePill extends StatelessWidget {
   }
 }
 
-/// A tappable banner promoting Okay Pro.
+/// A tappable banner inviting people to support the developer.
 class _ProUpsell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
@@ -382,19 +382,19 @@ class _ProUpsell extends StatelessWidget {
               padding: EdgeInsets.symmetric(horizontal: 16, vertical: 14),
               child: Row(
                 children: [
-                  Icon(Icons.workspace_premium, color: Colors.white),
+                  Icon(Icons.favorite, color: Colors.white),
                   SizedBox(width: 12),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('Upgrade to Okay Pro',
+                        Text('Support the developer',
                             style: TextStyle(
                                 color: Colors.white,
                                 fontSize: 15.5,
                                 fontWeight: FontWeight.w700)),
                         SizedBox(height: 2),
-                        Text('Power features for you or your team',
+                        Text('Leave a tip to help keep OkayMessenger going',
                             style: TextStyle(
                                 color: Colors.white70, fontSize: 12.5)),
                       ],

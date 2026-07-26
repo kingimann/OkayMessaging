@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../app_state.dart';
-import '../models/user.dart';
 import '../widgets/info_section.dart';
-import 'okay_pro_screen.dart';
 import 'settings_widgets.dart';
 import 'wallpaper_screen.dart';
 
@@ -59,8 +57,7 @@ class ChatsSettingsScreen extends StatelessWidget {
   }
 }
 
-/// Lets Okay Pro members pick a custom color for their own message bubbles.
-/// For non-Pro users the tile shows a lock and offers to upgrade.
+/// Lets anyone pick a custom color for their own message bubbles.
 class _BubbleColorTile extends StatelessWidget {
   const _BubbleColorTile();
 
@@ -80,64 +77,26 @@ class _BubbleColorTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ValueListenableBuilder<AppUser>(
-      valueListenable: AppState.profile,
-      builder: (context, user, _) {
-        final isPro = user.verified;
-        return ValueListenableBuilder<Color?>(
-          valueListenable: AppState.bubbleColor,
-          builder: (context, color, _) => InfoTile(
-            leading: const Icon(Icons.color_lens_outlined),
-            title: 'Chat bubble color',
-            subtitle: isPro
-                ? (color == null
-                    ? 'Default green'
-                    : 'Custom color for your messages')
-                : 'An Okay Pro perk',
-            trailing: isPro
-                ? Container(
-                    width: 24,
-                    height: 24,
-                    decoration: BoxDecoration(
-                      color: color ?? _palette.first,
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.black12),
-                    ),
-                  )
-                : const Icon(Icons.lock_outline, color: Colors.grey, size: 20),
-            onTap: () =>
-                isPro ? _pickColor(context, color) : _offerUpgrade(context),
+    return ValueListenableBuilder<Color?>(
+      valueListenable: AppState.bubbleColor,
+      builder: (context, color, _) => InfoTile(
+        leading: const Icon(Icons.color_lens_outlined),
+        title: 'Chat bubble color',
+        subtitle: color == null
+            ? 'Default green'
+            : 'Custom color for your messages',
+        trailing: Container(
+          width: 24,
+          height: 24,
+          decoration: BoxDecoration(
+            color: color ?? _palette.first,
+            shape: BoxShape.circle,
+            border: Border.all(color: Colors.black12),
           ),
-        );
-      },
-    );
-  }
-
-  Future<void> _offerUpgrade(BuildContext context) async {
-    final go = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Custom bubble colors'),
-        content: const Text(
-          'Personalize the color of your own message bubbles with Okay Pro.',
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('Not now'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('See Okay Pro'),
-          ),
-        ],
+        onTap: () => _pickColor(context, color),
       ),
     );
-    if (go == true && context.mounted) {
-      Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => const OkayProScreen()),
-      );
-    }
   }
 
   Future<void> _pickColor(BuildContext context, Color? current) async {

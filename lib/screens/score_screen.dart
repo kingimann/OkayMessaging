@@ -321,7 +321,7 @@ class _VerifiedRow extends StatelessWidget {
                     Text('Get the blue check',
                         style: TextStyle(fontWeight: FontWeight.w600)),
                     SizedBox(height: 2),
-                    Text('Verify your account with Okay Pro',
+                    Text('Add a blue check to your account',
                         style: TextStyle(fontSize: 12.5, color: Colors.grey)),
                   ],
                 ),
@@ -343,8 +343,8 @@ class _VerifiedRow extends StatelessWidget {
       builder: (_) => AlertDialog(
         title: const Text('Get verified'),
         content: const Text(
-            'The blue check is part of Okay Pro (\$4.99/month). It marks your '
-            'account as verified across your chats. Turn it on now?'),
+            'The blue check marks your account as verified across your chats. '
+            'It\'s free. Turn it on now?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),

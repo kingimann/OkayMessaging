@@ -3506,6 +3506,28 @@ void main() {
     expect(OnboardingStore.instance.done, isTrue);
   });
 
+  testWidgets('Support screen shows tips, not subscription tiers',
+      (tester) async {
+    await tester.pumpWidget(const MaterialApp(home: OkayProScreen()));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Support OkayMessenger'), findsOneWidget);
+    expect(find.text('Choose an amount'), findsOneWidget);
+    // No paid-tier / subscription language survives.
+    expect(find.text('per month'), findsNothing);
+    expect(find.textContaining('Choose Pro'), findsNothing);
+
+    // Picking the $10 preset updates the send button (scroll to reveal it).
+    await tester.tap(find.text(r'$10'));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.text(r'Send $10.00 tip'),
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(find.text(r'Send $10.00 tip'), findsOneWidget);
+  });
+
   group('Call favourites store', () {
     setUp(() => FavouritesStore.instance.resetForTest());
 
@@ -3646,7 +3668,7 @@ void main() {
     });
   });
 
-  group('Custom bubble color (Okay Pro)', () {
+  group('Custom bubble color', () {
     Color outgoingBubbleColor(WidgetTester tester) {
       final containers = tester.widgetList<Container>(
         find.descendant(
@@ -3661,39 +3683,19 @@ void main() {
       return (bubble.decoration as BoxDecoration).color!;
     }
 
-    testWidgets('non-Pro sees the perk locked and is offered an upgrade',
+    testWidgets('anyone can pick and reset a bubble color — no paywall',
         (tester) async {
-      AppState.setVerified(false);
+      AppState.setVerified(false); // no longer gated
       await tester.pumpWidget(
         const MaterialApp(home: ChatsSettingsScreen()),
       );
       await tester.pumpAndSettle();
 
+      // The perk is free now: no lock, no upgrade copy.
       expect(find.text('Chat bubble color'), findsOneWidget);
-      expect(find.text('An Okay Pro perk'), findsOneWidget);
-      expect(find.byIcon(Icons.lock_outline), findsOneWidget);
-
-      await tester.tap(find.text('Chat bubble color'));
-      await tester.pumpAndSettle();
-
-      // Upgrade prompt, not the picker.
-      expect(find.text('See Okay Pro'), findsOneWidget);
-      expect(find.text('Bubble color'), findsNothing);
-
-      await tester.tap(find.text('See Okay Pro'));
-      await tester.pumpAndSettle();
-      expect(find.byType(OkayProScreen), findsOneWidget);
-    });
-
-    testWidgets('Pro member can pick and reset a bubble color',
-        (tester) async {
-      AppState.setVerified(true);
-      await tester.pumpWidget(
-        const MaterialApp(home: ChatsSettingsScreen()),
-      );
-      await tester.pumpAndSettle();
-
       expect(find.text('An Okay Pro perk'), findsNothing);
+      expect(find.byIcon(Icons.lock_outline), findsNothing);
+
       await tester.tap(find.text('Chat bubble color'));
       await tester.pumpAndSettle();
 
