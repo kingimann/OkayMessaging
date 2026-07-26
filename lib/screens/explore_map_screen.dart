@@ -279,10 +279,16 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
       _search.text = label;
     });
     final debug = widget.debugSearch;
-    final results = debug != null
+    var results = debug != null
         ? await debug(label.toLowerCase())
         : await searchNearby(
             filters: [filter], lat: bias.latitude, lng: bias.longitude);
+    // Every Overpass mirror down? Fall back to the Photon geocoder, biased to
+    // the area, so a category still returns something rather than failing.
+    if (results == null && debug == null) {
+      results = await searchPlaces(label,
+          lat: bias.latitude, lng: bias.longitude, limit: 25);
+    }
     if (!mounted || seq != _searchSeq) return;
     if (results == null) {
       setState(() => _searching = false);
@@ -1210,9 +1216,19 @@ class _SearchBox extends StatelessWidget {
                 borderRadius: BorderRadius.circular(28),
                 borderSide: BorderSide.none,
               ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(28),
+                borderSide: BorderSide.none,
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(28),
+                borderSide: BorderSide.none,
+              ),
               filled: true,
               fillColor: Theme.of(context).colorScheme.surface,
-              contentPadding: const EdgeInsets.symmetric(vertical: 4),
+              isDense: true,
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 4, vertical: 14),
             ),
           ),
         ),

@@ -17,7 +17,6 @@ import 'settings_screen.dart';
 import 'edit_profile_screen.dart';
 import 'people_screen.dart';
 import 'starred_messages_screen.dart';
-import 'status_screen.dart';
 import '../app_state.dart';
 import '../util/build_info.dart';
 import '../widgets/user_avatar.dart';
@@ -76,20 +75,6 @@ class _HomeScreenState extends State<HomeScreen> {
             : Text(_titleForIndex),
         actions: [
           if (onChats) ...[
-            IconButton(
-              icon: const Icon(Icons.map_outlined),
-              tooltip: 'Maps',
-              onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const ExploreMapScreen()),
-              ),
-            ),
-            IconButton(
-              icon: const Icon(Icons.motion_photos_on_outlined),
-              tooltip: 'Status',
-              onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const StatusScreen()),
-              ),
-            ),
             IconButton(
               icon: const Icon(Icons.add_comment_outlined),
               tooltip: 'New chat',

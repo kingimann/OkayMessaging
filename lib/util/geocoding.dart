@@ -156,8 +156,15 @@ Future<List<GeoResult>?> searchNearby({
   final around = '(around:$radiusMeters,$lat,$lng)';
   final union = filters.map((f) => 'nwr$f$around;').join();
   final query = '[out:json][timeout:10];($union);out center ${limit * 3};';
-  // Two independent public servers; fall through on overload.
-  for (final host in const ['overpass.kumi.systems', 'overpass-api.de']) {
+  // Several independent public servers (all share the /api/interpreter path);
+  // fall through on overload/rate-limit. The main instance is tried first,
+  // then mirrors, so one server being swamped no longer kills category search.
+  for (final host in const [
+    'overpass-api.de',
+    'overpass.private.coffee',
+    'overpass.kumi.systems',
+    'overpass.osm.ch',
+  ]) {
     try {
       final res = await http.get(
         Uri.https(host, '/api/interpreter', {'data': query}),

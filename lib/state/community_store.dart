@@ -37,6 +37,10 @@ class CommunityStore extends ChangeNotifier {
   }
 
   /// Loads persisted communities, seeding a sample one on first run.
+  ///
+  /// Release builds never seed the bundled sample server (its fake members
+  /// like "Ada Lovelace" are dev/demo only) and strip it out if an earlier
+  /// build had already persisted it.
   Future<void> load() async {
     final prefs = await SharedPreferences.getInstance();
     _prefs = prefs;
@@ -47,14 +51,23 @@ class CommunityStore extends ChangeNotifier {
             .map((c) => Community.fromJson(Map<String, dynamic>.from(c as Map)))
             .toList();
       } catch (_) {
-        _communities = _seed();
+        _communities = _seedForMode();
       }
     } else {
-      _communities = _seed();
+      _communities = _seedForMode();
       _save();
+    }
+    if (kReleaseMode) {
+      final before = _communities.length;
+      _communities =
+          _communities.where((c) => !c.id.startsWith('seed_')).toList();
+      if (_communities.length != before) _save();
     }
     notifyListeners();
   }
+
+  /// The bundled sample server is dev/test-only; release builds start empty.
+  List<Community> _seedForMode() => kReleaseMode ? <Community>[] : _seed();
 
   List<Community> _seed() => [
         Community(

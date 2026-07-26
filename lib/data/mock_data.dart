@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+
 import '../models/call.dart';
 import '../models/chat.dart';
 import '../models/message.dart';
@@ -91,14 +93,15 @@ class MockData {
 
   /// Individual people available to start a new conversation with
   /// (groups such as "Team Standup" are excluded).
-  static List<AppUser> contacts() => [
-        _alice,
-        _bob,
-        _carol,
-        _erin,
-        _frank,
-        _grace
-      ]..sort((a, b) => a.name.compareTo(b.name));
+  ///
+  /// Release builds return no sample people — the shipping app must never
+  /// show fake accounts. Real contacts come from username search and the
+  /// contacts sync. Dev and test builds keep the sample set.
+  static List<AppUser> contacts() {
+    if (kReleaseMode) return const [];
+    return [_alice, _bob, _carol, _erin, _frank, _grace]
+      ..sort((a, b) => a.name.compareTo(b.name));
+  }
 
   static List<Chat> chats() {
     return [
