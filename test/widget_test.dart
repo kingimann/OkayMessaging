@@ -56,6 +56,7 @@ import 'package:okay_messaging/relay/relay_service.dart';
 import 'package:okay_messaging/state/account_service.dart';
 import 'package:okay_messaging/state/app_lock.dart';
 import 'package:okay_messaging/state/call_media.dart';
+import 'package:okay_messaging/util/ringtone.dart';
 import 'package:okay_messaging/state/call_service.dart';
 import 'package:okay_messaging/screens/cloud_sync_count.dart';
 import 'package:okay_messaging/state/cloud_sync.dart';
@@ -4472,6 +4473,54 @@ void main() {
     test('screen share reports an honest error with no active call', () async {
       expect(await CallMedia.instance.toggleScreenShare(), isNotNull);
       expect(CallMedia.instance.screenSharing.value, isFalse);
+    });
+
+    testWidgets('an incoming call rings until it is answered',
+        (tester) async {
+      final rings = <bool>[];
+      debugRingOverride = ({required bool incoming}) => rings.add(incoming);
+      addTearDown(() {
+        debugRingOverride = null;
+        stopRinging();
+      });
+      final peer = MockData.contacts().firstWhere((c) => !c.isGroup);
+      final ringing = CallSession(
+        callId: 'r1',
+        peer: peer,
+        video: false,
+        direction: CallDirection.incoming,
+        status: CallStatus.ringing,
+      );
+      await tester.pumpWidget(MaterialApp(home: CallScreen(session: ringing)));
+      await tester.pump();
+
+      // It rings immediately, and keeps ringing on a repeating pattern.
+      expect(rings, isNotEmpty);
+      expect(rings.first, isTrue); // incoming pattern
+      expect(isRinging, isTrue);
+      await tester.pump(const Duration(seconds: 3));
+      expect(rings.length, greaterThan(1));
+
+      // Answering stops the ring.
+      await tester.pumpWidget(MaterialApp(
+        home: CallScreen(
+          session: ringing.copyWith(
+              status: CallStatus.connected, connectedAt: DateTime.now()),
+        ),
+      ));
+      await tester.pump();
+      expect(isRinging, isFalse);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+    });
+
+    test('hold silences the call without ending it', () {
+      expect(CallMedia.instance.onHold.value, isFalse);
+      CallMedia.instance.setHold(true);
+      expect(CallMedia.instance.onHold.value, isTrue);
+      CallMedia.instance.setHold(false);
+      expect(CallMedia.instance.onHold.value, isFalse);
     });
 
     testWidgets('a minimized call shows the return-to-call banner',

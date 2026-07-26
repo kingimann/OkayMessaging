@@ -11,6 +11,7 @@ import '../state/call_media.dart';
 import '../state/call_service.dart';
 import '../state/chat_store.dart';
 import '../theme/app_theme.dart';
+import '../util/ringtone.dart';
 import '../widgets/user_avatar.dart';
 import 'chat_screen.dart';
 
@@ -70,6 +71,14 @@ class _CallScreenState extends State<CallScreen> {
 
   void _syncForStatus() {
     final s = widget.session.status;
+    // Ring while waiting: a double-chirp + vibration for an incoming call,
+    // a quieter ring-back for an outgoing one. Anything else stops it.
+    if (s == CallStatus.ringing) {
+      startRinging(
+          incoming: widget.session.direction == CallDirection.incoming);
+    } else {
+      stopRinging();
+    }
     if (s == CallStatus.connected && _tick == null) {
       _tick = Timer.periodic(const Duration(seconds: 1), (_) {
         if (mounted) setState(() => _seconds++);
@@ -102,6 +111,7 @@ class _CallScreenState extends State<CallScreen> {
 
   @override
   void dispose() {
+    stopRinging();
     _tick?.cancel();
     _dismiss?.cancel();
     CallMedia.instance.remoteReady.removeListener(_onRemoteReady);
@@ -118,6 +128,7 @@ class _CallScreenState extends State<CallScreen> {
         }
         return s.video ? 'Video calling…' : 'Ringing…';
       case CallStatus.connected:
+        if (CallMedia.instance.onHold.value) return 'On hold';
         // Reflect the live WebRTC media state so a still-negotiating or
         // dropped connection isn't shown as a running call.
         if (CallMedia.instance.isSupported) {
@@ -444,6 +455,17 @@ class _CallScreenState extends State<CallScreen> {
                   setState(() => _muted = !_muted);
                   CallMedia.instance.setMuted(_muted);
                 },
+              ),
+              // Hold: stop sending and hearing anything without dropping
+              // the connection.
+              ValueListenableBuilder<bool>(
+                valueListenable: CallMedia.instance.onHold,
+                builder: (context, held, _) => _CallControl(
+                  icon: held ? Icons.play_arrow : Icons.pause,
+                  label: held ? 'Resume' : 'Hold',
+                  active: held,
+                  onTap: () => CallMedia.instance.setHold(!held),
+                ),
               ),
               _CallControl(
                 icon: _speaker ? Icons.volume_up : Icons.volume_down_outlined,

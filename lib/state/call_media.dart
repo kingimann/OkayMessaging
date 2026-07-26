@@ -247,6 +247,19 @@ class CallMedia {
     } catch (_) {}
   }
 
+  /// True while the call is on hold (nothing sent, nothing played).
+  final ValueNotifier<bool> onHold = ValueNotifier<bool>(false);
+
+  /// Holds/resumes the call: stops sending audio and video, and silences
+  /// the incoming stream, without tearing the connection down.
+  void setHold(bool held) {
+    onHold.value = held;
+    _localStream?.getTracks().forEach((t) => t.enabled = !held);
+    try {
+      remoteRenderer?.muted = held;
+    } catch (_) {}
+  }
+
   void setMuted(bool muted) {
     _localStream?.getAudioTracks().forEach((t) => t.enabled = !muted);
   }
@@ -280,6 +293,7 @@ class CallMedia {
     remoteReady.value = false;
     connectionState.value = 'closed';
     screenSharing.value = false;
+    onHold.value = false;
     try {
       _screenStream?.getTracks().forEach((t) => t.stop());
       await _screenStream?.dispose();
