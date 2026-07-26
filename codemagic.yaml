@@ -86,10 +86,11 @@ workflows:
       flutter: stable
       xcode: latest
       cocoapods: default
-      ios_signing:
-        distribution_type: app_store
-        bundle_identifier: com.okaymessaging
+      vars:
+        BUNDLE_ID: "com.okaymessaging"
     # `integrations` is a sibling of `environment`, never nested inside it.
+    # Connecting the key here exports APP_STORE_CONNECT_* env vars that the
+    # app-store-connect CLI below picks up automatically.
     integrations:
       app_store_connect: OkayMessenger
     scripts:
@@ -106,6 +107,20 @@ workflows:
         script: |
           cd $CM_BUILD_DIR
           agvtool new-version -all $(($BUILD_NUMBER + 1)) || true
+      # The environment's automatic `ios_signing` block only *fetches*
+      # existing signing files, which fails on a brand-new app with:
+      #   "No matching profiles found for bundle identifier ...".
+      # Doing it explicitly with --create makes Apple issue the
+      # distribution certificate and the App Store profile the first time.
+      - name: Initialise the keychain
+        script: keychain initialize
+      - name: Create or fetch the signing files
+        script: |
+          app-store-connect fetch-signing-files "$BUNDLE_ID" \
+            --type IOS_APP_STORE \
+            --create
+      - name: Add the certificates to the keychain
+        script: keychain add-certificates
       - name: Set up provisioning profiles
         script: xcode-project use-profiles
       - name: Build IPA
