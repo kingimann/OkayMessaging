@@ -2,7 +2,22 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:http/http.dart' as http;
+
+/// Headers for OpenStreetMap services (Photon, Overpass, OSRM).
+///
+/// These services reject clients with a generic User-Agent: Photon answers
+/// 403 and Overpass 406 to Dart's default "Dart/x.x (dart:io)", which is why
+/// search worked in browsers (browser UA) but silently failed in the native
+/// app. Identify the app politely, per OSM usage policy. Browsers forbid
+/// overriding the User-Agent, so on web only Accept is sent.
+Map<String, String> get osmHeaders => kIsWeb
+    ? const {'Accept': 'application/json'}
+    : const {
+        'Accept': 'application/json',
+        'User-Agent': 'OkayMessenger/1.0 (com.okaymessaging)',
+      };
 
 /// Completes with the first future that succeeds, ignoring failures. Errors
 /// only if every future fails. Used to race several servers and take whichever
@@ -203,7 +218,7 @@ Future<List<GeoResult>> _overpassHost(
     String host, String query, double lat, double lng, int limit) async {
   final res = await http.get(
     Uri.https(host, '/api/interpreter', {'data': query}),
-    headers: {'Accept': 'application/json'},
+    headers: osmHeaders,
   ).timeout(const Duration(seconds: 10));
   if (res.statusCode != 200) throw StateError('overpass ${res.statusCode}');
   final body = res.body;
@@ -325,7 +340,7 @@ Future<GeoResult?> reverseGeocode(double lat, double lng) async {
   });
   try {
     final res = await http
-        .get(uri, headers: {'Accept': 'application/json'})
+        .get(uri, headers: osmHeaders)
         .timeout(const Duration(seconds: 10));
     if (res.statusCode != 200) return null;
     final results = parsePhoton(res.body);
@@ -367,7 +382,7 @@ Future<List<GeoResult>?> searchPlaces(
   });
   try {
     final res = await http
-        .get(uri, headers: {'Accept': 'application/json'})
+        .get(uri, headers: osmHeaders)
         .timeout(const Duration(seconds: 8));
     if (res.statusCode != 200) return null;
     var results = dedupePlaces(parsePhoton(res.body));

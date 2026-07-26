@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
 
 import '../app_state.dart';
+import 'geocoding.dart' show osmHeaders;
 
 /// How to travel a route. Each maps to a free public OSRM profile server.
 enum TravelMode {
@@ -224,7 +225,9 @@ Future<List<RouteResult>?> fetchRoutes({
   ];
   for (final uri in uris) {
     try {
-      final res = await http.get(uri).timeout(const Duration(seconds: 15));
+      final res = await http
+          .get(uri, headers: osmHeaders)
+          .timeout(const Duration(seconds: 15));
       if (res.statusCode != 200) continue;
       final routes = parseOsrmRoutes(res.body);
       if (routes != null) return routes;
