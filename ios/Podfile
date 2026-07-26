@@ -44,6 +44,19 @@ post_install do |installer|
     target.build_configurations.each do |config|
       # Keep every pod at >= 13.0 so flutter_webrtc and friends build cleanly.
       config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.0'
+
+      # permission_handler: compile in ONLY the permissions the app actually
+      # uses. Everything else is disabled so the binary doesn't reference the
+      # APIs App Store review rejects for (calendar, reminders, speech, etc.).
+      config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] ||= [
+        '$(inherited)',
+        'PERMISSION_CAMERA=1',
+        'PERMISSION_MICROPHONE=1',
+        'PERMISSION_LOCATION=1',
+        'PERMISSION_PHOTOS=1',
+        'PERMISSION_CONTACTS=1',
+        'PERMISSION_NOTIFICATIONS=1',
+      ]
     end
   end
 end

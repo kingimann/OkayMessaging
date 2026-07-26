@@ -72,6 +72,9 @@ class Session {
     required String about,
     String? username,
     String? avatarColor,
+    String? emoji,
+    String? pronouns,
+    String? link,
   }) async {
     final current = user.value;
     if (current == null) return;
@@ -87,6 +90,9 @@ class Session {
           username == null ? current.username : _normalizeUsername(username),
       verified: current.verified,
       score: current.score,
+      emoji: emoji ?? current.emoji,
+      pronouns: pronouns ?? current.pronouns,
+      link: link ?? current.link,
     );
     _prefs ??= await SharedPreferences.getInstance();
     await _prefs!.setString(_key, jsonEncode(updated.toJson()));

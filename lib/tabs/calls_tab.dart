@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
 
-import '../data/mock_data.dart';
 import '../models/call.dart';
 import '../models/chat.dart';
 import '../models/message.dart';
@@ -12,6 +11,7 @@ import '../models/user.dart';
 import '../screens/chat_screen.dart';
 import '../screens/find_people_screen.dart';
 import '../state/call_log.dart';
+import '../state/favourites_store.dart';
 import '../state/call_service.dart' show CallService;
 import '../state/chat_store.dart';
 import '../theme/app_theme.dart';
@@ -66,9 +66,12 @@ class CallsTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final favourites = MockData.contacts().take(5).toList();
     return ListenableBuilder(
-      listenable: Listenable.merge([CallLog.instance, ChatStore.instance]),
+      listenable: Listenable.merge([
+        CallLog.instance,
+        ChatStore.instance,
+        FavouritesStore.instance,
+      ]),
       builder: (context, _) {
         final calls = CallLog.instance.records;
         final voicemails = _receivedVoicemails();
@@ -77,7 +80,7 @@ class CallsTab extends StatelessWidget {
           children: [
             const _SearchField(),
             const _CreateCallLinkTile(),
-            _FavouritesRow(favourites: favourites),
+            const _FavouritesRow(),
             if (voicemails.isNotEmpty) ...[
               const _SectionHeader('Voicemail'),
               ...voicemails.map((v) => _VoicemailTile(voicemail: v)),
@@ -281,14 +284,125 @@ class _CallLinkSheet extends StatelessWidget {
   }
 }
 
-/// Horizontally scrolling quick-call favourites.
+/// Horizontally scrolling quick-call favourites, editable: tap to call, an
+/// "Add" tile to pick more, long-press (or the Edit action) to remove.
 class _FavouritesRow extends StatelessWidget {
-  final List<AppUser> favourites;
-  const _FavouritesRow({required this.favourites});
+  const _FavouritesRow();
+
+  /// People the user could add as favourites: everyone they've chatted with or
+  /// called (deduped), minus groups and current favourites.
+  List<AppUser> _candidates() {
+    final seen = <String>{};
+    final out = <AppUser>[];
+    void consider(AppUser u) {
+      if (u.isGroup || FavouritesStore.instance.isFavourite(u.id)) return;
+      if (seen.add(u.id)) out.add(u);
+    }
+
+    for (final c in ChatStore.instance.allChats) {
+      consider(c.contact);
+    }
+    for (final r in CallLog.instance.records) {
+      consider(r.user);
+    }
+    return out;
+  }
+
+  Future<void> _addFavourite(BuildContext context) async {
+    final candidates = _candidates();
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Padding(
+                padding: EdgeInsets.fromLTRB(12, 4, 12, 8),
+                child: Text('Add favourite',
+                    style:
+                        TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+              ),
+              if (candidates.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                  child: Column(
+                    children: [
+                      Text(
+                        'Chat with or call someone first, then add them here '
+                        'for one-tap calling.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: Colors.grey.shade600),
+                      ),
+                      const SizedBox(height: 14),
+                      FilledButton.icon(
+                        onPressed: () {
+                          Navigator.pop(sheetContext);
+                          Navigator.of(context).push(MaterialPageRoute(
+                              builder: (_) => const FindPeopleScreen()));
+                        },
+                        icon: const Icon(Icons.person_add_alt),
+                        label: const Text('Find people'),
+                      ),
+                    ],
+                  ),
+                )
+              else
+                Flexible(
+                  child: ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: candidates.length,
+                    itemBuilder: (context, i) {
+                      final user = candidates[i];
+                      return ListTile(
+                        leading: UserAvatar(user: user, radius: 22),
+                        title: Text(user.name),
+                        subtitle: user.username.isEmpty
+                            ? null
+                            : Text('@${user.username}'),
+                        trailing: const Icon(Icons.add),
+                        onTap: () {
+                          FavouritesStore.instance.add(user);
+                          Navigator.pop(sheetContext);
+                        },
+                      );
+                    },
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _confirmRemove(BuildContext context, AppUser user) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Text('Remove ${user.name.split(' ').first}?'),
+        content: const Text('Remove this person from your call favourites.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              child:
+                  const Text('Remove', style: TextStyle(color: Colors.red))),
+        ],
+      ),
+    );
+    if (ok == true) FavouritesStore.instance.remove(user.id);
+  }
 
   @override
   Widget build(BuildContext context) {
-    if (favourites.isEmpty) return const SizedBox.shrink();
+    final favourites = FavouritesStore.instance.favourites;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -298,12 +412,16 @@ class _FavouritesRow extends StatelessWidget {
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: 16),
-            itemCount: favourites.length,
+            itemCount: favourites.length + 1,
             separatorBuilder: (_, __) => const SizedBox(width: 16),
             itemBuilder: (context, i) {
+              if (i == favourites.length) {
+                return _AddFavouriteTile(onTap: () => _addFavourite(context));
+              }
               final user = favourites[i];
               return GestureDetector(
                 onTap: () => _startCall(context, user, video: false),
+                onLongPress: () => _confirmRemove(context, user),
                 child: SizedBox(
                   width: 66,
                   child: Column(
@@ -323,7 +441,49 @@ class _FavouritesRow extends StatelessWidget {
             },
           ),
         ),
+        if (favourites.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(left: 20, top: 2),
+            child: Text('Tap to call · hold to remove',
+                style: TextStyle(fontSize: 11.5, color: Colors.grey.shade500)),
+          ),
       ],
+    );
+  }
+}
+
+/// The trailing "+" tile in the favourites row.
+class _AddFavouriteTile extends StatelessWidget {
+  final VoidCallback onTap;
+  const _AddFavouriteTile({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return GestureDetector(
+      onTap: onTap,
+      child: SizedBox(
+        width: 66,
+        child: Column(
+          children: [
+            Container(
+              width: 60,
+              height: 60,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: isDark
+                    ? const Color(0xFF22252B)
+                    : const Color(0xFFF0F2F3),
+                border: Border.all(color: Colors.grey.shade400, width: 1),
+              ),
+              child: Icon(Icons.add, color: Colors.grey.shade600, size: 28),
+            ),
+            const SizedBox(height: 6),
+            Text('Add',
+                style: TextStyle(fontSize: 12.5, color: Colors.grey.shade600)),
+          ],
+        ),
+      ),
     );
   }
 }

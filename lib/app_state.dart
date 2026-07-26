@@ -234,6 +234,9 @@ class AppState {
     required String about,
     String? username,
     String? avatarColor,
+    String? emoji,
+    String? pronouns,
+    String? link,
   }) {
     final p = profile.value;
     profile.value = AppUser(
@@ -246,6 +249,9 @@ class AppState {
       username: username == null ? p.username : normalizeUsername(username),
       verified: p.verified,
       score: p.score,
+      emoji: emoji ?? p.emoji,
+      pronouns: pronouns ?? p.pronouns,
+      link: link ?? p.link,
     );
   }
 

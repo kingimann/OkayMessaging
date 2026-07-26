@@ -80,6 +80,7 @@ import 'package:okay_messaging/state/streak_store.dart';
 import 'package:okay_messaging/state/two_step.dart';
 import 'package:okay_messaging/screens/find_people_screen.dart';
 import 'package:okay_messaging/state/contacts_sync.dart';
+import 'package:okay_messaging/state/favourites_store.dart';
 import 'package:okay_messaging/widgets/chat_input_bar.dart';
 import 'package:okay_messaging/widgets/heart_burst.dart';
 import 'package:okay_messaging/widgets/rich_message_text.dart';
@@ -3073,6 +3074,30 @@ void main() {
       expect(back.score, 77);
     });
 
+    test('AppUser round-trips emoji, pronouns and link through JSON', () {
+      const u = AppUser(
+        id: 'x',
+        name: 'X',
+        avatarColor: '#000000',
+        emoji: '🦊',
+        pronouns: 'they/them',
+        link: 'okay.chat',
+      );
+      final back = AppUser.fromJson(u.toJson());
+      expect(back.emoji, '🦊');
+      expect(back.pronouns, 'they/them');
+      expect(back.link, 'okay.chat');
+      // Old payloads without the fields still decode with safe defaults.
+      final legacy = AppUser.fromJson({
+        'id': 'y',
+        'name': 'Y',
+        'avatarColor': '#111111',
+      });
+      expect(legacy.emoji, '');
+      expect(legacy.pronouns, '');
+      expect(legacy.link, '');
+    });
+
     test('a verified, high-score sender is reflected on the contact', () {
       ChatStore.instance.reset();
       final payload = RelayService.encode(
@@ -3457,6 +3482,33 @@ void main() {
       final dupes =
           ContactsSync.hashesFor(['15550123456', '+1 555 012 3456']);
       expect(dupes.toSet().length, dupes.length);
+    });
+  });
+
+  group('Call favourites store', () {
+    setUp(() => FavouritesStore.instance.resetForTest());
+
+    test('add, dedupe, isFavourite, remove and toggle', () async {
+      final store = FavouritesStore.instance;
+      const ada = AppUser(id: 'u1', name: 'Ada', avatarColor: '#000000');
+      const bob = AppUser(id: 'u2', name: 'Bob', avatarColor: '#111111');
+      const team =
+          AppUser(id: 'g1', name: 'Team', avatarColor: '#222222', isGroup: true);
+
+      store.add(ada);
+      store.add(ada); // duplicate ignored
+      store.add(team); // groups are not favouritable
+      expect(store.favourites.map((u) => u.id), ['u1']);
+      expect(store.isFavourite('u1'), isTrue);
+      expect(store.isFavourite('g1'), isFalse);
+
+      store.toggle(bob); // adds
+      expect(store.favourites.length, 2);
+      store.toggle(ada); // removes
+      expect(store.isFavourite('u1'), isFalse);
+
+      store.remove('u2');
+      expect(store.favourites, isEmpty);
     });
   });
 
@@ -4532,17 +4584,13 @@ void main() {
       await tester.tap(find.byTooltip('Open navigation menu'));
       await tester.pumpAndSettle();
 
-      // Only destinations the bottom bar can't reach live here.
+      // Only destinations the bottom bar can't reach live here — Maps.
+      // People was removed from the sidebar.
       expect(find.text('Maps'), findsOneWidget);
-      expect(find.text('People'), findsOneWidget);
+      expect(find.text('People'), findsNothing);
       expect(find.text('Starred messages'), findsNothing);
       expect(find.text('Encrypted cloud sync'), findsNothing);
       expect(find.text('My QR code'), findsNothing);
-
-      // Shortcuts navigate: People opens with its add-a-friend field.
-      await tester.tap(find.text('People'));
-      await tester.pumpAndSettle();
-      expect(find.text('YOUR PEOPLE'), findsOneWidget);
     });
 
     test('screen share reports an honest error with no active call', () async {

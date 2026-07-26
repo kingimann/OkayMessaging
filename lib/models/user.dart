@@ -20,6 +20,15 @@ class AppUser {
   /// For contacts this is the last value they broadcast.
   final int score;
 
+  /// An optional emoji shown on the avatar instead of the initials.
+  final String emoji;
+
+  /// Optional pronouns shown under the name (e.g. "she/her").
+  final String pronouns;
+
+  /// An optional link the user adds to their profile (website / social).
+  final String link;
+
   const AppUser({
     required this.id,
     required this.name,
@@ -31,6 +40,9 @@ class AppUser {
     this.isGroup = false,
     this.verified = false,
     this.score = 0,
+    this.emoji = '',
+    this.pronouns = '',
+    this.link = '',
   });
 
   /// The handle with a leading '@', or empty when none is set.
@@ -47,6 +59,9 @@ class AppUser {
         'isGroup': isGroup,
         'verified': verified,
         'score': score,
+        'emoji': emoji,
+        'pronouns': pronouns,
+        'link': link,
       };
 
   factory AppUser.fromJson(Map<String, dynamic> json) => AppUser(
@@ -60,6 +75,9 @@ class AppUser {
         isGroup: json['isGroup'] as bool? ?? false,
         verified: json['verified'] as bool? ?? false,
         score: (json['score'] as num?)?.toInt() ?? 0,
+        emoji: json['emoji'] as String? ?? '',
+        pronouns: json['pronouns'] as String? ?? '',
+        link: json['link'] as String? ?? '',
       );
 
   /// Initials used for the placeholder avatar (e.g. "John Doe" -> "JD").

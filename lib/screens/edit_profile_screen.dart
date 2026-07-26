@@ -18,7 +18,17 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   late final TextEditingController _name;
   late final TextEditingController _about;
   late final TextEditingController _username;
+  late final TextEditingController _pronouns;
+  late final TextEditingController _link;
   late String _avatarColor;
+  late String _emoji;
+
+  /// A small set of emojis offered for the avatar.
+  static const _emojiChoices = [
+    '😀', '😎', '🥳', '🤖', '👾', '🐶', '🐱', '🦊',
+    '🐼', '🦁', '🐸', '🦄', '🌸', '🔥', '⚡', '🌈',
+    '⭐', '🎧', '🎮', '⚽', '🍕', '☕', '🚀', '💜',
+  ];
 
   /// Common status presets offered as one-tap chips.
   static const _statusPresets = [
@@ -39,7 +49,10 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     _name = TextEditingController(text: p.name);
     _about = TextEditingController(text: p.about);
     _username = TextEditingController(text: p.username);
+    _pronouns = TextEditingController(text: p.pronouns);
+    _link = TextEditingController(text: p.link);
     _avatarColor = p.avatarColor;
+    _emoji = p.emoji;
   }
 
   @override
@@ -47,6 +60,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     _name.dispose();
     _about.dispose();
     _username.dispose();
+    _pronouns.dispose();
+    _link.dispose();
     super.dispose();
   }
 
@@ -59,6 +74,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         about: _about.text,
         phone: AppState.profile.value.phone,
         username: _username.text,
+        emoji: _emoji,
+        pronouns: _pronouns.text,
+        link: _link.text,
       );
 
   Future<void> _save() async {
@@ -70,6 +88,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         about: _about.text,
         username: _username.text,
         avatarColor: _avatarColor,
+        emoji: _emoji,
+        pronouns: _pronouns.text,
+        link: _link.text,
       );
     } else {
       AppState.updateProfile(
@@ -77,6 +98,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         about: _about.text,
         username: _username.text,
         avatarColor: _avatarColor,
+        emoji: _emoji,
+        pronouns: _pronouns.text,
+        link: _link.text,
       );
     }
     navigator.pop();
@@ -105,6 +129,13 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
             onSelected: (hex) => setState(() => _avatarColor = hex),
           ),
           const SizedBox(height: 20),
+          _sectionLabel(context, 'Avatar emoji'),
+          _EmojiPicker(
+            selected: _emoji,
+            choices: _emojiChoices,
+            onSelected: (e) => setState(() => _emoji = e),
+          ),
+          const SizedBox(height: 20),
           TextField(
             controller: _name,
             textCapitalization: TextCapitalization.words,
@@ -126,6 +157,29 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
               prefixText: '@',
               helperText: 'Letters, numbers, . and _ — people can find you by this',
               prefixIcon: Icon(Icons.alternate_email),
+              border: OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _pronouns,
+            textCapitalization: TextCapitalization.none,
+            decoration: const InputDecoration(
+              labelText: 'Pronouns',
+              hintText: 'she/her · he/him · they/them',
+              prefixIcon: Icon(Icons.badge_outlined),
+              border: OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _link,
+            keyboardType: TextInputType.url,
+            autocorrect: false,
+            decoration: const InputDecoration(
+              labelText: 'Link',
+              hintText: 'yourwebsite.com',
+              prefixIcon: Icon(Icons.link),
               border: OutlineInputBorder(),
             ),
           ),
@@ -189,6 +243,56 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           ),
         ),
       );
+}
+
+/// A wrapping grid of emoji choices for the avatar, with a "none" option that
+/// falls back to the initials.
+class _EmojiPicker extends StatelessWidget {
+  final String selected;
+  final List<String> choices;
+  final ValueChanged<String> onSelected;
+  const _EmojiPicker({
+    required this.selected,
+    required this.choices,
+    required this.onSelected,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final primary = Theme.of(context).colorScheme.primary;
+    Widget cell({required Widget child, required bool active, required VoidCallback onTap}) =>
+        GestureDetector(
+          onTap: onTap,
+          child: Container(
+            width: 44,
+            height: 44,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: Theme.of(context).colorScheme.surfaceContainerHighest,
+              border: active ? Border.all(color: primary, width: 3) : null,
+            ),
+            child: child,
+          ),
+        );
+    return Wrap(
+      spacing: 12,
+      runSpacing: 12,
+      children: [
+        cell(
+          active: selected.isEmpty,
+          onTap: () => onSelected(''),
+          child: Icon(Icons.block, color: Colors.grey.shade500, size: 20),
+        ),
+        for (final e in choices)
+          cell(
+            active: e == selected,
+            onTap: () => onSelected(e),
+            child: Text(e, style: const TextStyle(fontSize: 22)),
+          ),
+      ],
+    );
+  }
 }
 
 /// A wrapping grid of avatar-color swatches with a check on the selected one.

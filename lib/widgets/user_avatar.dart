@@ -34,14 +34,16 @@ class UserAvatar extends StatelessWidget {
     Widget core = CircleAvatar(
       radius: radius,
       backgroundColor: _color,
-      child: Text(
-        user.initials,
-        style: TextStyle(
-          color: Colors.white,
-          fontSize: radius * 0.7,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
+      child: user.emoji.isNotEmpty
+          ? Text(user.emoji, style: TextStyle(fontSize: radius * 0.9))
+          : Text(
+              user.initials,
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: radius * 0.7,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
     );
 
     if (showPresence && user.isOnline) {

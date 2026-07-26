@@ -43,9 +43,12 @@ dependencies:
   flutter_map_cancellable_tile_provider: ^3.1.1
   # Contact sync (mobile only, guarded by kIsWeb): reads the device address
   # book to find which contacts already use the app. Only sha256 hashes of
-  # phone numbers ever leave the device. flutter_contacts handles the OS
-  # permission prompt itself, so no separate permission plugin is needed.
+  # phone numbers ever leave the device.
   flutter_contacts: ^1.1.9+2
+  # Read/request/manage OS permissions (camera, mic, location, photos,
+  # contacts, notifications) for the Permissions settings screen. The iOS
+  # Podfile enables only the permissions we actually use (App Store safe).
+  permission_handler: ^11.3.1
 
 dev_dependencies:
   flutter_test:

@@ -15,7 +15,6 @@ import 'explore_map_screen.dart';
 import 'new_chat_screen.dart';
 import 'settings_screen.dart';
 import 'edit_profile_screen.dart';
-import 'people_screen.dart';
 import 'starred_messages_screen.dart';
 import '../app_state.dart';
 import '../util/build_info.dart';
@@ -298,6 +297,11 @@ class _AppSideBar extends StatelessWidget {
                                   style: TextStyle(
                                       fontSize: 13.5,
                                       color: Colors.grey.shade600)),
+                            if (me.pronouns.trim().isNotEmpty)
+                              Text(me.pronouns.trim(),
+                                  style: TextStyle(
+                                      fontSize: 12.5,
+                                      color: Colors.grey.shade500)),
                           ],
                         ),
                       ),
@@ -315,12 +319,6 @@ class _AppSideBar extends StatelessWidget {
                 title: const Text('Maps'),
                 subtitle: const Text('Search, navigate, share places'),
                 onTap: () => _go(context, const ExploreMapScreen()),
-              ),
-              ListTile(
-                leading: const Icon(Icons.group_outlined),
-                title: const Text('People'),
-                subtitle: const Text('Add and follow friends'),
-                onTap: () => _go(context, const PeopleScreen()),
               ),
               const SizedBox(height: 12),
               Padding(

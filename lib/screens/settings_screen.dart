@@ -16,6 +16,7 @@ import 'legal_screen.dart';
 import 'maps_settings_screen.dart';
 import 'my_qr_screen.dart';
 import 'okay_pro_screen.dart';
+import 'permissions_screen.dart';
 import 'privacy_settings_screen.dart';
 import 'score_screen.dart';
 import 'settings_widgets.dart';
@@ -59,6 +60,14 @@ class SettingsView extends StatelessWidget {
               onTap: () => Navigator.of(context).push(
                 MaterialPageRoute(
                     builder: (_) => const PrivacySettingsScreen()),
+              ),
+            ),
+            InfoTile(
+              leading: const Icon(Icons.shield_outlined),
+              title: 'Permissions',
+              subtitle: 'Camera, microphone, location, contacts, photos',
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const PermissionsScreen()),
               ),
             ),
             InfoTile(
