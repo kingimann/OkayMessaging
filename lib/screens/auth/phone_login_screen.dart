@@ -274,13 +274,34 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
 
   // --- Field groups ------------------------------------------------------
 
+  /// Telegram-style input: softly filled, rounded, borderless until focus.
+  InputDecoration _dec(String label,
+      {IconData? icon, String? prefixText, String? helper}) {
+    final scheme = Theme.of(context).colorScheme;
+    OutlineInputBorder border(Color c, double w) => OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide(color: c, width: w),
+        );
+    return InputDecoration(
+      labelText: label,
+      helperText: helper,
+      prefixText: prefixText,
+      prefixIcon: icon == null ? null : Icon(icon, size: 21),
+      filled: true,
+      fillColor: scheme.surfaceContainerHighest.withValues(alpha: 0.55),
+      border: border(Colors.transparent, 0),
+      enabledBorder: border(Colors.transparent, 0),
+      focusedBorder: border(AppColors.tealGreenDark, 1.6),
+      contentPadding:
+          const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
+    );
+  }
+
   Widget _nameField() => TextFormField(
         controller: _name,
         textInputAction: TextInputAction.next,
-        decoration: const InputDecoration(
-          labelText: 'Your name',
-          border: OutlineInputBorder(),
-        ),
+        textCapitalization: TextCapitalization.words,
+        decoration: _dec('Your name', icon: Icons.person_outline),
         validator: (v) =>
             (v == null || v.trim().isEmpty) ? 'Enter a name' : null,
       );
@@ -288,12 +309,9 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
   Widget _usernameField() => TextFormField(
         controller: _username,
         textInputAction: TextInputAction.next,
-        decoration: const InputDecoration(
-          labelText: 'Username',
-          prefixText: '@',
-          helperText: 'Letters, numbers, _ and .',
-          border: OutlineInputBorder(),
-        ),
+        decoration: _dec('Username',
+            icon: Icons.alternate_email,
+            helper: 'Letters, numbers, _ and .'),
         validator: (v) {
           final u = AccountService.normalizeUsername(v ?? '');
           if (u.isEmpty) return 'Choose a username';
@@ -312,9 +330,10 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
             child: DropdownButtonFormField<String>(
               initialValue: _dialCode,
               isExpanded: true,
-              decoration: const InputDecoration(
-                border: OutlineInputBorder(),
-                contentPadding: EdgeInsets.symmetric(horizontal: 10),
+              decoration: _dec('').copyWith(
+                labelText: null,
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 15),
               ),
               items: [
                 for (final code in _dialCodes)
@@ -331,10 +350,7 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
               inputFormatters: [
                 FilteringTextInputFormatter.allow(RegExp(r'[0-9 ]')),
               ],
-              decoration: const InputDecoration(
-                labelText: 'Phone number',
-                border: OutlineInputBorder(),
-              ),
+              decoration: _dec('Phone number'),
               onFieldSubmitted: (_) => onSubmit?.call(),
               validator: (v) {
                 final digits = (v ?? '').replaceAll(RegExp(r'\D'), '');
@@ -349,7 +365,11 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
         onPressed: _busy ? null : onPressed,
         style: FilledButton.styleFrom(
           backgroundColor: AppColors.tealGreenDark,
-          padding: const EdgeInsets.symmetric(vertical: 14),
+          minimumSize: const Size.fromHeight(52),
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(26)),
+          textStyle:
+              const TextStyle(fontSize: 16.5, fontWeight: FontWeight.w700),
         ),
         child: _busy
             ? const SizedBox(
@@ -393,10 +413,7 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
             FilteringTextInputFormatter.digitsOnly,
             LengthLimitingTextInputFormatter(6),
           ],
-          decoration: const InputDecoration(
-            labelText: 'Code',
-            border: OutlineInputBorder(),
-          ),
+          decoration: _dec('Code'),
           onFieldSubmitted: (_) => _verifyCode(),
         ),
         const SizedBox(height: 24),
