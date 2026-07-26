@@ -9,11 +9,13 @@
 # Workflows:
 #   test           – analyze + the full test suite (Linux, fast)
 #   android-build  – installable debug-signed APK (sideload it on a phone)
+#   ios-release    – signed IPA to TestFlight (needs the App Store Connect
+#                    integration + CERTIFICATE_PRIVATE_KEY; see
+#                    docs/ios_signing_setup.md)
 #   ios-simulator  – unsigned iOS build you can run in the Simulator
 #
-# When you have a Play Console / Apple Developer account, add the signed
-# store-release workflows from docs/codemagic_release.yaml — that file
-# explains exactly which Codemagic resources each one needs first.
+# The Android store-release workflow lives in docs/codemagic_release.yaml
+# and needs a Play Console keystore before it can run.
 #
 # The bundle identifier is com.okaymessaging on both platforms; register
 # that exact id in App Store Connect and the Play Console.
@@ -88,16 +90,10 @@ workflows:
       cocoapods: default
       vars:
         BUNDLE_ID: "com.okaymessaging"
-      # A Production (distribution) certificate now exists in the Apple
-      # account, so Codemagic can create the matching App Store profile
-      # itself — that missing certificate is what caused the original
-      # "No matching profiles found ... distribution type app_store".
-      ios_signing:
-        distribution_type: app_store
-        bundle_identifier: com.okaymessaging
-    # `integrations` is a sibling of `environment`, never nested inside it.
-    # Connecting the key here exports APP_STORE_CONNECT_* env vars that the
-    # app-store-connect CLI below picks up automatically.
+    # `integrations` is a SIBLING of `environment`, never nested inside it.
+    # Connecting the App Store Connect API key here exports the
+    # APP_STORE_CONNECT_* env vars that the `app-store-connect` CLI below
+    # picks up automatically to talk to Apple.
     integrations:
       app_store_connect: OkayMessenger
     scripts:
@@ -114,13 +110,24 @@ workflows:
         script: |
           cd $CM_BUILD_DIR
           agvtool new-version -all $(($BUILD_NUMBER + 1)) || true
-      # The environment's automatic `ios_signing` block only *fetches*
-      # existing signing files, which fails on a brand-new app with:
-      #   "No matching profiles found for bundle identifier ...".
-      # Doing it explicitly with --create makes Apple issue the
-      # distribution certificate and the App Store profile the first time.
       - name: Initialise the keychain
         script: keychain initialize
+      # THE FIX. A brand-new app has no App Store provisioning profile, and
+      # Codemagic's automatic `ios_signing` block only ever *fetches*
+      # existing files — it never creates them — which is why every build so
+      # far died with "No matching profiles found ... app_store".
+      #
+      # `fetch-signing-files ... --create` makes Apple ISSUE the missing
+      # distribution certificate and App Store profile on the first run,
+      # then reuses them afterwards. `--certificate-key` is the private key
+      # the new certificate is signed with; add it once as a Codemagic
+      # environment variable (see docs/ios_signing_setup.md).
+      - name: Create or fetch the signing files
+        script: |
+          app-store-connect fetch-signing-files "$BUNDLE_ID" \
+            --type IOS_APP_STORE \
+            --certificate-key="@env:CERTIFICATE_PRIVATE_KEY" \
+            --create
       - name: Set up provisioning profiles
         script: xcode-project use-profiles
       - name: Build IPA

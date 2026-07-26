@@ -86,3 +86,7 @@ app.*.symbols
 
 # QA-only preview entrypoint (local visual testing)
 lib/preview.dart
+
+# iOS signing private key (must never be committed)
+cert_key
+cert_key.pub
