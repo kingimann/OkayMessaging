@@ -22,6 +22,10 @@ create policy "sync_blobs_insert" on public.sync_blobs
   for insert with check (true);
 create policy "sync_blobs_update" on public.sync_blobs
   for update using (true);
+-- Without this, a user can overwrite their backup but never delete it
+-- (deletes silently affect zero rows while still returning 204).
+create policy "sync_blobs_delete" on public.sync_blobs
+  for delete using (true);
 
 -- Keep updated_at fresh on upsert.
 create or replace function public.touch_updated_at()
