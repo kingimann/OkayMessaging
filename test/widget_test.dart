@@ -4941,10 +4941,11 @@ void main() {
       // No app bar — the map runs edge to edge under floating controls.
       expect(find.byType(AppBar), findsNothing);
       expect(find.byTooltip('Back'), findsOneWidget);
-      // Saved and Friends live in the category chip row.
-      expect(find.text('Saved'), findsOneWidget);
-      expect(find.text('Friends'), findsOneWidget);
-      expect(find.text('Food'), findsOneWidget);
+      // Saved and Friends live in the floating map controls now — the
+      // space under the search bar stays clean.
+      expect(find.byTooltip('Saved places'), findsOneWidget);
+      expect(find.byTooltip('Friends map'), findsOneWidget);
+      expect(find.text('Food'), findsNothing);
 
       await tester.pumpWidget(const SizedBox());
       await tester.pump();
@@ -5184,31 +5185,6 @@ void main() {
       await tester.pump();
     });
 
-    testWidgets('category chips ask for a location before a nearby search',
-        (tester) async {
-      var called = false;
-      await tester.pumpWidget(MaterialApp(
-        home: ExploreMapScreen(
-          debugSearch: (q) async {
-            called = true;
-            return const [];
-          },
-        ),
-      ));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 300));
-
-      // No GPS fix and an untouched map → a hint instead of garbage results.
-      await tester.tap(find.text('Food'));
-      await tester.pump();
-      await tester.pump();
-      expect(find.textContaining('Move the map'), findsOneWidget);
-      expect(called, isFalse);
-
-      await tester.pumpWidget(const SizedBox());
-      await tester.pump();
-    });
-
     testWidgets('Maps shows the blue "you are here" dot when located',
         (tester) async {
       await tester.pumpWidget(const MaterialApp(
@@ -5308,7 +5284,10 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
 
-      await tester.tap(find.text('Coffee'));
+      // Category searches now run from the typed query ("coffee" is a
+      // category intent), not a chip row.
+      await tester.enterText(find.byType(TextField).first, 'coffee');
+      await tester.testTextInput.receiveAction(TextInputAction.search);
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
 

@@ -265,6 +265,10 @@ class LiveAttribution extends StatelessWidget {
 /// Floating controls stacked on the right of an interactive map: a base-layer
 /// switcher and zoom in / out buttons.
 class MapControls extends StatelessWidget {
+  /// Optional extras: saved places and the friends map, shown above zoom.
+  final VoidCallback? onSaved;
+  final VoidCallback? onFriends;
+
   final MapController controller;
 
   /// Extra bottom offset so the controls clear a screen's own bottom UI.
@@ -283,6 +287,8 @@ class MapControls extends StatelessWidget {
     this.bottom = 120,
     this.top,
     this.onMyLocation,
+    this.onSaved,
+    this.onFriends,
   });
 
   void _zoom(double delta) {
@@ -349,6 +355,8 @@ class MapControls extends StatelessWidget {
         children: [
           if (onMyLocation != null)
             btn(Icons.my_location, 'My location', onMyLocation!),
+          if (onSaved != null) btn(Icons.bookmark_outline, 'Saved places', onSaved!),
+          if (onFriends != null) btn(Icons.group_outlined, 'Friends map', onFriends!),
           btn(Icons.layers_outlined, 'Map style', () => _pickLayer(context)),
           btn(Icons.add, 'Zoom in', () => _zoom(1)),
           btn(Icons.remove, 'Zoom out', () => _zoom(-1)),

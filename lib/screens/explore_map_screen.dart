@@ -16,28 +16,6 @@ import 'forward_screen.dart';
 import 'map_screen.dart';
 import 'route_map_screen.dart';
 
-/// Quick "search nearby" categories, à la Apple Maps. The third field is an
-/// Overpass tag filter — a *category* lookup (every cafe near here), not a
-/// name search.
-const List<(IconData, String, String)> _categories = [
-  (
-    Icons.restaurant,
-    'Food',
-    r'[amenity~"^(restaurant|fast_food|food_court)$"]'
-  ),
-  (Icons.local_cafe, 'Coffee', r'[amenity~"^(cafe|ice_cream)$"]'),
-  (Icons.local_bar, 'Bars', r'[amenity~"^(bar|pub|biergarten)$"]'),
-  (Icons.local_gas_station, 'Fuel', r'[amenity~"^(fuel|charging_station)$"]'),
-  (Icons.hotel, 'Hotels', r'[tourism~"^(hotel|hostel|motel|guest_house)$"]'),
-  (
-    Icons.shopping_cart,
-    'Shops',
-    r'[shop~"^(supermarket|convenience|mall|department_store)$"]'
-  ),
-  (Icons.local_atm, 'ATMs', r'[amenity~"^(atm|bank)$"]'),
-  (Icons.local_parking, 'Parking', '[amenity=parking]'),
-];
-
 /// A standalone, Apple-Maps-style map: search places or nearby categories, see
 /// them on the map, read details with distance, save favourites, and get
 /// in-app directions — no external maps needed.
@@ -611,6 +589,9 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
             top: MediaQuery.of(context).padding.top + 64,
             onMyLocation:
                 selected == null && !_showResultsSheet ? _goToMe : null,
+            onSaved: _showSaved,
+            onFriends: () => Navigator.of(context)
+                .push(MaterialPageRoute(builder: (_) => const MapScreen())),
           ),
           Positioned(
             top: MediaQuery.of(context).padding.top + 8,
@@ -707,34 +688,22 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
                             });
                           },
                         ),
-                        if (_results.isEmpty) ...[
+                        // While a search is in flight with nothing to show
+                        // yet, say so instead of leaving an empty sheet.
+                        if (_searching && _results.isEmpty)
+                          const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 18),
+                            child: Center(
+                                child: SizedBox(
+                                    width: 22,
+                                    height: 22,
+                                    child: CircularProgressIndicator(
+                                        strokeWidth: 2.4))),
+                          ),
+                        if (_results.isEmpty && !_searching) ...[
                           _FavoritesRow(
                             onPick: (p) => _select(GeoResult(
                                 name: p.name, lat: p.lat, lng: p.lng)),
-                          ),
-                          const SizedBox(height: 10),
-                          _CategoryChips(
-                            onTap: (label, filter) {
-                              // Nearby search needs a "near" — a GPS fix or
-                              // a spot the user has panned to.
-                              if (_me == null && !_mapTouched) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text(
-                                        'Move the map to an area first — or '
-                                        'tap the location button — so nearby '
-                                        'search knows where to look.'),
-                                  ),
-                                );
-                                return;
-                              }
-                              _runNearby(label, filter);
-                            },
-                            onSaved: _showSaved,
-                            onFriends: () => Navigator.of(context).push(
-                              MaterialPageRoute(
-                                  builder: (_) => const MapScreen()),
-                            ),
                           ),
                           const SizedBox(height: 10),
                           _RecentMapSearches(onPick: (q) {
@@ -1101,48 +1070,6 @@ class _RecentMapSearches extends StatelessWidget {
           ),
         );
       },
-    );
-  }
-}
-
-/// A horizontal row of chips: Saved places and Friends first, then the
-/// "search nearby" categories.
-class _CategoryChips extends StatelessWidget {
-  final void Function(String label, String filter) onTap;
-  final VoidCallback onSaved;
-  final VoidCallback onFriends;
-
-  const _CategoryChips({
-    required this.onTap,
-    required this.onSaved,
-    required this.onFriends,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final surface = Theme.of(context).colorScheme.surface;
-    ActionChip chip(IconData icon, String label, VoidCallback onPressed) =>
-        ActionChip(
-          avatar: Icon(icon, size: 18),
-          label: Text(label),
-          elevation: 2,
-          backgroundColor: surface,
-          shadowColor: Colors.black45,
-          onPressed: onPressed,
-        );
-    return SizedBox(
-      height: 40,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        itemCount: _categories.length + 2,
-        separatorBuilder: (_, __) => const SizedBox(width: 8),
-        itemBuilder: (context, i) {
-          if (i == 0) return chip(Icons.bookmark, 'Saved', onSaved);
-          if (i == 1) return chip(Icons.group, 'Friends', onFriends);
-          final (icon, label, filter) = _categories[i - 2];
-          return chip(icon, label, () => onTap(label, filter));
-        },
-      ),
     );
   }
 }
