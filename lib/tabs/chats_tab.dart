@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import '../models/chat.dart';
 import '../relay/relay_config.dart';
 import '../relay/relay_service.dart';
+import '../app_state.dart';
+import '../models/user.dart';
 import '../screens/chat_screen.dart';
 import '../screens/contacts_on_app_screen.dart';
 import '../screens/edit_profile_screen.dart';
@@ -373,11 +375,16 @@ class _GetStartedCard extends StatelessWidget {
                 style: TextStyle(
                     fontSize: 13, color: theme.colorScheme.onSurfaceVariant)),
           ),
-          _StepRow(
-            icon: Icons.person_outline,
-            title: 'Set up your profile',
-            subtitle: 'Name, avatar emoji, username',
-            onTap: () => _push(context, const EditProfileScreen()),
+          ValueListenableBuilder<AppUser>(
+            valueListenable: AppState.profile,
+            builder: (context, me, _) => _StepRow(
+              icon: Icons.person_outline,
+              title: 'Set up your profile',
+              subtitle: 'Name, avatar emoji, username',
+              // Done once they've picked a username or an avatar emoji.
+              done: me.username.isNotEmpty || me.emoji.isNotEmpty,
+              onTap: () => _push(context, const EditProfileScreen()),
+            ),
           ),
           _StepRow(
             icon: Icons.alternate_email,
@@ -402,12 +409,14 @@ class _StepRow extends StatelessWidget {
   final IconData icon;
   final String title;
   final String subtitle;
+  final bool done;
   final VoidCallback onTap;
   const _StepRow({
     required this.icon,
     required this.title,
     required this.subtitle,
     required this.onTap,
+    this.done = false,
   });
 
   @override
@@ -434,7 +443,10 @@ class _StepRow extends StatelessWidget {
                 ],
               ),
             ),
-            const Icon(Icons.chevron_right, size: 20, color: Colors.grey),
+            done
+                ? const Icon(Icons.check_circle, size: 20, color: Colors.green)
+                : const Icon(Icons.chevron_right,
+                    size: 20, color: Colors.grey),
           ],
         ),
       ),
