@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../models/user.dart';
 import '../../relay/relay_service.dart';
+import '../../state/push_service.dart';
 import '../../state/session.dart';
 import '../home_screen.dart';
 import 'phone_login_screen.dart';
@@ -35,6 +36,7 @@ class _AuthGateState extends State<AuthGate> {
         if (_startedForPhone != user.phone) {
           _startedForPhone = user.phone;
           RelayService.instance.start();
+          PushService.instance.register();
         }
         return const HomeScreen();
       },

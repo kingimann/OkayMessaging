@@ -11,6 +11,7 @@ import '../models/message.dart';
 import '../models/user.dart';
 import '../state/call_service.dart';
 import '../state/chat_store.dart';
+import '../state/push_service.dart';
 import '../state/feed_store.dart';
 import '../state/file_transfer.dart';
 import '../state/live_location_store.dart';
@@ -999,6 +1000,9 @@ class RelayService {
     if (digits(contactPhone).isEmpty) return;
     final me = Session.instance.user.value;
     if (me == null) return;
+    // Also nudge their device over APNs (no-op unless push is configured).
+    PushService.instance.notify(contactPhone,
+        title: me.name.isEmpty ? 'New message' : me.name);
 
     final kx = SecureKeyExchange.instance;
     final peerPub = kx.peerKey(contactPhone);

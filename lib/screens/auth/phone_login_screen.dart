@@ -182,24 +182,46 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const Icon(Icons.chat_bubble,
-                      size: 64, color: AppColors.tealGreenDark),
-                  const SizedBox(height: 12),
+                  // Telegram-style header: a big round accent badge with the
+                  // app mark, a large bold title, and a roomy grey subtitle.
+                  Center(
+                    child: Container(
+                      width: 112,
+                      height: 112,
+                      decoration: const BoxDecoration(
+                        shape: BoxShape.circle,
+                        gradient: LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [Color(0xFF35C48D), AppColors.tealGreenDark],
+                        ),
+                      ),
+                      child: const Icon(Icons.chat_bubble_rounded,
+                          size: 52, color: Colors.white),
+                    ),
+                  ),
+                  const SizedBox(height: 26),
                   Text(
                     'OkayMessenger',
                     textAlign: TextAlign.center,
                     style: Theme.of(context)
                         .textTheme
-                        .headlineSmall
-                        ?.copyWith(fontWeight: FontWeight.w700),
+                        .headlineMedium
+                        ?.copyWith(fontWeight: FontWeight.w800),
                   ),
-                  const SizedBox(height: 6),
-                  Text(
-                    _subtitle(),
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: Colors.grey.shade600),
+                  const SizedBox(height: 10),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    child: Text(
+                      _subtitle(),
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                          color: Colors.grey.shade600,
+                          fontSize: 15,
+                          height: 1.35),
+                    ),
                   ),
-                  const SizedBox(height: 28),
+                  const SizedBox(height: 32),
                   ..._body(),
                   if (_error != null) ...[
                     const SizedBox(height: 14),
