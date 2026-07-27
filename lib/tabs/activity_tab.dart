@@ -8,6 +8,7 @@ import '../state/feed_store.dart';
 import '../screens/chat_screen.dart';
 import '../screens/feed_screen.dart';
 import '../utils/date_formatter.dart';
+import '../widgets/empty_state.dart';
 import '../widgets/pull_to_refresh.dart';
 import '../widgets/user_avatar.dart';
 
@@ -228,23 +229,10 @@ class _ActivityTabState extends State<ActivityTab> {
   }
 
   Widget _empty(BuildContext context) {
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.notifications_none,
-              size: 56, color: Colors.grey.shade400),
-          const SizedBox(height: 12),
-          Text("You're all caught up",
-              style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  color: Theme.of(context).colorScheme.onSurfaceVariant)),
-          const SizedBox(height: 4),
-          Text('New messages, missed calls and server posts land here.',
-              style: TextStyle(fontSize: 13.5, color: Colors.grey.shade500)),
-        ],
-      ),
+    return const EmptyState(
+      icon: Icons.notifications_none,
+      title: "You're all caught up",
+      caption: 'New messages, missed calls and server posts land here.',
     );
   }
 
@@ -255,13 +243,6 @@ class _ActivityTabState extends State<ActivityTab> {
         child: const Icon(Icons.mark_chat_read, color: Colors.white),
       );
 
-  Widget _sectionLabel(BuildContext context, String text) => Padding(
-        padding: const EdgeInsets.fromLTRB(16, 18, 16, 6),
-        child: Text(text,
-            style: const TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 0.6,
-                color: Colors.grey)),
-      );
+  Widget _sectionLabel(BuildContext context, String text) =>
+      SectionHeader(text);
 }

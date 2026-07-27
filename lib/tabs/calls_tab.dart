@@ -18,6 +18,7 @@ import '../state/chat_store.dart';
 import '../theme/app_theme.dart';
 import '../utils/date_formatter.dart';
 import '../widgets/app_dialogs.dart';
+import '../widgets/empty_state.dart';
 import '../widgets/pull_to_refresh.dart';
 import '../widgets/user_avatar.dart';
 
@@ -774,21 +775,11 @@ class _EmptyRecent extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 24, 24, 12),
-      child: Column(
-        children: [
-          Icon(Icons.call_outlined, size: 44, color: Colors.grey.shade400),
-          const SizedBox(height: 12),
-          Text('No recent calls',
-              style: TextStyle(
-                  fontWeight: FontWeight.w600, color: Colors.grey.shade600)),
-          const SizedBox(height: 4),
-          Text('Calls you make and receive will show up here.',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.grey.shade500, fontSize: 13)),
-        ],
-      ),
+    return const EmptyState(
+      icon: Icons.call_outlined,
+      title: 'No recent calls',
+      caption: 'Calls you make and receive will show up here.',
+      compact: true,
     );
   }
 }
@@ -799,18 +790,5 @@ class _SectionHeader extends StatelessWidget {
   const _SectionHeader(this.label);
 
   @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 6),
-      child: Text(
-        label,
-        style: const TextStyle(
-          fontSize: 13,
-          fontWeight: FontWeight.w700,
-          letterSpacing: 0.4,
-          color: Colors.grey,
-        ),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => SectionHeader(label);
 }

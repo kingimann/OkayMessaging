@@ -71,6 +71,7 @@ import 'package:okay_messaging/state/status_store.dart';
 import 'package:okay_messaging/state/chat_store.dart';
 import 'package:okay_messaging/state/gif_service.dart';
 import 'package:okay_messaging/state/legal_consent.dart';
+import 'package:okay_messaging/widgets/empty_state.dart';
 import 'package:okay_messaging/screens/home_screen.dart';
 import 'package:okay_messaging/widgets/app_dialogs.dart';
 import 'package:image/image.dart' as img;
@@ -7736,6 +7737,27 @@ void main() {
       expect(find.text('Continue as Ada'), findsNothing);
       expect(find.widgetWithText(TextFormField, 'Ada Lovelace'),
           findsOneWidget);
+    });
+  });
+
+  group('Unified empty states', () {
+    testWidgets('blank screens share one look', (tester) async {
+      ChatStore.instance.clearAll();
+      await tester.pumpWidget(
+          const MaterialApp(home: Scaffold(body: ChatsTab())));
+      await tester.pumpAndSettle();
+      expect(find.byType(EmptyState), findsOneWidget);
+      expect(find.text('No chats yet'), findsOneWidget);
+
+      CallLog.instance.resetForTest();
+      await tester.pumpWidget(
+          const MaterialApp(home: Scaffold(body: CallsTab())));
+      await tester.pumpAndSettle();
+      expect(find.byType(EmptyState), findsOneWidget);
+      expect(find.text('No recent calls'), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
     });
   });
 }

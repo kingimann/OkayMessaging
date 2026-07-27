@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../state/chat_store.dart';
 import '../theme/app_theme.dart';
 import '../utils/date_formatter.dart';
+import '../widgets/empty_state.dart';
 import '../widgets/pull_to_refresh.dart';
 import '../widgets/user_avatar.dart';
 
@@ -65,25 +66,10 @@ class _EmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.star_border, size: 72, color: Colors.grey.shade400),
-          const SizedBox(height: 12),
-          const Text('No starred messages',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-          const SizedBox(height: 6),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 40),
-            child: Text(
-              'Tap and hold any message, then tap the star to keep it here.',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.grey.shade600),
-            ),
-          ),
-        ],
-      ),
+    return const EmptyState(
+      icon: Icons.star_border,
+      title: 'No starred messages',
+      caption: 'Tap and hold any message, then tap the star to keep it here.',
     );
   }
 }

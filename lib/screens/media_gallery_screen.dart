@@ -5,6 +5,7 @@ import '../state/chat_store.dart';
 import '../theme/app_theme.dart';
 import '../utils/date_formatter.dart';
 import '../widgets/chat_photo.dart';
+import '../widgets/empty_state.dart';
 import '../widgets/linkable_text.dart';
 import '../widgets/pull_to_refresh.dart';
 import 'image_view_screen.dart';
@@ -182,15 +183,10 @@ class _EmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 56, color: Colors.grey.shade400),
-          const SizedBox(height: 12),
-          Text(label, style: TextStyle(color: Colors.grey.shade600)),
-        ],
-      ),
+    return EmptyState(
+      icon: icon,
+      title: label,
+      caption: 'Everything shared in this chat collects here.',
     );
   }
 }

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../app_state.dart';
 import '../models/user.dart';
 import '../state/chat_store.dart';
+import '../widgets/empty_state.dart';
 import '../widgets/pull_to_refresh.dart';
 import '../widgets/user_avatar.dart';
 
@@ -74,30 +75,11 @@ class BlockedContactsScreen extends StatelessWidget {
   }
 
   Widget _empty(BuildContext context) {
-    final grey = Colors.grey.shade500;
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(40),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.block, size: 60, color: grey),
-            const SizedBox(height: 16),
-            Text('No blocked contacts',
-                style: TextStyle(
-                    fontSize: 17,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.grey.shade700)),
-            const SizedBox(height: 6),
-            Text(
-              'Blocked people can\'t call or message you.\n'
-              'Block someone from their contact info.',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: grey, height: 1.4),
-            ),
-          ],
-        ),
-      ),
+    return const EmptyState(
+      icon: Icons.block,
+      title: 'No blocked contacts',
+      caption: 'Blocked people can\'t call or message you. '
+          'Block someone from their contact info.',
     );
   }
 }

@@ -11,6 +11,7 @@ import '../state/chat_store.dart';
 import '../state/contacts_sync.dart';
 import '../state/onboarding_store.dart';
 import '../theme/app_theme.dart';
+import '../widgets/empty_state.dart';
 import '../widgets/pull_to_refresh.dart';
 import '../widgets/chat_list_tile.dart';
 
@@ -283,7 +284,6 @@ class _EmptyFilter extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final grey = Colors.grey.shade500;
     final (IconData icon, String text) = switch (filter) {
       ChatFilter.unread => (Icons.mark_chat_read_outlined, 'No unread chats'),
       ChatFilter.favorites => (
@@ -296,17 +296,11 @@ class _EmptyFilter extends StatelessWidget {
     return ListView(
       physics: const AlwaysScrollableScrollPhysics(),
       children: [
-        const SizedBox(height: 120),
-        Icon(icon, size: 56, color: grey),
-        const SizedBox(height: 12),
-        Text(
-          text,
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w600,
-            color: Colors.grey.shade600,
-          ),
+        const SizedBox(height: 90),
+        EmptyState(
+          icon: icon,
+          title: text,
+          caption: 'Chats matching this filter will show up here.',
         ),
       ],
     );
@@ -442,32 +436,11 @@ class _EmptyChats extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final grey = Colors.grey.shade500;
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(40),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.chat_bubble_outline, size: 64, color: grey),
-            const SizedBox(height: 16),
-            Text(
-              'No chats yet',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w600,
-                color: Colors.grey.shade700,
-              ),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              'Tap the compose button to start a private,\nencrypted conversation.',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: grey, height: 1.4),
-            ),
-          ],
-        ),
-      ),
+    return const EmptyState(
+      icon: Icons.chat_bubble_outline,
+      title: 'No chats yet',
+      caption: 'Tap the compose button to start a private, '
+          'encrypted conversation.',
     );
   }
 }

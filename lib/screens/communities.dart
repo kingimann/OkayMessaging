@@ -13,6 +13,7 @@ import '../theme/app_theme.dart';
 import '../utils/date_formatter.dart';
 import '../widgets/app_dialogs.dart';
 import '../widgets/emoji_gif_sheet.dart';
+import '../widgets/empty_state.dart';
 import '../widgets/pull_to_refresh.dart';
 import '../widgets/poll_widgets.dart';
 import '../widgets/rich_message_text.dart';
@@ -1582,27 +1583,11 @@ class _Empty extends StatelessWidget {
   const _Empty();
   @override
   Widget build(BuildContext context) {
-    final grey = Colors.grey.shade500;
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(40),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.groups_outlined, size: 64, color: grey),
-            const SizedBox(height: 16),
-            Text('No communities yet',
-                style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.grey.shade700)),
-            const SizedBox(height: 6),
-            Text('Create a community to organise channels\nwith friends or a team.',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: grey, height: 1.4)),
-          ],
-        ),
-      ),
+    return const EmptyState(
+      icon: Icons.groups_outlined,
+      title: 'No communities yet',
+      caption:
+          'Create a community to organise channels with friends or a team.',
     );
   }
 }

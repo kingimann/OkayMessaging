@@ -32,8 +32,25 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen>
+    with SingleTickerProviderStateMixin {
   int _index = 0;
+
+  /// Runs a quick fade-in whenever the visible tab changes.
+  late final AnimationController _tabFadeController = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 200),
+    value: 1,
+  );
+  late final Animation<double> _tabFade = _tabFadeController
+      .drive(CurveTween(curve: Curves.easeOut))
+      .drive(Tween(begin: 0.35, end: 1.0));
+
+  @override
+  void dispose() {
+    _tabFadeController.dispose();
+    super.dispose();
+  }
 
   void _onMenuSelected(String value) {
     switch (value) {
@@ -126,15 +143,20 @@ class _HomeScreenState extends State<HomeScreen> {
       // Let the content flow behind the floating glass bar so it blurs through.
       extendBody: true,
       drawer: const _AppSideBar(),
-      body: IndexedStack(
-        index: _index,
-        children: const [
-          ChatsTab(),
-          CommunitiesTab(),
-          CallsTab(),
-          ActivityTab(),
-          ProfileView(),
-        ],
+      // Tabs keep their state in an IndexedStack; switching softly fades the
+      // incoming tab in rather than hard-cutting.
+      body: FadeTransition(
+        opacity: _tabFade,
+        child: IndexedStack(
+          index: _index,
+          children: const [
+            ChatsTab(),
+            CommunitiesTab(),
+            CallsTab(),
+            ActivityTab(),
+            ProfileView(),
+          ],
+        ),
       ),
       bottomNavigationBar: ListenableBuilder(
         listenable:
@@ -152,6 +174,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _onSelectTab(int i) {
+    if (i != _index) _tabFadeController.forward(from: 0);
     setState(() => _index = i);
     // Opening the Calls tab clears the missed-call badge.
     if (i == 2) CallLog.instance.markSeen();
