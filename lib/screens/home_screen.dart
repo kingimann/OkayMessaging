@@ -15,6 +15,7 @@ import 'chat_search_delegate.dart';
 import 'communities.dart';
 import 'explore_map_screen.dart';
 import 'new_chat_screen.dart';
+import 'profile_screen.dart';
 import 'settings_screen.dart';
 import 'edit_profile_screen.dart';
 import 'starred_messages_screen.dart';
@@ -109,6 +110,14 @@ class _HomeScreenState extends State<HomeScreen> {
               icon: const Icon(Icons.add),
               tooltip: 'New community',
               onPressed: () => createCommunityFlow(context),
+            )
+          else if (_index == 4)
+            IconButton(
+              icon: const Icon(Icons.settings_outlined),
+              tooltip: 'Settings',
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const SettingsScreen()),
+              ),
             ),
         ],
       ),
@@ -122,7 +131,7 @@ class _HomeScreenState extends State<HomeScreen> {
           CommunitiesTab(),
           CallsTab(),
           ActivityTab(),
-          SettingsView(),
+          ProfileView(),
         ],
       ),
       bottomNavigationBar: ListenableBuilder(

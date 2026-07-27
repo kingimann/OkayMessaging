@@ -353,8 +353,8 @@ void main() {
     await tester.tap(find.byIcon(Icons.person_outline));
     await tester.pumpAndSettle();
 
-    // Open the profile card (the first tile in the You/Settings tab).
-    await tester.tap(find.byType(ListTile).first);
+    // The You tab is a social profile now; edit opens from its button.
+    await tester.tap(find.text('Edit profile'));
     await tester.pumpAndSettle();
 
     await tester.enterText(find.byType(TextField).first, 'Ada Lovelace');
@@ -392,6 +392,8 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.tap(find.byIcon(Icons.person_outline));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Settings'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Chats & appearance'));
     await tester.pumpAndSettle();
@@ -2089,6 +2091,8 @@ void main() {
 
     await tester.tap(find.byIcon(Icons.person_outline));
     await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Settings'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Privacy & security'));
     await tester.pumpAndSettle();
 
@@ -2205,6 +2209,8 @@ void main() {
 
     await tester.tap(find.byIcon(Icons.person_outline));
     await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Settings'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Privacy & security'));
     await tester.pumpAndSettle();
 
@@ -2226,6 +2232,8 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.tap(find.byIcon(Icons.person_outline));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Settings'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Privacy & security'));
     await tester.pumpAndSettle();
@@ -2288,6 +2296,8 @@ void main() {
 
     await tester.tap(find.byIcon(Icons.person_outline));
     await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Settings'));
+    await tester.pumpAndSettle();
 
     // The hub shows grouped entry points into the sub-screens.
     expect(find.text('Privacy & security'), findsOneWidget);
@@ -2316,7 +2326,7 @@ void main() {
 
     await tester.tap(find.byIcon(Icons.person_outline));
     await tester.pumpAndSettle();
-    await tester.tap(find.byType(ListTile).first); // profile card
+    await tester.tap(find.text('Edit profile'));
     await tester.pumpAndSettle();
 
     // The enhanced editor exposes the avatar-color picker and username field.
@@ -2355,6 +2365,8 @@ void main() {
     expect(ChatStore.instance.chats, isNotEmpty);
 
     await tester.tap(find.byIcon(Icons.person_outline));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Settings'));
     await tester.pumpAndSettle();
 
     final tile = find.text('Storage and data');
