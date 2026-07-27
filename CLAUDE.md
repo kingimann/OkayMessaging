@@ -123,6 +123,13 @@ copies of the Edge Functions), `docs/supabase_setup.sql`.
   until the user enables the Push capability on the `com.okaymessaging` App
   ID, deletes the stale provisioning profile, creates an APNs key, and sets
   the `APNS_*` Edge Function secrets.
+- **Default messaging app (iOS 18.2+)**: entitlement
+  (`com.apple.developer.messaging-app`), `im:` scheme, scene-delegate →
+  `okay/links` channel → `openChatForPhone` are all wired. If the IPA export
+  fails with "profile doesn't include entitlement", the App ID needs the
+  Default Messaging capability enabled in the developer portal (same visit
+  as the Push toggle) and the old profile deleted so Codemagic mints a
+  fresh one.
 - **Payments**: Stripe publishable key is wired; the Edge Functions still
   need deploying with `STRIPE_SECRET_KEY` set.
 - **GIFs**: the picker is built and tested, but GIF *search* needs a free
