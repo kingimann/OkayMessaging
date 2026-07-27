@@ -548,36 +548,49 @@ class RelayService {
         'Content-Type': 'application/json',
       };
 
-  /// Queues one sealed envelope for an offline recipient. Fire-and-forget:
-  /// a missing table (setup SQL not applied yet) just means live-only.
+  /// Queues one sealed envelope for an offline recipient, tagged with the
+  /// broadcast [event] it mirrors. Fire-and-forget: a missing table (setup
+  /// SQL not applied yet) just means live-only.
   Future<void> _mailboxPut(
-      String contactPhone, Map<String, dynamic> payload) async {
+      String contactPhone, Map<String, dynamic> payload,
+      {String event = 'msg'}) async {
     try {
       await http
           .post(
             Uri.parse('${RelayConfig.supabaseUrl}/rest/v1/$mailboxTable'),
             headers: _restHeaders,
-            body: jsonEncode(
-                {'inbox': digits(contactPhone), 'payload': payload}),
+            body: jsonEncode({
+              'inbox': digits(contactPhone),
+              'payload': {'e': event, 'p': payload},
+            }),
           )
           .timeout(const Duration(seconds: 10));
     } catch (_) {}
   }
 
-  /// Pure: the payload maps out of fetched mailbox rows (jsonb arrives as a
-  /// map; a stringified payload is tolerated).
-  static List<Map<String, dynamic>> mailboxPayloads(List<dynamic> rows) {
-    final out = <Map<String, dynamic>>[];
+  /// Pure: unwraps fetched mailbox rows into (event, payload) pairs. Typed
+  /// rows carry {'e': event, 'p': payload}; anything unwrapped is a plain
+  /// message from before events were queued. Junk rows drop out.
+  static List<(String, Map<String, dynamic>)> mailboxEntries(
+      List<dynamic> rows) {
+    final out = <(String, Map<String, dynamic>)>[];
     for (final row in rows) {
       if (row is! Map) continue;
-      final p = row['payload'];
-      if (p is Map) {
-        out.add(Map<String, dynamic>.from(p));
-      } else if (p is String) {
+      var p = row['payload'];
+      if (p is String) {
         try {
-          final decoded = jsonDecode(p);
-          if (decoded is Map) out.add(Map<String, dynamic>.from(decoded));
-        } catch (_) {}
+          p = jsonDecode(p);
+        } catch (_) {
+          continue;
+        }
+      }
+      if (p is! Map) continue;
+      final inner = p['p'];
+      final event = p['e'];
+      if (event is String && inner is Map) {
+        out.add((event, Map<String, dynamic>.from(inner)));
+      } else {
+        out.add(('msg', Map<String, dynamic>.from(p)));
       }
     }
     return out;
@@ -604,9 +617,19 @@ class RelayService {
       if (res.statusCode >= 300) return; // table missing or unreachable
       final rows = jsonDecode(res.body);
       if (rows is! List) return;
-      for (final payload in mailboxPayloads(rows)) {
+      for (final (event, payload) in mailboxEntries(rows)) {
         try {
-          _onInboxMessage(payload, myPhone: me);
+          switch (event) {
+            case 'msg':
+              _onInboxMessage(payload, myPhone: me);
+            case 'receipt':
+              applyReceipt(payload, myPhone: me);
+            case 'edit' || 'delete' || 'reaction' || 'poll' || 'payst' ||
+                  'vopen':
+              applyMessageEvent(event, payload, myPhone: me);
+            case 'gupd':
+              applyGroupUpdate(payload, myPhone: me);
+          }
         } catch (_) {
           // A corrupt envelope must not wedge the queue — it gets deleted
           // with the rest below.
@@ -1229,18 +1252,26 @@ class RelayService {
   String? _currentCallId;
   set currentCallId(String? id) => _currentCallId = id;
 
+  /// Broadcasts [event] to [contactPhone]'s inbox live AND queues the same
+  /// payload in their offline mailbox, so edits, deletes, reactions, votes
+  /// and receipts survive the peer being away exactly like messages do.
+  Future<void> _sendInboxEvent(
+      String contactPhone, String event, Map<String, dynamic> payload) async {
+    final name = inboxChannel(contactPhone);
+    final channel =
+        _sendChannels.putIfAbsent(name, () => _client.channel(name));
+    await channel.sendBroadcastMessage(event: event, payload: payload);
+    _mailboxPut(contactPhone, payload, event: event);
+  }
+
   /// Broadcasts a reaction change on message [messageId] to [contactPhone].
   Future<void> sendReaction(
       String contactPhone, String messageId, String emoji, bool add) async {
     if (!_initialized) return;
     final me = Session.instance.user.value;
     if (me == null) return;
-    final channel = _sendChannels.putIfAbsent(
-        inboxChannel(contactPhone), () => _client.channel(inboxChannel(contactPhone)));
-    await channel.sendBroadcastMessage(
-      event: 'reaction',
-      payload: {'from': me.phone, 'id': messageId, 'emoji': emoji, 'add': add},
-    );
+    await _sendInboxEvent(contactPhone, 'reaction',
+        {'from': me.phone, 'id': messageId, 'emoji': emoji, 'add': add});
   }
 
   /// Broadcasts a poll vote on [messageId] to [contactPhone]: increments
@@ -1251,17 +1282,12 @@ class RelayService {
     if (!_initialized) return;
     final me = Session.instance.user.value;
     if (me == null) return;
-    final channel = _sendChannels.putIfAbsent(inboxChannel(contactPhone),
-        () => _client.channel(inboxChannel(contactPhone)));
-    await channel.sendBroadcastMessage(
-      event: 'poll',
-      payload: {
-        'from': me.phone,
-        'id': messageId,
-        'add': addOption,
-        'remove': removeOption,
-      },
-    );
+    await _sendInboxEvent(contactPhone, 'poll', {
+      'from': me.phone,
+      'id': messageId,
+      'add': addOption,
+      'remove': removeOption,
+    });
   }
 
   /// Broadcasts a payment lifecycle change ('paid'/'failed') for the receipt
@@ -1271,12 +1297,8 @@ class RelayService {
     if (!_initialized) return;
     final me = Session.instance.user.value;
     if (me == null) return;
-    final channel = _sendChannels.putIfAbsent(inboxChannel(contactPhone),
-        () => _client.channel(inboxChannel(contactPhone)));
-    await channel.sendBroadcastMessage(
-      event: 'payst',
-      payload: {'from': me.phone, 'id': messageId, 'status': status},
-    );
+    await _sendInboxEvent(contactPhone, 'payst',
+        {'from': me.phone, 'id': messageId, 'status': status});
   }
 
   /// Broadcasts an edit of message [messageId] to [contactPhone].
@@ -1285,12 +1307,8 @@ class RelayService {
     if (!_initialized) return;
     final me = Session.instance.user.value;
     if (me == null) return;
-    final channel = _sendChannels.putIfAbsent(
-        inboxChannel(contactPhone), () => _client.channel(inboxChannel(contactPhone)));
-    await channel.sendBroadcastMessage(
-      event: 'edit',
-      payload: {'from': me.phone, 'id': messageId, 'text': newText},
-    );
+    await _sendInboxEvent(contactPhone, 'edit',
+        {'from': me.phone, 'id': messageId, 'text': newText});
   }
 
   /// Broadcasts a delete-for-everyone of message [messageId] to [contactPhone].
@@ -1298,12 +1316,8 @@ class RelayService {
     if (!_initialized) return;
     final me = Session.instance.user.value;
     if (me == null) return;
-    final channel = _sendChannels.putIfAbsent(
-        inboxChannel(contactPhone), () => _client.channel(inboxChannel(contactPhone)));
-    await channel.sendBroadcastMessage(
-      event: 'delete',
-      payload: {'from': me.phone, 'id': messageId},
-    );
+    await _sendInboxEvent(
+        contactPhone, 'delete', {'from': me.phone, 'id': messageId});
   }
 
   /// Tells [contactPhone] that their "view once" photo [messageId] was opened,
@@ -1313,12 +1327,8 @@ class RelayService {
     if (!_initialized) return;
     final me = Session.instance.user.value;
     if (me == null) return;
-    final channel = _sendChannels.putIfAbsent(
-        inboxChannel(contactPhone), () => _client.channel(inboxChannel(contactPhone)));
-    await channel.sendBroadcastMessage(
-      event: 'vopen',
-      payload: {'from': me.phone, 'id': messageId},
-    );
+    await _sendInboxEvent(
+        contactPhone, 'vopen', {'from': me.phone, 'id': messageId});
   }
 
   /// Sends a delivery/read receipt ('delivered' or 'read') to [contactPhone].
@@ -1327,19 +1337,13 @@ class RelayService {
     if (!_initialized || digits(contactPhone).isEmpty) return;
     final me = Session.instance.user.value;
     if (me == null) return;
-    final name = inboxChannel(contactPhone);
-    final channel =
-        _sendChannels.putIfAbsent(name, () => _client.channel(name));
-    await channel.sendBroadcastMessage(
-      event: 'receipt',
-      // Naming the acknowledged message routes the receipt to the right
-      // conversation — essential once the same person shares a group with you.
-      payload: {
-        'from': me.phone,
-        'kind': kind,
-        if (messageId != null) 'id': messageId,
-      },
-    );
+    // Naming the acknowledged message routes the receipt to the right
+    // conversation — essential once the same person shares a group with you.
+    await _sendInboxEvent(contactPhone, 'receipt', {
+      'from': me.phone,
+      'kind': kind,
+      if (messageId != null) 'id': messageId,
+    });
   }
 
   /// Parses an incoming 'loc' payload into the sender's digits and position,
@@ -1516,18 +1520,12 @@ class RelayService {
         c = E2eCrypto.encrypt(E2eCrypto.keyFor(me.phone, phone), blob);
         enc = 1;
       }
-      final name = inboxChannel(phone);
-      final channel =
-          _sendChannels.putIfAbsent(name, () => _client.channel(name));
-      await channel.sendBroadcastMessage(
-        event: 'gupd',
-        payload: {
-          'from': me.phone,
-          'c': c,
-          'enc': enc,
-          if (spk != null) 'spk': spk,
-        },
-      );
+      await _sendInboxEvent(phone, 'gupd', {
+        'from': me.phone,
+        'c': c,
+        'enc': enc,
+        if (spk != null) 'spk': spk,
+      });
     }
   }
 

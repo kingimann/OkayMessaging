@@ -3844,19 +3844,38 @@ void main() {
           isTrue);
     });
 
-    test('mailbox rows yield their sealed payloads, tolerating junk', () {
+    test('mailbox rows route by event and tolerate junk', () {
       final rows = [
-        {'id': 1, 'payload': {'id': 'm1', 'from': '+15550100', 'c': 'AAA='}},
-        {'id': 2, 'payload': '{"id":"m2","from":"+15550100","c":"BBB="}'},
-        {'id': 3, 'payload': 42}, // corrupt — skipped, never wedges the queue
+        // Typed rows: messages, receipts, edits all queue offline now.
+        {
+          'id': 1,
+          'payload': {
+            'e': 'msg',
+            'p': {'id': 'm1', 'from': '+15550100', 'c': 'AAA='}
+          }
+        },
+        {
+          'id': 2,
+          'payload': {
+            'e': 'receipt',
+            'p': {'from': '+15550100', 'kind': 'delivered', 'id': 'm1'}
+          }
+        },
+        // A legacy row from before events were queued reads as a message.
+        {'id': 3, 'payload': '{"id":"m2","from":"+15550100","c":"BBB="}'},
+        {'id': 4, 'payload': 42}, // corrupt — skipped, never wedges the queue
         'not even a map',
       ];
-      final payloads = RelayService.mailboxPayloads(rows);
-      expect(payloads, hasLength(2));
-      expect(payloads[0]['id'], 'm1');
-      expect(payloads[1]['id'], 'm2');
-      // The envelope in the row is ciphertext, same as the live broadcast.
-      expect(payloads[0].containsKey('text'), isFalse);
+      final entries = RelayService.mailboxEntries(rows);
+      expect(entries, hasLength(3));
+      expect(entries[0].$1, 'msg');
+      expect(entries[0].$2['id'], 'm1');
+      expect(entries[1].$1, 'receipt');
+      expect(entries[1].$2['kind'], 'delivered');
+      expect(entries[2].$1, 'msg');
+      expect(entries[2].$2['id'], 'm2');
+      // Envelopes stay ciphertext, same as the live broadcast.
+      expect(entries[0].$2.containsKey('text'), isFalse);
     });
 
     test('im: links (default messaging app) parse and open the right chat',
