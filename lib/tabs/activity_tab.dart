@@ -8,6 +8,7 @@ import '../state/feed_store.dart';
 import '../screens/chat_screen.dart';
 import '../screens/feed_screen.dart';
 import '../utils/date_formatter.dart';
+import '../widgets/pull_to_refresh.dart';
 import '../widgets/user_avatar.dart';
 
 /// What the notifications list is scoped to.
@@ -109,114 +110,116 @@ class _ActivityTabState extends State<ActivityTab> {
             ),
             Expanded(
               child: !somethingVisible
-                  ? _empty(context)
-                  : ListView(
-                      padding: const EdgeInsets.only(bottom: 96),
-                      children: [
-                        if (showMessages && unread.isNotEmpty) ...[
-                          _sectionLabel(context, 'NEW MESSAGES'),
-                          for (final chat in unread)
-                            Dismissible(
-                              key: ValueKey('unread_${chat.id}'),
-                              direction: DismissDirection.endToStart,
-                              background: _dismissBg(),
-                              // Swiping away = mark read (the chat stays).
-                              onDismissed: (_) =>
-                                  ChatStore.instance.markRead(chat.id),
-                              child: ListTile(
-                                leading:
-                                    UserAvatar(user: chat.contact, radius: 22),
-                                title: Text(chat.contact.name,
+                  ? PullToRefresh.emptyState(child: _empty(context))
+                  : PullToRefresh(
+                    child: ListView(
+                        padding: const EdgeInsets.only(bottom: 96),
+                        children: [
+                          if (showMessages && unread.isNotEmpty) ...[
+                            _sectionLabel(context, 'NEW MESSAGES'),
+                            for (final chat in unread)
+                              Dismissible(
+                                key: ValueKey('unread_${chat.id}'),
+                                direction: DismissDirection.endToStart,
+                                background: _dismissBg(),
+                                // Swiping away = mark read (the chat stays).
+                                onDismissed: (_) =>
+                                    ChatStore.instance.markRead(chat.id),
+                                child: ListTile(
+                                  leading:
+                                      UserAvatar(user: chat.contact, radius: 22),
+                                  title: Text(chat.contact.name,
+                                      style: const TextStyle(
+                                          fontWeight: FontWeight.w600)),
+                                  subtitle: Text(
+                                    chat.messages.isEmpty
+                                        ? 'New messages'
+                                        : chat.messages.last.text.isEmpty
+                                            ? 'New message'
+                                            : chat.messages.last.text,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  trailing: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 8, vertical: 3),
+                                    decoration: BoxDecoration(
+                                      color:
+                                          Theme.of(context).colorScheme.primary,
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: Text(
+                                      '${chat.unreadCount}',
+                                      style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w700),
+                                    ),
+                                  ),
+                                  onTap: () => _openChat(context, chat),
+                                ),
+                              ),
+                          ],
+                          if (showCalls && missed.isNotEmpty) ...[
+                            _sectionLabel(context, 'MISSED CALLS'),
+                            for (final r in missed)
+                              ListTile(
+                                leading: UserAvatar(user: r.user, radius: 22),
+                                title: Text(r.user.name,
                                     style: const TextStyle(
                                         fontWeight: FontWeight.w600)),
-                                subtitle: Text(
-                                  chat.messages.isEmpty
-                                      ? 'New messages'
-                                      : chat.messages.last.text.isEmpty
-                                          ? 'New message'
-                                          : chat.messages.last.text,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
+                                subtitle: Text('Missed ${r.type.name} call · '
+                                    '${DateFormatter.callLabel(r.time)}'),
+                                trailing: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(Icons.call_missed,
+                                        color: Colors.red),
+                                    IconButton(
+                                      icon: const Icon(Icons.call),
+                                      tooltip: 'Call back',
+                                      onPressed: () => CallService.instance
+                                          .startOutgoing(r.user, video: false),
+                                    ),
+                                  ],
                                 ),
-                                trailing: Container(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 8, vertical: 3),
-                                  decoration: BoxDecoration(
-                                    color:
-                                        Theme.of(context).colorScheme.primary,
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  child: Text(
-                                    '${chat.unreadCount}',
+                                onTap: () {
+                                  final chat = ChatStore.instance
+                                      .chatWithContact(r.user.id);
+                                  if (chat != null) _openChat(context, chat);
+                                },
+                              ),
+                          ],
+                          if (showServers && posts.isNotEmpty) ...[
+                            _sectionLabel(context, 'NEW IN YOUR SERVERS'),
+                            for (final p in posts)
+                              ListTile(
+                                leading: CircleAvatar(
+                                  radius: 22,
+                                  child: Text(p.authorName.isEmpty
+                                      ? '?'
+                                      : p.authorName[0].toUpperCase()),
+                                ),
+                                title: Text(p.authorName,
                                     style: const TextStyle(
-                                        color: Colors.white,
+                                        fontWeight: FontWeight.w600)),
+                                subtitle: Text(p.text,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis),
+                                trailing: Text(DateFormatter.callLabel(p.time),
+                                    style: TextStyle(
                                         fontSize: 12,
-                                        fontWeight: FontWeight.w700),
-                                  ),
+                                        color: Colors.grey.shade500)),
+                                onTap: () => Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                      builder: (_) =>
+                                          FeedPostScreen(postId: p.id)),
                                 ),
-                                onTap: () => _openChat(context, chat),
                               ),
-                            ),
+                          ],
                         ],
-                        if (showCalls && missed.isNotEmpty) ...[
-                          _sectionLabel(context, 'MISSED CALLS'),
-                          for (final r in missed)
-                            ListTile(
-                              leading: UserAvatar(user: r.user, radius: 22),
-                              title: Text(r.user.name,
-                                  style: const TextStyle(
-                                      fontWeight: FontWeight.w600)),
-                              subtitle: Text('Missed ${r.type.name} call · '
-                                  '${DateFormatter.callLabel(r.time)}'),
-                              trailing: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  const Icon(Icons.call_missed,
-                                      color: Colors.red),
-                                  IconButton(
-                                    icon: const Icon(Icons.call),
-                                    tooltip: 'Call back',
-                                    onPressed: () => CallService.instance
-                                        .startOutgoing(r.user, video: false),
-                                  ),
-                                ],
-                              ),
-                              onTap: () {
-                                final chat = ChatStore.instance
-                                    .chatWithContact(r.user.id);
-                                if (chat != null) _openChat(context, chat);
-                              },
-                            ),
-                        ],
-                        if (showServers && posts.isNotEmpty) ...[
-                          _sectionLabel(context, 'NEW IN YOUR SERVERS'),
-                          for (final p in posts)
-                            ListTile(
-                              leading: CircleAvatar(
-                                radius: 22,
-                                child: Text(p.authorName.isEmpty
-                                    ? '?'
-                                    : p.authorName[0].toUpperCase()),
-                              ),
-                              title: Text(p.authorName,
-                                  style: const TextStyle(
-                                      fontWeight: FontWeight.w600)),
-                              subtitle: Text(p.text,
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis),
-                              trailing: Text(DateFormatter.callLabel(p.time),
-                                  style: TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.grey.shade500)),
-                              onTap: () => Navigator.of(context).push(
-                                MaterialPageRoute(
-                                    builder: (_) =>
-                                        FeedPostScreen(postId: p.id)),
-                              ),
-                            ),
-                        ],
-                      ],
-                    ),
+                      ),
+                  ),
             ),
           ],
         );

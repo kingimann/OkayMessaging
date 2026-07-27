@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/chat.dart';
 import '../state/chat_store.dart';
 import '../widgets/chat_list_tile.dart';
+import '../widgets/pull_to_refresh.dart';
 import 'chat_screen.dart';
 
 /// Shows conversations the user has archived, with an unarchive action.
@@ -73,23 +74,25 @@ class ArchivedChatsScreen extends StatelessWidget {
               ),
             );
           }
-          return ListView.separated(
-            itemCount: archived.length,
-            separatorBuilder: (_, __) => const Divider(
-              height: 1,
-              indent: 84,
-              thickness: 0.4,
+          return PullToRefresh(
+            child: ListView.separated(
+              itemCount: archived.length,
+              separatorBuilder: (_, __) => const Divider(
+                height: 1,
+                indent: 84,
+                thickness: 0.4,
+              ),
+              itemBuilder: (context, index) {
+                final chat = archived[index];
+                return ChatListTile(
+                  chat: chat,
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => ChatScreen(chat: chat)),
+                  ),
+                  onLongPress: () => _showActions(context, chat),
+                );
+              },
             ),
-            itemBuilder: (context, index) {
-              final chat = archived[index];
-              return ChatListTile(
-                chat: chat,
-                onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => ChatScreen(chat: chat)),
-                ),
-                onLongPress: () => _showActions(context, chat),
-              );
-            },
           );
         },
       ),

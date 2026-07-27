@@ -7,6 +7,7 @@ import '../models/chat.dart';
 import '../models/user.dart';
 import '../state/chat_store.dart';
 import '../state/contacts_sync.dart';
+import '../widgets/pull_to_refresh.dart';
 import '../widgets/user_avatar.dart';
 import 'chat_screen.dart';
 import 'contacts_on_app_screen.dart';
@@ -123,62 +124,64 @@ class NewChatScreen extends StatelessWidget {
     final contacts = kReleaseMode ? <AppUser>[] : MockData.contacts();
     return Scaffold(
       appBar: AppBar(title: const Text('New chat')),
-      body: ListView(
-        children: [
-          _ActionTile(
-            icon: Icons.edit_note,
-            label: 'Note to self',
-            onTap: () => _openNoteToSelf(context),
-          ),
-          _ActionTile(
-            icon: Icons.alternate_email,
-            label: 'Find people by username',
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const FindPeopleScreen()),
-            ),
-          ),
-          if (ContactsSync.instance.supported)
+      body: PullToRefresh(
+        child: ListView(
+          children: [
             _ActionTile(
-              icon: Icons.contacts_outlined,
-              label: 'Find contacts on OkayMessenger',
+              icon: Icons.edit_note,
+              label: 'Note to self',
+              onTap: () => _openNoteToSelf(context),
+            ),
+            _ActionTile(
+              icon: Icons.alternate_email,
+              label: 'Find people by username',
               onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const ContactsOnAppScreen()),
+                MaterialPageRoute(builder: (_) => const FindPeopleScreen()),
               ),
             ),
-          _ActionTile(
-            icon: Icons.dialpad,
-            label: 'Chat with a number',
-            onTap: () => _startByNumber(context),
-          ),
-          _ActionTile(
-            icon: Icons.group,
-            label: 'New group',
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const CreateGroupScreen()),
+            if (ContactsSync.instance.supported)
+              _ActionTile(
+                icon: Icons.contacts_outlined,
+                label: 'Find contacts on OkayMessenger',
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const ContactsOnAppScreen()),
+                ),
+              ),
+            _ActionTile(
+              icon: Icons.dialpad,
+              label: 'Chat with a number',
+              onTap: () => _startByNumber(context),
             ),
-          ),
-          const Padding(
-            padding: EdgeInsets.fromLTRB(16, 12, 16, 4),
-            child: Text(
-              'Contacts on OkayMessenger',
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: Colors.grey,
+            _ActionTile(
+              icon: Icons.group,
+              label: 'New group',
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const CreateGroupScreen()),
               ),
             ),
-          ),
-          ...contacts.map(
-            (c) => ListTile(
-              leading: UserAvatar(user: c, radius: 24),
-              title: Text(c.name,
-                  style: const TextStyle(fontWeight: FontWeight.w600)),
-              subtitle:
-                  Text(c.about, maxLines: 1, overflow: TextOverflow.ellipsis),
-              onTap: () => _startChat(context, c),
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16, 12, 16, 4),
+              child: Text(
+                'Contacts on OkayMessenger',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey,
+                ),
+              ),
             ),
-          ),
-        ],
+            ...contacts.map(
+              (c) => ListTile(
+                leading: UserAvatar(user: c, radius: 24),
+                title: Text(c.name,
+                    style: const TextStyle(fontWeight: FontWeight.w600)),
+                subtitle:
+                    Text(c.about, maxLines: 1, overflow: TextOverflow.ellipsis),
+                onTap: () => _startChat(context, c),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

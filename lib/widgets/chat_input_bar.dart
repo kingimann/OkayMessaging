@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import '../app_state.dart';
 import '../models/message.dart';
 import '../theme/app_theme.dart';
-import 'emoji_data.dart';
+import 'emoji_gif_sheet.dart';
 
 /// The bottom input area: an optional reply preview, an optional emoji picker,
 /// attachment icons, a text field and a send/mic button.
@@ -40,6 +40,9 @@ class ChatInputBar extends StatefulWidget {
   /// Names that can be @mentioned (group members). Empty disables mentions.
   final List<String> mentionNames;
 
+  /// Called with the chosen GIF's URL when one is picked from the picker.
+  final ValueChanged<String>? onSendGif;
+
   const ChatInputBar({
     super.key,
     required this.onSend,
@@ -53,6 +56,7 @@ class ChatInputBar extends StatefulWidget {
     this.onChanged,
     this.confirmSend,
     this.mentionNames = const [],
+    this.onSendGif,
   });
 
   @override
@@ -183,6 +187,18 @@ class _ChatInputBarState extends State<ChatInputBar> {
     if (scheduled) _controller.clear();
   }
 
+  /// Opens the picker on its GIF tab and hands the chosen GIF back up.
+  Future<void> _pickGif() async {
+    if (_emojiOpen) setState(() => _emojiOpen = false);
+    final picked = await showEmojiGifSheet(context, initialTab: 1);
+    if (picked == null) return;
+    if (picked.gif != null) {
+      widget.onSendGif?.call(picked.gif!.url);
+    } else if (picked.emoji != null) {
+      _insertEmoji(picked.emoji!);
+    }
+  }
+
   void _insertEmoji(String emoji) {
     final sel = _controller.selection;
     final text = _controller.text;
@@ -239,7 +255,7 @@ class _ChatInputBarState extends State<ChatInputBar> {
                 ? _buildRecordingBar(isDark, fieldColor)
                 : _buildComposer(isDark, fieldColor),
             if (_emojiOpen && !_recording)
-              _EmojiPicker(onSelected: _insertEmoji, isDark: isDark),
+              _EmojiPanel(onSelected: _insertEmoji, isDark: isDark),
           ],
         ),
       ),
@@ -294,6 +310,13 @@ class _ChatInputBarState extends State<ChatInputBar> {
                       ),
                     ),
                   ),
+                  if (widget.onSendGif != null)
+                    IconButton(
+                      icon: const Icon(Icons.gif_box_outlined),
+                      color: Colors.grey,
+                      tooltip: 'Send a GIF',
+                      onPressed: _pickGif,
+                    ),
                   IconButton(
                     icon: const Icon(Icons.attach_file),
                     color: Colors.grey,
@@ -488,30 +511,20 @@ class _ReplyPreview extends StatelessWidget {
   }
 }
 
-class _EmojiPicker extends StatelessWidget {
+/// The composer's inline emoji panel: the full catalog, searchable, in the
+/// space the keyboard would take.
+class _EmojiPanel extends StatelessWidget {
   final ValueChanged<String> onSelected;
   final bool isDark;
 
-  const _EmojiPicker({required this.onSelected, required this.isDark});
+  const _EmojiPanel({required this.onSelected, required this.isDark});
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 220,
+      height: 260,
       color: isDark ? AppColors.chatBgDark : const Color(0xFFF0F0F0),
-      child: GridView.count(
-        crossAxisCount: 8,
-        padding: const EdgeInsets.all(8),
-        children: [
-          for (final e in EmojiData.picker)
-            InkWell(
-              onTap: () => onSelected(e),
-              borderRadius: BorderRadius.circular(8),
-              child:
-                  Center(child: Text(e, style: const TextStyle(fontSize: 24))),
-            ),
-        ],
-      ),
+      child: EmojiPane(onPick: onSelected),
     );
   }
 }

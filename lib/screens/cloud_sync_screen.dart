@@ -3,9 +3,11 @@ import 'package:flutter/material.dart';
 import '../state/chat_store.dart';
 import 'cloud_sync_count.dart';
 import '../state/cloud_sync.dart';
+import '../state/community_store.dart';
 import '../state/feed_store.dart';
 import '../state/follow_store.dart';
 import '../state/saved_places_store.dart';
+import '../state/score_store.dart';
 import '../utils/date_formatter.dart';
 
 /// Settings for end-to-end encrypted cloud sync: everything is encrypted on
@@ -65,8 +67,9 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        'Chats, feed posts, follows, and saved places are '
-                        'encrypted on this device (AES-256-GCM, key derived '
+                        'Chats, feed posts, follows, saved places, your '
+                        'communities and your Okay Score are encrypted on '
+                        'this device (AES-256-GCM, key derived '
                         'from your passphrase) before upload. The server '
                         'only ever stores ciphertext it cannot read — and '
                         'if you lose the passphrase, nobody can recover the '
@@ -87,6 +90,8 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
                   FeedStore.instance,
                   FollowStore.instance,
                   SavedPlacesStore.instance,
+                  CommunityStore.instance,
+                  ScoreStore.instance,
                 ]),
                 builder: (context, _) {
                   final parts = <String>[
@@ -95,6 +100,9 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
                     backupCount(FollowStore.instance.followingCount, 'follow'),
                     backupCount(
                         SavedPlacesStore.instance.places.length, 'saved place'),
+                    backupCount(CommunityStore.instance.communities.length,
+                        'community', plural: 'communities'),
+                    '${ScoreStore.instance.points} score',
                   ];
                   return Row(
                     children: [

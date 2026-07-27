@@ -24,9 +24,11 @@ class Badge {
 }
 
 /// The Okay Score: a running activity tally (à la Snapchat's Snapscore) plus
-/// the badges it unlocks. Persisted on-device; nothing about it is stored on a
-/// server — your own score is broadcast to a contact only when you message
-/// them, exactly like your name.
+/// the badges it unlocks. Persisted on-device and — when cloud sync is set up
+/// — kept on the server too, encrypted on this device first, so the score and
+/// its badges survive a reinstall and follow you to a new phone. Your own
+/// score is broadcast to a contact only when you message them, exactly like
+/// your name.
 class ScoreStore extends ChangeNotifier {
   ScoreStore._();
   static final ScoreStore instance = ScoreStore._();
@@ -259,6 +261,28 @@ class ScoreStore extends ChangeNotifier {
   void setFeatured(String? badgeId) {
     if (badgeId != null && !isEarned(badgeId)) return;
     _featured = badgeId;
+    _persist();
+    notifyListeners();
+  }
+
+  /// The score as a portable document, for the encrypted server sync.
+  Map<String, dynamic> toJson() => {
+        'points': _points,
+        'flags': _flags.toList()..sort(),
+        'featured': _featured,
+      };
+
+  /// Restores a score document from the server. The points only ever move
+  /// up — a device that has been offline and earned more shouldn't be rolled
+  /// back by an older snapshot — and flags are merged, since an achievement
+  /// once earned is never lost.
+  void hydrate(Map<String, dynamic> json) {
+    final points = (json['points'] as num?)?.toInt() ?? 0;
+    if (points > _points) _points = points;
+    final flags = json['flags'];
+    if (flags is List) _flags.addAll(flags.whereType<String>());
+    final featured = json['featured'];
+    if (featured is String && _featured == null) _featured = featured;
     _persist();
     notifyListeners();
   }

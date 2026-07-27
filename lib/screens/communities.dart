@@ -11,6 +11,8 @@ import '../state/community_store.dart';
 import '../state/feed_store.dart';
 import '../theme/app_theme.dart';
 import '../utils/date_formatter.dart';
+import '../widgets/emoji_gif_sheet.dart';
+import '../widgets/pull_to_refresh.dart';
 import '../widgets/poll_widgets.dart';
 import '../widgets/rich_message_text.dart';
 import '../widgets/user_avatar.dart';
@@ -64,11 +66,9 @@ class CommunitiesTab extends StatefulWidget {
 class _CommunitiesTabState extends State<CommunitiesTab> {
   final TextEditingController _search = TextEditingController();
 
-  Future<void> _refresh() async {
-    // Local-first: just give the list a beat to refresh from the store.
-    CommunityStore.instance.touch();
-    await Future<void>.delayed(const Duration(milliseconds: 500));
-  }
+  /// Pulls the server's copy of the communities back down, then rebuilds.
+  Future<void> _refresh() => PullToRefresh.refreshApp(
+      extra: () async => CommunityStore.instance.touch());
 
   @override
   void dispose() {
@@ -902,18 +902,48 @@ class _ChannelScreenState extends State<ChannelScreen> {
   void _send() {
     final text = _controller.text.trim();
     if (text.isEmpty) return;
-    CommunityStore.instance.postMessage(
-      widget.communityId,
-      widget.channelId,
-      Message(
+    _post(Message(
+      id: 'ch_${DateTime.now().microsecondsSinceEpoch}',
+      text: text,
+      time: DateTime.now(),
+      isMe: true,
+      status: MessageStatus.sent,
+    ));
+    _controller.clear();
+  }
+
+  void _post(Message message) => CommunityStore.instance
+      .postMessage(widget.communityId, widget.channelId, message);
+
+  /// Emoji go into the message being typed; a GIF posts straight away.
+  Future<void> _pickEmojiOrGif() async {
+    final picked = await showEmojiGifSheet(context);
+    if (picked == null || !mounted) return;
+    final gif = picked.gif;
+    if (gif != null) {
+      _post(Message(
         id: 'ch_${DateTime.now().microsecondsSinceEpoch}',
-        text: text,
+        text: '',
         time: DateTime.now(),
         isMe: true,
         status: MessageStatus.sent,
-      ),
+        isImage: true,
+        imageUrl: gif.url,
+      ));
+      return;
+    }
+    final emoji = picked.emoji;
+    if (emoji == null) return;
+    final sel = _controller.selection;
+    final text = _controller.text;
+    if (sel.start < 0) {
+      _controller.text = text + emoji;
+      return;
+    }
+    _controller.value = _controller.value.copyWith(
+      text: text.replaceRange(sel.start, sel.end, emoji),
+      selection: TextSelection.collapsed(offset: sel.start + emoji.length),
     );
-    _controller.clear();
   }
 
   Future<void> _createPoll() async {
@@ -1057,6 +1087,12 @@ class _ChannelScreenState extends State<ChannelScreen> {
                   padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
                   child: Row(
                     children: [
+                      IconButton(
+                        icon: const Icon(Icons.emoji_emotions_outlined),
+                        color: Colors.grey,
+                        tooltip: 'Emoji & GIFs',
+                        onPressed: _pickEmojiOrGif,
+                      ),
                       IconButton(
                         icon: const Icon(Icons.poll_outlined),
                         color: Colors.grey,

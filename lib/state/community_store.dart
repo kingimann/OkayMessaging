@@ -7,9 +7,11 @@ import '../models/community.dart';
 import '../models/message.dart';
 import 'score_store.dart';
 
-/// Local store for Discord-style communities (servers) and their channels.
-/// Everything lives on the device and is persisted to [SharedPreferences];
-/// nothing is stored on a server.
+/// Store for Discord-style communities (servers) and their channels. Kept on
+/// the device in [SharedPreferences] and, unlike one-to-one chats, also saved
+/// to the server through [CloudSync] — encrypted here first — so servers,
+/// channels and their posts survive a reinstall and follow you to a new
+/// device.
 class CommunityStore extends ChangeNotifier {
   CommunityStore._();
   static final CommunityStore instance = CommunityStore._();

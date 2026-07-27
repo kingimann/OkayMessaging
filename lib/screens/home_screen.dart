@@ -111,6 +111,8 @@ class _HomeScreenState extends State<HomeScreen> {
               tooltip: 'New community',
               onPressed: () => createCommunityFlow(context),
             )
+          else if (_index == 2)
+            const CallsTabActions()
           else if (_index == 4)
             IconButton(
               icon: const Icon(Icons.settings_outlined),

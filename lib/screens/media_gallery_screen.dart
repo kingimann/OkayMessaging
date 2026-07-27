@@ -5,6 +5,7 @@ import '../state/chat_store.dart';
 import '../theme/app_theme.dart';
 import '../utils/date_formatter.dart';
 import '../widgets/linkable_text.dart';
+import '../widgets/pull_to_refresh.dart';
 import 'image_view_screen.dart';
 
 /// Shows everything shared in a chat, split into Media (image messages shown
@@ -71,49 +72,53 @@ class _MediaGrid extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (media.isEmpty) {
-      return const _EmptyState(
-        icon: Icons.photo_library_outlined,
-        label: 'No media shared yet',
+      return PullToRefresh.emptyState(
+        child: const _EmptyState(
+          icon: Icons.photo_library_outlined,
+          label: 'No media shared yet',
+        ),
       );
     }
-    return GridView.builder(
-      padding: const EdgeInsets.all(3),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 3,
-        mainAxisSpacing: 3,
-        crossAxisSpacing: 3,
-      ),
-      itemCount: media.length,
-      itemBuilder: (context, i) {
-        final message = media[i];
-        final colors = MediaGalleryScreen
-            ._gradients[message.imageSeed % MediaGalleryScreen._gradients.length];
-        return GestureDetector(
-          onTap: () => Navigator.of(context).push(
-            MaterialPageRoute(
-              builder: (_) => ImageViewScreen(
-                message: message,
-                senderName: contactName,
-              ),
-            ),
-          ),
-          child: Hero(
-            tag: 'photo_${message.id}',
-            child: Container(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: colors,
+    return PullToRefresh(
+      child: GridView.builder(
+        padding: const EdgeInsets.all(3),
+        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: 3,
+          mainAxisSpacing: 3,
+          crossAxisSpacing: 3,
+        ),
+        itemCount: media.length,
+        itemBuilder: (context, i) {
+          final message = media[i];
+          final colors = MediaGalleryScreen
+              ._gradients[message.imageSeed % MediaGalleryScreen._gradients.length];
+          return GestureDetector(
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => ImageViewScreen(
+                  message: message,
+                  senderName: contactName,
                 ),
               ),
-              child: const Center(
-                child: Icon(Icons.image, color: Colors.white70, size: 30),
+            ),
+            child: Hero(
+              tag: 'photo_${message.id}',
+              child: Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: colors,
+                  ),
+                ),
+                child: const Center(
+                  child: Icon(Icons.image, color: Colors.white70, size: 30),
+                ),
               ),
             ),
-          ),
-        );
-      },
+          );
+        },
+      ),
     );
   }
 }
@@ -126,32 +131,36 @@ class _LinksList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (links.isEmpty) {
-      return const _EmptyState(
-        icon: Icons.link_outlined,
-        label: 'No links shared yet',
+      return PullToRefresh.emptyState(
+        child: const _EmptyState(
+          icon: Icons.link_outlined,
+          label: 'No links shared yet',
+        ),
       );
     }
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    return ListView.separated(
-      itemCount: links.length,
-      separatorBuilder: (_, __) => const Divider(height: 1),
-      itemBuilder: (context, i) {
-        return ListTile(
-          leading: CircleAvatar(
-            backgroundColor: AppColors.tealGreenDark.withValues(alpha: 0.15),
-            child: const Icon(Icons.link, color: AppColors.tealGreenDark),
-          ),
-          title: Text(links[i].text, maxLines: 2, overflow: TextOverflow.ellipsis),
-          subtitle: Text(
-            DateFormatter.callLabel(links[i].time),
-            style: TextStyle(
-              color: isDark ? Colors.white54 : Colors.black45,
-              fontSize: 12.5,
+    return PullToRefresh(
+      child: ListView.separated(
+        itemCount: links.length,
+        separatorBuilder: (_, __) => const Divider(height: 1),
+        itemBuilder: (context, i) {
+          return ListTile(
+            leading: CircleAvatar(
+              backgroundColor: AppColors.tealGreenDark.withValues(alpha: 0.15),
+              child: const Icon(Icons.link, color: AppColors.tealGreenDark),
             ),
-          ),
-          onTap: () {},
-        );
-      },
+            title: Text(links[i].text, maxLines: 2, overflow: TextOverflow.ellipsis),
+            subtitle: Text(
+              DateFormatter.callLabel(links[i].time),
+              style: TextStyle(
+                color: isDark ? Colors.white54 : Colors.black45,
+                fontSize: 12.5,
+              ),
+            ),
+            onTap: () {},
+          );
+        },
+      ),
     );
   }
 }

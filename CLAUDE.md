@@ -121,4 +121,13 @@ copies of the Edge Functions), `docs/supabase_setup.sql`.
   the `APNS_*` Edge Function secrets.
 - **Payments**: Stripe publishable key is wired; the Edge Functions still
   need deploying with `STRIPE_SECRET_KEY` set.
+- **GIFs**: the picker is built and tested, but GIF *search* needs a free
+  Tenor key passed at build time (`--dart-define=TENOR_API_KEY=…`). Without
+  it the GIF tab says so; emoji and everything else are unaffected, and a GIF
+  someone already sent still plays.
+- **Communities and Okay Score on the server**: both ride the encrypted cloud
+  sync (`lib/state/cloud_sync.dart`), so they only leave the device once the
+  user sets a sync passphrase in Settings → Encrypted cloud sync. There is no
+  server-side auth (`REQUIRE_OTP` is off), so a user-known passphrase is what
+  makes restoring on a new device possible at all.
 - Check `git log` for what actually shipped most recently.

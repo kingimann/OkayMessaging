@@ -68,6 +68,11 @@ import 'package:okay_messaging/state/backup_service.dart';
 import 'package:okay_messaging/screens/status_screen.dart';
 import 'package:okay_messaging/state/status_store.dart';
 import 'package:okay_messaging/state/chat_store.dart';
+import 'package:okay_messaging/state/gif_service.dart';
+import 'package:okay_messaging/tabs/calls_tab.dart';
+import 'package:okay_messaging/screens/starred_messages_screen.dart';
+import 'package:okay_messaging/widgets/emoji_data.dart';
+import 'package:okay_messaging/screens/profile_screen.dart';
 import 'package:okay_messaging/screens/edit_group_screen.dart';
 import 'package:okay_messaging/screens/group_info_screen.dart';
 import 'package:okay_messaging/state/live_location_store.dart';
@@ -157,7 +162,9 @@ void main() {
     await tester.tap(find.byIcon(Icons.call_outlined));
     await tester.pumpAndSettle();
 
-    // Tapping the tile used to do nothing; it must now open the sheet.
+    // The call actions moved into the app bar's "Start a call" menu.
+    await tester.tap(find.byTooltip('Start a call'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Create call link'));
     await tester.pumpAndSettle();
 
@@ -6365,6 +6372,188 @@ void main() {
 
       expect(find.byType(EditGroupScreen), findsOneWidget);
       expect(find.textContaining('coming soon'), findsNothing);
+    });
+  });
+
+  group('Emoji catalog', () {
+    test('the catalog is far bigger than the old curated strip', () {
+      expect(EmojiData.all.length, greaterThan(700));
+      expect(EmojiData.categories.keys,
+          containsAll(['Smileys', 'Nature', 'Food', 'Travel', 'Symbols']));
+    });
+
+    test('every category is non-empty and free of duplicates', () {
+      for (final entry in EmojiData.categories.entries) {
+        expect(entry.value, isNotEmpty, reason: entry.key);
+        expect(entry.value.toSet().length, entry.value.length,
+            reason: '${entry.key} has a duplicate');
+      }
+    });
+
+    test('search matches keywords and category names', () {
+      expect(EmojiData.search('laugh'), contains('😂'));
+      expect(EmojiData.search('thumbs'), contains('👍'));
+      expect(EmojiData.search('birthday'), contains('🎂'));
+      // A category name pulls in the whole category.
+      expect(EmojiData.search('food'), contains('🍕'));
+      // An empty query means "show the categories instead", not "show all".
+      expect(EmojiData.search('   '), isEmpty);
+      expect(EmojiData.search('zzzznope'), isEmpty);
+    });
+  });
+
+  group('GIFs', () {
+    test('a Tenor response maps to picker results', () {
+      const body = '{"results":[{"id":"1","content_description":"happy dance",'
+          '"media_formats":{'
+          '"gif":{"url":"https://media.tenor.com/a.gif","dims":[400,200]},'
+          '"tinygif":{"url":"https://media.tenor.com/a-small.gif",'
+          '"dims":[200,100]}}}]}';
+      final results = GifService.parseResults(body);
+      expect(results, hasLength(1));
+      expect(results.single.url, 'https://media.tenor.com/a.gif');
+      expect(results.single.previewUrl, 'https://media.tenor.com/a-small.gif');
+      expect(results.single.description, 'happy dance');
+      expect(results.single.aspectRatio, closeTo(2.0, 0.001));
+    });
+
+    test('results without a usable format are skipped, not crashed on', () {
+      const body = '{"results":[{"id":"1","media_formats":{"mp4":{}}},'
+          '{"id":"2"},"junk"]}';
+      expect(GifService.parseResults(body), isEmpty);
+      expect(GifService.parseResults('{}'), isEmpty);
+      expect(GifService.parseResults('[]'), isEmpty);
+    });
+
+    test('a GIF post carries its url through save and restore', () {
+      final post = FeedPost(
+        id: 'p1',
+        communityId: 'c1',
+        authorName: 'You',
+        authorUsername: 'you',
+        time: DateTime(2024, 6, 1),
+        text: 'this one',
+        gifUrl: 'https://media.tenor.com/a.gif',
+      );
+      expect(FeedPost.fromJson(post.toJson()).gifUrl,
+          'https://media.tenor.com/a.gif');
+
+      final plain = FeedPost(
+        id: 'p2',
+        communityId: 'c1',
+        authorName: 'You',
+        authorUsername: 'you',
+        time: DateTime(2024, 6, 1),
+        text: 'plain',
+      );
+      expect(FeedPost.fromJson(plain.toJson()).gifUrl, isNull);
+    });
+  });
+
+  group('Communities and score on the server', () {
+    test('the sync payload carries communities and the score', () {
+      addTearDown(() {
+        CommunityStore.instance.resetForTest();
+        ScoreStore.instance.resetForTest();
+      });
+      CommunityStore.instance.resetForTest();
+      ScoreStore.instance.resetForTest();
+      CommunityStore.instance.createCommunity('Study group');
+      ScoreStore.instance.award(40);
+      ScoreStore.instance.recordFlag('made_call');
+
+      final payload = CloudSync.instance.buildPayload();
+      expect(payload['communities'], isA<List>());
+      expect(payload['communities'] as List, isNotEmpty);
+      expect((payload['score'] as Map)['points'], 40);
+      expect((payload['score'] as Map)['flags'], contains('made_call'));
+    });
+
+    test('a restore brings communities and the score back', () async {
+      CloudSync.debugServerOverride = {};
+      addTearDown(() {
+        CloudSync.debugServerOverride = null;
+        CloudSync.instance.resetForTest();
+        CommunityStore.instance.resetForTest();
+        ScoreStore.instance.resetForTest();
+      });
+      CommunityStore.instance.resetForTest();
+      ScoreStore.instance.resetForTest();
+      await CloudSync.instance
+          .configure(passphrase: 'correct horse battery', on: false);
+
+      CommunityStore.instance.createCommunity('Rocket club');
+      ScoreStore.instance.award(120);
+      expect(await CloudSync.instance.syncNow(), isNull);
+
+      // The server only ever holds ciphertext — the name isn't in the blob.
+      final blob = CloudSync.debugServerOverride!.values.single;
+      expect(blob.contains('Rocket club'), isFalse);
+
+      // Wipe this device (back to the seeded state), then pull it back down.
+      CommunityStore.instance.resetForTest();
+      ScoreStore.instance.resetForTest();
+      expect(CommunityStore.instance.communities.map((c) => c.name),
+          isNot(contains('Rocket club')));
+      expect(await CloudSync.instance.restore(), isNull);
+      expect(CommunityStore.instance.communities.map((c) => c.name),
+          contains('Rocket club'));
+      expect(ScoreStore.instance.points, 120);
+    });
+
+    test('a restored score never rolls a higher local score back', () {
+      addTearDown(ScoreStore.instance.resetForTest);
+      ScoreStore.instance.resetForTest();
+      ScoreStore.instance.award(200);
+      ScoreStore.instance.recordFlag('local_only');
+
+      // An older snapshot from another device.
+      ScoreStore.instance.hydrate({
+        'points': 50,
+        'flags': ['made_call'],
+        'featured': 'caller',
+      });
+
+      expect(ScoreStore.instance.points, 200);
+      // Flags merge — an achievement earned anywhere stays earned.
+      expect(
+          ScoreStore.instance.flags, containsAll(['local_only', 'made_call']));
+    });
+  });
+
+  group('Pull to refresh', () {
+    testWidgets('the Calls tab can be pulled down to refresh', (tester) async {
+      await tester
+          .pumpWidget(const MaterialApp(home: Scaffold(body: CallsTab())));
+      await tester.pumpAndSettle();
+      expect(find.byType(RefreshIndicator), findsOneWidget);
+    });
+
+    testWidgets('so can the profile, score and starred screens',
+        (tester) async {
+      for (final screen in <Widget>[
+        const ProfileView(),
+        const ScoreScreen(),
+        const StarredMessagesScreen(),
+      ]) {
+        await tester.pumpWidget(MaterialApp(home: Scaffold(body: screen)));
+        await tester.pumpAndSettle();
+        expect(find.byType(RefreshIndicator), findsWidgets,
+            reason: '${screen.runtimeType} has no pull-to-refresh');
+      }
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+    });
+
+    testWidgets('the call actions live in the app bar, not the list',
+        (tester) async {
+      await tester
+          .pumpWidget(const MaterialApp(home: Scaffold(body: CallsTab())));
+      await tester.pumpAndSettle();
+      // They used to be four tiles stacked above Favourites.
+      expect(find.text('Create call link'), findsNothing);
+      expect(find.text('Dial a number'), findsNothing);
+      expect(find.text('Find people by username'), findsNothing);
     });
   });
 }

@@ -11,14 +11,17 @@ import '../crypto/e2e.dart';
 import '../relay/relay_config.dart';
 import '../relay/relay_service.dart';
 import 'chat_store.dart';
+import 'community_store.dart';
 import 'feed_store.dart';
 import 'follow_store.dart';
 import 'saved_places_store.dart';
+import 'score_store.dart';
 
 /// End-to-end encrypted cloud sync: everything (chats, feed, follows, saved
-/// places) is serialized, encrypted **on this device** with a key derived
-/// from the user's sync passphrase, and only the ciphertext is stored on the
-/// server. The server also never learns who a blob belongs to — the row id
+/// places, communities and the Okay Score) is serialized, encrypted **on this
+/// device** with a key derived from the user's sync passphrase, and only the
+/// ciphertext is stored on the server. The server never learns who a blob
+/// belongs to either — the row id
 /// is an HMAC of the derived key, so it's meaningless without the
 /// passphrase. Losing the passphrase means the backup is unrecoverable by
 /// anyone, including us; that's the point.
@@ -79,6 +82,8 @@ class CloudSync extends ChangeNotifier {
     FeedStore.instance.addListener(scheduleSync);
     FollowStore.instance.addListener(scheduleSync);
     SavedPlacesStore.instance.addListener(scheduleSync);
+    CommunityStore.instance.addListener(scheduleSync);
+    ScoreStore.instance.addListener(scheduleSync);
   }
 
   /// Debounced: bursts of edits collapse into one upload.
@@ -118,6 +123,8 @@ class CloudSync extends ChangeNotifier {
         'feed': FeedStore.instance.exportPosts(),
         'follows': FollowStore.instance.following.toList()..sort(),
         'places': SavedPlacesStore.instance.exportPlaces(),
+        'communities': CommunityStore.instance.toJsonList(),
+        'score': ScoreStore.instance.toJson(),
       };
 
   /// Applies a decrypted payload back onto the local stores.
@@ -132,6 +139,23 @@ class CloudSync extends ChangeNotifier {
     }
     final places = payload['places'];
     if (places is List) SavedPlacesStore.instance.hydratePlaces(places);
+    final communities = payload['communities'];
+    if (communities is List) CommunityStore.instance.hydrate(communities);
+    final score = payload['score'];
+    if (score is Map) {
+      ScoreStore.instance.hydrate(Map<String, dynamic>.from(score));
+    }
+  }
+
+  /// Pulls the server's copy back down, but only when sync is actually set
+  /// up — safe to call from anywhere (pull-to-refresh does, on every screen).
+  /// Never throws and never reports an error to the user: an unconfigured or
+  /// offline device should just refresh nothing.
+  Future<void> refreshFromServer() async {
+    if (!_enabled || !configured) return;
+    try {
+      await restore();
+    } catch (_) {}
   }
 
   /// Encrypts and uploads the current state. Returns null on success or a

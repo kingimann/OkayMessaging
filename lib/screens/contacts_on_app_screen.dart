@@ -5,6 +5,7 @@ import '../models/user.dart';
 import '../state/call_service.dart' show CallService;
 import '../state/chat_store.dart';
 import '../state/contacts_sync.dart';
+import '../widgets/pull_to_refresh.dart';
 import '../widgets/user_avatar.dart';
 import 'chat_screen.dart';
 
@@ -141,34 +142,36 @@ class _ContactsOnAppScreenState extends State<ContactsOnAppScreen> {
               ),
             ),
             Expanded(
-              child: ListView.builder(
-                itemCount: result.matches.length,
-                itemBuilder: (context, i) {
-                  final user = result.matches[i];
-                  return ListTile(
-                    leading: UserAvatar(user: user, radius: 24),
-                    title: Text(user.name,
-                        style: const TextStyle(fontWeight: FontWeight.w600)),
-                    subtitle:
-                        user.username.isEmpty ? null : Text('@${user.username}'),
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        IconButton(
-                          icon: const Icon(Icons.call),
-                          tooltip: 'Voice call',
-                          onPressed: () => _call(user, video: false),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.videocam),
-                          tooltip: 'Video call',
-                          onPressed: () => _call(user, video: true),
-                        ),
-                      ],
-                    ),
-                    onTap: () => _message(user),
-                  );
-                },
+              child: PullToRefresh(
+                child: ListView.builder(
+                  itemCount: result.matches.length,
+                  itemBuilder: (context, i) {
+                    final user = result.matches[i];
+                    return ListTile(
+                      leading: UserAvatar(user: user, radius: 24),
+                      title: Text(user.name,
+                          style: const TextStyle(fontWeight: FontWeight.w600)),
+                      subtitle:
+                          user.username.isEmpty ? null : Text('@${user.username}'),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.call),
+                            tooltip: 'Voice call',
+                            onPressed: () => _call(user, video: false),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.videocam),
+                            tooltip: 'Video call',
+                            onPressed: () => _call(user, video: true),
+                          ),
+                        ],
+                      ),
+                      onTap: () => _message(user),
+                    );
+                  },
+                ),
               ),
             ),
           ],

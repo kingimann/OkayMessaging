@@ -26,6 +26,7 @@ import '../utils/chat_transcript.dart';
 import '../utils/date_formatter.dart';
 import '../widgets/chat_input_bar.dart';
 import '../widgets/emoji_data.dart';
+import '../widgets/emoji_gif_sheet.dart';
 import '../widgets/heart_burst.dart';
 import '../widgets/message_bubble.dart';
 import '../widgets/typing_indicator.dart';
@@ -403,6 +404,26 @@ class _ChatScreenState extends State<ChatScreen> {
       isImage: true,
       imageSeed: now.microsecondsSinceEpoch % 6,
       viewOnce: viewOnce,
+      replyTo: _replyTo,
+    ));
+    setState(() => _replyTo = null);
+  }
+
+  /// Sends a GIF picked from the composer. It rides as an image message with
+  /// a real URL, so it animates in the bubble and travels over the relay like
+  /// any other photo — the file itself stays on Tenor's CDN.
+  Future<void> _handleSendGif(String url) async {
+    if (!await _confirmRecipient()) return;
+    final now = DateTime.now();
+    _deliver(Message(
+      id: 'gif_${now.microsecondsSinceEpoch}',
+      text: '',
+      time: now,
+      isMe: true,
+      status: MessageStatus.sent,
+      isImage: true,
+      imageUrl: url,
+      imageSeed: now.microsecondsSinceEpoch % 6,
       replyTo: _replyTo,
     ));
     setState(() => _replyTo = null);
@@ -1145,22 +1166,11 @@ class _ChatScreenState extends State<ChatScreen> {
                         TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
               ),
               Expanded(
-                child: GridView.count(
-                  crossAxisCount: 7,
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                  children: [
-                    for (final e in EmojiData.picker)
-                      InkWell(
-                        onTap: () {
-                          Navigator.of(sheetContext).pop();
-                          _react(messageId, e);
-                        },
-                        borderRadius: BorderRadius.circular(8),
-                        child: Center(
-                          child: Text(e, style: const TextStyle(fontSize: 26)),
-                        ),
-                      ),
-                  ],
+                child: EmojiPane(
+                  onPick: (e) {
+                    Navigator.of(sheetContext).pop();
+                    _react(messageId, e);
+                  },
                 ),
               ),
             ],
@@ -1990,6 +2000,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   }
                   return ChatInputBar(
                     onSend: _handleSend,
+                    onSendGif: _handleSendGif,
                     onAttach: _showAttachmentSheet,
                     onSendVoice: _handleSendVoice,
                     onTyping: _onTyping,

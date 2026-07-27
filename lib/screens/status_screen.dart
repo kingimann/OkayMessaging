@@ -11,6 +11,7 @@ import '../relay/relay_service.dart';
 import '../state/chat_store.dart';
 import '../state/status_store.dart';
 import '../utils/date_formatter.dart';
+import '../widgets/pull_to_refresh.dart';
 
 Color _hex(String s) {
   var h = s.replaceFirst('#', '');
@@ -39,72 +40,74 @@ class StatusScreen extends StatelessWidget {
           final me = AppState.profile.value;
           final mine = StatusStore.instance.myActive();
           final others = StatusStore.instance.otherThreads();
-          return ListView(
-            children: [
-              ListTile(
-                leading: _RingAvatar(
-                  name: me.name,
-                  colorHex: me.avatarColor,
-                  active: mine.isNotEmpty,
-                  showAdd: mine.isEmpty,
-                ),
-                title: const Text('My status',
-                    style: TextStyle(fontWeight: FontWeight.w600)),
-                subtitle: Text(mine.isEmpty
-                    ? 'Tap to add a status update'
-                    : '${mine.length} update${mine.length == 1 ? '' : 's'} · '
-                        '${DateFormatter.callLabel(mine.last.time)}'),
-                trailing: IconButton(
-                  icon: const Icon(Icons.add_circle_outline),
-                  tooltip: 'Add status',
-                  onPressed: () => _compose(context),
-                ),
-                onTap: () {
-                  if (mine.isEmpty) {
-                    _compose(context);
-                  } else {
-                    _view(
-                      context,
-                      StatusThread(
-                        authorId: me.id,
-                        authorName: 'My status',
-                        avatarColor: me.avatarColor,
-                        updates: mine,
-                      ),
-                    );
-                  }
-                },
-              ),
-              const Divider(height: 1),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 6),
-                child: Text('RECENT UPDATES',
-                    style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 0.6,
-                        color: Colors.grey.shade500)),
-              ),
-              if (others.isEmpty)
-                Padding(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 16, vertical: 20),
-                  child: Text('No recent updates',
-                      style: TextStyle(color: Colors.grey.shade500)),
-                )
-              else
-                for (final t in others)
-                  ListTile(
-                    leading: _RingAvatar(
-                        name: t.authorName,
-                        colorHex: t.avatarColor,
-                        active: true),
-                    title: Text(t.authorName,
-                        style: const TextStyle(fontWeight: FontWeight.w600)),
-                    subtitle: Text(DateFormatter.callLabel(t.latest)),
-                    onTap: () => _view(context, t),
+          return PullToRefresh(
+            child: ListView(
+              children: [
+                ListTile(
+                  leading: _RingAvatar(
+                    name: me.name,
+                    colorHex: me.avatarColor,
+                    active: mine.isNotEmpty,
+                    showAdd: mine.isEmpty,
                   ),
-            ],
+                  title: const Text('My status',
+                      style: TextStyle(fontWeight: FontWeight.w600)),
+                  subtitle: Text(mine.isEmpty
+                      ? 'Tap to add a status update'
+                      : '${mine.length} update${mine.length == 1 ? '' : 's'} · '
+                          '${DateFormatter.callLabel(mine.last.time)}'),
+                  trailing: IconButton(
+                    icon: const Icon(Icons.add_circle_outline),
+                    tooltip: 'Add status',
+                    onPressed: () => _compose(context),
+                  ),
+                  onTap: () {
+                    if (mine.isEmpty) {
+                      _compose(context);
+                    } else {
+                      _view(
+                        context,
+                        StatusThread(
+                          authorId: me.id,
+                          authorName: 'My status',
+                          avatarColor: me.avatarColor,
+                          updates: mine,
+                        ),
+                      );
+                    }
+                  },
+                ),
+                const Divider(height: 1),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 6),
+                  child: Text('RECENT UPDATES',
+                      style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.6,
+                          color: Colors.grey.shade500)),
+                ),
+                if (others.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 20),
+                    child: Text('No recent updates',
+                        style: TextStyle(color: Colors.grey.shade500)),
+                  )
+                else
+                  for (final t in others)
+                    ListTile(
+                      leading: _RingAvatar(
+                          name: t.authorName,
+                          colorHex: t.avatarColor,
+                          active: true),
+                      title: Text(t.authorName,
+                          style: const TextStyle(fontWeight: FontWeight.w600)),
+                      subtitle: Text(DateFormatter.callLabel(t.latest)),
+                      onTap: () => _view(context, t),
+                    ),
+              ],
+            ),
           );
         },
       ),

@@ -6,6 +6,7 @@ import '../state/chat_store.dart';
 import '../state/score_store.dart';
 import '../state/session.dart';
 import '../state/streak_store.dart';
+import '../widgets/pull_to_refresh.dart';
 import '../widgets/streak_chip.dart';
 import '../widgets/user_avatar.dart';
 import '../widgets/verified_badge.dart';
@@ -36,42 +37,44 @@ class ScoreScreen extends StatelessWidget {
         animation: ScoreStore.instance,
         builder: (context, _) {
           final store = ScoreStore.instance;
-          return ListView(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
-            children: [
-              _ScoreCard(points: store.points, earned: store.earnedCount),
-              const SizedBox(height: 16),
-              const _VerifiedRow(),
-              const SizedBox(height: 20),
-              const _StreaksSection(),
-              _sectionHeader(context, 'BADGES'),
-              const SizedBox(height: 4),
-              Text(
-                'Tap an earned badge to feature it on your profile.',
-                style: TextStyle(color: Colors.grey.shade600, fontSize: 12.5),
-              ),
-              const SizedBox(height: 12),
-              GridView.count(
-                crossAxisCount: 2,
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                childAspectRatio: 1.55,
-                mainAxisSpacing: 12,
-                crossAxisSpacing: 12,
-                children: [
-                  for (final badge in ScoreStore.catalog)
-                    _BadgeCard(
-                      badge: badge,
-                      earned: store.isEarned(badge.id),
-                      featured: store.featuredBadge == badge.id,
-                      onTap: store.isEarned(badge.id)
-                          ? () => store.setFeatured(
-                              store.featuredBadge == badge.id ? null : badge.id)
-                          : null,
-                    ),
-                ],
-              ),
-            ],
+          return PullToRefresh(
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
+              children: [
+                _ScoreCard(points: store.points, earned: store.earnedCount),
+                const SizedBox(height: 16),
+                const _VerifiedRow(),
+                const SizedBox(height: 20),
+                const _StreaksSection(),
+                _sectionHeader(context, 'BADGES'),
+                const SizedBox(height: 4),
+                Text(
+                  'Tap an earned badge to feature it on your profile.',
+                  style: TextStyle(color: Colors.grey.shade600, fontSize: 12.5),
+                ),
+                const SizedBox(height: 12),
+                GridView.count(
+                  crossAxisCount: 2,
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  childAspectRatio: 1.55,
+                  mainAxisSpacing: 12,
+                  crossAxisSpacing: 12,
+                  children: [
+                    for (final badge in ScoreStore.catalog)
+                      _BadgeCard(
+                        badge: badge,
+                        earned: store.isEarned(badge.id),
+                        featured: store.featuredBadge == badge.id,
+                        onTap: store.isEarned(badge.id)
+                            ? () => store.setFeatured(
+                                store.featuredBadge == badge.id ? null : badge.id)
+                            : null,
+                      ),
+                  ],
+                ),
+              ],
+            ),
           );
         },
       ),

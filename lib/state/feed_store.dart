@@ -26,6 +26,9 @@ class FeedPost {
   /// The post this one replies to, or null for a top-level post.
   final String? parentId;
 
+  /// An animated GIF attached to the post, by URL. Null for a text post.
+  final String? gifUrl;
+
   const FeedPost({
     required this.id,
     required this.communityId,
@@ -39,6 +42,7 @@ class FeedPost {
     this.liked = false,
     this.reposted = false,
     this.parentId,
+    this.gifUrl,
   });
 
   FeedPost copyWith({
@@ -61,6 +65,7 @@ class FeedPost {
         liked: liked ?? this.liked,
         reposted: reposted ?? this.reposted,
         parentId: parentId,
+        gifUrl: gifUrl,
       );
 
   Map<String, dynamic> toJson() => {
@@ -76,6 +81,7 @@ class FeedPost {
         'liked': liked,
         'reposted': reposted,
         if (parentId != null) 'parentId': parentId,
+        if (gifUrl != null) 'gifUrl': gifUrl,
       };
 
   factory FeedPost.fromJson(Map<String, dynamic> j) => FeedPost(
@@ -91,6 +97,7 @@ class FeedPost {
         liked: j['liked'] as bool? ?? false,
         reposted: j['reposted'] as bool? ?? false,
         parentId: j['parentId'] as String?,
+        gifUrl: j['gifUrl'] as String?,
       );
 }
 
@@ -176,7 +183,8 @@ class FeedStore extends ChangeNotifier {
   }
 
   /// Posts [text] as the signed-in user. Returns the new post.
-  FeedPost add(String communityId, String text, {String? parentId}) {
+  FeedPost add(String communityId, String text,
+      {String? parentId, String? gifUrl}) {
     final me = AppState.profile.value;
     final post = FeedPost(
       id: 'post_${DateTime.now().microsecondsSinceEpoch}_${_nextId++}',
@@ -186,6 +194,7 @@ class FeedStore extends ChangeNotifier {
       time: DateTime.now(),
       text: text.trim(),
       parentId: parentId,
+      gifUrl: gifUrl,
     );
     _posts.add(post);
     _save();

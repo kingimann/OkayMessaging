@@ -4,6 +4,7 @@ import '../app_state.dart';
 import '../models/community.dart';
 import '../state/community_store.dart';
 import '../utils/date_formatter.dart';
+import '../widgets/pull_to_refresh.dart';
 
 /// How a forum channel's posts are ordered.
 enum ForumSort { hot, newest, top }
@@ -178,15 +179,17 @@ class _ForumChannelScreenState extends State<ForumChannelScreen> {
                           ],
                         ),
                       )
-                    : ListView.builder(
-                        padding: const EdgeInsets.only(bottom: 88),
-                        itemCount: posts.length,
-                        itemBuilder: (context, i) => _PostCard(
-                          communityId: widget.communityId,
-                          channelId: widget.channelId,
-                          post: posts[i],
+                    : PullToRefresh(
+                      child: ListView.builder(
+                          padding: const EdgeInsets.only(bottom: 88),
+                          itemCount: posts.length,
+                          itemBuilder: (context, i) => _PostCard(
+                            communityId: widget.communityId,
+                            channelId: widget.channelId,
+                            post: posts[i],
+                          ),
                         ),
-                      ),
+                    ),
               ),
             ],
           ),

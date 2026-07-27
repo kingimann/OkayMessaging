@@ -3,6 +3,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../payments/payment_service.dart';
 import '../theme/app_theme.dart';
+import '../widgets/pull_to_refresh.dart';
 
 /// The receiver's wallet: set up payments (Stripe Express KYC), see the
 /// connected-account balance, and track automatic payouts to the bank. The
@@ -85,22 +86,24 @@ class _WalletScreenState extends State<WalletScreen> {
                   return _error(snap.error.toString());
                 }
                 final s = snap.data!;
-                return ListView(
-                  padding: const EdgeInsets.all(16),
-                  children: [
-                    if (PaymentService.instance.testMode.value)
-                      const _TestModeBanner(),
-                    _BalanceCard(status: s),
-                    const SizedBox(height: 16),
-                    if (!s.canReceive)
-                      _OnboardCard(busy: _busy, onStart: _startOnboarding)
-                    else
-                      _PayoutCard(status: s),
-                    const SizedBox(height: 16),
-                    const _TestModeTile(),
-                    const SizedBox(height: 8),
-                    const _InfoFooter(),
-                  ],
+                return PullToRefresh(
+                  child: ListView(
+                    padding: const EdgeInsets.all(16),
+                    children: [
+                      if (PaymentService.instance.testMode.value)
+                        const _TestModeBanner(),
+                      _BalanceCard(status: s),
+                      const SizedBox(height: 16),
+                      if (!s.canReceive)
+                        _OnboardCard(busy: _busy, onStart: _startOnboarding)
+                      else
+                        _PayoutCard(status: s),
+                      const SizedBox(height: 16),
+                      const _TestModeTile(),
+                      const SizedBox(height: 8),
+                      const _InfoFooter(),
+                    ],
+                  ),
                 );
               },
             ),

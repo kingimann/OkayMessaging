@@ -5,6 +5,8 @@ import '../app_state.dart';
 import '../state/chat_store.dart';
 import '../state/feed_store.dart';
 import '../state/follow_store.dart';
+import '../widgets/emoji_gif_sheet.dart';
+import '../widgets/pull_to_refresh.dart';
 import 'chat_screen.dart';
 import 'people_screen.dart';
 
@@ -54,10 +56,10 @@ class _FeedScreenState extends State<FeedScreen> {
     super.dispose();
   }
 
-  void _post() {
+  void _post({String? gifUrl}) {
     final text = _composer.text.trim();
-    if (text.isEmpty) return;
-    FeedStore.instance.add(widget.communityId, text);
+    if (text.isEmpty && gifUrl == null) return;
+    FeedStore.instance.add(widget.communityId, text, gifUrl: gifUrl);
     _composer.clear();
     FocusScope.of(context).unfocus();
   }
@@ -252,43 +254,49 @@ class _FeedScreenState extends State<FeedScreen> {
           // One timeline for everyone in the server — no For-you/Following
           // split.
           final posts = FeedStore.instance.postsFor(widget.communityId);
-          return ListView(
-            children: [
-              _Composer(controller: _composer, onPost: _post),
-              const Divider(height: 1),
-              if (posts.isEmpty)
-                Padding(
-                  padding: const EdgeInsets.all(32),
-                  child: Center(
-                    child: Text(
-                      'No posts yet. Be the first to say something!',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
-                    ),
-                  ),
-                ),
-              for (final post in posts) ...[
-                InkWell(
-                  onTap: () => _openThread(post),
-                  onLongPress: () => _postOptions(post),
-                  child: _PostCard(
-                    post: post,
-                    onLike: () => FeedStore.instance.toggleLike(post.id),
-                    onRepost: () => FeedStore.instance.toggleRepost(post.id),
-                    onReply: () => _openThread(post),
-                    onAuthor: () => _authorSheet(post),
-                    // Only your own posts are deletable.
-                    onDelete: post.authorUsername == 'you' ||
-                            post.authorUsername ==
-                                AppState.profile.value.username
-                        ? () => FeedStore.instance.deletePost(post.id)
-                        : null,
-                  ),
+          return PullToRefresh(
+            child: ListView(
+              children: [
+                _Composer(
+                  controller: _composer,
+                  onPost: _post,
+                  onPostGif: (url) => _post(gifUrl: url),
                 ),
                 const Divider(height: 1),
+                if (posts.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.all(32),
+                    child: Center(
+                      child: Text(
+                        'No posts yet. Be the first to say something!',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
+                      ),
+                    ),
+                  ),
+                for (final post in posts) ...[
+                  InkWell(
+                    onTap: () => _openThread(post),
+                    onLongPress: () => _postOptions(post),
+                    child: _PostCard(
+                      post: post,
+                      onLike: () => FeedStore.instance.toggleLike(post.id),
+                      onRepost: () => FeedStore.instance.toggleRepost(post.id),
+                      onReply: () => _openThread(post),
+                      onAuthor: () => _authorSheet(post),
+                      // Only your own posts are deletable.
+                      onDelete: post.authorUsername == 'you' ||
+                              post.authorUsername ==
+                                  AppState.profile.value.username
+                          ? () => FeedStore.instance.deletePost(post.id)
+                          : null,
+                    ),
+                  ),
+                  const Divider(height: 1),
+                ],
+                const SizedBox(height: 24),
               ],
-              const SizedBox(height: 24),
-            ],
+            ),
           );
         },
       ),
@@ -301,7 +309,37 @@ class _Composer extends StatelessWidget {
   final TextEditingController controller;
   final VoidCallback onPost;
 
-  const _Composer({required this.controller, required this.onPost});
+  /// Posts a GIF straight to the feed, with whatever has been typed as its
+  /// caption.
+  final ValueChanged<String>? onPostGif;
+
+  const _Composer({
+    required this.controller,
+    required this.onPost,
+    this.onPostGif,
+  });
+
+  Future<void> _pick(BuildContext context) async {
+    final picked = await showEmojiGifSheet(context);
+    if (picked == null) return;
+    final gif = picked.gif;
+    if (gif != null) {
+      onPostGif?.call(gif.url);
+      return;
+    }
+    final emoji = picked.emoji;
+    if (emoji == null) return;
+    final sel = controller.selection;
+    final text = controller.text;
+    if (sel.start < 0) {
+      controller.text = text + emoji;
+      return;
+    }
+    controller.value = controller.value.copyWith(
+      text: text.replaceRange(sel.start, sel.end, emoji),
+      selection: TextSelection.collapsed(offset: sel.start + emoji.length),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -341,7 +379,12 @@ class _Composer extends StatelessWidget {
               ),
             ),
           ),
-          const SizedBox(width: 8),
+          IconButton(
+            icon: const Icon(Icons.emoji_emotions_outlined),
+            color: Colors.grey,
+            tooltip: 'Emoji & GIFs',
+            onPressed: () => _pick(context),
+          ),
           // Live-enabled only once there's something to say.
           ValueListenableBuilder<TextEditingValue>(
             valueListenable: controller,
@@ -428,20 +471,32 @@ class _PostCard extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 3),
-                Text.rich(
-                  TextSpan(
-                    children: feedSpans(
-                      post.text,
-                      const TextStyle(fontSize: 15.5, height: 1.35),
-                      TextStyle(
-                        fontSize: 15.5,
-                        height: 1.35,
-                        fontWeight: FontWeight.w600,
-                        color: Theme.of(context).colorScheme.primary,
+                if (post.text.isNotEmpty)
+                  Text.rich(
+                    TextSpan(
+                      children: feedSpans(
+                        post.text,
+                        const TextStyle(fontSize: 15.5, height: 1.35),
+                        TextStyle(
+                          fontSize: 15.5,
+                          height: 1.35,
+                          fontWeight: FontWeight.w600,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
                       ),
                     ),
                   ),
-                ),
+                if (post.gifUrl != null) ...[
+                  const SizedBox(height: 8),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(14),
+                    child: Image.network(
+                      post.gifUrl!,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 8),
                 // Evenly-spread actions, X-style, with share (copy) last.
                 ConstrainedBox(
@@ -581,40 +636,42 @@ class _FeedPostScreenState extends State<FeedPostScreen> {
           return Column(
             children: [
               Expanded(
-                child: ListView(
-                  children: [
-                    _PostCard(
-                      post: post,
-                      onLike: () => FeedStore.instance.toggleLike(post.id),
-                      onRepost: () =>
-                          FeedStore.instance.toggleRepost(post.id),
-                      onReply: () {},
-                    ),
-                    const Divider(height: 1),
-                    if (replies.isEmpty)
-                      Padding(
-                        padding: const EdgeInsets.all(28),
-                        child: Center(
-                          child: Text('No replies yet.',
-                              style:
-                                  TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
-                        ),
-                      ),
-                    for (final r in replies) ...[
-                      Padding(
-                        padding: const EdgeInsets.only(left: 16),
-                        child: _PostCard(
-                          post: r,
-                          onLike: () =>
-                              FeedStore.instance.toggleLike(r.id),
-                          onRepost: () =>
-                              FeedStore.instance.toggleRepost(r.id),
-                          onReply: () {},
-                        ),
+                child: PullToRefresh(
+                  child: ListView(
+                    children: [
+                      _PostCard(
+                        post: post,
+                        onLike: () => FeedStore.instance.toggleLike(post.id),
+                        onRepost: () =>
+                            FeedStore.instance.toggleRepost(post.id),
+                        onReply: () {},
                       ),
                       const Divider(height: 1),
+                      if (replies.isEmpty)
+                        Padding(
+                          padding: const EdgeInsets.all(28),
+                          child: Center(
+                            child: Text('No replies yet.',
+                                style:
+                                    TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                          ),
+                        ),
+                      for (final r in replies) ...[
+                        Padding(
+                          padding: const EdgeInsets.only(left: 16),
+                          child: _PostCard(
+                            post: r,
+                            onLike: () =>
+                                FeedStore.instance.toggleLike(r.id),
+                            onRepost: () =>
+                                FeedStore.instance.toggleRepost(r.id),
+                            onReply: () {},
+                          ),
+                        ),
+                        const Divider(height: 1),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
               ),
               SafeArea(

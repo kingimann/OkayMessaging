@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../models/chat.dart';
-import '../relay/relay_config.dart';
-import '../relay/relay_service.dart';
 import '../app_state.dart';
 import '../models/user.dart';
 import '../screens/chat_screen.dart';
@@ -13,6 +11,7 @@ import '../state/chat_store.dart';
 import '../state/contacts_sync.dart';
 import '../state/onboarding_store.dart';
 import '../theme/app_theme.dart';
+import '../widgets/pull_to_refresh.dart';
 import '../widgets/chat_list_tile.dart';
 
 /// Quick filters shown as chips above the chat list, mirroring the familiar
@@ -120,23 +119,6 @@ class _ChatsTabState extends State<ChatsTab> {
     );
   }
 
-  /// Pull-to-refresh: nudge the relay to re-sync delivery and presence.
-  /// Local-first, so there's nothing to "download" — this just re-announces
-  /// us to peers and re-subscribes if the connection dropped.
-  Future<void> _refresh() async {
-    final started = DateTime.now();
-    if (RelayConfig.isEnabled) {
-      try {
-        await RelayService.instance.resync();
-      } catch (_) {}
-    }
-    // Keep the spinner up long enough to feel intentional.
-    final elapsed = DateTime.now().difference(started);
-    if (elapsed < const Duration(milliseconds: 650)) {
-      await Future<void>.delayed(const Duration(milliseconds: 650) - elapsed);
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final store = ChatStore.instance;
@@ -161,7 +143,7 @@ class _ChatsTabState extends State<ChatsTab> {
         final allChats = store.chats;
         if (allChats.isEmpty) {
           return RefreshIndicator(
-            onRefresh: _refresh,
+            onRefresh: PullToRefresh.refreshApp,
             child: ListView(
               physics: const AlwaysScrollableScrollPhysics(),
               children: const [
@@ -214,7 +196,7 @@ class _ChatsTabState extends State<ChatsTab> {
 
   Widget _buildList(ChatStore store, List<Chat> chats) {
     return RefreshIndicator(
-      onRefresh: _refresh,
+      onRefresh: PullToRefresh.refreshApp,
       child: ListView.separated(
         physics: const AlwaysScrollableScrollPhysics(),
         // Clear the floating glass nav bar at the bottom.

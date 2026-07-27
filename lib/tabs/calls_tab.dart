@@ -17,6 +17,7 @@ import '../state/call_service.dart' show CallService;
 import '../state/chat_store.dart';
 import '../theme/app_theme.dart';
 import '../utils/date_formatter.dart';
+import '../widgets/pull_to_refresh.dart';
 import '../widgets/user_avatar.dart';
 
 void _startCall(BuildContext context, AppUser user, {required bool video}) {
@@ -76,73 +77,118 @@ class CallsTab extends StatelessWidget {
       builder: (context, _) {
         final calls = CallLog.instance.records;
         final voicemails = _receivedVoicemails();
-        return ListView(
-          padding: const EdgeInsets.only(bottom: 96),
-          children: [
-            const _SearchField(),
-            const _CreateCallLinkTile(),
-            const _DialTile(),
-            const _CallContactTile(),
-            const _FavouritesRow(),
-            if (voicemails.isNotEmpty) ...[
-              const _SectionHeader('Voicemail'),
-              ...voicemails.map((v) => _VoicemailTile(voicemail: v)),
-            ],
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const _SectionHeader('Recent'),
-                if (calls.isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: TextButton(
-                      onPressed: () => _clearLog(context),
-                      child: const Text('Clear'),
-                    ),
-                  ),
+        return PullToRefresh(
+          child: ListView(
+            padding: const EdgeInsets.only(bottom: 96),
+            children: [
+              const _FavouritesRow(),
+              if (voicemails.isNotEmpty) ...[
+                const _SectionHeader('Voicemail'),
+                ...voicemails.map((v) => _VoicemailTile(voicemail: v)),
               ],
-            ),
-            if (calls.isEmpty)
-              const _EmptyRecent()
-            else
-              ...calls.map((c) => _CallTile(record: c)),
-          ],
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const _SectionHeader('Recent'),
+                  if (calls.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: TextButton(
+                        onPressed: () => _clearLog(context),
+                        child: const Text('Clear'),
+                      ),
+                    ),
+                ],
+              ),
+              if (calls.isEmpty)
+                const _EmptyRecent()
+              else
+                ...calls.map((c) => _CallTile(record: c)),
+            ],
+          ),
         );
       },
     );
   }
 }
 
-class _SearchField extends StatelessWidget {
-  const _SearchField();
+/// The Calls tab's app-bar actions. These used to be four stacked tiles at the
+/// top of the list, which squeezed favourites and recents into the bottom
+/// half of the screen; up here they leave the whole list to the call history.
+class CallsTabActions extends StatelessWidget {
+  const CallsTabActions({super.key});
+
+  void _onSelected(BuildContext context, String value) {
+    switch (value) {
+      case 'link':
+        showModalBottomSheet<void>(
+          context: context,
+          isScrollControlled: true,
+          showDragHandle: true,
+          builder: (_) => _CallLinkSheet(link: _newCallLink()),
+        );
+        break;
+      case 'dial':
+        Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => const DialerScreen()),
+        );
+        break;
+      case 'contact':
+        showCallContactPicker(context);
+        break;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 6),
-      child: Material(
-        color: isDark ? const Color(0xFF22252B) : const Color(0xFFF0F2F3),
-        borderRadius: BorderRadius.circular(26),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: () => Navigator.of(context).push(
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        IconButton(
+          icon: const Icon(Icons.search),
+          tooltip: 'Find people by username',
+          onPressed: () => Navigator.of(context).push(
             MaterialPageRoute(builder: (_) => const FindPeopleScreen()),
           ),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            child: Row(
-              children: [
-                Icon(Icons.search, size: 22, color: Colors.grey.shade500),
-                const SizedBox(width: 12),
-                Text('Find people by username',
-                    style:
-                        TextStyle(color: Colors.grey.shade500, fontSize: 15)),
-              ],
-            ),
-          ),
         ),
-      ),
+        PopupMenuButton<String>(
+          icon: const Icon(Icons.add_call),
+          tooltip: 'Start a call',
+          onSelected: (v) => _onSelected(context, v),
+          itemBuilder: (context) => const [
+            PopupMenuItem(
+              value: 'contact',
+              child: ListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(Icons.contact_phone_outlined),
+                title: Text('Call a contact'),
+                subtitle: Text('Pick someone from your chats'),
+              ),
+            ),
+            PopupMenuItem(
+              value: 'dial',
+              child: ListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(Icons.dialpad),
+                title: Text('Dial a number'),
+                subtitle: Text('Call any number directly'),
+              ),
+            ),
+            PopupMenuItem(
+              value: 'link',
+              child: ListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(Icons.link),
+                title: Text('Create call link'),
+                subtitle: Text('Share a link for your call'),
+              ),
+            ),
+          ],
+        ),
+      ],
     );
   }
 }
@@ -154,30 +200,6 @@ String _newCallLink() {
   final r = Random();
   final code = List.generate(10, (_) => chars[r.nextInt(chars.length)]).join();
   return 'https://okay.chat/call/$code';
-}
-
-class _CreateCallLinkTile extends StatelessWidget {
-  const _CreateCallLinkTile();
-
-  @override
-  Widget build(BuildContext context) {
-    return ListTile(
-      leading: CircleAvatar(
-        radius: 22,
-        backgroundColor: AppColors.tealGreenDark.withValues(alpha: 0.15),
-        child: const Icon(Icons.link, color: AppColors.tealGreenDark),
-      ),
-      title: const Text('Create call link',
-          style: TextStyle(fontWeight: FontWeight.w600)),
-      subtitle: const Text('Share a link for your call'),
-      onTap: () => showModalBottomSheet<void>(
-        context: context,
-        isScrollControlled: true,
-        showDragHandle: true,
-        builder: (_) => _CallLinkSheet(link: _newCallLink()),
-      ),
-    );
-  }
 }
 
 /// Sheet shown after tapping "Create call link": presents the generated link
@@ -307,118 +329,77 @@ List<AppUser> callableContacts() {
   return out;
 }
 
-/// Opens the dial pad to call any typed number.
-class _DialTile extends StatelessWidget {
-  const _DialTile();
-
-  @override
-  Widget build(BuildContext context) {
-    return ListTile(
-      leading: CircleAvatar(
-        radius: 22,
-        backgroundColor: AppColors.tealGreenDark.withValues(alpha: 0.15),
-        child: const Icon(Icons.dialpad, color: AppColors.tealGreenDark),
-      ),
-      title: const Text('Dial a number',
-          style: TextStyle(fontWeight: FontWeight.w600)),
-      subtitle: const Text('Call any number directly'),
-      onTap: () => Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => const DialerScreen()),
-      ),
-    );
-  }
-}
-
 /// Picks a contact (from chats and call history) and calls them.
-class _CallContactTile extends StatelessWidget {
-  const _CallContactTile();
-
-  @override
-  Widget build(BuildContext context) {
-    return ListTile(
-      leading: CircleAvatar(
-        radius: 22,
-        backgroundColor: AppColors.tealGreenDark.withValues(alpha: 0.15),
-        child: const Icon(Icons.contact_phone_outlined,
-            color: AppColors.tealGreenDark),
-      ),
-      title: const Text('Call a contact',
-          style: TextStyle(fontWeight: FontWeight.w600)),
-      subtitle: const Text('Pick someone from your chats'),
-      onTap: () {
-        final contacts = callableContacts();
-        showModalBottomSheet<void>(
-          context: context,
-          isScrollControlled: true,
-          showDragHandle: true,
-          builder: (sheetContext) => SafeArea(
-            child: contacts.isEmpty
-                ? Padding(
-                    padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          'No contacts yet. Find people by username or dial '
-                          'a number to make your first call.',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(color: Colors.grey.shade600),
-                        ),
-                        const SizedBox(height: 14),
-                        FilledButton.icon(
-                          onPressed: () {
-                            Navigator.pop(sheetContext);
-                            Navigator.of(context).push(MaterialPageRoute(
-                                builder: (_) => const FindPeopleScreen()));
-                          },
-                          icon: const Icon(Icons.person_add_alt),
-                          label: const Text('Find people'),
-                        ),
-                      ],
-                    ),
-                  )
-                : ListView.builder(
-                    shrinkWrap: true,
-                    itemCount: contacts.length,
-                    itemBuilder: (context, i) {
-                      final user = contacts[i];
-                      return ListTile(
-                        leading: UserAvatar(user: user, radius: 22),
-                        title: Text(user.name),
-                        subtitle: user.username.isEmpty
-                            ? null
-                            : Text('@${user.username}'),
-                        trailing: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            IconButton(
-                              icon: const Icon(Icons.call,
-                                  color: AppColors.tealGreenDark),
-                              tooltip: 'Voice call',
-                              onPressed: () {
-                                Navigator.pop(sheetContext);
-                                _startCall(context, user, video: false);
-                              },
-                            ),
-                            IconButton(
-                              icon: const Icon(Icons.videocam,
-                                  color: AppColors.tealGreenDark),
-                              tooltip: 'Video call',
-                              onPressed: () {
-                                Navigator.pop(sheetContext);
-                                _startCall(context, user, video: true);
-                              },
-                            ),
-                          ],
-                        ),
-                      );
-                    },
+void showCallContactPicker(BuildContext context) {
+  final contacts = callableContacts();
+  showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    showDragHandle: true,
+    builder: (sheetContext) => SafeArea(
+      child: contacts.isEmpty
+          ? Padding(
+              padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'No contacts yet. Find people by username or dial a number '
+                    'to make your first call.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Colors.grey.shade600),
                   ),
-          ),
-        );
-      },
-    );
-  }
+                  const SizedBox(height: 14),
+                  FilledButton.icon(
+                    onPressed: () {
+                      Navigator.pop(sheetContext);
+                      Navigator.of(context).push(MaterialPageRoute(
+                          builder: (_) => const FindPeopleScreen()));
+                    },
+                    icon: const Icon(Icons.person_add_alt),
+                    label: const Text('Find people'),
+                  ),
+                ],
+              ),
+            )
+          : ListView.builder(
+              shrinkWrap: true,
+              itemCount: contacts.length,
+              itemBuilder: (context, i) {
+                final user = contacts[i];
+                return ListTile(
+                  leading: UserAvatar(user: user, radius: 22),
+                  title: Text(user.name),
+                  subtitle:
+                      user.username.isEmpty ? null : Text('@${user.username}'),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.call,
+                            color: AppColors.tealGreenDark),
+                        tooltip: 'Voice call',
+                        onPressed: () {
+                          Navigator.pop(sheetContext);
+                          _startCall(context, user, video: false);
+                        },
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.videocam,
+                            color: AppColors.tealGreenDark),
+                        tooltip: 'Video call',
+                        onPressed: () {
+                          Navigator.pop(sheetContext);
+                          _startCall(context, user, video: true);
+                        },
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+    ),
+  );
 }
 
 /// Horizontally scrolling quick-call favourites, editable: tap to call, an
