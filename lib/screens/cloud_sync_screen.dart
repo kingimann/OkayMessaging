@@ -67,13 +67,22 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        'Chats, feed posts, follows, saved places, your '
-                        'communities and your Okay Score are encrypted on '
-                        'this device (AES-256-GCM, key derived '
-                        'from your passphrase) before upload. The server '
-                        'only ever stores ciphertext it cannot read — and '
-                        'if you lose the passphrase, nobody can recover the '
-                        'backup. Not even us.',
+                        sync.autoMode
+                            ? 'Your servers, feed posts, follows, saved '
+                                'places and Okay Score back up automatically '
+                                '— encrypted on this device (AES-256-GCM) '
+                                'before upload, and restored just by signing '
+                                'in with your number again. Chats stay on '
+                                'this device. Set a passphrase below to use '
+                                'a stronger key and include chats.'
+                            : 'Chats, feed posts, follows, saved places, '
+                                'your communities and your Okay Score are '
+                                'encrypted on this device (AES-256-GCM, key '
+                                'derived from your passphrase) before '
+                                'upload. The server only ever stores '
+                                'ciphertext it cannot read — and if you '
+                                'lose the passphrase, nobody can recover '
+                                'the backup. Not even us.',
                         style: TextStyle(
                             fontSize: 13.5, color: Theme.of(context).colorScheme.onSurfaceVariant),
                       ),
@@ -95,7 +104,9 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
                 ]),
                 builder: (context, _) {
                   final parts = <String>[
-                    backupCount(ChatStore.instance.chats.length, 'chat'),
+                    // Chats ride only under a user-set passphrase.
+                    if (!CloudSync.instance.autoMode)
+                      backupCount(ChatStore.instance.chats.length, 'chat'),
                     backupCount(FeedStore.instance.exportPosts().length, 'post'),
                     backupCount(FollowStore.instance.followingCount, 'follow'),
                     backupCount(
@@ -131,7 +142,8 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
                 controller: _pass,
                 obscureText: _obscure,
                 decoration: InputDecoration(
-                  labelText: 'Sync passphrase (min 6 characters)',
+                  labelText:
+                      'Passphrase (optional — adds chats, min 6 characters)',
                   border: const OutlineInputBorder(),
                   suffixIcon: IconButton(
                     icon: Icon(

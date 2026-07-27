@@ -331,6 +331,51 @@ class FeedStore extends ChangeNotifier {
   }
 }
 
+/// The hashtags used across [posts], most-used first, capped at [limit].
+/// Case-insensitive; returned in their first-seen casing. Pure.
+List<(String, int)> trendingTags(List<FeedPost> posts, {int limit = 6}) {
+  final counts = <String, int>{};
+  final display = <String, String>{};
+  final pattern = RegExp(r'#[A-Za-z0-9_]+');
+  for (final p in posts) {
+    for (final m in pattern.allMatches(p.text)) {
+      final tag = m.group(0)!;
+      final key = tag.toLowerCase();
+      counts[key] = (counts[key] ?? 0) + 1;
+      display.putIfAbsent(key, () => tag);
+    }
+  }
+  final keys = counts.keys.toList()
+    ..sort((a, b) {
+      final byCount = counts[b]!.compareTo(counts[a]!);
+      return byCount != 0 ? byCount : a.compareTo(b);
+    });
+  return [for (final k in keys.take(limit)) (display[k]!, counts[k]!)];
+}
+
+/// Orders a timeline: newest first, or by engagement (likes + reposts,
+/// newest breaking ties) when [top]. Pure.
+List<FeedPost> sortFeed(List<FeedPost> posts, {bool top = false}) {
+  final list = [...posts];
+  if (top) {
+    list.sort((a, b) {
+      final byScore =
+          (b.likes + b.reposts).compareTo(a.likes + a.reposts);
+      return byScore != 0 ? byScore : b.time.compareTo(a.time);
+    });
+  } else {
+    list.sort((a, b) => b.time.compareTo(a.time));
+  }
+  return list;
+}
+
+/// Keeps only posts mentioning [tag] (case-insensitive), '' = all. Pure.
+List<FeedPost> filterFeedByTag(List<FeedPost> posts, String tag) {
+  if (tag.isEmpty) return posts;
+  final q = tag.toLowerCase();
+  return posts.where((p) => p.text.toLowerCase().contains(q)).toList();
+}
+
 /// "2m", "3h", "5d" — X-style compact age for a post.
 String feedAge(DateTime time, {DateTime? now}) {
   final d = (now ?? DateTime.now()).difference(time);

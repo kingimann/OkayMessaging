@@ -18,14 +18,22 @@ import 'follow_store.dart';
 import 'saved_places_store.dart';
 import 'score_store.dart';
 
-/// End-to-end encrypted cloud sync: everything (chats, feed, follows, saved
-/// places, communities and the Okay Score) is serialized, encrypted **on this
-/// device** with a key derived from the user's sync passphrase, and only the
-/// ciphertext is stored on the server. The server never learns who a blob
-/// belongs to either — the row id
-/// is an HMAC of the derived key, so it's meaningless without the
-/// passphrase. Losing the passphrase means the backup is unrecoverable by
-/// anyone, including us; that's the point.
+/// End-to-end encrypted cloud sync. Two modes:
+///
+/// **Automatic (the default)** — on for everyone with no setup. Servers,
+/// feed, follows, places, score and email are encrypted on-device with a key
+/// derived from the account's phone number and uploaded. Reinstalling and
+/// signing in with the same number brings them back without the user doing
+/// anything. Chats are deliberately NOT in the automatic backup: a
+/// phone-derived key must never protect message content, since the phone
+/// number isn't a secret.
+///
+/// **Passphrase** — the user sets a sync passphrase in Settings; the key is
+/// derived from it instead, and chats are included. Losing the passphrase
+/// means that backup is unrecoverable by anyone, including us.
+///
+/// Either way the server stores only ciphertext, and the row id is an HMAC
+/// of the key, so blobs reveal nothing about the account.
 class CloudSync extends ChangeNotifier {
   CloudSync._();
   static final CloudSync instance = CloudSync._();
@@ -34,7 +42,11 @@ class CloudSync extends ChangeNotifier {
   static const _kPass = 'cloud_sync_passphrase';
   static const table = 'sync_blobs';
 
-  bool _enabled = false;
+  /// The fixed "passphrase" of automatic mode. Secrecy comes only from the
+  /// per-account salt (the phone digits), which is why chats stay out.
+  static const autoPassphrase = 'okay-auto-v1';
+
+  bool _enabled = true;
   String _passphrase = '';
   DateTime? lastSync;
   String? lastError;
@@ -43,8 +55,17 @@ class CloudSync extends ChangeNotifier {
   bool _listening = false;
 
   bool get enabled => _enabled;
-  bool get configured => _passphrase.length >= 6;
+
+  /// True while no custom passphrase is set — syncing rides the phone-derived
+  /// key and excludes chats.
+  bool get autoMode => _passphrase.length < 6;
+
+  /// Ready to sync: a custom passphrase, or (auto mode) a signed-in account
+  /// whose digits can salt the key.
+  bool get configured => !autoMode || _digits != 'local';
   String get passphrase => _passphrase;
+
+  String get _effectivePassphrase => autoMode ? autoPassphrase : _passphrase;
 
   /// Test hook: replaces the HTTP roundtrip (upload/download) entirely.
   @visibleForTesting
@@ -53,10 +74,43 @@ class CloudSync extends ChangeNotifier {
   Future<void> load() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      _enabled = prefs.getBool(_kEnabled) ?? false;
+      // Sync is on unless the user explicitly turned it off.
+      _enabled = prefs.getBool(_kEnabled) ?? true;
       _passphrase = prefs.getString(_kPass) ?? '';
-      if (_enabled && configured) _startListening();
+      if (_enabled) {
+        _startListening();
+        // Boot runs before sign-in state settles, so give the profile a
+        // moment, then pull an existing backup down (fresh installs only —
+        // a device with local servers keeps them and uploads instead).
+        Timer(const Duration(seconds: 4), autoBootstrap);
+      }
       notifyListeners();
+    } catch (_) {}
+  }
+
+  /// The account digits the last bootstrap ran for, so signing in (which can
+  /// happen well after boot) triggers exactly one more.
+  String _bootstrappedFor = '';
+
+  /// First-run auto sync: restore when this device has nothing yet,
+  /// otherwise push the local state up. Never surfaces errors — automatic
+  /// mode has no UI to be noisy in.
+  Future<void> autoBootstrap() async {
+    if (!_enabled || !configured) return;
+    final digits = _digits;
+    if (digits == _bootstrappedFor) return;
+    _bootstrappedFor = digits;
+    try {
+      final empty = CommunityStore.instance.communities.isEmpty &&
+          FeedStore.instance.exportPosts().isEmpty;
+      if (empty) {
+        await restore();
+        // "No backup yet" isn't an error when nobody asked for a restore.
+        lastError = null;
+        notifyListeners();
+      } else {
+        await syncNow();
+      }
     } catch (_) {}
   }
 
@@ -75,7 +129,8 @@ class CloudSync extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Auto-sync: any change to a synced store schedules an upload.
+  /// Auto-sync: any change to a synced store schedules an upload, and a
+  /// sign-in (the profile appearing) triggers the once-per-account bootstrap.
   void _startListening() {
     if (_listening) return;
     _listening = true;
@@ -85,6 +140,7 @@ class CloudSync extends ChangeNotifier {
     SavedPlacesStore.instance.addListener(scheduleSync);
     CommunityStore.instance.addListener(scheduleSync);
     ScoreStore.instance.addListener(scheduleSync);
+    AppState.profile.addListener(autoBootstrap);
   }
 
   /// Debounced: bursts of edits collapse into one upload.
@@ -118,9 +174,11 @@ class CloudSync extends ChangeNotifier {
   }
 
   /// Everything worth restoring on a new device, as one JSON document.
+  /// Chats ride along only under a user-set passphrase — never under the
+  /// automatic phone-derived key.
   Map<String, dynamic> buildPayload() => {
         'v': 1,
-        'chats': ChatStore.instance.toJson(),
+        if (!autoMode) 'chats': ChatStore.instance.toJson(),
         'feed': FeedStore.instance.exportPosts(),
         'follows': FollowStore.instance.following.toList()..sort(),
         'places': SavedPlacesStore.instance.exportPlaces(),
@@ -167,12 +225,12 @@ class CloudSync extends ChangeNotifier {
   /// Encrypts and uploads the current state. Returns null on success or a
   /// human-readable error.
   Future<String?> syncNow() async {
-    if (!configured) return 'Set a sync passphrase first.';
+    if (!configured) return 'Sign in (or set a sync passphrase) first.';
     syncing = true;
     lastError = null;
     notifyListeners();
     try {
-      final key = deriveSyncKey(_passphrase, _digits);
+      final key = deriveSyncKey(_effectivePassphrase, _digits);
       final id = blobIdFor(key);
       final data = E2eCrypto.encrypt(key, jsonEncode(buildPayload()));
       final debug = debugServerOverride;
@@ -216,12 +274,12 @@ class CloudSync extends ChangeNotifier {
   /// Downloads and decrypts the stored blob, replacing local state.
   /// Returns null on success or a human-readable error.
   Future<String?> restore() async {
-    if (!configured) return 'Set a sync passphrase first.';
+    if (!configured) return 'Sign in (or set a sync passphrase) first.';
     syncing = true;
     lastError = null;
     notifyListeners();
     try {
-      final key = deriveSyncKey(_passphrase, _digits);
+      final key = deriveSyncKey(_effectivePassphrase, _digits);
       final id = blobIdFor(key);
       String? data;
       final debug = debugServerOverride;
@@ -279,6 +337,7 @@ class CloudSync extends ChangeNotifier {
   void resetForTest() {
     _enabled = false;
     _passphrase = '';
+    _bootstrappedFor = '';
     lastSync = null;
     lastError = null;
     _debounce?.cancel();

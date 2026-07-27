@@ -3,8 +3,11 @@ import 'package:flutter/services.dart';
 
 import '../app_state.dart';
 import '../state/chat_store.dart';
+import '../state/community_store.dart';
 import '../state/feed_store.dart';
 import '../state/follow_store.dart';
+import '../util/photo_prep.dart';
+import '../widgets/chat_photo.dart';
 import '../widgets/emoji_gif_sheet.dart';
 import '../widgets/pull_to_refresh.dart';
 import 'chat_screen.dart';
@@ -50,6 +53,12 @@ class FeedScreen extends StatefulWidget {
 class _FeedScreenState extends State<FeedScreen> {
   final TextEditingController _composer = TextEditingController();
 
+  /// False = newest first; true = most liked/reposted first.
+  bool _top = false;
+
+  /// Active trending-hashtag filter ('' = whole timeline).
+  String _tag = '';
+
   @override
   void dispose() {
     _composer.dispose();
@@ -59,9 +68,23 @@ class _FeedScreenState extends State<FeedScreen> {
   void _post({String? gifUrl}) {
     final text = _composer.text.trim();
     if (text.isEmpty && gifUrl == null) return;
+    // The server's word filter guards its feed like its channels.
+    final hit = CommunityStore.instance.filterHit(widget.communityId, text);
+    if (hit != null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('"$hit" is blocked by this server\'s word filter')));
+      return;
+    }
     FeedStore.instance.add(widget.communityId, text, gifUrl: gifUrl);
     _composer.clear();
     FocusScope.of(context).unfocus();
+  }
+
+  Future<void> _attachPhoto() async {
+    final dataUri = await PhotoPrep.pickPhoto();
+    if (dataUri == null || !mounted) return;
+    // A photo posts like a GIF: an image with whatever was typed as caption.
+    _post(gifUrl: dataUri);
   }
 
   void _openThread(FeedPost post) {
@@ -253,7 +276,9 @@ class _FeedScreenState extends State<FeedScreen> {
         builder: (context, _) {
           // One timeline for everyone in the server — no For-you/Following
           // split.
-          final posts = FeedStore.instance.postsFor(widget.communityId);
+          final all = FeedStore.instance.postsFor(widget.communityId);
+          final tags = trendingTags(all);
+          final posts = sortFeed(filterFeedByTag(all, _tag), top: _top);
           return PullToRefresh(
             child: ListView(
               children: [
@@ -261,8 +286,52 @@ class _FeedScreenState extends State<FeedScreen> {
                   controller: _composer,
                   onPost: _post,
                   onPostGif: (url) => _post(gifUrl: url),
+                  onAttachPhoto: _attachPhoto,
                 ),
                 const Divider(height: 1),
+                if (all.isNotEmpty)
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+                    child: Row(
+                      children: [
+                        ChoiceChip(
+                          label: const Text('Latest'),
+                          selected: !_top,
+                          visualDensity: VisualDensity.compact,
+                          onSelected: (_) => setState(() => _top = false),
+                        ),
+                        const SizedBox(width: 8),
+                        ChoiceChip(
+                          label: const Text('Top'),
+                          selected: _top,
+                          visualDensity: VisualDensity.compact,
+                          onSelected: (_) => setState(() => _top = true),
+                        ),
+                        if (tags.isNotEmpty)
+                          Container(
+                            width: 1,
+                            height: 22,
+                            margin:
+                                const EdgeInsets.symmetric(horizontal: 8),
+                            color: Colors.grey.withValues(alpha: 0.3),
+                          ),
+                        // Trending: what the server is talking about, as
+                        // one-tap filters.
+                        for (final (tag, n) in tags)
+                          Padding(
+                            padding: const EdgeInsets.only(right: 8),
+                            child: FilterChip(
+                              label: Text(n > 1 ? '$tag · $n' : tag),
+                              selected: _tag == tag,
+                              visualDensity: VisualDensity.compact,
+                              onSelected: (_) => setState(
+                                  () => _tag = _tag == tag ? '' : tag),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
                 if (posts.isEmpty)
                   Padding(
                     padding: const EdgeInsets.all(32),
@@ -313,10 +382,14 @@ class _Composer extends StatelessWidget {
   /// caption.
   final ValueChanged<String>? onPostGif;
 
+  /// Opens the photo picker and posts the shot the same way.
+  final VoidCallback? onAttachPhoto;
+
   const _Composer({
     required this.controller,
     required this.onPost,
     this.onPostGif,
+    this.onAttachPhoto,
   });
 
   Future<void> _pick(BuildContext context) async {
@@ -380,11 +453,26 @@ class _Composer extends StatelessWidget {
             ),
           ),
           IconButton(
-            icon: const Icon(Icons.emoji_emotions_outlined),
+            icon: const Icon(Icons.emoji_emotions_outlined, size: 21),
             color: Colors.grey,
             tooltip: 'Emoji & GIFs',
+            visualDensity: VisualDensity.compact,
+            constraints:
+                const BoxConstraints(minWidth: 36, minHeight: 36),
+            padding: EdgeInsets.zero,
             onPressed: () => _pick(context),
           ),
+          if (onAttachPhoto != null)
+            IconButton(
+              icon: const Icon(Icons.photo_outlined, size: 21),
+              color: Colors.grey,
+              tooltip: 'Attach photo',
+              visualDensity: VisualDensity.compact,
+              constraints:
+                  const BoxConstraints(minWidth: 36, minHeight: 36),
+              padding: EdgeInsets.zero,
+              onPressed: onAttachPhoto,
+            ),
           // Live-enabled only once there's something to say.
           ValueListenableBuilder<TextEditingValue>(
             valueListenable: controller,
@@ -490,10 +578,12 @@ class _PostCard extends StatelessWidget {
                   const SizedBox(height: 8),
                   ClipRRect(
                     borderRadius: BorderRadius.circular(14),
-                    child: Image.network(
-                      post.gifUrl!,
+                    // ChatPhoto also decodes attached photos (data: URIs),
+                    // not just GIF links.
+                    child: ChatPhoto(
+                      url: post.gifUrl!,
                       fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                      errorBuilder: (_) => const SizedBox.shrink(),
                     ),
                   ),
                 ],

@@ -4836,6 +4836,82 @@ void main() {
       expect(await CloudSync.instance.restore(), isNotNull);
     });
 
+    test('automatic sync: servers back up with no passphrase, chats stay out',
+        () async {
+      CloudSync.debugServerOverride = {};
+      final prevProfile = AppState.profile.value;
+      addTearDown(() {
+        CloudSync.debugServerOverride = null;
+        CloudSync.instance.resetForTest();
+        AppState.profile.value = prevProfile;
+        CommunityStore.instance.resetForTest();
+      });
+      // Signed in (digits exist), but the user never set a passphrase.
+      AppState.profile.value = const AppUser(
+          id: 'me',
+          name: 'Me',
+          avatarColor: '#000000',
+          phone: '+1 555 010 7777');
+      await CloudSync.instance.configure(passphrase: '', on: true);
+      expect(CloudSync.instance.autoMode, isTrue);
+      expect(CloudSync.instance.configured, isTrue);
+
+      // The automatic payload deliberately has no chats in it.
+      CommunityStore.instance.createCommunity('Autosaved');
+      final payload = CloudSync.instance.buildPayload();
+      expect(payload.containsKey('chats'), isFalse);
+      expect(payload['communities'], isNotEmpty);
+
+      expect(await CloudSync.instance.syncNow(), isNull);
+      final blob = CloudSync.debugServerOverride!.values.single;
+      expect(blob.contains('Autosaved'), isFalse); // ciphertext only
+
+      // Wipe the device — restoring brings the server back with no input.
+      CommunityStore.instance.hydrate([]);
+      expect(CommunityStore.instance.communities, isEmpty);
+      expect(await CloudSync.instance.restore(), isNull);
+      expect(
+          CommunityStore.instance.communities
+              .any((c) => c.name == 'Autosaved'),
+          isTrue);
+
+      // Setting a real passphrase upgrades the key and includes chats.
+      await CloudSync.instance
+          .configure(passphrase: 'stronger key', on: true);
+      expect(CloudSync.instance.autoMode, isFalse);
+      expect(CloudSync.instance.buildPayload().containsKey('chats'), isTrue);
+    });
+
+    test('feed trending tags, top sort, and tag filter', () {
+      final t = DateTime(2024, 1, 1);
+      FeedPost p(String id, String text,
+              {int likes = 0, int reposts = 0, int min = 0}) =>
+          FeedPost(
+              id: id,
+              communityId: 'c',
+              authorName: 'A',
+              authorUsername: 'a',
+              time: t.add(Duration(minutes: min)),
+              text: text,
+              likes: likes,
+              reposts: reposts);
+      final posts = [
+        p('1', 'Love #flutter and #dart', likes: 1, min: 1),
+        p('2', 'More #Flutter tips', likes: 5, reposts: 2, min: 2),
+        p('3', 'plain post', likes: 2, min: 3),
+      ];
+      // Counted case-insensitively, shown in first-seen casing.
+      final tags = trendingTags(posts);
+      expect(tags.first, ('#flutter', 2));
+      expect(tags.any((e) => e.$1 == '#dart'), isTrue);
+
+      expect(sortFeed(posts).first.id, '3'); // newest first
+      expect(sortFeed(posts, top: true).first.id, '2'); // most engagement
+      expect(filterFeedByTag(posts, '#flutter').map((e) => e.id).toList(),
+          ['1', '2']);
+      expect(filterFeedByTag(posts, ''), hasLength(3));
+    });
+
     test('feedSpans highlights mentions, tags, and links', () {
       const base = TextStyle(fontSize: 15);
       const accent = TextStyle(fontSize: 15, color: Colors.blue);
