@@ -217,7 +217,10 @@ class GroupInfoScreen extends StatelessWidget {
   /// info page first to land back on the conversation when the call ends.
   void _startGroupCall(BuildContext context, {required bool video}) {
     Navigator.of(context).pop();
-    CallService.instance.startOutgoing(group, video: video);
+    final chat = chatId == null ? null : ChatStore.instance.chatById(chatId!);
+    if (chat != null) {
+      CallService.instance.startGroupCall(chat, video: video);
+    }
   }
 }
 

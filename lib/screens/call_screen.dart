@@ -132,6 +132,7 @@ class _CallScreenState extends State<CallScreen> {
     final terminal =
         s.status == CallStatus.ended || s.status == CallStatus.declined;
     return terminal &&
+        !s.isGroup &&
         s.direction == CallDirection.outgoing &&
         s.connectedAt == null;
   }
@@ -154,10 +155,26 @@ class _CallScreenState extends State<CallScreen> {
     switch (s.status) {
       case CallStatus.ringing:
         if (s.direction == CallDirection.incoming) {
+          if (s.isGroup) {
+            final who =
+                s.callerName.isEmpty ? 'A member' : s.callerName.split(' ').first;
+            return s.video
+                ? '$who invited you to a video call'
+                : '$who invited you to a group call';
+          }
           return s.video ? 'Incoming video call' : 'Incoming call';
         }
-        return s.video ? 'Video calling…' : 'Ringing…';
+        return s.isGroup
+            ? 'Ringing ${s.members.length} member${s.members.length == 1 ? '' : 's'}…'
+            : (s.video ? 'Video calling…' : 'Ringing…');
       case CallStatus.connected:
+        if (s.isGroup) {
+          final m = _seconds ~/ 60;
+          final sec = _seconds % 60;
+          // You plus everyone whose "joined" has arrived.
+          return '${s.joinedCount + 1} on the call · '
+              '$m:${sec.toString().padLeft(2, '0')}';
+        }
         if (CallMedia.instance.onHold.value) return 'On hold';
         // Reflect the live WebRTC media state so a still-negotiating or
         // dropped connection isn't shown as a running call.
@@ -294,6 +311,14 @@ class _CallScreenState extends State<CallScreen> {
                   ),
                 ],
               ),
+              if (session.isGroup)
+                // Flexible + scroll so a big roster squeezes rather than
+                // overflowing the column on small screens.
+                Flexible(
+                  child: SingleChildScrollView(
+                    child: _GroupRoster(session: session),
+                  ),
+                ),
               // Live link quality from WebRTC packet-loss stats, so a bad
               // call is visibly the network's fault rather than a mystery.
               if (session.status == CallStatus.connected)
@@ -709,6 +734,70 @@ class _CallScreenState extends State<CallScreen> {
           onTap: () => CallService.instance.end(),
         ),
       ],
+    );
+  }
+}
+
+/// The members of a group call, each with where they are in it. Lives under
+/// the call status so the caller can watch the room fill up (or not).
+class _GroupRoster extends StatelessWidget {
+  final CallSession session;
+  const _GroupRoster({required this.session});
+
+  (String, Color) _describe(GroupCallMember m) => switch (m.state) {
+        GroupCallMemberState.joined => ('On the call', Colors.greenAccent),
+        GroupCallMemberState.ringing => ('Ringing…', Colors.white70),
+        GroupCallMemberState.declined => ('Declined', Colors.orangeAccent),
+        GroupCallMemberState.left => ('Left', Colors.white38),
+      };
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(24, 18, 24, 0),
+      child: Wrap(
+        alignment: WrapAlignment.center,
+        spacing: 10,
+        runSpacing: 10,
+        children: [
+          for (final m in session.members)
+            Container(
+              padding: const EdgeInsets.fromLTRB(6, 6, 14, 6),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.10),
+                borderRadius: BorderRadius.circular(24),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Opacity(
+                    opacity:
+                        m.state == GroupCallMemberState.joined ? 1.0 : 0.55,
+                    child: UserAvatar(user: m.user, radius: 16),
+                  ),
+                  const SizedBox(width: 8),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        m.user.name.split(' ').first,
+                        style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.w600),
+                      ),
+                      Text(
+                        _describe(m).$1,
+                        style: TextStyle(
+                            color: _describe(m).$2, fontSize: 11.5),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
     );
   }
 }

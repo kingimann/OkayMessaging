@@ -1402,7 +1402,8 @@ class _ChatScreenState extends State<ChatScreen> {
 
   void _startCall({required bool video}) {
     if (widget.chat.contact.isGroup) {
-      _showComingSoon(context, 'Group calls');
+      final chat = _store.chatById(_chatId) ?? widget.chat;
+      CallService.instance.startGroupCall(chat, video: video);
       return;
     }
     CallService.instance.startOutgoing(widget.chat.contact, video: video);

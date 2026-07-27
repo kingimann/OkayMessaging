@@ -6768,4 +6768,219 @@ void main() {
       await tester.pump();
     });
   });
+
+  group('Group calls', () {
+    setUp(() {
+      CallService.instance.resetForTest();
+      Session.instance.signInForTest();
+    });
+
+    Chat groupChat() => const Chat(
+          id: 'group_call_1',
+          contact: AppUser(
+            id: 'group_call_1',
+            name: 'Trip planning',
+            avatarColor: '#4DB6AC',
+            isGroup: true,
+          ),
+          messages: [],
+          members: [
+            AppUser(
+                id: '+1 555 0100',
+                name: 'You',
+                avatarColor: '#25D366',
+                phone: '+1 555 0100'),
+            AppUser(
+                id: '+1 555 0111',
+                name: 'Alice',
+                avatarColor: '#E57373',
+                phone: '+1 555 0111'),
+            AppUser(
+                id: '+1 555 0122',
+                name: 'Bob',
+                avatarColor: '#64B5F6',
+                phone: '+1 555 0122'),
+          ],
+        );
+
+    test('a group call rings the members, not me, and connects on first join',
+        () {
+      final call = CallService.instance;
+      call.startGroupCall(groupChat(), video: false);
+
+      final c = call.current.value!;
+      expect(c.isGroup, isTrue);
+      expect(c.peer.name, 'Trip planning');
+      expect(c.status, CallStatus.ringing);
+      // I'm not on my own roster; both callable members are being rung.
+      expect(c.members.map((m) => m.user.name), ['Alice', 'Bob']);
+      expect(c.members.every((m) => m.state == GroupCallMemberState.ringing),
+          isTrue);
+
+      // Alice picks up: the call connects, Bob keeps ringing.
+      call.onRemoteJoined('+1 555 0111', c.callId);
+      final joined = call.current.value!;
+      expect(joined.status, CallStatus.connected);
+      expect(joined.joinedCount, 1);
+      expect(joined.members.last.state, GroupCallMemberState.ringing);
+      call.end();
+    });
+
+    test('leaving while still being rung reads as a decline', () {
+      final call = CallService.instance;
+      call.startGroupCall(groupChat(), video: false);
+      final id = call.current.value!.callId;
+
+      call.onRemoteJoined('+1 555 0111', id);
+      call.onRemoteLeft('+1 555 0122', id); // Bob never answered
+      final c = call.current.value!;
+      expect(
+          c.members
+              .firstWhere((m) => m.user.name == 'Bob')
+              .state,
+          GroupCallMemberState.declined);
+      // Alice is still on, so the call carries on.
+      expect(c.status, CallStatus.connected);
+
+      // When Alice leaves too, the room is empty and the call ends.
+      call.onRemoteLeft('+1 555 0111', id);
+      expect(call.current.value?.status, CallStatus.ended);
+    });
+
+    test('an incoming group invite shows the group with the caller joined',
+        () {
+      final call = CallService.instance;
+      final members = groupChat().members;
+      call.onRemoteGroupOffer(
+        members[1], // Alice is calling
+        'gc1',
+        false,
+        group: groupChat().contact,
+        members: members,
+      );
+
+      final c = call.current.value!;
+      expect(c.isGroup, isTrue);
+      expect(c.direction, CallDirection.incoming);
+      expect(c.peer.name, 'Trip planning');
+      expect(c.callerName, 'Alice');
+      // My own entry is dropped; Alice is already on the call.
+      expect(c.members.map((m) => m.user.name), ['Alice', 'Bob']);
+      expect(c.members.first.state, GroupCallMemberState.joined);
+
+      call.accept();
+      expect(call.current.value?.status, CallStatus.connected);
+      call.end();
+    });
+
+    test('the caller hanging up cancels an unanswered invite', () {
+      final call = CallService.instance;
+      final members = groupChat().members;
+      call.onRemoteGroupOffer(members[1], 'gc2', false,
+          group: groupChat().contact, members: members);
+      expect(call.current.value?.status, CallStatus.ringing);
+
+      // Alice (the only joined member) gives up before I answer.
+      call.onRemoteLeft('+1 555 0111', 'gc2');
+      expect(call.current.value?.status, CallStatus.ended);
+    });
+
+    test('a second invite while already on a call is ignored, not a takeover',
+        () {
+      final call = CallService.instance;
+      call.startGroupCall(groupChat(), video: false);
+      final id = call.current.value!.callId;
+      call.onRemoteJoined('+1 555 0111', id);
+
+      call.onRemoteGroupOffer(
+        const AppUser(
+            id: '+1 555 0999',
+            name: 'Mallory',
+            avatarColor: '#E57373',
+            phone: '+1 555 0999'),
+        'gc_other',
+        false,
+        group: const AppUser(
+            id: 'g2', name: 'Other', avatarColor: '#4DB6AC', isGroup: true),
+        members: const [],
+      );
+      expect(call.current.value?.callId, id);
+      call.end();
+    });
+
+    test('the sealed invite carries the group and its roster', () {
+      final info = RelayService.groupCallInfo(groupChat());
+      expect(info['id'], 'group_call_1');
+      expect(info['name'], 'Trip planning');
+      final members = RelayService.membersFromJson(info['members']);
+      expect(members.map((m) => m.name), ['You', 'Alice', 'Bob']);
+    });
+
+    testWidgets('the call screen shows the room filling up', (tester) async {
+      final chat = groupChat();
+      final session = CallSession(
+        callId: 'gc_ui',
+        peer: chat.contact,
+        video: false,
+        direction: CallDirection.outgoing,
+        status: CallStatus.ringing,
+        members: [
+          GroupCallMember(chat.members[1]),
+          GroupCallMember(chat.members[2]),
+        ],
+      );
+      await tester.pumpWidget(MaterialApp(home: CallScreen(session: session)));
+      await tester.pump();
+
+      expect(find.text('Trip planning'), findsOneWidget);
+      expect(find.text('Ringing 2 members…'), findsOneWidget);
+      expect(find.text('Alice'), findsOneWidget);
+      expect(find.text('Bob'), findsOneWidget);
+      expect(find.text('Ringing…'), findsNWidgets(2));
+
+      // Alice joins; her chip flips and the call counts two people.
+      await tester.pumpWidget(MaterialApp(
+        home: CallScreen(
+          session: session.copyWith(
+            status: CallStatus.connected,
+            connectedAt: DateTime.now(),
+            members: [
+              GroupCallMember(chat.members[1], GroupCallMemberState.joined),
+              GroupCallMember(chat.members[2]),
+            ],
+          ),
+        ),
+      ));
+      await tester.pump();
+      expect(find.text('On the call'), findsOneWidget);
+      expect(find.textContaining('2 on the call'), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+    });
+
+    testWidgets('an incoming group invite names the caller', (tester) async {
+      final chat = groupChat();
+      final session = CallSession(
+        callId: 'gc_in',
+        peer: chat.contact,
+        video: false,
+        direction: CallDirection.incoming,
+        status: CallStatus.ringing,
+        callerName: 'Alice Bennett',
+        members: [
+          GroupCallMember(chat.members[1], GroupCallMemberState.joined),
+          GroupCallMember(chat.members[2]),
+        ],
+      );
+      await tester.pumpWidget(MaterialApp(home: CallScreen(session: session)));
+      await tester.pump();
+
+      expect(find.text('Trip planning'), findsOneWidget);
+      expect(find.text('Alice invited you to a group call'), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+    });
+  });
 }

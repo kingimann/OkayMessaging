@@ -23,15 +23,42 @@ enum CallDirection { incoming, outgoing }
 /// to [declined] if the callee rejects.
 enum CallStatus { ringing, connected, ended, declined }
 
+/// Where one member of a group call currently is: still being rung, on the
+/// call, rejected it without ever joining, or joined and then hung up.
+enum GroupCallMemberState { ringing, joined, declined, left }
+
+/// One member of a group call, with where they are in it.
+@immutable
+class GroupCallMember {
+  final AppUser user;
+  final GroupCallMemberState state;
+
+  const GroupCallMember(this.user,
+      [this.state = GroupCallMemberState.ringing]);
+
+  GroupCallMember withState(GroupCallMemberState next) =>
+      GroupCallMember(user, next);
+}
+
 /// One live call between this device and a peer.
 @immutable
 class CallSession {
   final String callId;
+
+  /// Who the call is *with*: the other person for a one-to-one call, the
+  /// group itself for a group call (its name and colour carry the screen).
   final AppUser peer;
   final bool video;
   final CallDirection direction;
   final CallStatus status;
   final DateTime? connectedAt;
+
+  /// Group-call roster (everyone but this device), empty for 1:1 calls.
+  final List<GroupCallMember> members;
+
+  /// Who started a group call — shown on the incoming screen so "Trip
+  /// planning" also says which member is ringing you. Empty for 1:1.
+  final String callerName;
 
   const CallSession({
     required this.callId,
@@ -40,9 +67,23 @@ class CallSession {
     required this.direction,
     required this.status,
     this.connectedAt,
+    this.members = const [],
+    this.callerName = '',
   });
 
-  CallSession copyWith({CallStatus? status, DateTime? connectedAt}) {
+  /// True for a call that rings a whole group rather than one person.
+  bool get isGroup => members.isNotEmpty;
+
+  /// Members currently on the call.
+  int get joinedCount => members
+      .where((m) => m.state == GroupCallMemberState.joined)
+      .length;
+
+  CallSession copyWith({
+    CallStatus? status,
+    DateTime? connectedAt,
+    List<GroupCallMember>? members,
+  }) {
     return CallSession(
       callId: callId,
       peer: peer,
@@ -50,7 +91,25 @@ class CallSession {
       direction: direction,
       status: status ?? this.status,
       connectedAt: connectedAt ?? this.connectedAt,
+      members: members ?? this.members,
+      callerName: callerName,
     );
+  }
+
+  /// Returns a copy with [phone]'s member moved to [next]. Someone who leaves
+  /// while still being rung never answered — that's a decline, not a leave.
+  CallSession withMemberState(String phone, GroupCallMemberState next) {
+    final digits = RelayService.digits(phone);
+    return copyWith(members: [
+      for (final m in members)
+        if (RelayService.digits(m.user.phone) == digits)
+          m.withState(next == GroupCallMemberState.left &&
+                  m.state == GroupCallMemberState.ringing
+              ? GroupCallMemberState.declined
+              : next)
+        else
+          m
+    ]);
   }
 }
 
@@ -177,6 +236,66 @@ class CallService {
         body: video ? 'Incoming video call' : 'Incoming call');
   }
 
+  /// Rings every member of [group] at once. There is no room on a server:
+  /// each member's device gets its own encrypted invitation, and joins and
+  /// leaves are fanned out the same way so every roster converges.
+  ///
+  /// Signaling and the shared call state are real; like 1:1 calls, live media
+  /// is the WebRTC piece and stays pairwise, so group legs carry no SDP.
+  void startGroupCall(Chat group, {required bool video}) {
+    if (isBusy) return;
+    final me = Session.instance.user.value;
+    final myDigits = RelayService.digits(me?.phone ?? '');
+    // Only members that can actually be rung belong on the roster.
+    final callable = [
+      for (final m in group.members)
+        if (RelayService.digits(m.phone).isNotEmpty &&
+            RelayService.digits(m.phone) != myDigits)
+          m
+    ];
+    if (callable.isEmpty) return;
+
+    ScoreStore.instance.award(ScoreStore.pointsPerCall);
+    ScoreStore.instance.recordFlag('made_call');
+    final id = _newCallId(group.id);
+    RelayService.instance.currentCallId = id;
+    minimized.value = false;
+    peerMedia.value = (video: false, screen: false);
+    current.value = CallSession(
+      callId: id,
+      peer: group.contact,
+      video: video,
+      direction: CallDirection.outgoing,
+      status: CallStatus.ringing,
+      members: [for (final m in callable) GroupCallMember(m)],
+    );
+    final caller = me?.name ?? '';
+    for (final member in callable) {
+      RelayService.instance.sendCall(member.phone,
+          kind: 'offer',
+          callId: id,
+          video: video,
+          group: RelayService.groupCallInfo(group));
+      PushService.instance.notify(member.phone,
+          title: caller.isEmpty ? 'Incoming group call' : caller,
+          body: 'Group call · ${group.contact.name}');
+    }
+    _ringTimer?.cancel();
+    _ringTimer = Timer(ringTimeout, () {
+      final c = current.value;
+      if (c == null || c.callId != id || c.status != CallStatus.ringing) {
+        return;
+      }
+      // Nobody picked up. Tell the members so their phones stop ringing.
+      for (final m in c.members) {
+        RelayService.instance
+            .sendCall(m.user.phone, kind: 'left', callId: id, video: video);
+      }
+      _logCall(c);
+      current.value = c.copyWith(status: CallStatus.ended);
+    });
+  }
+
   /// Accepts the current incoming call.
   void accept() {
     _ringTimer?.cancel();
@@ -187,6 +306,15 @@ class CallService {
       status: CallStatus.connected,
       connectedAt: DateTime.now(),
     );
+    if (c.isGroup) {
+      // Everyone (the caller included) hears about the join the same way,
+      // so every device's roster agrees without a server keeping one.
+      for (final m in c.members) {
+        RelayService.instance.sendCall(m.user.phone,
+            kind: 'joined', callId: c.callId, video: c.video);
+      }
+      return;
+    }
     _beginAnswer(c);
   }
 
@@ -205,8 +333,15 @@ class CallService {
     _ringTimer?.cancel();
     final c = current.value;
     if (c == null) return;
-    RelayService.instance.sendCall(c.peer.phone,
-        kind: 'decline', callId: c.callId, video: c.video);
+    if (c.isGroup) {
+      for (final m in c.members) {
+        RelayService.instance
+            .sendCall(m.user.phone, kind: 'left', callId: c.callId, video: c.video);
+      }
+    } else {
+      RelayService.instance.sendCall(c.peer.phone,
+          kind: 'decline', callId: c.callId, video: c.video);
+    }
     _logCall(c);
     _pendingOfferSdp = null;
     CallMedia.instance.hangUp();
@@ -219,8 +354,15 @@ class CallService {
     _ringTimer?.cancel();
     final c = current.value;
     if (c == null) return;
-    RelayService.instance
-        .sendCall(c.peer.phone, kind: 'end', callId: c.callId, video: c.video);
+    if (c.isGroup) {
+      for (final m in c.members) {
+        RelayService.instance
+            .sendCall(m.user.phone, kind: 'left', callId: c.callId, video: c.video);
+      }
+    } else {
+      RelayService.instance
+          .sendCall(c.peer.phone, kind: 'end', callId: c.callId, video: c.video);
+    }
     _logCall(c);
     _pendingOfferSdp = null;
     CallMedia.instance.hangUp();
@@ -303,6 +445,95 @@ class CallService {
       direction: CallDirection.incoming,
       status: CallStatus.ringing,
     );
+  }
+
+  /// A group call invitation arrived: [caller] is ringing us into
+  /// [group], whose [members] came sealed inside the offer.
+  void onRemoteGroupOffer(
+    AppUser caller,
+    String callId,
+    bool video, {
+    required AppUser group,
+    required List<AppUser> members,
+  }) {
+    final active = current.value;
+    // A duplicate offer for the call we're already showing changes nothing.
+    if (active != null && active.callId == callId) return;
+    if (isBusy) {
+      // Already on a call: bow out so their roster shows us as declined.
+      for (final m in members) {
+        RelayService.instance
+            .sendCall(m.phone, kind: 'left', callId: callId, video: video);
+      }
+      return;
+    }
+    if (AppState.isBlocked(caller.phone) || _shouldSilence(caller)) {
+      RelayService.instance
+          .sendCall(caller.phone, kind: 'left', callId: callId, video: video);
+      return;
+    }
+    final myDigits =
+        RelayService.digits(Session.instance.user.value?.phone ?? '');
+    RelayService.instance.currentCallId = callId;
+    minimized.value = false;
+    peerMedia.value = (video: false, screen: false);
+    final callerDigits = RelayService.digits(caller.phone);
+    current.value = CallSession(
+      callId: callId,
+      peer: group,
+      video: video,
+      direction: CallDirection.incoming,
+      status: CallStatus.ringing,
+      callerName: caller.name,
+      members: [
+        for (final m in members)
+          if (RelayService.digits(m.phone).isNotEmpty &&
+              RelayService.digits(m.phone) != myDigits)
+            GroupCallMember(
+                m,
+                // Whoever is ringing us is on the call already.
+                RelayService.digits(m.phone) == callerDigits
+                    ? GroupCallMemberState.joined
+                    : GroupCallMemberState.ringing)
+      ],
+    );
+  }
+
+  /// A member of the current group call joined it.
+  void onRemoteJoined(String fromPhone, String callId) {
+    final c = current.value;
+    if (c == null || c.callId != callId || !c.isGroup) return;
+    var next = c.withMemberState(fromPhone, GroupCallMemberState.joined);
+    // The first join answers an outgoing group call.
+    if (next.status == CallStatus.ringing &&
+        c.direction == CallDirection.outgoing) {
+      _ringTimer?.cancel();
+      next = next.copyWith(
+          status: CallStatus.connected, connectedAt: DateTime.now());
+    }
+    current.value = next;
+  }
+
+  /// A member of the current group call left it (or declined the invite).
+  void onRemoteLeft(String fromPhone, String callId) {
+    final c = current.value;
+    if (c == null || c.callId != callId || !c.isGroup) return;
+    final fromDigits = RelayService.digits(fromPhone);
+    // The caller hanging up while we're still being rung cancels the invite.
+    final callerLeft = c.direction == CallDirection.incoming &&
+        c.status == CallStatus.ringing &&
+        c.members.any((m) =>
+            RelayService.digits(m.user.phone) == fromDigits &&
+            m.state == GroupCallMemberState.joined);
+    var next = c.withMemberState(fromPhone, GroupCallMemberState.left);
+    final everyoneGone = next.members
+        .every((m) => m.state != GroupCallMemberState.joined &&
+            m.state != GroupCallMemberState.ringing);
+    if (callerLeft || (next.status == CallStatus.connected && everyoneGone)) {
+      _logCall(next);
+      next = next.copyWith(status: CallStatus.ended);
+    }
+    current.value = next;
   }
 
   /// True when "silence unknown callers" is on and [peer] isn't someone we

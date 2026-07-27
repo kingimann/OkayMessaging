@@ -662,8 +662,33 @@ class RelayService {
                   phone: from,
                   username: (p['fromUsername'] as String?) ?? '',
                 );
+                final groupInfo = _openGroupInfo(from, p);
+                if (groupInfo != null) {
+                  final groupId = (groupInfo['id'] as String?) ?? '';
+                  if (groupId.isEmpty) break;
+                  call.onRemoteGroupOffer(
+                    peer,
+                    callId,
+                    p['video'] == true,
+                    group: AppUser(
+                      id: groupId,
+                      name: (groupInfo['name'] as String?) ?? 'Group',
+                      avatarColor:
+                          (groupInfo['color'] as String?) ?? '#4DB6AC',
+                      isGroup: true,
+                    ),
+                    members: membersFromJson(groupInfo['members']),
+                  );
+                  break;
+                }
                 call.onRemoteOffer(peer, callId, p['video'] == true,
                     sdp: _openSdp(from, p));
+                break;
+              case 'joined':
+                call.onRemoteJoined(from, callId);
+                break;
+              case 'left':
+                call.onRemoteLeft(from, callId);
                 break;
               case 'answer':
                 call.onRemoteAnswer(callId, sdp: _openSdp(from, p));
@@ -908,6 +933,7 @@ class RelayService {
     String? sdp,
     String? emoji,
     Map<String, dynamic>? media,
+    Map<String, dynamic>? group,
   }) async {
     if (!_initialized) return;
     final me = Session.instance.user.value;
@@ -915,6 +941,12 @@ class RelayService {
     final name = inboxChannel(contactPhone);
     final channel =
         _sendChannels.putIfAbsent(name, () => _client.channel(name));
+    // Group-call metadata (which group, who's in it) is sealed like an SDP,
+    // so the relay can't tell a group call from a one-to-one one.
+    ({String data, int enc, String? spk})? sealedGroup;
+    if (group != null) {
+      sealedGroup = _sealSignal(contactPhone, jsonEncode(group));
+    }
     await channel.sendBroadcastMessage(
       event: 'call',
       payload: {
@@ -926,9 +958,34 @@ class RelayService {
         'video': video,
         if (emoji != null) 'emoji': emoji,
         if (media != null) 'media': media,
+        if (sealedGroup != null) 'grp': sealedGroup.data,
+        if (sealedGroup != null) 'genc': sealedGroup.enc,
+        if (sealedGroup?.spk != null) 'gspk': sealedGroup!.spk,
         ..._sealSignalPair(contactPhone, sdp: sdp),
       },
     );
+  }
+
+  /// The group fields a call invitation carries: enough for the callee's
+  /// device to show the group and ring the same roster, nothing more.
+  static Map<String, dynamic> groupCallInfo(Chat group) => {
+        'id': group.id,
+        'name': group.contact.name,
+        'color': group.contact.avatarColor,
+        'members': group.members.map(_memberSummary).toList(),
+      };
+
+  /// Opens the sealed group blob of a call payload, or null for 1:1 calls.
+  Map<String, dynamic>? _openGroupInfo(
+      String from, Map<String, dynamic> payload) {
+    final raw = _openSignal(
+        from, payload['grp'] as String?, payload['genc'], payload['gspk'] as String?);
+    if (raw == null) return null;
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map) return Map<String, dynamic>.from(decoded);
+    } catch (_) {}
+    return null;
   }
 
   /// Sends a WebRTC ICE candidate for [callId] to [contactPhone].
