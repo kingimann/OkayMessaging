@@ -87,6 +87,9 @@ class RelayService {
     int fromScore = 0,
     int fromStreak = 0,
     String toPhone = '',
+    String groupId = '',
+    String groupName = '',
+    List<AppUser> groupMembers = const [],
     List<int>? ecdhSecret,
     String? senderPublicKey,
   }) {
@@ -99,6 +102,12 @@ class RelayService {
     final content = jsonEncode({
       'text': message.text,
       'fromName': fromName,
+      // Group routing rides *inside* the sealed blob: the relay never learns
+      // that a group exists, who is in it, or what it's called.
+      if (groupId.isNotEmpty) 'groupId': groupId,
+      if (groupId.isNotEmpty) 'groupName': groupName,
+      if (groupId.isNotEmpty)
+        'groupMembers': groupMembers.map(_memberSummary).toList(),
       'fromUsername': fromUsername,
       'fromAvatarColor': fromAvatarColor,
       'fromAbout': fromAbout,
@@ -155,6 +164,63 @@ class RelayService {
     };
   }
 
+  /// The minimum a member needs to be shown and reachable in someone else's
+  /// copy of the group. Deliberately not the full profile — a group shouldn't
+  /// leak a member's about text, score or links to everyone else in it.
+  static Map<String, dynamic> _memberSummary(AppUser u) => {
+        'id': u.id,
+        'name': u.name,
+        'phone': u.phone,
+        'avatarColor': u.avatarColor,
+      };
+
+  /// Rebuilds the member list from the `groupMembers` blob of a payload.
+  static List<AppUser> membersFromJson(Object? raw) {
+    if (raw is! List) return const [];
+    final out = <AppUser>[];
+    for (final e in raw) {
+      if (e is! Map) continue;
+      final m = Map<String, dynamic>.from(e);
+      final id = m['id'] as String?;
+      if (id == null || id.isEmpty) continue;
+      final phone = (m['phone'] as String?) ?? '';
+      final name = (m['name'] as String?)?.trim();
+      out.add(AppUser(
+        id: id,
+        name: name != null && name.isNotEmpty ? name : phone,
+        avatarColor: (m['avatarColor'] as String?) ?? '#7A5CFF',
+        about: '',
+        phone: phone,
+      ));
+    }
+    return out;
+  }
+
+  /// Creates the local copy of a group we've just been let into, from the
+  /// group fields carried in an incoming payload's sealed blob.
+  static Chat _createGroupChat(
+    ChatStore target, {
+    required String groupId,
+    required Map<String, dynamic> content,
+  }) {
+    final name = (content['groupName'] as String?)?.trim() ?? '';
+    final members = membersFromJson(content['groupMembers']);
+    final chat = Chat(
+      id: groupId,
+      contact: AppUser(
+        id: groupId,
+        name: name.isNotEmpty ? name : 'Group',
+        avatarColor: '#4DB6AC',
+        about: 'Group • ${members.length} members',
+        isGroup: true,
+      ),
+      messages: const [],
+      members: members,
+    );
+    target.upsert(chat);
+    return chat;
+  }
+
   /// Applies an incoming broadcast payload to [store]: finds or creates the
   /// local conversation with the sender and appends the message. Ignores
   /// messages from [myPhone] and duplicates by id. Returns true when a new
@@ -170,18 +236,26 @@ class RelayService {
     final target = store ?? ChatStore.instance;
     final id = payload['id'] as String? ?? 'relay_${payload['ts']}';
 
-    // Privacy: blocked senders are always ignored, and when "only my contacts
-    // can message me" is on, a message from someone with no existing chat is
-    // dropped rather than starting a new conversation.
+    // Privacy: blocked senders are always ignored.
     final knownChat = target.chatWithContact(from);
     if (AppState.isBlocked(from)) return false;
-    if (knownChat == null && AppState.messagesFromContactsOnly.value) {
-      return false;
-    }
 
     // Decrypt the sealed content blob into the real fields. Falls back to the
     // legacy top-level layout for any message still on the old wire format.
     final content = _decodeContent(payload, from: from, myPhone: myPhone);
+
+    // A group message carries its conversation id inside the sealed blob, so
+    // it lands in the shared group thread rather than a 1:1 chat with whoever
+    // happened to send it.
+    final groupId = (content['groupId'] as String?)?.trim() ?? '';
+    final knownGroup = groupId.isEmpty ? null : target.chatById(groupId);
+
+    // "Only my contacts can message me": a message from someone you have no
+    // chat with is dropped rather than starting a conversation. Being in a
+    // group you already have counts as known, so members you haven't messaged
+    // one-to-one still reach you there.
+    final isKnown = knownChat != null || knownGroup != null;
+    if (!isKnown && AppState.messagesFromContactsOnly.value) return false;
 
     // Respect the "allow voicemail" preference before touching the store.
     if (content['isVoicemail'] == true && !AppState.allowVoicemail.value) {
@@ -192,7 +266,7 @@ class RelayService {
     // strangers, before they ever reach the chat store.
     final incomingText = (content['text'] as String?) ?? '';
     if (incomingText.isNotEmpty &&
-        AppState.looksLikeSpam(incomingText, isKnownContact: knownChat != null)) {
+        AppState.looksLikeSpam(incomingText, isKnownContact: isKnown)) {
       return false;
     }
 
@@ -206,12 +280,24 @@ class RelayService {
     final sharedVerified = content['fromVerified'] == true;
     final sharedScore = (content['fromScore'] as num?)?.toInt() ?? 0;
 
-    var chat = knownChat;
-    if (chat == null) {
-      final fromName = (content['fromName'] as String?)?.trim();
+    final senderName = (content['fromName'] as String?)?.trim() ?? '';
+
+    final Chat chat;
+    if (groupId.isNotEmpty) {
+      // Group thread: create it on first contact (this is how you find out
+      // you've been added), then keep its name and roster following whatever
+      // the sender's copy says.
+      chat = knownGroup ??
+          _createGroupChat(target, groupId: groupId, content: content);
+      target.updateGroup(
+        groupId,
+        name: (content['groupName'] as String?)?.trim(),
+        members: membersFromJson(content['groupMembers']),
+      );
+    } else if (knownChat == null) {
       final contact = AppUser(
         id: from,
-        name: fromName != null && fromName.isNotEmpty ? fromName : from,
+        name: senderName.isNotEmpty ? senderName : from,
         avatarColor: sharedColor.isNotEmpty ? sharedColor : '#7A5CFF',
         about: sharedAbout.isNotEmpty ? sharedAbout : 'Available',
         phone: from,
@@ -225,6 +311,7 @@ class RelayService {
       chat = Chat(id: 'chat_$from', contact: contact, messages: const []);
       target.upsert(chat);
     } else {
+      chat = knownChat;
       // Keep an existing contact's avatar / about / verified / score in sync
       // when the sender shares fresh values.
       target.updateContactProfile(
@@ -254,6 +341,8 @@ class RelayService {
             DateTime.now(),
         isMe: false,
         status: MessageStatus.delivered,
+        // Only groups need the "who said this" label above the bubble.
+        senderName: groupId.isEmpty ? '' : senderName,
         isImage: content['isImage'] as bool? ?? false,
         imageSeed: content['imageSeed'] as int? ?? 0,
         imageUrl: content['imageUrl'] as String?,
@@ -384,6 +473,18 @@ class RelayService {
             }
             // Acknowledge delivery so the sender's ticks advance.
             if (added && from != null) sendReceipt(from, 'delivered');
+          },
+        )
+        .onBroadcast(
+          event: 'gupd',
+          callback: (payload) {
+            final map = Map<String, dynamic>.from(payload);
+            applyGroupUpdate(map, myPhone: me);
+            final from = map['from'] as String?;
+            final spk = map['spk'] as String?;
+            if (from != null && spk != null) {
+              SecureKeyExchange.instance.rememberPeer(from, spk);
+            }
           },
         )
         .onBroadcast(
@@ -1009,15 +1110,18 @@ class RelayService {
   /// channel is never subscribed, so we can't see their other traffic). Uses
   /// the ECDH key when the peer's public key is known, otherwise falls back to
   /// the phone-derived key and kicks off a key exchange for next time.
-  Future<void> send(String contactPhone, Message message) async {
+  /// When [group] is set the message is addressed to that group thread on the
+  /// recipient's device instead of a one-to-one chat with you.
+  Future<void> send(String contactPhone, Message message, {Chat? group}) async {
     if (!_initialized) return;
     // A contact without a number (e.g. the note-to-self chat) has no inbox.
     if (digits(contactPhone).isEmpty) return;
     final me = Session.instance.user.value;
     if (me == null) return;
     // Also nudge their device over APNs (no-op unless push is configured).
+    final sender = me.name.isEmpty ? 'New message' : me.name;
     PushService.instance.notify(contactPhone,
-        title: me.name.isEmpty ? 'New message' : me.name);
+        title: group == null ? sender : '$sender • ${group.contact.name}');
 
     final kx = SecureKeyExchange.instance;
     final peerPub = kx.peerKey(contactPhone);
@@ -1061,10 +1165,124 @@ class RelayService {
         fromScore: ScoreStore.instance.points,
         fromStreak: streak,
         toPhone: contactPhone,
+        groupId: group?.id ?? '',
+        groupName: group?.contact.name ?? '',
+        groupMembers: group?.members ?? const [],
         ecdhSecret: ecdhSecret,
         senderPublicKey: senderPublicKey,
       ),
     );
+  }
+
+  /// Fans [message] out to every member of [group] with a real phone number.
+  /// There is no group on the server — each member's device gets its own
+  /// encrypted copy addressed to their inbox, so nothing central ever holds
+  /// the conversation or the roster.
+  Future<void> sendToGroup(Chat group, Message message) async {
+    for (final phone in groupRecipients(group)) {
+      await send(phone, message, group: group);
+    }
+  }
+
+  /// The phone numbers a group message should be fanned out to: every member
+  /// who has one, minus you, de-duplicated by digits.
+  static List<String> groupRecipients(Chat group, {String? myPhone}) {
+    final mine = digits(myPhone ?? Session.instance.user.value?.phone ?? '');
+    final seen = <String>{};
+    final out = <String>[];
+    for (final member in group.members) {
+      final d = digits(member.phone);
+      if (d.isEmpty || d == mine || !seen.add(d)) continue;
+      out.add(member.phone);
+    }
+    return out;
+  }
+
+  /// Pushes a group edit (new name or roster) to the other members so their
+  /// copies follow without waiting for the next message. Someone added this
+  /// way gets the group created on their device by the same code path an
+  /// incoming group message uses.
+  Future<void> sendGroupUpdate(Chat group, {List<String>? extraRecipients}) async {
+    if (!_initialized) return;
+    final me = Session.instance.user.value;
+    if (me == null) return;
+    final recipients = <String>{
+      ...groupRecipients(group),
+      ...?extraRecipients,
+    }..removeWhere((p) => digits(p).isEmpty || digits(p) == digits(me.phone));
+    for (final phone in recipients) {
+      final kx = SecureKeyExchange.instance;
+      final peerPub = kx.peerKey(phone);
+      final blob = jsonEncode({
+        'groupId': group.id,
+        'groupName': group.contact.name,
+        'groupAbout': group.contact.about,
+        'groupMembers': group.members.map(_memberSummary).toList(),
+      });
+      var c = blob;
+      var enc = 0;
+      String? spk;
+      if (kx.isReady && peerPub != null) {
+        final secret = kx.sharedSecretWith(peerPub);
+        if (secret != null) {
+          c = E2eCrypto.encrypt(secret, blob);
+          enc = 2;
+          spk = kx.myPublicKey;
+        }
+      }
+      if (enc == 0) {
+        c = E2eCrypto.encrypt(E2eCrypto.keyFor(me.phone, phone), blob);
+        enc = 1;
+      }
+      final name = inboxChannel(phone);
+      final channel =
+          _sendChannels.putIfAbsent(name, () => _client.channel(name));
+      await channel.sendBroadcastMessage(
+        event: 'gupd',
+        payload: {
+          'from': me.phone,
+          'c': c,
+          'enc': enc,
+          if (spk != null) 'spk': spk,
+        },
+      );
+    }
+  }
+
+  /// Applies an incoming `gupd` payload: creates the group if this is the
+  /// first we've heard of it, otherwise syncs its name and roster. Returns
+  /// true when the local store changed.
+  static bool applyGroupUpdate(
+    Map<String, dynamic> payload, {
+    required String myPhone,
+    ChatStore? store,
+  }) {
+    final from = payload['from'] as String?;
+    if (from == null || digits(from) == digits(myPhone)) return false;
+    if (AppState.isBlocked(from)) return false;
+
+    final target = store ?? ChatStore.instance;
+    final content = _decodeContent(payload, from: from, myPhone: myPhone);
+    final groupId = (content['groupId'] as String?)?.trim() ?? '';
+    if (groupId.isEmpty) return false;
+
+    final members = membersFromJson(content['groupMembers']);
+    final known = target.chatById(groupId);
+    if (known == null) {
+      // Being added to a group you've never seen is only allowed from someone
+      // you already talk to, unless you accept messages from anyone.
+      final knownSender = target.chatWithContact(from) != null;
+      if (!knownSender && AppState.messagesFromContactsOnly.value) return false;
+      _createGroupChat(target, groupId: groupId, content: content);
+      return true;
+    }
+    target.updateGroup(
+      groupId,
+      name: (content['groupName'] as String?)?.trim(),
+      about: (content['groupAbout'] as String?)?.trim(),
+      members: members,
+    );
+    return true;
   }
 
   /// Returns [value] when the [audience] allows sharing it with a recipient who

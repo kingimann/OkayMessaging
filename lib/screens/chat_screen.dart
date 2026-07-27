@@ -615,7 +615,13 @@ class _ChatScreenState extends State<ChatScreen> {
   void _deliver(Message message) {
     _store.addMessage(_chatId, message);
     WidgetsBinding.instance.addPostFrameCallback((_) => _animateToBottom());
-    if (RelayConfig.isEnabled && _isRealPeer(widget.chat.contact)) {
+    if (!RelayConfig.isEnabled) return;
+    if (widget.chat.contact.isGroup) {
+      // Groups have no server side: the message is fanned out to each member's
+      // inbox, encrypted separately for every one of them.
+      final chat = _store.chatById(_chatId);
+      if (chat != null) RelayService.instance.sendToGroup(chat, message);
+    } else if (_isRealPeer(widget.chat.contact)) {
       RelayService.instance.send(widget.chat.contact.phone, message);
     }
     // No simulated replies: only real people answer here.

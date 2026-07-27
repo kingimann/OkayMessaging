@@ -110,6 +110,7 @@ class Chat {
     bool? confirmBeforeSend,
     List<String>? pinnedMessageIds,
     bool clearPinned = false,
+    List<AppUser>? members,
     int? disappearingSeconds,
   }) {
     return Chat(
@@ -124,7 +125,7 @@ class Chat {
       confirmBeforeSend: confirmBeforeSend ?? this.confirmBeforeSend,
       pinnedMessageIds:
           clearPinned ? const [] : (pinnedMessageIds ?? this.pinnedMessageIds),
-      members: members,
+      members: members ?? this.members,
       disappearingSeconds: disappearingSeconds ?? this.disappearingSeconds,
     );
   }

@@ -42,6 +42,10 @@ class Message {
   final bool isMe;
   final MessageStatus status;
 
+  /// Display name of whoever sent this, shown above incoming bubbles in a
+  /// group so members can tell each other apart. Empty in one-to-one chats.
+  final String senderName;
+
   /// Emoji reactions attached to this message (e.g. ['👍', '❤️']).
   final List<String> reactions;
 
@@ -128,6 +132,7 @@ class Message {
     required this.time,
     required this.isMe,
     this.status = MessageStatus.read,
+    this.senderName = '',
     this.reactions = const [],
     this.replyTo,
     this.forwarded = false,
@@ -170,6 +175,7 @@ class Message {
         'time': time.toIso8601String(),
         'isMe': isMe,
         'status': status.index,
+        'senderName': senderName,
         'reactions': reactions,
         'replyTo': replyTo?.toJson(),
         'forwarded': forwarded,
@@ -209,6 +215,7 @@ class Message {
         time: DateTime.parse(json['time'] as String),
         isMe: json['isMe'] as bool,
         status: MessageStatus.values[json['status'] as int? ?? 3],
+        senderName: json['senderName'] as String? ?? '',
         reactions: (json['reactions'] as List?)?.cast<String>() ?? const [],
         replyTo: json['replyTo'] == null
             ? null
@@ -270,6 +277,7 @@ class Message {
       time: time,
       isMe: isMe,
       status: status ?? this.status,
+      senderName: senderName,
       reactions: reactions ?? this.reactions,
       replyTo: replyTo,
       forwarded: forwarded,

@@ -1,13 +1,33 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../app_state.dart';
 import '../data/mock_data.dart';
 import '../models/chat.dart';
 import '../models/user.dart';
+import '../relay/relay_config.dart';
+import '../relay/relay_service.dart';
 import '../state/chat_store.dart';
 import '../theme/app_theme.dart';
 import '../widgets/user_avatar.dart';
 import 'chat_screen.dart';
+
+/// The people who can be put in a group: everyone you already have a real
+/// conversation with. Sample contacts join the list outside release builds so
+/// the flow stays usable in development.
+List<AppUser> groupCandidates({Iterable<AppUser> exclude = const []}) {
+  final excluded = exclude.map((u) => u.id).toSet();
+  final seen = <String>{};
+  final out = <AppUser>[];
+  for (final u in [
+    ...ChatStore.instance.reachableContacts(),
+    if (!kReleaseMode) ...MockData.contacts(),
+  ]) {
+    if (excluded.contains(u.id) || !seen.add(u.id)) continue;
+    out.add(u);
+  }
+  return out;
+}
 
 /// Two-step group creation: pick participants, then name the group. The group
 /// conversation is created and stored locally.
@@ -56,6 +76,9 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
       members: members,
     );
     store.upsert(chat);
+    // Tell the other members' devices about the group right away, so it shows
+    // up for them before anyone has typed anything.
+    if (RelayConfig.isEnabled) RelayService.instance.sendGroupUpdate(chat);
     // Return to the chat list, then open the new group (so back goes to
     // the list, not through the group-creation flow).
     final navigator = Navigator.of(context);
@@ -67,7 +90,7 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final contacts = MockData.contacts();
+    final contacts = groupCandidates();
     return Scaffold(
       appBar: AppBar(
         title: Text(_naming ? 'New group' : 'Add participants'),
@@ -137,22 +160,24 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
           ),
         const Divider(height: 1),
         Expanded(
-          child: ListView(
-            children: [
-              for (final c in contacts)
-                CheckboxListTile(
-                  value: _selected.contains(c),
-                  onChanged: (_) => _toggle(c),
-                  secondary: UserAvatar(user: c, radius: 22),
-                  title: Text(c.name,
-                      style: const TextStyle(fontWeight: FontWeight.w600)),
-                  subtitle: Text(c.about,
-                      maxLines: 1, overflow: TextOverflow.ellipsis),
-                  activeColor: AppColors.tealGreenDark,
-                  controlAffinity: ListTileControlAffinity.trailing,
+          child: contacts.isEmpty
+              ? const _NoContactsYet()
+              : ListView(
+                  children: [
+                    for (final c in contacts)
+                      CheckboxListTile(
+                        value: _selected.contains(c),
+                        onChanged: (_) => _toggle(c),
+                        secondary: UserAvatar(user: c, radius: 22),
+                        title: Text(c.name,
+                            style: const TextStyle(fontWeight: FontWeight.w600)),
+                        subtitle: Text(c.about,
+                            maxLines: 1, overflow: TextOverflow.ellipsis),
+                        activeColor: AppColors.tealGreenDark,
+                        controlAffinity: ListTileControlAffinity.trailing,
+                      ),
+                  ],
                 ),
-            ],
-          ),
         ),
       ],
     );
@@ -211,6 +236,39 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
           label: const Text('Create group'),
         ),
       ],
+    );
+  }
+}
+
+/// Shown when there is nobody to add yet — a group can only contain people you
+/// already have a conversation with.
+class _NoContactsYet extends StatelessWidget {
+  const _NoContactsYet();
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 40),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.group_outlined, size: 46, color: Colors.grey.shade400),
+            const SizedBox(height: 12),
+            const Text(
+              'No one to add yet',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Start a chat with someone first — everyone you talk to shows up '
+              'here as a participant you can add.',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 13.5, color: Colors.grey.shade600),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

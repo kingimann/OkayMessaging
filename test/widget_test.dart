@@ -68,6 +68,8 @@ import 'package:okay_messaging/state/backup_service.dart';
 import 'package:okay_messaging/screens/status_screen.dart';
 import 'package:okay_messaging/state/status_store.dart';
 import 'package:okay_messaging/state/chat_store.dart';
+import 'package:okay_messaging/screens/edit_group_screen.dart';
+import 'package:okay_messaging/screens/group_info_screen.dart';
 import 'package:okay_messaging/state/live_location_store.dart';
 import 'package:okay_messaging/state/saved_places_store.dart';
 import 'package:okay_messaging/state/feed_store.dart';
@@ -6034,6 +6036,335 @@ void main() {
 
       await tester.pumpWidget(const SizedBox());
       await tester.pump();
+    });
+  });
+
+  group('Group chats (relay fan-out)', () {
+    /// A group of me plus two number-identified members, as the creator's
+    /// device stores it.
+    Chat sampleGroup() => const Chat(
+          id: 'group_1',
+          contact: AppUser(
+            id: 'group_1',
+            name: 'Trip planning',
+            avatarColor: '#4DB6AC',
+            about: 'Group • 3 members',
+            isGroup: true,
+          ),
+          messages: [],
+          members: [
+            AppUser(
+                id: '+1 555 0100',
+                name: 'You',
+                avatarColor: '#25D366',
+                phone: '+1 555 0100'),
+            AppUser(
+                id: '+1 555 0111',
+                name: 'Alice',
+                avatarColor: '#E57373',
+                phone: '+1 555 0111'),
+            AppUser(
+                id: '+1 555 0122',
+                name: 'Bob',
+                avatarColor: '#64B5F6',
+                phone: '+1 555 0122'),
+          ],
+        );
+
+    setUp(() {
+      // clearAll (not reset) so the sample chats don't stand in for the real
+      // peers these cases are about.
+      ChatStore.instance.clearAll();
+      Session.instance.signInForTest();
+    });
+
+    test('a group message fans out to every member except me', () {
+      final recipients =
+          RelayService.groupRecipients(sampleGroup(), myPhone: '+1 555 0100');
+      expect(recipients, ['+1 555 0111', '+1 555 0122']);
+    });
+
+    test('members without a number, and duplicates, are skipped', () {
+      final group = sampleGroup().copyWith(members: const [
+        AppUser(id: 'me', name: 'You', avatarColor: '#25D366'),
+        AppUser(
+            id: '+1 555 0111',
+            name: 'Alice',
+            avatarColor: '#E57373',
+            phone: '+1 555 0111'),
+        AppUser(
+            id: 'alice_again',
+            name: 'Alice',
+            avatarColor: '#E57373',
+            phone: '+1 (555) 0111'),
+      ]);
+      expect(RelayService.groupRecipients(group, myPhone: '+1 555 0100'),
+          ['+1 555 0111']);
+    });
+
+    test('an incoming group message lands in the group, not a 1:1 chat', () {
+      final payload = RelayService.encode(
+        message: Message(
+          id: 'g1',
+          text: 'landing at 6',
+          time: DateTime(2024, 5, 1, 9),
+          isMe: true,
+        ),
+        fromPhone: '+1 555 0111',
+        fromName: 'Alice',
+        groupId: 'group_1',
+        groupName: 'Trip planning',
+        groupMembers: sampleGroup().members,
+      );
+
+      expect(RelayService.applyIncoming(payload, myPhone: '+1 555 0100'),
+          isTrue);
+
+      // No 1:1 chat with Alice was created — the message went to the group.
+      expect(ChatStore.instance.chatWithContact('+1 555 0111'), isNull);
+      final group = ChatStore.instance.chatById('group_1');
+      expect(group, isNotNull);
+      expect(group!.contact.isGroup, isTrue);
+      expect(group.contact.name, 'Trip planning');
+      expect(group.members.length, 3);
+      expect(group.messages.single.text, 'landing at 6');
+      // The sender is named above the bubble so members can be told apart.
+      expect(group.messages.single.senderName, 'Alice');
+    });
+
+    test('the group name and roster stay encrypted on the wire', () {
+      final payload = RelayService.encode(
+        message: Message(
+            id: 'g2', text: 'secret', time: DateTime(2024, 5, 1), isMe: true),
+        fromPhone: '+1 555 0111',
+        fromName: 'Alice',
+        toPhone: '+1 555 0100',
+        groupId: 'group_1',
+        groupName: 'Trip planning',
+        groupMembers: sampleGroup().members,
+      );
+      final wire = jsonEncode(payload);
+      expect(wire.contains('Trip planning'), isFalse);
+      expect(wire.contains('group_1'), isFalse);
+      expect(wire.contains('0122'), isFalse);
+      expect(payload['enc'], 1);
+    });
+
+    test('a rename by one member follows on the others devices', () {
+      ChatStore.instance.upsert(sampleGroup());
+      final payload = RelayService.encode(
+        message: Message(
+            id: 'g3', text: 'renamed', time: DateTime(2024, 5, 2), isMe: true),
+        fromPhone: '+1 555 0111',
+        fromName: 'Alice',
+        groupId: 'group_1',
+        groupName: 'Iceland 2025',
+        groupMembers: sampleGroup().members,
+      );
+      RelayService.applyIncoming(payload, myPhone: '+1 555 0100');
+      expect(ChatStore.instance.chatById('group_1')!.contact.name,
+          'Iceland 2025');
+    });
+
+    test('a group update creates the group before any message arrives', () {
+      // Alice already messages me, so she is allowed to add me to a group.
+      ChatStore.instance.upsert(const Chat(
+        id: 'chat_alice',
+        contact: AppUser(
+            id: '+1 555 0111',
+            name: 'Alice',
+            avatarColor: '#E57373',
+            phone: '+1 555 0111'),
+        messages: [],
+      ));
+      final blob = jsonEncode({
+        'groupId': 'group_9',
+        'groupName': 'Book club',
+        'groupAbout': 'Thursdays',
+        'groupMembers': sampleGroup()
+            .members
+            .map((m) => {
+                  'id': m.id,
+                  'name': m.name,
+                  'phone': m.phone,
+                  'avatarColor': m.avatarColor,
+                })
+            .toList(),
+      });
+      final added = RelayService.applyGroupUpdate({
+        'from': '+1 555 0111',
+        'c': E2eCrypto.encrypt(
+            E2eCrypto.keyFor('+1 555 0111', '+1 555 0100'), blob),
+        'enc': 1,
+      }, myPhone: '+1 555 0100');
+
+      expect(added, isTrue);
+      final group = ChatStore.instance.chatById('group_9');
+      expect(group, isNotNull);
+      expect(group!.contact.name, 'Book club');
+      expect(group.members.length, 3);
+    });
+
+    test('a group update from a stranger is dropped under contacts-only', () {
+      addTearDown(() => AppState.messagesFromContactsOnly.value = false);
+      AppState.messagesFromContactsOnly.value = true;
+      final blob = jsonEncode({
+        'groupId': 'group_spam',
+        'groupName': 'Free crypto',
+        'groupMembers': const [],
+      });
+      final added = RelayService.applyGroupUpdate({
+        'from': '+1 555 0999',
+        'c': E2eCrypto.encrypt(
+            E2eCrypto.keyFor('+1 555 0999', '+1 555 0100'), blob),
+        'enc': 1,
+      }, myPhone: '+1 555 0100');
+
+      expect(added, isFalse);
+      expect(ChatStore.instance.chatById('group_spam'), isNull);
+    });
+
+    test('a member of a group I have can reach me under contacts-only', () {
+      addTearDown(() => AppState.messagesFromContactsOnly.value = false);
+      ChatStore.instance.upsert(sampleGroup());
+      AppState.messagesFromContactsOnly.value = true;
+
+      // Bob has no 1:1 chat with me, but we share a group.
+      final added = RelayService.applyIncoming(
+        RelayService.encode(
+          message: Message(
+              id: 'g4', text: 'me too', time: DateTime(2024, 5, 3), isMe: true),
+          fromPhone: '+1 555 0122',
+          fromName: 'Bob',
+          groupId: 'group_1',
+          groupName: 'Trip planning',
+          groupMembers: sampleGroup().members,
+        ),
+        myPhone: '+1 555 0100',
+      );
+
+      expect(added, isTrue);
+      expect(ChatStore.instance.chatById('group_1')!.messages.single.text,
+          'me too');
+    });
+
+    test('updateGroup renames, re-describes and re-rosters a group', () {
+      ChatStore.instance.upsert(sampleGroup());
+      ChatStore.instance.updateGroup(
+        'group_1',
+        name: 'Iceland',
+        about: 'Flights booked',
+        avatarColor: '#BA68C8',
+        members: sampleGroup().members.take(2).toList(),
+      );
+      final group = ChatStore.instance.chatById('group_1')!;
+      expect(group.contact.name, 'Iceland');
+      expect(group.contact.about, 'Flights booked');
+      expect(group.contact.avatarColor, '#BA68C8');
+      expect(group.contact.isGroup, isTrue);
+      expect(group.members.map((m) => m.name), ['You', 'Alice']);
+    });
+
+    test('reachableContacts lists real peers, not groups or note-to-self', () {
+      ChatStore.instance.upsert(sampleGroup());
+      ChatStore.instance.upsert(const Chat(
+        id: 'chat_alice',
+        contact: AppUser(
+            id: '+1 555 0111',
+            name: 'Alice',
+            avatarColor: '#E57373',
+            phone: '+1 555 0111'),
+        messages: [],
+      ));
+      ChatStore.instance.upsert(const Chat(
+        id: 'chat_self',
+        contact: AppUser(
+            id: 'self', name: 'Note to self', avatarColor: '#25D366'),
+        messages: [],
+      ));
+
+      final people = ChatStore.instance.reachableContacts();
+      expect(people.map((u) => u.name), ['Alice']);
+    });
+
+    testWidgets('the group editor saves a new name and drops a member',
+        (tester) async {
+      ChatStore.instance.upsert(sampleGroup());
+      await tester.pumpWidget(
+        const MaterialApp(home: EditGroupScreen(chatId: 'group_1')),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+          find.widgetWithText(TextField, 'Group name'), 'Iceland 2025');
+      await tester.pump();
+
+      // "You" has no remove button, so the first one is Alice's.
+      await tester.ensureVisible(find.byTooltip('Remove').first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Remove').first);
+      await tester.pump();
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+
+      final group = ChatStore.instance.chatById('group_1')!;
+      expect(group.contact.name, 'Iceland 2025');
+      expect(group.members.map((m) => m.name), ['You', 'Bob']);
+    });
+
+    testWidgets('an incoming group bubble is labelled with its sender',
+        (tester) async {
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Column(children: [
+            MessageBubble(
+              message: Message(
+                id: 'm1',
+                text: 'landing at 6',
+                time: DateTime(2024, 5, 1, 18),
+                isMe: false,
+                senderName: 'Alice',
+              ),
+            ),
+            MessageBubble(
+              message: Message(
+                id: 'm2',
+                text: 'see you there',
+                time: DateTime(2024, 5, 1, 18, 2),
+                isMe: true,
+                senderName: 'You',
+              ),
+            ),
+          ]),
+        ),
+      ));
+      await tester.pump();
+
+      // Incoming bubbles are attributed; your own never are.
+      expect(find.text('Alice'), findsOneWidget);
+      expect(find.text('You'), findsNothing);
+    });
+
+    testWidgets('group info offers Edit group, not a "coming soon" toast',
+        (tester) async {
+      final group = sampleGroup();
+      ChatStore.instance.upsert(group);
+      await tester.pumpWidget(MaterialApp(
+        home: GroupInfoScreen(
+          group: group.contact,
+          members: group.members,
+          chatId: group.id,
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byType(PopupMenuButton<String>));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Edit group'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(EditGroupScreen), findsOneWidget);
+      expect(find.textContaining('coming soon'), findsNothing);
     });
   });
 }

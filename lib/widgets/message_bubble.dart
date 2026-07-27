@@ -209,6 +209,8 @@ class MessageBubble extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    if (!isMe && message.senderName.isNotEmpty)
+                      _SenderLabel(name: message.senderName),
                     if (message.replyTo != null)
                       _ReplyQuote(
                         reply: message.replyTo!,
@@ -349,6 +351,42 @@ void _showOriginal(BuildContext context, String original) {
       ],
     ),
   );
+}
+
+/// The sender's name above an incoming group bubble. Each member keeps a
+/// stable colour (derived from their name) so a thread is easy to follow.
+class _SenderLabel extends StatelessWidget {
+  final String name;
+  const _SenderLabel({required this.name});
+
+  static const _palette = [
+    Color(0xFF1F8AC0),
+    Color(0xFFC0392B),
+    Color(0xFF7D3C98),
+    Color(0xFF117864),
+    Color(0xFFB9770E),
+    Color(0xFF2E4053),
+  ];
+
+  static Color colorFor(String name) =>
+      _palette[name.hashCode.abs() % _palette.length];
+
+  @override
+  Widget build(BuildContext context) {
+    final base = colorFor(name);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 3),
+      child: Text(
+        name,
+        style: TextStyle(
+          color: isDark ? Color.lerp(base, Colors.white, 0.45) : base,
+          fontSize: 13,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
 }
 
 class _ReplyQuote extends StatelessWidget {
@@ -558,63 +596,77 @@ class _ImageBubble extends StatelessWidget {
             color: bubbleColor,
             borderRadius: BorderRadius.circular(16),
           ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(13),
-            child: Stack(
-              children: [
-                Hero(
-                  tag: 'photo_${message.id}',
-                  child: SizedBox(
-                    width: 220,
-                    height: 260,
-                    child: message.imageUrl != null
-                        ? Image.network(
-                            message.imageUrl!,
-                            width: 220,
-                            height: 260,
-                            fit: BoxFit.cover,
-                            errorBuilder: (_, __, ___) =>
-                                _gradientTile(colors),
-                          )
-                        : _gradientTile(colors),
-                  ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (!isMe && message.senderName.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(7, 4, 7, 0),
+                  child: _SenderLabel(name: message.senderName),
                 ),
-                Positioned(
-                  bottom: 0,
-                  left: 0,
-                  right: 0,
-                  child: Container(
-                    padding: const EdgeInsets.fromLTRB(8, 12, 8, 6),
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [
-                          Colors.transparent,
-                          Colors.black.withValues(alpha: 0.45),
-                        ],
-                      ),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        Text(
-                          DateFormatter.messageTime(message.time),
-                          style: const TextStyle(
-                              color: Colors.white, fontSize: 11),
-                        ),
-                        if (isMe) ...[
-                          const SizedBox(width: 4),
-                          MessageStatusIcon(status: message.status, size: 15),
-                        ],
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
+              _photo(colors),
+            ],
           ),
         ),
+      ),
+    );
+  }
+
+  /// The photo itself, with the time (and ticks, when outgoing) laid over it.
+  Widget _photo(List<Color> colors) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(13),
+      child: Stack(
+        children: [
+          Hero(
+            tag: 'photo_${message.id}',
+            child: SizedBox(
+              width: 220,
+              height: 260,
+              child: message.imageUrl != null
+                  ? Image.network(
+                      message.imageUrl!,
+                      width: 220,
+                      height: 260,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => _gradientTile(colors),
+                    )
+                  : _gradientTile(colors),
+            ),
+          ),
+          Positioned(
+            bottom: 0,
+            left: 0,
+            right: 0,
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(8, 12, 8, 6),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Colors.transparent,
+                    Colors.black.withValues(alpha: 0.45),
+                  ],
+                ),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  Text(
+                    DateFormatter.messageTime(message.time),
+                    style: const TextStyle(color: Colors.white, fontSize: 11),
+                  ),
+                  if (isMe) ...[
+                    const SizedBox(width: 4),
+                    MessageStatusIcon(status: message.status, size: 15),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

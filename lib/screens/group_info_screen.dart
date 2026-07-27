@@ -1,13 +1,16 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../app_state.dart';
 import '../data/mock_data.dart';
+import '../models/chat.dart';
 import '../models/user.dart';
 import '../state/call_service.dart';
 import '../state/chat_store.dart';
 import '../theme/app_theme.dart';
 import '../widgets/info_section.dart';
 import '../widgets/user_avatar.dart';
+import 'edit_group_screen.dart';
 import 'media_gallery_screen.dart';
 
 /// A modern group detail screen: gradient header, tonal actions wired to the
@@ -29,18 +32,24 @@ class GroupInfoScreen extends StatelessWidget {
     this.chatId,
   });
 
-  List<AppUser> get _members =>
-      members.isNotEmpty ? members : [MockData.me, ...MockData.contacts()];
+  List<AppUser> get _members => members.isNotEmpty
+      ? members
+      : [AppState.profile.value, ...MockData.contacts()];
 
   @override
   Widget build(BuildContext context) {
-    final members = _members;
-    final base = _avatarColor(context);
     return Scaffold(
       body: ListenableBuilder(
         listenable: ChatStore.instance,
         builder: (context, _) {
           final chat = chatId == null ? null : ChatStore.instance.chatById(chatId!);
+          // Prefer the stored conversation so an edit (rename, new colour, a
+          // member added) shows here the moment it's saved.
+          final group = chat?.contact ?? this.group;
+          final members = chat != null && chat.members.isNotEmpty
+              ? chat.members
+              : _members;
+          final base = _avatarColor(group);
           return CustomScrollView(
             slivers: [
               SliverAppBar(
@@ -50,10 +59,13 @@ class GroupInfoScreen extends StatelessWidget {
                 foregroundColor: Colors.white,
                 actions: [
                   PopupMenuButton<String>(
-                    onSelected: (v) => _onMenu(context, v),
-                    itemBuilder: (context) => const [
-                      PopupMenuItem(value: 'edit', child: Text('Edit group')),
-                      PopupMenuItem(value: 'share', child: Text('Share invite')),
+                    onSelected: (v) => _onMenu(context, v, chat),
+                    itemBuilder: (context) => [
+                      if (chat != null)
+                        const PopupMenuItem(
+                            value: 'edit', child: Text('Edit group')),
+                      const PopupMenuItem(
+                          value: 'share', child: Text('Share invite')),
                     ],
                   ),
                 ],
@@ -93,12 +105,14 @@ class GroupInfoScreen extends StatelessWidget {
                   ),
                   InfoSection(
                     children: [
+                      // The group's creator leads the roster, so index 0 is the
+                      // admin — but "You" is decided by identity, since on
+                      // everyone else's device that first member is not them.
                       for (var i = 0; i < members.length; i++)
                         _MemberTile(
                           user: members[i],
                           isAdmin: i == 0,
-                          isMe: i == 0 ||
-                              members[i].id == AppState.profile.value.id ||
+                          isMe: members[i].id == AppState.profile.value.id ||
                               members[i].id == MockData.me.id,
                         ),
                     ],
@@ -147,7 +161,7 @@ class GroupInfoScreen extends StatelessWidget {
     );
   }
 
-  Color _avatarColor(BuildContext context) {
+  Color _avatarColor(AppUser group) {
     try {
       return Color(int.parse(
           group.avatarColor.replaceFirst('#', 'ff'),
@@ -157,10 +171,17 @@ class GroupInfoScreen extends StatelessWidget {
     }
   }
 
-  void _onMenu(BuildContext context, String value) {
-    final msg = value == 'edit' ? 'Group editing coming soon' : 'Invite copied';
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(msg)));
+  void _onMenu(BuildContext context, String value, Chat? chat) {
+    if (value == 'edit' && chat != null) {
+      openGroupEditor(context, chat);
+      return;
+    }
+    final name = chat?.contact.name ?? group.name;
+    Clipboard.setData(ClipboardData(
+        text: 'Join "$name" on OkayMessenger — https://okaymessaging.com'));
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Invite copied')),
+    );
   }
 
   Future<void> _confirmExit(BuildContext context) async {

@@ -325,6 +325,68 @@ class ChatStore extends ChangeNotifier {
     );
   }
 
+  /// Everyone you hold a real one-to-one conversation with — i.e. the people
+  /// who can be added to a group and actually receive its messages. Note to
+  /// self and sample contacts are excluded; sorted by name.
+  List<AppUser> reachableContacts() {
+    final seen = <String>{};
+    final out = <AppUser>[];
+    for (final chat in _chats) {
+      final c = chat.contact;
+      if (c.isGroup || c.phone.isEmpty || !seen.add(c.id)) continue;
+      out.add(c);
+    }
+    out.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    return out;
+  }
+
+  /// Applies a group edit — a new [name], [about] description, [avatarColor]
+  /// or [members] list — to the group conversation [chatId]. Blank values are
+  /// left untouched, and a no-op edit doesn't churn the list.
+  void updateGroup(
+    String chatId, {
+    String? name,
+    String? about,
+    String? avatarColor,
+    List<AppUser>? members,
+  }) {
+    final i = _indexOf(chatId);
+    if (i == -1) return;
+    final chat = _chats[i];
+    final g = chat.contact;
+    final nextName =
+        (name != null && name.trim().isNotEmpty) ? name.trim() : g.name;
+    final nextAbout = about?.trim() ?? g.about;
+    final nextColor = (avatarColor != null && avatarColor.isNotEmpty)
+        ? avatarColor
+        : g.avatarColor;
+    final nextMembers = members ?? chat.members;
+    final sameMembers = nextMembers.length == chat.members.length &&
+        !nextMembers.any((m) => !chat.members.any((o) => o.id == m.id));
+    if (nextName == g.name &&
+        nextAbout == g.about &&
+        nextColor == g.avatarColor &&
+        sameMembers) {
+      return;
+    }
+    _replace(
+      i,
+      chat.copyWith(
+        contact: AppUser(
+          id: g.id,
+          name: nextName,
+          avatarColor: nextColor,
+          about: nextAbout,
+          phone: g.phone,
+          username: g.username,
+          isGroup: true,
+          emoji: g.emoji,
+        ),
+        members: nextMembers,
+      ),
+    );
+  }
+
   void addMessage(String chatId, Message message) {
     final i = _indexOf(chatId);
     if (i == -1) return;
