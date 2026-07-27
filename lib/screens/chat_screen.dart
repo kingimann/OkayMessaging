@@ -65,6 +65,10 @@ class _ChatScreenState extends State<ChatScreen> {
 
   ReplyInfo? _replyTo;
   bool _isTyping = false;
+
+  /// Who is typing, for the group indicator ('' in a 1:1 chat — the header
+  /// already names the person).
+  String _typingName = '';
   bool _showScrollToBottom = false;
 
   bool _searching = false;
@@ -148,20 +152,22 @@ class _ChatScreenState extends State<ChatScreen> {
   /// Sends a 'read' receipt to a real peer when a new incoming message appears
   /// while this chat is open (once per message, so no receipt ping-pong).
   void _maybeSendReadReceipt() {
-    if (!RelayConfig.isEnabled || !_isRealPeer(widget.chat.contact)) return;
     if (!AppState.sendReadReceipts.value) return;
     final incoming =
         _store.chatById(_chatId)?.messages.where((m) => !m.isMe).toList();
     if (incoming == null || incoming.isEmpty) return;
     final lastId = incoming.last.id;
     if (lastId == _lastAckedIncomingId) return;
+    final phones = _relayPhones();
+    if (phones.isEmpty) return;
     _lastAckedIncomingId = lastId;
-    RelayService.instance.sendReceipt(widget.chat.contact.phone, 'read');
+    for (final phone in phones) {
+      RelayService.instance.sendReceipt(phone, 'read', messageId: lastId);
+    }
   }
 
-  /// Broadcasts that we're typing (throttled) to a real peer.
+  /// Broadcasts that we're typing (throttled) to whoever this chat reaches.
   void _onTyping() {
-    if (!RelayConfig.isEnabled || !_isRealPeer(widget.chat.contact)) return;
     // Respect the privacy setting: don't leak "typing…" when it's off.
     if (!AppState.sendTypingIndicators.value) return;
     final now = DateTime.now();
@@ -169,18 +175,34 @@ class _ChatScreenState extends State<ChatScreen> {
         now.difference(_lastTypingSent!) < const Duration(seconds: 2)) {
       return;
     }
+    final phones = _relayPhones();
+    if (phones.isEmpty) return;
     _lastTypingSent = now;
-    RelayService.instance.sendTyping(widget.chat.contact.phone);
+    for (final phone in phones) {
+      RelayService.instance.sendTyping(phone);
+    }
   }
 
-  /// Shows the typing indicator when the peer of *this* chat is typing.
+  /// Shows the typing indicator when someone in *this* chat is typing — the
+  /// peer of a 1:1 conversation, or any member of a group (who gets named).
   void _onTypingPing() {
-    if (RelayService.instance.typingFromDigits !=
-        RelayService.digits(widget.chat.contact.phone)) {
+    final fromDigits = RelayService.instance.typingFromDigits;
+    if (fromDigits == null) return;
+    String name = '';
+    if (widget.chat.contact.isGroup) {
+      final members = _store.chatById(_chatId)?.members ?? const [];
+      final match = members.where(
+          (m) => RelayService.digits(m.phone) == fromDigits).toList();
+      if (match.isEmpty) return;
+      name = match.first.name.split(' ').first;
+    } else if (fromDigits != RelayService.digits(widget.chat.contact.phone)) {
       return;
     }
     if (!mounted) return;
-    setState(() => _isTyping = true);
+    setState(() {
+      _isTyping = true;
+      _typingName = name;
+    });
     _typingClear?.cancel();
     _typingClear = Timer(const Duration(seconds: 3), () {
       if (mounted) setState(() => _isTyping = false);
@@ -653,6 +675,20 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _isRealPeer(AppUser c) =>
       !c.isGroup && c.phone.isNotEmpty && c.id == c.phone;
 
+  /// Every inbox an in-chat event (edit, reaction, receipt, …) goes to: the
+  /// peer for a real 1:1 chat, every member for a group, nobody for demo
+  /// chats or note-to-self. Events fan out exactly like the messages they
+  /// are about.
+  List<String> _relayPhones() {
+    if (!RelayConfig.isEnabled) return const [];
+    final c = widget.chat.contact;
+    if (c.isGroup) {
+      final chat = _store.chatById(_chatId);
+      return chat == null ? const [] : RelayService.groupRecipients(chat);
+    }
+    return _isRealPeer(c) ? [c.phone] : const [];
+  }
+
   void _startReply(Message message) {
     setState(() {
       _replyTo = ReplyInfo(
@@ -1086,8 +1122,8 @@ class _ChatScreenState extends State<ChatScreen> {
     final text = result?.trim();
     if (text == null || text.isEmpty || text == message.text) return;
     _store.editMessage(_chatId, message.id, text);
-    if (RelayConfig.isEnabled && _isRealPeer(widget.chat.contact)) {
-      RelayService.instance.sendEdit(widget.chat.contact.phone, message.id, text);
+    for (final phone in _relayPhones()) {
+      RelayService.instance.sendEdit(phone, message.id, text);
     }
   }
 
@@ -1121,8 +1157,9 @@ class _ChatScreenState extends State<ChatScreen> {
                   style: TextStyle(color: Colors.red)),
               onTap: () {
                 _store.deleteMessage(_chatId, message.id, forEveryone: true);
-                RelayService.instance
-                    .sendDelete(widget.chat.contact.phone, message.id);
+                for (final phone in _relayPhones()) {
+                  RelayService.instance.sendDelete(phone, message.id);
+                }
                 Navigator.of(sheetContext).pop();
               },
             ),
@@ -1137,7 +1174,8 @@ class _ChatScreenState extends State<ChatScreen> {
     _store.toggleReaction(_chatId, messageId, emoji);
     ScoreStore.instance.award(ScoreStore.pointsPerReaction);
     ScoreStore.instance.recordFlag('reacted');
-    if (RelayConfig.isEnabled && _isRealPeer(widget.chat.contact)) {
+    final phones = _relayPhones();
+    if (phones.isNotEmpty) {
       final present = _store
               .chatById(_chatId)
               ?.messages
@@ -1145,8 +1183,10 @@ class _ChatScreenState extends State<ChatScreen> {
               .reactions
               .contains(emoji) ??
           false;
-      RelayService.instance
-          .sendReaction(widget.chat.contact.phone, messageId, emoji, present);
+      for (final phone in phones) {
+        RelayService.instance
+            .sendReaction(phone, messageId, emoji, present);
+      }
     }
   }
 
@@ -1492,8 +1532,9 @@ class _ChatScreenState extends State<ChatScreen> {
     );
     if (consume) {
       _store.markViewOnceOpened(_chatId, message.id);
-      RelayService.instance
-          .sendViewOnceOpened(widget.chat.contact.phone, message.id);
+      for (final phone in _relayPhones()) {
+        RelayService.instance.sendViewOnceOpened(phone, message.id);
+      }
     }
   }
 
@@ -1592,13 +1633,13 @@ class _ChatScreenState extends State<ChatScreen> {
     ));
   }
 
-  /// Records the local vote and syncs it to a real peer.
+  /// Records the local vote and syncs it to everyone the chat reaches.
   void _handleVotePoll(Message message, int option) {
     final previous = _store.votePoll(_chatId, message.id, option);
     if (previous == option) return; // no change
-    if (RelayConfig.isEnabled && _isRealPeer(widget.chat.contact)) {
+    for (final phone in _relayPhones()) {
       RelayService.instance
-          .sendPollVote(widget.chat.contact.phone, message.id, option, previous);
+          .sendPollVote(phone, message.id, option, previous);
     }
   }
 
@@ -1818,8 +1859,26 @@ class _ChatScreenState extends State<ChatScreen> {
                                   ],
                                 ),
                                 _isTyping
-                                    ? const TypingIndicator(
-                                        color: AppColors.tealGreenDark,
+                                    ? Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          if (_typingName.isNotEmpty)
+                                            Padding(
+                                              padding: const EdgeInsets.only(
+                                                  right: 4),
+                                              child: Text(
+                                                _typingName,
+                                                style: TextStyle(
+                                                  fontSize: 12.5,
+                                                  color: AppColors.accentOn(
+                                                      context),
+                                                ),
+                                              ),
+                                            ),
+                                          TypingIndicator(
+                                            color: AppColors.accentOn(context),
+                                          ),
+                                        ],
                                       )
                                     : Text(
                                         (contact.isOnline || _peerOnline)

@@ -6983,4 +6983,201 @@ void main() {
       await tester.pump();
     });
   });
+
+  group('Group chats: events land in the group', () {
+    setUp(() {
+      ChatStore.instance.clearAll();
+      Session.instance.signInForTest();
+    });
+
+    /// Alice both messages me 1:1 AND shares a group with me — the setup
+    /// where events used to land in the wrong conversation.
+    void seedBothChats() {
+      const alice = AppUser(
+          id: '+1 555 0111',
+          name: 'Alice',
+          avatarColor: '#E57373',
+          phone: '+1 555 0111');
+      ChatStore.instance.upsert(Chat(
+        id: 'chat_alice',
+        contact: alice,
+        messages: [
+          Message(
+              id: 'dm1',
+              text: 'direct hello',
+              time: DateTime(2024, 7, 1, 9),
+              isMe: false),
+          Message(
+              id: 'dm_out',
+              text: 'my reply',
+              time: DateTime(2024, 7, 1, 9, 1),
+              isMe: true,
+              status: MessageStatus.sent),
+        ],
+      ));
+      ChatStore.instance.upsert(Chat(
+        id: 'group_ev',
+        contact: const AppUser(
+            id: 'group_ev',
+            name: 'Trip planning',
+            avatarColor: '#4DB6AC',
+            isGroup: true),
+        members: const [
+          AppUser(
+              id: '+1 555 0100',
+              name: 'You',
+              avatarColor: '#25D366',
+              phone: '+1 555 0100'),
+          alice,
+        ],
+        messages: [
+          Message(
+              id: 'gm1',
+              text: 'group hello',
+              time: DateTime(2024, 7, 1, 10),
+              isMe: false,
+              senderName: 'Alice'),
+          Message(
+              id: 'gm_out',
+              text: 'sent to the group',
+              time: DateTime(2024, 7, 1, 10, 1),
+              isMe: true,
+              status: MessageStatus.sent),
+          Message(
+              id: 'gp1',
+              text: '',
+              time: DateTime(2024, 7, 1, 11),
+              isMe: false,
+              senderName: 'Alice',
+              isPoll: true,
+              pollQuestion: 'Where to?',
+              pollOptions: ['North', 'South'],
+              pollVotes: [0, 0]),
+        ],
+      ));
+    }
+
+    test('chatWithMessage prefers the sender chat, then finds the group', () {
+      seedBothChats();
+      expect(
+          ChatStore.instance
+              .chatWithMessage('dm1', senderId: '+1 555 0111')!
+              .id,
+          'chat_alice');
+      expect(
+          ChatStore.instance
+              .chatWithMessage('gm1', senderId: '+1 555 0111')!
+              .id,
+          'group_ev');
+      expect(ChatStore.instance.chatWithMessage('nope'), isNull);
+    });
+
+    test("Alice's reaction to a group message lands in the group", () {
+      seedBothChats();
+      final applied = RelayService.applyMessageEvent(
+        'reaction',
+        {'from': '+1 555 0111', 'id': 'gm_out', 'emoji': '🔥', 'add': true},
+        myPhone: '+1 555 0100',
+      );
+      expect(applied, isTrue);
+      final group = ChatStore.instance.chatById('group_ev')!;
+      expect(
+          group.messages.firstWhere((m) => m.id == 'gm_out').reactions,
+          contains('🔥'));
+      // The 1:1 thread is untouched.
+      final dm = ChatStore.instance.chatById('chat_alice')!;
+      expect(dm.messages.every((m) => m.reactions.isEmpty), isTrue);
+    });
+
+    test('a group edit and a group delete-for-everyone follow through', () {
+      seedBothChats();
+      RelayService.applyMessageEvent(
+        'edit',
+        {'from': '+1 555 0111', 'id': 'gm1', 'text': 'group hello (fixed)'},
+        myPhone: '+1 555 0100',
+      );
+      final edited = ChatStore.instance
+          .chatById('group_ev')!
+          .messages
+          .firstWhere((m) => m.id == 'gm1');
+      expect(edited.text, 'group hello (fixed)');
+      expect(edited.edited, isTrue);
+
+      RelayService.applyMessageEvent(
+        'delete',
+        {'from': '+1 555 0111', 'id': 'gm1'},
+        myPhone: '+1 555 0100',
+      );
+      expect(
+          ChatStore.instance
+              .chatById('group_ev')!
+              .messages
+              .firstWhere((m) => m.id == 'gm1')
+              .isDeleted,
+          isTrue);
+    });
+
+    test("a member's poll vote counts in the group poll", () {
+      seedBothChats();
+      RelayService.applyMessageEvent(
+        'poll',
+        {'from': '+1 555 0111', 'id': 'gp1', 'add': 1, 'remove': -1},
+        myPhone: '+1 555 0100',
+      );
+      final poll = ChatStore.instance
+          .chatById('group_ev')!
+          .messages
+          .firstWhere((m) => m.id == 'gp1');
+      expect(poll.pollVotes, [0, 1]);
+    });
+
+    test("a group read receipt advances the group's ticks, not the DM's", () {
+      seedBothChats();
+      final applied = RelayService.applyReceipt(
+        {'from': '+1 555 0111', 'kind': 'read', 'id': 'gm_out'},
+        myPhone: '+1 555 0100',
+      );
+      expect(applied, isTrue);
+      expect(
+          ChatStore.instance
+              .chatById('group_ev')!
+              .messages
+              .firstWhere((m) => m.id == 'gm_out')
+              .status,
+          MessageStatus.read);
+      // My 1:1 message to Alice is still only "sent".
+      expect(
+          ChatStore.instance
+              .chatById('chat_alice')!
+              .messages
+              .firstWhere((m) => m.id == 'dm_out')
+              .status,
+          MessageStatus.sent);
+    });
+
+    test('a legacy receipt without a message id still works 1:1', () {
+      seedBothChats();
+      RelayService.applyReceipt(
+        {'from': '+1 555 0111', 'kind': 'delivered'},
+        myPhone: '+1 555 0100',
+      );
+      expect(
+          ChatStore.instance
+              .chatById('chat_alice')!
+              .messages
+              .firstWhere((m) => m.id == 'dm_out')
+              .status,
+          MessageStatus.delivered);
+    });
+
+    test('my own echoed event is ignored', () {
+      seedBothChats();
+      final applied = RelayService.applyMessageEvent(
+        'reaction',
+        {'from': '+1 555 0100', 'id': 'gm_out', 'emoji': '🔥', 'add': true},
+        myPhone: '+1 555 0100',
+      );
+      expect(applied, isFalse);
+    });
+  });
 }

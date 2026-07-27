@@ -178,6 +178,22 @@ class ChatStore extends ChangeNotifier {
   /// Every conversation regardless of archived state (used by search).
   List<Chat> get allChats => List.unmodifiable(_chats);
 
+  /// The conversation holding [messageId]: the 1:1 chat with [senderId] when
+  /// it has the message, else whichever chat does — which is how an event for
+  /// a group message finds the group instead of the sender's own thread.
+  Chat? chatWithMessage(String messageId, {String? senderId}) {
+    if (senderId != null) {
+      final direct = chatWithContact(senderId);
+      if (direct != null && direct.messages.any((m) => m.id == messageId)) {
+        return direct;
+      }
+    }
+    for (final chat in _chats) {
+      if (chat.messages.any((m) => m.id == messageId)) return chat;
+    }
+    return null;
+  }
+
   /// The existing conversation with [contactId], if one exists.
   Chat? chatWithContact(String contactId) {
     final i = _chats.indexWhere((c) => c.contact.id == contactId);

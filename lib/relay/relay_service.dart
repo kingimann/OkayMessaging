@@ -391,6 +391,82 @@ class RelayService {
     return true;
   }
 
+  /// Applies a remote message-scoped event (edit, delete, reaction, poll vote,
+  /// view-once opened, payment status) to the chat that actually holds the
+  /// message — routed by message id, so an event for a group message lands in
+  /// the group rather than the sender's 1:1 thread. Returns true when a chat
+  /// was found and mutated.
+  static bool applyMessageEvent(
+    String event,
+    Map<String, dynamic> payload, {
+    required String myPhone,
+    ChatStore? store,
+  }) {
+    final from = payload['from'] as String?;
+    final id = payload['id'] as String?;
+    if (from == null || id == null || digits(from) == digits(myPhone)) {
+      return false;
+    }
+    final target = store ?? ChatStore.instance;
+    final chat = target.chatWithMessage(id, senderId: from);
+    if (chat == null) return false;
+    switch (event) {
+      case 'edit':
+        target.editMessage(chat.id, id, (payload['text'] as String?) ?? '');
+        return true;
+      case 'delete':
+        target.deleteMessage(chat.id, id, forEveryone: true);
+        return true;
+      case 'reaction':
+        final emoji = payload['emoji'] as String?;
+        if (emoji == null) return false;
+        target.setReactionState(
+            chat.id, id, emoji, payload['add'] as bool? ?? true);
+        return true;
+      case 'poll':
+        target.applyRemotePollVote(
+          chat.id,
+          id,
+          (payload['add'] as num?)?.toInt() ?? -1,
+          (payload['remove'] as num?)?.toInt() ?? -1,
+        );
+        return true;
+      case 'vopen':
+        target.markViewOnceOpened(chat.id, id);
+        return true;
+      case 'payst':
+        final status = payload['status'] as String?;
+        if (status == null) return false;
+        target.setPaymentStatus(chat.id, id, status);
+        return true;
+    }
+    return false;
+  }
+
+  /// Applies a delivery/read receipt. When the receipt names the message it
+  /// acknowledges, the chat is found through it — so a group member's receipt
+  /// advances the ticks in the group, not in your 1:1 thread with them. A
+  /// legacy receipt without an id falls back to the sender's own chat.
+  static bool applyReceipt(
+    Map<String, dynamic> payload, {
+    required String myPhone,
+    ChatStore? store,
+  }) {
+    final from = payload['from'] as String?;
+    if (from == null || digits(from) == digits(myPhone)) return false;
+    final target = store ?? ChatStore.instance;
+    final id = payload['id'] as String?;
+    final chat = id != null
+        ? target.chatWithMessage(id, senderId: from)
+        : target.chatWithContact(from);
+    if (chat == null) return false;
+    final status = payload['kind'] == 'read'
+        ? MessageStatus.read
+        : MessageStatus.delivered;
+    target.setOutgoingStatus(chat.id, status);
+    return true;
+  }
+
   /// Recovers the decrypted content map from a relay payload. New payloads seal
   /// everything into `c`; legacy payloads carried the fields at the top level,
   /// so we read those directly when `c` is absent.
@@ -471,8 +547,12 @@ class RelayService {
               if (spk != null) SecureKeyExchange.instance.rememberPeer(from, spk);
               _ensureKeyShared(from);
             }
-            // Acknowledge delivery so the sender's ticks advance.
-            if (added && from != null) sendReceipt(from, 'delivered');
+            // Acknowledge delivery so the sender's ticks advance — naming
+            // the message so a group ack lands on the group's ticks.
+            if (added && from != null) {
+              sendReceipt(from, 'delivered',
+                  messageId: map['id'] as String?);
+            }
           },
         )
         .onBroadcast(
@@ -529,112 +609,38 @@ class RelayService {
         )
         .onBroadcast(
           event: 'vopen',
-          callback: (payload) {
-            final from = payload['from'] as String?;
-            final id = payload['id'] as String?;
-            if (from == null || id == null || digits(from) == digits(me)) {
-              return;
-            }
-            final chat = ChatStore.instance.chatWithContact(from);
-            if (chat != null) {
-              ChatStore.instance.markViewOnceOpened(chat.id, id);
-            }
-          },
+          callback: (payload) => applyMessageEvent(
+              'vopen', Map<String, dynamic>.from(payload), myPhone: me),
         )
         .onBroadcast(
           event: 'receipt',
-          callback: (payload) {
-            final from = payload['from'] as String?;
-            if (from == null || digits(from) == digits(me)) return;
-            final chat = ChatStore.instance.chatWithContact(from);
-            if (chat == null) return;
-            final status = payload['kind'] == 'read'
-                ? MessageStatus.read
-                : MessageStatus.delivered;
-            ChatStore.instance.setOutgoingStatus(chat.id, status);
-          },
+          callback: (payload) =>
+              applyReceipt(Map<String, dynamic>.from(payload), myPhone: me),
         )
         .onBroadcast(
           event: 'edit',
-          callback: (payload) {
-            final from = payload['from'] as String?;
-            final id = payload['id'] as String?;
-            if (from == null || id == null || digits(from) == digits(me)) return;
-            final chat = ChatStore.instance.chatWithContact(from);
-            if (chat != null) {
-              ChatStore.instance
-                  .editMessage(chat.id, id, (payload['text'] as String?) ?? '');
-            }
-          },
+          callback: (payload) => applyMessageEvent(
+              'edit', Map<String, dynamic>.from(payload), myPhone: me),
         )
         .onBroadcast(
           event: 'delete',
-          callback: (payload) {
-            final from = payload['from'] as String?;
-            final id = payload['id'] as String?;
-            if (from == null || id == null || digits(from) == digits(me)) return;
-            final chat = ChatStore.instance.chatWithContact(from);
-            if (chat != null) {
-              ChatStore.instance
-                  .deleteMessage(chat.id, id, forEveryone: true);
-            }
-          },
+          callback: (payload) => applyMessageEvent(
+              'delete', Map<String, dynamic>.from(payload), myPhone: me),
         )
         .onBroadcast(
           event: 'payst',
-          callback: (payload) {
-            final from = payload['from'] as String?;
-            final id = payload['id'] as String?;
-            final status = payload['status'] as String?;
-            if (from == null ||
-                id == null ||
-                status == null ||
-                digits(from) == digits(me)) {
-              return;
-            }
-            final chat = ChatStore.instance.chatWithContact(from);
-            if (chat != null) {
-              ChatStore.instance.setPaymentStatus(chat.id, id, status);
-            }
-          },
+          callback: (payload) => applyMessageEvent(
+              'payst', Map<String, dynamic>.from(payload), myPhone: me),
         )
         .onBroadcast(
           event: 'reaction',
-          callback: (payload) {
-            final from = payload['from'] as String?;
-            final id = payload['id'] as String?;
-            final emoji = payload['emoji'] as String?;
-            if (from == null ||
-                id == null ||
-                emoji == null ||
-                digits(from) == digits(me)) {
-              return;
-            }
-            final chat = ChatStore.instance.chatWithContact(from);
-            if (chat != null) {
-              ChatStore.instance.setReactionState(
-                  chat.id, id, emoji, payload['add'] as bool? ?? true);
-            }
-          },
+          callback: (payload) => applyMessageEvent(
+              'reaction', Map<String, dynamic>.from(payload), myPhone: me),
         )
         .onBroadcast(
           event: 'poll',
-          callback: (payload) {
-            final from = payload['from'] as String?;
-            final id = payload['id'] as String?;
-            if (from == null || id == null || digits(from) == digits(me)) {
-              return;
-            }
-            final chat = ChatStore.instance.chatWithContact(from);
-            if (chat != null) {
-              ChatStore.instance.applyRemotePollVote(
-                chat.id,
-                id,
-                (payload['add'] as num?)?.toInt() ?? -1,
-                (payload['remove'] as num?)?.toInt() ?? -1,
-              );
-            }
-          },
+          callback: (payload) => applyMessageEvent(
+              'poll', Map<String, dynamic>.from(payload), myPhone: me),
         )
         .onBroadcast(
           event: 'call',
@@ -1106,8 +1112,9 @@ class RelayService {
   }
 
   /// Sends a delivery/read receipt ('delivered' or 'read') to [contactPhone].
-  Future<void> sendReceipt(String contactPhone, String kind) async {
-    if (!_initialized) return;
+  Future<void> sendReceipt(String contactPhone, String kind,
+      {String? messageId}) async {
+    if (!_initialized || digits(contactPhone).isEmpty) return;
     final me = Session.instance.user.value;
     if (me == null) return;
     final name = inboxChannel(contactPhone);
@@ -1115,7 +1122,13 @@ class RelayService {
         _sendChannels.putIfAbsent(name, () => _client.channel(name));
     await channel.sendBroadcastMessage(
       event: 'receipt',
-      payload: {'from': me.phone, 'kind': kind},
+      // Naming the acknowledged message routes the receipt to the right
+      // conversation — essential once the same person shares a group with you.
+      payload: {
+        'from': me.phone,
+        'kind': kind,
+        if (messageId != null) 'id': messageId,
+      },
     );
   }
 
@@ -1154,7 +1167,7 @@ class RelayService {
       _ping(contactPhone, 'presence');
 
   Future<void> _ping(String contactPhone, String event) async {
-    if (!_initialized) return;
+    if (!_initialized || digits(contactPhone).isEmpty) return;
     final me = Session.instance.user.value;
     if (me == null) return;
     final name = inboxChannel(contactPhone);
