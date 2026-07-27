@@ -124,6 +124,11 @@ class Message {
   final bool callVideo;
   final int callSeconds;
 
+  /// A server invite card: a JSON snapshot of the community being shared
+  /// (name, channels, the encryption secret) that the recipient can join
+  /// with one tap. Empty for normal messages.
+  final String serverInvite;
+
   /// True for a poll; [pollQuestion] / [pollOptions] describe it, [pollVotes]
   /// holds the tally per option, and [pollMyVote] is this device's choice
   /// (-1 = not voted yet).
@@ -166,6 +171,7 @@ class Message {
     this.paymentAmountCents = 0,
     this.paymentCurrency = 'cad',
     this.paymentStatus = '',
+    this.serverInvite = '',
     this.isPoll = false,
     this.pollQuestion = '',
     this.pollOptions = const [],
@@ -178,6 +184,9 @@ class Message {
 
   /// Whether this message is a call record rather than content.
   bool get isCallEvent => callEvent.isNotEmpty;
+
+  /// Whether this message carries a server invite card.
+  bool get isServerInvite => serverInvite.isNotEmpty;
 
   /// Total votes cast across all poll options.
   int get pollTotalVotes => pollVotes.fold(0, (n, v) => n + v);
@@ -215,6 +224,7 @@ class Message {
         'paymentAmountCents': paymentAmountCents,
         'paymentCurrency': paymentCurrency,
         'paymentStatus': paymentStatus,
+        'serverInvite': serverInvite,
         'isPoll': isPoll,
         'pollQuestion': pollQuestion,
         'pollOptions': pollOptions,
@@ -263,6 +273,7 @@ class Message {
         paymentAmountCents: json['paymentAmountCents'] as int? ?? 0,
         paymentCurrency: json['paymentCurrency'] as String? ?? 'cad',
         paymentStatus: json['paymentStatus'] as String? ?? '',
+        serverInvite: json['serverInvite'] as String? ?? '',
         isPoll: json['isPoll'] as bool? ?? false,
         pollQuestion: json['pollQuestion'] as String? ?? '',
         pollOptions:
@@ -323,6 +334,7 @@ class Message {
       paymentAmountCents: paymentAmountCents,
       paymentCurrency: paymentCurrency,
       paymentStatus: paymentStatus ?? this.paymentStatus,
+      serverInvite: serverInvite,
       isPoll: isPoll,
       pollQuestion: pollQuestion,
       pollOptions: pollOptions,

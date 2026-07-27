@@ -7,10 +7,12 @@ import '../app_state.dart';
 import '../crypto/e2e.dart';
 import '../crypto/key_exchange.dart';
 import '../models/chat.dart';
+import '../models/community.dart';
 import '../models/message.dart';
 import '../models/user.dart';
 import '../state/call_service.dart';
 import '../state/chat_store.dart';
+import '../state/community_store.dart';
 import '../state/push_service.dart';
 import '../state/feed_store.dart';
 import '../state/file_transfer.dart';
@@ -140,6 +142,8 @@ class RelayService {
       'pollQuestion': message.pollQuestion,
       'pollOptions': message.pollOptions,
       'pollVotes': message.pollVotes,
+      if (message.serverInvite.isNotEmpty)
+        'serverInvite': message.serverInvite,
       'expiresAt': message.expiresAt?.toIso8601String(),
     });
 
@@ -372,6 +376,7 @@ class RelayService {
                 ?.map((e) => (e as num).toInt())
                 .toList() ??
             const [],
+        serverInvite: content['serverInvite'] as String? ?? '',
         expiresAt: content['expiresAt'] == null
             ? null
             : DateTime.tryParse(content['expiresAt'] as String),
@@ -758,6 +763,8 @@ class RelayService {
 
     // The shared server-feed channel: posts are public-to-the-server by
     // nature, so they ride a common broadcast (memory-only, like messages).
+    // Channel messages and roster joins share the same bus, but sealed with
+    // the server's own secret so only its members can read them.
     _feedChannel = _client
         .channel('server_feed')
         .onBroadcast(
@@ -774,8 +781,104 @@ class RelayService {
             } catch (_) {}
           },
         )
+        .onBroadcast(
+          event: 'chmsg',
+          callback: (payload) => _onCommunityEvent(payload, me, (cid, body) {
+            final rawMsg = body['message'];
+            if (rawMsg is! Map) return;
+            final msg =
+                Message.fromJson(Map<String, dynamic>.from(rawMsg));
+            CommunityStore.instance.addRemoteChannelMessage(
+              cid,
+              body['channelId'] as String? ?? '',
+              Message(
+                id: msg.id,
+                text: msg.text,
+                time: msg.time,
+                isMe: false,
+                status: MessageStatus.delivered,
+                senderName: body['senderName'] as String? ?? 'Member',
+                isImage: msg.isImage,
+                imageUrl: msg.imageUrl,
+                replyTo: msg.replyTo,
+                isPoll: msg.isPoll,
+                pollQuestion: msg.pollQuestion,
+                pollOptions: msg.pollOptions,
+                pollVotes: msg.pollVotes,
+              ),
+            );
+          }),
+        )
+        .onBroadcast(
+          event: 'chjoin',
+          callback: (payload) => _onCommunityEvent(payload, me, (cid, body) {
+            final rawMember = body['member'];
+            if (rawMember is! Map) return;
+            CommunityStore.instance.applyRemoteJoin(
+                cid, Member.fromJson(Map<String, dynamic>.from(rawMember)));
+          }),
+        )
         .subscribe();
   }
+
+  /// Decodes a sealed community-bus event: looks the server up by id, opens
+  /// the body with its secret, and hands the plaintext to [apply]. Events
+  /// for servers this device isn't in (no id match → no secret) drop
+  /// silently, as do our own echoes.
+  void _onCommunityEvent(Map<String, dynamic> payload, String me,
+      void Function(String cid, Map<String, dynamic> body) apply) {
+    try {
+      final from = payload['from'] as String?;
+      if (from == null || digits(from) == digits(me)) return;
+      final cid = payload['communityId'] as String?;
+      final data = payload['data'] as String?;
+      if (cid == null || data == null) return;
+      final secret = CommunityStore.instance.byId(cid)?.secretBytes;
+      if (secret == null) return;
+      final plain = E2eCrypto.decrypt(secret, data);
+      if (plain == null) return;
+      final body = jsonDecode(plain);
+      if (body is! Map) return;
+      apply(cid, Map<String, dynamic>.from(body));
+    } catch (_) {}
+  }
+
+  /// Seals and broadcasts a community-bus event ('chmsg' / 'chjoin') with
+  /// the server's secret. No-op for servers without one (older builds).
+  Future<void> _sendCommunityEvent(
+      String event, String communityId, Map<String, dynamic> body) async {
+    if (!_initialized) return;
+    final me = Session.instance.user.value;
+    if (me == null) return;
+    final secret = CommunityStore.instance.byId(communityId)?.secretBytes;
+    if (secret == null) return;
+    final channel = _feedChannel ??
+        _sendChannels.putIfAbsent(
+            'server_feed', () => _client.channel('server_feed'));
+    try {
+      await channel.sendBroadcastMessage(
+        event: event,
+        payload: {
+          'from': me.phone,
+          'communityId': communityId,
+          'data': E2eCrypto.encrypt(secret, jsonEncode(body)),
+        },
+      );
+    } catch (_) {}
+  }
+
+  /// Delivers a channel message to every other member of the server.
+  Future<void> sendChannelMessage(String communityId, String channelId,
+          Message message, {required String senderName}) =>
+      _sendCommunityEvent('chmsg', communityId, {
+        'channelId': channelId,
+        'senderName': senderName,
+        'message': message.toJson(),
+      });
+
+  /// Announces that this device's user joined the server.
+  Future<void> sendServerJoin(String communityId, Member member) =>
+      _sendCommunityEvent('chjoin', communityId, {'member': member.toJson()});
 
   /// Broadcasts a feed post to everyone in the server channel.
   Future<void> sendFeedPost(FeedPost post) async {

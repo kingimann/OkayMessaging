@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'message.dart';
 
 /// The kind of a [Channel]. Text and announcement channels hold messages;
@@ -353,6 +355,12 @@ class Community {
   /// ('' = use the letter).
   final String icon;
 
+  /// The server's shared encryption key (base64, 32 random bytes), minted
+  /// when the server is created and handed to members inside the E2E
+  /// encrypted invite. Channel traffic over the relay is sealed with it, so
+  /// only members can read it. Empty on servers from older builds.
+  final String secret;
+
   /// A short description of what the server is about.
   final String description;
   final List<Channel> channels;
@@ -383,6 +391,7 @@ class Community {
     required this.name,
     required this.color,
     this.icon = '',
+    this.secret = '',
     this.description = '',
     this.channels = const [],
     this.members = const [],
@@ -406,6 +415,16 @@ class Community {
   List<Channel> channelsIn(String category) =>
       channels.where((c) => c.category == category).toList();
 
+  /// The decoded [secret] bytes, or null when this server predates secrets.
+  List<int>? get secretBytes {
+    if (secret.isEmpty) return null;
+    try {
+      return base64Decode(secret);
+    } catch (_) {
+      return null;
+    }
+  }
+
   Community copyWith({
     String? name,
     String? color,
@@ -425,6 +444,7 @@ class Community {
         name: name ?? this.name,
         color: color ?? this.color,
         icon: icon ?? this.icon,
+        secret: secret,
         description: description ?? this.description,
         channels: channels ?? this.channels,
         members: members ?? this.members,
@@ -442,6 +462,7 @@ class Community {
         'name': name,
         'color': color,
         'icon': icon,
+        'secret': secret,
         'description': description,
         'channels': channels.map((c) => c.toJson()).toList(),
         'members': members.map((m) => m.toJson()).toList(),
@@ -458,6 +479,7 @@ class Community {
         name: json['name'] as String,
         color: json['color'] as String? ?? '#7A5CFF',
         icon: json['icon'] as String? ?? '',
+        secret: json['secret'] as String? ?? '',
         description: json['description'] as String? ?? '',
         channels: (json['channels'] as List? ?? const [])
             .map((c) => Channel.fromJson(Map<String, dynamic>.from(c as Map)))

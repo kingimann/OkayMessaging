@@ -1720,6 +1720,101 @@ void main() {
           .any((m) => m.id == 'me'), isTrue);
     });
 
+    test('server invites: export, join on another device, sealed traffic',
+        () {
+      CommunityStore.instance.resetForTest();
+      final c = CommunityStore.instance.createCommunity('Crew');
+      // Every new server mints a real 32-byte secret.
+      expect(c.secret, isNotEmpty);
+      expect(c.secretBytes, hasLength(32));
+
+      final invite = CommunityStore.instance
+          .exportInvite(c.id, myDigits: '15550101111', myName: 'Alice')!;
+      // The sender's 'me' travels as their wire id, and history stays home.
+      final members = (invite['members'] as List).cast<Map>();
+      expect(members.any((m) => m['id'] == 'me'), isFalse);
+      expect(
+          members.any(
+              (m) => m['id'] == 'u_15550101111' && m['name'] == 'Alice'),
+          isTrue);
+      expect(members.any((m) => m['role'] == 'owner'), isTrue);
+      expect((invite['channels'] as List).first.containsKey('messages'),
+          isFalse);
+      expect(invite['secret'], c.secret);
+
+      // The recipient joins: same id and secret, themselves as a member.
+      CommunityStore.instance.deleteCommunity(c.id);
+      final joined = CommunityStore.instance.joinFromInvite(
+          Map<String, dynamic>.from(invite),
+          myDigits: '15550102222',
+          myName: 'Bob')!;
+      expect(joined.id, c.id);
+      expect(joined.secret, c.secret);
+      expect(joined.members.any((m) => m.id == 'me'), isTrue);
+      expect(joined.members.any((m) => m.id == 'u_15550101111'), isTrue);
+      expect(CommunityStore.instance.canModerate(joined.id), isFalse);
+      // Joining twice is a no-op.
+      expect(
+          CommunityStore.instance
+              .joinFromInvite(Map<String, dynamic>.from(invite),
+                  myDigits: '15550102222', myName: 'Bob')!
+              .id,
+          joined.id);
+
+      // The joiner shows up on the sender's roster via the relay event.
+      CommunityStore.instance.applyRemoteJoin(
+          joined.id, const Member(id: 'u_15550102222', name: 'Bob'));
+      expect(
+          CommunityStore.instance
+              .byId(joined.id)!
+              .members
+              .any((m) => m.name == 'Bob'),
+          isTrue);
+
+      // Channel messages from members apply once, then dedupe.
+      final chan = joined.channels.first;
+      final msg = Message(
+          id: 'r1',
+          text: 'hi from Alice',
+          time: DateTime.now(),
+          isMe: false,
+          senderName: 'Alice');
+      CommunityStore.instance
+          .addRemoteChannelMessage(joined.id, chan.id, msg);
+      CommunityStore.instance
+          .addRemoteChannelMessage(joined.id, chan.id, msg);
+      expect(
+          CommunityStore.instance
+              .byId(joined.id)!
+              .channels
+              .first
+              .messages
+              .where((m) => m.id == 'r1'),
+          hasLength(1));
+      // Unknown servers/channels drop silently.
+      CommunityStore.instance.addRemoteChannelMessage('nope', chan.id, msg);
+      CommunityStore.instance
+          .addRemoteChannelMessage(joined.id, 'nope', msg);
+
+      // The bus payload is sealed with the server secret and round-trips.
+      final sealed =
+          E2eCrypto.encrypt(joined.secretBytes!, 'channel plaintext');
+      expect(sealed.contains('plaintext'), isFalse);
+      expect(E2eCrypto.decrypt(joined.secretBytes!, sealed),
+          'channel plaintext');
+
+      // An invite message survives the JSON round trip.
+      final inviteMsg = Message(
+          id: 'i1',
+          text: 'Join my server',
+          time: DateTime.now(),
+          isMe: true,
+          serverInvite: jsonEncode(invite));
+      final decoded = Message.fromJson(inviteMsg.toJson());
+      expect(decoded.isServerInvite, isTrue);
+      expect(jsonDecode(decoded.serverInvite)['id'], c.id);
+    });
+
     test('a server description can be set and survives JSON', () {
       CommunityStore.instance.resetForTest();
       CommunityStore.instance

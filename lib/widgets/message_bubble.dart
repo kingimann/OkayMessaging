@@ -1,7 +1,13 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 
 import '../app_state.dart';
+import '../models/community.dart';
 import '../models/message.dart';
+import '../relay/relay_config.dart';
+import '../relay/relay_service.dart';
+import '../state/community_store.dart';
 import '../payments/payment_amount_sheet.dart';
 import '../theme/app_theme.dart';
 import '../utils/date_formatter.dart';
@@ -275,6 +281,12 @@ class MessageBubble extends StatelessWidget {
                         textColor: textColor,
                         metaColor: metaColor,
                         onMessage: onOpenContact,
+                      )
+                    else if (message.isServerInvite)
+                      _ServerInviteContent(
+                        message: message,
+                        textColor: textColor,
+                        metaColor: metaColor,
                       )
                     else
                       RichMessageText(
@@ -818,6 +830,133 @@ class _LocationContent extends StatelessWidget {
 }
 
 /// A shared-contact card: avatar initial, name, number and a Message action.
+/// A server-invite card: the server's look and name, and a Join button that
+/// adds it (channels, roster, encryption secret) with one tap.
+class _ServerInviteContent extends StatelessWidget {
+  final Message message;
+  final Color textColor;
+  final Color metaColor;
+
+  const _ServerInviteContent({
+    required this.message,
+    required this.textColor,
+    required this.metaColor,
+  });
+
+  Map<String, dynamic>? get _snapshot {
+    try {
+      final decoded = jsonDecode(message.serverInvite);
+      return decoded is Map ? Map<String, dynamic>.from(decoded) : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  void _join(BuildContext context, Map<String, dynamic> snapshot) {
+    final me = AppState.profile.value;
+    final digits = me.phone.replaceAll(RegExp(r'\D'), '');
+    final community = CommunityStore.instance
+        .joinFromInvite(snapshot, myDigits: digits, myName: me.name);
+    if (community == null) return;
+    // Tell the other members someone new is in.
+    if (RelayConfig.isEnabled) {
+      RelayService.instance.sendServerJoin(
+        community.id,
+        Member(
+            id: CommunityStore.wireId(digits),
+            name: me.name.isEmpty ? 'Member' : me.name,
+            online: true),
+      );
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Joined "${community.name}"')),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final snapshot = _snapshot;
+    if (snapshot == null) {
+      return Text('Server invite', style: TextStyle(color: textColor));
+    }
+    final name = snapshot['name'] as String? ?? 'A server';
+    final icon = snapshot['icon'] as String? ?? '';
+    final colorHex = snapshot['color'] as String? ?? '#7A5CFF';
+    final color = Color(
+        int.parse(colorHex.replaceFirst('#', 'ff'), radix: 16));
+    return ListenableBuilder(
+      listenable: CommunityStore.instance,
+      builder: (context, _) {
+        final joined =
+            CommunityStore.instance.byId(snapshot['id'] as String? ?? '') !=
+                null;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircleAvatar(
+                  radius: 18,
+                  backgroundColor: color,
+                  child: Text(
+                      icon.isNotEmpty
+                          ? icon
+                          : (name.isEmpty ? '?' : name[0].toUpperCase()),
+                      style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w700)),
+                ),
+                const SizedBox(width: 10),
+                Flexible(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text('Server invite',
+                          style:
+                              TextStyle(fontSize: 11.5, color: metaColor)),
+                      Text(name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                              color: textColor,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 15)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            if (message.isMe && !joined)
+              Text('Invite sent',
+                  style: TextStyle(fontSize: 12, color: metaColor))
+            else if (joined)
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.check_circle, size: 16, color: metaColor),
+                  const SizedBox(width: 5),
+                  Text('Joined', style: TextStyle(color: metaColor)),
+                ],
+              )
+            else
+              FilledButton.tonal(
+                style: FilledButton.styleFrom(
+                  visualDensity: VisualDensity.compact,
+                ),
+                onPressed: () => _join(context, snapshot),
+                child: const Text('Join server'),
+              ),
+          ],
+        );
+      },
+    );
+  }
+}
+
 class _ContactContent extends StatelessWidget {
   final Message message;
   final Color textColor;

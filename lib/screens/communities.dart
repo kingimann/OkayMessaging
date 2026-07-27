@@ -1,12 +1,15 @@
 import 'package:flutter/material.dart';
 
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/services.dart';
 
 import '../app_state.dart';
 import '../models/community.dart';
 import '../models/message.dart';
+import '../relay/relay_config.dart';
+import '../relay/relay_service.dart';
 import '../state/community_store.dart';
 import '../state/feed_store.dart';
 import '../theme/app_theme.dart';
@@ -22,6 +25,7 @@ import '../widgets/user_avatar.dart';
 import 'community_settings_screen.dart';
 import 'feed_screen.dart';
 import 'forum_screen.dart';
+import 'forward_screen.dart';
 
 Color _hex(String s) =>
     Color(int.parse(s.replaceFirst('#', 'ff'), radix: 16));
@@ -348,11 +352,41 @@ class _CommunityScreenState extends State<CommunityScreen> {
               Text('Or share the code  $code',
                   style:
                       TextStyle(fontSize: 12.5, color: Colors.grey.shade600)),
+              const SizedBox(height: 12),
+              // The invite that actually works end-to-end: a card in a chat
+              // the other person can join with one tap.
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  icon: const Icon(Icons.chat_bubble_outline, size: 18),
+                  label: const Text('Send invite to a chat'),
+                  onPressed: () {
+                    Navigator.pop(sheetContext);
+                    _sendInviteToChat(context, community);
+                  },
+                ),
+              ),
             ],
           ),
         ),
       ),
     );
+  }
+
+  void _sendInviteToChat(BuildContext context, Community community) {
+    final me = AppState.profile.value;
+    final snapshot = CommunityStore.instance.exportInvite(
+      community.id,
+      myDigits: me.phone.replaceAll(RegExp(r'\D'), ''),
+      myName: me.name,
+    );
+    if (snapshot == null) return;
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => ForwardScreen(
+        text: 'Join my server "${community.name}"',
+        invite: jsonEncode(snapshot),
+      ),
+    ));
   }
 
   Future<void> _channelActions(
@@ -1159,8 +1193,19 @@ class _ChannelScreenState extends State<ChannelScreen> {
     setState(() => _replyTo = null);
   }
 
-  void _post(Message message) => CommunityStore.instance
-      .postMessage(widget.communityId, widget.channelId, message);
+  void _post(Message message) {
+    CommunityStore.instance
+        .postMessage(widget.communityId, widget.channelId, message);
+    // Members see it live: sealed with the server secret on the relay bus.
+    if (RelayConfig.isEnabled) {
+      RelayService.instance.sendChannelMessage(
+        widget.communityId,
+        widget.channelId,
+        message,
+        senderName: AppState.profile.value.name,
+      );
+    }
+  }
 
   /// Emoji go into the message being typed; a GIF posts straight away.
   Future<void> _pickEmojiOrGif() async {

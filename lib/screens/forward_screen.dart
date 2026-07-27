@@ -10,14 +10,18 @@ import '../theme/app_theme.dart';
 import '../widgets/user_avatar.dart';
 
 /// Lets the user pick one or more conversations to send [text] — or, when
-/// [place] is set, a shared-location card — into.
+/// [place] is set, a shared-location card, or when [invite] is set, a
+/// join-my-server card — into.
 class ForwardScreen extends StatefulWidget {
   final String text;
 
   /// When set, a location message for this place is sent instead of [text].
   final ({double lat, double lng, String label})? place;
 
-  const ForwardScreen({super.key, required this.text, this.place});
+  /// When set, a server-invite message (this JSON snapshot) is sent instead.
+  final String? invite;
+
+  const ForwardScreen({super.key, required this.text, this.place, this.invite});
 
   @override
   State<ForwardScreen> createState() => _ForwardScreenState();
@@ -32,6 +36,17 @@ class _ForwardScreenState extends State<ForwardScreen> {
       !c.isGroup && c.phone.isNotEmpty && c.id == c.phone;
 
   Message _buildMessage(String chatId, DateTime now) {
+    final invite = widget.invite;
+    if (invite != null) {
+      return Message(
+        id: 'inv_${chatId}_${now.microsecondsSinceEpoch}',
+        text: widget.text,
+        time: now,
+        isMe: true,
+        status: MessageStatus.sent,
+        serverInvite: invite,
+      );
+    }
     final place = widget.place;
     if (place != null) {
       return Message(
@@ -74,7 +89,7 @@ class _ForwardScreenState extends State<ForwardScreen> {
     Navigator.of(context).pop();
     messenger.showSnackBar(
       SnackBar(
-        content: Text(widget.place != null
+        content: Text(widget.place != null || widget.invite != null
             ? 'Sent to $count chat${count == 1 ? '' : 's'}'
             : 'Forwarded to $count chat${count == 1 ? '' : 's'}'),
       ),
@@ -87,7 +102,9 @@ class _ForwardScreenState extends State<ForwardScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(_selected.isEmpty
-            ? (widget.place != null ? 'Send to...' : 'Forward to...')
+            ? (widget.place != null || widget.invite != null
+                ? 'Send to...'
+                : 'Forward to...')
             : '${_selected.length} selected'),
       ),
       body: ListView.builder(

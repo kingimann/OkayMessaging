@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -215,14 +216,21 @@ class CommunityStore extends ChangeNotifier {
     }
   }
 
-  /// Creates a community with a starter set of channels and the creator as
-  /// owner.
+  /// A fresh 32-byte server secret, base64-encoded.
+  static String mintSecret() {
+    final rng = Random.secure();
+    return base64Encode(List<int>.generate(32, (_) => rng.nextInt(256)));
+  }
+
+  /// Creates a community with a starter set of channels, its own encryption
+  /// secret, and the creator as owner.
   Community createCommunity(String name, {String color = '#7A5CFF'}) {
     final id = 'c_${name.hashCode}_${_communities.length}';
     final community = Community(
       id: id,
       name: name.trim(),
       color: color,
+      secret: mintSecret(),
       channels: [
         Channel(
             id: '${id}_general',
@@ -769,6 +777,105 @@ class CommunityStore extends ChangeNotifier {
 
   static String inviteLink(Community community) =>
       'https://okay.chat/join/${inviteCode(community)}';
+
+  // --- Real membership: invites over chat, traffic over the relay ---------
+
+  /// The roster id a member is known by across devices.
+  static String wireId(String digits) => 'u_$digits';
+
+  /// The invite snapshot that travels (E2E encrypted) inside a chat message:
+  /// the server's identity, its secret, its channel layout — but nobody's
+  /// message history. The sender's local 'me' entry is translated to their
+  /// wire id so the roster means the same thing on every device.
+  Map<String, dynamic>? exportInvite(String communityId,
+      {required String myDigits, required String myName}) {
+    final community = byId(communityId);
+    if (community == null) return null;
+    return {
+      'v': 1,
+      'id': community.id,
+      'name': community.name,
+      'color': community.color,
+      'icon': community.icon,
+      'secret': community.secret,
+      'description': community.description,
+      'channels': [
+        for (final ch in community.channels)
+          {
+            'id': ch.id,
+            'name': ch.name,
+            'type': ch.toJson()['type'],
+            'category': ch.category,
+            'topic': ch.topic,
+          }
+      ],
+      'members': [
+        for (final m in community.members)
+          (m.id == 'me'
+                  ? Member(id: wireId(myDigits), name: myName, role: m.role)
+                  : m)
+              .toJson()
+      ],
+    };
+  }
+
+  /// Joins a server from an invite snapshot. Channels arrive empty (history
+  /// stays with its owners); the joiner is added to the roster as a member.
+  /// Re-joining an already-joined server is a no-op returning the existing
+  /// copy.
+  Community? joinFromInvite(Map<String, dynamic> snapshot,
+      {required String myDigits, required String myName}) {
+    final id = snapshot['id'] as String?;
+    final name = snapshot['name'] as String?;
+    if (id == null || name == null || name.isEmpty) return null;
+    final existing = byId(id);
+    if (existing != null) return existing;
+    final members = [
+      for (final raw in (snapshot['members'] as List? ?? const []))
+        if (raw is Map) Member.fromJson(Map<String, dynamic>.from(raw)),
+    ].where((m) => m.id != 'me' && m.id != wireId(myDigits)).toList();
+    final community = Community(
+      id: id,
+      name: name,
+      color: snapshot['color'] as String? ?? '#7A5CFF',
+      icon: snapshot['icon'] as String? ?? '',
+      secret: snapshot['secret'] as String? ?? '',
+      description: snapshot['description'] as String? ?? '',
+      channels: [
+        for (final raw in (snapshot['channels'] as List? ?? const []))
+          if (raw is Map)
+            Channel.fromJson(Map<String, dynamic>.from(raw)),
+      ],
+      members: [
+        ...members,
+        const Member(id: 'me', name: 'You', online: true),
+      ],
+    );
+    _communities.add(community);
+    _save();
+    notifyListeners();
+    return community;
+  }
+
+  /// Applies a channel message that arrived over the relay from another
+  /// member. Ignored for servers this device isn't in; deduped by id.
+  void addRemoteChannelMessage(
+      String communityId, String channelId, Message message) {
+    final community = byId(communityId);
+    if (community == null) return;
+    final channel = community.channels
+        .cast<Channel?>()
+        .firstWhere((c) => c?.id == channelId, orElse: () => null);
+    if (channel == null) return;
+    if (channel.messages.any((m) => m.id == message.id)) return;
+    postMessage(communityId, channelId, message);
+  }
+
+  /// Applies a member-joined event from the relay.
+  void applyRemoteJoin(String communityId, Member member) {
+    if (member.id == 'me') return;
+    addMember(communityId, member);
+  }
 
   @visibleForTesting
   void resetForTest() {
