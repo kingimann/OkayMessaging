@@ -7961,13 +7961,17 @@ void main() {
   });
 
   group('Contacts sync availability', () {
-    test('contact reading is off (the plugin crashed iOS at launch)', () {
-      expect(ContactsSync.instance.supported, isFalse);
+    test('contact reading is back on for mobile (fixed in plugin 2.x)', () {
+      // In the test VM kIsWeb is false, so this is the mobile answer.
+      expect(ContactsSync.instance.supported, isTrue);
     });
 
-    test('sync reports unsupported instead of throwing', () async {
+    test('sync degrades to error, not a crash, when the plugin is absent',
+        () async {
+      // No plugin registered in the test VM: the channel call throws inside
+      // sync(), which must swallow it and report an error status.
       final result = await ContactsSync.instance.sync();
-      expect(result.status, ContactSyncStatus.unsupported);
+      expect(result.status, ContactSyncStatus.error);
       expect(result.matches, isEmpty);
     });
   });
