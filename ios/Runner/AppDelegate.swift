@@ -1,3 +1,4 @@
+import AudioToolbox
 import CallKit
 import Flutter
 import UIKit
@@ -39,6 +40,26 @@ import UserNotifications
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
+    // Ring tones: Dart's ringer loop asks for one native burst at a time.
+    // System sound IDs need no bundled audio; the vibrate call is the real
+    // ringer vibration, far stronger than a haptic tap.
+    let ringMessenger = engineBridge.pluginRegistry.registrar(forPlugin: "OkayRingtone")!.messenger()
+    let ring = FlutterMethodChannel(name: "okay/ringtone", binaryMessenger: ringMessenger)
+    ring.setMethodCallHandler { call, result in
+      if call.method == "burst" {
+        let incoming = (call.arguments as? Bool) ?? true
+        if incoming {
+          AudioServicesPlaySystemSound(1007) // double-chirp alert
+          AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)
+        } else {
+          AudioServicesPlaySystemSound(1074) // soft ring-back beat
+        }
+        result(nil)
+      } else {
+        result(FlutterMethodNotImplemented)
+      }
+    }
+
     // Default-messaging-app links: Dart listens for "link" pushes and pulls
     // any URL that arrived before it was ready.
     let linkMessenger = engineBridge.pluginRegistry.registrar(forPlugin: "OkayLinks")!.messenger()
