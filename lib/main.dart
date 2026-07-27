@@ -1,3 +1,5 @@
+import 'dart:ui' show PlatformDispatcher;
+
 import 'package:flutter/material.dart';
 
 import 'app_state.dart';
@@ -33,35 +35,55 @@ import 'state/two_step.dart';
 import 'theme/app_theme.dart';
 import 'widgets/file_transfer_banner.dart';
 
+/// Runs one startup step so that nothing can keep the app from launching:
+/// a step that throws is skipped (the store keeps its defaults), and a step
+/// that hangs — network init on a dead connection, a wedged plugin — is
+/// abandoned after [limit]. A messenger that opens with one feature degraded
+/// beats one that dies on the splash screen and gets watchdog-killed.
+Future<void> _boot(String name, Future<void> Function() step,
+    {Duration limit = const Duration(seconds: 6)}) async {
+  try {
+    await step().timeout(limit);
+  } catch (e) {
+    debugPrint('startup: $name failed, continuing — $e');
+  }
+}
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Never let an uncaught error take the app down after launch either.
+  FlutterError.onError = (details) => FlutterError.dumpErrorToConsole(details);
+  PlatformDispatcher.instance.onError = (error, stack) {
+    debugPrint('uncaught: $error');
+    return true;
+  };
   // Everything lives on the device: the phone-number identity and all chats
   // are loaded from (and saved to) local storage. If a relay is configured,
   // messages are delivered device-to-device over an ephemeral broadcast
   // channel (nothing is stored on any server).
-  await Session.instance.load();
-  await Persistence.init();
-  await SecureKeyExchange.instance.load();
-  await AppLock.instance.load();
-  await TwoStepVerification.instance.load();
-  await LegalConsent.instance.load();
-  await AccountEmail.instance.load();
-  await CommunityStore.instance.load();
-  await CallLog.instance.load();
-  await ScoreStore.instance.load();
+  await _boot('session', Session.instance.load);
+  await _boot('persistence', Persistence.init);
+  await _boot('keys', SecureKeyExchange.instance.load);
+  await _boot('lock', AppLock.instance.load);
+  await _boot('two-step', TwoStepVerification.instance.load);
+  await _boot('legal', LegalConsent.instance.load);
+  await _boot('email', AccountEmail.instance.load);
+  await _boot('communities', CommunityStore.instance.load);
+  await _boot('call log', CallLog.instance.load);
+  await _boot('score', ScoreStore.instance.load);
   ScoreStore.instance.dailyCheckIn();
-  await StreakStore.instance.load();
-  await RecentSearches.instance.load();
-  await RecentSearches.maps.load();
-  await BackupService.instance.load();
-  await PaymentService.instance.load();
-  await SavedPlacesStore.instance.load();
-  await FollowStore.instance.load();
-  await FeedStore.instance.load();
-  await CloudSync.instance.load();
-  await StatusStore.instance.load();
-  await FavouritesStore.instance.load();
-  await OnboardingStore.instance.load();
+  await _boot('streaks', StreakStore.instance.load);
+  await _boot('searches', RecentSearches.instance.load);
+  await _boot('map searches', RecentSearches.maps.load);
+  await _boot('backup', BackupService.instance.load);
+  await _boot('payments', PaymentService.instance.load);
+  await _boot('places', SavedPlacesStore.instance.load);
+  await _boot('follows', FollowStore.instance.load);
+  await _boot('feed', FeedStore.instance.load);
+  await _boot('cloud sync', CloudSync.instance.load);
+  await _boot('status', StatusStore.instance.load);
+  await _boot('favourites', FavouritesStore.instance.load);
+  await _boot('onboarding', OnboardingStore.instance.load);
   LiveLocationBroadcaster.instance.start();
   if (StreakStore.instance.isEmpty) {
     // Seed a couple of demo streaks so the feature is visible on first run;
@@ -71,8 +93,10 @@ Future<void> main() async {
     if (oneToOne.isNotEmpty) StreakStore.instance.seed(oneToOne[0].id, 12);
     if (oneToOne.length > 1) StreakStore.instance.seed(oneToOne[1].id, 5);
   }
-  await RelayService.instance.init();
-  await Scheduler.instance.init();
+  // Network-facing: most likely of all to stall on a bad connection.
+  await _boot('relay', RelayService.instance.init,
+      limit: const Duration(seconds: 10));
+  await _boot('scheduler', Scheduler.instance.init);
   ChatStore.instance.startSweeper();
   runApp(const OkayMessagingApp());
 }

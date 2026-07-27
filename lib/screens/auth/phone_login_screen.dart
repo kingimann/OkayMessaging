@@ -52,7 +52,7 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
       // Prefill everything, so even "use a different account" starts warm.
       _name.text = last.name == last.phone ? '' : last.name;
       _username.text = last.username;
-      final m = RegExp(r'^(\+\d+)\s+(.*)\$').firstMatch(last.phone);
+      final m = RegExp(r'^(\+\d+)\s+(.*)$').firstMatch(last.phone);
       if (m != null) {
         _dialCode = m.group(1)!;
         _phone.text = m.group(2)!;
