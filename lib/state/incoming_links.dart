@@ -56,13 +56,33 @@ class IncomingLinks {
     return Uri.decodeComponent(target).contains('@');
   }
 
+  /// Hands a call to the system: cellular for voice, FaceTime for video.
+  /// On iOS the `telephony:` scheme is the one Apple designates for default
+  /// calling apps — opening plain tel: would just come back to us — with
+  /// tel: as the fallback for anything older. Returns whether a handler
+  /// opened.
+  static Future<bool> systemDial(String number, {bool video = false}) async {
+    Future<bool> open(String scheme) async {
+      try {
+        return await launchUrl(Uri.parse('$scheme:$number'));
+      } catch (_) {
+        return false;
+      }
+    }
+
+    if (!kIsWeb && video && defaultTargetPlatform == TargetPlatform.iOS) {
+      if (await open('facetime')) return true;
+    }
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
+      if (await open('telephony')) return true;
+    }
+    return open('tel');
+  }
+
   /// Hands a call the app can't place back to the system's cellular
-  /// handling, using the fallback scheme Apple designates for default
-  /// calling apps. (Opening plain tel: would just come back to us.)
+  /// handling.
   static Future<void> systemCallFallback(String phone) async {
-    try {
-      await launchUrl(Uri.parse('telephony:$phone'));
-    } catch (_) {}
+    await systemDial(phone);
   }
 
   /// Starts listening. [onPhone] receives the normalized number of every

@@ -146,6 +146,15 @@ class CallsTabActions extends StatelessWidget {
             MaterialPageRoute(builder: (_) => const FindPeopleScreen()),
           ),
         ),
+        // The dialer rates its own button: it's how you call anyone,
+        // on the app or off it.
+        IconButton(
+          icon: const Icon(Icons.dialpad),
+          tooltip: 'Dial a number',
+          onPressed: () => Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const DialerScreen()),
+          ),
+        ),
         PopupMenuButton<String>(
           icon: const Icon(Icons.add_call),
           tooltip: 'Start a call',

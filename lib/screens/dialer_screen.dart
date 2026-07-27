@@ -2,12 +2,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../models/user.dart';
+import '../relay/relay_config.dart';
+import '../state/account_service.dart';
 import '../state/call_log.dart';
 import '../state/call_service.dart' show CallService;
-import '../state/session.dart';
+import '../state/contacts_sync.dart';
+import '../state/incoming_links.dart';
 import '../theme/app_theme.dart';
 
-/// A phone-style dial pad: type any number and call it directly.
+/// A phone-style dial pad: type any number and call it. Numbers on
+/// OkayMessenger get the encrypted in-app call; everyone else is handed to
+/// the phone's own dialer (or FaceTime for video), so dialing works for
+/// people outside the app too.
 class DialerScreen extends StatefulWidget {
   const DialerScreen({super.key});
 
@@ -17,6 +23,7 @@ class DialerScreen extends StatefulWidget {
 
 class _DialerScreenState extends State<DialerScreen> {
   String _number = '';
+  bool _placing = false;
 
   static const _keys = [
     ('1', ''), ('2', 'ABC'), ('3', 'DEF'),
@@ -35,22 +42,47 @@ class _DialerScreenState extends State<DialerScreen> {
     setState(() => _number = _number.substring(0, _number.length - 1));
   }
 
-  void _call({required bool video}) {
-    final digits = _number.replaceAll(RegExp(r'[^\d+*#]'), '');
-    if (digits.replaceAll(RegExp(r'\D'), '').length < 3) return;
-    final user = AppUser(
-      id: digits,
-      name: _number,
-      avatarColor: Session.colorForPhone(digits),
-      phone: digits,
-    );
-    Navigator.of(context).pop();
-    CallService.instance.startOutgoing(user, video: video);
+  Future<void> _call({required bool video}) async {
+    final raw = _number.replaceAll(RegExp(r'[^\d+*#]'), '');
+    if (raw.replaceAll(RegExp(r'\D'), '').length < 3 || _placing) return;
+    setState(() => _placing = true);
+    // Is this number on OkayMessenger? The directory is asked with hashes,
+    // never the raw number.
+    AppUser? onApp;
+    if (RelayConfig.isEnabled) {
+      try {
+        final matches = await AccountService.instance.lookupByPhoneHashes(
+            ContactsSync.hashesFor([raw],
+                countryCode: ContactsSync.defaultCountryCode()));
+        if (matches.isNotEmpty) onApp = matches.first;
+      } catch (_) {
+        // Offline or no directory: treat as outside the app.
+      }
+    }
+    if (!mounted) return;
+    setState(() => _placing = false);
+    if (onApp != null) {
+      Navigator.of(context).pop();
+      CallService.instance.startOutgoing(onApp, video: video);
+      return;
+    }
+    // Outside the app: hand the number to the system so the call still
+    // happens — cellular for voice, FaceTime for video.
+    final handedOff = await IncomingLinks.systemDial(raw, video: video);
+    if (!mounted) return;
+    if (handedOff) {
+      Navigator.of(context).pop();
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text("This number isn't on OkayMessenger, and no phone "
+              'app is available to call it.')));
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final canCall = _number.replaceAll(RegExp(r'\D'), '').length >= 3;
+    final canCall =
+        _number.replaceAll(RegExp(r'\D'), '').length >= 3 && !_placing;
     return Scaffold(
       appBar: AppBar(title: const Text('Dial a number')),
       body: SafeArea(
@@ -106,6 +138,15 @@ class _DialerScreenState extends State<DialerScreen> {
                 ),
               ),
             const SizedBox(height: 8),
+            Text(
+              _placing
+                  ? 'Checking the number…'
+                  : 'People on OkayMessenger ring here — everyone else '
+                      'rings through your phone.',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 11.5, color: Colors.grey.shade500),
+            ),
+            const SizedBox(height: 10),
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
@@ -119,7 +160,7 @@ class _DialerScreenState extends State<DialerScreen> {
                 const SizedBox(width: 24),
                 _CallButton(
                   icon: Icons.call,
-                  color: AppColors.tealGreenDark,
+                  color: AppColors.accentOn(context),
                   tooltip: 'Call',
                   enabled: canCall,
                   big: true,
