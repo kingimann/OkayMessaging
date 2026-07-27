@@ -6,6 +6,7 @@ import '../state/community_store.dart';
 import '../utils/date_formatter.dart';
 import '../widgets/app_dialogs.dart';
 import '../widgets/pull_to_refresh.dart';
+import '../widgets/rich_message_text.dart';
 
 /// How a forum channel's posts are ordered.
 enum ForumSort { hot, newest, top }
@@ -52,6 +53,49 @@ List<ForumPost> filterPosts(List<ForumPost> posts, String query) {
       .toList();
 }
 
+/// Keeps only posts carrying [tag] ('' = all posts). Pure.
+List<ForumPost> filterPostsByTag(List<ForumPost> posts, String tag) =>
+    tag.isEmpty ? posts : posts.where((p) => p.tag == tag).toList();
+
+/// The accent color a forum tag chip renders in.
+Color forumTagColor(String tag) => switch (tag) {
+      'Question' => const Color(0xFFE67E22),
+      'Help' => const Color(0xFFE74C3C),
+      'News' => const Color(0xFF7A5CFF),
+      _ => const Color(0xFF1E88E5),
+    };
+
+/// Flattens a post's comments into render order: top-level comments in
+/// [sortTop] order, each followed by its replies oldest-first. Returns
+/// (comment, isReply) pairs. Pure.
+List<(ForumComment, bool)> threadComments(
+    List<ForumComment> comments, ForumSort sortTop) {
+  final top = comments.where((c) => c.parentId == null).toList();
+  switch (sortTop) {
+    case ForumSort.newest:
+      top.sort((a, b) => b.time.compareTo(a.time));
+    case ForumSort.top:
+    case ForumSort.hot:
+      top.sort((a, b) => b.score.compareTo(a.score));
+  }
+  final out = <(ForumComment, bool)>[];
+  for (final t in top) {
+    out.add((t, false));
+    final replies = comments.where((c) => c.parentId == t.id).toList()
+      ..sort((a, b) => a.time.compareTo(b.time));
+    for (final r in replies) {
+      out.add((r, true));
+    }
+  }
+  // Replies whose parent vanished (shouldn't happen — deletes cascade) still
+  // render rather than silently disappearing.
+  final seen = out.map((e) => e.$1.id).toSet();
+  for (final c in comments) {
+    if (!seen.contains(c.id)) out.add((c, true));
+  }
+  return out;
+}
+
 /// Whether [authorId] is the local user (posts they created, or the seeded
 /// `me` member).
 bool isMineAuthor(String authorId) =>
@@ -71,6 +115,7 @@ class ForumChannelScreen extends StatefulWidget {
 
 class _ForumChannelScreenState extends State<ForumChannelScreen> {
   ForumSort _sort = ForumSort.hot;
+  String _tagFilter = '';
   bool _searching = false;
   final TextEditingController _query = TextEditingController();
 
@@ -99,8 +144,17 @@ class _ForumChannelScreenState extends State<ForumChannelScreen> {
         if (channel == null) {
           return const Scaffold(body: Center(child: Text('Channel not found')));
         }
-        final posts =
-            sortPosts(filterPosts(channel.posts, _query.text), _sort);
+        // Muted members' posts stay out of your feed.
+        final muted = community!.mutedIds.toSet();
+        final posts = sortPosts(
+            filterPostsByTag(
+                filterPosts(
+                    channel.posts
+                        .where((p) => !muted.contains(p.authorId))
+                        .toList(),
+                    _query.text),
+                _tagFilter),
+            _sort);
         return Scaffold(
           appBar: AppBar(
             title: _searching
@@ -131,11 +185,15 @@ class _ForumChannelScreenState extends State<ForumChannelScreen> {
               ),
             ],
           ),
-          floatingActionButton: FloatingActionButton.extended(
-            onPressed: _newPost,
-            icon: const Icon(Icons.edit_outlined),
-            label: const Text('New post'),
-          ),
+          // Members lose the composer when posting is admin-only.
+          floatingActionButton:
+              CommunityStore.instance.canPost(widget.communityId)
+                  ? FloatingActionButton.extended(
+                      onPressed: _newPost,
+                      icon: const Icon(Icons.edit_outlined),
+                      label: const Text('New post'),
+                    )
+                  : null,
           body: Column(
             children: [
               if (channel.topic.isNotEmpty)
@@ -150,7 +208,8 @@ class _ForumChannelScreenState extends State<ForumChannelScreen> {
                       style:
                           TextStyle(fontSize: 13, color: Colors.grey.shade600)),
                 ),
-              Padding(
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
                 padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
                 child: Row(
                   children: [
@@ -161,6 +220,26 @@ class _ForumChannelScreenState extends State<ForumChannelScreen> {
                           label: Text(s.label),
                           selected: _sort == s,
                           onSelected: (_) => setState(() => _sort = s),
+                        ),
+                      ),
+                    Container(
+                      width: 1,
+                      height: 24,
+                      margin: const EdgeInsets.only(right: 8),
+                      color: Colors.grey.withValues(alpha: 0.3),
+                    ),
+                    // Tag filters: tap the active one again to clear it.
+                    for (final t in forumTags)
+                      Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: FilterChip(
+                          label: Text(t),
+                          selected: _tagFilter == t,
+                          selectedColor:
+                              forumTagColor(t).withValues(alpha: 0.2),
+                          checkmarkColor: forumTagColor(t),
+                          onSelected: (_) => setState(
+                              () => _tagFilter = _tagFilter == t ? '' : t),
                         ),
                       ),
                   ],
@@ -240,20 +319,25 @@ class _PostCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const SizedBox(height: 4),
-                    if (post.pinned) ...[
+                    if (post.pinned || post.tag.isNotEmpty) ...[
                       Row(
                         children: [
-                          const Icon(Icons.push_pin,
-                              size: 13, color: Color(0xFF43B581)),
-                          const SizedBox(width: 3),
-                          Text('Pinned',
-                              style: TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w700,
-                                  color: Colors.green.shade700)),
+                          if (post.pinned) ...[
+                            const Icon(Icons.push_pin,
+                                size: 13, color: Color(0xFF43B581)),
+                            const SizedBox(width: 3),
+                            Text('Pinned',
+                                style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                    color: Colors.green.shade700)),
+                            const SizedBox(width: 8),
+                          ],
+                          if (post.tag.isNotEmpty)
+                            _TagChip(tag: post.tag),
                         ],
                       ),
-                      const SizedBox(height: 2),
+                      const SizedBox(height: 3),
                     ],
                     Text(post.title,
                         style: const TextStyle(
@@ -299,6 +383,27 @@ class _PostCard extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// A small colored chip naming a post's tag.
+class _TagChip extends StatelessWidget {
+  final String tag;
+  const _TagChip({required this.tag});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = forumTagColor(tag);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Text(tag,
+          style: TextStyle(
+              fontSize: 11, fontWeight: FontWeight.w700, color: color)),
     );
   }
 }
@@ -423,6 +528,10 @@ class ForumPostScreen extends StatefulWidget {
 
 class _ForumPostScreenState extends State<ForumPostScreen> {
   final _comment = TextEditingController();
+  ForumSort _commentSort = ForumSort.top;
+
+  /// The top-level comment the composer is replying to, if any.
+  ForumComment? _replyingTo;
 
   @override
   void dispose() {
@@ -433,6 +542,12 @@ class _ForumPostScreenState extends State<ForumPostScreen> {
   void _addComment() {
     final body = _comment.text.trim();
     if (body.isEmpty) return;
+    final hit = CommunityStore.instance.filterHit(widget.communityId, body);
+    if (hit != null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('"$hit" is blocked by this server\'s word filter')));
+      return;
+    }
     final me = AppState.profile.value;
     CommunityStore.instance.addForumComment(
       widget.communityId,
@@ -446,10 +561,26 @@ class _ForumPostScreenState extends State<ForumPostScreen> {
         body: body,
         score: 1,
         myVote: 1,
+        parentId: _replyingTo?.id,
       ),
     );
     _comment.clear();
+    setState(() => _replyingTo = null);
     FocusScope.of(context).unfocus();
+  }
+
+  Future<void> _editComment(ForumComment c) async {
+    final body = await showAppTextPrompt(
+      context,
+      icon: Icons.edit_outlined,
+      title: 'Edit comment',
+      initial: c.body,
+      maxLines: 4,
+      capitalization: TextCapitalization.sentences,
+    );
+    if (body == null || body.trim().isEmpty) return;
+    CommunityStore.instance.editForumComment(
+        widget.communityId, widget.channelId, widget.postId, c.id, body);
   }
 
   @override
@@ -467,8 +598,12 @@ class _ForumPostScreenState extends State<ForumPostScreen> {
         if (post == null) {
           return const Scaffold(body: Center(child: Text('Post not found')));
         }
-        final comments = [...post.comments]
-          ..sort((a, b) => b.score.compareTo(a.score));
+        // Muted members' comments are hidden along with their posts.
+        final muted = community!.mutedIds.toSet();
+        final visibleComments = post.comments
+            .where((c) => !muted.contains(c.authorId))
+            .toList();
+        final comments = threadComments(visibleComments, _commentSort);
         final canManagePost = isMineAuthor(post.authorId) ||
             CommunityStore.instance.canModerate(widget.communityId);
         return Scaffold(
@@ -506,6 +641,10 @@ class _ForumPostScreenState extends State<ForumPostScreen> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               const SizedBox(height: 4),
+                              if (post.tag.isNotEmpty) ...[
+                                _TagChip(tag: post.tag),
+                                const SizedBox(height: 6),
+                              ],
                               Text(post.title,
                                   style: const TextStyle(
                                       fontSize: 19,
@@ -519,9 +658,15 @@ class _ForumPostScreenState extends State<ForumPostScreen> {
                                       color: Colors.grey.shade500)),
                               if (post.body.isNotEmpty) ...[
                                 const SizedBox(height: 10),
-                                Text(post.body,
-                                    style: const TextStyle(
-                                        fontSize: 15, height: 1.35)),
+                                // Links in the body open like they do in chat.
+                                RichMessageText(
+                                  text: post.body,
+                                  textColor: Theme.of(context)
+                                      .colorScheme
+                                      .onSurface,
+                                  linkColor:
+                                      Theme.of(context).colorScheme.primary,
+                                ),
                               ],
                             ],
                           ),
@@ -529,9 +674,28 @@ class _ForumPostScreenState extends State<ForumPostScreen> {
                       ],
                     ),
                     const Divider(height: 28),
-                    Text('${comments.length} '
-                        '${comments.length == 1 ? 'comment' : 'comments'}',
-                        style: const TextStyle(fontWeight: FontWeight.w700)),
+                    Row(
+                      children: [
+                        Text('${visibleComments.length} '
+                            '${visibleComments.length == 1 ? 'comment' : 'comments'}',
+                            style:
+                                const TextStyle(fontWeight: FontWeight.w700)),
+                        const Spacer(),
+                        // Sort just the top-level thread order.
+                        for (final s in [ForumSort.top, ForumSort.newest])
+                          Padding(
+                            padding: const EdgeInsets.only(left: 6),
+                            child: ChoiceChip(
+                              label: Text(s.label,
+                                  style: const TextStyle(fontSize: 12)),
+                              selected: _commentSort == s,
+                              visualDensity: VisualDensity.compact,
+                              onSelected: (_) =>
+                                  setState(() => _commentSort = s),
+                            ),
+                          ),
+                      ],
+                    ),
                     const SizedBox(height: 4),
                     if (comments.isEmpty)
                       Padding(
@@ -542,12 +706,19 @@ class _ForumPostScreenState extends State<ForumPostScreen> {
                         ),
                       )
                     else
-                      for (final c in comments)
+                      for (final (c, isReply) in comments)
                         _CommentTile(
                           comment: c,
+                          isReply: isReply,
                           onVote: (dir) => CommunityStore.instance
                               .voteForumComment(widget.communityId,
                                   widget.channelId, post.id, c.id, dir),
+                          onReply: isReply
+                              ? null
+                              : () => setState(() => _replyingTo = c),
+                          onEdit: isMineAuthor(c.authorId)
+                              ? () => _editComment(c)
+                              : null,
                           onDelete: (isMineAuthor(c.authorId) ||
                                   CommunityStore.instance
                                       .canModerate(widget.communityId))
@@ -566,30 +737,67 @@ class _ForumPostScreenState extends State<ForumPostScreen> {
               ),
               SafeArea(
                 top: false,
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 4, 8, 8),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          controller: _comment,
-                          minLines: 1,
-                          maxLines: 4,
-                          textCapitalization: TextCapitalization.sentences,
-                          decoration: const InputDecoration(
-                            hintText: 'Add a comment…',
-                            border: OutlineInputBorder(),
-                            isDense: true,
-                          ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (_replyingTo != null)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(12, 2, 8, 0),
+                        child: Row(
+                          children: [
+                            Icon(Icons.subdirectory_arrow_right,
+                                size: 16,
+                                color: Theme.of(context).colorScheme.primary),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                'Replying to ${_replyingTo!.authorName}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                    fontSize: 12.5,
+                                    fontWeight: FontWeight.w600),
+                              ),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.close, size: 16),
+                              tooltip: 'Cancel reply',
+                              visualDensity: VisualDensity.compact,
+                              onPressed: () =>
+                                  setState(() => _replyingTo = null),
+                            ),
+                          ],
                         ),
                       ),
-                      IconButton(
-                        icon: const Icon(Icons.send_rounded),
-                        color: Theme.of(context).colorScheme.primary,
-                        onPressed: _addComment,
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 4, 8, 8),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: _comment,
+                              minLines: 1,
+                              maxLines: 4,
+                              textCapitalization:
+                                  TextCapitalization.sentences,
+                              decoration: InputDecoration(
+                                hintText: _replyingTo == null
+                                    ? 'Add a comment…'
+                                    : 'Reply to ${_replyingTo!.authorName}…',
+                                border: const OutlineInputBorder(),
+                                isDense: true,
+                              ),
+                            ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.send_rounded),
+                            color: Theme.of(context).colorScheme.primary,
+                            onPressed: _addComment,
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
               ),
             ],
@@ -602,15 +810,26 @@ class _ForumPostScreenState extends State<ForumPostScreen> {
 
 class _CommentTile extends StatelessWidget {
   final ForumComment comment;
+
+  /// Replies indent under their parent and can't be replied to again.
+  final bool isReply;
   final ValueChanged<int> onVote;
+  final VoidCallback? onReply;
+  final VoidCallback? onEdit;
   final VoidCallback? onDelete;
-  const _CommentTile(
-      {required this.comment, required this.onVote, this.onDelete});
+  const _CommentTile({
+    required this.comment,
+    required this.onVote,
+    this.isReply = false,
+    this.onReply,
+    this.onEdit,
+    this.onDelete,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
+      padding: EdgeInsets.fromLTRB(isReply ? 34 : 0, 8, 0, 8),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -626,12 +845,22 @@ class _CommentTile extends StatelessWidget {
                   children: [
                     Expanded(
                       child: Text(
-                          '${comment.authorName}  ·  ${DateFormatter.callLabel(comment.time)}',
+                          '${comment.authorName}  ·  ${DateFormatter.callLabel(comment.time)}'
+                          '${comment.edited ? ' · edited' : ''}',
                           style: TextStyle(
                               fontSize: 12,
                               fontWeight: FontWeight.w600,
                               color: Colors.grey.shade600)),
                     ),
+                    if (onEdit != null)
+                      InkWell(
+                        onTap: onEdit,
+                        child: Padding(
+                          padding: const EdgeInsets.only(right: 10),
+                          child: Icon(Icons.edit_outlined,
+                              size: 16, color: Colors.grey.shade500),
+                        ),
+                      ),
                     if (onDelete != null)
                       InkWell(
                         onTap: onDelete,
@@ -642,6 +871,26 @@ class _CommentTile extends StatelessWidget {
                 ),
                 const SizedBox(height: 3),
                 Text(comment.body, style: const TextStyle(fontSize: 14.5)),
+                if (onReply != null)
+                  InkWell(
+                    onTap: onReply,
+                    child: Padding(
+                      padding: const EdgeInsets.only(top: 5),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.reply,
+                              size: 14, color: Colors.grey.shade500),
+                          const SizedBox(width: 4),
+                          Text('Reply',
+                              style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.grey.shade500)),
+                        ],
+                      ),
+                    ),
+                  ),
               ],
             ),
           ),
@@ -669,6 +918,7 @@ class CreateForumPostScreen extends StatefulWidget {
 class _CreateForumPostScreenState extends State<CreateForumPostScreen> {
   late final _title = TextEditingController(text: widget.existing?.title ?? '');
   late final _body = TextEditingController(text: widget.existing?.body ?? '');
+  late String _tag = widget.existing?.tag ?? '';
 
   bool get _isEdit => widget.existing != null;
 
@@ -688,9 +938,18 @@ class _CreateForumPostScreenState extends State<CreateForumPostScreen> {
   void _post() {
     final title = _title.text.trim();
     if (title.isEmpty) return;
+    final hit = CommunityStore.instance
+        .filterHit(widget.communityId, '$title\n${_body.text}');
+    if (hit != null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('"$hit" is blocked by this server\'s word filter')));
+      return;
+    }
     if (_isEdit) {
-      CommunityStore.instance.editForumPost(widget.communityId,
-          widget.channelId, widget.existing!.id, title, _body.text.trim());
+      CommunityStore.instance.editForumPost(
+          widget.communityId, widget.channelId, widget.existing!.id, title,
+          _body.text.trim(),
+          tag: _tag);
     } else {
       final me = AppState.profile.value;
       CommunityStore.instance.addForumPost(
@@ -705,6 +964,7 @@ class _CreateForumPostScreenState extends State<CreateForumPostScreen> {
           body: _body.text.trim(),
           score: 1,
           myVote: 1,
+          tag: _tag,
         ),
       );
     }
@@ -747,6 +1007,29 @@ class _CreateForumPostScreenState extends State<CreateForumPostScreen> {
               alignLabelWithHint: true,
               border: OutlineInputBorder(),
             ),
+          ),
+          const SizedBox(height: 14),
+          Text('TAG (OPTIONAL)',
+              style: TextStyle(
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.6,
+                  color: Colors.grey.shade500)),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            children: [
+              // Tapping the chosen tag again leaves the post untagged.
+              for (final t in forumTags)
+                FilterChip(
+                  label: Text(t),
+                  selected: _tag == t,
+                  selectedColor: forumTagColor(t).withValues(alpha: 0.2),
+                  checkmarkColor: forumTagColor(t),
+                  onSelected: (_) =>
+                      setState(() => _tag = _tag == t ? '' : t),
+                ),
+            ],
           ),
           const SizedBox(height: 16),
           FilledButton.icon(

@@ -13,7 +13,24 @@ const _palette = [
   '#F97052', '#8B5CF6', '#0F1419',
 ];
 
-/// Owner/admin controls for a community: rename, recolor, invite link, delete.
+/// Emoji a server can wear instead of its first letter.
+const _serverEmojis = [
+  '🎮', '🎨', '🎵', '📚', '💼', '⚽', '🍕', '🚀',
+  '🌟', '🔥', '💬', '🛠️', '🏠', '🎬', '📷', '🌈',
+];
+
+/// The slow-mode choices offered, in seconds (0 = off).
+const slowModeChoices = [0, 5, 10, 30, 60, 300];
+
+/// Label for a slow-mode value, e.g. "Off", "30s", "5m".
+String slowModeLabel(int seconds) {
+  if (seconds <= 0) return 'Off';
+  if (seconds < 60) return '${seconds}s';
+  return '${seconds ~/ 60}m';
+}
+
+/// Owner/admin controls for a community: identity (name, icon, color,
+/// description), invites, and the moderation switchboard.
 class CommunitySettingsScreen extends StatelessWidget {
   final String communityId;
   const CommunitySettingsScreen({super.key, required this.communityId});
@@ -27,6 +44,7 @@ class CommunitySettingsScreen extends StatelessWidget {
         if (community == null) {
           return const Scaffold(body: Center(child: Text('Not found')));
         }
+        final store = CommunityStore.instance;
         return Scaffold(
           appBar: AppBar(title: const Text('Server settings')),
           body: ListView(
@@ -36,11 +54,16 @@ class CommunitySettingsScreen extends StatelessWidget {
                 child: CircleAvatar(
                   radius: 40,
                   backgroundColor: _hex(community.color),
-                  child: Text(community.name[0].toUpperCase(),
-                      style: const TextStyle(
+                  child: Text(
+                      community.icon.isNotEmpty
+                          ? community.icon
+                          : community.name[0].toUpperCase(),
+                      style: TextStyle(
                           color: Colors.white,
                           fontSize: 32,
-                          fontWeight: FontWeight.w800)),
+                          fontWeight: community.icon.isNotEmpty
+                              ? FontWeight.w400
+                              : FontWeight.w800)),
                 ),
               ),
               const SizedBox(height: 16),
@@ -60,15 +83,33 @@ class CommunitySettingsScreen extends StatelessWidget {
                   onTap: () => _editDescription(context, community),
                 ),
               ]),
+              _label(context, 'ICON'),
               Padding(
-                padding: const EdgeInsets.fromLTRB(24, 12, 24, 6),
-                child: Text('COLOR',
-                    style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 0.6,
-                        color: Colors.grey.shade500)),
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    // "Abc" returns to the plain letter avatar.
+                    _iconChoice(
+                      context,
+                      selected: community.icon.isEmpty,
+                      onTap: () => store.setCommunityIcon(communityId, ''),
+                      child: Text(community.name[0].toUpperCase(),
+                          style: const TextStyle(
+                              fontSize: 18, fontWeight: FontWeight.w800)),
+                    ),
+                    for (final e in _serverEmojis)
+                      _iconChoice(
+                        context,
+                        selected: community.icon == e,
+                        onTap: () => store.setCommunityIcon(communityId, e),
+                        child: Text(e, style: const TextStyle(fontSize: 20)),
+                      ),
+                  ],
+                ),
               ),
+              _label(context, 'COLOR'),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: Wrap(
@@ -77,8 +118,7 @@ class CommunitySettingsScreen extends StatelessWidget {
                   children: [
                     for (final c in _palette)
                       GestureDetector(
-                        onTap: () => CommunityStore.instance
-                            .setCommunityColor(communityId, c),
+                        onTap: () => store.setCommunityColor(communityId, c),
                         child: Container(
                           width: 44,
                           height: 44,
@@ -87,7 +127,8 @@ class CommunitySettingsScreen extends StatelessWidget {
                             shape: BoxShape.circle,
                             border: community.color == c
                                 ? Border.all(
-                                    color: Theme.of(context).colorScheme.primary,
+                                    color:
+                                        Theme.of(context).colorScheme.primary,
                                     width: 3)
                                 : null,
                           ),
@@ -115,6 +156,52 @@ class CommunitySettingsScreen extends StatelessWidget {
                   },
                 ),
               ]),
+              _label(context, 'MODERATION'),
+              InfoSection(children: [
+                InfoTile(
+                  leading: const Icon(Icons.timer_outlined),
+                  title: 'Slow mode',
+                  subtitle: community.slowModeSeconds == 0
+                      ? 'Off'
+                      : 'One message every '
+                          '${slowModeLabel(community.slowModeSeconds)}',
+                  onTap: () => _pickSlowMode(context, community),
+                ),
+                InfoTile(
+                  leading: const Icon(Icons.tag),
+                  title: 'Members can create channels',
+                  trailing: Switch(
+                    value: community.membersCanCreateChannels,
+                    onChanged: (v) =>
+                        store.setMembersCanCreateChannels(communityId, v),
+                  ),
+                ),
+                InfoTile(
+                  leading: const Icon(Icons.forum_outlined),
+                  title: 'Members can create forum posts',
+                  trailing: Switch(
+                    value: community.membersCanPost,
+                    onChanged: (v) => store.setMembersCanPost(communityId, v),
+                  ),
+                ),
+                InfoTile(
+                  leading: const Icon(Icons.filter_alt_outlined),
+                  title: 'Word filter',
+                  subtitle: community.bannedWords.isEmpty
+                      ? 'No filtered words'
+                      : '${community.bannedWords.length} filtered '
+                          '${community.bannedWords.length == 1 ? 'word' : 'words'}',
+                  onTap: () => _editWordFilter(context),
+                ),
+                InfoTile(
+                  leading: const Icon(Icons.block_outlined),
+                  title: 'Banned members',
+                  subtitle: community.bannedMembers.isEmpty
+                      ? 'Nobody is banned'
+                      : '${community.bannedMembers.length} banned',
+                  onTap: () => _showBanned(context),
+                ),
+              ]),
               InfoSection(children: [
                 InfoTile(
                   leading: const Icon(Icons.delete_outline, color: Colors.red),
@@ -128,6 +215,147 @@ class CommunitySettingsScreen extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+
+  Widget _label(BuildContext context, String text) => Padding(
+        padding: const EdgeInsets.fromLTRB(24, 12, 24, 6),
+        child: Text(text,
+            style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.6,
+                color: Colors.grey.shade500)),
+      );
+
+  Widget _iconChoice(BuildContext context,
+      {required bool selected,
+      required VoidCallback onTap,
+      required Widget child}) {
+    final scheme = Theme.of(context).colorScheme;
+    return InkWell(
+      borderRadius: BorderRadius.circular(12),
+      onTap: onTap,
+      child: Container(
+        width: 42,
+        height: 42,
+        decoration: BoxDecoration(
+          color: selected
+              ? scheme.primary.withValues(alpha: 0.15)
+              : Colors.grey.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(12),
+          border: selected ? Border.all(color: scheme.primary, width: 2) : null,
+        ),
+        alignment: Alignment.center,
+        child: child,
+      ),
+    );
+  }
+
+  Future<void> _pickSlowMode(BuildContext context, Community community) async {
+    final picked = await showModalBottomSheet<int>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(20, 0, 20, 4),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text('Slow mode',
+                    style:
+                        TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                    'Limits how often members can send channel messages. '
+                    'Admins are exempt.',
+                    style: TextStyle(
+                        fontSize: 12.5, color: Colors.grey.shade600)),
+              ),
+            ),
+            for (final s in slowModeChoices)
+              ListTile(
+                leading: Icon(
+                    community.slowModeSeconds == s
+                        ? Icons.radio_button_checked
+                        : Icons.radio_button_off,
+                    color: community.slowModeSeconds == s
+                        ? Theme.of(sheetContext).colorScheme.primary
+                        : Colors.grey),
+                title: Text(s == 0
+                    ? 'Off'
+                    : 'One message every ${slowModeLabel(s)}'),
+                onTap: () => Navigator.pop(sheetContext, s),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (picked != null) {
+      CommunityStore.instance.setSlowMode(communityId, picked);
+    }
+  }
+
+  Future<void> _editWordFilter(BuildContext context) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (_) => _WordFilterSheet(communityId: communityId),
+    );
+  }
+
+  void _showBanned(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: ListenableBuilder(
+          listenable: CommunityStore.instance,
+          builder: (context, _) {
+            final banned =
+                CommunityStore.instance.byId(communityId)?.bannedMembers ??
+                    const <Member>[];
+            return ListView(
+              shrinkWrap: true,
+              children: [
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(20, 0, 20, 8),
+                  child: Text('Banned members',
+                      style: TextStyle(
+                          fontSize: 17, fontWeight: FontWeight.w700)),
+                ),
+                if (banned.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Center(
+                      child: Text('Nobody is banned from this server.',
+                          style: TextStyle(color: Colors.grey.shade500)),
+                    ),
+                  ),
+                for (final m in banned)
+                  ListTile(
+                    leading: const Icon(Icons.block, color: Colors.red),
+                    title: Text(m.name),
+                    trailing: TextButton(
+                      child: const Text('Unban'),
+                      onPressed: () => CommunityStore.instance
+                          .unbanMember(communityId, m.id),
+                    ),
+                  ),
+                const SizedBox(height: 12),
+              ],
+            );
+          },
+        ),
+      ),
     );
   }
 
@@ -175,5 +403,107 @@ class CommunitySettingsScreen extends StatelessWidget {
       CommunityStore.instance.deleteCommunity(communityId);
       Navigator.of(context).popUntil((r) => r.isFirst);
     }
+  }
+}
+
+/// Editor for the server's banned-word list: current words as removable
+/// chips plus a field to add more.
+class _WordFilterSheet extends StatefulWidget {
+  final String communityId;
+  const _WordFilterSheet({required this.communityId});
+
+  @override
+  State<_WordFilterSheet> createState() => _WordFilterSheetState();
+}
+
+class _WordFilterSheetState extends State<_WordFilterSheet> {
+  final _word = TextEditingController();
+
+  @override
+  void dispose() {
+    _word.dispose();
+    super.dispose();
+  }
+
+  void _add() {
+    final w = _word.text.trim();
+    if (w.isEmpty) return;
+    CommunityStore.instance.addBannedWord(widget.communityId, w);
+    _word.clear();
+    setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Padding(
+        // Keep the field above the keyboard.
+        padding: EdgeInsets.only(
+            bottom: MediaQuery.of(context).viewInsets.bottom),
+        child: ListenableBuilder(
+          listenable: CommunityStore.instance,
+          builder: (context, _) {
+            final words =
+                CommunityStore.instance.byId(widget.communityId)?.bannedWords ??
+                    const <String>[];
+            return Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Word filter',
+                      style: TextStyle(
+                          fontSize: 17, fontWeight: FontWeight.w700)),
+                  const SizedBox(height: 4),
+                  Text(
+                      'Messages and posts containing a filtered word are '
+                      'blocked before they send. Admins are exempt.',
+                      style: TextStyle(
+                          fontSize: 12.5, color: Colors.grey.shade600)),
+                  const SizedBox(height: 14),
+                  if (words.isEmpty)
+                    Text('No filtered words yet.',
+                        style: TextStyle(color: Colors.grey.shade500))
+                  else
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        for (final w in words)
+                          Chip(
+                            label: Text(w),
+                            deleteIcon: const Icon(Icons.close, size: 16),
+                            onDeleted: () => CommunityStore.instance
+                                .removeBannedWord(widget.communityId, w),
+                          ),
+                      ],
+                    ),
+                  const SizedBox(height: 14),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _word,
+                          autofocus: true,
+                          decoration: const InputDecoration(
+                            hintText: 'Add a word to filter',
+                            border: OutlineInputBorder(),
+                            isDense: true,
+                          ),
+                          onSubmitted: (_) => _add(),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      FilledButton(onPressed: _add, child: const Text('Add')),
+                    ],
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
+      ),
+    );
   }
 }

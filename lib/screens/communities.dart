@@ -12,6 +12,7 @@ import '../state/feed_store.dart';
 import '../theme/app_theme.dart';
 import '../utils/date_formatter.dart';
 import '../widgets/app_dialogs.dart';
+import '../widgets/chat_photo.dart';
 import '../widgets/emoji_gif_sheet.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/pull_to_refresh.dart';
@@ -182,12 +183,16 @@ class _CommunityCard extends StatelessWidget {
                   ),
                   alignment: Alignment.center,
                   child: Text(
-                    community.name.isEmpty
-                        ? '?'
-                        : community.name[0].toUpperCase(),
-                    style: const TextStyle(
+                    community.icon.isNotEmpty
+                        ? community.icon
+                        : (community.name.isEmpty
+                            ? '?'
+                            : community.name[0].toUpperCase()),
+                    style: TextStyle(
                         color: Colors.white,
-                        fontWeight: FontWeight.w800,
+                        fontWeight: community.icon.isNotEmpty
+                            ? FontWeight.w400
+                            : FontWeight.w800,
                         fontSize: 24),
                   ),
                 ),
@@ -251,11 +256,21 @@ class _CommunityCard extends StatelessWidget {
       );
 }
 
-/// A single community: its channels grouped by category, plus actions to add
-/// a channel or view members.
-class CommunityScreen extends StatelessWidget {
+/// A single community: its channels grouped by collapsible category, plus
+/// actions to invite people, add a channel, or view members.
+class CommunityScreen extends StatefulWidget {
   final String communityId;
   const CommunityScreen({super.key, required this.communityId});
+
+  @override
+  State<CommunityScreen> createState() => _CommunityScreenState();
+}
+
+class _CommunityScreenState extends State<CommunityScreen> {
+  String get communityId => widget.communityId;
+
+  /// Category headers the user has folded shut this visit.
+  final Set<String> _collapsed = {};
 
   Future<void> _addChannel(BuildContext context) async {
     final result = await _promptNewChannel(context);
@@ -270,6 +285,73 @@ class CommunityScreen extends StatelessWidget {
       showDragHandle: true,
       isScrollControlled: true,
       builder: (_) => _MembersSheet(community: community),
+    );
+  }
+
+  void _invite(BuildContext context, Community community) {
+    final link = CommunityStore.inviteLink(community);
+    final code = CommunityStore.inviteCode(community);
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Invite to ${community.name}',
+                  style: const TextStyle(
+                      fontSize: 18, fontWeight: FontWeight.w700)),
+              const SizedBox(height: 6),
+              Text('Anyone with this link can join the server.',
+                  style:
+                      TextStyle(fontSize: 13, color: Colors.grey.shade600)),
+              const SizedBox(height: 16),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 14, vertical: 12),
+                decoration: BoxDecoration(
+                  color: Theme.of(sheetContext)
+                      .colorScheme
+                      .surfaceContainerHighest
+                      .withValues(alpha: 0.5),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(link,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                              fontSize: 13.5,
+                              fontWeight: FontWeight.w600)),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.copy, size: 18),
+                      tooltip: 'Copy invite link',
+                      onPressed: () {
+                        Clipboard.setData(ClipboardData(text: link));
+                        Navigator.pop(sheetContext);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Invite link copied')),
+                        );
+                      },
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 10),
+              Text('Or share the code  $code',
+                  style:
+                      TextStyle(fontSize: 12.5, color: Colors.grey.shade600)),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -299,6 +381,10 @@ class CommunityScreen extends StatelessWidget {
                 title: const Text('Edit topic'),
                 onTap: () => Navigator.pop(context, 'topic')),
             ListTile(
+                leading: const Icon(Icons.drive_file_move_outlined),
+                title: const Text('Move to category'),
+                onTap: () => Navigator.pop(context, 'move')),
+            ListTile(
                 leading: const Icon(Icons.delete_outline, color: Colors.red),
                 title: const Text('Delete channel',
                     style: TextStyle(color: Colors.red)),
@@ -320,10 +406,63 @@ class CommunityScreen extends StatelessWidget {
             context, 'Channel topic', ch.topic.isEmpty ? 'Topic' : ch.topic);
         if (topic != null) store.setChannelTopic(communityId, ch.id, topic);
         break;
+      case 'move':
+        await _moveToCategory(context, ch);
+        break;
       case 'delete':
         store.deleteChannel(communityId, ch.id);
         break;
     }
+  }
+
+  /// Picks an existing category (or names a new one) and moves [ch] there.
+  Future<void> _moveToCategory(BuildContext context, Channel ch) async {
+    final community = CommunityStore.instance.byId(communityId);
+    if (community == null) return;
+    final categories = community.categories;
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final cat in categories)
+              ListTile(
+                leading: Icon(
+                    cat == ch.category
+                        ? Icons.radio_button_checked
+                        : Icons.radio_button_off,
+                    color: cat == ch.category
+                        ? Theme.of(sheetContext).colorScheme.primary
+                        : Colors.grey),
+                title: Text(cat),
+                onTap: () => Navigator.pop(sheetContext, cat),
+              ),
+            ListTile(
+              leading: const Icon(Icons.add),
+              title: const Text('New category…'),
+              onTap: () => Navigator.pop(sheetContext, ''),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (picked == null || !context.mounted) return;
+    var target = picked;
+    if (target.isEmpty) {
+      final name = await showAppTextPrompt(
+        context,
+        icon: Icons.drive_file_move_outlined,
+        title: 'New category',
+        hint: 'Category name',
+        confirmLabel: 'Move',
+        capitalization: TextCapitalization.words,
+      );
+      if (name == null || name.trim().isEmpty) return;
+      target = name.trim();
+    }
+    CommunityStore.instance.setChannelCategory(communityId, ch.id, target);
   }
 
   @override
@@ -343,7 +482,10 @@ class CommunityScreen extends StatelessWidget {
                 CircleAvatar(
                   radius: 15,
                   backgroundColor: _hex(community.color),
-                  child: Text(community.name[0].toUpperCase(),
+                  child: Text(
+                      community.icon.isNotEmpty
+                          ? community.icon
+                          : community.name[0].toUpperCase(),
                       style: const TextStyle(
                           color: Colors.white,
                           fontSize: 13,
@@ -361,11 +503,12 @@ class CommunityScreen extends StatelessWidget {
                 tooltip: 'Members',
                 onPressed: () => _openMembers(context, community),
               ),
-              IconButton(
-                icon: const Icon(Icons.add),
-                tooltip: 'Add channel',
-                onPressed: () => _addChannel(context),
-              ),
+              if (CommunityStore.instance.canCreateChannels(communityId))
+                IconButton(
+                  icon: const Icon(Icons.add),
+                  tooltip: 'Add channel',
+                  onPressed: () => _addChannel(context),
+                ),
               IconButton(
                 icon: const Icon(Icons.settings_outlined),
                 tooltip: 'Server settings',
@@ -398,9 +541,11 @@ class CommunityScreen extends StatelessWidget {
                       radius: 24,
                       backgroundColor: Colors.white.withValues(alpha: 0.25),
                       child: Text(
-                        community.name.isEmpty
-                            ? '?'
-                            : community.name[0].toUpperCase(),
+                        community.icon.isNotEmpty
+                            ? community.icon
+                            : (community.name.isEmpty
+                                ? '?'
+                                : community.name[0].toUpperCase()),
                         style: const TextStyle(
                             color: Colors.white,
                             fontSize: 20,
@@ -418,6 +563,21 @@ class CommunityScreen extends StatelessWidget {
                             fontSize: 20,
                             fontWeight: FontWeight.w800),
                       ),
+                    ),
+                    // Growing the server is the banner's one call to action.
+                    FilledButton.tonalIcon(
+                      style: FilledButton.styleFrom(
+                        backgroundColor:
+                            Colors.white.withValues(alpha: 0.22),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 14, vertical: 8),
+                        visualDensity: VisualDensity.compact,
+                      ),
+                      icon: const Icon(Icons.person_add_alt_1, size: 17),
+                      label: const Text('Invite',
+                          style: TextStyle(fontWeight: FontWeight.w700)),
+                      onPressed: () => _invite(context, community),
                     ),
                   ],
                 ),
@@ -511,15 +671,43 @@ class CommunityScreen extends StatelessWidget {
                 },
               ),
               for (final category in community.categories) ...[
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
-                  child: Text(category.toUpperCase(),
-                      style: const TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: 0.6,
-                          color: Colors.grey)),
+                // Tappable header folds its channels away, Discord-style.
+                InkWell(
+                  onTap: () => setState(() {
+                    if (!_collapsed.remove(category)) {
+                      _collapsed.add(category);
+                    }
+                  }),
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
+                    child: Row(
+                      children: [
+                        AnimatedRotation(
+                          turns: _collapsed.contains(category) ? -0.25 : 0,
+                          duration: const Duration(milliseconds: 150),
+                          child: const Icon(Icons.expand_more,
+                              size: 16, color: Colors.grey),
+                        ),
+                        const SizedBox(width: 4),
+                        Text(category.toUpperCase(),
+                            style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                letterSpacing: 0.6,
+                                color: Colors.grey)),
+                        if (_collapsed.contains(category)) ...[
+                          const SizedBox(width: 6),
+                          Text('${community.channelsIn(category).length}',
+                              style: TextStyle(
+                                  fontSize: 11.5,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.grey.shade500)),
+                        ],
+                      ],
+                    ),
+                  ),
                 ),
+                if (!_collapsed.contains(category))
                 for (final ch in community.channelsIn(category))
                   ListTile(
                     dense: true,
@@ -902,23 +1090,73 @@ class ChannelScreen extends StatefulWidget {
 class _ChannelScreenState extends State<ChannelScreen> {
   final _controller = TextEditingController();
 
+  /// The message the next send replies to, shown in a bar over the composer.
+  Message? _replyTo;
+
+  /// When the local user last sent here — what slow mode counts from.
+  DateTime? _lastSentAt;
+
   @override
   void dispose() {
     _controller.dispose();
     super.dispose();
   }
 
+  /// The moderation gate every send goes through: the server's word filter
+  /// (when [text] is given) and slow mode. Explains itself in a snackbar.
+  bool _sendAllowed({String? text}) {
+    final store = CommunityStore.instance;
+    final community = store.byId(widget.communityId);
+    if (community == null) return false;
+    if (text != null) {
+      final hit = store.filterHit(widget.communityId, text);
+      if (hit != null) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content:
+                Text('"$hit" is blocked by this server\'s word filter')));
+        return false;
+      }
+    }
+    final slow = community.slowModeSeconds;
+    if (slow > 0 && !store.canModerate(widget.communityId)) {
+      final last = _lastSentAt;
+      if (last != null) {
+        final wait = slow - DateTime.now().difference(last).inSeconds;
+        if (wait > 0) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content: Text('Slow mode — you can send again in ${wait}s')));
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+
   void _send() {
     final text = _controller.text.trim();
     if (text.isEmpty) return;
+    if (!_sendAllowed(text: text)) return;
+    _lastSentAt = DateTime.now();
+    final reply = _replyTo;
     _post(Message(
       id: 'ch_${DateTime.now().microsecondsSinceEpoch}',
       text: text,
       time: DateTime.now(),
       isMe: true,
       status: MessageStatus.sent,
+      replyTo: reply == null
+          ? null
+          : ReplyInfo(
+              senderName: reply.isMe
+                  ? 'You'
+                  : (reply.senderName.isEmpty ? 'Member' : reply.senderName),
+              text: reply.isImage ? 'Photo' : reply.text,
+              isMe: reply.isMe,
+              messageId: reply.id,
+            ),
     ));
     _controller.clear();
+    setState(() => _replyTo = null);
   }
 
   void _post(Message message) => CommunityStore.instance
@@ -930,6 +1168,8 @@ class _ChannelScreenState extends State<ChannelScreen> {
     if (picked == null || !mounted) return;
     final gif = picked.gif;
     if (gif != null) {
+      if (!_sendAllowed()) return;
+      _lastSentAt = DateTime.now();
       _post(Message(
         id: 'ch_${DateTime.now().microsecondsSinceEpoch}',
         text: '',
@@ -963,6 +1203,8 @@ class _ChannelScreenState extends State<ChannelScreen> {
       builder: (_) => const PollComposerSheet(),
     );
     if (result == null || !mounted) return;
+    if (!_sendAllowed(text: result.question)) return;
+    _lastSentAt = DateTime.now();
     CommunityStore.instance.postMessage(
       widget.communityId,
       widget.channelId,
@@ -1007,6 +1249,17 @@ class _ChannelScreenState extends State<ChannelScreen> {
         if (channel == null) {
           return const Scaffold(body: Center(child: Text('Channel not found')));
         }
+        // A found channel implies its community exists.
+        final comm = community!;
+        // What muted members said stays out of your view.
+        final mutedNames = {
+          for (final m in comm.members)
+            if (comm.mutedIds.contains(m.id)) m.name
+        };
+        final messages = [
+          for (final m in channel.messages)
+            if (m.isMe || !mutedNames.contains(m.senderName)) m
+        ];
         return Scaffold(
           appBar: AppBar(
             title: Row(
@@ -1031,19 +1284,24 @@ class _ChannelScreenState extends State<ChannelScreen> {
                       style: TextStyle(
                           fontSize: 13, color: Colors.grey.shade600)),
                 ),
+              if (channel.pinnedMessages.isNotEmpty)
+                _PinnedBar(
+                  count: channel.pinnedMessages.length,
+                  onTap: () => _showPinned(channel),
+                ),
               Expanded(
-                child: channel.messages.isEmpty
+                child: messages.isEmpty
                     ? Center(
                         child: Text('This is the start of #${channel.name}',
                             style: TextStyle(color: Colors.grey.shade500)),
                       )
                     : ListView.builder(
                         padding: const EdgeInsets.symmetric(vertical: 8),
-                        itemCount: channel.messages.length,
+                        itemCount: messages.length,
                         itemBuilder: (context, i) {
-                          final m = channel.messages[i];
+                          final m = messages[i];
                           final showDate = i == 0 ||
-                              !_sameDay(channel.messages[i - 1].time, m.time);
+                              !_sameDay(messages[i - 1].time, m.time);
                           return Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
@@ -1054,6 +1312,10 @@ class _ChannelScreenState extends State<ChannelScreen> {
                                 channelId: widget.channelId,
                                 announcement:
                                     channel.type == ChannelType.announcement,
+                                pinned:
+                                    channel.pinnedMessageIds.contains(m.id),
+                                onReply: () =>
+                                    setState(() => _replyTo = m),
                                 onVote: m.isPoll
                                     ? (opt) => _votePoll(m, opt)
                                     : null,
@@ -1065,7 +1327,7 @@ class _ChannelScreenState extends State<ChannelScreen> {
               ),
               // Announcement channels are broadcast-only: members read, and
               // only the owner/admins can post — like every news channel.
-              if (!_canPost(community!, channel))
+              if (!_canPost(comm, channel))
                 SafeArea(
                   top: false,
                   child: Container(
@@ -1092,7 +1354,49 @@ class _ChannelScreenState extends State<ChannelScreen> {
               else
                 SafeArea(
                 top: false,
-                child: Padding(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (_replyTo != null)
+                      Container(
+                        margin: const EdgeInsets.fromLTRB(12, 4, 12, 0),
+                        padding:
+                            const EdgeInsets.fromLTRB(12, 8, 4, 8),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context)
+                              .colorScheme
+                              .surfaceContainerHighest
+                              .withValues(alpha: 0.5),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(Icons.reply,
+                                size: 17,
+                                color:
+                                    Theme.of(context).colorScheme.primary),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'Replying to '
+                                '${_replyTo!.isMe ? 'yourself' : (_replyTo!.senderName.isEmpty ? 'a member' : _replyTo!.senderName)}'
+                                ' — ${_replyTo!.isImage ? 'Photo' : _replyTo!.text}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(fontSize: 12.5),
+                              ),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.close, size: 17),
+                              tooltip: 'Cancel reply',
+                              visualDensity: VisualDensity.compact,
+                              onPressed: () =>
+                                  setState(() => _replyTo = null),
+                            ),
+                          ],
+                        ),
+                      ),
+                    Padding(
                   padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
                   child: Row(
                     children: [
@@ -1134,6 +1438,8 @@ class _ChannelScreenState extends State<ChannelScreen> {
                     ],
                   ),
                 ),
+                  ],
+                ),
               ),
             ],
           ),
@@ -1141,14 +1447,105 @@ class _ChannelScreenState extends State<ChannelScreen> {
       },
     );
   }
+
+  /// Bottom sheet listing the channel's pinned messages; each row can jump
+  /// straight to unpinning.
+  void _showPinned(Channel channel) {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+              child: Text('Pinned in #${channel.name}',
+                  style: const TextStyle(
+                      fontSize: 17, fontWeight: FontWeight.w700)),
+            ),
+            for (final m in channel.pinnedMessages)
+              ListTile(
+                leading: const Icon(Icons.push_pin, size: 20),
+                title: Text(
+                  m.isImage ? 'Photo' : (m.isPoll ? m.pollQuestion : m.text),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                subtitle: Text(
+                    '${m.isMe ? 'You' : (m.senderName.isEmpty ? 'Member' : m.senderName)}'
+                    ' · ${DateFormatter.callLabel(m.time)}'),
+                trailing: IconButton(
+                  icon: const Icon(Icons.close, size: 18),
+                  tooltip: 'Unpin',
+                  onPressed: () {
+                    CommunityStore.instance.togglePinChannelMessage(
+                        widget.communityId, widget.channelId, m.id);
+                    Navigator.pop(sheetContext);
+                  },
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The thin "N pinned" strip under the channel topic.
+class _PinnedBar extends StatelessWidget {
+  final int count;
+  final VoidCallback onTap;
+  const _PinnedBar({required this.count, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Theme.of(context)
+          .colorScheme
+          .surfaceContainerHighest
+          .withValues(alpha: 0.6),
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Row(
+            children: [
+              Icon(Icons.push_pin,
+                  size: 15, color: Theme.of(context).colorScheme.primary),
+              const SizedBox(width: 8),
+              Text('$count pinned ${count == 1 ? 'message' : 'messages'}',
+                  style: const TextStyle(
+                      fontSize: 12.5, fontWeight: FontWeight.w600)),
+              const Spacer(),
+              const Icon(Icons.chevron_right, size: 18, color: Colors.grey),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _MembersSheet extends StatelessWidget {
+  /// Snapshot from open time; [build] re-reads the store so mutes, bans and
+  /// role changes show while the sheet is up.
   final Community community;
   const _MembersSheet({required this.community});
 
   @override
   Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: CommunityStore.instance,
+      builder: (context, _) {
+        final community =
+            CommunityStore.instance.byId(this.community.id) ?? this.community;
+        return _build(context, community);
+      },
+    );
+  }
+
+  Widget _build(BuildContext context, Community community) {
     // Owner/admins first, then everyone; online before offline within a role.
     final members = [...community.members]..sort((a, b) {
         final r = a.role.index.compareTo(b.role.index);
@@ -1201,18 +1598,31 @@ class _MembersSheet extends StatelessWidget {
                 ],
               ),
               title: Text(m.name),
-              subtitle: Text(m.online ? 'Online' : 'Offline',
+              subtitle: Text(
+                  community.mutedIds.contains(m.id)
+                      ? 'Muted'
+                      : (m.online ? 'Online' : 'Offline'),
                   style: TextStyle(
-                      color: m.online
-                          ? const Color(0xFF43B581)
-                          : Colors.grey.shade500,
+                      color: community.mutedIds.contains(m.id)
+                          ? Colors.orange.shade700
+                          : m.online
+                              ? const Color(0xFF43B581)
+                              : Colors.grey.shade500,
                       fontSize: 12.5)),
-              trailing: m.role == MemberRole.member
-                  ? null
-                  : _RoleBadge(role: m.role),
-              onTap: _canManage(m)
-                  ? () => _manageMember(context, m)
-                  : null,
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (community.mutedIds.contains(m.id))
+                    Padding(
+                      padding: const EdgeInsets.only(right: 6),
+                      child: Icon(Icons.volume_off,
+                          size: 17, color: Colors.orange.shade700),
+                    ),
+                  if (m.role != MemberRole.member) _RoleBadge(role: m.role),
+                ],
+              ),
+              onTap:
+                  m.id == 'me' ? null : () => _manageMember(context, m),
             ),
           const SizedBox(height: 12),
         ],
@@ -1234,6 +1644,9 @@ class _MembersSheet extends StatelessWidget {
 
   Future<void> _manageMember(BuildContext context, Member m) async {
     final store = CommunityStore.instance;
+    final muted =
+        store.byId(community.id)?.mutedIds.contains(m.id) ?? false;
+    final manage = _canManage(m);
     final action = await showModalBottomSheet<String>(
       context: context,
       showDragHandle: true,
@@ -1247,30 +1660,51 @@ class _MembersSheet extends StatelessWidget {
               subtitle: Text(roleName(m.role)),
             ),
             const Divider(height: 1),
-            if (m.role == MemberRole.member)
-              ListTile(
-                leading: const Icon(Icons.shield_outlined),
-                title: const Text('Make admin'),
-                onTap: () => Navigator.pop(context, 'promote'),
-              )
-            else
-              ListTile(
-                leading: const Icon(Icons.person_outline),
-                title: const Text('Remove admin'),
-                onTap: () => Navigator.pop(context, 'demote'),
-              ),
+            // Muting is personal — anyone can quiet anyone for themselves.
             ListTile(
-              leading: const Icon(Icons.person_remove_outlined,
-                  color: Colors.red),
-              title: const Text('Remove from server',
-                  style: TextStyle(color: Colors.red)),
-              onTap: () => Navigator.pop(context, 'remove'),
+              leading: Icon(muted ? Icons.volume_up : Icons.volume_off),
+              title: Text(muted ? 'Unmute' : 'Mute'),
+              subtitle: muted
+                  ? null
+                  : const Text('Hides their messages and posts for you'),
+              onTap: () => Navigator.pop(context, 'mute'),
             ),
+            if (manage) ...[
+              if (m.role == MemberRole.member)
+                ListTile(
+                  leading: const Icon(Icons.shield_outlined),
+                  title: const Text('Make admin'),
+                  onTap: () => Navigator.pop(context, 'promote'),
+                )
+              else
+                ListTile(
+                  leading: const Icon(Icons.person_outline),
+                  title: const Text('Remove admin'),
+                  onTap: () => Navigator.pop(context, 'demote'),
+                ),
+              ListTile(
+                leading: const Icon(Icons.person_remove_outlined,
+                    color: Colors.red),
+                title: const Text('Remove from server',
+                    style: TextStyle(color: Colors.red)),
+                onTap: () => Navigator.pop(context, 'remove'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.block, color: Colors.red),
+                title: const Text('Ban from server',
+                    style: TextStyle(color: Colors.red)),
+                subtitle: const Text("Removes them and blocks rejoining"),
+                onTap: () => Navigator.pop(context, 'ban'),
+              ),
+            ],
           ],
         ),
       ),
     );
     switch (action) {
+      case 'mute':
+        store.toggleMuteMember(community.id, m.id);
+        break;
       case 'promote':
         store.setMemberRole(community.id, m.id, MemberRole.admin);
         break;
@@ -1279,6 +1713,9 @@ class _MembersSheet extends StatelessWidget {
         break;
       case 'remove':
         store.removeMember(community.id, m.id);
+        break;
+      case 'ban':
+        store.banMember(community.id, m.id);
         break;
     }
   }
@@ -1356,12 +1793,16 @@ class _ChannelBubble extends StatelessWidget {
   final String communityId;
   final String channelId;
   final bool announcement;
+  final bool pinned;
+  final VoidCallback? onReply;
   final ValueChanged<int>? onVote;
   const _ChannelBubble({
     required this.message,
     required this.communityId,
     required this.channelId,
     this.announcement = false,
+    this.pinned = false,
+    this.onReply,
     this.onVote,
   });
 
@@ -1369,6 +1810,20 @@ class _ChannelBubble extends StatelessWidget {
 
   void _react(String emoji) => CommunityStore.instance
       .toggleChannelReaction(communityId, channelId, message.id, emoji);
+
+  Future<void> _edit(BuildContext context) async {
+    final text = await showAppTextPrompt(
+      context,
+      icon: Icons.edit_outlined,
+      title: 'Edit message',
+      initial: message.text,
+      maxLines: 4,
+      capitalization: TextCapitalization.sentences,
+    );
+    if (text == null || text.trim().isEmpty) return;
+    CommunityStore.instance
+        .editChannelMessage(communityId, channelId, message.id, text);
+  }
 
   Future<void> _showActions(BuildContext context) async {
     await showModalBottomSheet<void>(
@@ -1400,7 +1855,35 @@ class _ChannelBubble extends StatelessWidget {
               ),
             ),
             const Divider(height: 1),
-            if (!message.isPoll)
+            if (onReply != null)
+              ListTile(
+                leading: const Icon(Icons.reply),
+                title: const Text('Reply'),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  onReply!();
+                },
+              ),
+            ListTile(
+              leading: Icon(
+                  pinned ? Icons.push_pin : Icons.push_pin_outlined),
+              title: Text(pinned ? 'Unpin' : 'Pin'),
+              onTap: () {
+                CommunityStore.instance.togglePinChannelMessage(
+                    communityId, channelId, message.id);
+                Navigator.pop(sheetContext);
+              },
+            ),
+            if (message.isMe && !message.isPoll && !message.isImage)
+              ListTile(
+                leading: const Icon(Icons.edit_outlined),
+                title: const Text('Edit'),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _edit(context);
+                },
+              ),
+            if (!message.isPoll && !message.isImage)
               ListTile(
                 leading: const Icon(Icons.copy),
                 title: const Text('Copy text'),
@@ -1514,12 +1997,67 @@ class _ChannelBubble extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  if (!message.isMe && message.senderName.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 2),
+                      child: Text(message.senderName,
+                          style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.primaries[
+                                      message.senderName.hashCode %
+                                          Colors.primaries.length]
+                                  .shade400)),
+                    ),
+                  if (message.replyTo != null)
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 5),
+                      padding: const EdgeInsets.fromLTRB(8, 5, 10, 5),
+                      decoration: BoxDecoration(
+                        color: (message.isMe ? Colors.black : Colors.grey)
+                            .withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border(
+                            left: BorderSide(
+                                color: onBubble.withValues(alpha: 0.5),
+                                width: 3)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(message.replyTo!.senderName,
+                              style: TextStyle(
+                                  fontSize: 11.5,
+                                  fontWeight: FontWeight.w700,
+                                  color: onBubble.withValues(alpha: 0.8))),
+                          Text(message.replyTo!.text,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                  fontSize: 12,
+                                  color: onBubble.withValues(alpha: 0.7))),
+                        ],
+                      ),
+                    ),
                   if (message.isPoll)
                     PollBubble(
                       message: message,
                       textColor: onBubble,
                       metaColor: metaColor,
                       onVote: (i) => onVote?.call(i),
+                    )
+                  else if (message.isImage && message.imageUrl != null)
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(10),
+                      child: ChatPhoto(
+                        url: message.imageUrl!,
+                        width: 220,
+                        errorBuilder: (_) => Padding(
+                          padding: const EdgeInsets.all(8),
+                          child: Text('📷 Photo unavailable',
+                              style: TextStyle(color: metaColor)),
+                        ),
+                      ),
                     )
                   else
                     RichMessageText(
@@ -1530,9 +2068,19 @@ class _ChannelBubble extends StatelessWidget {
                           : AppColors.tealGreenDark,
                     ),
                   const SizedBox(height: 2),
-                  Text(
-                    DateFormatter.messageTime(message.time),
-                    style: TextStyle(color: metaColor, fontSize: 10.5),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (pinned) ...[
+                        Icon(Icons.push_pin, size: 11, color: metaColor),
+                        const SizedBox(width: 3),
+                      ],
+                      Text(
+                        '${DateFormatter.messageTime(message.time)}'
+                        '${message.edited ? ' · edited' : ''}',
+                        style: TextStyle(color: metaColor, fontSize: 10.5),
+                      ),
+                    ],
                   ),
                 ],
               ),

@@ -105,6 +105,7 @@ class CommunityStore extends ChangeNotifier {
                   text: 'What is everyone working on today?',
                   time: DateTime(2024, 1, 1, 9, 30),
                   isMe: false,
+                  senderName: 'Ada Lovelace',
                 ),
               ],
             ),
@@ -132,6 +133,7 @@ class CommunityStore extends ChangeNotifier {
                       'still Figma, or has anyone moved on?',
                   score: 42,
                   myVote: 0,
+                  tag: 'Question',
                   comments: [
                     ForumComment(
                       id: 'seed_c1',
@@ -148,6 +150,7 @@ class CommunityStore extends ChangeNotifier {
                       time: DateTime(2024, 1, 2, 11),
                       body: 'Same here. Dev-mode has been a big help.',
                       score: 5,
+                      parentId: 'seed_c1',
                     ),
                   ],
                 ),
@@ -161,6 +164,7 @@ class CommunityStore extends ChangeNotifier {
                       'Vote and comment if the contrast works for you.',
                   score: 27,
                   myVote: 1,
+                  tag: 'Discussion',
                 ),
               ],
             ),
@@ -298,6 +302,20 @@ class CommunityStore extends ChangeNotifier {
     _replace(community.copyWith(channels: channels));
   }
 
+  /// Moves a channel under a different category header, creating the header
+  /// if it's new.
+  void setChannelCategory(
+      String communityId, String channelId, String category) {
+    final community = byId(communityId);
+    final cat = category.trim();
+    if (community == null || cat.isEmpty) return;
+    final channels = community.channels.map((ch) {
+      if (ch.id != channelId) return ch;
+      return ch.copyWith(category: cat);
+    }).toList();
+    _replace(community.copyWith(channels: channels));
+  }
+
   void deleteChannel(String communityId, String channelId) {
     final community = byId(communityId);
     if (community == null) return;
@@ -316,7 +334,7 @@ class CommunityStore extends ChangeNotifier {
     _replace(community.copyWith(channels: channels));
   }
 
-  /// Deletes a message from a channel.
+  /// Deletes a message from a channel (and drops any pin pointing at it).
   void deleteChannelMessage(
       String communityId, String channelId, String messageId) {
     final community = byId(communityId);
@@ -324,7 +342,44 @@ class CommunityStore extends ChangeNotifier {
     final channels = community.channels.map((ch) {
       if (ch.id != channelId) return ch;
       return ch.copyWith(
-          messages: ch.messages.where((m) => m.id != messageId).toList());
+        messages: ch.messages.where((m) => m.id != messageId).toList(),
+        pinnedMessageIds:
+            ch.pinnedMessageIds.where((id) => id != messageId).toList(),
+      );
+    }).toList();
+    _replace(community.copyWith(channels: channels));
+  }
+
+  /// Rewrites the text of the local user's own channel message, keeping the
+  /// original wording so "edited" isn't a black box.
+  void editChannelMessage(String communityId, String channelId,
+      String messageId, String newText) {
+    final community = byId(communityId);
+    final text = newText.trim();
+    if (community == null || text.isEmpty) return;
+    final channels = community.channels.map((ch) {
+      if (ch.id != channelId) return ch;
+      final msgs = ch.messages.map((m) {
+        if (m.id != messageId || !m.isMe || m.text == text) return m;
+        return m.copyWith(
+            text: text, edited: true, originalText: m.originalText ?? m.text);
+      }).toList();
+      return ch.copyWith(messages: msgs);
+    }).toList();
+    _replace(community.copyWith(channels: channels));
+  }
+
+  /// Pins a channel message, or unpins it if it already is.
+  void togglePinChannelMessage(
+      String communityId, String channelId, String messageId) {
+    final community = byId(communityId);
+    if (community == null) return;
+    final channels = community.channels.map((ch) {
+      if (ch.id != channelId) return ch;
+      final pins = ch.pinnedMessageIds.contains(messageId)
+          ? ch.pinnedMessageIds.where((id) => id != messageId).toList()
+          : [...ch.pinnedMessageIds, messageId];
+      return ch.copyWith(pinnedMessageIds: pins);
     }).toList();
     _replace(community.copyWith(channels: channels));
   }
@@ -460,6 +515,27 @@ class CommunityStore extends ChangeNotifier {
     _replace(community.copyWith(channels: channels));
   }
 
+  /// Rewrites the body of the local user's own forum comment.
+  void editForumComment(String communityId, String channelId, String postId,
+      String commentId, String body) {
+    final community = byId(communityId);
+    final text = body.trim();
+    if (community == null || text.isEmpty) return;
+    final channels = community.channels.map((ch) {
+      if (ch.id != channelId) return ch;
+      final posts = ch.posts.map((p) {
+        if (p.id != postId) return p;
+        final comments = p.comments.map((c) {
+          if (c.id != commentId || c.body == text) return c;
+          return c.copyWith(body: text, edited: true);
+        }).toList();
+        return p.copyWith(comments: comments);
+      }).toList();
+      return ch.copyWith(posts: posts);
+    }).toList();
+    _replace(community.copyWith(channels: channels));
+  }
+
   /// Removes a comment from a forum post.
   void deleteForumComment(String communityId, String channelId, String postId,
       String commentId) {
@@ -469,8 +545,11 @@ class CommunityStore extends ChangeNotifier {
       if (ch.id != channelId) return ch;
       final posts = ch.posts.map((p) {
         if (p.id != postId) return p;
+        // A deleted top-level comment takes its replies with it.
         return p.copyWith(
-            comments: p.comments.where((c) => c.id != commentId).toList());
+            comments: p.comments
+                .where((c) => c.id != commentId && c.parentId != commentId)
+                .toList());
       }).toList();
       return ch.copyWith(posts: posts);
     }).toList();
@@ -531,9 +610,113 @@ class CommunityStore extends ChangeNotifier {
     _replace(community.copyWith(description: description.trim()));
   }
 
+  /// Sets the server's emoji icon ('' returns to the letter avatar).
+  void setCommunityIcon(String communityId, String icon) {
+    final community = byId(communityId);
+    if (community == null) return;
+    _replace(community.copyWith(icon: icon.trim()));
+  }
+
+  // --- Moderation settings -------------------------------------------------
+
+  void setSlowMode(String communityId, int seconds) {
+    final community = byId(communityId);
+    if (community == null || seconds < 0) return;
+    _replace(community.copyWith(slowModeSeconds: seconds));
+  }
+
+  void setMembersCanCreateChannels(String communityId, bool allowed) {
+    final community = byId(communityId);
+    if (community == null) return;
+    _replace(community.copyWith(membersCanCreateChannels: allowed));
+  }
+
+  void setMembersCanPost(String communityId, bool allowed) {
+    final community = byId(communityId);
+    if (community == null) return;
+    _replace(community.copyWith(membersCanPost: allowed));
+  }
+
+  /// Adds a word to the server's filter (deduplicated, case-insensitive).
+  void addBannedWord(String communityId, String word) {
+    final community = byId(communityId);
+    final w = word.trim();
+    if (community == null || w.isEmpty) return;
+    if (community.bannedWords
+        .any((e) => e.toLowerCase() == w.toLowerCase())) {
+      return;
+    }
+    _replace(
+        community.copyWith(bannedWords: [...community.bannedWords, w]));
+  }
+
+  void removeBannedWord(String communityId, String word) {
+    final community = byId(communityId);
+    if (community == null) return;
+    _replace(community.copyWith(
+        bannedWords:
+            community.bannedWords.where((w) => w != word).toList()));
+  }
+
+  /// The filtered word [text] trips in this server, or null when it's clean.
+  /// Moderators are exempt — filters exist to protect the room from members.
+  String? filterHit(String communityId, String text) {
+    final community = byId(communityId);
+    if (community == null || canModerate(communityId)) return null;
+    return blockedWord(community.bannedWords, text);
+  }
+
+  /// Removes a member and records the ban so an invite can't bring them back.
+  /// The owner can't be banned.
+  void banMember(String communityId, String memberId) {
+    final community = byId(communityId);
+    if (community == null) return;
+    final target = community.members
+        .cast<Member?>()
+        .firstWhere((m) => m?.id == memberId, orElse: () => null);
+    if (target == null || target.role == MemberRole.owner) return;
+    _replace(community.copyWith(
+      members:
+          community.members.where((m) => m.id != memberId).toList(),
+      bannedMembers: [...community.bannedMembers, target],
+      mutedIds:
+          community.mutedIds.where((id) => id != memberId).toList(),
+    ));
+  }
+
+  /// Lifts a ban. The person is not re-added — they can rejoin via invite.
+  void unbanMember(String communityId, String memberId) {
+    final community = byId(communityId);
+    if (community == null) return;
+    _replace(community.copyWith(
+        bannedMembers: community.bannedMembers
+            .where((m) => m.id != memberId)
+            .toList()));
+  }
+
+  /// Hides (or shows again) everything a member says, just for you.
+  void toggleMuteMember(String communityId, String memberId) {
+    final community = byId(communityId);
+    if (community == null || memberId == 'me') return;
+    final muted = community.mutedIds.contains(memberId)
+        ? community.mutedIds.where((id) => id != memberId).toList()
+        : [...community.mutedIds, memberId];
+    _replace(community.copyWith(mutedIds: muted));
+  }
+
+  /// Whether the local user may add channels / posts here: moderators always,
+  /// members only while the matching switch is on.
+  bool canCreateChannels(String communityId) =>
+      canModerate(communityId) ||
+      (byId(communityId)?.membersCanCreateChannels ?? true);
+
+  bool canPost(String communityId) =>
+      canModerate(communityId) || (byId(communityId)?.membersCanPost ?? true);
+
   /// Edits a forum post's title/body (author or moderator) and flags it edited.
   void editForumPost(String communityId, String channelId, String postId,
-      String title, String body) {
+      String title, String body,
+      {String? tag}) {
     final community = byId(communityId);
     if (community == null || title.trim().isEmpty) return;
     final channels = community.channels.map((ch) {
@@ -541,7 +724,7 @@ class CommunityStore extends ChangeNotifier {
       final posts = ch.posts.map((p) {
         if (p.id != postId) return p;
         return p.copyWith(
-            title: title.trim(), body: body.trim(), edited: true);
+            title: title.trim(), body: body.trim(), edited: true, tag: tag);
       }).toList();
       return ch.copyWith(posts: posts);
     }).toList();
@@ -569,11 +752,13 @@ class CommunityStore extends ChangeNotifier {
     _replace(community.copyWith(members: members));
   }
 
-  /// Adds a member (used when someone joins via an invite).
+  /// Adds a member (used when someone joins via an invite). Banned people
+  /// stay out until they're unbanned.
   void addMember(String communityId, Member member) {
     final community = byId(communityId);
     if (community == null) return;
     if (community.members.any((m) => m.id == member.id)) return;
+    if (community.bannedMembers.any((m) => m.id == member.id)) return;
     _replace(community.copyWith(members: [...community.members, member]));
   }
 

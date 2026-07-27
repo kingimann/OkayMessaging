@@ -21,6 +21,7 @@ import 'package:okay_messaging/screens/communities.dart';
 import 'package:okay_messaging/screens/contact_info_screen.dart';
 import 'package:okay_messaging/screens/chats_settings_screen.dart';
 import 'package:okay_messaging/screens/okay_pro_screen.dart';
+import 'package:okay_messaging/screens/community_settings_screen.dart';
 import 'package:okay_messaging/screens/forum_screen.dart';
 import 'package:okay_messaging/screens/location_picker_screen.dart';
 import 'package:okay_messaging/screens/map_screen.dart';
@@ -1551,6 +1552,172 @@ void main() {
               .firstWhere((p) => p.id == 'seed_post_1')
               .title,
           'Updated title');
+    });
+
+    test('forum post tags: set on create/edit, filtered, JSON round-trip', () {
+      CommunityStore.instance.resetForTest();
+      final posts = CommunityStore.instance
+          .byId('seed_design')!
+          .channels
+          .firstWhere((c) => c.id == 'seed_forum')
+          .posts;
+      // Seeds carry tags, and filtering keeps only the matching tag.
+      expect(filterPostsByTag(posts, 'Question').single.id, 'seed_post_1');
+      expect(filterPostsByTag(posts, ''), hasLength(posts.length));
+
+      CommunityStore.instance.editForumPost(
+          'seed_design', 'seed_forum', 'seed_post_1', 'T', 'B',
+          tag: 'Help');
+      final edited = CommunityStore.instance
+          .byId('seed_design')!
+          .channels
+          .firstWhere((c) => c.id == 'seed_forum')
+          .posts
+          .firstWhere((p) => p.id == 'seed_post_1');
+      expect(edited.tag, 'Help');
+      expect(ForumPost.fromJson(edited.toJson()).tag, 'Help');
+    });
+
+    test('comment threads: replies nest, edit flags, delete cascades', () {
+      CommunityStore.instance.resetForTest();
+      List<ForumComment> comments() => CommunityStore.instance
+          .byId('seed_design')!
+          .channels
+          .firstWhere((c) => c.id == 'seed_forum')
+          .posts
+          .firstWhere((p) => p.id == 'seed_post_1')
+          .comments;
+
+      // The seeded reply renders under its parent, marked as a reply.
+      final threaded = threadComments(comments(), ForumSort.top);
+      expect(threaded.map((e) => e.$1.id).toList(), ['seed_c1', 'seed_c2']);
+      expect(threaded[0].$2, isFalse);
+      expect(threaded[1].$2, isTrue);
+      // Round-trips: parentId survives JSON.
+      expect(
+          ForumComment.fromJson(comments()[1].toJson()).parentId, 'seed_c1');
+
+      CommunityStore.instance.editForumComment(
+          'seed_design', 'seed_forum', 'seed_post_1', 'seed_c1', 'Sketch!');
+      expect(comments().first.body, 'Sketch!');
+      expect(comments().first.edited, isTrue);
+
+      // Deleting the parent takes the reply with it.
+      CommunityStore.instance.deleteForumComment(
+          'seed_design', 'seed_forum', 'seed_post_1', 'seed_c1');
+      expect(comments(), isEmpty);
+    });
+
+    test('channel messages can be edited, pinned, and moved by category', () {
+      CommunityStore.instance.resetForTest();
+      final c = CommunityStore.instance.createCommunity('Team');
+      final chan = c.channels.first;
+      CommunityStore.instance.postMessage(c.id, chan.id,
+          Message(id: 'm1', text: 'helo', time: DateTime.now(), isMe: true));
+      Channel channel() => CommunityStore.instance
+          .byId(c.id)!
+          .channels
+          .firstWhere((ch) => ch.id == chan.id);
+
+      // Edit keeps the original wording and flags the message.
+      CommunityStore.instance.editChannelMessage(c.id, chan.id, 'm1', 'hello');
+      expect(channel().messages.single.text, 'hello');
+      expect(channel().messages.single.edited, isTrue);
+      expect(channel().messages.single.originalText, 'helo');
+
+      // Pin, round-trip through JSON, then unpin.
+      CommunityStore.instance.togglePinChannelMessage(c.id, chan.id, 'm1');
+      expect(channel().pinnedMessages.single.id, 'm1');
+      expect(Channel.fromJson(channel().toJson()).pinnedMessageIds, ['m1']);
+      CommunityStore.instance.togglePinChannelMessage(c.id, chan.id, 'm1');
+      expect(channel().pinnedMessages, isEmpty);
+
+      // Deleting a pinned message also drops its pin.
+      CommunityStore.instance.togglePinChannelMessage(c.id, chan.id, 'm1');
+      CommunityStore.instance.deleteChannelMessage(c.id, chan.id, 'm1');
+      expect(channel().pinnedMessageIds, isEmpty);
+
+      // Moving to a new category creates the header.
+      CommunityStore.instance.setChannelCategory(c.id, chan.id, 'Projects');
+      expect(channel().category, 'Projects');
+      expect(CommunityStore.instance.byId(c.id)!.categories,
+          contains('Projects'));
+    });
+
+    test('moderation settings: slow mode, permissions, words, JSON', () {
+      CommunityStore.instance.resetForTest();
+      final c = CommunityStore.instance.createCommunity('Team');
+
+      CommunityStore.instance.setSlowMode(c.id, 30);
+      CommunityStore.instance.setMembersCanCreateChannels(c.id, false);
+      CommunityStore.instance.setMembersCanPost(c.id, false);
+      CommunityStore.instance.addBannedWord(c.id, 'spam');
+      CommunityStore.instance.addBannedWord(c.id, ' SPAM '); // dedup, trims
+      CommunityStore.instance.setCommunityIcon(c.id, '🎮');
+
+      final saved = CommunityStore.instance.byId(c.id)!;
+      expect(saved.slowModeSeconds, 30);
+      expect(saved.membersCanCreateChannels, isFalse);
+      expect(saved.membersCanPost, isFalse);
+      expect(saved.bannedWords, ['spam']);
+      expect(saved.icon, '🎮');
+
+      // Owners still moderate, so the switches don't lock them out and the
+      // word filter never applies to them.
+      expect(CommunityStore.instance.canCreateChannels(c.id), isTrue);
+      expect(CommunityStore.instance.canPost(c.id), isTrue);
+      expect(CommunityStore.instance.filterHit(c.id, 'pure spam'), isNull);
+      // The matcher itself is case-insensitive and ignores clean text.
+      expect(blockedWord(['spam'], 'This is SPAM okay'), 'spam');
+      expect(blockedWord(['spam'], 'perfectly fine'), isNull);
+
+      final round = Community.fromJson(saved.toJson());
+      expect(round.slowModeSeconds, 30);
+      expect(round.membersCanCreateChannels, isFalse);
+      expect(round.bannedWords, ['spam']);
+      expect(round.icon, '🎮');
+
+      CommunityStore.instance.removeBannedWord(c.id, 'spam');
+      expect(CommunityStore.instance.byId(c.id)!.bannedWords, isEmpty);
+      expect(slowModeLabel(0), 'Off');
+      expect(slowModeLabel(30), '30s');
+      expect(slowModeLabel(300), '5m');
+    });
+
+    test('ban removes and blocks rejoining; mute hides, both survive JSON',
+        () {
+      CommunityStore.instance.resetForTest();
+      const id = 'seed_design';
+
+      // Mute is a personal toggle.
+      CommunityStore.instance.toggleMuteMember(id, 'm_grace');
+      expect(CommunityStore.instance.byId(id)!.mutedIds, ['m_grace']);
+      expect(Community.fromJson(CommunityStore.instance.byId(id)!.toJson())
+          .mutedIds, ['m_grace']);
+
+      // Ban kicks the member out, clears their mute, and an invite can't
+      // bring them back until unbanned.
+      CommunityStore.instance.banMember(id, 'm_grace');
+      var c = CommunityStore.instance.byId(id)!;
+      expect(c.members.any((m) => m.id == 'm_grace'), isFalse);
+      expect(c.bannedMembers.single.id, 'm_grace');
+      expect(c.mutedIds, isEmpty);
+      CommunityStore.instance
+          .addMember(id, const Member(id: 'm_grace', name: 'Grace Hopper'));
+      expect(CommunityStore.instance.byId(id)!.members
+          .any((m) => m.id == 'm_grace'), isFalse);
+
+      CommunityStore.instance.unbanMember(id, 'm_grace');
+      CommunityStore.instance
+          .addMember(id, const Member(id: 'm_grace', name: 'Grace Hopper'));
+      c = CommunityStore.instance.byId(id)!;
+      expect(c.bannedMembers, isEmpty);
+      expect(c.members.any((m) => m.id == 'm_grace'), isTrue);
+
+      // The owner can't be banned.
+      CommunityStore.instance.banMember(id, 'me');
+      expect(CommunityStore.instance.byId(id)!.members
+          .any((m) => m.id == 'me'), isTrue);
     });
 
     test('a server description can be set and survives JSON', () {

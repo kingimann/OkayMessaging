@@ -34,7 +34,8 @@ String _channelTypeName(ChannelType t) => switch (t) {
   return (score - myVote + dir, dir);
 }
 
-/// A comment under a [ForumPost].
+/// A comment under a [ForumPost]. Comments nest one level: a reply carries
+/// the [parentId] of the top-level comment it sits under.
 class ForumComment {
   final String id;
   final String authorId;
@@ -44,6 +45,10 @@ class ForumComment {
   final int score;
   final int myVote; // -1, 0, 1
 
+  /// Id of the top-level comment this replies to; null for top-level.
+  final String? parentId;
+  final bool edited;
+
   const ForumComment({
     required this.id,
     required this.authorId,
@@ -52,16 +57,21 @@ class ForumComment {
     required this.body,
     this.score = 0,
     this.myVote = 0,
+    this.parentId,
+    this.edited = false,
   });
 
-  ForumComment copyWith({int? score, int? myVote}) => ForumComment(
+  ForumComment copyWith({String? body, int? score, int? myVote, bool? edited}) =>
+      ForumComment(
         id: id,
         authorId: authorId,
         authorName: authorName,
         time: time,
-        body: body,
+        body: body ?? this.body,
         score: score ?? this.score,
         myVote: myVote ?? this.myVote,
+        parentId: parentId,
+        edited: edited ?? this.edited,
       );
 
   Map<String, dynamic> toJson() => {
@@ -72,6 +82,8 @@ class ForumComment {
         'body': body,
         'score': score,
         'myVote': myVote,
+        'parentId': parentId,
+        'edited': edited,
       };
 
   factory ForumComment.fromJson(Map<String, dynamic> j) => ForumComment(
@@ -82,8 +94,14 @@ class ForumComment {
         body: j['body'] as String? ?? '',
         score: (j['score'] as num?)?.toInt() ?? 0,
         myVote: (j['myVote'] as num?)?.toInt() ?? 0,
+        parentId: j['parentId'] as String?,
+        edited: j['edited'] as bool? ?? false,
       );
 }
+
+/// The tags a forum post can carry, shown as a colored chip and usable as a
+/// feed filter. Kept as plain strings so old posts (no tag) stay valid.
+const forumTags = <String>['Discussion', 'Question', 'Help', 'News'];
 
 /// A Reddit-style post inside a forum [Channel].
 class ForumPost {
@@ -97,6 +115,9 @@ class ForumPost {
   final int myVote; // -1, 0, 1
   final bool pinned;
   final bool edited;
+
+  /// One of [forumTags], or '' for an untagged post.
+  final String tag;
   final List<ForumComment> comments;
 
   const ForumPost({
@@ -110,6 +131,7 @@ class ForumPost {
     this.myVote = 1,
     this.pinned = false,
     this.edited = false,
+    this.tag = '',
     this.comments = const [],
   });
 
@@ -120,6 +142,7 @@ class ForumPost {
     int? myVote,
     bool? pinned,
     bool? edited,
+    String? tag,
     List<ForumComment>? comments,
   }) =>
       ForumPost(
@@ -133,6 +156,7 @@ class ForumPost {
         myVote: myVote ?? this.myVote,
         pinned: pinned ?? this.pinned,
         edited: edited ?? this.edited,
+        tag: tag ?? this.tag,
         comments: comments ?? this.comments,
       );
 
@@ -147,6 +171,7 @@ class ForumPost {
         'myVote': myVote,
         'pinned': pinned,
         'edited': edited,
+        'tag': tag,
         'comments': comments.map((c) => c.toJson()).toList(),
       };
 
@@ -161,6 +186,7 @@ class ForumPost {
         myVote: (j['myVote'] as num?)?.toInt() ?? 0,
         pinned: j['pinned'] as bool? ?? false,
         edited: j['edited'] as bool? ?? false,
+        tag: j['tag'] as String? ?? '',
         comments: (j['comments'] as List? ?? const [])
             .map((c) => ForumComment.fromJson(Map<String, dynamic>.from(c as Map)))
             .toList(),
@@ -181,6 +207,9 @@ class Channel {
   final String topic;
   final List<Message> messages;
 
+  /// Ids of messages pinned to the top of the channel, oldest pin first.
+  final List<String> pinnedMessageIds;
+
   /// Reddit-style posts, used only when [type] is [ChannelType.forum].
   final List<ForumPost> posts;
 
@@ -191,8 +220,15 @@ class Channel {
     this.category = 'Text Channels',
     this.topic = '',
     this.messages = const [],
+    this.pinnedMessageIds = const [],
     this.posts = const [],
   });
+
+  /// Pinned messages that still exist, in pin order.
+  List<Message> get pinnedMessages => [
+        for (final id in pinnedMessageIds)
+          ...messages.where((m) => m.id == id)
+      ];
 
   Channel copyWith({
     String? name,
@@ -200,6 +236,7 @@ class Channel {
     String? category,
     String? topic,
     List<Message>? messages,
+    List<String>? pinnedMessageIds,
     List<ForumPost>? posts,
   }) =>
       Channel(
@@ -209,6 +246,7 @@ class Channel {
         category: category ?? this.category,
         topic: topic ?? this.topic,
         messages: messages ?? this.messages,
+        pinnedMessageIds: pinnedMessageIds ?? this.pinnedMessageIds,
         posts: posts ?? this.posts,
       );
 
@@ -219,6 +257,7 @@ class Channel {
         'category': category,
         'topic': topic,
         'messages': messages.map((m) => m.toJson()).toList(),
+        'pinnedMessageIds': pinnedMessageIds,
         'posts': posts.map((p) => p.toJson()).toList(),
       };
 
@@ -231,6 +270,8 @@ class Channel {
         messages: (json['messages'] as List? ?? const [])
             .map((m) => Message.fromJson(Map<String, dynamic>.from(m as Map)))
             .toList(),
+        pinnedMessageIds:
+            (json['pinnedMessageIds'] as List?)?.cast<String>() ?? const [],
         posts: (json['posts'] as List? ?? const [])
             .map((p) => ForumPost.fromJson(Map<String, dynamic>.from(p as Map)))
             .toList(),
@@ -288,6 +329,17 @@ class Member {
       );
 }
 
+/// Returns the first entry of [words] found in [text] (case-insensitive,
+/// whole string match anywhere), or null when nothing is filtered. Pure.
+String? blockedWord(List<String> words, String text) {
+  final lower = text.toLowerCase();
+  for (final w in words) {
+    final needle = w.trim().toLowerCase();
+    if (needle.isNotEmpty && lower.contains(needle)) return w;
+  }
+  return null;
+}
+
 /// A community / server: a named space grouping several [Channel]s and the
 /// [Member]s who belong to it.
 class Community {
@@ -297,18 +349,49 @@ class Community {
   /// Avatar color as a hex string (e.g. '#7A5CFF').
   final String color;
 
+  /// An emoji shown as the server icon instead of the name's first letter
+  /// ('' = use the letter).
+  final String icon;
+
   /// A short description of what the server is about.
   final String description;
   final List<Channel> channels;
   final List<Member> members;
 
+  // --- Moderation ---------------------------------------------------------
+
+  /// Seconds a non-moderator must wait between channel messages (0 = off).
+  final int slowModeSeconds;
+
+  /// Whether plain members may create channels / forum posts. Moderators
+  /// always can.
+  final bool membersCanCreateChannels;
+  final bool membersCanPost;
+
+  /// Messages and posts containing any of these words are refused.
+  final List<String> bannedWords;
+
+  /// People removed with "ban" — kept whole so they can be unbanned, and so
+  /// a ban survives them trying to rejoin via invite.
+  final List<Member> bannedMembers;
+
+  /// Ids of members whose messages and posts are hidden for you.
+  final List<String> mutedIds;
+
   const Community({
     required this.id,
     required this.name,
     required this.color,
+    this.icon = '',
     this.description = '',
     this.channels = const [],
     this.members = const [],
+    this.slowModeSeconds = 0,
+    this.membersCanCreateChannels = true,
+    this.membersCanPost = true,
+    this.bannedWords = const [],
+    this.bannedMembers = const [],
+    this.mutedIds = const [],
   });
 
   /// Category headers in first-seen order, so channels render grouped.
@@ -326,32 +409,55 @@ class Community {
   Community copyWith({
     String? name,
     String? color,
+    String? icon,
     String? description,
     List<Channel>? channels,
     List<Member>? members,
+    int? slowModeSeconds,
+    bool? membersCanCreateChannels,
+    bool? membersCanPost,
+    List<String>? bannedWords,
+    List<Member>? bannedMembers,
+    List<String>? mutedIds,
   }) =>
       Community(
         id: id,
         name: name ?? this.name,
         color: color ?? this.color,
+        icon: icon ?? this.icon,
         description: description ?? this.description,
         channels: channels ?? this.channels,
         members: members ?? this.members,
+        slowModeSeconds: slowModeSeconds ?? this.slowModeSeconds,
+        membersCanCreateChannels:
+            membersCanCreateChannels ?? this.membersCanCreateChannels,
+        membersCanPost: membersCanPost ?? this.membersCanPost,
+        bannedWords: bannedWords ?? this.bannedWords,
+        bannedMembers: bannedMembers ?? this.bannedMembers,
+        mutedIds: mutedIds ?? this.mutedIds,
       );
 
   Map<String, dynamic> toJson() => {
         'id': id,
         'name': name,
         'color': color,
+        'icon': icon,
         'description': description,
         'channels': channels.map((c) => c.toJson()).toList(),
         'members': members.map((m) => m.toJson()).toList(),
+        'slowModeSeconds': slowModeSeconds,
+        'membersCanCreateChannels': membersCanCreateChannels,
+        'membersCanPost': membersCanPost,
+        'bannedWords': bannedWords,
+        'bannedMembers': bannedMembers.map((m) => m.toJson()).toList(),
+        'mutedIds': mutedIds,
       };
 
   factory Community.fromJson(Map<String, dynamic> json) => Community(
         id: json['id'] as String,
         name: json['name'] as String,
         color: json['color'] as String? ?? '#7A5CFF',
+        icon: json['icon'] as String? ?? '',
         description: json['description'] as String? ?? '',
         channels: (json['channels'] as List? ?? const [])
             .map((c) => Channel.fromJson(Map<String, dynamic>.from(c as Map)))
@@ -359,5 +465,15 @@ class Community {
         members: (json['members'] as List? ?? const [])
             .map((m) => Member.fromJson(Map<String, dynamic>.from(m as Map)))
             .toList(),
+        slowModeSeconds: (json['slowModeSeconds'] as num?)?.toInt() ?? 0,
+        membersCanCreateChannels:
+            json['membersCanCreateChannels'] as bool? ?? true,
+        membersCanPost: json['membersCanPost'] as bool? ?? true,
+        bannedWords:
+            (json['bannedWords'] as List?)?.cast<String>() ?? const [],
+        bannedMembers: (json['bannedMembers'] as List? ?? const [])
+            .map((m) => Member.fromJson(Map<String, dynamic>.from(m as Map)))
+            .toList(),
+        mutedIds: (json['mutedIds'] as List?)?.cast<String>() ?? const [],
       );
 }
