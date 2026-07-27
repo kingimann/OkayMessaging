@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import '../app_state.dart';
@@ -85,6 +87,11 @@ class CallService {
 
   int _seq = 0;
 
+  /// How long an outgoing call rings before giving up as "no answer".
+  /// Mutable so tests can shrink it.
+  static Duration ringTimeout = const Duration(seconds: 45);
+  Timer? _ringTimer;
+
   /// True when a call is already ringing or connected (used to send "busy").
   bool get isBusy {
     final c = current.value;
@@ -144,6 +151,17 @@ class CallService {
       status: CallStatus.ringing,
     );
     _beginOutgoing(peer.phone, id, video);
+    // Give up automatically if they never pick up, which also offers the
+    // voicemail flow instead of ringing forever.
+    _ringTimer?.cancel();
+    _ringTimer = Timer(ringTimeout, () {
+      final c = current.value;
+      if (c == null || c.callId != id) return;
+      if (c.status != CallStatus.ringing) return;
+      _logCall(c);
+      CallMedia.instance.hangUp();
+      current.value = c.copyWith(status: CallStatus.ended);
+    });
   }
 
   /// Sets up WebRTC media (web only) then rings the peer with the SDP offer.
@@ -161,6 +179,7 @@ class CallService {
 
   /// Accepts the current incoming call.
   void accept() {
+    _ringTimer?.cancel();
     final c = current.value;
     if (c == null || c.direction != CallDirection.incoming) return;
     RelayService.instance.currentCallId = c.callId;
@@ -183,6 +202,7 @@ class CallService {
 
   /// Declines the current incoming call, telling the caller.
   void decline() {
+    _ringTimer?.cancel();
     final c = current.value;
     if (c == null) return;
     RelayService.instance.sendCall(c.peer.phone,
@@ -196,6 +216,7 @@ class CallService {
 
   /// Hangs up (cancels a ringing outgoing call, or ends a connected one).
   void end() {
+    _ringTimer?.cancel();
     final c = current.value;
     if (c == null) return;
     RelayService.instance
@@ -209,6 +230,7 @@ class CallService {
 
   /// Clears a terminal (ended/declined) session once the UI has shown it.
   void clear() {
+    _ringTimer?.cancel();
     current.value = null;
     minimized.value = false;
     peerMedia.value = (video: false, screen: false);
@@ -305,6 +327,7 @@ class CallService {
   void onRemoteAnswer(String callId, {String? sdp}) {
     final c = current.value;
     if (c == null || c.callId != callId) return;
+    _ringTimer?.cancel();
     if (sdp != null) CallMedia.instance.setRemoteAnswer(sdp);
     // A renegotiation answer arrives on an already-connected call — applying
     // the SDP is all it needs; don't reset the call timer.
@@ -400,6 +423,7 @@ class CallService {
     final c = current.value;
     if (c == null || emoji.isEmpty) return;
     _emitReaction(emoji, fromMe: true);
+    ScoreStore.instance.recordFlag('call_reaction');
     RelayService.instance.sendCall(c.peer.phone,
         kind: 'reaction', callId: c.callId, video: c.video, emoji: emoji);
   }

@@ -44,6 +44,7 @@ Future<void> main() async {
   await CommunityStore.instance.load();
   await CallLog.instance.load();
   await ScoreStore.instance.load();
+  ScoreStore.instance.dailyCheckIn();
   await StreakStore.instance.load();
   await RecentSearches.instance.load();
   await RecentSearches.maps.load();

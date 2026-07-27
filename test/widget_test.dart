@@ -3651,6 +3651,28 @@ void main() {
     });
   });
 
+  test('daily check-in awards once per day and unlocks the return badge',
+      () async {
+    SharedPreferences.setMockInitialValues({});
+    await ScoreStore.instance.load();
+    final base = ScoreStore.instance.points;
+
+    ScoreStore.instance.dailyCheckIn(now: DateTime(2026, 7, 27, 9));
+    expect(ScoreStore.instance.points,
+        base + ScoreStore.pointsPerDailyCheckIn);
+    // Same day again: nothing.
+    ScoreStore.instance.dailyCheckIn(now: DateTime(2026, 7, 27, 21));
+    expect(ScoreStore.instance.points,
+        base + ScoreStore.pointsPerDailyCheckIn);
+    expect(ScoreStore.instance.isEarned('daily'), isFalse);
+
+    // A later day: second bonus + the "Daily driver" badge.
+    ScoreStore.instance.dailyCheckIn(now: DateTime(2026, 7, 28, 8));
+    expect(ScoreStore.instance.points,
+        base + 2 * ScoreStore.pointsPerDailyCheckIn);
+    expect(ScoreStore.instance.isEarned('daily'), isTrue);
+  });
+
   group('Call favourites store', () {
     setUp(() => FavouritesStore.instance.resetForTest());
 

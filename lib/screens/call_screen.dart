@@ -104,6 +104,12 @@ class _CallScreenState extends State<CallScreen> {
       _tick = Timer.periodic(const Duration(seconds: 1), (_) {
         if (mounted) setState(() => _seconds++);
       });
+      // Video calls are held at arm's length — default to speakerphone,
+      // the way every calling app does. Voice stays on the earpiece.
+      if (widget.session.video && !_speaker) {
+        _speaker = true;
+        CallMedia.instance.setSpeaker(true);
+      }
     }
     if (s == CallStatus.ended || s == CallStatus.declined) {
       _tick?.cancel();

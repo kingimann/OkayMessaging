@@ -110,8 +110,14 @@ class CallMedia {
     await _ensureRenderers();
     final pc = await createPeerConnection(_config);
     _pc = pc;
+    // Echo cancellation + noise suppression + auto gain make voice calls
+    // markedly cleaner than the bare defaults.
     _localStream = await navigator.mediaDevices.getUserMedia({
-      'audio': true,
+      'audio': {
+        'echoCancellation': true,
+        'noiseSuppression': true,
+        'autoGainControl': true,
+      },
       'video': video ? {'facingMode': 'user'} : false,
     });
     localRenderer!.srcObject = _localStream;

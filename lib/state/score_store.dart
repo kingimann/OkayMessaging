@@ -67,6 +67,24 @@ class ScoreStore extends ChangeNotifier {
         description: 'Place a voice or video call',
         flag: 'made_call'),
     Badge(
+        id: 'profile',
+        emoji: '🪪',
+        label: 'Identity',
+        description: 'Set a username or avatar emoji',
+        flag: 'profile_set'),
+    Badge(
+        id: 'call_reactor',
+        emoji: '🎈',
+        label: 'Crowd pleaser',
+        description: 'Send a reaction during a call',
+        flag: 'call_reaction'),
+    Badge(
+        id: 'daily',
+        emoji: '📅',
+        label: 'Daily driver',
+        description: 'Come back on a second day',
+        flag: 'daily_2'),
+    Badge(
         id: 'chatty',
         emoji: '💬',
         label: 'Chatterbox',
@@ -194,6 +212,22 @@ class ScoreStore extends ChangeNotifier {
       ..addAll(prefs.getStringList(_kFlags) ?? const []);
     _featured = prefs.getString(_kFeatured);
     notifyListeners();
+  }
+
+  /// Points for opening the app on a new day (checked once at startup).
+  static const int pointsPerDailyCheckIn = 20;
+
+  /// Awards the daily check-in bonus at most once per calendar day, and
+  /// unlocks the "Daily driver" badge on the second (consecutive or not)
+  /// day. Safe to call on every launch.
+  void dailyCheckIn({DateTime? now}) {
+    final today = now ?? DateTime.now();
+    final key = '${today.year}-${today.month}-${today.day}';
+    final last = _prefs?.getString('score_last_daily');
+    if (last == key) return;
+    _prefs?.setString('score_last_daily', key);
+    if (last != null) recordFlag('daily_2');
+    award(pointsPerDailyCheckIn);
   }
 
   /// Adds [delta] points (ignoring non-positive deltas) and persists.

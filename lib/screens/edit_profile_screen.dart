@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../app_state.dart';
 import '../models/user.dart';
+import '../state/score_store.dart';
 import '../state/session.dart';
 import '../widgets/user_avatar.dart';
 
@@ -102,6 +103,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         pronouns: _pronouns.text,
         link: _link.text,
       );
+    }
+    if (_username.text.trim().isNotEmpty || _emoji.isNotEmpty) {
+      ScoreStore.instance.recordFlag('profile_set');
     }
     navigator.pop();
     messenger.showSnackBar(
