@@ -5,6 +5,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../app_state.dart';
 import '../data/mock_data.dart';
@@ -1342,6 +1343,10 @@ class _ChatScreenState extends State<ChatScreen> {
                 : ContactInfoScreen(user: contact, chatId: _chatId),
           ),
         );
+      case 'sms':
+        // Like Truecaller: the app can't send SMS itself on iOS — it hands
+        // the number to the system Messages composer and the user hits send.
+        launchUrl(Uri.parse('sms:${contact.phone}'));
       case 'media':
         _openMediaGallery();
       case 'places':
@@ -1982,6 +1987,11 @@ class _ChatScreenState extends State<ChatScreen> {
                             const PopupMenuItem(
                                 value: 'places',
                                 child: Text('Shared places')),
+                            if (!widget.chat.contact.isGroup &&
+                                widget.chat.contact.phone.isNotEmpty)
+                              const PopupMenuItem(
+                                  value: 'sms',
+                                  child: Text('Send as text (SMS)')),
                             PopupMenuItem(
                                 value: 'pin',
                                 child:
