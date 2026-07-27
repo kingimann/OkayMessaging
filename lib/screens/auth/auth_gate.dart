@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 
 import '../../models/user.dart';
 import '../../relay/relay_service.dart';
+import '../../state/legal_consent.dart';
 import '../../state/push_service.dart';
 import '../../state/session.dart';
 import '../home_screen.dart';
+import 'legal_consent_screen.dart';
 import 'phone_login_screen.dart';
 
 /// Decides the root screen from the locally-stored phone identity: the
@@ -38,7 +40,14 @@ class _AuthGateState extends State<AuthGate> {
           RelayService.instance.start();
           PushService.instance.register();
         }
-        return const HomeScreen();
+        // The current Terms & Privacy Policy must be agreed to before the
+        // app opens — on first sign-in, and again after any update to them.
+        return ListenableBuilder(
+          listenable: LegalConsent.instance,
+          builder: (context, _) => LegalConsent.instance.needsConsent
+              ? const LegalConsentScreen()
+              : const HomeScreen(),
+        );
       },
     );
   }

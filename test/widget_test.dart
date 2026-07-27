@@ -70,6 +70,8 @@ import 'package:okay_messaging/screens/status_screen.dart';
 import 'package:okay_messaging/state/status_store.dart';
 import 'package:okay_messaging/state/chat_store.dart';
 import 'package:okay_messaging/state/gif_service.dart';
+import 'package:okay_messaging/state/legal_consent.dart';
+import 'package:okay_messaging/screens/home_screen.dart';
 import 'package:okay_messaging/widgets/app_dialogs.dart';
 import 'package:image/image.dart' as img;
 import 'package:okay_messaging/state/live_location_broadcaster.dart';
@@ -111,6 +113,9 @@ void main() {
     ChatStore.instance.reset();
     AppState.resetForTest();
     Session.instance.signInForTest();
+    // Most tests assume the current terms are already accepted; the consent
+    // tests reset this themselves.
+    LegalConsent.instance.resetForTest();
     Scheduler.instance.resetForTest();
     CallService.instance.resetForTest();
     AppLock.instance.resetForTest();
@@ -7658,6 +7663,79 @@ void main() {
       await tester.tap(find.widgetWithText(FilledButton, 'Save'));
       await tester.pumpAndSettle();
       expect(result, 'Fresh name');
+    });
+  });
+
+  group('Terms & privacy consent', () {
+    test('consent is required until the current version is accepted', () async {
+      LegalConsent.instance.resetForTest(accepted: 0);
+      expect(LegalConsent.instance.needsConsent, isTrue);
+      expect(LegalConsent.instance.hasAcceptedBefore, isFalse);
+
+      await LegalConsent.instance.accept();
+      expect(LegalConsent.instance.needsConsent, isFalse);
+      expect(LegalConsent.instance.hasAcceptedBefore, isTrue);
+    });
+
+    testWidgets('a signed-in user without consent is gated, then let through',
+        (tester) async {
+      LegalConsent.instance.resetForTest(accepted: 0);
+      await tester.pumpWidget(const OkayMessagingApp());
+      await tester.pumpAndSettle();
+
+      // The app is blocked behind the consent screen, documents in reach.
+      expect(find.text('Terms & privacy'), findsOneWidget);
+      expect(find.text('Terms of Service'), findsOneWidget);
+      expect(find.text('Privacy Policy'), findsOneWidget);
+      expect(find.text('OkayMessenger'), findsNothing);
+
+      await tester.tap(find.text('Agree and continue'));
+      await tester.pumpAndSettle();
+
+      // Consent recorded — the home screen appears and the gate stays gone.
+      expect(find.text('Agree and continue'), findsNothing);
+      expect(LegalConsent.instance.needsConsent, isFalse);
+    });
+  });
+
+  group('Returning-user sign-in', () {
+    testWidgets('signing out leaves a one-tap way back in', (tester) async {
+      // Sign out from a real session: the account is remembered.
+      await Session.instance.signIn(
+          phone: '+1 555 0100', name: 'Ada Lovelace', username: 'adal');
+      await Session.instance.signOut();
+      expect(Session.instance.lastAccount?.name, 'Ada Lovelace');
+
+      await tester.pumpWidget(const OkayMessagingApp());
+      await tester.pumpAndSettle();
+
+      // The login screen leads with the remembered account, not a blank form.
+      expect(find.text('Continue as Ada'), findsOneWidget);
+      expect(find.text('@adal · +1 555 0100'), findsOneWidget);
+
+      await tester.tap(find.text('Continue as Ada'));
+      await tester.pumpAndSettle();
+
+      // One tap: signed back in as the same identity.
+      expect(Session.instance.user.value?.username, 'adal');
+      expect(find.byType(HomeScreen), findsOneWidget);
+    });
+
+    testWidgets('"Use a different account" opens the form, prefilled',
+        (tester) async {
+      await Session.instance.signIn(
+          phone: '+1 555 0100', name: 'Ada Lovelace', username: 'adal');
+      await Session.instance.signOut();
+
+      await tester.pumpWidget(const OkayMessagingApp());
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Use a different account'));
+      await tester.pumpAndSettle();
+
+      // The full form is back, warm-started with the remembered details.
+      expect(find.text('Continue as Ada'), findsNothing);
+      expect(find.widgetWithText(TextFormField, 'Ada Lovelace'),
+          findsOneWidget);
     });
   });
 }

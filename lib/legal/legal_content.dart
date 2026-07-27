@@ -11,6 +11,11 @@ class LegalSection {
 
 const String legalLastUpdated = 'Last updated: 2026';
 
+/// Bump this whenever the Terms of Service or Privacy Policy meaningfully
+/// change. Everyone — new and existing users — is asked to agree to any
+/// version newer than the one they accepted.
+const int legalVersion = 1;
+
 /// Privacy Policy — reflects the no-storage architecture: messages ride
 /// Supabase Realtime Broadcast (memory only) and live only on your devices.
 const List<LegalSection> privacyPolicy = [

@@ -18,6 +18,7 @@ import 'state/cloud_sync.dart';
 import 'state/feed_store.dart';
 import 'state/favourites_store.dart';
 import 'state/follow_store.dart';
+import 'state/legal_consent.dart';
 import 'state/live_location_broadcaster.dart';
 import 'state/onboarding_store.dart';
 import 'state/persistence.dart';
@@ -43,6 +44,7 @@ Future<void> main() async {
   await SecureKeyExchange.instance.load();
   await AppLock.instance.load();
   await TwoStepVerification.instance.load();
+  await LegalConsent.instance.load();
   await AccountEmail.instance.load();
   await CommunityStore.instance.load();
   await CallLog.instance.load();

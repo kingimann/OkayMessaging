@@ -34,6 +34,13 @@ class Session {
         AppState.profile.value = saved;
       } catch (_) {}
     }
+    final rawLast = _prefs!.getString(_kLast);
+    if (rawLast != null) {
+      try {
+        lastAccount =
+            AppUser.fromJson(jsonDecode(rawLast) as Map<String, dynamic>);
+      } catch (_) {}
+    }
   }
 
   /// Signs in with a phone number, display name, and optional username,
@@ -123,11 +130,31 @@ class Session {
     AppState.profile.value = updated;
   }
 
+  static const _kLast = 'last_account_v1';
+
+  /// The identity that was signed in most recently — kept across sign-out so
+  /// coming back is one tap, not a whole form.
+  AppUser? lastAccount;
+
   /// Signs out and forgets the local identity (chats stay on the device).
+  /// The account itself is remembered so signing back in is instant.
   Future<void> signOut() async {
     _prefs ??= await SharedPreferences.getInstance();
+    final current = user.value;
+    if (current != null) {
+      lastAccount = current;
+      await _prefs!.setString(_kLast, jsonEncode(current.toJson()));
+    }
     await _prefs!.remove(_key);
     user.value = null;
+  }
+
+  /// Forgets the remembered account (Settings → sign-in screen → "Use a
+  /// different account" keeps it; this is the hard erase).
+  Future<void> clearLastAccount() async {
+    lastAccount = null;
+    _prefs ??= await SharedPreferences.getInstance();
+    await _prefs!.remove(_kLast);
   }
 
   /// Establishes a signed-in identity synchronously for tests.

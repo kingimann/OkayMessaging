@@ -3,10 +3,12 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../models/user.dart';
 import '../../state/account_service.dart';
 import '../../state/session.dart';
 import '../../state/two_step.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/user_avatar.dart';
 
 /// Phone-number sign-in.
 ///
@@ -36,6 +38,48 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
   bool _busy = false;
   _Step _step = _Step.phone;
   String? _error;
+
+  /// Shown while a remembered account exists — a one-tap way back in for
+  /// someone who has signed in on this device before.
+  bool _showWelcomeBack = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final last = Session.instance.lastAccount;
+    if (last != null) {
+      _showWelcomeBack = true;
+      // Prefill everything, so even "use a different account" starts warm.
+      _name.text = last.name == last.phone ? '' : last.name;
+      _username.text = last.username;
+      final m = RegExp(r'^(\+\d+)\s+(.*)\$').firstMatch(last.phone);
+      if (m != null) {
+        _dialCode = m.group(1)!;
+        _phone.text = m.group(2)!;
+      } else {
+        _phone.text = last.phone.replaceFirst(RegExp(r'^\+\d+\s*'), '');
+      }
+    }
+  }
+
+  /// One tap back into the remembered account: same identity, same two-step
+  /// gate, none of the typing. (With SMS verification on, the code step still
+  /// runs — the tap just submits the prefilled number.)
+  Future<void> _continueAsLast() async {
+    final last = Session.instance.lastAccount;
+    if (last == null) return;
+    if (AccountService.isEnabled) {
+      _sendCode();
+      return;
+    }
+    if (!await _passTwoStep()) return;
+    setState(() => _busy = true);
+    await Session.instance.signIn(
+      phone: last.phone,
+      name: last.name,
+      username: last.username,
+    );
+  }
 
   /// (flag, name, dial code) — shown in the Telegram-style country sheet.
   static const _countries = [
@@ -360,6 +404,8 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
   }
 
   List<Widget> _body() {
+    final last = Session.instance.lastAccount;
+    if (_showWelcomeBack && last != null) return _welcomeBack(last);
     if (!AccountService.isEnabled) return _localFields();
     switch (_step) {
       case _Step.phone:
@@ -483,6 +529,62 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
               )
             : Text(label),
       );
+
+  /// The returning-user fast path: the remembered account as a card and one
+  /// button, with the full form a tap away for anyone else.
+  List<Widget> _welcomeBack(AppUser last) => [
+        Material(
+          color: Theme.of(context).brightness == Brightness.dark
+              ? const Color(0xFF23262B)
+              : const Color(0xFFF4F6F7),
+          borderRadius: BorderRadius.circular(18),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            child: Row(
+              children: [
+                UserAvatar(user: last, radius: 26),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        last.name.isEmpty ? last.phone : last.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            fontSize: 16.5, fontWeight: FontWeight.w700),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        last.handle.isNotEmpty
+                            ? '${last.handle} · ${last.phone}'
+                            : last.phone,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                            fontSize: 13, color: Colors.grey.shade600),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 18),
+        _cta(
+          'Continue as ${last.name.isEmpty ? last.phone : last.name.split(' ').first}',
+          _continueAsLast,
+        ),
+        const SizedBox(height: 6),
+        TextButton(
+          onPressed:
+              _busy ? null : () => setState(() => _showWelcomeBack = false),
+          child: Text('Use a different account',
+              style: TextStyle(color: Colors.grey.shade600)),
+        ),
+      ];
 
   // Local instant flow: name + username + phone + Continue.
   List<Widget> _localFields() => [
