@@ -3830,6 +3830,46 @@ void main() {
           ContactsSync.hashesFor(['15550123456', '+1 555 012 3456']);
       expect(dupes.toSet().length, dupes.length);
     });
+
+    test('sync matches hashed numbers against the directory', () async {
+      addTearDown(() {
+        ContactsSync.debugNumbersOverride = null;
+        ContactsSync.debugLookupOverride = null;
+      });
+
+      // Permission declined.
+      ContactsSync.debugNumbersOverride = () async => null;
+      expect((await ContactsSync.instance.sync()).status,
+          ContactSyncStatus.permissionDenied);
+
+      // Address book without numbers.
+      ContactsSync.debugNumbersOverride = () async => [];
+      expect((await ContactsSync.instance.sync()).status,
+          ContactSyncStatus.empty);
+
+      // The happy path: numbers are hashed (never sent raw) and matched.
+      ContactsSync.debugNumbersOverride =
+          () async => ['555-012-3456', 'junk'];
+      List<String>? sentHashes;
+      ContactsSync.debugLookupOverride = (hashes) async {
+        sentHashes = hashes;
+        return const [
+          AppUser(id: 'u1', name: 'Grace', avatarColor: '#123456')
+        ];
+      };
+      final result = await ContactsSync.instance.sync();
+      expect(result.status, ContactSyncStatus.ok);
+      expect(result.matches.single.name, 'Grace');
+      expect(result.scanned, 2);
+      // Only hashes crossed the boundary — never a raw number: exactly the
+      // two candidate hashes of the one dialable number.
+      expect(
+          sentHashes!.toSet(),
+          {
+            AccountService.phoneHashHex('5550123456'),
+            AccountService.phoneHashHex('15550123456'),
+          });
+    });
   });
 
   testWidgets('new-user nudge shows once and dismisses', (tester) async {

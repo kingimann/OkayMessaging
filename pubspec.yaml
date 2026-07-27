@@ -1,7 +1,7 @@
 name: okay_messaging
 description: "A WhatsApp-style messaging app built with Flutter. Phone-number login; all chats are stored locally on the device."
 publish_to: 'none'
-version: 1.1.1+2
+version: 1.1.2+2
 
 environment:
   sdk: ">=3.0.0 <4.0.0"
@@ -42,6 +42,12 @@ dependencies:
   http: ^1.6.0
   geolocator: ^14.0.2
   flutter_map_cancellable_tile_provider: ^3.1.1
+  # Contact sync (mobile only, guarded by kIsWeb): reads the device address
+  # book to find which contacts already use the app; only SHA-256 hashes of
+  # phone numbers ever leave the device. MUST stay on 2.x — 1.x force-unwraps
+  # UIApplication.shared.delegate.window at plugin registration, which is nil
+  # under the scene lifecycle this app uses, crashing iOS instantly at launch.
+  flutter_contacts: ^2.3.0
 
 dev_dependencies:
   flutter_test:
