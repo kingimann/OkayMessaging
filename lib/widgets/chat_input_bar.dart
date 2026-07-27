@@ -210,16 +210,6 @@ class _ChatInputBarState extends State<ChatInputBar> {
   }
 
   /// Opens the picker on its GIF tab and hands the chosen GIF back up.
-  Future<void> _pickGif() async {
-    if (_emojiOpen) setState(() => _emojiOpen = false);
-    final picked = await showEmojiGifSheet(context, initialTab: 1);
-    if (picked == null) return;
-    if (picked.gif != null) {
-      widget.onSendGif?.call(picked.gif!.url);
-    } else if (picked.emoji != null) {
-      _insertEmoji(picked.emoji!);
-    }
-  }
 
   void _insertEmoji(String emoji) {
     final sel = _controller.selection;
@@ -346,13 +336,9 @@ class _ChatInputBarState extends State<ChatInputBar> {
                       ),
                     ),
                   ),
-                  if (widget.onSendGif != null)
-                    IconButton(
-                      icon: const Icon(Icons.gif_box_outlined),
-                      color: Colors.grey,
-                      tooltip: 'Send a GIF',
-                      onPressed: _pickGif,
-                    ),
+                  // One attach button owns everything that isn't typing —
+                  // photos, GIFs, documents, and the rest live in its panel,
+                  // so the bar stays two icons and a field.
                   IconButton(
                     icon: Icon(_attachOpen ? Icons.close : Icons.attach_file),
                     color: Colors.grey,
@@ -364,12 +350,6 @@ class _ChatInputBarState extends State<ChatInputBar> {
                               _emojiOpen = false;
                             }),
                   ),
-                  if (!_hasText)
-                    IconButton(
-                      icon: const Icon(Icons.camera_alt_outlined),
-                      color: Colors.grey,
-                      onPressed: widget.onAttach,
-                    ),
                 ],
               ),
             ),

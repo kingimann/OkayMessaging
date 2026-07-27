@@ -1717,6 +1717,14 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
+  /// GIFs moved off the composer bar and into the attachment panel — the
+  /// bar was drowning in buttons.
+  Future<void> _pickGifAttachment() async {
+    final picked = await showEmojiGifSheet(context, initialTab: 1);
+    final url = picked?.gif?.url;
+    if (url != null) _handleSendGif(url);
+  }
+
   /// The composer's attachment options, shown inline above the keyboard.
   List<AttachmentOption> _attachmentOptions() => [
         AttachmentOption(
@@ -1724,6 +1732,11 @@ class _ChatScreenState extends State<ChatScreen> {
             label: 'Photos',
             color: const Color(0xFFC861F9),
             onTap: _handleSendImage),
+        AttachmentOption(
+            icon: Icons.gif_box_outlined,
+            label: 'GIF',
+            color: const Color(0xFFF97052),
+            onTap: _pickGifAttachment),
         AttachmentOption(
             icon: Icons.timer_outlined,
             label: 'View once',
