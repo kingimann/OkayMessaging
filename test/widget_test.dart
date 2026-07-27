@@ -3846,6 +3846,13 @@ void main() {
       expect(IncomingLinks.isEmailTarget('im:user@example.com'), isTrue);
       expect(IncomingLinks.isEmailTarget('im:+15550123456'), isFalse);
 
+      // Call taps (default calling app) parse the same way from tel: URLs,
+      // and the two kinds never cross.
+      expect(IncomingLinks.telPhone('tel:+15550123456'), '+15550123456');
+      expect(IncomingLinks.telPhone('telprompt://5550123456'), '5550123456');
+      expect(IncomingLinks.telPhone('im:+15550123456'), isNull);
+      expect(IncomingLinks.imPhone('tel:+15550123456'), isNull);
+
       // A message tap creates the chat, then reuses (and unarchives) it.
       ChatStore.instance.reset();
       openChatForPhone('+15550123456');
@@ -3863,6 +3870,11 @@ void main() {
           ChatStore.instance.allChats
               .where((c) => c.contact.id == '+15550123456'),
           hasLength(1));
+
+      // A call tap resolves to the existing chat's contact (named), and to
+      // a bare number identity for strangers.
+      expect(contactForPhone('+15550123456').id, '+15550123456');
+      expect(contactForPhone('+19998887777').phone, '+19998887777');
     });
 
     test('sync matches hashed numbers against the directory', () async {

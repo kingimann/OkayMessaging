@@ -193,16 +193,7 @@ void openChatForPhone(String phone) {
   var chat = store.chatWithContact(phone);
   if (chat == null) {
     chat = Chat(
-      id: 'chat_$phone',
-      contact: AppUser(
-        id: phone,
-        name: phone,
-        avatarColor: '#64B5F6',
-        about: 'Available',
-        phone: phone,
-      ),
-      messages: const [],
-    );
+        id: 'chat_$phone', contact: contactForPhone(phone), messages: const []);
     store.upsert(chat);
   } else if (chat.isArchived) {
     store.setArchived(chat.id, false);
@@ -213,13 +204,39 @@ void openChatForPhone(String phone) {
   );
 }
 
+/// The contact a system link resolves to: the existing chat's contact when
+/// there is one (so the call shows their name), else a bare number identity.
+AppUser contactForPhone(String phone) {
+  final existing = ChatStore.instance.chatWithContact(phone);
+  if (existing != null) return existing.contact;
+  return AppUser(
+    id: phone,
+    name: phone,
+    avatarColor: '#64B5F6',
+    about: 'Available',
+    phone: phone,
+  );
+}
+
+/// Starts a voice call to [phone] — where a call tap lands when OkayMessenger
+/// is the user's default calling app. Signed out, the app can't place a VoIP
+/// call, so the tap falls back to the system per Apple's guidance.
+void openCallForPhone(String phone) {
+  if (Session.instance.user.value == null) {
+    IncomingLinks.systemCallFallback(phone);
+    return;
+  }
+  CallService.instance.startOutgoing(contactForPhone(phone), video: false);
+}
+
 class _OkayMessagingAppState extends State<OkayMessagingApp>
     with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    IncomingLinks.instance.init(onPhone: openChatForPhone);
+    IncomingLinks.instance
+        .init(onPhone: openChatForPhone, onCall: openCallForPhone);
   }
 
   @override

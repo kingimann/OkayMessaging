@@ -1,3 +1,4 @@
+import CallKit
 import Flutter
 import UIKit
 import UserNotifications
@@ -21,10 +22,15 @@ import UserNotifications
     }
   }
 
+  // Default-calling-app review requires linking CallKit (or PushKit); the
+  // referenced type keeps the framework from being stripped as unused.
+  private static let callHandleType: CXHandle.HandleType = .phoneNumber
+
   override func application(
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
+    _ = AppDelegate.callHandleType
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 

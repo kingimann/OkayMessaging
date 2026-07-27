@@ -2,25 +2,32 @@ import Flutter
 import UIKit
 
 class SceneDelegate: FlutterSceneDelegate {
-  // As the user's default messaging app, message taps arrive as im: URLs —
-  // both while running and in the cold-launch connection options.
+  // As the user's default messaging and calling app, message taps arrive as
+  // im: URLs and call taps as tel: URLs — both while running and in the
+  // cold-launch connection options.
+  private static let handledSchemes: Set<String> = ["im", "tel"]
+
+  private func deliver<S: Sequence>(_ contexts: S)
+  where S.Element == UIOpenURLContext {
+    for context in contexts
+    where Self.handledSchemes.contains(context.url.scheme ?? "") {
+      AppDelegate.deliverLink(context.url)
+    }
+  }
+
   override func scene(
     _ scene: UIScene,
     willConnectTo session: UISceneSession,
     options connectionOptions: UIScene.ConnectionOptions
   ) {
     super.scene(scene, willConnectTo: session, options: connectionOptions)
-    for context in connectionOptions.urlContexts where context.url.scheme == "im" {
-      AppDelegate.deliverLink(context.url)
-    }
+    deliver(connectionOptions.urlContexts)
   }
 
   override func scene(
     _ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>
   ) {
     super.scene(scene, openURLContexts: URLContexts)
-    for context in URLContexts where context.url.scheme == "im" {
-      AppDelegate.deliverLink(context.url)
-    }
+    deliver(URLContexts)
   }
 }

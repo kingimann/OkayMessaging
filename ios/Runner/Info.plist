@@ -57,11 +57,17 @@
 				<key>CFBundleURLSchemes</key>
 				<array>
 					<string>im</string>
+					<string>tel</string>
 				</array>
 			</dict>
 		</array>
 		<key>LSRequiresIPhoneOS</key>
 		<true/>
+		<key>UIBackgroundModes</key>
+		<array>
+			<string>audio</string>
+			<string>voip</string>
+		</array>
 		<key>UIApplicationSceneManifest</key>
 		<dict>
 			<key>UIApplicationSupportsMultipleScenes</key>

@@ -2,13 +2,14 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-/// Receives the `im:` URLs iOS sends when OkayMessenger is the user's
-/// default messaging app (Settings → Apps → Default Apps → Messaging) and
-/// they tap a message action on a contact or link.
+/// Receives the URLs iOS sends when OkayMessenger is the user's default
+/// messaging or calling app (Settings → Apps → Default Apps): a message tap
+/// arrives as `im:<number>`, a call tap as `tel:<number>`.
 ///
-/// Phone targets open (or create) the chat with that number. Email targets
+/// Phone targets open the matching chat or start a call. Email `im:` targets
 /// are the one thing this app can't message, so they fall back to the
-/// system's `sms:` handler, per Apple's guidance.
+/// system's `sms:` handler; a call that can't be placed falls back to the
+/// system's `telephony:` handler — both per Apple's guidance.
 class IncomingLinks {
   IncomingLinks._();
   static final IncomingLinks instance = IncomingLinks._();
@@ -16,14 +17,14 @@ class IncomingLinks {
   static const _channel = MethodChannel('okay/links');
   bool _started = false;
 
-  /// Extracts the phone target of an `im:` (or `sms:`) URL as it should be
-  /// dialed, e.g. 'im:+1-555-012.3456' → '+15550123456'. Returns null for
-  /// email targets, other schemes, or anything with no dialable number. Pure.
-  static String? imPhone(String url) {
+  static const _messageSchemes = {'im', 'sms'};
+  static const _callSchemes = {'tel', 'telprompt'};
+
+  static String? _phoneOf(String url, Set<String> schemes) {
     final uri = Uri.tryParse(url.trim());
-    if (uri == null) return null;
-    final scheme = uri.scheme.toLowerCase();
-    if (scheme != 'im' && scheme != 'sms') return null;
+    if (uri == null || !schemes.contains(uri.scheme.toLowerCase())) {
+      return null;
+    }
     // The target rides in the path (im:+1555…) or, with slashes, the
     // authority (im://+1555…).
     var target = Uri.decodeComponent(
@@ -36,28 +37,57 @@ class IncomingLinks {
     return (plus ? '+' : '') + digits;
   }
 
+  /// The phone target of an `im:` (or `sms:`) URL as it should be dialed,
+  /// e.g. 'im:+1-555-012.3456' → '+15550123456'. Null for email targets,
+  /// other schemes, or anything with no dialable number. Pure.
+  static String? imPhone(String url) => _phoneOf(url, _messageSchemes);
+
+  /// The phone target of a `tel:` (or `telprompt:`) URL. Pure.
+  static String? telPhone(String url) => _phoneOf(url, _callSchemes);
+
   /// Whether the URL targets an email address (an iMessage-only contact).
   static bool isEmailTarget(String url) {
     final uri = Uri.tryParse(url.trim());
-    if (uri == null) return false;
-    final scheme = uri.scheme.toLowerCase();
-    if (scheme != 'im' && scheme != 'sms') return false;
+    if (uri == null ||
+        !_messageSchemes.contains(uri.scheme.toLowerCase())) {
+      return false;
+    }
     final target = uri.path.isNotEmpty ? uri.path : uri.authority;
     return Uri.decodeComponent(target).contains('@');
   }
 
+  /// Hands a call the app can't place back to the system's cellular
+  /// handling, using the fallback scheme Apple designates for default
+  /// calling apps. (Opening plain tel: would just come back to us.)
+  static Future<void> systemCallFallback(String phone) async {
+    try {
+      await launchUrl(Uri.parse('telephony:$phone'));
+    } catch (_) {}
+  }
+
   /// Starts listening. [onPhone] receives the normalized number of every
-  /// message tap, including one that launched the app cold.
-  Future<void> init({required void Function(String phone) onPhone}) async {
+  /// message tap and [onCall] of every call tap — including ones that
+  /// launched the app cold.
+  Future<void> init({
+    required void Function(String phone) onPhone,
+    required void Function(String phone) onCall,
+  }) async {
     if (_started || kIsWeb) return;
     _started = true;
     Future<void> handle(Object? raw) async {
       final url = raw as String?;
       if (url == null) return;
-      final phone = imPhone(url);
-      if (phone != null) {
-        onPhone(phone);
-      } else if (isEmailTarget(url)) {
+      final message = imPhone(url);
+      if (message != null) {
+        onPhone(message);
+        return;
+      }
+      final call = telPhone(url);
+      if (call != null) {
+        onCall(call);
+        return;
+      }
+      if (isEmailTarget(url)) {
         // Hand iMessage-only targets back to the system, as Apple suggests.
         final fallback = Uri.tryParse(url.replaceFirst('im:', 'sms:'));
         if (fallback != null) {
