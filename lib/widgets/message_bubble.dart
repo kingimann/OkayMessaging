@@ -5,6 +5,7 @@ import '../models/message.dart';
 import '../payments/payment_amount_sheet.dart';
 import '../theme/app_theme.dart';
 import '../utils/date_formatter.dart';
+import 'chat_photo.dart';
 import 'message_status_icon.dart';
 import 'osm_map.dart';
 import 'poll_widgets.dart';
@@ -625,12 +626,11 @@ class _ImageBubble extends StatelessWidget {
               width: 220,
               height: 260,
               child: message.imageUrl != null
-                  ? Image.network(
-                      message.imageUrl!,
+                  ? ChatPhoto(
+                      url: message.imageUrl!,
                       width: 220,
                       height: 260,
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => _gradientTile(colors),
+                      errorBuilder: (_) => _gradientTile(colors),
                     )
                   : _gradientTile(colors),
             ),

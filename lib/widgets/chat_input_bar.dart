@@ -7,10 +7,30 @@ import '../models/message.dart';
 import '../theme/app_theme.dart';
 import 'emoji_gif_sheet.dart';
 
+/// One entry in the composer's inline attachment panel.
+class AttachmentOption {
+  final IconData icon;
+  final String label;
+  final Color color;
+  final VoidCallback onTap;
+
+  const AttachmentOption({
+    required this.icon,
+    required this.label,
+    required this.color,
+    required this.onTap,
+  });
+}
+
 /// The bottom input area: an optional reply preview, an optional emoji picker,
 /// attachment icons, a text field and a send/mic button.
 class ChatInputBar extends StatefulWidget {
   final ValueChanged<String> onSend;
+
+  /// Tapping the paperclip opens these inline (in the keyboard's space)
+  /// rather than in a modal sheet, so the conversation stays visible. When
+  /// empty, [onAttach] fires instead.
+  final List<AttachmentOption> attachments;
   final VoidCallback? onAttach;
 
   /// Called with the recorded length in seconds when a voice message is sent.
@@ -46,6 +66,7 @@ class ChatInputBar extends StatefulWidget {
   const ChatInputBar({
     super.key,
     required this.onSend,
+    this.attachments = const [],
     this.onAttach,
     this.onSendVoice,
     this.replyTo,
@@ -68,6 +89,7 @@ class _ChatInputBarState extends State<ChatInputBar> {
       TextEditingController(text: widget.initialText);
   bool _hasText = false;
   bool _emojiOpen = false;
+  bool _attachOpen = false;
 
   bool _recording = false;
   int _recordSeconds = 0;
@@ -256,6 +278,12 @@ class _ChatInputBarState extends State<ChatInputBar> {
                 : _buildComposer(isDark, fieldColor),
             if (_emojiOpen && !_recording)
               _EmojiPanel(onSelected: _insertEmoji, isDark: isDark),
+            if (_attachOpen && !_recording)
+              _AttachmentPanel(
+                options: widget.attachments,
+                isDark: isDark,
+                onPicked: () => setState(() => _attachOpen = false),
+              ),
           ],
         ),
       ),
@@ -283,7 +311,10 @@ class _ChatInputBarState extends State<ChatInputBar> {
                           : Icons.emoji_emotions_outlined,
                     ),
                     color: Colors.grey,
-                    onPressed: () => setState(() => _emojiOpen = !_emojiOpen),
+                    onPressed: () => setState(() {
+                      _emojiOpen = !_emojiOpen;
+                      _attachOpen = false;
+                    }),
                   ),
                   Expanded(
                     child: ValueListenableBuilder<bool>(
@@ -300,7 +331,12 @@ class _ChatInputBarState extends State<ChatInputBar> {
                             ? TextInputAction.send
                             : TextInputAction.newline,
                         onTap: () {
-                          if (_emojiOpen) setState(() => _emojiOpen = false);
+                          if (_emojiOpen || _attachOpen) {
+                            setState(() {
+                              _emojiOpen = false;
+                              _attachOpen = false;
+                            });
+                          }
                         },
                         decoration: const InputDecoration(
                           hintText: 'Message',
@@ -318,9 +354,15 @@ class _ChatInputBarState extends State<ChatInputBar> {
                       onPressed: _pickGif,
                     ),
                   IconButton(
-                    icon: const Icon(Icons.attach_file),
+                    icon: Icon(_attachOpen ? Icons.close : Icons.attach_file),
                     color: Colors.grey,
-                    onPressed: widget.onAttach,
+                    tooltip: 'Attach',
+                    onPressed: widget.attachments.isEmpty
+                        ? widget.onAttach
+                        : () => setState(() {
+                              _attachOpen = !_attachOpen;
+                              _emojiOpen = false;
+                            }),
                   ),
                   if (!_hasText)
                     IconButton(
@@ -514,6 +556,62 @@ class _ReplyPreview extends StatelessWidget {
 
 /// The composer's inline emoji panel: the full catalog, searchable, in the
 /// space the keyboard would take.
+/// The inline attachment grid: shown where the keyboard sits, so picking
+/// what to send never covers the conversation.
+class _AttachmentPanel extends StatelessWidget {
+  final List<AttachmentOption> options;
+  final bool isDark;
+
+  /// Called after an option is tapped so the bar can fold the panel away.
+  final VoidCallback onPicked;
+
+  const _AttachmentPanel({
+    required this.options,
+    required this.isDark,
+    required this.onPicked,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: isDark ? AppColors.chatBgDark : const Color(0xFFF0F0F0),
+      padding: const EdgeInsets.fromLTRB(12, 14, 12, 14),
+      child: GridView.count(
+        crossAxisCount: 4,
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        mainAxisSpacing: 12,
+        childAspectRatio: 0.95,
+        children: [
+          for (final option in options)
+            InkWell(
+              borderRadius: BorderRadius.circular(14),
+              onTap: () {
+                onPicked();
+                option.onTap();
+              },
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircleAvatar(
+                    radius: 25,
+                    backgroundColor: option.color,
+                    child: Icon(option.icon, color: Colors.white, size: 24),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(option.label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 12)),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
 class _EmojiPanel extends StatelessWidget {
   final ValueChanged<String> onSelected;
   final bool isDark;

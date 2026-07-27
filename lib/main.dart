@@ -18,6 +18,7 @@ import 'state/cloud_sync.dart';
 import 'state/feed_store.dart';
 import 'state/favourites_store.dart';
 import 'state/follow_store.dart';
+import 'state/live_location_broadcaster.dart';
 import 'state/onboarding_store.dart';
 import 'state/persistence.dart';
 import 'state/recent_searches.dart';
@@ -59,6 +60,7 @@ Future<void> main() async {
   await StatusStore.instance.load();
   await FavouritesStore.instance.load();
   await OnboardingStore.instance.load();
+  LiveLocationBroadcaster.instance.start();
   if (StreakStore.instance.isEmpty) {
     // Seed a couple of demo streaks so the feature is visible on first run;
     // real streaks then build (and lapse) from actual conversation activity.

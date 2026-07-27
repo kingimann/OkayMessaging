@@ -15,6 +15,7 @@ import '../payments/payment_amount_sheet.dart';
 import '../payments/payment_service.dart';
 import '../relay/relay_config.dart';
 import '../state/score_store.dart';
+import '../util/photo_prep.dart';
 import '../widgets/poll_widgets.dart';
 import '../relay/relay_service.dart';
 import '../state/chat_store.dart';
@@ -414,8 +415,15 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
+  /// Picks a real photo from the device, shrinks it to fit the relay, and
+  /// sends it inline — device to device, no bucket in the middle.
   Future<void> _handleSendImage({bool viewOnce = false}) async {
-    if (!await _confirmRecipient()) return;
+    final dataUri = await PhotoPrep.pickPhoto();
+    if (dataUri == null) {
+      // Either the user cancelled (say nothing) or the image was unusable.
+      return;
+    }
+    if (!mounted || !await _confirmRecipient()) return;
     final now = DateTime.now();
     _deliver(Message(
       id: 'img_${now.microsecondsSinceEpoch}',
@@ -424,6 +432,7 @@ class _ChatScreenState extends State<ChatScreen> {
       isMe: true,
       status: MessageStatus.sent,
       isImage: true,
+      imageUrl: dataUri,
       imageSeed: now.microsecondsSinceEpoch % 6,
       viewOnce: viewOnce,
       replyTo: _replyTo,
@@ -522,10 +531,24 @@ class _ChatScreenState extends State<ChatScreen> {
   /// Opens a picker of the people you chat with, and shares the chosen one as
   /// a contact card.
   void _pickContactToShare() {
-    final contacts = _store.allChats
-        .map((c) => c.contact)
-        .where((c) => !c.isGroup && c.id != widget.chat.contact.id)
-        .toList();
+    // Everyone you could plausibly share: 1:1 chats and members of your
+    // groups (people you know but may never have messaged directly), minus
+    // yourself and this chat's own peer.
+    final me = AppState.profile.value.id;
+    final seen = <String>{};
+    final contacts = <AppUser>[];
+    void consider(AppUser u) {
+      if (u.isGroup || u.phone.isEmpty) return;
+      if (u.id == me || u.id == widget.chat.contact.id) return;
+      if (seen.add(RelayService.digits(u.phone))) contacts.add(u);
+    }
+
+    for (final chat in _store.allChats) {
+      consider(chat.contact);
+      chat.members.forEach(consider);
+    }
+    contacts.sort(
+        (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
     showModalBottomSheet<void>(
       context: context,
       builder: (sheetContext) => SafeArea(
@@ -541,23 +564,34 @@ class _ChatScreenState extends State<ChatScreen> {
                         TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
               ),
             ),
-            Flexible(
-              child: ListView(
-                shrinkWrap: true,
-                children: [
-                  for (final c in contacts)
-                    ListTile(
-                      leading: UserAvatar(user: c, radius: 20),
-                      title: Text(c.name),
-                      subtitle: c.phone.isNotEmpty ? Text(c.phone) : null,
-                      onTap: () {
-                        Navigator.of(sheetContext).pop();
-                        _sendContactCard(c);
-                      },
-                    ),
-                ],
+            if (contacts.isEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(24, 20, 24, 32),
+                child: Text(
+                  'No one to share yet — contacts appear here once you have '
+                  'other chats or groups.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.grey.shade600),
+                ),
+              )
+            else
+              Flexible(
+                child: ListView(
+                  shrinkWrap: true,
+                  children: [
+                    for (final c in contacts)
+                      ListTile(
+                        leading: UserAvatar(user: c, radius: 20),
+                        title: Text(c.name),
+                        subtitle: c.phone.isNotEmpty ? Text(c.phone) : null,
+                        onTap: () {
+                          Navigator.of(sheetContext).pop();
+                          _sendContactCard(c);
+                        },
+                      ),
+                  ],
+                ),
               ),
-            ),
           ],
         ),
       ),
@@ -1643,62 +1677,44 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  void _showAttachmentSheet() {
-    showModalBottomSheet<void>(
-      context: context,
-      builder: (sheetContext) {
-        final options = <(IconData, String, Color, VoidCallback)>[
-          (Icons.insert_drive_file, 'Document', const Color(0xFF7F66FF),
-              _handleSendDocument),
-          (Icons.camera_alt, 'Camera', const Color(0xFFEF5DA8),
-              _handleSendImage),
-          (Icons.photo, 'Gallery', const Color(0xFFC861F9), _handleSendImage),
-          (Icons.timer_outlined, 'View once', const Color(0xFF0A84FF),
-              () => _handleSendImage(viewOnce: true)),
-          (Icons.location_on, 'Location', const Color(0xFF1FA855),
-              _handleSendLocation),
-          (Icons.person, 'Contact', const Color(0xFF009DE2),
-              _pickContactToShare),
-          (Icons.attach_money, 'Payment', const Color(0xFF12B76A),
-              _handleSendMoney),
-          (Icons.poll_outlined, 'Poll', const Color(0xFF7F66FF),
-              _handleCreatePoll),
-        ];
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: GridView.count(
-              crossAxisCount: 3,
-              shrinkWrap: true,
-              mainAxisSpacing: 20,
-              children: [
-                for (final (icon, label, color, onTap) in options)
-                  InkWell(
-                    borderRadius: BorderRadius.circular(12),
-                    onTap: () {
-                      Navigator.of(sheetContext).pop();
-                      onTap();
-                    },
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        CircleAvatar(
-                          radius: 28,
-                          backgroundColor: color,
-                          child: Icon(icon, color: Colors.white),
-                        ),
-                        const SizedBox(height: 6),
-                        Text(label, style: const TextStyle(fontSize: 12)),
-                      ],
-                    ),
-                  ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
+  /// The composer's attachment options, shown inline above the keyboard.
+  List<AttachmentOption> _attachmentOptions() => [
+        AttachmentOption(
+            icon: Icons.photo,
+            label: 'Photos',
+            color: const Color(0xFFC861F9),
+            onTap: _handleSendImage),
+        AttachmentOption(
+            icon: Icons.timer_outlined,
+            label: 'View once',
+            color: const Color(0xFF0A84FF),
+            onTap: () => _handleSendImage(viewOnce: true)),
+        AttachmentOption(
+            icon: Icons.insert_drive_file,
+            label: 'Document',
+            color: const Color(0xFF7F66FF),
+            onTap: _handleSendDocument),
+        AttachmentOption(
+            icon: Icons.location_on,
+            label: 'Location',
+            color: const Color(0xFF1FA855),
+            onTap: _handleSendLocation),
+        AttachmentOption(
+            icon: Icons.person,
+            label: 'Contact',
+            color: const Color(0xFF009DE2),
+            onTap: _pickContactToShare),
+        AttachmentOption(
+            icon: Icons.attach_money,
+            label: 'Payment',
+            color: const Color(0xFF12B76A),
+            onTap: _handleSendMoney),
+        AttachmentOption(
+            icon: Icons.poll_outlined,
+            label: 'Poll',
+            color: const Color(0xFF7F66FF),
+            onTap: _handleCreatePoll),
+      ];
 
   @override
   Widget build(BuildContext context) {
@@ -2061,7 +2077,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   return ChatInputBar(
                     onSend: _handleSend,
                     onSendGif: _handleSendGif,
-                    onAttach: _showAttachmentSheet,
+                    attachments: _attachmentOptions(),
                     onSendVoice: _handleSendVoice,
                     onTyping: _onTyping,
                     onSchedule: _scheduleMessage,

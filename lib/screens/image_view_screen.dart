@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/message.dart';
 import '../utils/date_formatter.dart';
+import '../widgets/chat_photo.dart';
 
 /// A full-screen viewer for an image [Message], opened by tapping a photo
 /// bubble. The gradient placeholder animates up via a shared [Hero] and can
@@ -73,10 +74,10 @@ class ImageViewScreen extends StatelessWidget {
               minScale: 1,
               maxScale: 4,
               child: message.imageUrl != null
-                  ? Image.network(
-                      message.imageUrl!,
+                  ? ChatPhoto(
+                      url: message.imageUrl!,
                       fit: BoxFit.contain,
-                      errorBuilder: (_, __, ___) => _placeholder(colors),
+                      errorBuilder: (_) => _placeholder(colors),
                     )
                   : AspectRatio(aspectRatio: 220 / 260, child: _placeholder(colors)),
             ),

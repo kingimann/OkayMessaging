@@ -4,6 +4,7 @@ import '../models/message.dart';
 import '../state/chat_store.dart';
 import '../theme/app_theme.dart';
 import '../utils/date_formatter.dart';
+import '../widgets/chat_photo.dart';
 import '../widgets/linkable_text.dart';
 import '../widgets/pull_to_refresh.dart';
 import 'image_view_screen.dart';
@@ -103,18 +104,12 @@ class _MediaGrid extends StatelessWidget {
             ),
             child: Hero(
               tag: 'photo_${message.id}',
-              child: Container(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: colors,
-                  ),
-                ),
-                child: const Center(
-                  child: Icon(Icons.image, color: Colors.white70, size: 30),
-                ),
-              ),
+              child: message.imageUrl != null
+                  ? ChatPhoto(
+                      url: message.imageUrl!,
+                      errorBuilder: (_) => _gradientTile(colors),
+                    )
+                  : _gradientTile(colors),
             ),
           );
         },
@@ -122,6 +117,20 @@ class _MediaGrid extends StatelessWidget {
     );
   }
 }
+
+/// The placeholder tile for demo photos (no real bytes to show).
+Widget _gradientTile(List<Color> colors) => Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: colors,
+        ),
+      ),
+      child: const Center(
+        child: Icon(Icons.image, color: Colors.white70, size: 30),
+      ),
+    );
 
 class _LinksList extends StatelessWidget {
   final List<Message> links;

@@ -23,6 +23,7 @@ dependencies:
   qr_flutter: ^4.1.0
   flutter_webrtc: ^1.5.2
   file_picker: ^11.0.2
+  image: ^4.3.0
   path_provider: ^2.1.6
   # Browser interop (Web Share API + downloads) for saving the encrypted chat
   # backup on the web build. Guarded by a conditional import.

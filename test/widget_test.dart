@@ -70,6 +70,11 @@ import 'package:okay_messaging/screens/status_screen.dart';
 import 'package:okay_messaging/state/status_store.dart';
 import 'package:okay_messaging/state/chat_store.dart';
 import 'package:okay_messaging/state/gif_service.dart';
+import 'package:image/image.dart' as img;
+import 'package:okay_messaging/state/live_location_broadcaster.dart';
+import 'package:okay_messaging/util/photo_prep.dart';
+import 'package:okay_messaging/widgets/chat_photo.dart';
+import 'package:okay_messaging/widgets/chat_input_bar.dart';
 import 'package:okay_messaging/state/account_email.dart';
 import 'package:okay_messaging/screens/account_email_screen.dart';
 import 'package:okay_messaging/theme/app_theme.dart';
@@ -93,7 +98,6 @@ import 'package:okay_messaging/screens/find_people_screen.dart';
 import 'package:okay_messaging/state/contacts_sync.dart';
 import 'package:okay_messaging/state/favourites_store.dart';
 import 'package:okay_messaging/state/onboarding_store.dart';
-import 'package:okay_messaging/widgets/chat_input_bar.dart';
 import 'package:okay_messaging/widgets/heart_burst.dart';
 import 'package:okay_messaging/widgets/rich_message_text.dart';
 
@@ -559,14 +563,24 @@ void main() {
     await tester.tap(find.text('Bob Carter'));
     await tester.pumpAndSettle();
 
-    // Open the attachment sheet and pick Gallery.
+    // Photos now come from the real picker; stub it with a generated image.
+    final photo = img.Image(width: 320, height: 240);
+    img.fill(photo, color: img.ColorRgb8(30, 90, 200));
+    PhotoPrep.debugPickOverride =
+        () async => Uint8List.fromList(img.encodeJpg(photo));
+    addTearDown(() => PhotoPrep.debugPickOverride = null);
+
+    // Open the inline attachment panel and pick Photos.
     await tester.tap(find.byIcon(Icons.attach_file));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Gallery'));
+    await tester.tap(find.text('Photos'));
     await tester.pumpAndSettle();
 
     final bob = ChatStore.instance.chatWithContact('u_bob');
-    expect(bob!.messages.any((m) => m.isImage), isTrue);
+    final sentPhoto = bob!.messages.lastWhere((m) => m.isImage);
+    // The real picked photo rides inline as a data URI.
+    expect(sentPhoto.imageUrl, isNotNull);
+    expect(PhotoPrep.isDataUri(sentPhoto.imageUrl!), isTrue);
 
     await tester.pump(const Duration(seconds: 2));
     await tester.pumpAndSettle();
@@ -7178,6 +7192,258 @@ void main() {
         myPhone: '+1 555 0100',
       );
       expect(applied, isFalse);
+    });
+  });
+
+  group('Real photos over the relay', () {
+    Uint8List samplePhoto({int width = 2000, int height = 1400}) {
+      final image = img.Image(width: width, height: height);
+      // A gradient, so JPEG has something realistic to chew on.
+      for (var y = 0; y < height; y += 4) {
+        for (var x = 0; x < width; x += 4) {
+          img.fillRect(image,
+              x1: x,
+              y1: y,
+              x2: x + 3,
+              y2: y + 3,
+              color: img.ColorRgb8(x % 256, y % 256, (x + y) % 256));
+        }
+      }
+      return Uint8List.fromList(img.encodeJpg(image, quality: 95));
+    }
+
+    test('a big photo is shrunk under the relay budget as a data URI', () {
+      final uri = PhotoPrep.prepare(samplePhoto());
+      expect(uri, isNotNull);
+      expect(uri!.startsWith('data:image/jpeg;base64,'), isTrue);
+      expect(uri.length, lessThanOrEqualTo(PhotoPrep.maxBase64Length + 23));
+
+      // The payload decodes back to a real, smaller image.
+      final bytes = PhotoPrep.bytesFromDataUri(uri)!;
+      final decoded = img.decodeImage(bytes)!;
+      expect(decoded.width, lessThanOrEqualTo(1280));
+      expect(decoded.height, lessThanOrEqualTo(1280));
+    });
+
+    test('garbage input is refused instead of sent', () {
+      expect(PhotoPrep.prepare(Uint8List.fromList([1, 2, 3])), isNull);
+      expect(PhotoPrep.bytesFromDataUri('data:image/jpeg;base64,@@@'), isNull);
+      expect(PhotoPrep.bytesFromDataUri('https://example.com/a.gif'), isNull);
+      expect(PhotoPrep.isDataUri('data:image/jpeg;base64,abc'), isTrue);
+      expect(PhotoPrep.isDataUri('https://example.com/a.gif'), isFalse);
+    });
+
+    test('pickPhoto hands back the prepared photo from the picker', () async {
+      PhotoPrep.debugPickOverride = () async => samplePhoto(width: 640, height: 480);
+      addTearDown(() => PhotoPrep.debugPickOverride = null);
+      final uri = await PhotoPrep.pickPhoto();
+      expect(uri, isNotNull);
+      expect(PhotoPrep.isDataUri(uri!), isTrue);
+
+      // A cancelled picker sends nothing.
+      PhotoPrep.debugPickOverride = () async => null;
+      expect(await PhotoPrep.pickPhoto(), isNull);
+    });
+
+    testWidgets('an inline photo renders from memory, not the network',
+        (tester) async {
+      final uri = PhotoPrep.prepare(samplePhoto(width: 320, height: 240))!;
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(body: ChatPhoto(url: uri, width: 100, height: 100)),
+      ));
+      await tester.pump();
+      final image = tester.widget<Image>(find.byType(Image));
+      expect(image.image, isA<MemoryImage>());
+
+      // A corrupt data URI falls to the error builder rather than throwing.
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: ChatPhoto(
+            url: 'data:image/jpeg;base64,%%%',
+            errorBuilder: (_) => const Text('broken'),
+          ),
+        ),
+      ));
+      await tester.pump();
+      expect(find.text('broken'), findsOneWidget);
+    });
+  });
+
+  group('Inline attachments', () {
+    testWidgets('the paperclip opens the options in place, not a sheet',
+        (tester) async {
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Column(
+            children: [
+              const Spacer(),
+              ChatInputBar(
+                onSend: (_) {},
+                attachments: [
+                  AttachmentOption(
+                      icon: Icons.photo,
+                      label: 'Photos',
+                      color: Colors.purple,
+                      onTap: () {}),
+                  AttachmentOption(
+                      icon: Icons.person,
+                      label: 'Contact',
+                      color: Colors.blue,
+                      onTap: () {}),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ));
+      await tester.pump();
+
+      expect(find.text('Photos'), findsNothing);
+      await tester.tap(find.byTooltip('Attach'));
+      await tester.pumpAndSettle();
+
+      // The options are in the page itself — no dialog/sheet route was pushed.
+      expect(find.text('Photos'), findsOneWidget);
+      expect(find.text('Contact'), findsOneWidget);
+      expect(find.byType(BottomSheet), findsNothing);
+
+      // Tapping an option folds the panel away.
+      await tester.tap(find.text('Photos'));
+      await tester.pumpAndSettle();
+      expect(find.text('Photos'), findsNothing);
+    });
+
+    testWidgets('picking an option fires its action', (tester) async {
+      var picked = '';
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Column(
+            children: [
+              const Spacer(),
+              ChatInputBar(
+                onSend: (_) {},
+                attachments: [
+                  AttachmentOption(
+                      icon: Icons.poll_outlined,
+                      label: 'Poll',
+                      color: Colors.green,
+                      onTap: () => picked = 'poll'),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ));
+      await tester.pump();
+      await tester.tap(find.byTooltip('Attach'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Poll'));
+      await tester.pumpAndSettle();
+      expect(picked, 'poll');
+    });
+  });
+
+  group('Live location sharing', () {
+    setUp(() {
+      ChatStore.instance.clearAll();
+      AppState.shareLiveLocation.value = false;
+      AppState.ghostMode.value = false;
+    });
+    tearDown(() {
+      LiveLocationBroadcaster.instance.resetForTest();
+      LiveLocationBroadcaster.debugSendOverride = null;
+      debugGeolocationOverride = null;
+      AppState.shareLiveLocation.value = false;
+      AppState.ghostMode.value = false;
+    });
+
+    void seedPeople() {
+      ChatStore.instance.upsert(const Chat(
+        id: 'chat_a',
+        contact: AppUser(
+            id: '+1 555 0111',
+            name: 'Alice',
+            avatarColor: '#E57373',
+            phone: '+1 555 0111'),
+        messages: [],
+      ));
+      ChatStore.instance.upsert(const Chat(
+        id: 'group_x',
+        contact: AppUser(
+            id: 'group_x',
+            name: 'Group',
+            avatarColor: '#4DB6AC',
+            isGroup: true),
+        messages: [],
+      ));
+      ChatStore.instance.upsert(const Chat(
+        id: 'chat_self',
+        contact: AppUser(
+            id: 'self', name: 'Note to self', avatarColor: '#25D366'),
+        messages: [],
+      ));
+    }
+
+    test('positions go to 1:1 contacts only — never groups or note-to-self',
+        () {
+      seedPeople();
+      final names = LiveLocationBroadcaster.targets(ChatStore.instance)
+          .map((u) => u.name);
+      expect(names, ['Alice']);
+    });
+
+    test('broadcastOnce sends the fix to every contact while sharing is on',
+        () async {
+      seedPeople();
+      final sent = <String>[];
+      LiveLocationBroadcaster.debugSendOverride =
+          (phone, lat, lng) => sent.add('$phone@$lat,$lng');
+      debugGeolocationOverride = () async => (lat: 43.65, lng: -79.38);
+
+      // Off: nothing leaves the device.
+      expect(await LiveLocationBroadcaster.instance.broadcastOnce(), 0);
+      expect(sent, isEmpty);
+
+      AppState.shareLiveLocation.value = true;
+      expect(await LiveLocationBroadcaster.instance.broadcastOnce(), 1);
+      expect(sent, ['+1 555 0111@43.65,-79.38']);
+
+      // Ghost Mode wins over the sharing toggle.
+      AppState.ghostMode.value = true;
+      expect(await LiveLocationBroadcaster.instance.broadcastOnce(), 0);
+    });
+
+    test('no GPS fix means nothing is sent, not a bogus position', () async {
+      seedPeople();
+      final sent = <String>[];
+      LiveLocationBroadcaster.debugSendOverride =
+          (phone, lat, lng) => sent.add(phone);
+      debugGeolocationOverride = () async => null;
+      AppState.shareLiveLocation.value = true;
+      expect(await LiveLocationBroadcaster.instance.broadcastOnce(), 0);
+      expect(sent, isEmpty);
+    });
+
+    test('the toggle starts the repeating broadcast and stops it again',
+        () async {
+      seedPeople();
+      final sent = <String>[];
+      LiveLocationBroadcaster.debugSendOverride =
+          (phone, lat, lng) => sent.add(phone);
+      debugGeolocationOverride = () async => (lat: 1.0, lng: 2.0);
+
+      LiveLocationBroadcaster.instance.start();
+      expect(sent, isEmpty);
+
+      AppState.shareLiveLocation.value = true;
+      // The immediate first broadcast is async — give it a beat.
+      await Future<void>.delayed(Duration.zero);
+      expect(sent, ['+1 555 0111']);
+
+      AppState.shareLiveLocation.value = false;
+      await Future<void>.delayed(Duration.zero);
+      // Stopped: no further sends beyond the one from when it was on.
+      expect(sent.length, 1);
     });
   });
 }
