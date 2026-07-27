@@ -350,7 +350,28 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
                     ),
                   ),
                   const SizedBox(height: 32),
-                  ..._body(),
+                  // Steps slide/fade into each other instead of hard-cutting.
+                  AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 250),
+                    switchInCurve: Curves.easeOutCubic,
+                    transitionBuilder: (child, animation) => FadeTransition(
+                      opacity: animation,
+                      child: SlideTransition(
+                        position: Tween(
+                                begin: const Offset(0, 0.04),
+                                end: Offset.zero)
+                            .animate(animation),
+                        child: child,
+                      ),
+                    ),
+                    child: Column(
+                      key: ValueKey(
+                          '${_step.name}_${_showWelcomeBack ? 'wb' : 'form'}'),
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: _body(),
+                    ),
+                  ),
                   if (_error != null) ...[
                     const SizedBox(height: 14),
                     Container(
@@ -390,6 +411,10 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
   }
 
   String _subtitle() {
+    final welcome = _showWelcomeBack &&
+        Session.instance.lastAccount != null &&
+        _step == _Step.phone;
+    if (welcome) return 'Welcome back — pick up where you left off';
     if (!AccountService.isEnabled) {
       return 'Enter your phone number to get started';
     }
@@ -405,7 +430,12 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
 
   List<Widget> _body() {
     final last = Session.instance.lastAccount;
-    if (_showWelcomeBack && last != null) return _welcomeBack(last);
+    // The welcome-back card stands in for the phone step only. Once a code
+    // has been sent, the step advances and the code screen takes over —
+    // otherwise "Continue as" texts a code with nowhere to type it.
+    if (_showWelcomeBack && last != null && _step == _Step.phone) {
+      return _welcomeBack(last);
+    }
     if (!AccountService.isEnabled) return _localFields();
     switch (_step) {
       case _Step.phone:
@@ -609,21 +639,72 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
 
   // Verified step 2: SMS code → Verify.
   List<Widget> _codeFields() => [
-        TextFormField(
-          controller: _code,
-          keyboardType: TextInputType.number,
-          textAlign: TextAlign.center,
-          style: const TextStyle(fontSize: 22, letterSpacing: 8),
-          inputFormatters: [
-            FilteringTextInputFormatter.digitsOnly,
-            LengthLimitingTextInputFormatter(6),
+        // Six digit boxes over an invisible real field: the field carries the
+        // input (keyboard, paste, autofill, tests), the boxes carry the look.
+        Stack(
+          alignment: Alignment.center,
+          children: [
+            Opacity(
+              opacity: 0,
+              child: TextFormField(
+                controller: _code,
+                autofocus: true,
+                keyboardType: TextInputType.number,
+                autofillHints: const [AutofillHints.oneTimeCode],
+                inputFormatters: [
+                  FilteringTextInputFormatter.digitsOnly,
+                  LengthLimitingTextInputFormatter(6),
+                ],
+                onFieldSubmitted: (_) => _verifyCode(),
+                // Telegram-style: verify the moment all six digits are in.
+                onChanged: (v) {
+                  setState(() {});
+                  if (v.length == 6 && !_busy) _verifyCode();
+                },
+              ),
+            ),
+            IgnorePointer(
+              child: ValueListenableBuilder<TextEditingValue>(
+                valueListenable: _code,
+                builder: (context, value, _) {
+                  final digits = value.text;
+                  final isDark =
+                      Theme.of(context).brightness == Brightness.dark;
+                  return Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      for (var i = 0; i < 6; i++)
+                        Container(
+                          width: 44,
+                          height: 52,
+                          margin:
+                              const EdgeInsets.symmetric(horizontal: 4),
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            color: isDark
+                                ? const Color(0xFF2A2E34)
+                                : const Color(0xFFF0F2F3),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: i == digits.length
+                                  ? AppColors.accentOn(context)
+                                  : Colors.transparent,
+                              width: 1.4,
+                            ),
+                          ),
+                          child: Text(
+                            i < digits.length ? digits[i] : '',
+                            style: const TextStyle(
+                                fontSize: 22,
+                                fontWeight: FontWeight.w700),
+                          ),
+                        ),
+                    ],
+                  );
+                },
+              ),
+            ),
           ],
-          decoration: _dec('Code'),
-          onFieldSubmitted: (_) => _verifyCode(),
-          // Telegram-style: verify the moment all six digits are in.
-          onChanged: (v) {
-            if (v.length == 6 && !_busy) _verifyCode();
-          },
         ),
         const SizedBox(height: 24),
         _cta('Verify', _verifyCode),
@@ -632,8 +713,12 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             TextButton(
-              onPressed:
-                  _busy ? null : () => setState(() => _step = _Step.phone),
+              onPressed: _busy
+                  ? null
+                  : () => setState(() {
+                        _step = _Step.phone;
+                        _showWelcomeBack = false;
+                      }),
               child: const Text('Change number'),
             ),
             TextButton(
