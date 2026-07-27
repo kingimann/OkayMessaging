@@ -18,6 +18,18 @@ import 'follow_store.dart';
 import 'saved_places_store.dart';
 import 'score_store.dart';
 
+/// Isolate tasks: PBKDF2 is ~120k HMAC rounds and AES chews through the
+/// whole payload — on the main isolate either one freezes the UI (pull-to-
+/// refresh visibly hung the app), so they run behind [compute].
+Uint8List _deriveKeyTask(({String pass, String digits}) args) =>
+    CloudSync.deriveSyncKey(args.pass, args.digits);
+
+String _encryptTask(({Uint8List key, String plain}) args) =>
+    E2eCrypto.encrypt(args.key, args.plain);
+
+String? _decryptTask(({Uint8List key, String blob}) args) =>
+    E2eCrypto.decrypt(args.key, args.blob);
+
 /// End-to-end encrypted cloud sync. Two modes:
 ///
 /// **Automatic (the default)** — on for everyone with no setup. Servers,
@@ -173,6 +185,23 @@ class CloudSync extends ChangeNotifier {
     return d.isEmpty ? 'local' : d;
   }
 
+  // The derived key never changes for a given passphrase + account, so pay
+  // the PBKDF2 cost once per session, off the main isolate.
+  Uint8List? _keyCache;
+  String _keyCacheFor = '';
+
+  Future<Uint8List> _syncKey() async {
+    final pass = _effectivePassphrase;
+    final digits = _digits;
+    final tag = '$pass|$digits';
+    final cached = _keyCache;
+    if (cached != null && _keyCacheFor == tag) return cached;
+    final key = await compute(_deriveKeyTask, (pass: pass, digits: digits));
+    _keyCache = key;
+    _keyCacheFor = tag;
+    return key;
+  }
+
   /// Everything worth restoring on a new device, as one JSON document.
   /// Chats ride along only under a user-set passphrase — never under the
   /// automatic phone-derived key.
@@ -230,9 +259,10 @@ class CloudSync extends ChangeNotifier {
     lastError = null;
     notifyListeners();
     try {
-      final key = deriveSyncKey(_effectivePassphrase, _digits);
+      final key = await _syncKey();
       final id = blobIdFor(key);
-      final data = E2eCrypto.encrypt(key, jsonEncode(buildPayload()));
+      final data = await compute(
+          _encryptTask, (key: key, plain: jsonEncode(buildPayload())));
       final debug = debugServerOverride;
       if (debug != null) {
         debug[id] = data;
@@ -279,7 +309,7 @@ class CloudSync extends ChangeNotifier {
     lastError = null;
     notifyListeners();
     try {
-      final key = deriveSyncKey(_effectivePassphrase, _digits);
+      final key = await _syncKey();
       final id = blobIdFor(key);
       String? data;
       final debug = debugServerOverride;
@@ -309,7 +339,7 @@ class CloudSync extends ChangeNotifier {
         }
       }
       if (data == null) return _fail('No backup found for this passphrase.');
-      final plain = E2eCrypto.decrypt(key, data);
+      final plain = await compute(_decryptTask, (key: key, blob: data));
       if (plain == null) {
         return _fail('Wrong passphrase (or corrupted backup).');
       }
@@ -338,6 +368,8 @@ class CloudSync extends ChangeNotifier {
     _enabled = false;
     _passphrase = '';
     _bootstrappedFor = '';
+    _keyCache = null;
+    _keyCacheFor = '';
     lastSync = null;
     lastError = null;
     _debounce?.cancel();
