@@ -273,7 +273,10 @@ class ChatStore extends ChangeNotifier {
       String? avatarColor,
       String? about,
       bool? verified,
-      int? score}) {
+      int? score,
+      String? emoji,
+      String? pronouns,
+      String? link}) {
     final i = _chats.indexWhere((c) => c.contact.id == contactId);
     if (i == -1) return;
     final c = _chats[i].contact;
@@ -286,11 +289,18 @@ class ChatStore extends ChangeNotifier {
     // Only ever raise a contact's known score (a stale, lower broadcast
     // shouldn't roll it back).
     final nextScore = (score != null && score > c.score) ? score : c.score;
+    final nextEmoji = (emoji != null && emoji.isNotEmpty) ? emoji : c.emoji;
+    final nextPronouns =
+        (pronouns != null && pronouns.isNotEmpty) ? pronouns : c.pronouns;
+    final nextLink = (link != null && link.isNotEmpty) ? link : c.link;
     if (nextName == c.name &&
         nextColor == c.avatarColor &&
         nextAbout == c.about &&
         nextVerified == c.verified &&
-        nextScore == c.score) {
+        nextScore == c.score &&
+        nextEmoji == c.emoji &&
+        nextPronouns == c.pronouns &&
+        nextLink == c.link) {
       return;
     }
     _replace(
@@ -307,6 +317,9 @@ class ChatStore extends ChangeNotifier {
           isGroup: c.isGroup,
           verified: nextVerified,
           score: nextScore,
+          emoji: nextEmoji,
+          pronouns: nextPronouns,
+          link: nextLink,
         ),
       ),
     );

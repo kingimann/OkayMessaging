@@ -80,6 +80,9 @@ class RelayService {
     String fromUsername = '',
     String fromAvatarColor = '',
     String fromAbout = '',
+    String fromEmoji = '',
+    String fromPronouns = '',
+    String fromLink = '',
     bool fromVerified = false,
     int fromScore = 0,
     int fromStreak = 0,
@@ -99,6 +102,9 @@ class RelayService {
       'fromUsername': fromUsername,
       'fromAvatarColor': fromAvatarColor,
       'fromAbout': fromAbout,
+      'fromEmoji': fromEmoji,
+      'fromPronouns': fromPronouns,
+      'fromLink': fromLink,
       'fromVerified': fromVerified,
       'fromScore': fromScore,
       'fromStreak': fromStreak,
@@ -194,6 +200,9 @@ class RelayService {
     // privacy settings).
     final sharedColor = (content['fromAvatarColor'] as String?)?.trim() ?? '';
     final sharedAbout = (content['fromAbout'] as String?)?.trim() ?? '';
+    final sharedEmoji = (content['fromEmoji'] as String?)?.trim() ?? '';
+    final sharedPronouns = (content['fromPronouns'] as String?)?.trim() ?? '';
+    final sharedLink = (content['fromLink'] as String?)?.trim() ?? '';
     final sharedVerified = content['fromVerified'] == true;
     final sharedScore = (content['fromScore'] as num?)?.toInt() ?? 0;
 
@@ -209,6 +218,9 @@ class RelayService {
         username: (content['fromUsername'] as String?) ?? '',
         verified: sharedVerified,
         score: sharedScore,
+        emoji: sharedEmoji,
+        pronouns: sharedPronouns,
+        link: sharedLink,
       );
       chat = Chat(id: 'chat_$from', contact: contact, messages: const []);
       target.upsert(chat);
@@ -221,6 +233,9 @@ class RelayService {
         about: sharedAbout.isNotEmpty ? sharedAbout : null,
         verified: sharedVerified,
         score: sharedScore,
+        emoji: sharedEmoji.isNotEmpty ? sharedEmoji : null,
+        pronouns: sharedPronouns.isNotEmpty ? sharedPronouns : null,
+        link: sharedLink.isNotEmpty ? sharedLink : null,
       );
     }
 
@@ -1039,6 +1054,9 @@ class RelayService {
         fromUsername: me.username,
         fromAvatarColor: avatarColor,
         fromAbout: about,
+        fromEmoji: avatarColor.isEmpty ? '' : me.emoji,
+        fromPronouns: about.isEmpty ? '' : me.pronouns,
+        fromLink: about.isEmpty ? '' : me.link,
         fromVerified: me.verified,
         fromScore: ScoreStore.instance.points,
         fromStreak: streak,

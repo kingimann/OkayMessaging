@@ -112,6 +112,36 @@ class ContactInfoScreen extends StatelessWidget {
               ),
             ),
           ],
+          if (user.pronouns.trim().isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Center(
+              child: Text(
+                user.pronouns.trim(),
+                style: TextStyle(color: Colors.grey.shade500, fontSize: 13),
+              ),
+            ),
+          ],
+          if (user.link.trim().isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Center(
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.link,
+                      size: 15,
+                      color: Theme.of(context).colorScheme.primary),
+                  const SizedBox(width: 4),
+                  Text(
+                    user.link.trim(),
+                    style: TextStyle(
+                        fontSize: 13.5,
+                        color: Theme.of(context).colorScheme.primary,
+                        fontWeight: FontWeight.w600),
+                  ),
+                ],
+              ),
+            ),
+          ],
           if (user.username.isNotEmpty) ...[
             const SizedBox(height: 12),
             Center(
