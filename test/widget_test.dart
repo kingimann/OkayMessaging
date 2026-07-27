@@ -12,6 +12,7 @@ import 'package:okay_messaging/crypto/e2e.dart';
 import 'package:okay_messaging/data/mock_data.dart';
 import 'package:okay_messaging/crypto/key_exchange.dart';
 import 'package:okay_messaging/main.dart';
+import 'package:okay_messaging/state/callkit_bridge.dart';
 import 'package:okay_messaging/state/incoming_links.dart';
 import 'package:okay_messaging/legal/legal_content.dart';
 import 'package:okay_messaging/models/call.dart' as callmodel;
@@ -3830,6 +3831,17 @@ void main() {
       final dupes =
           ContactsSync.hashesFor(['15550123456', '+1 555 012 3456']);
       expect(dupes.toSet().length, dupes.length);
+    });
+
+    test('CallKit uuids are stable per call and version-4 shaped', () {
+      addTearDown(CallKitBridge.instance.resetForTest);
+      final a = CallKitBridge.instance.uuidFor('call_1');
+      expect(CallKitBridge.instance.uuidFor('call_1'), a); // stable
+      expect(CallKitBridge.instance.uuidFor('call_2'), isNot(a));
+      expect(
+          RegExp(r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$')
+              .hasMatch(a),
+          isTrue);
     });
 
     test('mailbox rows yield their sealed payloads, tolerating junk', () {

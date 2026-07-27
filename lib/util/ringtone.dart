@@ -33,6 +33,11 @@ void _burst({required bool incoming}) {
     debug(incoming: incoming);
     return;
   }
+  // On iOS, CallKit rings incoming calls with the real system ringtone —
+  // chirping on top of it would double-ring. Outgoing ring-back is ours.
+  if (!kIsWeb && incoming && defaultTargetPlatform == TargetPlatform.iOS) {
+    return;
+  }
   impl.ringBurst(incoming: incoming);
   // A ringing phone should be felt as well as heard.
   if (incoming) {

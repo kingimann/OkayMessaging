@@ -18,6 +18,7 @@ import 'state/app_lock.dart';
 import 'state/backup_service.dart';
 import 'state/call_log.dart';
 import 'state/call_service.dart';
+import 'state/callkit_bridge.dart';
 import 'state/community_store.dart';
 import 'state/contacts_sync.dart';
 import 'state/crash_reporter.dart';
@@ -262,6 +263,7 @@ class _OkayMessagingAppState extends State<OkayMessagingApp>
     WidgetsBinding.instance.addObserver(this);
     IncomingLinks.instance
         .init(onPhone: openChatForPhone, onCall: openCallForPhone);
+    CallKitBridge.instance.init();
   }
 
   @override

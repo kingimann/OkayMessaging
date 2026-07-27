@@ -304,6 +304,10 @@ class _ChatInputBarState extends State<ChatInputBar> {
                     onPressed: () => setState(() {
                       _emojiOpen = !_emojiOpen;
                       _attachOpen = false;
+                      // The panel replaces the keyboard — never both at once.
+                      if (_emojiOpen) {
+                        FocusManager.instance.primaryFocus?.unfocus();
+                      }
                     }),
                   ),
                   Expanded(
@@ -348,6 +352,11 @@ class _ChatInputBarState extends State<ChatInputBar> {
                         : () => setState(() {
                               _attachOpen = !_attachOpen;
                               _emojiOpen = false;
+                              // The panel replaces the keyboard — never
+                              // both stacked at once.
+                              if (_attachOpen) {
+                                FocusManager.instance.primaryFocus?.unfocus();
+                              }
                             }),
                   ),
                 ],

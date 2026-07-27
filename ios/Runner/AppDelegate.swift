@@ -23,23 +23,27 @@ import UserNotifications
     }
   }
 
-  // Default-calling-app review (ITMS-91120) requires the binary to actually
-  // link CallKit. An enum-case reference constant-folds to an integer and
-  // leaves no linkage, which is exactly how build 23 got rejected — so hold
-  // a real CallKit object: instantiating the class forces the framework
-  // into the load commands.
-  private let callObserver = CXCallObserver()
+  // Real CallKit integration: OkayMessenger calls get the system's call
+  // UI — lock-screen answer/end, the green in-call indicator, mute from
+  // anywhere. (Instantiating these also satisfies the ITMS-91120 linkage
+  // check that bounced build 23.)
+  static let callKit = CallKitBridge()
 
   override func application(
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
-    _ = callObserver
+    _ = AppDelegate.callKit
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
+    // CallKit bridge: Dart reports call lifecycle up, system actions
+    // (answer / end / mute from the lock screen) flow back down.
+    let ckMessenger = engineBridge.pluginRegistry.registrar(forPlugin: "OkayCallKit")!.messenger()
+    AppDelegate.callKit.attach(
+        FlutterMethodChannel(name: "okay/callkit", binaryMessenger: ckMessenger))
     // Ring tones: Dart's ringer loop asks for one native burst at a time.
     // System sound IDs need no bundled audio; the vibrate call is the real
     // ringer vibration, far stronger than a haptic tap.
@@ -101,5 +105,96 @@ import UserNotifications
     pushChannel?.invokeMethod("token", arguments: hex)
     super.application(application,
         didRegisterForRemoteNotificationsWithDeviceToken: deviceToken)
+  }
+}
+
+/// Reports OkayMessenger calls to CallKit and forwards the system's call
+/// actions back to Dart. Audio stays owned by WebRTC — the provider's
+/// audio-session hooks deliberately do nothing, since flutter_webrtc
+/// configures its own AVAudioSession.
+class CallKitBridge: NSObject, CXProviderDelegate {
+  private let provider: CXProvider
+  private let controller = CXCallController()
+  private var channel: FlutterMethodChannel?
+
+  override init() {
+    let config = CXProviderConfiguration()
+    config.supportsVideo = true
+    config.maximumCallGroups = 1
+    config.maximumCallsPerCallGroup = 1
+    config.supportedHandleTypes = [.phoneNumber, .generic]
+    provider = CXProvider(configuration: config)
+    super.init()
+    provider.setDelegate(self, queue: nil)
+  }
+
+  func attach(_ channel: FlutterMethodChannel) {
+    self.channel = channel
+    channel.setMethodCallHandler { [weak self] call, result in
+      guard let self = self,
+            let args = call.arguments as? [String: Any],
+            let uuidString = args["uuid"] as? String,
+            let uuid = UUID(uuidString: uuidString) else {
+        result(FlutterMethodNotImplemented)
+        return
+      }
+      let name = (args["name"] as? String) ?? "OkayMessenger"
+      let video = (args["video"] as? Bool) ?? false
+      switch call.method {
+      case "outgoing":
+        let handle = CXHandle(type: .generic, value: name)
+        let start = CXStartCallAction(call: uuid, handle: handle)
+        start.isVideo = video
+        self.controller.request(CXTransaction(action: start)) { _ in }
+        result(nil)
+      case "incoming":
+        let update = CXCallUpdate()
+        update.remoteHandle = CXHandle(type: .generic, value: name)
+        update.localizedCallerName = name
+        update.hasVideo = video
+        self.provider.reportNewIncomingCall(with: uuid, update: update) { _ in }
+        result(nil)
+      case "connected":
+        self.provider.reportOutgoingCall(with: uuid, connectedAt: Date())
+        result(nil)
+      case "ended":
+        let remote = (args["remote"] as? Bool) ?? true
+        if remote {
+          self.provider.reportCall(with: uuid, endedAt: Date(), reason: .remoteEnded)
+        } else {
+          // Locally ended in the Flutter UI — retire it via a transaction so
+          // the system UI closes cleanly.
+          self.controller.request(
+              CXTransaction(action: CXEndCallAction(call: uuid))) { _ in }
+        }
+        result(nil)
+      default:
+        result(FlutterMethodNotImplemented)
+      }
+    }
+  }
+
+  func providerDidReset(_ provider: CXProvider) {
+    channel?.invokeMethod("end", arguments: nil)
+  }
+
+  func provider(_ provider: CXProvider, perform action: CXStartCallAction) {
+    provider.reportOutgoingCall(with: action.callUUID, startedConnectingAt: Date())
+    action.fulfill()
+  }
+
+  func provider(_ provider: CXProvider, perform action: CXAnswerCallAction) {
+    channel?.invokeMethod("answer", arguments: action.callUUID.uuidString)
+    action.fulfill()
+  }
+
+  func provider(_ provider: CXProvider, perform action: CXEndCallAction) {
+    channel?.invokeMethod("end", arguments: action.callUUID.uuidString)
+    action.fulfill()
+  }
+
+  func provider(_ provider: CXProvider, perform action: CXSetMutedCallAction) {
+    channel?.invokeMethod("mute", arguments: action.isMuted)
+    action.fulfill()
   }
 }
