@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'app_state.dart';
 import 'crypto/key_exchange.dart';
 import 'payments/payment_service.dart';
+import 'relay/relay_config.dart';
 import 'relay/relay_service.dart';
 import 'models/chat.dart';
 import 'models/user.dart';
@@ -11,11 +13,13 @@ import 'screens/call_screen.dart';
 import 'screens/chat_screen.dart';
 import 'screens/lock_screen.dart';
 import 'state/account_email.dart';
+import 'state/account_service.dart';
 import 'state/app_lock.dart';
 import 'state/backup_service.dart';
 import 'state/call_log.dart';
 import 'state/call_service.dart';
 import 'state/community_store.dart';
+import 'state/contacts_sync.dart';
 import 'state/crash_reporter.dart';
 import 'state/chat_store.dart';
 import 'state/cloud_sync.dart';
@@ -186,14 +190,35 @@ class OkayMessagingApp extends StatefulWidget {
 /// Lets non-widget code (incoming default-messenger links) navigate.
 final GlobalKey<NavigatorState> rootNavigatorKey = GlobalKey<NavigatorState>();
 
-/// Opens (or creates) the 1:1 chat for [phone] — where a message tap lands
-/// when OkayMessenger is the user's default messaging app.
-void openChatForPhone(String phone) {
+/// Opens the 1:1 chat for [phone] — where a message tap lands when
+/// OkayMessenger is the user's default messaging app. A number with no
+/// existing chat is looked up in the directory (hashes only): people on the
+/// app get a chat under their real identity; everyone else bounces to the
+/// system's sms: handler so the text still happens — Apple's documented
+/// fallback, which reaches Messages even when we're the default.
+Future<void> openChatForPhone(String phone) async {
   final store = ChatStore.instance;
   var chat = store.chatWithContact(phone);
+  AppUser? contact;
+  if (chat == null && RelayConfig.isEnabled) {
+    try {
+      final matches = await AccountService.instance.lookupByPhoneHashes(
+          ContactsSync.hashesFor([phone],
+              countryCode: ContactsSync.defaultCountryCode()));
+      if (matches.isEmpty) {
+        if (await launchUrl(Uri.parse('sms:$phone'))) return;
+      } else {
+        contact = matches.first;
+      }
+    } catch (_) {
+      // Offline: open the in-app chat rather than guessing.
+    }
+  }
   if (chat == null) {
     chat = Chat(
-        id: 'chat_$phone', contact: contactForPhone(phone), messages: const []);
+        id: 'chat_$phone',
+        contact: contact ?? contactForPhone(phone),
+        messages: const []);
     store.upsert(chat);
   } else if (chat.isArchived) {
     store.setArchived(chat.id, false);
