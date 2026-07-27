@@ -10,6 +10,7 @@ import '../app_state.dart';
 import '../crypto/e2e.dart';
 import '../relay/relay_config.dart';
 import '../relay/relay_service.dart';
+import 'account_email.dart';
 import 'chat_store.dart';
 import 'community_store.dart';
 import 'feed_store.dart';
@@ -125,6 +126,7 @@ class CloudSync extends ChangeNotifier {
         'places': SavedPlacesStore.instance.exportPlaces(),
         'communities': CommunityStore.instance.toJsonList(),
         'score': ScoreStore.instance.toJson(),
+        'accountEmail': AccountEmail.instance.toJson(),
       };
 
   /// Applies a decrypted payload back onto the local stores.
@@ -144,6 +146,10 @@ class CloudSync extends ChangeNotifier {
     final score = payload['score'];
     if (score is Map) {
       ScoreStore.instance.hydrate(Map<String, dynamic>.from(score));
+    }
+    final accountEmail = payload['accountEmail'];
+    if (accountEmail is Map) {
+      AccountEmail.instance.hydrate(Map<String, dynamic>.from(accountEmail));
     }
   }
 

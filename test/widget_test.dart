@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -69,6 +70,9 @@ import 'package:okay_messaging/screens/status_screen.dart';
 import 'package:okay_messaging/state/status_store.dart';
 import 'package:okay_messaging/state/chat_store.dart';
 import 'package:okay_messaging/state/gif_service.dart';
+import 'package:okay_messaging/state/account_email.dart';
+import 'package:okay_messaging/screens/account_email_screen.dart';
+import 'package:okay_messaging/theme/app_theme.dart';
 import 'package:okay_messaging/tabs/calls_tab.dart';
 import 'package:okay_messaging/screens/starred_messages_screen.dart';
 import 'package:okay_messaging/widgets/emoji_data.dart';
@@ -6554,6 +6558,214 @@ void main() {
       expect(find.text('Create call link'), findsNothing);
       expect(find.text('Dial a number'), findsNothing);
       expect(find.text('Find people by username'), findsNothing);
+    });
+  });
+
+  group('Account email', () {
+    setUp(AccountEmail.instance.resetForTest);
+
+    test('validation accepts real addresses and rejects the rest', () {
+      expect(AccountEmail.isValid('ada@example.com'), isTrue);
+      expect(AccountEmail.isValid('ada.lovelace+okay@mail.co.uk'), isTrue);
+      expect(AccountEmail.isValid('  ada@example.com  '), isTrue);
+      expect(AccountEmail.isValid('ada@example'), isFalse); // no TLD
+      expect(AccountEmail.isValid('ada example.com'), isFalse);
+      expect(AccountEmail.isValid('@example.com'), isFalse);
+      expect(AccountEmail.isValid('ada@@example.com'), isFalse);
+      expect(AccountEmail.isValid(''), isFalse);
+    });
+
+    test('masking hides the address without hiding which one it is', () {
+      expect(AccountEmail.mask('ada@example.com'), 'a•a@example.com');
+      expect(AccountEmail.mask('lovelace@example.com'), 'l••••••e@example.com');
+      expect(AccountEmail.mask('ab@example.com'), 'a•@example.com');
+      // Not an address — passed through rather than mangled.
+      expect(AccountEmail.mask('nonsense'), 'nonsense');
+    });
+
+    test('an invalid address is refused and nothing is stored', () async {
+      expect(await AccountEmail.instance.setEmail('not-an-email'),
+          EmailSaveResult.invalid);
+      expect(AccountEmail.instance.isSet, isFalse);
+    });
+
+    test('a valid address is stored unverified without a server session',
+        () async {
+      final result = await AccountEmail.instance.setEmail(' ada@example.com ');
+      // No Supabase session in tests, so nothing can be sent to confirm it —
+      // it's saved and honestly flagged rather than claimed as verified.
+      expect(result, EmailSaveResult.savedUnverified);
+      expect(AccountEmail.instance.email, 'ada@example.com');
+      expect(AccountEmail.instance.isVerified, isFalse);
+      expect(AccountEmail.instance.isSet, isTrue);
+
+      await AccountEmail.instance.clear();
+      expect(AccountEmail.instance.isSet, isFalse);
+    });
+
+    test('the account email rides the encrypted sync', () async {
+      CloudSync.debugServerOverride = {};
+      addTearDown(() {
+        CloudSync.debugServerOverride = null;
+        CloudSync.instance.resetForTest();
+        AccountEmail.instance.resetForTest();
+      });
+      await CloudSync.instance
+          .configure(passphrase: 'correct horse battery', on: false);
+      await AccountEmail.instance.setEmail('ada@example.com');
+
+      expect(await CloudSync.instance.syncNow(), isNull);
+      final blob = CloudSync.debugServerOverride!.values.single;
+      // The address is in the backup, but only as ciphertext.
+      expect(blob.contains('ada@example.com'), isFalse);
+
+      AccountEmail.instance.resetForTest();
+      expect(await CloudSync.instance.restore(), isNull);
+      expect(AccountEmail.instance.email, 'ada@example.com');
+    });
+
+    testWidgets('the screen adds an address and offers to remove it',
+        (tester) async {
+      await tester.pumpWidget(const MaterialApp(home: AccountEmailScreen()));
+      await tester.pumpAndSettle();
+
+      // With nothing set, the screen says the account has one way in.
+      expect(find.textContaining('one way in'), findsOneWidget);
+      expect(find.text('Remove email'), findsNothing);
+
+      await tester.enterText(
+          find.byType(TextField).first, 'ada@example.com');
+      await tester.tap(find.text('Add email'));
+      await tester.pumpAndSettle();
+
+      expect(AccountEmail.instance.email, 'ada@example.com');
+      expect(find.text('Update email'), findsOneWidget);
+      expect(find.text('Remove email'), findsOneWidget);
+      expect(find.textContaining('Not confirmed yet'), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+    });
+
+    testWidgets('a bad address is rejected inline, not silently saved',
+        (tester) async {
+      await tester.pumpWidget(const MaterialApp(home: AccountEmailScreen()));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextField).first, 'nope');
+      await tester.tap(find.text('Add email'));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('doesn\'t look like an email'), findsOneWidget);
+      expect(AccountEmail.instance.isSet, isFalse);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+    });
+  });
+
+  group('Dark-mode contrast', () {
+    /// The accent flips to near-white in dark mode; a control that hard-codes
+    /// the light accent paints near-black onto a near-black screen.
+    test('the accent flips with the theme', () {
+      final light = AppTheme.light.colorScheme.primary;
+      final dark = AppTheme.dark.colorScheme.primary;
+      expect(light.computeLuminance(), lessThan(0.2)); // near-black ink
+      expect(dark.computeLuminance(), greaterThan(0.6)); // near-white ink
+    });
+
+    testWidgets('Join Voice is legible on the dark voice screen',
+        (tester) async {
+      await tester.pumpWidget(MaterialApp(
+        theme: AppTheme.dark,
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: AppColors.accentOn(context),
+                foregroundColor: AppColors.onAccent(context),
+              ),
+              onPressed: () {},
+              child: const Text('Join Voice'),
+            ),
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      final button =
+          tester.widget<FilledButton>(find.byType(FilledButton));
+      const pressed = <WidgetState>{};
+      final background = button.style!.backgroundColor!.resolve(pressed)!;
+      final foreground = button.style!.foregroundColor!.resolve(pressed)!;
+      // The button must stand off the near-black surface, and its label must
+      // stand off the button — the pair that was broken.
+      expect(background.computeLuminance(), greaterThan(0.6));
+      expect(foreground.computeLuminance(), lessThan(0.2));
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+    });
+
+    test('no filled control hard-codes the light accent as a background', () {
+      // Guards the class of bug that made "Join Voice" invisible in dark mode.
+      final offenders = <String>[];
+      for (final file in Directory('lib').listSync(recursive: true)) {
+        if (file is! File || !file.path.endsWith('.dart')) continue;
+        if (file.path.endsWith('theme/app_theme.dart')) continue;
+        final lines = file.readAsLinesSync();
+        for (var i = 0; i < lines.length; i++) {
+          final line = lines[i];
+          if (line.contains('backgroundColor: AppColors.tealGreenDark') &&
+              !line.contains('withValues')) {
+            offenders.add('${file.path}:${i + 1}');
+          }
+        }
+      }
+      expect(offenders, isEmpty,
+          reason: 'these paint the light accent on any background');
+    });
+  });
+
+  group('New channel dialog', () {
+    testWidgets('each type is explained, and Create waits for a name',
+        (tester) async {
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => TextButton(
+              onPressed: () => promptNewChannelForTest(context),
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      ));
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+
+      // Every type says what it's for, rather than being a bare chip.
+      expect(find.text('Text'), findsOneWidget);
+      expect(find.text('Send messages, photos and polls'), findsOneWidget);
+      expect(find.text('A board of posts you can vote on'), findsOneWidget);
+
+      // Create is disabled until there's actually a name.
+      final create = tester.widget<FilledButton>(
+          find.widgetWithText(FilledButton, 'Create'));
+      expect(create.onPressed, isNull);
+
+      await tester.enterText(find.byType(TextField), 'Trip Planning');
+      await tester.pumpAndSettle();
+      // The preview shows the name the channel will really get.
+      expect(find.textContaining('#trip-planning'), findsOneWidget);
+      expect(
+          tester
+              .widget<FilledButton>(
+                  find.widgetWithText(FilledButton, 'Create'))
+              .onPressed,
+          isNotNull);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
     });
   });
 }

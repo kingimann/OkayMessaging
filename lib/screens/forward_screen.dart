@@ -111,9 +111,9 @@ class _ForwardScreenState extends State<ForwardScreen> {
       floatingActionButton: _selected.isEmpty
           ? null
           : FloatingActionButton(
-              backgroundColor: AppColors.tealGreenDark,
+              backgroundColor: AppColors.accentOn(context),
               onPressed: _send,
-              child: const Icon(Icons.send, color: Colors.white),
+              child: Icon(Icons.send, color: AppColors.onAccent(context)),
             ),
     );
   }

@@ -31,6 +31,17 @@ class AppColors {
   static const Color darkElevated = Color(0xFF23262B); // cards / sheets
 
   static const Color readTick = Color(0xFF0F1419); // mono read ticks
+
+  /// The accent that actually contrasts with what's behind it: near-black in
+  /// light mode, near-white in dark. Filled controls must use this rather than
+  /// [tealGreenDark] — that constant is the *light* accent, and hard-coding it
+  /// paints a near-black button onto a near-black screen.
+  static Color accentOn(BuildContext context) =>
+      Theme.of(context).colorScheme.primary;
+
+  /// The colour for text and icons sitting on [accentOn].
+  static Color onAccent(BuildContext context) =>
+      Theme.of(context).colorScheme.onPrimary;
 }
 
 class AppTheme {
@@ -152,20 +163,20 @@ class AppTheme {
       ),
       navigationBarTheme: NavigationBarThemeData(
         backgroundColor: AppColors.darkAppBar,
-        indicatorColor: AppColors.tealGreenDark.withValues(alpha: 0.30),
+        indicatorColor: scheme.primary.withValues(alpha: 0.22),
         elevation: 3,
         labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
         iconTheme: WidgetStateProperty.resolveWith(
           (states) => IconThemeData(
             color: states.contains(WidgetState.selected)
-                ? AppColors.tealGreenDark
+                ? scheme.primary
                 : Colors.grey.shade400,
           ),
         ),
       ),
-      floatingActionButtonTheme: const FloatingActionButtonThemeData(
-        backgroundColor: AppColors.tealGreenDark,
-        foregroundColor: Colors.white,
+      floatingActionButtonTheme: FloatingActionButtonThemeData(
+        backgroundColor: scheme.primary,
+        foregroundColor: scheme.onPrimary,
       ),
       dividerTheme: DividerThemeData(
           thickness: 0.6, color: Colors.white.withValues(alpha: 0.10)),

@@ -77,7 +77,8 @@ class _FileTransferBannerState extends State<FileTransferBanner> {
           FilledButton(
             onPressed: () => FileTransfer.instance.accept(),
             style: FilledButton.styleFrom(
-              backgroundColor: AppColors.tealGreenDark,
+              backgroundColor: AppColors.accentOn(context),
+              foregroundColor: AppColors.onAccent(context),
             ),
             child: const Text('Accept'),
           ),

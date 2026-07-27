@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../state/account_email.dart';
 import '../state/two_step.dart';
 import '../widgets/info_section.dart';
+import 'account_email_screen.dart';
 import 'settings_widgets.dart';
 
 /// Manage two-step verification: enable with a 6-digit PIN and an optional
@@ -16,66 +18,72 @@ class TwoStepScreen extends StatelessWidget {
       appBar: AppBar(title: const Text('Two-step verification')),
       body: ValueListenableBuilder<bool>(
         valueListenable: TwoStepVerification.instance.enabled,
-        builder: (context, on, _) => ListView(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
-              child: Row(
-                children: [
-                  Icon(on ? Icons.verified_user : Icons.shield_outlined,
-                      color: on ? const Color(0xFF12B76A) : Colors.grey,
-                      size: 34),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Text(
-                      on
-                          ? 'Two-step verification is on. You\'ll need your PIN '
-                              'to sign in on this device.'
-                          : 'Add an extra PIN that\'s required whenever you '
-                              'sign in — protection beyond your phone number.',
-                      style: TextStyle(color: Colors.grey.shade700),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 8),
-            if (!on)
+        builder: (context, on, _) => ListenableBuilder(
+          listenable: AccountEmail.instance,
+          builder: (context, _) => ListView(
+            children: [
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: FilledButton.icon(
-                  onPressed: () => _setup(context),
-                  icon: const Icon(Icons.lock_outline),
-                  label: const Text('Turn on'),
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+                child: Row(
+                  children: [
+                    Icon(on ? Icons.verified_user : Icons.shield_outlined,
+                        color: on ? const Color(0xFF12B76A) : Colors.grey,
+                        size: 34),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Text(
+                        on
+                            ? 'Two-step verification is on. You\'ll need your PIN '
+                                'to sign in on this device.'
+                            : 'Add an extra PIN that\'s required whenever you '
+                                'sign in — protection beyond your phone number.',
+                        style: TextStyle(color: Colors.grey.shade700),
+                      ),
+                    ),
+                  ],
                 ),
-              )
-            else ...[
-              settingsSectionLabel(context, 'Manage'),
-              InfoSection(children: [
-                InfoTile(
-                  leading: const Icon(Icons.pin_outlined),
-                  title: 'Change PIN',
-                  onTap: () => _setup(context, changing: true),
-                ),
-                InfoTile(
-                  leading: const Icon(Icons.email_outlined),
-                  title: 'Recovery email',
-                  subtitle: TwoStepVerification.instance.email.isEmpty
-                      ? 'Add an email in case you forget your PIN'
-                      : TwoStepVerification.instance.email,
-                  onTap: () => _editEmail(context),
-                ),
-                InfoTile(
-                  leading: const Icon(Icons.no_encryption_gmailerrorred_outlined,
-                      color: Colors.red),
-                  title: 'Turn off two-step verification',
-                  titleColor: Colors.red,
-                  onTap: () => _disable(context),
-                ),
-              ]),
+              ),
+              const SizedBox(height: 8),
+              if (!on)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: FilledButton.icon(
+                    onPressed: () => _setup(context),
+                    icon: const Icon(Icons.lock_outline),
+                    label: const Text('Turn on'),
+                  ),
+                )
+              else ...[
+                settingsSectionLabel(context, 'Manage'),
+                InfoSection(children: [
+                  InfoTile(
+                    leading: const Icon(Icons.pin_outlined),
+                    title: 'Change PIN',
+                    onTap: () => _setup(context, changing: true),
+                  ),
+                  InfoTile(
+                    leading: const Icon(Icons.email_outlined),
+                    title: 'Recovery email',
+                    subtitle: AccountEmail.instance.isSet
+                        ? AccountEmail.instance.email
+                        : 'Add an email in case you forget your PIN',
+                    // The account email *is* the recovery email — one address,
+                    // one screen to change it.
+                    onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                        builder: (_) => const AccountEmailScreen())),
+                  ),
+                  InfoTile(
+                    leading: const Icon(Icons.no_encryption_gmailerrorred_outlined,
+                        color: Colors.red),
+                    title: 'Turn off two-step verification',
+                    titleColor: Colors.red,
+                    onTap: () => _disable(context),
+                  ),
+                ]),
+              ],
+              const SizedBox(height: 24),
             ],
-            const SizedBox(height: 24),
-          ],
+          ),
         ),
       ),
     );
@@ -87,10 +95,12 @@ class TwoStepScreen extends StatelessWidget {
       builder: (_) => _PinDialog(withEmail: !changing),
     );
     if (result == null) return;
-    await TwoStepVerification.instance.setPin(
-      result.pin,
-      recoveryEmail: changing ? null : result.email,
-    );
+    await TwoStepVerification.instance.setPin(result.pin);
+    // The recovery email is the account email, so it goes through the one
+    // store that also handles validation and confirmation.
+    if (!changing && result.email.trim().isNotEmpty) {
+      await AccountEmail.instance.setEmail(result.email);
+    }
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(changing
@@ -100,43 +110,6 @@ class TwoStepScreen extends StatelessWidget {
     }
   }
 
-  Future<void> _editEmail(BuildContext context) async {
-    final controller = TextEditingController(
-        text: TwoStepVerification.instance.email);
-    final email = await showDialog<String>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Recovery email'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          keyboardType: TextInputType.emailAddress,
-          decoration: const InputDecoration(
-            hintText: 'you@example.com',
-            helperText: 'Used to help you reset your PIN',
-          ),
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('Cancel')),
-          TextButton(
-              onPressed: () =>
-                  Navigator.of(dialogContext).pop(controller.text.trim()),
-              child: const Text('Save')),
-        ],
-      ),
-    );
-    controller.dispose();
-    if (email != null) {
-      await TwoStepVerification.instance.setEmail(email);
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Recovery email updated')),
-        );
-      }
-    }
-  }
 
   Future<void> _disable(BuildContext context) async {
     final ok = await showDialog<bool>(

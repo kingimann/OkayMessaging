@@ -91,7 +91,8 @@ class _PollComposerSheetState extends State<PollComposerSheet> {
               const SizedBox(height: 8),
               FilledButton(
                 style: FilledButton.styleFrom(
-                  backgroundColor: AppColors.tealGreenDark,
+                  backgroundColor: AppColors.accentOn(context),
+                  foregroundColor: AppColors.onAccent(context),
                   padding: const EdgeInsets.symmetric(vertical: 14),
                 ),
                 onPressed: _valid

@@ -855,7 +855,8 @@ class _VoicemailRecorderState extends State<_VoicemailRecorder>
                 Expanded(
                   child: FilledButton.icon(
                     style: FilledButton.styleFrom(
-                      backgroundColor: AppColors.tealGreenDark,
+                      backgroundColor: AppColors.accentOn(context),
+                      foregroundColor: AppColors.onAccent(context),
                       padding: const EdgeInsets.symmetric(vertical: 14),
                     ),
                     icon: const Icon(Icons.send),

@@ -338,7 +338,7 @@ class _ChatInputBarState extends State<ChatInputBar> {
             onLongPress: _hasText ? _schedule : null,
             child: CircleAvatar(
               radius: 24,
-              backgroundColor: AppColors.tealGreenDark,
+              backgroundColor: AppColors.accentOn(context),
               child: AnimatedSwitcher(
                 duration: const Duration(milliseconds: 200),
                 transitionBuilder: (child, animation) =>
@@ -346,7 +346,7 @@ class _ChatInputBarState extends State<ChatInputBar> {
                 child: Icon(
                   _hasText ? Icons.send : Icons.mic,
                   key: ValueKey(_hasText),
-                  color: Colors.white,
+                  color: AppColors.onAccent(context),
                 ),
               ),
             ),
@@ -391,10 +391,10 @@ class _ChatInputBarState extends State<ChatInputBar> {
           const SizedBox(width: 6),
           GestureDetector(
             onTap: _finishRecording,
-            child: const CircleAvatar(
+            child: CircleAvatar(
               radius: 24,
-              backgroundColor: AppColors.tealGreenDark,
-              child: Icon(Icons.send, color: Colors.white),
+              backgroundColor: AppColors.accentOn(context),
+              child: Icon(Icons.send, color: AppColors.onAccent(context)),
             ),
           ),
         ],
@@ -434,10 +434,11 @@ class _MentionSuggestions extends StatelessWidget {
                 dense: true,
                 leading: CircleAvatar(
                   radius: 15,
-                  backgroundColor: AppColors.tealGreenDark,
+                  backgroundColor: AppColors.accentOn(context),
                   child: Text(
                     name.isEmpty ? '?' : name[0].toUpperCase(),
-                    style: const TextStyle(color: Colors.white, fontSize: 13),
+                    style: TextStyle(
+                        color: AppColors.onAccent(context), fontSize: 13),
                   ),
                 ),
                 title: Text('@$name'),

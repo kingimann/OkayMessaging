@@ -783,8 +783,10 @@ class _VoiceChannelScreenState extends State<VoiceChannelScreen> {
   Widget _controlBar() {
     return SafeArea(
       top: false,
+      // The bottom inset alone leaves the button flush against the home
+      // indicator, so add real space under it as well.
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
         child: _joined
             ? Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -832,12 +834,17 @@ class _VoiceChannelScreenState extends State<VoiceChannelScreen> {
                   ),
                 ],
               )
-            : Center(
+            : SizedBox(
+                width: double.infinity,
                 child: FilledButton.icon(
                   style: FilledButton.styleFrom(
-                    backgroundColor: AppColors.tealGreenDark,
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 28, vertical: 14),
+                    backgroundColor: AppColors.accentOn(context),
+                    foregroundColor: AppColors.onAccent(context),
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    textStyle: const TextStyle(
+                        fontSize: 16, fontWeight: FontWeight.w600),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(28)),
                   ),
                   icon: const Icon(Icons.headset_mic),
                   label: const Text('Join Voice'),
@@ -1117,8 +1124,8 @@ class _ChannelScreenState extends State<ChannelScreen> {
                       IconButton.filled(
                         icon: const Icon(Icons.send),
                         style: IconButton.styleFrom(
-                          backgroundColor: AppColors.tealGreenDark,
-                          foregroundColor: Colors.white,
+                          backgroundColor: AppColors.accentOn(context),
+                          foregroundColor: AppColors.onAccent(context),
                         ),
                         onPressed: _send,
                       ),
@@ -1627,6 +1634,31 @@ Future<String?> _promptName(
   );
 }
 
+/// What each channel type is for, shown next to its name so the choice isn't
+/// four bare words.
+const _channelTypes = <(ChannelType, IconData, String, String)>[
+  (ChannelType.text, Icons.tag, 'Text', 'Send messages, photos and polls'),
+  (ChannelType.voice, Icons.volume_up_rounded, 'Voice', 'Hang out and talk'),
+  (
+    ChannelType.announcement,
+    Icons.campaign_rounded,
+    'News',
+    'Post updates everyone can follow'
+  ),
+  (
+    ChannelType.forum,
+    Icons.forum_rounded,
+    'Forum',
+    'A board of posts you can vote on'
+  ),
+];
+
+/// Opens the new-channel dialog. Exposed so its behaviour can be tested
+/// without driving the whole community screen to reach it.
+@visibleForTesting
+Future<(String, ChannelType)?> promptNewChannelForTest(BuildContext context) =>
+    _promptNewChannel(context);
+
 /// Dialog to create a channel: pick a type, then name it.
 Future<(String, ChannelType)?> _promptNewChannel(BuildContext context) {
   final controller = TextEditingController();
@@ -1634,64 +1666,179 @@ Future<(String, ChannelType)?> _promptNewChannel(BuildContext context) {
   return showDialog<(String, ChannelType)>(
     context: context,
     builder: (dialogContext) => StatefulBuilder(
-      builder: (dialogContext, setState) => AlertDialog(
-        title: const Text('New channel'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Wrap(
-              spacing: 8,
+      builder: (dialogContext, setState) {
+        final name = _cleanChannelPreview(controller.text, type);
+        final valid = name.isNotEmpty;
+        void submit() {
+          if (valid) Navigator.of(dialogContext).pop((controller.text.trim(), type));
+        }
+
+        return AlertDialog(
+          scrollable: true,
+          titlePadding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
+          contentPadding: const EdgeInsets.fromLTRB(24, 16, 24, 0),
+          title: const Text('New channel'),
+          content: SizedBox(
+            width: 360,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                for (final t in const [
-                  (ChannelType.text, Icons.tag, 'Text'),
-                  (ChannelType.voice, Icons.volume_up_rounded, 'Voice'),
-                  (ChannelType.announcement, Icons.campaign_rounded, 'News'),
-                  (ChannelType.forum, Icons.forum_rounded, 'Forum'),
-                ])
-                  ChoiceChip(
-                    avatar: Icon(t.$2,
-                        size: 18,
-                        color: type == t.$1
-                            ? Theme.of(dialogContext).colorScheme.onSecondaryContainer
-                            : null),
-                    label: Text(t.$3),
-                    selected: type == t.$1,
-                    onSelected: (_) => setState(() => type = t.$1),
+                Text(
+                  'CHANNEL TYPE',
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.6,
+                    color: Colors.grey.shade500,
                   ),
+                ),
+                const SizedBox(height: 8),
+                // One row per type, so each gets its description instead of
+                // four chips wrapping onto two ragged lines.
+                for (final t in _channelTypes)
+                  _ChannelTypeOption(
+                    icon: t.$2,
+                    label: t.$3,
+                    description: t.$4,
+                    selected: type == t.$1,
+                    onTap: () => setState(() => type = t.$1),
+                  ),
+                const SizedBox(height: 18),
+                Text(
+                  'CHANNEL NAME',
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.6,
+                    color: Colors.grey.shade500,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: controller,
+                  autofocus: true,
+                  textCapitalization: type == ChannelType.voice
+                      ? TextCapitalization.words
+                      : TextCapitalization.none,
+                  onChanged: (_) => setState(() {}),
+                  decoration: InputDecoration(
+                    filled: true,
+                    isDense: true,
+                    prefixIcon: Icon(_channelIcon(type), size: 20),
+                    hintText: type == ChannelType.voice
+                        ? 'General'
+                        : 'new-channel',
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: BorderSide.none,
+                    ),
+                  ),
+                  onSubmitted: (_) => submit(),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  type == ChannelType.voice
+                      ? 'Voice channels keep the name you type.'
+                      : 'Spaces become dashes — it\'ll show up as '
+                          '#${name.isEmpty ? 'new-channel' : name}.',
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                ),
               ],
             ),
-            const SizedBox(height: 8),
-            if (type == ChannelType.forum)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: Text('A Reddit-style board of posts you can vote on.',
-                    style:
-                        TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+          ),
+          actionsPadding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: AppColors.accentOn(dialogContext),
+                foregroundColor: AppColors.onAccent(dialogContext),
               ),
-            TextField(
-              controller: controller,
-              autofocus: true,
-              decoration: InputDecoration(
-                  hintText:
-                      type == ChannelType.voice ? 'Channel name' : 'channel-name'),
-              onSubmitted: (v) =>
-                  Navigator.of(dialogContext).pop((v.trim(), type)),
+              onPressed: valid ? submit : null,
+              child: const Text('Create'),
             ),
           ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext)
-                .pop((controller.text.trim(), type)),
-            child: const Text('Create'),
-          ),
-        ],
-      ),
+        );
+      },
     ),
   );
+}
+
+/// Mirrors the store's channel-name cleanup so the dialog can preview the
+/// name the channel will actually get.
+String _cleanChannelPreview(String raw, ChannelType type) {
+  final trimmed = raw.trim();
+  if (type == ChannelType.voice) return trimmed;
+  return trimmed
+      .toLowerCase()
+      .replaceAll(RegExp(r'\s+'), '-')
+      .replaceAll(RegExp(r'[^a-z0-9\-_]'), '');
+}
+
+/// One selectable channel type: icon, name and what it's for.
+class _ChannelTypeOption extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String description;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _ChannelTypeOption({
+    required this.icon,
+    required this.label,
+    required this.description,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Material(
+        color: selected
+            ? scheme.primary.withValues(alpha: 0.12)
+            : Colors.transparent,
+        borderRadius: BorderRadius.circular(14),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            child: Row(
+              children: [
+                Icon(icon,
+                    size: 20,
+                    color: selected ? scheme.primary : Colors.grey.shade500),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(label,
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight:
+                                selected ? FontWeight.w700 : FontWeight.w600,
+                          )),
+                      Text(description,
+                          style: TextStyle(
+                              fontSize: 12.5, color: Colors.grey.shade600)),
+                    ],
+                  ),
+                ),
+                if (selected)
+                  Icon(Icons.check_circle, size: 20, color: scheme.primary),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }

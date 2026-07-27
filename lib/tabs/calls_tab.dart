@@ -277,7 +277,8 @@ class _CallLinkSheet extends StatelessWidget {
                     icon: const Icon(Icons.ios_share, size: 18),
                     label: const Text('Share'),
                     style: FilledButton.styleFrom(
-                        backgroundColor: AppColors.tealGreenDark,
+                        backgroundColor: AppColors.accentOn(context),
+                        foregroundColor: AppColors.onAccent(context),
                         padding: const EdgeInsets.symmetric(vertical: 14)),
                   ),
                 ),

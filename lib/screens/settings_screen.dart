@@ -2,12 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../app_state.dart';
+import '../state/account_email.dart';
 import '../state/backup_service.dart';
 import '../util/build_info.dart';
 import '../state/chat_store.dart';
 import '../state/session.dart';
 import '../widgets/info_section.dart';
 import '../widgets/user_avatar.dart';
+import 'account_email_screen.dart';
 import 'backup_screen.dart';
 import 'chats_settings_screen.dart';
 import 'cloud_sync_screen.dart';
@@ -112,6 +114,29 @@ class SettingsView extends StatelessWidget {
               title: 'Account',
               subtitle: 'Phone number, username',
               onTap: () => _showAccount(context),
+            ),
+            ListenableBuilder(
+              listenable: AccountEmail.instance,
+              builder: (context, _) {
+                final store = AccountEmail.instance;
+                return InfoTile(
+                  leading: const Icon(Icons.alternate_email),
+                  title: 'Email address',
+                  subtitle: store.isSet
+                      ? (store.isVerified
+                          ? store.email
+                          : '${store.email} · not confirmed')
+                      : 'Add one so you can recover your account',
+                  trailing: store.isSet
+                      ? null
+                      : const Icon(Icons.error_outline,
+                          color: Color(0xFFF57F17)),
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                        builder: (_) => const AccountEmailScreen()),
+                  ),
+                );
+              },
             ),
             ListenableBuilder(
               listenable: BackupService.instance,
@@ -294,6 +319,10 @@ class SettingsView extends StatelessWidget {
                 me.phone.isEmpty ? 'Not set' : me.phone),
             row(Icons.alternate_email, 'Username',
                 me.handle.isNotEmpty ? me.handle : 'Not set'),
+            row(Icons.email_outlined, 'Email',
+                AccountEmail.instance.isSet
+                    ? AccountEmail.instance.email
+                    : 'Not set'),
             const SizedBox(height: 12),
           ],
         ),

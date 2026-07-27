@@ -466,7 +466,8 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
   Widget _cta(String label, VoidCallback onPressed) => FilledButton(
         onPressed: _busy ? null : onPressed,
         style: FilledButton.styleFrom(
-          backgroundColor: AppColors.tealGreenDark,
+          backgroundColor: AppColors.accentOn(context),
+          foregroundColor: AppColors.onAccent(context),
           minimumSize: const Size.fromHeight(52),
           shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(26)),

@@ -189,10 +189,10 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
       children: [
         Row(
           children: [
-            const CircleAvatar(
+            CircleAvatar(
               radius: 30,
-              backgroundColor: AppColors.tealGreenDark,
-              child: Icon(Icons.group, color: Colors.white),
+              backgroundColor: AppColors.accentOn(context),
+              child: Icon(Icons.group, color: AppColors.onAccent(context)),
             ),
             const SizedBox(width: 16),
             Expanded(
@@ -230,7 +230,8 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
         FilledButton.icon(
           onPressed: _create,
           style: FilledButton.styleFrom(
-            backgroundColor: AppColors.tealGreenDark,
+            backgroundColor: AppColors.accentOn(context),
+            foregroundColor: AppColors.onAccent(context),
           ),
           icon: const Icon(Icons.check),
           label: const Text('Create group'),

@@ -7,6 +7,7 @@ import 'relay/relay_service.dart';
 import 'screens/auth/auth_gate.dart';
 import 'screens/call_screen.dart';
 import 'screens/lock_screen.dart';
+import 'state/account_email.dart';
 import 'state/app_lock.dart';
 import 'state/backup_service.dart';
 import 'state/call_log.dart';
@@ -41,6 +42,7 @@ Future<void> main() async {
   await SecureKeyExchange.instance.load();
   await AppLock.instance.load();
   await TwoStepVerification.instance.load();
+  await AccountEmail.instance.load();
   await CommunityStore.instance.load();
   await CallLog.instance.load();
   await ScoreStore.instance.load();
