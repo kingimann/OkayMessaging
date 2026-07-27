@@ -22,15 +22,18 @@ import UserNotifications
     }
   }
 
-  // Default-calling-app review requires linking CallKit (or PushKit); the
-  // referenced type keeps the framework from being stripped as unused.
-  private static let callHandleType: CXHandle.HandleType = .phoneNumber
+  // Default-calling-app review (ITMS-91120) requires the binary to actually
+  // link CallKit. An enum-case reference constant-folds to an integer and
+  // leaves no linkage, which is exactly how build 23 got rejected — so hold
+  // a real CallKit object: instantiating the class forces the framework
+  // into the load commands.
+  private let callObserver = CXCallObserver()
 
   override func application(
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
-    _ = AppDelegate.callHandleType
+    _ = callObserver
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 
