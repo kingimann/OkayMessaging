@@ -118,7 +118,14 @@ class CallKitBridge: NSObject, CXProviderDelegate {
   private var channel: FlutterMethodChannel?
 
   override init() {
-    let config = CXProviderConfiguration()
+    // The argument-less init is iOS 14+; the app still targets 13, so fall
+    // back to the (deprecated there, but working) named initializer.
+    let config: CXProviderConfiguration
+    if #available(iOS 14.0, *) {
+      config = CXProviderConfiguration()
+    } else {
+      config = CXProviderConfiguration(localizedName: "OkayMessenger")
+    }
     config.supportsVideo = true
     config.maximumCallGroups = 1
     config.maximumCallsPerCallGroup = 1
