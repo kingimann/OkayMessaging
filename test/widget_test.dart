@@ -12,6 +12,7 @@ import 'package:okay_messaging/crypto/e2e.dart';
 import 'package:okay_messaging/data/mock_data.dart';
 import 'package:okay_messaging/crypto/key_exchange.dart';
 import 'package:okay_messaging/main.dart';
+import 'package:okay_messaging/state/incoming_links.dart';
 import 'package:okay_messaging/legal/legal_content.dart';
 import 'package:okay_messaging/models/call.dart' as callmodel;
 import 'package:okay_messaging/screens/auth/phone_login_screen.dart';
@@ -3829,6 +3830,39 @@ void main() {
       final dupes =
           ContactsSync.hashesFor(['15550123456', '+1 555 012 3456']);
       expect(dupes.toSet().length, dupes.length);
+    });
+
+    test('im: links (default messaging app) parse and open the right chat',
+        () {
+      // Phone targets, in every shape iOS sends them.
+      expect(IncomingLinks.imPhone('im:+15550123456'), '+15550123456');
+      expect(IncomingLinks.imPhone('im://+1-555-012.3456'), '+15550123456');
+      expect(IncomingLinks.imPhone('sms:5550123456'), '5550123456');
+      expect(IncomingLinks.imPhone('im:%2B15550123456'), '+15550123456');
+      // Email, junk, and foreign schemes are not phone targets.
+      expect(IncomingLinks.imPhone('im:user@example.com'), isNull);
+      expect(IncomingLinks.imPhone('im:123'), isNull);
+      expect(IncomingLinks.imPhone('https://okay.chat'), isNull);
+      expect(IncomingLinks.isEmailTarget('im:user@example.com'), isTrue);
+      expect(IncomingLinks.isEmailTarget('im:+15550123456'), isFalse);
+
+      // A message tap creates the chat, then reuses (and unarchives) it.
+      ChatStore.instance.reset();
+      openChatForPhone('+15550123456');
+      final created = ChatStore.instance.chatWithContact('+15550123456');
+      expect(created, isNotNull);
+      expect(created!.contact.phone, '+15550123456');
+      ChatStore.instance.setArchived(created.id, true);
+      openChatForPhone('+15550123456');
+      expect(
+          ChatStore.instance
+              .chatWithContact('+15550123456')!
+              .isArchived,
+          isFalse);
+      expect(
+          ChatStore.instance.allChats
+              .where((c) => c.contact.id == '+15550123456'),
+          hasLength(1));
     });
 
     test('sync matches hashed numbers against the directory', () async {

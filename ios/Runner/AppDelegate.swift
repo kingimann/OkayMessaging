@@ -6,6 +6,21 @@ import UserNotifications
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
   private var pushChannel: FlutterMethodChannel?
 
+  // Incoming im: links (default-messaging-app taps). A link can arrive at
+  // cold launch before Dart is up, so buffer it until Dart asks.
+  static var linkChannel: FlutterMethodChannel?
+  static var pendingLink: String?
+
+  /// Delivers an im: URL to Dart, or parks it for the "getInitial" pull.
+  static func deliverLink(_ url: URL) {
+    let s = url.absoluteString
+    if let channel = linkChannel {
+      channel.invokeMethod("link", arguments: s)
+    } else {
+      pendingLink = s
+    }
+  }
+
   override func application(
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
@@ -15,6 +30,19 @@ import UserNotifications
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
+    // Default-messaging-app links: Dart listens for "link" pushes and pulls
+    // any URL that arrived before it was ready.
+    let linkMessenger = engineBridge.pluginRegistry.registrar(forPlugin: "OkayLinks")!.messenger()
+    let links = FlutterMethodChannel(name: "okay/links", binaryMessenger: linkMessenger)
+    AppDelegate.linkChannel = links
+    links.setMethodCallHandler { call, result in
+      if call.method == "getInitial" {
+        result(AppDelegate.pendingLink)
+        AppDelegate.pendingLink = nil
+      } else {
+        result(FlutterMethodNotImplemented)
+      }
+    }
     // Minimal push bridge (no third-party plugin): Dart calls "register",
     // we ask iOS for permission + an APNs token and send it back as hex.
     let messenger = engineBridge.pluginRegistry.registrar(forPlugin: "OkayPush")!.messenger()

@@ -4,8 +4,11 @@ import 'app_state.dart';
 import 'crypto/key_exchange.dart';
 import 'payments/payment_service.dart';
 import 'relay/relay_service.dart';
+import 'models/chat.dart';
+import 'models/user.dart';
 import 'screens/auth/auth_gate.dart';
 import 'screens/call_screen.dart';
+import 'screens/chat_screen.dart';
 import 'screens/lock_screen.dart';
 import 'state/account_email.dart';
 import 'state/app_lock.dart';
@@ -18,6 +21,7 @@ import 'state/chat_store.dart';
 import 'state/cloud_sync.dart';
 import 'state/feed_store.dart';
 import 'state/favourites_store.dart';
+import 'state/incoming_links.dart';
 import 'state/follow_store.dart';
 import 'state/legal_consent.dart';
 import 'state/live_location_broadcaster.dart';
@@ -179,12 +183,43 @@ class OkayMessagingApp extends StatefulWidget {
   State<OkayMessagingApp> createState() => _OkayMessagingAppState();
 }
 
+/// Lets non-widget code (incoming default-messenger links) navigate.
+final GlobalKey<NavigatorState> rootNavigatorKey = GlobalKey<NavigatorState>();
+
+/// Opens (or creates) the 1:1 chat for [phone] — where a message tap lands
+/// when OkayMessenger is the user's default messaging app.
+void openChatForPhone(String phone) {
+  final store = ChatStore.instance;
+  var chat = store.chatWithContact(phone);
+  if (chat == null) {
+    chat = Chat(
+      id: 'chat_$phone',
+      contact: AppUser(
+        id: phone,
+        name: phone,
+        avatarColor: '#64B5F6',
+        about: 'Available',
+        phone: phone,
+      ),
+      messages: const [],
+    );
+    store.upsert(chat);
+  } else if (chat.isArchived) {
+    store.setArchived(chat.id, false);
+  }
+  final open = chat;
+  rootNavigatorKey.currentState?.push(
+    MaterialPageRoute(builder: (_) => ChatScreen(chat: open)),
+  );
+}
+
 class _OkayMessagingAppState extends State<OkayMessagingApp>
     with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    IncomingLinks.instance.init(onPhone: openChatForPhone);
   }
 
   @override
@@ -211,6 +246,7 @@ class _OkayMessagingAppState extends State<OkayMessagingApp>
         return MaterialApp(
           title: 'OkayMessenger',
           debugShowCheckedModeBanner: false,
+          navigatorKey: rootNavigatorKey,
           theme: AppTheme.light,
           darkTheme: AppTheme.dark,
           themeMode: mode,
