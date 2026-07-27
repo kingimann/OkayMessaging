@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../state/backup_service.dart';
 import '../util/backup_export.dart';
 import '../utils/date_formatter.dart';
+import '../widgets/app_dialogs.dart';
 import '../widgets/info_section.dart';
 import 'settings_widgets.dart';
 
@@ -34,24 +35,15 @@ class BackupScreen extends StatelessWidget {
   }
 
   Future<void> _restore(BuildContext context) async {
-    final proceed = await showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Restore a backup?'),
-        content: const Text(
-            'Restoring replaces the chats on this device with the ones in the '
-            'backup. This can\'t be undone.'),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('Cancel')),
-          TextButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('Choose file')),
-        ],
-      ),
+    final proceed = await showAppConfirmDialog(
+      context,
+      icon: Icons.settings_backup_restore,
+      title: 'Restore a backup?',
+      message: 'Restoring replaces the chats on this device with the ones in '
+          'the backup. This can\'t be undone.',
+      confirmLabel: 'Choose file',
     );
-    if (proceed != true || !context.mounted) return;
+    if (!proceed || !context.mounted) return;
 
     final messenger = ScaffoldMessenger.of(context);
     final picked = await FilePicker.pickFiles(withData: true);

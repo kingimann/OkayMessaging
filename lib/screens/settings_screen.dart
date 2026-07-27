@@ -7,6 +7,7 @@ import '../state/backup_service.dart';
 import '../util/build_info.dart';
 import '../state/chat_store.dart';
 import '../state/session.dart';
+import '../widgets/app_dialogs.dart';
 import '../widgets/info_section.dart';
 import '../widgets/user_avatar.dart';
 import 'account_email_screen.dart';
@@ -331,26 +332,16 @@ class SettingsView extends StatelessWidget {
   }
 
   Future<void> _confirmClearChats(BuildContext context) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Clear all chats?'),
-        content: const Text(
-            'This permanently deletes every conversation from this device. '
-            'This cannot be undone.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Clear', style: TextStyle(color: Colors.red)),
-          ),
-        ],
-      ),
+    final ok = await showAppConfirmDialog(
+      context,
+      icon: Icons.delete_forever_outlined,
+      title: 'Clear all chats?',
+      message: 'This permanently deletes every conversation from this '
+          'device. This cannot be undone.',
+      confirmLabel: 'Clear all chats',
+      destructive: true,
     );
-    if (ok != true || !context.mounted) return;
+    if (!ok || !context.mounted) return;
     ChatStore.instance.clearAll();
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('All chats cleared')),

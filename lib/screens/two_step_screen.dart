@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../state/account_email.dart';
 import '../state/two_step.dart';
+import '../widgets/app_dialogs.dart';
 import '../widgets/info_section.dart';
 import 'account_email_screen.dart';
 import 'settings_widgets.dart';
@@ -112,24 +113,15 @@ class TwoStepScreen extends StatelessWidget {
 
 
   Future<void> _disable(BuildContext context) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Turn off two-step verification?'),
-        content: const Text(
-            'You won\'t be asked for a PIN when signing in on this device.'),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: const Text('Cancel')),
-          TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(true),
-              child:
-                  const Text('Turn off', style: TextStyle(color: Colors.red))),
-        ],
-      ),
+    final ok = await showAppConfirmDialog(
+      context,
+      icon: Icons.no_encryption_gmailerrorred_outlined,
+      title: 'Turn off two-step verification?',
+      message: 'You won\'t be asked for a PIN when signing in on this device.',
+      confirmLabel: 'Turn off',
+      destructive: true,
     );
-    if (ok == true) {
+    if (ok) {
       await TwoStepVerification.instance.disable();
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

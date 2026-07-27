@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../models/community.dart';
 import '../state/community_store.dart';
+import '../widgets/app_dialogs.dart';
 import '../widgets/info_section.dart';
 
 Color _hex(String s) => Color(int.parse(s.replaceFirst('#', 'ff'), radix: 16));
@@ -131,21 +132,12 @@ class CommunitySettingsScreen extends StatelessWidget {
   }
 
   Future<void> _rename(BuildContext context, Community community) async {
-    final controller = TextEditingController(text: community.name);
-    final name = await showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Rename server'),
-        content: TextField(controller: controller, autofocus: true),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancel')),
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, controller.text.trim()),
-              child: const Text('Save')),
-        ],
-      ),
+    final name = await showAppTextPrompt(
+      context,
+      icon: Icons.drive_file_rename_outline,
+      title: 'Rename server',
+      initial: community.name,
+      capitalization: TextCapitalization.words,
     );
     if (name != null && name.isNotEmpty) {
       CommunityStore.instance.renameCommunity(communityId, name);
@@ -154,28 +146,15 @@ class CommunitySettingsScreen extends StatelessWidget {
 
   Future<void> _editDescription(
       BuildContext context, Community community) async {
-    final controller = TextEditingController(text: community.description);
-    final desc = await showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Server description'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          maxLines: 3,
-          maxLength: 140,
-          decoration: const InputDecoration(
-              hintText: 'What is this server about?'),
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancel')),
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, controller.text.trim()),
-              child: const Text('Save')),
-        ],
-      ),
+    final desc = await showAppTextPrompt(
+      context,
+      icon: Icons.notes,
+      title: 'Server description',
+      hint: 'What is this server about?',
+      initial: community.description,
+      maxLines: 3,
+      allowEmpty: true,
+      capitalization: TextCapitalization.sentences,
     );
     if (desc != null) {
       CommunityStore.instance.setCommunityDescription(communityId, desc);
@@ -183,24 +162,16 @@ class CommunitySettingsScreen extends StatelessWidget {
   }
 
   Future<void> _confirmDelete(BuildContext context, Community community) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('Delete "${community.name}"?'),
-        content: const Text(
-            'This permanently removes the server and all its channels for you.'),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancel')),
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child:
-                  const Text('Delete', style: TextStyle(color: Colors.red))),
-        ],
-      ),
+    final ok = await showAppConfirmDialog(
+      context,
+      icon: Icons.delete_outline,
+      title: 'Delete "${community.name}"?',
+      message:
+          'This permanently removes the server and all its channels for you.',
+      confirmLabel: 'Delete server',
+      destructive: true,
     );
-    if (ok == true && context.mounted) {
+    if (ok && context.mounted) {
       CommunityStore.instance.deleteCommunity(communityId);
       Navigator.of(context).popUntil((r) => r.isFirst);
     }

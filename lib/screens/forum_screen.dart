@@ -4,6 +4,7 @@ import '../app_state.dart';
 import '../models/community.dart';
 import '../state/community_store.dart';
 import '../utils/date_formatter.dart';
+import '../widgets/app_dialogs.dart';
 import '../widgets/pull_to_refresh.dart';
 
 /// How a forum channel's posts are ordered.
@@ -303,24 +304,15 @@ class _PostCard extends StatelessWidget {
 }
 
 /// Confirms and performs deletion of a post or comment.
-Future<bool> _confirmDelete(BuildContext context, String what) async {
-  final ok = await showDialog<bool>(
-    context: context,
-    builder: (_) => AlertDialog(
-      title: Text('Delete $what?'),
-      content: Text('This permanently removes the $what.'),
-      actions: [
-        TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Cancel')),
-        TextButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Delete', style: TextStyle(color: Colors.red))),
-      ],
-    ),
-  );
-  return ok == true;
-}
+Future<bool> _confirmDelete(BuildContext context, String what) =>
+    showAppConfirmDialog(
+      context,
+      icon: Icons.delete_outline,
+      title: 'Delete $what?',
+      message: 'This permanently removes the $what.',
+      confirmLabel: 'Delete',
+      destructive: true,
+    );
 
 /// Overflow menu for a post: pin/unpin (moderators) and delete.
 class _PostMenu extends StatelessWidget {

@@ -11,6 +11,7 @@ import '../state/community_store.dart';
 import '../state/feed_store.dart';
 import '../theme/app_theme.dart';
 import '../utils/date_formatter.dart';
+import '../widgets/app_dialogs.dart';
 import '../widgets/emoji_gif_sheet.dart';
 import '../widgets/pull_to_refresh.dart';
 import '../widgets/poll_widgets.dart';
@@ -1607,32 +1608,15 @@ class _Empty extends StatelessWidget {
 }
 
 Future<String?> _promptName(
-    BuildContext context, String title, String hint) {
-  final controller = TextEditingController();
-  return showDialog<String>(
-    context: context,
-    builder: (dialogContext) => AlertDialog(
-      title: Text(title),
-      content: TextField(
-        controller: controller,
-        autofocus: true,
-        decoration: InputDecoration(hintText: hint),
-        onSubmitted: (v) => Navigator.of(dialogContext).pop(v.trim()),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(dialogContext).pop(),
-          child: const Text('Cancel'),
-        ),
-        TextButton(
-          onPressed: () =>
-              Navigator.of(dialogContext).pop(controller.text.trim()),
-          child: const Text('Save'),
-        ),
-      ],
-    ),
-  );
-}
+        BuildContext context, String title, String hint) =>
+    showAppTextPrompt(
+      context,
+      icon: Icons.workspaces_outline,
+      title: title,
+      hint: hint,
+      confirmLabel: 'Create',
+      capitalization: TextCapitalization.words,
+    );
 
 /// What each channel type is for, shown next to its name so the choice isn't
 /// four bare words.

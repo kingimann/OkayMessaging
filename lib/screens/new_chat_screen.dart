@@ -7,6 +7,7 @@ import '../models/chat.dart';
 import '../models/user.dart';
 import '../state/chat_store.dart';
 import '../state/contacts_sync.dart';
+import '../widgets/app_dialogs.dart';
 import '../widgets/pull_to_refresh.dart';
 import '../widgets/user_avatar.dart';
 import 'chat_screen.dart';
@@ -41,32 +42,13 @@ class NewChatScreen extends StatelessWidget {
   }
 
   Future<void> _startByNumber(BuildContext context) async {
-    final controller = TextEditingController();
-    final result = await showDialog<String>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Chat with a number'),
-        content: TextField(
-          controller: controller,
-          keyboardType: TextInputType.phone,
-          autofocus: true,
-          decoration: const InputDecoration(
-            hintText: '+1 555 0199',
-            border: OutlineInputBorder(),
-          ),
-          onSubmitted: (v) => Navigator.of(dialogContext).pop(v),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(controller.text),
-            child: const Text('Start'),
-          ),
-        ],
-      ),
+    final result = await showAppTextPrompt(
+      context,
+      icon: Icons.dialpad,
+      title: 'Chat with a number',
+      hint: '+1 555 0199',
+      confirmLabel: 'Start',
+      keyboardType: TextInputType.phone,
     );
     final number = result?.trim();
     if (number == null || number.isEmpty || !context.mounted) return;

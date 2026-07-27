@@ -8,6 +8,7 @@ import '../models/user.dart';
 import '../state/call_service.dart';
 import '../state/chat_store.dart';
 import '../theme/app_theme.dart';
+import '../widgets/app_dialogs.dart';
 import '../widgets/info_section.dart';
 import '../widgets/user_avatar.dart';
 import 'edit_group_screen.dart';
@@ -185,23 +186,16 @@ class GroupInfoScreen extends StatelessWidget {
   }
 
   Future<void> _confirmExit(BuildContext context) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: Text('Exit "${group.name}"?'),
-        content: const Text(
-            'You\'ll stop receiving messages from this group on this device.'),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('Cancel')),
-          TextButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('Exit', style: TextStyle(color: Colors.red))),
-        ],
-      ),
+    final ok = await showAppConfirmDialog(
+      context,
+      icon: Icons.logout,
+      title: 'Exit "${group.name}"?',
+      message:
+          'You\'ll stop receiving messages from this group on this device.',
+      confirmLabel: 'Exit group',
+      destructive: true,
     );
-    if (ok == true && context.mounted) {
+    if (ok && context.mounted) {
       if (chatId != null) ChatStore.instance.deleteChat(chatId!);
       Navigator.of(context).popUntil((r) => r.isFirst);
     }

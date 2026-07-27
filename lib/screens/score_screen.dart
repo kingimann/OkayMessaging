@@ -6,6 +6,7 @@ import '../state/chat_store.dart';
 import '../state/score_store.dart';
 import '../state/session.dart';
 import '../state/streak_store.dart';
+import '../widgets/app_dialogs.dart';
 import '../widgets/pull_to_refresh.dart';
 import '../widgets/streak_chip.dart';
 import '../widgets/user_avatar.dart';
@@ -341,26 +342,16 @@ class _VerifiedRow extends StatelessWidget {
   }
 
   Future<void> _getVerified(BuildContext context) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Get verified'),
-        content: const Text(
-            'The blue check marks your account as verified across your chats. '
-            'It\'s free. Turn it on now?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Not now'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Verify me'),
-          ),
-        ],
-      ),
+    final ok = await showAppConfirmDialog(
+      context,
+      icon: Icons.verified_outlined,
+      title: 'Get verified',
+      message: 'The blue check marks your account as verified across your '
+          'chats. It\'s free. Turn it on now?',
+      confirmLabel: 'Verify me',
+      cancelLabel: 'Not now',
     );
-    if (ok == true && context.mounted) {
+    if (ok && context.mounted) {
       _setVerified(context, true);
       ScoreStore.instance.recordFlag('verified');
       ScoreStore.instance.recordFlag('pro');

@@ -70,6 +70,7 @@ import 'package:okay_messaging/screens/status_screen.dart';
 import 'package:okay_messaging/state/status_store.dart';
 import 'package:okay_messaging/state/chat_store.dart';
 import 'package:okay_messaging/state/gif_service.dart';
+import 'package:okay_messaging/widgets/app_dialogs.dart';
 import 'package:image/image.dart' as img;
 import 'package:okay_messaging/state/live_location_broadcaster.dart';
 import 'package:okay_messaging/util/photo_prep.dart';
@@ -1199,7 +1200,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(blockTile);
     await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(TextButton, 'Block'));
+    await tester.tap(find.widgetWithText(FilledButton, 'Block'));
     await tester.pumpAndSettle();
     final bobPhone = ChatStore.instance.chatWithContact('u_bob')!.contact.phone;
     expect(AppState.isBlocked(bobPhone), isTrue);
@@ -1867,10 +1868,10 @@ void main() {
 
     await tester.enterText(
       find.descendant(
-          of: find.byType(AlertDialog), matching: find.byType(TextField)),
+          of: find.byType(Dialog), matching: find.byType(TextField)),
       'Edited!',
     );
-    await tester.tap(find.text('Save'));
+    await tester.tap(find.widgetWithText(FilledButton, 'Save'));
     await tester.pumpAndSettle();
 
     final bob = ChatStore.instance.chatWithContact('u_bob')!;
@@ -1939,7 +1940,7 @@ void main() {
     await tester.tap(find.text('Clear chat'));
     await tester.pumpAndSettle();
     // Confirm in the dialog (the red action button).
-    await tester.tap(find.widgetWithText(TextButton, 'Clear chat'));
+    await tester.tap(find.widgetWithText(FilledButton, 'Clear chat'));
     await tester.pumpAndSettle();
 
     expect(ChatStore.instance.chatWithContact('u_bob')!.messages, isEmpty);
@@ -1957,7 +1958,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Delete chat'));
     await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(TextButton, 'Delete chat'));
+    await tester.tap(find.widgetWithText(FilledButton, 'Delete chat'));
     await tester.pumpAndSettle();
 
     // The chat is gone and we're back on the list.
@@ -2404,7 +2405,7 @@ void main() {
     await tester.pumpAndSettle();
 
     // Confirm the destructive dialog.
-    await tester.tap(find.text('Clear'));
+    await tester.tap(find.widgetWithText(FilledButton, 'Clear all chats'));
     await tester.pumpAndSettle();
 
     expect(ChatStore.instance.chats, isEmpty);
@@ -7582,6 +7583,81 @@ void main() {
       expect(result.status,
           anyOf(ContactSyncStatus.error, ContactSyncStatus.permissionDenied));
       expect(result.matches, isEmpty);
+    });
+  });
+
+  group('Styled dialogs', () {
+    testWidgets('a confirm dialog has one filled action, red when destructive',
+        (tester) async {
+      bool? answer;
+      await tester.pumpWidget(MaterialApp(
+        theme: AppTheme.light,
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => TextButton(
+              onPressed: () async {
+                answer = await showAppConfirmDialog(
+                  context,
+                  icon: Icons.delete_outline,
+                  title: 'Delete thing?',
+                  message: 'This permanently removes the thing.',
+                  confirmLabel: 'Delete',
+                  destructive: true,
+                );
+              },
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      ));
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+
+      final button = tester.widget<FilledButton>(
+          find.widgetWithText(FilledButton, 'Delete'));
+      final bg = button.style!.backgroundColor!.resolve(const {})!;
+      // Destructive means visibly red, not the accent.
+      expect(bg.r, greaterThan(bg.g));
+      expect(bg.r, greaterThan(bg.b));
+
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(answer, isFalse);
+    });
+
+    testWidgets('a text prompt disables its action until there is text',
+        (tester) async {
+      String? result;
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => TextButton(
+              onPressed: () async {
+                result = await showAppTextPrompt(
+                  context,
+                  icon: Icons.drive_file_rename_outline,
+                  title: 'Rename',
+                  hint: 'New name',
+                );
+              },
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      ));
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+
+      FilledButton save() =>
+          tester.widget<FilledButton>(find.widgetWithText(FilledButton, 'Save'));
+      expect(save().onPressed, isNull);
+
+      await tester.enterText(find.byType(TextField).last, '  Fresh name  ');
+      await tester.pumpAndSettle();
+      expect(save().onPressed, isNotNull);
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pumpAndSettle();
+      expect(result, 'Fresh name');
     });
   });
 }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../payments/payment_service.dart';
+import '../widgets/app_dialogs.dart';
 
 /// A place for people to support the developer with an optional tip. There are
 /// no paid tiers — OkayMessenger is free, private, and has no ads, tracking, or
@@ -86,23 +87,17 @@ class _OkayProScreenState extends State<OkayProScreen> {
   }
 
   void _thankYou() {
-    showDialog<void>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Thank you! 💜'),
-        content: const Text(
-          'Your support genuinely helps keep OkayMessenger independent, '
+    showAppConfirmDialog(
+      context,
+      icon: Icons.favorite,
+      title: 'Thank you! 💜',
+      message: 'Your support genuinely helps keep OkayMessenger independent, '
           'private, and free for everyone.',
-        ),
-        actions: [
-          FilledButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('You\'re welcome'),
-          ),
-        ],
-      ),
+      confirmLabel: 'Done',
+      cancelLabel: null,
     );
   }
+
 
   String get _amountLabel => '\$${(_amountCents / 100).toStringAsFixed(2)}';
 

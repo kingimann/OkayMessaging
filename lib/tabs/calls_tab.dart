@@ -17,6 +17,7 @@ import '../state/call_service.dart' show CallService;
 import '../state/chat_store.dart';
 import '../theme/app_theme.dart';
 import '../utils/date_formatter.dart';
+import '../widgets/app_dialogs.dart';
 import '../widgets/pull_to_refresh.dart';
 import '../widgets/user_avatar.dart';
 
@@ -48,22 +49,15 @@ class CallsTab extends StatelessWidget {
   const CallsTab({super.key});
 
   Future<void> _clearLog(BuildContext context) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Clear call history?'),
-        content: const Text('This removes every entry from the call log.'),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('Cancel')),
-          TextButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('Clear', style: TextStyle(color: Colors.red))),
-        ],
-      ),
+    final ok = await showAppConfirmDialog(
+      context,
+      icon: Icons.delete_sweep_outlined,
+      title: 'Clear call history?',
+      message: 'This removes every entry from the call log.',
+      confirmLabel: 'Clear',
+      destructive: true,
     );
-    if (ok == true) CallLog.instance.clear();
+    if (ok) CallLog.instance.clear();
   }
 
   @override
@@ -500,23 +494,15 @@ class _FavouritesRow extends StatelessWidget {
   }
 
   Future<void> _confirmRemove(BuildContext context, AppUser user) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: Text('Remove ${user.name.split(' ').first}?'),
-        content: const Text('Remove this person from your call favourites.'),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('Cancel')),
-          TextButton(
-              onPressed: () => Navigator.pop(context, true),
-              child:
-                  const Text('Remove', style: TextStyle(color: Colors.red))),
-        ],
-      ),
+    final ok = await showAppConfirmDialog(
+      context,
+      icon: Icons.star_outline,
+      title: 'Remove ${user.name.split(' ').first}?',
+      message: 'Remove this person from your call favourites.',
+      confirmLabel: 'Remove',
+      destructive: true,
     );
-    if (ok == true) FavouritesStore.instance.remove(user.id);
+    if (ok) FavouritesStore.instance.remove(user.id);
   }
 
   @override

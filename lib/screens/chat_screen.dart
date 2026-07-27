@@ -16,6 +16,7 @@ import '../payments/payment_service.dart';
 import '../relay/relay_config.dart';
 import '../state/score_store.dart';
 import '../util/photo_prep.dart';
+import '../widgets/app_dialogs.dart';
 import '../widgets/poll_widgets.dart';
 import '../relay/relay_service.dart';
 import '../state/chat_store.dart';
@@ -659,31 +660,52 @@ class _ChatScreenState extends State<ChatScreen> {
     final contact = chat.contact;
     final ok = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Send to the right chat?'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            UserAvatar(user: contact, radius: 30),
-            const SizedBox(height: 12),
-            Text(
-              contact.isGroup
-                  ? 'This message will go to everyone in "${contact.name}".'
-                  : 'This message will be sent to ${contact.name}.',
-              textAlign: TextAlign.center,
-            ),
-          ],
+      builder: (dialogContext) => Dialog(
+        shape:
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 26, 24, 18),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Center(child: UserAvatar(user: contact, radius: 30)),
+              const SizedBox(height: 12),
+              const Text(
+                'Send to the right chat?',
+                textAlign: TextAlign.center,
+                style:
+                    TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                contact.isGroup
+                    ? 'This message will go to everyone in "${contact.name}".'
+                    : 'This message will be sent to ${contact.name}.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                    fontSize: 14, height: 1.4, color: Colors.grey.shade600),
+              ),
+              const SizedBox(height: 18),
+              FilledButton(
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppColors.accentOn(dialogContext),
+                  foregroundColor: AppColors.onAccent(dialogContext),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(26)),
+                ),
+                onPressed: () => Navigator.of(dialogContext).pop(true),
+                child: const Text('Send'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(false),
+                child: Text('Cancel',
+                    style: TextStyle(color: Colors.grey.shade600)),
+              ),
+            ],
+          ),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('Send'),
-          ),
-        ],
       ),
     );
     return ok ?? false;
@@ -1167,29 +1189,13 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _editMessage(Message message) async {
-    final controller = TextEditingController(text: message.text);
-    final result = await showDialog<String>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Edit message'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          maxLines: null,
-          decoration: const InputDecoration(border: OutlineInputBorder()),
-          onSubmitted: (v) => Navigator.of(dialogContext).pop(v),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(controller.text),
-            child: const Text('Save'),
-          ),
-        ],
-      ),
+    final result = await showAppTextPrompt(
+      context,
+      icon: Icons.edit_outlined,
+      title: 'Edit message',
+      initial: message.text,
+      maxLines: 4,
+      capitalization: TextCapitalization.sentences,
     );
     final text = result?.trim();
     if (text == null || text.isEmpty || text == message.text) return;
@@ -1482,26 +1488,15 @@ class _ChatScreenState extends State<ChatScreen> {
     required String title,
     required String message,
     required String action,
-  }) async {
-    final result = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text(title),
-        content: Text(message),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: Text(action, style: const TextStyle(color: Colors.red)),
-          ),
-        ],
-      ),
-    );
-    return result ?? false;
-  }
+  }) =>
+      showAppConfirmDialog(
+        context,
+        icon: Icons.warning_amber_rounded,
+        title: title,
+        message: message,
+        confirmLabel: action,
+        destructive: true,
+      );
 
   void _openMediaGallery() {
     Navigator.of(context).push(

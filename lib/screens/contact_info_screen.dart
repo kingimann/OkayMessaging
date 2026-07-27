@@ -7,6 +7,7 @@ import '../state/call_service.dart';
 import '../state/chat_store.dart';
 import '../state/follow_store.dart';
 import '../theme/app_theme.dart';
+import '../widgets/app_dialogs.dart';
 import '../widgets/info_section.dart';
 import '../widgets/user_avatar.dart';
 import '../widgets/verified_badge.dart';
@@ -291,9 +292,12 @@ class ContactInfoScreen extends StatelessWidget {
   /// Renames this contact locally (does not affect what they call themselves).
   Future<void> _editName(BuildContext context) async {
     final messenger = ScaffoldMessenger.of(context);
-    final newName = await showDialog<String>(
-      context: context,
-      builder: (_) => _EditNameDialog(initial: user.name),
+    final newName = await showAppTextPrompt(
+      context,
+      icon: Icons.drive_file_rename_outline,
+      title: 'Edit name',
+      initial: user.name,
+      capitalization: TextCapitalization.words,
     );
     if (newName != null && newName.isNotEmpty) {
       ChatStore.instance.updateContactProfile(user.id, name: newName);
@@ -308,26 +312,16 @@ class ContactInfoScreen extends StatelessWidget {
           .showSnackBar(SnackBar(content: Text('${user.name} unblocked')));
       return;
     }
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: Text('Block ${user.name}?'),
-        content: Text(
-            'You won\'t be able to send messages to ${user.name} until you '
-            'unblock them.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Block', style: TextStyle(color: Colors.red)),
-          ),
-        ],
-      ),
+    final ok = await showAppConfirmDialog(
+      context,
+      icon: Icons.block,
+      title: 'Block ${user.name}?',
+      message: 'You won\'t be able to send messages to ${user.name} until '
+          'you unblock them.',
+      confirmLabel: 'Block',
+      destructive: true,
     );
-    if (ok == true && context.mounted) {
+    if (ok && context.mounted) {
       AppState.setBlocked(user.phone, true);
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text('${user.name} blocked')));
@@ -399,51 +393,6 @@ class ContactInfoScreen extends StatelessWidget {
 
 /// A small dialog that owns its text controller so it is disposed only after
 /// the dialog's exit transition completes.
-class _EditNameDialog extends StatefulWidget {
-  final String initial;
-  const _EditNameDialog({required this.initial});
-
-  @override
-  State<_EditNameDialog> createState() => _EditNameDialogState();
-}
-
-class _EditNameDialogState extends State<_EditNameDialog> {
-  late final TextEditingController _controller =
-      TextEditingController(text: widget.initial);
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('Edit name'),
-      content: TextField(
-        controller: _controller,
-        autofocus: true,
-        textCapitalization: TextCapitalization.words,
-        decoration: const InputDecoration(
-          labelText: 'Name',
-          helperText: 'Only changes how this contact appears to you',
-          border: OutlineInputBorder(),
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
-        ),
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(_controller.text.trim()),
-          child: const Text('Save'),
-        ),
-      ],
-    );
-  }
-}
 
 class _ActionButtons extends StatelessWidget {
   final VoidCallback onMessage;

@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../app_state.dart';
 import '../state/app_lock.dart';
 import '../state/two_step.dart';
+import '../widgets/app_dialogs.dart';
 import '../widgets/info_section.dart';
 import 'blocked_contacts_screen.dart';
 import 'settings_widgets.dart';
@@ -203,46 +204,18 @@ class PrivacySettingsScreen extends StatelessWidget {
   }
 
   Future<void> _editKeywords(BuildContext context, String current) async {
-    final controller = TextEditingController(text: current);
-    final result = await showDialog<String>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Blocked keywords'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-                'Comma-separated. Incoming messages containing any of '
-                'these words are dropped before they reach you.'),
-            const SizedBox(height: 12),
-            TextField(
-              controller: controller,
-              autofocus: true,
-              maxLines: 3,
-              minLines: 1,
-              decoration: const InputDecoration(
-                hintText: 'crypto, free money, click here',
-                border: OutlineInputBorder(),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () =>
-                Navigator.of(dialogContext).pop(controller.text),
-            child: const Text('Save'),
-          ),
-        ],
-      ),
+    final result = await showAppTextPrompt(
+      context,
+      icon: Icons.shield_outlined,
+      title: 'Blocked keywords',
+      message: 'Comma-separated. Incoming messages containing any of these '
+          'words are dropped before they reach you.',
+      hint: 'crypto, free money, click here',
+      initial: current,
+      maxLines: 3,
+      allowEmpty: true,
     );
     if (result != null) AppState.spamKeywords.value = result.trim();
-    controller.dispose();
   }
 
   Widget _buildBlockScreenshotsTile() {

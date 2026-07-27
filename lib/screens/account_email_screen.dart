@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../state/account_email.dart';
 import '../theme/app_theme.dart';
+import '../widgets/app_dialogs.dart';
 import '../widgets/info_section.dart';
 import '../widgets/pull_to_refresh.dart';
 
@@ -55,25 +56,16 @@ class _AccountEmailScreenState extends State<AccountEmailScreen> {
   }
 
   Future<void> _remove() async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Remove email?'),
-        content: const Text(
-            'Without an email there\'s no way back into this account if you '
-            'lose your phone number.'),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('Cancel')),
-          TextButton(
-              onPressed: () => Navigator.pop(context, true),
-              child:
-                  const Text('Remove', style: TextStyle(color: Colors.red))),
-        ],
-      ),
+    final ok = await showAppConfirmDialog(
+      context,
+      icon: Icons.alternate_email,
+      title: 'Remove email?',
+      message: 'Without an email there\'s no way back into this account if '
+          'you lose your phone number.',
+      confirmLabel: 'Remove',
+      destructive: true,
     );
-    if (ok != true) return;
+    if (!ok) return;
     await AccountEmail.instance.clear();
     if (!mounted) return;
     _controller.clear();

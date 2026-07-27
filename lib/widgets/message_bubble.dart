@@ -5,6 +5,7 @@ import '../models/message.dart';
 import '../payments/payment_amount_sheet.dart';
 import '../theme/app_theme.dart';
 import '../utils/date_formatter.dart';
+import 'app_dialogs.dart';
 import 'chat_photo.dart';
 import 'message_status_icon.dart';
 import 'osm_map.dart';
@@ -339,18 +340,13 @@ class MessageBubble extends StatelessWidget {
 
 /// Shows the pre-edit text of an edited message.
 void _showOriginal(BuildContext context, String original) {
-  showDialog<void>(
-    context: context,
-    builder: (_) => AlertDialog(
-      title: const Text('Original message'),
-      content: Text(original.isEmpty ? '(empty)' : original),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Close'),
-        ),
-      ],
-    ),
+  showAppConfirmDialog(
+    context,
+    icon: Icons.history_edu_outlined,
+    title: 'Original message',
+    message: original.isEmpty ? '(empty)' : original,
+    confirmLabel: 'Close',
+    cancelLabel: null,
   );
 }
 
