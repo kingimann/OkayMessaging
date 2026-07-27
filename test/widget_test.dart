@@ -3832,6 +3832,21 @@ void main() {
       expect(dupes.toSet().length, dupes.length);
     });
 
+    test('mailbox rows yield their sealed payloads, tolerating junk', () {
+      final rows = [
+        {'id': 1, 'payload': {'id': 'm1', 'from': '+15550100', 'c': 'AAA='}},
+        {'id': 2, 'payload': '{"id":"m2","from":"+15550100","c":"BBB="}'},
+        {'id': 3, 'payload': 42}, // corrupt — skipped, never wedges the queue
+        'not even a map',
+      ];
+      final payloads = RelayService.mailboxPayloads(rows);
+      expect(payloads, hasLength(2));
+      expect(payloads[0]['id'], 'm1');
+      expect(payloads[1]['id'], 'm2');
+      // The envelope in the row is ciphertext, same as the live broadcast.
+      expect(payloads[0].containsKey('text'), isFalse);
+    });
+
     test('im: links (default messaging app) parse and open the right chat',
         () {
       // Phone targets, in every shape iOS sends them.

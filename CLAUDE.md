@@ -80,9 +80,14 @@ iOS builds run on **Codemagic** (`codemagic.yaml`, workflow
   demo chats are gated behind `kReleaseMode`. Never show invented people,
   follower counts, or activity to a real user.
 - **No AI features.** The user has been explicit about this.
-- **No messages on the server.** Delivery is Supabase Realtime broadcast to
-  `inbox_<digits>` channels only; message bodies are end-to-end encrypted
-  before they leave the device. Never add a messages table.
+- **No readable messages on the server.** Message bodies are end-to-end
+  encrypted before they leave the device, delivered by Supabase Realtime
+  broadcast to `inbox_<digits>` channels, and — since the user approved
+  store-and-forward — also queued as ciphertext in the `mailbox` table for
+  offline recipients (deleted on delivery, swept after 14 days). Plaintext
+  message content must never be stored or logged server-side, and the
+  mailbox must only ever hold the same sealed envelopes the broadcast
+  carries.
 - The Supabase **publishable** key (`sb_publishable_…`) and the Stripe
   **publishable** key (`pk_live_…`) are client-safe and intentionally inlined
   in build configs. Secret keys (`sk_…`, APNs `.p8`) must never enter the

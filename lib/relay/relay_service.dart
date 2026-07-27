@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart' hide Session;
 
 import '../app_state.dart';
@@ -533,6 +534,125 @@ class RelayService {
 
   /// Subscribes to the signed-in user's inbox so incoming messages arrive even
   /// from someone they haven't chatted with before.
+  // --- Offline mailbox ----------------------------------------------------
+
+  /// The store-and-forward table: sealed envelopes held until the recipient
+  /// drains them. Same E2E ciphertext as the live broadcast — the server can
+  /// read nothing. Rows die on delivery, or after [mailboxTtl] unclaimed.
+  static const mailboxTable = 'mailbox';
+  static const mailboxTtl = Duration(days: 14);
+
+  Map<String, String> get _restHeaders => {
+        'apikey': RelayConfig.supabaseAnonKey,
+        'Authorization': 'Bearer ${RelayConfig.supabaseAnonKey}',
+        'Content-Type': 'application/json',
+      };
+
+  /// Queues one sealed envelope for an offline recipient. Fire-and-forget:
+  /// a missing table (setup SQL not applied yet) just means live-only.
+  Future<void> _mailboxPut(
+      String contactPhone, Map<String, dynamic> payload) async {
+    try {
+      await http
+          .post(
+            Uri.parse('${RelayConfig.supabaseUrl}/rest/v1/$mailboxTable'),
+            headers: _restHeaders,
+            body: jsonEncode(
+                {'inbox': digits(contactPhone), 'payload': payload}),
+          )
+          .timeout(const Duration(seconds: 10));
+    } catch (_) {}
+  }
+
+  /// Pure: the payload maps out of fetched mailbox rows (jsonb arrives as a
+  /// map; a stringified payload is tolerated).
+  static List<Map<String, dynamic>> mailboxPayloads(List<dynamic> rows) {
+    final out = <Map<String, dynamic>>[];
+    for (final row in rows) {
+      if (row is! Map) continue;
+      final p = row['payload'];
+      if (p is Map) {
+        out.add(Map<String, dynamic>.from(p));
+      } else if (p is String) {
+        try {
+          final decoded = jsonDecode(p);
+          if (decoded is Map) out.add(Map<String, dynamic>.from(decoded));
+        } catch (_) {}
+      }
+    }
+    return out;
+  }
+
+  /// Drains this device's offline mailbox: every queued envelope goes
+  /// through the same path as a live broadcast (dedup makes replays safe),
+  /// claimed rows are deleted, and anything past its TTL is swept.
+  Future<void> fetchMailbox() async {
+    if (!_initialized) return;
+    final me = Session.instance.user.value?.phone;
+    if (me == null) return;
+    final inbox = digits(me);
+    if (inbox.isEmpty) return;
+    const base = '${RelayConfig.supabaseUrl}/rest/v1/$mailboxTable';
+    try {
+      final res = await http
+          .get(
+            Uri.parse('$base?inbox=eq.$inbox&select=id,payload'
+                '&order=created_at.asc&limit=200'),
+            headers: _restHeaders,
+          )
+          .timeout(const Duration(seconds: 15));
+      if (res.statusCode >= 300) return; // table missing or unreachable
+      final rows = jsonDecode(res.body);
+      if (rows is! List) return;
+      for (final payload in mailboxPayloads(rows)) {
+        try {
+          _onInboxMessage(payload, myPhone: me);
+        } catch (_) {
+          // A corrupt envelope must not wedge the queue — it gets deleted
+          // with the rest below.
+        }
+      }
+      final ids = [
+        for (final row in rows)
+          if (row is Map && row['id'] != null) '${row['id']}'
+      ];
+      if (ids.isNotEmpty) {
+        await http
+            .delete(Uri.parse('$base?id=in.(${ids.join(',')})'),
+                headers: _restHeaders)
+            .timeout(const Duration(seconds: 15));
+      }
+      // Sweep whatever nobody claimed within the TTL.
+      final cutoff =
+          DateTime.now().toUtc().subtract(mailboxTtl).toIso8601String();
+      await http
+          .delete(
+              Uri.parse('$base?inbox=eq.$inbox&created_at=lt.$cutoff'),
+              headers: _restHeaders)
+          .timeout(const Duration(seconds: 15));
+    } catch (_) {}
+  }
+
+  /// Applies one incoming chat message, whether it arrived live over the
+  /// broadcast or was fetched from the offline mailbox: dedup + store, key
+  /// caching, and the delivered receipt that advances the sender's ticks.
+  void _onInboxMessage(Map<String, dynamic> map, {required String myPhone}) {
+    final added = applyIncoming(map, myPhone: myPhone);
+    final from = map['from'] as String?;
+    if (from != null) {
+      // Cache the sender's public key (rides on enc-2 messages) and
+      // make sure they have ours, so replies upgrade to the ECDH path.
+      final spk = map['spk'] as String?;
+      if (spk != null) SecureKeyExchange.instance.rememberPeer(from, spk);
+      _ensureKeyShared(from);
+    }
+    // Acknowledge delivery so the sender's ticks advance — naming
+    // the message so a group ack lands on the group's ticks.
+    if (added && from != null) {
+      sendReceipt(from, 'delivered', messageId: map['id'] as String?);
+    }
+  }
+
   void start() {
     if (!_initialized || _inbox != null) return;
     final me = Session.instance.user.value?.phone;
@@ -541,24 +661,9 @@ class RelayService {
         .channel(inboxChannel(me))
         .onBroadcast(
           event: 'msg',
-          callback: (payload) {
-            final map = Map<String, dynamic>.from(payload);
-            final added = applyIncoming(map, myPhone: me);
-            final from = map['from'] as String?;
-            if (from != null) {
-              // Cache the sender's public key (rides on enc-2 messages) and
-              // make sure they have ours, so replies upgrade to the ECDH path.
-              final spk = map['spk'] as String?;
-              if (spk != null) SecureKeyExchange.instance.rememberPeer(from, spk);
-              _ensureKeyShared(from);
-            }
-            // Acknowledge delivery so the sender's ticks advance — naming
-            // the message so a group ack lands on the group's ticks.
-            if (added && from != null) {
-              sendReceipt(from, 'delivered',
-                  messageId: map['id'] as String?);
-            }
-          },
+          callback: (payload) => _onInboxMessage(
+              Map<String, dynamic>.from(payload),
+              myPhone: me),
         )
         .onBroadcast(
           event: 'gupd',
@@ -819,6 +924,8 @@ class RelayService {
           }),
         )
         .subscribe();
+    // Catch up on whatever arrived while the app was closed.
+    fetchMailbox();
   }
 
   /// Decodes a sealed community-bus event: looks the server up by id, opens
@@ -1322,29 +1429,31 @@ class RelayService {
     final name = inboxChannel(contactPhone);
     final channel =
         _sendChannels.putIfAbsent(name, () => _client.channel(name));
-    await channel.sendBroadcastMessage(
-      event: 'msg',
-      payload: encode(
-        message: message,
-        fromPhone: me.phone,
-        fromName: me.name,
-        fromUsername: me.username,
-        fromAvatarColor: avatarColor,
-        fromAbout: about,
-        fromEmoji: avatarColor.isEmpty ? '' : me.emoji,
-        fromPronouns: about.isEmpty ? '' : me.pronouns,
-        fromLink: about.isEmpty ? '' : me.link,
-        fromVerified: me.verified,
-        fromScore: ScoreStore.instance.points,
-        fromStreak: streak,
-        toPhone: contactPhone,
-        groupId: group?.id ?? '',
-        groupName: group?.contact.name ?? '',
-        groupMembers: group?.members ?? const [],
-        ecdhSecret: ecdhSecret,
-        senderPublicKey: senderPublicKey,
-      ),
+    final payload = encode(
+      message: message,
+      fromPhone: me.phone,
+      fromName: me.name,
+      fromUsername: me.username,
+      fromAvatarColor: avatarColor,
+      fromAbout: about,
+      fromEmoji: avatarColor.isEmpty ? '' : me.emoji,
+      fromPronouns: about.isEmpty ? '' : me.pronouns,
+      fromLink: about.isEmpty ? '' : me.link,
+      fromVerified: me.verified,
+      fromScore: ScoreStore.instance.points,
+      fromStreak: streak,
+      toPhone: contactPhone,
+      groupId: group?.id ?? '',
+      groupName: group?.contact.name ?? '',
+      groupMembers: group?.members ?? const [],
+      ecdhSecret: ecdhSecret,
+      senderPublicKey: senderPublicKey,
     );
+    await channel.sendBroadcastMessage(event: 'msg', payload: payload);
+    // Also queue the sealed envelope so an offline recipient still gets it
+    // the next time their app opens — the store-and-forward every messenger
+    // relies on, holding only ciphertext the server can't read.
+    _mailboxPut(contactPhone, payload);
   }
 
   /// Fans [message] out to every member of [group] with a real phone number.
@@ -1497,6 +1606,8 @@ class RelayService {
   Future<void> resync() async {
     if (!_initialized) return;
     start(); // idempotent — subscribes only if not already listening
+    // Anything sent while this device was away is waiting in the mailbox.
+    await fetchMailbox();
     for (final chat in ChatStore.instance.chats) {
       final phone = chat.contact.phone;
       if (phone.isNotEmpty) {

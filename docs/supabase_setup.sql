@@ -70,3 +70,38 @@ create policy crash_reports_insert on public.crash_reports
 drop policy if exists crash_reports_read on public.crash_reports;
 create policy crash_reports_read on public.crash_reports
   for select to anon, authenticated using (true);
+
+-- =============================================================================
+-- Offline mailbox
+-- =============================================================================
+-- Store-and-forward for messages sent while the recipient's app was closed:
+-- the SAME end-to-end-encrypted envelope the realtime broadcast carries,
+-- held as ciphertext until the recipient drains it. The server can never
+-- read a message. Rows are deleted by the recipient on delivery and swept
+-- after 14 days unclaimed — nothing accumulates.
+create table if not exists public.mailbox (
+  id         bigint generated always as identity primary key,
+  created_at timestamptz not null default now(),
+  inbox      text not null,
+  payload    jsonb not null
+);
+
+create index if not exists mailbox_inbox_idx
+  on public.mailbox (inbox, created_at);
+
+alter table public.mailbox enable row level security;
+
+-- The app's publishable key both queues envelopes for others and drains /
+-- deletes its own inbox. Bodies are E2E ciphertext, so readability of rows
+-- reveals nothing.
+drop policy if exists mailbox_insert on public.mailbox;
+create policy mailbox_insert on public.mailbox
+  for insert to anon, authenticated with check (true);
+
+drop policy if exists mailbox_select on public.mailbox;
+create policy mailbox_select on public.mailbox
+  for select to anon, authenticated using (true);
+
+drop policy if exists mailbox_delete on public.mailbox;
+create policy mailbox_delete on public.mailbox
+  for delete to anon, authenticated using (true);
