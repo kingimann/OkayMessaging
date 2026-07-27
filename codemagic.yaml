@@ -149,7 +149,7 @@ workflows:
       - name: Build IPA
         script: |
           flutter build ipa --release \
-            --build-name=1.0.0 \
+            --build-name=1.1.0 \
             --build-number=$BUILD_NUMBER \
             --dart-define=SUPABASE_URL=https://trbdqucphtsstnrwwfnw.supabase.co \
             --dart-define=SUPABASE_ANON_KEY=sb_publishable_PrY-Aru0AryWyhHgfD2Tow_uXca1owt \
