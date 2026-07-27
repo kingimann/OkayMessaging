@@ -7446,4 +7446,142 @@ void main() {
       expect(sent.length, 1);
     });
   });
+
+  group('Delete visibility', () {
+    test('a deleted last message previews as deleted, not blank or "Photo"',
+        () {
+      Chat withLast(Message m) => Chat(
+          id: 'c', contact: MockData.me, messages: [m]);
+      expect(
+          withLast(Message(
+            id: 'm1',
+            text: '',
+            time: DateTime(2024, 8, 1),
+            isMe: true,
+            isDeleted: true,
+          )).preview,
+          'Message deleted');
+      // A deleted photo keeps isImage — deleted must still win.
+      expect(
+          withLast(Message(
+            id: 'm2',
+            text: '',
+            time: DateTime(2024, 8, 1),
+            isMe: true,
+            isImage: true,
+            isDeleted: true,
+          )).preview,
+          'Message deleted');
+    });
+
+    testWidgets('deleting your own group message offers delete-for-everyone',
+        (tester) async {
+      ChatStore.instance.clearAll();
+      Session.instance.signInForTest();
+      ChatStore.instance.upsert(Chat(
+        id: 'group_del',
+        contact: const AppUser(
+            id: 'group_del',
+            name: 'Trip planning',
+            avatarColor: '#4DB6AC',
+            isGroup: true),
+        members: const [
+          AppUser(
+              id: '+1 555 0100',
+              name: 'You',
+              avatarColor: '#25D366',
+              phone: '+1 555 0100'),
+          AppUser(
+              id: '+1 555 0111',
+              name: 'Alice',
+              avatarColor: '#E57373',
+              phone: '+1 555 0111'),
+        ],
+        messages: [
+          Message(
+              id: 'gdel1',
+              text: 'wrong chat, sorry',
+              time: DateTime(2024, 8, 1, 9),
+              isMe: true,
+              status: MessageStatus.sent),
+        ],
+      ));
+
+      await tester.pumpWidget(MaterialApp(
+        home: ChatScreen(chat: ChatStore.instance.chatById('group_del')!),
+      ));
+      await tester.pumpAndSettle();
+
+      await tester.longPress(find.text('wrong chat, sorry'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Delete'));
+      await tester.pumpAndSettle();
+
+      // The old real-peer gate hid this in groups, making group deletes
+      // silently local-only.
+      expect(find.text('Delete for everyone'), findsOneWidget);
+      await tester.tap(find.text('Delete for everyone'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('You deleted this message'), findsOneWidget);
+      expect(
+          ChatStore.instance
+              .chatById('group_del')!
+              .messages
+              .single
+              .isDeleted,
+          isTrue);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+    });
+  });
+
+  group('Keyboard dismissal', () {
+    testWidgets('leaving a screen drops the keyboard focus', (tester) async {
+      final navKey = GlobalKey<NavigatorState>();
+      await tester.pumpWidget(MaterialApp(
+        navigatorKey: navKey,
+        navigatorObservers: [KeyboardDismissObserver()],
+        home: const Scaffold(body: TextField()),
+      ));
+      await tester.pump();
+
+      await tester.tap(find.byType(TextField));
+      await tester.pump();
+      expect(FocusManager.instance.primaryFocus?.context, isNotNull);
+      expect(
+          tester.widget<EditableText>(find.byType(EditableText)).focusNode
+              .hasFocus,
+          isTrue);
+
+      // Visit another screen and come back — focus must not survive.
+      navKey.currentState!.push(
+          MaterialPageRoute(builder: (_) => const Scaffold(body: SizedBox())));
+      await tester.pumpAndSettle();
+      navKey.currentState!.pop();
+      await tester.pumpAndSettle();
+
+      expect(
+          tester.widget<EditableText>(find.byType(EditableText)).focusNode
+              .hasFocus,
+          isFalse);
+    });
+  });
+
+  group('Contacts sync availability', () {
+    test('contact reading is supported again on device builds', () {
+      // kIsWeb is false in the VM test environment, standing in for mobile.
+      expect(ContactsSync.instance.supported, isTrue);
+    });
+
+    test('sync degrades to an error result instead of throwing', () async {
+      // No plugin host exists in tests — the channel call fails, and that
+      // must surface as a status, never an exception.
+      final result = await ContactsSync.instance.sync();
+      expect(result.status,
+          anyOf(ContactSyncStatus.error, ContactSyncStatus.permissionDenied));
+      expect(result.matches, isEmpty);
+    });
+  });
 }

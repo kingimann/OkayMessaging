@@ -714,7 +714,9 @@ class _ChatScreenState extends State<ChatScreen> {
   /// chats or note-to-self. Events fan out exactly like the messages they
   /// are about.
   List<String> _relayPhones() {
-    if (!RelayConfig.isEnabled) return const [];
+    // No RelayConfig gate here: every RelayService send is already a no-op
+    // without a configured relay, and gating the *decision* on it hid the
+    // delete-for-everyone option in local/dev builds.
     final c = widget.chat.contact;
     if (c.isGroup) {
       final chat = _store.chatById(_chatId);
@@ -753,7 +755,43 @@ class _ChatScreenState extends State<ChatScreen> {
   List<Message> get _selectedMessages =>
       _messages.where((m) => _selectedIds.contains(m.id)).toList();
 
-  void _deleteSelected() {
+  Future<void> _deleteSelected() async {
+    final selected = _selectedMessages;
+    final allMine = selected.isNotEmpty && selected.every((m) => m.isMe);
+    if (allMine && _relayPhones().isNotEmpty) {
+      final forEveryone = await showModalBottomSheet<bool>(
+        context: context,
+        builder: (sheetContext) => SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.delete_outline),
+                title: const Text('Delete for me'),
+                onTap: () => Navigator.of(sheetContext).pop(false),
+              ),
+              ListTile(
+                leading: const Icon(Icons.delete_forever, color: Colors.red),
+                title: const Text('Delete for everyone',
+                    style: TextStyle(color: Colors.red)),
+                onTap: () => Navigator.of(sheetContext).pop(true),
+              ),
+            ],
+          ),
+        ),
+      );
+      if (forEveryone == null) return; // dismissed — keep the selection
+      for (final m in selected) {
+        _store.deleteMessage(_chatId, m.id, forEveryone: forEveryone);
+        if (forEveryone) {
+          for (final phone in _relayPhones()) {
+            RelayService.instance.sendDelete(phone, m.id);
+          }
+        }
+      }
+      _exitSelection();
+      return;
+    }
     for (final id in _selectedIds) {
       _store.deleteMessage(_chatId, id);
     }
@@ -1164,9 +1202,11 @@ class _ChatScreenState extends State<ChatScreen> {
   /// Deletes a message: for your own messages on a real-peer chat, offers to
   /// delete it for everyone (removing it on the other device too).
   Future<void> _deleteMessage(Message message) async {
-    final canDeleteForEveryone = message.isMe &&
-        RelayConfig.isEnabled &&
-        _isRealPeer(widget.chat.contact);
+    // Your own message can be recalled anywhere it was actually delivered —
+    // a real 1:1 peer or a group (the old real-peer check silently made
+    // group deletes local-only, so the message lived on for everyone else).
+    final canDeleteForEveryone =
+        message.isMe && _relayPhones().isNotEmpty;
     if (!canDeleteForEveryone) {
       _store.deleteMessage(_chatId, message.id);
       return;

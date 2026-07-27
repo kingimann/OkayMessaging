@@ -57,6 +57,9 @@ class Chat {
   String get preview {
     final m = lastMessage;
     if (m == null) return '';
+    // Deleted wins over the type flags (a deleted photo keeps isImage), so
+    // the list says what happened instead of going blank or saying "Photo".
+    if (m.isDeleted) return 'Message deleted';
     if (m.isImage) return 'Photo';
     if (m.isVoice) return 'Voice message';
     if (m.isLocation) return 'Location';

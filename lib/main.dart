@@ -135,8 +135,51 @@ class _LockOverlay extends StatelessWidget {
   }
 }
 
-class OkayMessagingApp extends StatelessWidget {
+/// Drops the software keyboard whenever a route is left behind — leaving a
+/// chat, closing a sheet, or backing out of any screen. Without this, iOS
+/// sometimes keeps the keyboard up on the next screen even though nothing
+/// there has focus.
+class KeyboardDismissObserver extends NavigatorObserver {
+  void _unfocus() => FocusManager.instance.primaryFocus?.unfocus();
+
+  @override
+  void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) => _unfocus();
+
+  @override
+  void didRemove(Route<dynamic> route, Route<dynamic>? previousRoute) =>
+      _unfocus();
+}
+
+class OkayMessagingApp extends StatefulWidget {
   const OkayMessagingApp({super.key});
+
+  @override
+  State<OkayMessagingApp> createState() => _OkayMessagingAppState();
+}
+
+class _OkayMessagingAppState extends State<OkayMessagingApp>
+    with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Backgrounding with a field focused is how the keyboard gets stuck on
+    // return: drop focus on the way out so the app comes back clean.
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden) {
+      FocusManager.instance.primaryFocus?.unfocus();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -149,6 +192,7 @@ class OkayMessagingApp extends StatelessWidget {
           theme: AppTheme.light,
           darkTheme: AppTheme.dark,
           themeMode: mode,
+          navigatorObservers: [KeyboardDismissObserver()],
           home: const AuthGate(),
           builder: (context, child) => _LockOverlay(
             child: _CallOverlay(
