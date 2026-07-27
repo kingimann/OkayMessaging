@@ -4,6 +4,7 @@ import '../app_state.dart';
 import '../models/user.dart';
 import '../state/score_store.dart';
 import '../state/session.dart';
+import '../theme/app_theme.dart';
 import '../widgets/user_avatar.dart';
 
 /// Lets the current user customize their profile: display name, username,
@@ -115,122 +116,219 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cardColor =
+        isDark ? const Color(0xFF23262B) : const Color(0xFFF4F6F7);
+
+    // Borderless rows inside a card, instead of a tower of outlined boxes —
+    // the whole profile fits on one screen.
+    Widget field(
+      TextEditingController controller, {
+      required IconData icon,
+      required String label,
+      String? hint,
+      String? prefixText,
+      int maxLines = 1,
+      int? maxLength,
+      TextInputType? keyboardType,
+      TextCapitalization capitalization = TextCapitalization.none,
+    }) {
+      return TextField(
+        controller: controller,
+        maxLines: maxLines,
+        maxLength: maxLength,
+        keyboardType: keyboardType,
+        textCapitalization: capitalization,
+        autocorrect: keyboardType == null,
+        onChanged: (_) => setState(() {}),
+        decoration: InputDecoration(
+          labelText: label,
+          hintText: hint,
+          prefixText: prefixText,
+          counterText: '',
+          prefixIcon: Icon(icon, size: 20),
+          filled: false,
+          isDense: true,
+          border: InputBorder.none,
+          focusedBorder: InputBorder.none,
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        ),
+      );
+    }
+
+    Widget card(List<Widget> children) => Material(
+          color: cardColor,
+          borderRadius: BorderRadius.circular(16),
+          clipBehavior: Clip.antiAlias,
+          child: Column(
+            children: [
+              for (var i = 0; i < children.length; i++) ...[
+                if (i > 0) const Divider(height: 1, indent: 46),
+                children[i],
+              ],
+            ],
+          ),
+        );
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Edit profile'),
         actions: [
-          IconButton(icon: const Icon(Icons.check), onPressed: _save),
+          IconButton(
+              icon: const Icon(Icons.check),
+              tooltip: 'Save',
+              onPressed: _save),
         ],
       ),
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
         children: [
-          Center(child: UserAvatar(user: _preview, radius: 48)),
-          const SizedBox(height: 20),
-          _sectionLabel(context, 'Avatar color'),
-          _ColorPicker(
-            selected: _avatarColor,
-            onSelected: (hex) => setState(() => _avatarColor = hex),
-          ),
-          const SizedBox(height: 20),
-          _sectionLabel(context, 'Avatar emoji'),
-          _EmojiPicker(
-            selected: _emoji,
-            choices: _emojiChoices,
-            onSelected: (e) => setState(() => _emoji = e),
-          ),
-          const SizedBox(height: 20),
-          TextField(
-            controller: _name,
-            textCapitalization: TextCapitalization.words,
-            onChanged: (_) => setState(() {}),
-            decoration: const InputDecoration(
-              labelText: 'Name',
-              prefixIcon: Icon(Icons.person_outline),
-              border: OutlineInputBorder(),
-            ),
-          ),
-          const SizedBox(height: 16),
-          TextField(
-            controller: _username,
-            autocorrect: false,
-            enableSuggestions: false,
-            onChanged: (_) => setState(() {}),
-            decoration: const InputDecoration(
-              labelText: 'Username',
-              prefixText: '@',
-              helperText: 'Letters, numbers, . and _ — people can find you by this',
-              prefixIcon: Icon(Icons.alternate_email),
-              border: OutlineInputBorder(),
-            ),
-          ),
-          const SizedBox(height: 16),
-          TextField(
-            controller: _pronouns,
-            textCapitalization: TextCapitalization.none,
-            decoration: const InputDecoration(
-              labelText: 'Pronouns',
-              hintText: 'she/her · he/him · they/them',
-              prefixIcon: Icon(Icons.badge_outlined),
-              border: OutlineInputBorder(),
-            ),
-          ),
-          const SizedBox(height: 16),
-          TextField(
-            controller: _link,
-            keyboardType: TextInputType.url,
-            autocorrect: false,
-            decoration: const InputDecoration(
-              labelText: 'Link',
-              hintText: 'yourwebsite.com',
-              prefixIcon: Icon(Icons.link),
-              border: OutlineInputBorder(),
-            ),
-          ),
-          const SizedBox(height: 16),
-          TextField(
-            controller: _about,
-            maxLines: 3,
-            maxLength: 139,
-            decoration: const InputDecoration(
-              labelText: 'About',
-              prefixIcon: Icon(Icons.info_outline),
-              border: OutlineInputBorder(),
-            ),
-          ),
-          _sectionLabel(context, 'Quick status'),
-          Wrap(
-            spacing: 8,
-            runSpacing: 4,
-            children: [
-              for (final s in _statusPresets)
-                ActionChip(
-                  label: Text(s),
-                  onPressed: () => setState(() => _about.text = s),
-                ),
-            ],
-          ),
-          if (AppState.profile.value.phone.isNotEmpty) ...[
-            const SizedBox(height: 20),
-            TextField(
-              enabled: false,
-              controller:
-                  TextEditingController(text: AppState.profile.value.phone),
-              decoration: const InputDecoration(
-                labelText: 'Phone number',
-                helperText: 'Your login number — stays on this device',
-                prefixIcon: Icon(Icons.phone_outlined),
-                border: OutlineInputBorder(),
+          // Tapping the avatar opens the look editor (colour + emoji) in a
+          // sheet, so the pickers stop eating half the screen.
+          Center(
+            child: GestureDetector(
+              onTap: _editAvatar,
+              child: Stack(
+                children: [
+                  UserAvatar(user: _preview, radius: 46),
+                  Positioned(
+                    right: 0,
+                    bottom: 0,
+                    child: CircleAvatar(
+                      radius: 14,
+                      backgroundColor: AppColors.accentOn(context),
+                      child: Icon(Icons.edit,
+                          size: 14, color: AppColors.onAccent(context)),
+                    ),
+                  ),
+                ],
               ),
             ),
+          ),
+          const SizedBox(height: 6),
+          Center(
+            child: TextButton(
+              onPressed: _editAvatar,
+              child: const Text('Change look'),
+            ),
+          ),
+          const SizedBox(height: 6),
+          card([
+            field(_name,
+                icon: Icons.person_outline,
+                label: 'Name',
+                capitalization: TextCapitalization.words),
+            field(_username,
+                icon: Icons.alternate_email,
+                label: 'Username',
+                hint: 'letters, numbers, . and _',
+                keyboardType: TextInputType.text),
+          ]),
+          const SizedBox(height: 12),
+          card([
+            field(_about,
+                icon: Icons.info_outline,
+                label: 'About',
+                maxLines: 2,
+                maxLength: 139,
+                capitalization: TextCapitalization.sentences),
+          ]),
+          // One-tap presets ride under About as a single scrolling row.
+          SizedBox(
+            height: 44,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              children: [
+                for (final preset in _statusPresets)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: ActionChip(
+                      label: Text(preset,
+                          style: const TextStyle(fontSize: 12.5)),
+                      visualDensity: VisualDensity.compact,
+                      onPressed: () =>
+                          setState(() => _about.text = preset),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+          card([
+            field(_pronouns,
+                icon: Icons.badge_outlined,
+                label: 'Pronouns',
+                hint: 'she/her · he/him · they/them'),
+            field(_link,
+                icon: Icons.link,
+                label: 'Link',
+                hint: 'yourwebsite.com',
+                keyboardType: TextInputType.url),
+          ]),
+          if (AppState.profile.value.phone.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            card([
+              ListTile(
+                dense: true,
+                leading: const Icon(Icons.phone_outlined, size: 20),
+                title: Text(AppState.profile.value.phone,
+                    style: const TextStyle(fontWeight: FontWeight.w600)),
+                subtitle:
+                    const Text('Your login number — stays on this device'),
+              ),
+            ]),
           ],
-          const SizedBox(height: 24),
+          const SizedBox(height: 18),
           FilledButton.icon(
             onPressed: _save,
-            icon: const Icon(Icons.save),
+            icon: const Icon(Icons.check),
             label: const Text('Save'),
           ),
         ],
+      ),
+    );
+  }
+
+  /// The avatar look — colour and emoji — edited together in one sheet.
+  Future<void> _editAvatar() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (sheetContext, setSheetState) => SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(child: UserAvatar(user: _preview, radius: 40)),
+                const SizedBox(height: 14),
+                _sectionLabel(sheetContext, 'AVATAR COLOR'),
+                _ColorPicker(
+                  selected: _avatarColor,
+                  onSelected: (hex) {
+                    setState(() => _avatarColor = hex);
+                    setSheetState(() {});
+                  },
+                ),
+                const SizedBox(height: 14),
+                _sectionLabel(sheetContext, 'AVATAR EMOJI'),
+                _EmojiPicker(
+                  selected: _emoji,
+                  choices: _emojiChoices,
+                  onSelected: (e) {
+                    setState(() => _emoji = e);
+                    setSheetState(() {});
+                  },
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }

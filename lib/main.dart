@@ -1,5 +1,3 @@
-import 'dart:ui' show PlatformDispatcher;
-
 import 'package:flutter/material.dart';
 
 import 'app_state.dart';
@@ -15,6 +13,7 @@ import 'state/backup_service.dart';
 import 'state/call_log.dart';
 import 'state/call_service.dart';
 import 'state/community_store.dart';
+import 'state/crash_reporter.dart';
 import 'state/chat_store.dart';
 import 'state/cloud_sync.dart';
 import 'state/feed_store.dart';
@@ -51,12 +50,9 @@ Future<void> _boot(String name, Future<void> Function() step,
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  // Never let an uncaught error take the app down after launch either.
-  FlutterError.onError = (details) => FlutterError.dumpErrorToConsole(details);
-  PlatformDispatcher.instance.onError = (error, stack) {
-    debugPrint('uncaught: $error');
-    return true;
-  };
+  // Uncaught errors are trapped (so they can't take the app down) and shipped
+  // to the crash_reports table, where they can actually be read and fixed.
+  CrashReporter.instance.install();
   // Everything lives on the device: the phone-number identity and all chats
   // are loaded from (and saved to) local storage. If a relay is configured,
   // messages are delivered device-to-device over an ephemeral broadcast

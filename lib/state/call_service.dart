@@ -190,6 +190,46 @@ class CallService {
       direction: dir,
       durationSeconds: duration,
     ));
+    _recordInChat(c, connected: connected, duration: duration);
+  }
+
+  /// Drops a call record into the conversation itself — a missed call badge
+  /// in the thread, a "Voice call · 4:32" entry for one that connected — so
+  /// the chat tells the whole story, not just the Calls tab. Local only:
+  /// each device writes its own record from its own signaling.
+  void _recordInChat(CallSession c,
+      {required bool connected, required int duration}) {
+    final store = ChatStore.instance;
+    var chat = store.chatWithContact(c.peer.id) ??
+        store.chatWithContact(c.peer.phone) ??
+        store.chatById(c.peer.id);
+    if (chat == null) {
+      if (RelayService.digits(c.peer.phone).isEmpty) return;
+      chat = Chat(
+          id: 'chat_${c.peer.phone}', contact: c.peer, messages: const []);
+      store.upsert(chat);
+    }
+    final outgoing = c.direction == CallDirection.outgoing;
+    final event = connected
+        ? 'ended'
+        : (outgoing
+            ? (c.status == CallStatus.declined ? 'declined' : 'noanswer')
+            : 'missed');
+    store.addMessage(
+      chat.id,
+      Message(
+        id: 'callmsg_${c.callId}',
+        text: '',
+        time: DateTime.now(),
+        isMe: outgoing,
+        // A call record needs no ticks; an unanswered incoming call should
+        // still bump the unread badge, which addMessage does for !isMe.
+        status: MessageStatus.read,
+        callEvent: event,
+        callVideo: c.video,
+        callSeconds: duration,
+      ),
+    );
   }
 
   /// Places an outgoing call to [peer] and rings their device.
@@ -577,9 +617,12 @@ class CallService {
   void onRemoteDecline(String callId) {
     final c = current.value;
     if (c == null || c.callId != callId) return;
-    _logCall(c);
+    // Log the *declined* state, so the chat record says "declined" rather
+    // than reading as an ordinary unanswered call.
+    final declined = c.copyWith(status: CallStatus.declined);
+    _logCall(declined);
     CallMedia.instance.hangUp();
-    current.value = c.copyWith(status: CallStatus.declined);
+    current.value = declined;
   }
 
   void onRemoteEnd(String callId) {

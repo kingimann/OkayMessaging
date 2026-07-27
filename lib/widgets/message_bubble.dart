@@ -133,6 +133,17 @@ class MessageBubble extends StatelessWidget {
       );
     }
 
+    if (message.isCallEvent) {
+      return _CallEventBubble(
+        message: message,
+        isMe: isMe,
+        bubbleColor: bubbleColor,
+        textColor: textColor,
+        metaColor: metaColor,
+        onLongPress: onLongPress,
+      );
+    }
+
     if (message.isImage && message.viewOnce) {
       return _ViewOnceBubble(
         message: message,
@@ -348,6 +359,98 @@ void _showOriginal(BuildContext context, String original) {
     confirmLabel: 'Close',
     cancelLabel: null,
   );
+}
+
+/// A call record in the thread: "Missed voice call", "Voice call · 4:32" —
+/// a compact chip rather than a speech bubble, since nobody said anything.
+class _CallEventBubble extends StatelessWidget {
+  final Message message;
+  final bool isMe;
+  final Color bubbleColor;
+  final Color textColor;
+  final Color metaColor;
+  final VoidCallback? onLongPress;
+
+  const _CallEventBubble({
+    required this.message,
+    required this.isMe,
+    required this.bubbleColor,
+    required this.textColor,
+    required this.metaColor,
+    required this.onLongPress,
+  });
+
+  String get _label {
+    final kind = message.callVideo ? 'Video call' : 'Voice call';
+    switch (message.callEvent) {
+      case 'missed':
+        return 'Missed ${kind.toLowerCase()}';
+      case 'declined':
+        return '$kind declined';
+      case 'noanswer':
+        return 'No answer';
+      default:
+        final s = message.callSeconds;
+        if (s <= 0) return kind;
+        final m = s ~/ 60;
+        return '$kind · $m:${(s % 60).toString().padLeft(2, '0')}';
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final missed = message.callEvent == 'missed';
+    final iconColor = missed ? Colors.redAccent : metaColor;
+    return Align(
+      alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+      child: GestureDetector(
+        onLongPress: onLongPress,
+        child: Container(
+          margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+          decoration: BoxDecoration(
+            color: bubbleColor.withValues(alpha: 0.75),
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: iconColor.withValues(alpha: 0.14),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  message.callVideo
+                      ? (missed ? Icons.missed_video_call : Icons.videocam)
+                      : (missed
+                          ? Icons.phone_missed
+                          : (isMe ? Icons.call_made : Icons.call_received)),
+                  size: 16,
+                  color: iconColor,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                _label,
+                style: TextStyle(
+                  color: missed ? Colors.redAccent : textColor,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                DateFormatter.messageTime(message.time),
+                style: TextStyle(color: metaColor, fontSize: 11),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 /// The sender's name above an incoming group bubble. Each member keeps a

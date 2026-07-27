@@ -1,6 +1,3 @@
-import 'package:flutter/foundation.dart';
-import 'package:flutter_contacts/flutter_contacts.dart';
-
 import '../models/user.dart';
 import 'account_service.dart';
 import 'session.dart';
@@ -41,16 +38,16 @@ class ContactSyncResult {
 /// hashed on-device, and only the hashes are matched against the server
 /// directory (the `usernames` table's `phone_hash` column).
 ///
-/// Nothing touches the plugin until the user actually taps "sync", and the
-/// permission request comes from the plugin itself — the app deliberately
-/// carries no permission_handler (its Podfile macros were the prime suspect
-/// in an earlier iOS launch crash).
+/// Contact reading is OFF: the flutter_contacts plugin crashed the app at
+/// launch on iOS (confirmed twice — with and without permission_handler in
+/// the build, so the plugin itself is the culprit). The phone-hash matching
+/// stays intact; wire a different address-book plugin here to re-enable.
 class ContactsSync {
   ContactsSync._();
   static final ContactsSync instance = ContactsSync._();
 
-  /// Contact reading is a mobile-only capability.
-  bool get supported => !kIsWeb;
+  /// Contact reading is disabled — see the class note.
+  bool get supported => false;
 
   /// The country calling code to assume for a bare local number, inferred
   /// from the signed-in user's own number (defaults to NANP "1").
@@ -89,33 +86,7 @@ class ContactsSync {
     return set.toList();
   }
 
-  /// Requests contacts permission, reads the address book, and returns the
-  /// contacts who use OkayMessenger. Never throws.
-  Future<ContactSyncResult> sync() async {
-    if (!supported) {
-      return const ContactSyncResult(ContactSyncStatus.unsupported);
-    }
-    try {
-      final granted = await FlutterContacts.requestPermission(readonly: true);
-      if (!granted) {
-        return const ContactSyncResult(ContactSyncStatus.permissionDenied);
-      }
-      final contacts = await FlutterContacts.getContacts(withProperties: true);
-      final numbers = <String>[];
-      for (final c in contacts) {
-        for (final p in c.phones) {
-          if (p.number.trim().isNotEmpty) numbers.add(p.number);
-        }
-      }
-      if (numbers.isEmpty) {
-        return const ContactSyncResult(ContactSyncStatus.empty);
-      }
-      final hashes = hashesFor(numbers, countryCode: defaultCountryCode());
-      final matches = await AccountService.instance.lookupByPhoneHashes(hashes);
-      return ContactSyncResult(ContactSyncStatus.ok,
-          matches: matches, scanned: numbers.length);
-    } catch (_) {
-      return const ContactSyncResult(ContactSyncStatus.error);
-    }
-  }
+  /// Contact reading is disabled in this build.
+  Future<ContactSyncResult> sync() async =>
+      const ContactSyncResult(ContactSyncStatus.unsupported);
 }

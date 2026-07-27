@@ -248,15 +248,22 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
     }
     await _run(() async {
       await AccountService.instance.verifyCode(_fullPhone, _code.text);
-      // Pre-fill any username already linked to this number.
+      // A returning account already owns a username — signing in shouldn't
+      // ask them to pick one again. Only a brand-new number sees that step.
       final existing =
           await AccountService.instance.usernameForPhone(_fullPhone);
-      if (mounted) {
-        setState(() {
-          if (existing != null) _username.text = existing;
-          _step = _Step.username;
-        });
+      if (!mounted) return;
+      if (existing != null && AccountService.isValidUsername(existing)) {
+        _username.text = existing;
+        if (!await _passTwoStep()) return;
+        await Session.instance.signIn(
+          phone: _fullPhone,
+          name: _name.text.trim(),
+          username: existing,
+        );
+        return;
       }
+      setState(() => _step = _Step.username);
     });
   }
 

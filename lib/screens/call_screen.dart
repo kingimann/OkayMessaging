@@ -33,7 +33,13 @@ class CallScreen extends StatefulWidget {
 class _CallScreenState extends State<CallScreen> {
   Timer? _tick;
   Timer? _dismiss;
-  int _seconds = 0;
+  /// Elapsed connected time, derived from the session's connect timestamp —
+  /// never from a counter, which would restart at zero every time the call
+  /// screen is minimized and reopened.
+  int get _seconds {
+    final at = widget.session.connectedAt;
+    return at == null ? 0 : DateTime.now().difference(at).inSeconds;
+  }
   bool _muted = false;
   bool _speaker = false;
   late bool _video = widget.session.video;
@@ -102,7 +108,7 @@ class _CallScreenState extends State<CallScreen> {
     }
     if (s == CallStatus.connected && _tick == null) {
       _tick = Timer.periodic(const Duration(seconds: 1), (_) {
-        if (mounted) setState(() => _seconds++);
+        if (mounted) setState(() {});
       });
       // Video calls are held at arm's length — default to speakerphone,
       // the way every calling app does. Voice stays on the earpiece.

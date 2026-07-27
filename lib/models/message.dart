@@ -117,6 +117,13 @@ class Message {
   /// 'paid' once it settles, or 'failed'. Empty for non-payment messages.
   final String paymentStatus;
 
+  /// Call record shown in the conversation: '' for normal messages, else
+  /// 'missed' (rang, never answered), 'declined', 'noanswer' (outgoing,
+  /// nobody picked up) or 'ended' (a completed call — [callSeconds] long).
+  final String callEvent;
+  final bool callVideo;
+  final int callSeconds;
+
   /// True for a poll; [pollQuestion] / [pollOptions] describe it, [pollVotes]
   /// holds the tally per option, and [pollMyVote] is this device's choice
   /// (-1 = not voted yet).
@@ -164,7 +171,13 @@ class Message {
     this.pollOptions = const [],
     this.pollVotes = const [],
     this.pollMyVote = -1,
+    this.callEvent = '',
+    this.callVideo = false,
+    this.callSeconds = 0,
   });
+
+  /// Whether this message is a call record rather than content.
+  bool get isCallEvent => callEvent.isNotEmpty;
 
   /// Total votes cast across all poll options.
   int get pollTotalVotes => pollVotes.fold(0, (n, v) => n + v);
@@ -207,6 +220,9 @@ class Message {
         'pollOptions': pollOptions,
         'pollVotes': pollVotes,
         'pollMyVote': pollMyVote,
+        'callEvent': callEvent,
+        'callVideo': callVideo,
+        'callSeconds': callSeconds,
       };
 
   factory Message.fromJson(Map<String, dynamic> json) => Message(
@@ -256,6 +272,9 @@ class Message {
                 .toList() ??
             const [],
         pollMyVote: json['pollMyVote'] as int? ?? -1,
+        callEvent: json['callEvent'] as String? ?? '',
+        callVideo: json['callVideo'] as bool? ?? false,
+        callSeconds: json['callSeconds'] as int? ?? 0,
       );
 
   Message copyWith({
@@ -309,6 +328,9 @@ class Message {
       pollOptions: pollOptions,
       pollVotes: pollVotes ?? this.pollVotes,
       pollMyVote: pollMyVote ?? this.pollMyVote,
+      callEvent: callEvent,
+      callVideo: callVideo,
+      callSeconds: callSeconds,
     );
   }
 

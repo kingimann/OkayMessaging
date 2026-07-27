@@ -415,7 +415,13 @@ class ChatStore extends ChangeNotifier {
     }
     _replace(
       i,
-      _chats[i].copyWith(messages: [..._chats[i].messages, msg]),
+      _chats[i].copyWith(
+        messages: [..._chats[i].messages, msg],
+        // Incoming activity lights the chat's unread badge (the open chat
+        // screen clears it straight back via markRead).
+        unreadCount:
+            msg.isMe ? _chats[i].unreadCount : _chats[i].unreadCount + 1,
+      ),
     );
     // Grow the Okay Score for real conversation activity.
     ScoreStore.instance.award(

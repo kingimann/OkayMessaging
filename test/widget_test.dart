@@ -71,6 +71,7 @@ import 'package:okay_messaging/state/status_store.dart';
 import 'package:okay_messaging/state/chat_store.dart';
 import 'package:okay_messaging/state/gif_service.dart';
 import 'package:okay_messaging/state/legal_consent.dart';
+import 'package:okay_messaging/state/crash_reporter.dart';
 import 'package:okay_messaging/widgets/empty_state.dart';
 import 'package:okay_messaging/screens/home_screen.dart';
 import 'package:okay_messaging/widgets/app_dialogs.dart';
@@ -2363,8 +2364,13 @@ void main() {
     await tester.tap(find.text('Edit profile'));
     await tester.pumpAndSettle();
 
-    // The enhanced editor exposes the avatar-color picker and username field.
+    // Colour and emoji now live behind the avatar's "Change look" sheet.
+    await tester.tap(find.text('Change look'));
+    await tester.pumpAndSettle();
     expect(find.text('AVATAR COLOR'), findsOneWidget);
+    expect(find.text('AVATAR EMOJI'), findsOneWidget);
+    await tester.tapAt(const Offset(400, 60)); // dismiss the sheet
+    await tester.pumpAndSettle();
     expect(find.text('Username'), findsOneWidget);
     await tester.enterText(find.byType(TextField).first, 'Ada');
     // Tap the AppBar save action (a selected swatch also renders a check icon).
@@ -7577,17 +7583,13 @@ void main() {
   });
 
   group('Contacts sync availability', () {
-    test('contact reading is supported again on device builds', () {
-      // kIsWeb is false in the VM test environment, standing in for mobile.
-      expect(ContactsSync.instance.supported, isTrue);
+    test('contact reading is off (the plugin crashed iOS at launch)', () {
+      expect(ContactsSync.instance.supported, isFalse);
     });
 
-    test('sync degrades to an error result instead of throwing', () async {
-      // No plugin host exists in tests — the channel call fails, and that
-      // must surface as a status, never an exception.
+    test('sync reports unsupported instead of throwing', () async {
       final result = await ContactsSync.instance.sync();
-      expect(result.status,
-          anyOf(ContactSyncStatus.error, ContactSyncStatus.permissionDenied));
+      expect(result.status, ContactSyncStatus.unsupported);
       expect(result.matches, isEmpty);
     });
   });
@@ -7758,6 +7760,126 @@ void main() {
 
       await tester.pumpWidget(const SizedBox());
       await tester.pump();
+    });
+  });
+
+  group('Calls in the conversation', () {
+    setUp(() {
+      ChatStore.instance.clearAll();
+      CallService.instance.resetForTest();
+      CallLog.instance.resetForTest();
+      Session.instance.signInForTest();
+    });
+
+    AppUser peer() => const AppUser(
+          id: '+1 555 0199',
+          name: 'Grace',
+          avatarColor: '#64B5F6',
+          phone: '+1 555 0199');
+
+    test('a missed call lands in the chat and bumps its unread badge', () {
+      final call = CallService.instance;
+      call.onRemoteOffer(peer(), 'c_missed', false);
+      call.onRemoteEnd('c_missed'); // caller hung up before we answered
+
+      final chat = ChatStore.instance.chatWithContact('+1 555 0199');
+      expect(chat, isNotNull);
+      final record = chat!.messages.single;
+      expect(record.isCallEvent, isTrue);
+      expect(record.callEvent, 'missed');
+      expect(record.isMe, isFalse);
+      expect(chat.unreadCount, 1);
+      expect(chat.preview, 'Missed voice call');
+    });
+
+    test('a completed call shows with its duration; declines say so', () {
+      final call = CallService.instance;
+      call.startOutgoing(peer(), video: false);
+      call.onRemoteAnswer(call.current.value!.callId);
+      call.end();
+
+      var chat = ChatStore.instance.chatWithContact('+1 555 0199')!;
+      expect(chat.messages.single.callEvent, 'ended');
+      expect(chat.messages.single.isMe, isTrue);
+      expect(chat.preview, 'Voice call');
+
+      call.clear();
+      call.startOutgoing(peer(), video: true);
+      call.onRemoteDecline(call.current.value!.callId);
+      chat = ChatStore.instance.chatWithContact('+1 555 0199')!;
+      expect(chat.messages.last.callEvent, 'declined');
+      expect(chat.messages.last.callVideo, isTrue);
+      call.clear();
+    });
+
+    test('call records survive save and restore', () {
+      final m = Message(
+        id: 'cm1',
+        text: '',
+        time: DateTime(2024, 9, 1, 12),
+        isMe: false,
+        callEvent: 'missed',
+        callVideo: true,
+        callSeconds: 0,
+      );
+      final back = Message.fromJson(m.toJson());
+      expect(back.isCallEvent, isTrue);
+      expect(back.callEvent, 'missed');
+      expect(back.callVideo, isTrue);
+    });
+
+    testWidgets('the chat renders a call chip, not a speech bubble',
+        (tester) async {
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: MessageBubble(
+            message: Message(
+              id: 'cm2',
+              text: '',
+              time: DateTime(2024, 9, 1, 12),
+              isMe: false,
+              callEvent: 'missed',
+            ),
+          ),
+        ),
+      ));
+      await tester.pump();
+      expect(find.text('Missed voice call'), findsOneWidget);
+      expect(find.byIcon(Icons.phone_missed), findsOneWidget);
+    });
+  });
+
+  group('Crash reporter', () {
+    setUp(CrashReporter.instance.resetForTest);
+    tearDown(() => CrashReporter.debugSendOverride = null);
+
+    test('a report carries the essentials and respects size caps', () {
+      final row = CrashReporter.buildReport(
+        error: 'x' * 5000,
+        stack: 'y' * 9000,
+        context: 'flutter',
+        version: 'abc123',
+      );
+      expect((row['error'] as String).length, 1000);
+      expect((row['stack'] as String).length, 4000);
+      expect(row['context'], 'flutter');
+      expect(row['app_version'], 'abc123');
+      expect(row['platform'], isNotEmpty);
+    });
+
+    test('duplicates and floods are suppressed', () {
+      final sent = <Map<String, dynamic>>[];
+      CrashReporter.debugSendOverride = sent.add;
+
+      CrashReporter.instance.report('boom', null);
+      CrashReporter.instance.report('boom', null); // dup — dropped
+      expect(sent.length, 1);
+
+      for (var i = 0; i < 30; i++) {
+        CrashReporter.instance.report('error $i', null);
+      }
+      // Capped per session so an error loop can't flood the table.
+      expect(sent.length, CrashReporter.maxPerSession);
     });
   });
 }

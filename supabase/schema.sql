@@ -123,3 +123,35 @@ create policy push_tokens_update_own on public.push_tokens
   using (phone = (auth.jwt() ->> 'phone'))
   with check (phone = (auth.jwt() ->> 'phone'));
 -- No select policy for clients: tokens are readable only by the service role.
+
+-- =============================================================================
+-- Crash reports
+-- =============================================================================
+-- Dart-side crashes and errors, reported by the app so problems can be read
+-- from the dashboard instead of reconstructed from user descriptions. Rows
+-- carry an error, a trimmed stack, build stamp, platform — never message
+-- content or phone numbers. The client rate-limits itself; size caps here
+-- are the backstop.
+create table if not exists public.crash_reports (
+  id          bigint generated always as identity primary key,
+  created_at  timestamptz not null default now(),
+  error       text not null check (char_length(error) <= 2000),
+  stack       text not null default '' check (char_length(stack) <= 8000),
+  context     text not null default '',
+  app_version text not null default '',
+  platform    text not null default '',
+  mode        text not null default ''
+);
+
+alter table public.crash_reports enable row level security;
+
+-- Anyone with the app (publishable key) may file a report...
+drop policy if exists crash_reports_insert on public.crash_reports;
+create policy crash_reports_insert on public.crash_reports
+  for insert to anon, authenticated with check (true);
+
+-- ...and reports are readable with the same key, so whoever is debugging can
+-- pull them without service-role access. Crash stacks contain no user data.
+drop policy if exists crash_reports_read on public.crash_reports;
+create policy crash_reports_read on public.crash_reports
+  for select to anon, authenticated using (true);

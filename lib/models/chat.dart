@@ -60,6 +60,15 @@ class Chat {
     // Deleted wins over the type flags (a deleted photo keeps isImage), so
     // the list says what happened instead of going blank or saying "Photo".
     if (m.isDeleted) return 'Message deleted';
+    if (m.isCallEvent) {
+      final kind = m.callVideo ? 'video call' : 'voice call';
+      return switch (m.callEvent) {
+        'missed' => 'Missed $kind',
+        'declined' => 'Declined $kind',
+        'noanswer' => 'No answer',
+        _ => m.callVideo ? 'Video call' : 'Voice call',
+      };
+    }
     if (m.isImage) return 'Photo';
     if (m.isVoice) return 'Voice message';
     if (m.isLocation) return 'Location';
