@@ -34,7 +34,11 @@ flutter test        # all tests must pass (~298 tests, ~1 min)
 ```
 
 `flutter test` takes about a minute; run it in the background and poll rather
-than blocking. When touching web-visible code or dependencies, also confirm
+than blocking. **Never judge a gate through a pipe**: `flutter test | tail`
+exits with tail's status, so a failing suite still reads as success — use
+`set -o pipefail` (or read the actual "All tests passed!" line) before
+treating a gate as green. This has caused a red push once already.
+When touching web-visible code or dependencies, also confirm
 the web build compiles:
 
 ```bash
