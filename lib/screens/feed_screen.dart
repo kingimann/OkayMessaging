@@ -13,6 +13,7 @@ import '../util/photo_prep.dart';
 import '../widgets/app_dialogs.dart';
 import '../widgets/chat_photo.dart';
 import '../widgets/emoji_gif_sheet.dart';
+import '../widgets/poll_widgets.dart';
 import '../widgets/pull_to_refresh.dart';
 import 'chat_screen.dart';
 import 'people_screen.dart';
@@ -154,6 +155,10 @@ class _FeedScreenState extends State<FeedScreen> {
               _post(gifUrl: url);
               Navigator.pop(sheetContext);
             },
+            onCreatePoll: () async {
+              Navigator.pop(sheetContext);
+              await _createPoll();
+            },
             onAttachPhoto: () async {
               await _attachPhoto();
               if (sheetContext.mounted) Navigator.pop(sheetContext);
@@ -276,6 +281,26 @@ class _FeedScreenState extends State<FeedScreen> {
         ),
       ),
     );
+  }
+
+  /// Posts a poll to the feed, using the same composer sheet as channels.
+  Future<void> _createPoll() async {
+    final result =
+        await showModalBottomSheet<({String question, List<String> options})>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => const PollComposerSheet(),
+    );
+    if (result == null || !mounted) return;
+    final hit =
+        CommunityStore.instance.filterHit(widget.communityId, result.question);
+    if (hit != null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('"$hit" is blocked by this server\'s word filter')));
+      return;
+    }
+    FeedStore.instance
+        .addPoll(widget.communityId, result.question, result.options);
   }
 
   /// A quote post: the quoter's own card, with the quoted post in a bordered
@@ -626,6 +651,9 @@ class _Composer extends StatelessWidget {
   /// caption.
   final ValueChanged<String>? onPostGif;
 
+  /// Opens the poll composer; null hides the poll button.
+  final VoidCallback? onCreatePoll;
+
   /// Opens the photo picker and posts the shot the same way.
   final VoidCallback? onAttachPhoto;
 
@@ -636,6 +664,7 @@ class _Composer extends StatelessWidget {
     required this.controller,
     required this.onPost,
     this.onPostGif,
+    this.onCreatePoll,
     this.onAttachPhoto,
     this.mentionCandidates,
   });
@@ -751,6 +780,17 @@ class _Composer extends StatelessWidget {
             padding: EdgeInsets.zero,
             onPressed: () => _pick(context),
           ),
+          if (onCreatePoll != null)
+            IconButton(
+              icon: const Icon(Icons.poll_outlined, size: 21),
+              color: Colors.grey,
+              tooltip: 'Create poll',
+              visualDensity: VisualDensity.compact,
+              constraints:
+                  const BoxConstraints(minWidth: 36, minHeight: 36),
+              padding: EdgeInsets.zero,
+              onPressed: onCreatePoll,
+            ),
           if (onAttachPhoto != null)
             IconButton(
               icon: const Icon(Icons.photo_outlined, size: 21),
@@ -875,6 +915,21 @@ class _PostCard extends StatelessWidget {
                     ),
                     onTag: onTag,
                     onMention: onMention,
+                  ),
+                if (post.isPoll)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6, right: 8),
+                    child: PollBody(
+                      question: post.pollQuestion,
+                      options: post.pollOptions,
+                      votes: post.pollVotes,
+                      myVote: post.pollMyVote,
+                      textColor:
+                          Theme.of(context).colorScheme.onSurface,
+                      metaColor:
+                          Theme.of(context).colorScheme.onSurfaceVariant,
+                      onVote: (i) => FeedStore.instance.votePoll(post.id, i),
+                    ),
                   ),
                 if (post.gifUrl != null) ...[
                   const SizedBox(height: 8),

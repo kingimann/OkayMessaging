@@ -6010,6 +6010,58 @@ void main() {
       expect(revived.edited, isTrue);
     });
 
+    test('feed polls: create, vote, switch, and survive a round trip', () {
+      FeedStore.instance.resetForTest();
+      addTearDown(FeedStore.instance.resetForTest);
+      final store = FeedStore.instance;
+
+      // Needs a question and at least two real options.
+      expect(store.addPoll('c1', '', ['a', 'b']), isNull);
+      expect(store.addPoll('c1', 'Pick one', ['only']), isNull);
+      expect(store.addPoll('c1', 'Pick one', ['a', '  ']), isNull);
+      // Blank and duplicate options are dropped before the count is checked.
+      expect(store.addPoll('c1', 'Pick one', ['a', 'A', '']), isNull);
+
+      final poll = store.addPoll(
+          'c1', 'Best day to ship?', ['Monday', ' Friday ', ''])!;
+      expect(poll.isPoll, isTrue);
+      expect(poll.pollOptions, ['Monday', 'Friday'], reason: 'trimmed');
+      expect(poll.pollVotes, [0, 0]);
+      expect(poll.pollMyVote, -1);
+      expect(poll.pollTotalVotes, 0);
+
+      // Voting counts once.
+      store.votePoll(poll.id, 1);
+      expect(store.postById(poll.id)!.pollVotes, [0, 1]);
+      expect(store.postById(poll.id)!.pollMyVote, 1);
+
+      // Voting the same option again is a no-op, not a second vote.
+      store.votePoll(poll.id, 1);
+      expect(store.postById(poll.id)!.pollTotalVotes, 1);
+
+      // Switching moves the vote rather than adding one.
+      store.votePoll(poll.id, 0);
+      expect(store.postById(poll.id)!.pollVotes, [1, 0]);
+      expect(store.postById(poll.id)!.pollTotalVotes, 1);
+
+      // Out-of-range votes are ignored.
+      store.votePoll(poll.id, 9);
+      expect(store.postById(poll.id)!.pollVotes, [1, 0]);
+      // A plain post isn't a poll and can't be voted on.
+      final plain = store.add('c1', 'just words');
+      expect(plain.isPoll, isFalse);
+      store.votePoll(plain.id, 0);
+      expect(store.postById(plain.id)!.pollVotes, isEmpty);
+
+      // The whole poll round-trips through JSON.
+      final revived = FeedPost.fromJson(store.postById(poll.id)!.toJson());
+      expect(revived.isPoll, isTrue);
+      expect(revived.pollQuestion, 'Best day to ship?');
+      expect(revived.pollOptions, ['Monday', 'Friday']);
+      expect(revived.pollVotes, [1, 0]);
+      expect(revived.pollMyVote, 0);
+    });
+
     test('quote reposts carry their own words and stack', () {
       FeedStore.instance.resetForTest();
       addTearDown(FeedStore.instance.resetForTest);

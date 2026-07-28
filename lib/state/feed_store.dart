@@ -41,6 +41,16 @@ class FeedPost {
   /// Pinned to the top of its server's feed by a moderator.
   final bool pinned;
 
+  /// Poll fields. [pollOptions] empty means this isn't a poll; [pollVotes]
+  /// is the tally per option and [pollMyVote] this device's choice (-1 none).
+  final String pollQuestion;
+  final List<String> pollOptions;
+  final List<int> pollVotes;
+  final int pollMyVote;
+
+  bool get isPoll => pollOptions.isNotEmpty;
+  int get pollTotalVotes => pollVotes.fold(0, (n, v) => n + v);
+
   const FeedPost({
     required this.id,
     required this.communityId,
@@ -58,6 +68,10 @@ class FeedPost {
     this.repostOfId,
     this.edited = false,
     this.pinned = false,
+    this.pollQuestion = '',
+    this.pollOptions = const [],
+    this.pollVotes = const [],
+    this.pollMyVote = -1,
   });
 
   FeedPost copyWith({
@@ -69,6 +83,8 @@ class FeedPost {
     String? text,
     bool? edited,
     bool? pinned,
+    List<int>? pollVotes,
+    int? pollMyVote,
   }) =>
       FeedPost(
         id: id,
@@ -87,6 +103,10 @@ class FeedPost {
         repostOfId: repostOfId,
         edited: edited ?? this.edited,
         pinned: pinned ?? this.pinned,
+        pollQuestion: pollQuestion,
+        pollOptions: pollOptions,
+        pollVotes: pollVotes ?? this.pollVotes,
+        pollMyVote: pollMyVote ?? this.pollMyVote,
       );
 
   Map<String, dynamic> toJson() => {
@@ -106,6 +126,12 @@ class FeedPost {
         if (repostOfId != null) 'repostOfId': repostOfId,
         if (edited) 'edited': true,
         if (pinned) 'pinned': true,
+        if (isPoll) ...{
+          'pollQuestion': pollQuestion,
+          'pollOptions': pollOptions,
+          'pollVotes': pollVotes,
+          'pollMyVote': pollMyVote,
+        },
       };
 
   factory FeedPost.fromJson(Map<String, dynamic> j) => FeedPost(
@@ -125,6 +151,13 @@ class FeedPost {
         repostOfId: j['repostOfId'] as String?,
         edited: j['edited'] as bool? ?? false,
         pinned: j['pinned'] as bool? ?? false,
+        pollQuestion: j['pollQuestion'] as String? ?? '',
+        pollOptions:
+            (j['pollOptions'] as List? ?? const []).whereType<String>().toList(),
+        pollVotes: (j['pollVotes'] as List? ?? const [])
+            .map((v) => (v as num).toInt())
+            .toList(),
+        pollMyVote: j['pollMyVote'] as int? ?? -1,
       );
 }
 
@@ -255,6 +288,56 @@ class FeedStore extends ChangeNotifier {
       ),
     );
     if (_notifications.length > 50) _notifications.removeLast();
+    _save();
+    notifyListeners();
+  }
+
+  /// Posts a poll to a server's feed. Needs a question and at least two
+  /// non-empty options; blanks and duplicates are dropped first.
+  FeedPost? addPoll(
+      String communityId, String question, List<String> options) {
+    final q = question.trim();
+    final seen = <String>{};
+    final opts = [
+      for (final o in options)
+        if (o.trim().isNotEmpty && seen.add(o.trim().toLowerCase())) o.trim()
+    ];
+    if (q.isEmpty || opts.length < 2) return null;
+    final me = AppState.profile.value;
+    final post = FeedPost(
+      id: 'poll_${DateTime.now().microsecondsSinceEpoch}_${_nextId++}',
+      communityId: communityId,
+      authorName: me.name,
+      authorUsername: me.username.isEmpty ? 'you' : me.username,
+      time: DateTime.now(),
+      text: '',
+      pollQuestion: q,
+      pollOptions: opts,
+      pollVotes: List<int>.filled(opts.length, 0),
+    );
+    _posts.add(post);
+    _save();
+    notifyListeners();
+    if (RelayConfig.isEnabled) RelayService.instance.sendFeedPost(post);
+    return post;
+  }
+
+  /// Casts (or moves) this device's vote on a feed poll. Voting the same
+  /// option twice is a no-op; switching moves the tally rather than adding.
+  void votePoll(String postId, int option) {
+    final i = _posts.indexWhere((p) => p.id == postId);
+    if (i == -1) return;
+    final p = _posts[i];
+    if (!p.isPoll || option < 0 || option >= p.pollOptions.length) return;
+    if (p.pollMyVote == option) return;
+    final votes = [...p.pollVotes];
+    while (votes.length < p.pollOptions.length) {
+      votes.add(0);
+    }
+    final prev = p.pollMyVote;
+    if (prev >= 0 && prev < votes.length && votes[prev] > 0) votes[prev]--;
+    votes[option]++;
+    _posts[i] = p.copyWith(pollVotes: votes, pollMyVote: option);
     _save();
     notifyListeners();
   }

@@ -131,47 +131,81 @@ class PollBubble extends StatelessWidget {
   });
 
   @override
+  Widget build(BuildContext context) => SizedBox(
+        width: 250,
+        child: PollBody(
+          question: message.pollQuestion,
+          options: message.pollOptions,
+          votes: message.pollVotes,
+          myVote: message.pollMyVote,
+          textColor: textColor,
+          metaColor: metaColor,
+          onVote: onVote,
+        ),
+      );
+}
+
+/// The poll itself — question, tappable options with result bars, and the
+/// vote count. Takes primitives so a chat message and a feed post can share
+/// one implementation.
+class PollBody extends StatelessWidget {
+  final String question;
+  final List<String> options;
+  final List<int> votes;
+  final int myVote;
+  final Color textColor;
+  final Color metaColor;
+  final ValueChanged<int> onVote;
+
+  const PollBody({
+    super.key,
+    required this.question,
+    required this.options,
+    required this.votes,
+    required this.myVote,
+    required this.textColor,
+    required this.metaColor,
+    required this.onVote,
+  });
+
+  @override
   Widget build(BuildContext context) {
-    final total = message.pollTotalVotes;
-    final votes = message.pollVotes;
-    return SizedBox(
-      width: 250,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
-            children: [
-              Icon(Icons.poll_outlined, size: 16, color: metaColor),
-              const SizedBox(width: 6),
-              Text('Poll',
-                  style: TextStyle(
-                      color: metaColor,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600)),
-            ],
+    final total = votes.fold<int>(0, (n, v) => n + v);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          children: [
+            Icon(Icons.poll_outlined, size: 16, color: metaColor),
+            const SizedBox(width: 6),
+            Text('Poll',
+                style: TextStyle(
+                    color: metaColor,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600)),
+          ],
+        ),
+        const SizedBox(height: 6),
+        Text(question,
+            style: TextStyle(
+                color: textColor,
+                fontSize: 15.5,
+                fontWeight: FontWeight.w600)),
+        const SizedBox(height: 10),
+        for (var i = 0; i < options.length; i++)
+          _PollOption(
+            label: options[i],
+            count: i < votes.length ? votes[i] : 0,
+            total: total,
+            selected: myVote == i,
+            textColor: textColor,
+            onTap: () => onVote(i),
           ),
-          const SizedBox(height: 6),
-          Text(message.pollQuestion,
-              style: TextStyle(
-                  color: textColor,
-                  fontSize: 15.5,
-                  fontWeight: FontWeight.w600)),
-          const SizedBox(height: 10),
-          for (var i = 0; i < message.pollOptions.length; i++)
-            _PollOption(
-              label: message.pollOptions[i],
-              count: i < votes.length ? votes[i] : 0,
-              total: total,
-              selected: message.pollMyVote == i,
-              textColor: textColor,
-              onTap: () => onVote(i),
-            ),
-          const SizedBox(height: 4),
-          Text(total == 1 ? '1 vote' : '$total votes',
-              style: TextStyle(color: metaColor, fontSize: 11.5)),
-        ],
-      ),
+        const SizedBox(height: 4),
+        Text(total == 1 ? '1 vote' : '$total votes',
+            style: TextStyle(color: metaColor, fontSize: 11.5)),
+      ],
     );
   }
 }
