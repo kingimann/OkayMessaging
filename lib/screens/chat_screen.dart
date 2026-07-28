@@ -17,6 +17,7 @@ import '../payments/payment_service.dart';
 import '../relay/relay_config.dart';
 import '../state/score_store.dart';
 import '../util/phone_format.dart';
+import '../util/file_moderation.dart';
 import '../util/photo_prep.dart';
 import '../widgets/app_dialogs.dart';
 import '../widgets/poll_widgets.dart';
@@ -421,7 +422,16 @@ class _ChatScreenState extends State<ChatScreen> {
   /// Picks a real photo from the device, shrinks it to fit the relay, and
   /// sends it inline — device to device, no bucket in the middle.
   Future<void> _handleSendImage({bool viewOnce = false}) async {
-    final dataUri = await PhotoPrep.pickPhoto();
+    String? dataUri;
+    try {
+      dataUri = await PhotoPrep.pickPhoto();
+    } on FileRejected catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.reason)));
+      }
+      return;
+    }
     if (dataUri == null) {
       // Either the user cancelled (say nothing) or the image was unusable.
       return;
@@ -492,6 +502,14 @@ class _ChatScreenState extends State<ChatScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Couldn\'t read that file')),
       );
+      return;
+    }
+    // Moderate before anything leaves the device: executables, scripts, and
+    // blocked content are refused with a reason.
+    final verdict = FileModeration.inspectFile(Uint8List.fromList(bytes));
+    if (!verdict.allowed) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(verdict.reason!)));
       return;
     }
     // Record a local marker in the chat, then stream the bytes directly.

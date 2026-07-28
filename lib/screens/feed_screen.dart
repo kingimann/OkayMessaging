@@ -8,6 +8,7 @@ import '../state/chat_store.dart';
 import '../state/community_store.dart';
 import '../state/feed_store.dart';
 import '../state/follow_store.dart';
+import '../util/file_moderation.dart';
 import '../util/photo_prep.dart';
 import '../widgets/chat_photo.dart';
 import '../widgets/emoji_gif_sheet.dart';
@@ -107,7 +108,16 @@ class _FeedScreenState extends State<FeedScreen> {
   }
 
   Future<void> _attachPhoto() async {
-    final dataUri = await PhotoPrep.pickPhoto();
+    String? dataUri;
+    try {
+      dataUri = await PhotoPrep.pickPhoto();
+    } on FileRejected catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.reason)));
+      }
+      return;
+    }
     if (dataUri == null || !mounted) return;
     // A photo posts like a GIF: an image with whatever was typed as caption.
     _post(gifUrl: dataUri);

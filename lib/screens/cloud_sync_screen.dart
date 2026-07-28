@@ -93,6 +93,10 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
             padding: const EdgeInsets.all(16),
             children: [
               _subscriptionCard(context, storage),
+              if (storage.active) ...[
+                const SizedBox(height: 12),
+                _usageCard(context, sync, storage),
+              ],
               const SizedBox(height: 12),
               _encryptionCard(context),
               const SizedBox(height: 12),
@@ -295,6 +299,87 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
       ),
     );
     if (ok == true) await storage.cancel();
+  }
+
+  /// The usage meter: used vs available, a per-category breakdown, and a
+  /// backup health check.
+  Widget _usageCard(
+      BuildContext context, CloudSync sync, StorageStore storage) {
+    final scheme = Theme.of(context).colorScheme;
+    // Before the first upload there's no recorded size; show the live estimate
+    // so the meter isn't stuck at zero.
+    final used = storage.usedBytes > 0
+        ? storage.usedBytes
+        : sync.estimatedBytes();
+    final fraction = (used / StorageStore.quotaBytes).clamp(0.0, 1.0);
+    final sections = sync.sectionSizes().take(5).toList();
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.pie_chart_outline, color: scheme.primary),
+                const SizedBox(width: 8),
+                const Text('Storage used',
+                    style: TextStyle(fontWeight: FontWeight.w700)),
+                const Spacer(),
+                Text(
+                  '${StorageStore.formatBytes(used)} of ${storage.quotaLabel}',
+                  style: TextStyle(
+                      fontSize: 13, color: scheme.onSurfaceVariant),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(6),
+              child: LinearProgressIndicator(
+                value: fraction,
+                minHeight: 8,
+                backgroundColor: scheme.surfaceContainerHighest,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text('${storage.availableLabel} available',
+                style:
+                    TextStyle(fontSize: 12.5, color: scheme.onSurfaceVariant)),
+            if (sections.isNotEmpty) ...[
+              const Divider(height: 22),
+              for (final s in sections)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 3),
+                  child: Row(
+                    children: [
+                      Expanded(
+                          child: Text(s.key,
+                              style: const TextStyle(fontSize: 13.5))),
+                      Text(StorageStore.formatBytes(s.value),
+                          style: TextStyle(
+                              fontSize: 13,
+                              color: scheme.onSurfaceVariant)),
+                    ],
+                  ),
+                ),
+            ],
+            const SizedBox(height: 6),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: sync.syncing
+                    ? null
+                    : () => _run(CloudSync.instance.verifyBackup,
+                        'Backup verified — present and readable.'),
+                icon: const Icon(Icons.verified_outlined, size: 18),
+                label: const Text('Verify backup'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _encryptionCard(BuildContext context) {

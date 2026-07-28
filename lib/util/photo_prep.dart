@@ -4,6 +4,8 @@ import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 import 'package:image/image.dart' as img;
 
+import 'file_moderation.dart';
+
 /// Turns a real photo from the device into something the relay can carry.
 ///
 /// The relay is an ephemeral broadcast with a payload cap of roughly a
@@ -37,6 +39,10 @@ class PhotoPrep {
       bytes = result?.files.firstOrNull?.bytes;
     }
     if (bytes == null || bytes.isEmpty) return null;
+    // Nothing leaves the device unmoderated: only real images pass, and a
+    // rejection is surfaced (thrown) so the UI can say why.
+    final verdict = FileModeration.inspectImage(bytes);
+    if (!verdict.allowed) throw FileRejected(verdict.reason!);
     return prepare(bytes);
   }
 

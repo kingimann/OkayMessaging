@@ -238,6 +238,33 @@ class CloudSync extends ChangeNotifier {
         'accountEmail': AccountEmail.instance.toJson(),
       };
 
+  /// Plaintext size of the current backup, in bytes. A cheap live estimate for
+  /// the usage meter before (or between) uploads — the real ciphertext size is
+  /// recorded by [syncNow].
+  int estimatedBytes() => utf8.encode(jsonEncode(buildPayload())).length;
+
+  /// Bytes each category contributes to the backup, biggest first — for a
+  /// human-readable "what's using my storage" breakdown. Pure.
+  List<MapEntry<String, int>> sectionSizes() {
+    const labels = {
+      'communities': 'Servers',
+      'feed': 'Posts',
+      'follows': 'Follows',
+      'places': 'Saved places',
+      'score': 'Okay Score',
+      'accountEmail': 'Account email',
+    };
+    final payload = buildPayload();
+    final out = <MapEntry<String, int>>[];
+    labels.forEach((key, label) {
+      final value = payload[key];
+      if (value == null) return;
+      out.add(MapEntry(label, utf8.encode(jsonEncode(value)).length));
+    });
+    out.sort((a, b) => b.value.compareTo(a.value));
+    return out;
+  }
+
   /// Applies a decrypted payload back onto the local stores.
   void applyPayload(Map<String, dynamic> payload) {
     final chats = payload['chats'];
@@ -326,6 +353,9 @@ class CloudSync extends ChangeNotifier {
         }
       }
       lastSync = DateTime.now();
+      // The ciphertext is what actually occupies storage; record it so the
+      // usage meter reflects reality after every upload.
+      await StorageStore.instance.setUsedBytes(data.length);
       return null;
     } catch (_) {
       return _fail('Couldn\'t reach the server — check your connection.');
@@ -395,6 +425,59 @@ class CloudSync extends ChangeNotifier {
     }
   }
 
+  /// Health check: downloads the stored blob and confirms it decrypts and
+  /// parses with the current key — without touching local state. Returns null
+  /// when the backup is present and readable, or a human-readable problem.
+  Future<String?> verifyBackup() async {
+    if (!configured) return 'Sign in (or set a sync passphrase) first.';
+    if (!hasStorage) return 'Cloud storage isn\'t active.';
+    syncing = true;
+    lastError = null;
+    notifyListeners();
+    try {
+      final key = await _syncKey();
+      final id = blobIdFor(key);
+      String? data;
+      final debug = debugServerOverride;
+      if (debug != null) {
+        data = debug[id];
+      } else {
+        if (!RelayConfig.isEnabled) return _fail('No server configured.');
+        final res = await http.get(
+          Uri.parse('${RelayConfig.supabaseUrl}/rest/v1/$table'
+              '?id=eq.$id&select=data'),
+          headers: {
+            'apikey': RelayConfig.supabaseAnonKey,
+            'Authorization': 'Bearer ${RelayConfig.supabaseAnonKey}',
+          },
+        ).timeout(const Duration(seconds: 15));
+        if (res.statusCode >= 300) {
+          return _fail('Couldn\'t reach the backup (${res.statusCode}).');
+        }
+        final decoded = jsonDecode(res.body);
+        if (decoded is List && decoded.isNotEmpty && decoded.first is Map) {
+          data = (decoded.first as Map)['data'] as String?;
+        }
+      }
+      if (data == null) return _fail('No backup found yet — run Sync now.');
+      final plain = await compute(_decryptTask, (key: key, blob: data));
+      if (plain == null) {
+        return _fail('The backup couldn\'t be decrypted with this key.');
+      }
+      final payload = jsonDecode(plain);
+      if (payload is! Map<String, dynamic>) {
+        return _fail('The backup is present but unreadable.');
+      }
+      await StorageStore.instance.setUsedBytes(data.length);
+      return null;
+    } catch (_) {
+      return _fail('Couldn\'t reach the server — check your connection.');
+    } finally {
+      syncing = false;
+      notifyListeners();
+    }
+  }
+
   String _fail(String message) {
     lastError = message;
     return message;
@@ -410,5 +493,17 @@ class CloudSync extends ChangeNotifier {
     lastSync = null;
     lastError = null;
     _debounce?.cancel();
+    // Detach the store listeners so a later test's store change (or a
+    // debugActivate) can't fire a stray autoBootstrap into this instance.
+    if (_listening) {
+      FeedStore.instance.removeListener(scheduleSync);
+      FollowStore.instance.removeListener(scheduleSync);
+      SavedPlacesStore.instance.removeListener(scheduleSync);
+      CommunityStore.instance.removeListener(scheduleSync);
+      ScoreStore.instance.removeListener(scheduleSync);
+      AppState.profile.removeListener(autoBootstrap);
+      StorageStore.instance.removeListener(_onStorageChanged);
+      _listening = false;
+    }
   }
 }

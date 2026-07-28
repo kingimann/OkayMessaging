@@ -83,6 +83,7 @@ import 'package:okay_messaging/screens/home_screen.dart';
 import 'package:okay_messaging/widgets/app_dialogs.dart';
 import 'package:image/image.dart' as img;
 import 'package:okay_messaging/state/live_location_broadcaster.dart';
+import 'package:okay_messaging/util/file_moderation.dart';
 import 'package:okay_messaging/util/photo_prep.dart';
 import 'package:okay_messaging/widgets/chat_photo.dart';
 import 'package:okay_messaging/widgets/chat_input_bar.dart';
@@ -5339,7 +5340,7 @@ void main() {
       });
       StorageStore.instance.resetForTest(); // unpaid
       await CloudSync.instance
-          .configure(passphrase: 'correct horse battery', on: true);
+          .configure(passphrase: 'correct horse battery', on: false);
 
       // Uploads and restores are refused with a clear, actionable message.
       expect(CloudSync.instance.hasStorage, isFalse);
@@ -5354,6 +5355,85 @@ void main() {
       StorageStore.instance.debugActivate();
       expect(await CloudSync.instance.syncNow(), isNull);
       expect(CloudSync.debugServerOverride, isNotEmpty);
+    });
+
+    test('storage usage: formatBytes, quota, and used/available math', () {
+      final storage = StorageStore.instance;
+      addTearDown(storage.resetForTest);
+      storage.resetForTest();
+
+      expect(StorageStore.formatBytes(0), '0 B');
+      expect(StorageStore.formatBytes(512), '512 B');
+      expect(StorageStore.formatBytes(1024), '1 KB');
+      expect(StorageStore.formatBytes(1536), '1.5 KB');
+      expect(StorageStore.formatBytes(5 * 1024 * 1024 * 1024), '5 GB');
+
+      // Fresh: nothing used, whole quota free.
+      expect(storage.usedBytes, 0);
+      expect(storage.usedFraction, 0);
+      expect(storage.availableBytes, StorageStore.quotaBytes);
+
+      storage.setUsedBytes(2 * 1024 * 1024); // 2 MB
+      expect(storage.usedBytes, 2 * 1024 * 1024);
+      expect(storage.availableBytes,
+          StorageStore.quotaBytes - 2 * 1024 * 1024);
+      expect(storage.usedFraction, greaterThan(0));
+      expect(storage.usedFraction, lessThan(1));
+    });
+
+    test('a backup records its size and a per-category breakdown', () async {
+      CloudSync.instance.resetForTest(); // drop any leaked listeners first
+      CloudSync.debugServerOverride = {};
+      StorageStore.instance.resetForTest(); // clean usage baseline
+      StorageStore.instance.debugActivate();
+      addTearDown(() {
+        CloudSync.debugServerOverride = null;
+        CloudSync.instance.resetForTest();
+        StorageStore.instance.resetForTest();
+        CommunityStore.instance.resetForTest();
+      });
+      CommunityStore.instance.resetForTest();
+      await CloudSync.instance
+          .configure(passphrase: 'correct horse battery', on: false);
+      CommunityStore.instance.createCommunity('Photography');
+
+      // Breakdown is pure and sorted biggest-first; Servers dominate here.
+      final sizes = CloudSync.instance.sectionSizes();
+      expect(sizes, isNotEmpty);
+      expect(sizes.first.value, greaterThanOrEqualTo(sizes.last.value));
+      expect(sizes.map((e) => e.key), contains('Servers'));
+      expect(CloudSync.instance.estimatedBytes(), greaterThan(0));
+
+      // Uploading records the real ciphertext size in the usage meter.
+      expect(StorageStore.instance.usedBytes, 0);
+      expect(await CloudSync.instance.syncNow(), isNull);
+      expect(StorageStore.instance.usedBytes, greaterThan(0));
+    });
+
+    test('verify backup confirms the blob is present and readable', () async {
+      CloudSync.instance.resetForTest(); // drop any leaked listeners first
+      CloudSync.debugServerOverride = {};
+      StorageStore.instance.debugActivate();
+      addTearDown(() {
+        CloudSync.debugServerOverride = null;
+        CloudSync.instance.resetForTest();
+        StorageStore.instance.resetForTest();
+      });
+      // A passphrase unique to this test, so no other test's blob can collide.
+      await CloudSync.instance
+          .configure(passphrase: 'verify-backup-unique-passphrase', on: false);
+
+      // Nothing uploaded yet: verify reports there's no backup.
+      expect(await CloudSync.instance.verifyBackup(), isNotNull);
+
+      // After a sync it verifies clean under the same key.
+      expect(await CloudSync.instance.syncNow(), isNull);
+      expect(await CloudSync.instance.verifyBackup(), isNull);
+
+      // A different key has no blob of its own — verify reports it missing.
+      await CloudSync.instance.configure(
+          passphrase: 'verify-backup-other-unique-key', on: false);
+      expect(await CloudSync.instance.verifyBackup(), isNotNull);
     });
 
     test('reposts are real entries, deletes cascade, bookmarks persist', () {
@@ -8248,6 +8328,77 @@ void main() {
       ));
       await tester.pump();
       expect(find.text('broken'), findsOneWidget);
+    });
+  });
+
+  group('File moderation', () {
+    Uint8List bytes(List<int> b) => Uint8List.fromList(b);
+
+    test('real images pass the photo path', () {
+      // Magic numbers are enough — moderation sniffs content, not extensions.
+      final jpeg = bytes([0xFF, 0xD8, 0xFF, 0xE0, 0, 0, 0, 0]);
+      final png =
+          bytes([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0]);
+      expect(FileModeration.inspectImage(jpeg).allowed, isTrue);
+      expect(FileModeration.inspectImage(jpeg).kind, 'jpeg');
+      expect(FileModeration.inspectImage(png).allowed, isTrue);
+    });
+
+    test('non-images are refused on the photo path', () {
+      // A PDF is a legit document, but not a photo.
+      final pdf = bytes([0x25, 0x50, 0x44, 0x46, 0x2D]);
+      final verdict = FileModeration.inspectImage(pdf);
+      expect(verdict.allowed, isFalse);
+      expect(verdict.reason, contains('image'));
+    });
+
+    test('executables and scripts are refused on every path', () {
+      final pe = bytes([0x4D, 0x5A, 0x90, 0x00]); // MZ
+      final elf = bytes([0x7F, 0x45, 0x4C, 0x46]); // ELF
+      final macho = bytes([0xCF, 0xFA, 0xED, 0xFE]);
+      final shebang = bytes([0x23, 0x21, 0x2F, 0x62, 0x69, 0x6E]); // #!/bin
+      for (final b in [pe, elf, macho, shebang]) {
+        expect(FileModeration.inspectImage(b).allowed, isFalse);
+        expect(FileModeration.inspectFile(b).allowed, isFalse,
+            reason: 'executables/scripts must never send as files');
+      }
+    });
+
+    test('safe documents pass the file path', () {
+      final pdf = bytes([0x25, 0x50, 0x44, 0x46, 0x2D, 0x31]);
+      final text = bytes('hello, this is plain text'.codeUnits);
+      expect(FileModeration.inspectFile(pdf).allowed, isTrue);
+      expect(FileModeration.inspectFile(text).allowed, isTrue);
+    });
+
+    test('oversize and empty files are refused', () {
+      expect(FileModeration.inspectImage(bytes([])).allowed, isFalse);
+      final huge = Uint8List(FileModeration.maxFileBytes + 1)
+        ..[0] = 0xFF
+        ..[1] = 0xD8
+        ..[2] = 0xFF;
+      final verdict = FileModeration.inspectImage(huge);
+      expect(verdict.allowed, isFalse);
+      expect(verdict.reason, contains('large'));
+    });
+
+    test('the hash blocklist refuses known content outright', () {
+      addTearDown(FileModeration.resetForTest);
+      final jpeg = bytes([0xFF, 0xD8, 0xFF, 0xE0, 1, 2, 3, 4]);
+      expect(FileModeration.inspectImage(jpeg).allowed, isTrue);
+      // Block that exact content by its hash — now it's refused despite being
+      // a valid image.
+      FileModeration.blockHash(FileModeration.hashOf(jpeg));
+      expect(FileModeration.hasBlocklist, isTrue);
+      expect(FileModeration.inspectImage(jpeg).allowed, isFalse);
+    });
+
+    test('pickPhoto throws FileRejected for a non-image', () async {
+      // A renamed executable posing as a photo.
+      PhotoPrep.debugPickOverride =
+          () async => Uint8List.fromList([0x4D, 0x5A, 0x90, 0x00, 0x03]);
+      addTearDown(() => PhotoPrep.debugPickOverride = null);
+      expect(() => PhotoPrep.pickPhoto(), throwsA(isA<FileRejected>()));
     });
   });
 

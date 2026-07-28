@@ -18,6 +18,7 @@ class StorageStore extends ChangeNotifier {
   static final StorageStore instance = StorageStore._();
 
   static const _kActiveUntil = 'cloud_storage_active_until';
+  static const _kUsedBytes = 'cloud_storage_used_bytes';
 
   /// One month of storage, in this app's billing currency.
   static const int priceCents = 199;
@@ -27,7 +28,13 @@ class StorageStore extends ChangeNotifier {
   /// A single purchase buys this much time.
   static const Duration period = Duration(days: 30);
 
+  /// How much a subscription includes. The backup excludes chats and media
+  /// bytes, so 5 GB is far more than a text-and-metadata backup ever needs —
+  /// the meter is there to be honest, not to nickel-and-dime.
+  static const int quotaBytes = 5 * 1024 * 1024 * 1024;
+
   DateTime? _activeUntil;
+  int _usedBytes = 0;
 
   /// When the current subscription runs out, or null if never subscribed.
   DateTime? get activeUntil => _activeUntil;
@@ -49,6 +56,54 @@ class StorageStore extends ChangeNotifier {
   /// Formatted monthly price, e.g. "$1.99".
   String get priceLabel => '\$${(priceCents / 100).toStringAsFixed(2)}';
 
+  /// Bytes the latest backup occupies on the server (its ciphertext size).
+  int get usedBytes => _usedBytes;
+
+  /// Bytes still available under the plan.
+  int get availableBytes {
+    final left = quotaBytes - _usedBytes;
+    return left < 0 ? 0 : left;
+  }
+
+  /// Fraction of the quota in use, clamped to [0, 1] for a progress bar.
+  double get usedFraction {
+    if (quotaBytes <= 0) return 0;
+    final f = _usedBytes / quotaBytes;
+    return f < 0 ? 0 : (f > 1 ? 1 : f);
+  }
+
+  String get usedLabel => formatBytes(_usedBytes);
+  String get availableLabel => formatBytes(availableBytes);
+  String get quotaLabel => formatBytes(quotaBytes);
+
+  /// Human-readable byte size: "0 B", "2.4 KB", "1.1 MB", "5 GB".
+  static String formatBytes(int bytes) {
+    if (bytes < 1024) return '$bytes B';
+    const units = ['KB', 'MB', 'GB', 'TB'];
+    double value = bytes / 1024;
+    var unit = 0;
+    while (value >= 1024 && unit < units.length - 1) {
+      value /= 1024;
+      unit++;
+    }
+    // Whole numbers read cleaner without a trailing ".0".
+    final rounded = value >= 100 || value == value.roundToDouble()
+        ? value.round().toString()
+        : value.toStringAsFixed(1);
+    return '$rounded ${units[unit]}';
+  }
+
+  /// Records how big the most recent backup is. Called after every upload.
+  Future<void> setUsedBytes(int bytes) async {
+    if (bytes == _usedBytes) return;
+    _usedBytes = bytes < 0 ? 0 : bytes;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt(_kUsedBytes, _usedBytes);
+    } catch (_) {}
+    notifyListeners();
+  }
+
   Future<void> load() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -56,6 +111,7 @@ class StorageStore extends ChangeNotifier {
       if (ms != null) {
         _activeUntil = DateTime.fromMillisecondsSinceEpoch(ms);
       }
+      _usedBytes = prefs.getInt(_kUsedBytes) ?? 0;
       notifyListeners();
     } catch (_) {}
   }
@@ -101,5 +157,6 @@ class StorageStore extends ChangeNotifier {
   @visibleForTesting
   void resetForTest() {
     _activeUntil = null;
+    _usedBytes = 0;
   }
 }
