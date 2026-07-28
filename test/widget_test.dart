@@ -5952,6 +5952,59 @@ void main() {
       expect(filterMessages(msgs, 'zzzz'), isEmpty);
     });
 
+    test('channel mentions: prefix detection and one-word tokens', () {
+      // A mention has to be one word to be recognised when rendered.
+      expect(mentionToken('Ada Lovelace'), 'AdaLovelace');
+      expect(mentionToken('Grace'), 'Grace');
+      expect(mentionToken('Jean-Luc P.'), 'JeanLucP');
+
+      // Caret sitting right after "@" offers everyone (empty prefix).
+      expect(mentionPrefix('hey @', 5), '');
+      // Partway through a name.
+      expect(mentionPrefix('hey @ad', 7), 'ad');
+      // Mid-word "@" (an email) is not a mention.
+      expect(mentionPrefix('mail ada@example', 16), isNull);
+      // Once a space follows, the mention is finished.
+      expect(mentionPrefix('hey @ada ', 9), isNull);
+      // No "@" at all.
+      expect(mentionPrefix('plain text', 10), isNull);
+      // The caret only sees text before it, so a later "@" doesn't count.
+      expect(mentionPrefix('hi @ada there', 3), isNull);
+    });
+
+    test('the unread divider anchors to the first unseen message', () {
+      CommunityStore.instance.resetForTest();
+      final c = CommunityStore.instance.createCommunity('Readers');
+      final chan = c.channels.firstWhere((ch) => ch.type == ChannelType.text);
+      for (var i = 0; i < 4; i++) {
+        CommunityStore.instance.postMessage(
+            c.id,
+            chan.id,
+            Message(
+                id: 'm$i',
+                text: 'msg $i',
+                time: DateTime(2026, 1, 1, 12, i),
+                isMe: false));
+      }
+      Channel live() => CommunityStore.instance
+          .byId(c.id)!
+          .channels
+          .firstWhere((ch) => ch.id == chan.id);
+
+      // Nothing seen yet: no divider (the whole channel is new).
+      expect(CommunityStore.instance.firstUnreadIdIn(live()), isNull);
+
+      // Having read the first two, the divider sits on the third.
+      CommunityStore.instance.markChannelSeen(chan.id, 2);
+      expect(CommunityStore.instance.firstUnreadIdIn(live()), 'm2');
+      expect(CommunityStore.instance.unreadInChannel(live()), 2);
+
+      // Fully caught up: no divider.
+      CommunityStore.instance.markChannelSeen(chan.id, 4);
+      expect(CommunityStore.instance.firstUnreadIdIn(live()), isNull);
+      expect(CommunityStore.instance.unreadInChannel(live()), 0);
+    });
+
     testWidgets('the servers tab search filters the list', (tester) async {
       await tester.pumpWidget(
           const MaterialApp(home: Scaffold(body: CommunitiesTab())));

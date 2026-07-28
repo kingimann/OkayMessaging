@@ -40,6 +40,20 @@ class CommunityStore extends ChangeNotifier {
     return unread < 0 ? 0 : unread;
   }
 
+  /// How many messages of [channelId] this device had already seen. Read once
+  /// when a channel opens, to place the "new messages" divider before the
+  /// screen marks everything read.
+  int seenCountFor(String channelId) => _seen[channelId] ?? 0;
+
+  /// The id of the first message in [ch] the user hasn't seen, or null when
+  /// they're caught up. Pure — this is what the unread divider anchors to, so
+  /// it survives muted-member filtering that would shift plain indices.
+  String? firstUnreadIdIn(Channel ch) {
+    final seen = seenCountFor(ch.id);
+    if (seen <= 0 || seen >= ch.messages.length) return null;
+    return ch.messages[seen].id;
+  }
+
   /// Total unread across a server's message channels.
   int unreadInCommunity(Community c) {
     var total = 0;

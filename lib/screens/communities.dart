@@ -63,6 +63,24 @@ List<Community> filterCommunities(List<Community> all, String query) {
   ];
 }
 
+/// A member name as a single-word mention token, since a mention has to be one
+/// word to be recognised: "Ada Lovelace" → "AdaLovelace". Pure.
+String mentionToken(String name) => name.replaceAll(RegExp(r'[^\w]'), '');
+
+/// The partial mention being typed right before [caret], or null when the
+/// caret isn't inside one. Returns the text after the "@". Pure.
+String? mentionPrefix(String text, int caret) {
+  if (caret < 0 || caret > text.length) return null;
+  final upTo = text.substring(0, caret);
+  final at = upTo.lastIndexOf('@');
+  if (at == -1) return null;
+  // Must start a word, and hold no whitespace between "@" and the caret.
+  if (at > 0 && !RegExp(r'\s').hasMatch(upTo[at - 1])) return null;
+  final frag = upTo.substring(at + 1);
+  if (frag.contains(RegExp(r'\s'))) return null;
+  return frag;
+}
+
 /// Case-insensitive filter over channel messages, matching text, poll
 /// questions, and sender names. Pure enough to test.
 List<Message> filterMessages(List<Message> all, String query) {
@@ -1192,6 +1210,7 @@ class ChannelScreen extends StatefulWidget {
 class _ChannelScreenState extends State<ChannelScreen> {
   final _controller = TextEditingController();
   final _search = TextEditingController();
+  final _scroll = ScrollController();
 
   /// The message the next send replies to, shown in a bar over the composer.
   Message? _replyTo;
@@ -1200,10 +1219,87 @@ class _ChannelScreenState extends State<ChannelScreen> {
   /// When the local user last sent here — what slow mode counts from.
   DateTime? _lastSentAt;
 
+  /// The first message that was unread when this screen opened. Captured once,
+  /// so the "new messages" divider stays put instead of jumping as the screen
+  /// marks the channel read.
+  String? _firstUnreadId;
+
+  /// True while the list is scrolled away from the newest message.
+  bool _showJumpToLatest = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final channel = CommunityStore.instance
+        .byId(widget.communityId)
+        ?.channels
+        .cast<Channel?>()
+        .firstWhere((c) => c?.id == widget.channelId, orElse: () => null);
+    if (channel != null) {
+      _firstUnreadId = CommunityStore.instance.firstUnreadIdIn(channel);
+    }
+    _scroll.addListener(_onScroll);
+  }
+
+  void _onScroll() {
+    if (!_scroll.hasClients) return;
+    // "Near the bottom" is within a screenful of the newest message.
+    final atBottom =
+        _scroll.position.pixels >= _scroll.position.maxScrollExtent - 240;
+    if (atBottom == _showJumpToLatest) {
+      setState(() => _showJumpToLatest = !atBottom);
+    }
+  }
+
+  void _jumpToLatest() {
+    if (!_scroll.hasClients) return;
+    _scroll.animateTo(
+      _scroll.position.maxScrollExtent,
+      duration: const Duration(milliseconds: 250),
+      curve: Curves.easeOut,
+    );
+  }
+
+  /// Members whose name matches what's being typed after "@".
+  List<Member> _mentionMatches(Community comm) {
+    final caret = _controller.selection.baseOffset;
+    final prefix = mentionPrefix(_controller.text,
+        caret < 0 ? _controller.text.length : caret);
+    if (prefix == null) return const [];
+    final p = prefix.toLowerCase();
+    return [
+      for (final m in comm.members)
+        if (m.id != 'me' &&
+            mentionToken(m.name).isNotEmpty &&
+            (p.isEmpty || mentionToken(m.name).toLowerCase().startsWith(p)))
+          m
+    ].take(5).toList();
+  }
+
+  /// Replaces the partial mention at the caret with [member]'s token.
+  void _applyMention(Member member) {
+    final text = _controller.text;
+    final caret = _controller.selection.baseOffset < 0
+        ? text.length
+        : _controller.selection.baseOffset;
+    final at = text.substring(0, caret).lastIndexOf('@');
+    if (at == -1) return;
+    final inserted = '@${mentionToken(member.name)} ';
+    final next = text.replaceRange(at, caret, inserted);
+    _controller.value = TextEditingValue(
+      text: next,
+      selection: TextSelection.collapsed(offset: at + inserted.length),
+    );
+    setState(() {});
+  }
+
   @override
   void dispose() {
     _controller.dispose();
     _search.dispose();
+    _scroll
+      ..removeListener(_onScroll)
+      ..dispose();
     super.dispose();
   }
 
@@ -1438,7 +1534,10 @@ class _ChannelScreenState extends State<ChannelScreen> {
                   onTap: () => _showPinned(channel),
                 ),
               Expanded(
-                child: visible.isEmpty
+                child: Stack(
+                  children: [
+                    Positioned.fill(
+                      child: visible.isEmpty
                     ? Center(
                         child: Text(
                             _searching
@@ -1448,12 +1547,16 @@ class _ChannelScreenState extends State<ChannelScreen> {
                             style: TextStyle(color: Colors.grey.shade500)),
                       )
                     : ListView.builder(
+                        controller: _scroll,
                         padding: const EdgeInsets.symmetric(vertical: 8),
                         itemCount: visible.length,
                         itemBuilder: (context, i) {
                           final m = visible[i];
                           final showDate = i == 0 ||
                               !_sameDay(visible[i - 1].time, m.time);
+                          // Where the user left off last time they were here.
+                          final unreadHere =
+                              !_searching && m.id == _firstUnreadId;
                           // Group a run from the same sender: only the first
                           // shows the name, the rest tuck in tight — like chat.
                           final prev = i == 0 ? null : visible[i - 1];
@@ -1508,11 +1611,27 @@ class _ChannelScreenState extends State<ChannelScreen> {
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
                               if (showDate) _DateSeparator(time: m.time),
+                              if (unreadHere) const _UnreadDivider(),
                               row,
                             ],
                           );
                         },
                       ),
+                    ),
+                    // Scrolled up through history? One tap back to the newest.
+                    if (_showJumpToLatest && visible.isNotEmpty)
+                      Positioned(
+                        right: 12,
+                        bottom: 12,
+                        child: FloatingActionButton.small(
+                          heroTag: 'ch_jump_latest',
+                          onPressed: _jumpToLatest,
+                          tooltip: 'Jump to latest',
+                          child: const Icon(Icons.arrow_downward),
+                        ),
+                      ),
+                  ],
+                ),
               ),
               // Announcement channels are broadcast-only: members read, and
               // only the owner/admins can post — like every news channel.
@@ -1589,6 +1708,12 @@ class _ChannelScreenState extends State<ChannelScreen> {
                           ],
                         ),
                       ),
+                    // Typing "@" offers the members of this server.
+                    if (_mentionMatches(comm).isNotEmpty)
+                      _MentionBar(
+                        matches: _mentionMatches(comm),
+                        onPick: _applyMention,
+                      ),
                     Padding(
                   padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
                   child: Row(
@@ -1616,6 +1741,8 @@ class _ChannelScreenState extends State<ChannelScreen> {
                             contentPadding: const EdgeInsets.symmetric(
                                 horizontal: 16, vertical: 10),
                           ),
+                          // Keeps the mention suggestions in step with typing.
+                          onChanged: (_) => setState(() {}),
                           onSubmitted: (_) => _send(),
                         ),
                       ),
@@ -1968,6 +2095,80 @@ bool _sameDay(DateTime a, DateTime b) =>
     a.year == b.year && a.month == b.month && a.day == b.day;
 
 /// A centered "Today / Yesterday / date" divider between days of messages.
+/// The row of member suggestions shown while an "@" mention is being typed.
+class _MentionBar extends StatelessWidget {
+  final List<Member> matches;
+  final ValueChanged<Member> onPick;
+  const _MentionBar({required this.matches, required this.onPick});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      height: 52,
+      margin: const EdgeInsets.fromLTRB(8, 0, 8, 4),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest.withValues(alpha: 0.6),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: ListView.builder(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 6),
+        itemCount: matches.length,
+        itemBuilder: (context, i) {
+          final m = matches[i];
+          return Center(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              child: ActionChip(
+                avatar: CircleAvatar(
+                  radius: 11,
+                  backgroundColor: scheme.primary.withValues(alpha: 0.18),
+                  child: Text(
+                    m.name.isEmpty ? '?' : m.name.characters.first,
+                    style: TextStyle(fontSize: 11, color: scheme.primary),
+                  ),
+                ),
+                label: Text(m.name, style: const TextStyle(fontSize: 13)),
+                onPressed: () => onPick(m),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+/// The "new messages" line marking where the reader left off. Sits above the
+/// first message they hadn't seen when the channel opened.
+class _UnreadDivider extends StatelessWidget {
+  const _UnreadDivider();
+
+  @override
+  Widget build(BuildContext context) {
+    final color = Theme.of(context).colorScheme.error;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 4),
+      child: Row(
+        children: [
+          Expanded(child: Divider(color: color.withValues(alpha: 0.5))),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: Text('New messages',
+                style: TextStyle(
+                    color: color,
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.3)),
+          ),
+          Expanded(child: Divider(color: color.withValues(alpha: 0.5))),
+        ],
+      ),
+    );
+  }
+}
+
 class _DateSeparator extends StatelessWidget {
   final DateTime time;
   const _DateSeparator({required this.time});
