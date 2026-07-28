@@ -60,6 +60,19 @@
 					<string>tel</string>
 				</array>
 			</dict>
+			<dict>
+				<key>CFBundleTypeRole</key>
+				<string>Editor</string>
+				<key>CFBundleURLName</key>
+				<string>com.okaymessaging.payments</string>
+				<!-- Stripe Connect onboarding hands control to Safari and comes
+				     back through this scheme (payments-onboard's return_url).
+				     Without it the KYC flow dead-ends on the last page. -->
+				<key>CFBundleURLSchemes</key>
+				<array>
+					<string>okaymsg</string>
+				</array>
+			</dict>
 		</array>
 		<key>LSRequiresIPhoneOS</key>
 		<true/>
