@@ -808,23 +808,44 @@ class FeedStore extends ChangeNotifier {
   void removeRemote(String postId) => _removeLocally(postId);
 
   void _removeLocally(String postId) {
-    final removed = postById(postId);
-    // Tombstone everything that goes: the post and its cascade, so no
-    // stale copy anywhere can bring any of it back.
-    for (final p in _posts) {
-      if (p.id == postId || p.parentId == postId || p.repostOfId == postId) {
-        _deletedIds.add(p.id);
+    // The whole subtree goes, not just the direct children: a reply's own
+    // replies would otherwise survive pointing at a parent that no longer
+    // exists — invisible in the thread but still sitting in the timeline.
+    final doomed = <String>{postId};
+    for (var grew = true; grew;) {
+      grew = false;
+      for (final p in _posts) {
+        if (doomed.contains(p.id)) continue;
+        if (doomed.contains(p.parentId) || doomed.contains(p.repostOfId)) {
+          doomed.add(p.id);
+          grew = true;
+        }
       }
     }
-    _deletedIds.add(postId);
-    _posts.removeWhere((p) =>
-        p.id == postId || p.parentId == postId || p.repostOfId == postId);
-    // An un-repost gives the original its counter back.
-    final targetId = removed?.repostOfId;
-    if (targetId != null) {
-      final ti = _posts.indexWhere((x) => x.id == targetId);
-      if (ti >= 0 && _posts[ti].reposts > 0) {
-        _posts[ti] = _posts[ti].copyWith(reposts: _posts[ti].reposts - 1);
+    // Tombstone everything that goes, so no stale copy — cloud blob or queued
+    // relay event — can bring any of it back.
+    _deletedIds.addAll(doomed);
+    final gone = [
+      for (final p in _posts)
+        if (doomed.contains(p.id)) p
+    ];
+    _posts.removeWhere((p) => doomed.contains(p.id));
+    // Hand each surviving parent/original its counter back. Posts that went
+    // with the cascade are skipped — there's nothing left to decrement.
+    for (final p in gone) {
+      final parentId = p.parentId;
+      if (parentId != null && !doomed.contains(parentId)) {
+        final i = _posts.indexWhere((x) => x.id == parentId);
+        if (i >= 0 && _posts[i].replies > 0) {
+          _posts[i] = _posts[i].copyWith(replies: _posts[i].replies - 1);
+        }
+      }
+      final targetId = p.repostOfId;
+      if (targetId != null && !doomed.contains(targetId)) {
+        final i = _posts.indexWhere((x) => x.id == targetId);
+        if (i >= 0 && _posts[i].reposts > 0) {
+          _posts[i] = _posts[i].copyWith(reposts: _posts[i].reposts - 1);
+        }
       }
     }
     _save();

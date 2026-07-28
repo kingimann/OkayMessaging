@@ -673,11 +673,22 @@ class CommunityStore extends ChangeNotifier {
       if (ch.id != channelId) return ch;
       final posts = ch.posts.map((p) {
         if (p.id != postId) return p;
-        // A deleted top-level comment takes its replies with it.
+        // A deleted comment takes its whole reply subtree with it — not just
+        // its direct replies, or a reply-to-a-reply survives orphaned,
+        // pointing at a comment that no longer exists.
+        final doomed = <String>{commentId};
+        for (var grew = true; grew;) {
+          grew = false;
+          for (final c in p.comments) {
+            if (!doomed.contains(c.id) && doomed.contains(c.parentId)) {
+              doomed.add(c.id);
+              grew = true;
+            }
+          }
+        }
         return p.copyWith(
-            comments: p.comments
-                .where((c) => c.id != commentId && c.parentId != commentId)
-                .toList());
+            comments:
+                p.comments.where((c) => !doomed.contains(c.id)).toList());
       }).toList();
       return ch.copyWith(posts: posts);
     }).toList();

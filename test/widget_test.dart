@@ -6062,6 +6062,66 @@ void main() {
       expect(revived.pollMyVote, 0);
     });
 
+    test('deleting a reply gives the parent its count back', () {
+      // Was a real bug: reply() incremented the parent, but nothing ever
+      // decremented it, so a thread claimed replies it no longer had.
+      FeedStore.instance.resetForTest();
+      addTearDown(FeedStore.instance.resetForTest);
+      final store = FeedStore.instance;
+      final parent = store.add('c1', 'parent post');
+      store.reply(parent.id, 'first');
+      store.reply(parent.id, 'second');
+      expect(store.postById(parent.id)!.replies, 2);
+
+      store.deletePost(store.repliesTo(parent.id).first.id);
+      expect(store.postById(parent.id)!.replies, 1);
+      expect(store.repliesTo(parent.id).length, 1);
+
+      store.deletePost(store.repliesTo(parent.id).first.id);
+      expect(store.postById(parent.id)!.replies, 0);
+      expect(store.repliesTo(parent.id), isEmpty);
+    });
+
+    test('deleting a post takes its whole subtree, not just its children', () {
+      // Was a real bug: only direct children were removed, so a reply's own
+      // replies survived pointing at a parent that no longer existed.
+      FeedStore.instance.resetForTest();
+      addTearDown(FeedStore.instance.resetForTest);
+      final store = FeedStore.instance;
+      final root = store.add('c1', 'root');
+      store.reply(root.id, 'child');
+      final child = store.repliesTo(root.id).single;
+      store.reply(child.id, 'grandchild');
+      final grandchild = store.repliesTo(child.id).single;
+
+      store.deletePost(root.id);
+      expect(store.postById(root.id), isNull);
+      expect(store.postById(child.id), isNull);
+      expect(store.postById(grandchild.id), isNull,
+          reason: 'a grandchild must not outlive its thread');
+      // Everything in the cascade is tombstoned, so a replayed cloud blob or
+      // queued relay copy can't resurrect any of it.
+      store.addRemote(grandchild);
+      expect(store.postById(grandchild.id), isNull);
+    });
+
+    test('deleting a quote gives the original its repost count back', () {
+      FeedStore.instance.resetForTest();
+      addTearDown(FeedStore.instance.resetForTest);
+      final store = FeedStore.instance;
+      final original = store.add('c1', 'quotable');
+      final q1 = store.quoteRepost(original.id, 'take one')!;
+      store.quoteRepost(original.id, 'take two');
+      expect(store.postById(original.id)!.reposts, 2);
+
+      store.deletePost(q1.id);
+      expect(store.postById(original.id)!.reposts, 1);
+      // Deleting the original takes its quotes with it, and doesn't try to
+      // decrement a counter that left with the cascade.
+      store.deletePost(original.id);
+      expect(store.postsFor('c1'), isEmpty);
+    });
+
     test('remote poll votes share one tally and survive replays', () {
       FeedStore.instance.resetForTest();
       addTearDown(FeedStore.instance.resetForTest);
@@ -6279,6 +6339,56 @@ void main() {
               isMe: false,
               senderName: 'Grace'));
       expect(FeedStore.instance.notifications.length, 1);
+    });
+
+    test('deleting a forum comment takes its whole reply subtree', () {
+      // Was a real bug: only direct replies were removed, so a reply-to-a-
+      // reply survived pointing at a comment that no longer existed.
+      CommunityStore.instance.resetForTest();
+      addTearDown(CommunityStore.instance.resetForTest);
+      final store = CommunityStore.instance;
+      final c = store.createCommunity('Threaded');
+      store.addChannel(c.id, 'Help', type: ChannelType.forum);
+      final forum = store
+          .byId(c.id)!
+          .channels
+          .firstWhere((ch) => ch.type == ChannelType.forum);
+      store.addForumPost(
+          c.id,
+          forum.id,
+          ForumPost(
+              id: 'p1',
+              authorId: 'me',
+              authorName: 'You',
+              time: DateTime(2026),
+              title: 'Deep thread'));
+      ForumComment mk(String id, String? parent) => ForumComment(
+          id: id,
+          authorId: 'a',
+          authorName: 'A',
+          time: DateTime(2026),
+          body: id,
+          parentId: parent);
+      store.addForumComment(c.id, forum.id, 'p1', mk('c1', null));
+      store.addForumComment(c.id, forum.id, 'p1', mk('c2', 'c1'));
+      store.addForumComment(c.id, forum.id, 'p1', mk('c3', 'c2'));
+      store.addForumComment(c.id, forum.id, 'p1', mk('other', null));
+
+      List<String> remaining() => store
+          .byId(c.id)!
+          .channels
+          .firstWhere((ch) => ch.id == forum.id)
+          .posts
+          .firstWhere((p) => p.id == 'p1')
+          .comments
+          .map((x) => x.id)
+          .toList();
+      expect(remaining().length, 4);
+
+      // Deleting the root of the chain takes the child AND the grandchild,
+      // and leaves the unrelated comment alone.
+      store.deleteForumComment(c.id, forum.id, 'p1', 'c1');
+      expect(remaining(), ['other']);
     });
 
     test('a locked forum thread takes no new comments', () {
