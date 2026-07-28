@@ -5972,6 +5972,85 @@ void main() {
       expect(mentionPrefix('hi @ada there', 3), isNull);
     });
 
+    test('mentionsMe matches name tokens and usernames at a boundary', () {
+      bool hit(String text) =>
+          FeedStore.mentionsMe(text, myName: 'Ada Lovelace', myUsername: 'ada');
+      // The one-word token form a channel mention writes.
+      expect(hit('hey @AdaLovelace can you look'), isTrue);
+      expect(hit('@adalovelace lowercase works too'), isTrue);
+      // Or the username.
+      expect(hit('ping @ada please'), isTrue);
+      // Not a mention of someone else whose name merely starts the same.
+      expect(hit('@AdaLovelaceSmith is a different person'), isFalse);
+      expect(hit('no mention here'), isFalse);
+      // "you" is a placeholder username, never a real ping.
+      expect(
+          FeedStore.mentionsMe('@you hello', myName: '', myUsername: 'you'),
+          isFalse);
+    });
+
+    test('an @mention in a channel pings you and opens that channel', () {
+      CommunityStore.instance.resetForTest();
+      FeedStore.instance.resetForTest();
+      final prevProfile = AppState.profile.value;
+      addTearDown(() {
+        AppState.profile.value = prevProfile;
+        CommunityStore.instance.resetForTest();
+        FeedStore.instance.resetForTest();
+      });
+      AppState.profile.value = const AppUser(
+          id: 'me',
+          name: 'Ada Lovelace',
+          avatarColor: '#000000',
+          phone: '+1 555 010 4444',
+          username: 'ada');
+
+      final c = CommunityStore.instance.createCommunity('Engineering');
+      final chan = c.channels.firstWhere((ch) => ch.type == ChannelType.text);
+
+      // A remote message that doesn't mention you is silent.
+      CommunityStore.instance.addRemoteChannelMessage(
+          c.id,
+          chan.id,
+          Message(
+              id: 'q1',
+              text: 'deploy looks good',
+              time: DateTime(2026, 5, 1),
+              isMe: false,
+              senderName: 'Grace'));
+      expect(FeedStore.instance.notifications, isEmpty);
+
+      // One that does @mentions you lands in the notifications list.
+      CommunityStore.instance.addRemoteChannelMessage(
+          c.id,
+          chan.id,
+          Message(
+              id: 'q2',
+              text: '@AdaLovelace can you review?',
+              time: DateTime(2026, 5, 2),
+              isMe: false,
+              senderName: 'Grace'));
+      final note = FeedStore.instance.notifications.single;
+      expect(note.type, FeedNotificationType.channelMention);
+      expect(note.actorName, 'Grace');
+      expect(note.isChannel, isTrue);
+      expect(note.channelId, chan.id);
+      expect(note.channelName, chan.name);
+      expect(FeedStore.instance.unseenNotificationCount, 1);
+
+      // Redelivery of the same message doesn't double-ping.
+      CommunityStore.instance.addRemoteChannelMessage(
+          c.id,
+          chan.id,
+          Message(
+              id: 'q2',
+              text: '@AdaLovelace can you review?',
+              time: DateTime(2026, 5, 2),
+              isMe: false,
+              senderName: 'Grace'));
+      expect(FeedStore.instance.notifications.length, 1);
+    });
+
     test('the unread divider anchors to the first unseen message', () {
       CommunityStore.instance.resetForTest();
       final c = CommunityStore.instance.createCommunity('Readers');

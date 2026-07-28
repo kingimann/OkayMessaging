@@ -190,6 +190,57 @@ class FeedStore extends ChangeNotifier {
     );
   }
 
+  /// Pure: whether [text] @mentions [myName] (matched on the one-word token
+  /// form a channel mention uses — "Ada Lovelace" is written "@AdaLovelace"),
+  /// or by [myUsername]. Case-insensitive, and only at a word boundary so
+  /// "@AdaLovelaceSmith" doesn't ping Ada.
+  static bool mentionsMe(String text,
+      {required String myName, required String myUsername}) {
+    final tokens = <String>{
+      myName.replaceAll(RegExp(r'[^\w]'), ''),
+      myUsername.replaceAll(RegExp(r'[^\w]'), ''),
+    }..removeWhere((t) => t.isEmpty || t.toLowerCase() == 'you');
+    for (final t in tokens) {
+      if (RegExp('@${RegExp.escape(t)}(?!\\w)', caseSensitive: false)
+          .hasMatch(text)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /// Records that a channel message @mentioned the local user. Deduped by
+  /// message id and capped like the feed notifications it sits alongside.
+  void noteChannelMention({
+    required String messageId,
+    required String communityId,
+    required String channelId,
+    required String channelName,
+    required String actorName,
+    required String preview,
+    required DateTime time,
+  }) {
+    if (_notifications.any((n) => n.id == messageId)) return;
+    _notifications.insert(
+      0,
+      FeedNotification(
+        id: messageId,
+        type: FeedNotificationType.channelMention,
+        communityId: communityId,
+        actorName: actorName,
+        actorUsername: '',
+        time: time,
+        threadPostId: '',
+        preview: preview,
+        channelId: channelId,
+        channelName: channelName,
+      ),
+    );
+    if (_notifications.length > 50) _notifications.removeLast();
+    _save();
+    notifyListeners();
+  }
+
   bool isSaved(String postId) => _savedIds.contains(postId);
 
   /// Saves/unsaves a post for the Saved filter; returns true when now saved.

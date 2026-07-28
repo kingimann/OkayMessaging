@@ -1,5 +1,13 @@
-/// The kind of feed interaction that mentions you.
-enum FeedNotificationType { reply, mention, repost, like }
+/// The kind of interaction that involves you.
+enum FeedNotificationType {
+  reply,
+  mention,
+  repost,
+  like,
+
+  /// Someone @mentioned you in a server's text channel (not the feed).
+  channelMention,
+}
 
 /// A record that another member interacted with you in a server feed — they
 /// replied to your post, @mentioned you, or reposted you. Shown in the
@@ -21,6 +29,11 @@ class FeedNotification {
   final String preview;
   final bool seen;
 
+  /// For [FeedNotificationType.channelMention]: which channel to open, and its
+  /// name for the "#general" label. Empty for feed notifications.
+  final String channelId;
+  final String channelName;
+
   const FeedNotification({
     required this.id,
     required this.type,
@@ -31,7 +44,12 @@ class FeedNotification {
     required this.threadPostId,
     this.preview = '',
     this.seen = false,
+    this.channelId = '',
+    this.channelName = '',
   });
+
+  /// True when this points at a text channel rather than a feed thread.
+  bool get isChannel => channelId.isNotEmpty;
 
   FeedNotification copyWith({bool? seen}) => FeedNotification(
         id: id,
@@ -43,6 +61,8 @@ class FeedNotification {
         threadPostId: threadPostId,
         preview: preview,
         seen: seen ?? this.seen,
+        channelId: channelId,
+        channelName: channelName,
       );
 
   Map<String, dynamic> toJson() => {
@@ -55,6 +75,8 @@ class FeedNotification {
         'threadPostId': threadPostId,
         'preview': preview,
         'seen': seen,
+        if (channelId.isNotEmpty) 'channelId': channelId,
+        if (channelName.isNotEmpty) 'channelName': channelName,
       };
 
   factory FeedNotification.fromJson(Map<String, dynamic> j) =>
@@ -70,5 +92,7 @@ class FeedNotification {
         threadPostId: j['threadPostId'] as String? ?? '',
         preview: j['preview'] as String? ?? '',
         seen: j['seen'] as bool? ?? false,
+        channelId: j['channelId'] as String? ?? '',
+        channelName: j['channelName'] as String? ?? '',
       );
 }

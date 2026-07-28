@@ -7,6 +7,7 @@ import '../state/call_service.dart';
 import '../state/chat_store.dart';
 import '../state/feed_store.dart';
 import '../screens/chat_screen.dart';
+import '../screens/communities.dart';
 import '../screens/feed_screen.dart';
 import '../utils/date_formatter.dart';
 import '../widgets/empty_state.dart';
@@ -235,6 +236,13 @@ class _ActivityTabState extends State<ActivityTab> {
                                       style: const TextStyle(
                                           fontWeight: FontWeight.w600)),
                                   TextSpan(text: ' ${_notifVerb(n.type)}'),
+                                  if (n.isChannel)
+                                    TextSpan(
+                                        text: ' in #${n.channelName}',
+                                        style: TextStyle(
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .onSurfaceVariant)),
                                 ])),
                                 subtitle: n.preview.isEmpty
                                     ? null
@@ -265,8 +273,15 @@ class _ActivityTabState extends State<ActivityTab> {
                                 ),
                                 onTap: () => Navigator.of(context).push(
                                   MaterialPageRoute(
-                                      builder: (_) => FeedPostScreen(
-                                          postId: n.threadPostId)),
+                                    // A channel mention opens the channel; a
+                                    // feed one opens the thread.
+                                    builder: (_) => n.isChannel
+                                        ? ChannelScreen(
+                                            communityId: n.communityId,
+                                            channelId: n.channelId)
+                                        : FeedPostScreen(
+                                            postId: n.threadPostId),
+                                  ),
                                 ),
                               ),
                           ],
@@ -330,6 +345,7 @@ class _ActivityTabState extends State<ActivityTab> {
         FeedNotificationType.mention => Icons.alternate_email,
         FeedNotificationType.repost => Icons.repeat,
         FeedNotificationType.like => Icons.favorite,
+        FeedNotificationType.channelMention => Icons.tag,
       };
 
   String _notifVerb(FeedNotificationType t) => switch (t) {
@@ -337,5 +353,6 @@ class _ActivityTabState extends State<ActivityTab> {
         FeedNotificationType.mention => 'mentioned you',
         FeedNotificationType.repost => 'reposted you',
         FeedNotificationType.like => 'liked your post',
+        FeedNotificationType.channelMention => 'mentioned you',
       };
 }

@@ -4,8 +4,10 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../app_state.dart';
 import '../models/community.dart';
 import '../models/message.dart';
+import 'feed_store.dart';
 import 'score_store.dart';
 
 /// Store for Discord-style communities (servers) and their channels. Kept on
@@ -1060,6 +1062,27 @@ class CommunityStore extends ChangeNotifier {
     if (channel == null) return;
     if (channel.messages.any((m) => m.id == message.id)) return;
     postMessage(communityId, channelId, message);
+    _maybeNoteMention(community, channel, message);
+  }
+
+  /// Pings the local user when an incoming channel message @mentions them, so
+  /// a mention in a busy channel isn't just highlighted text they never see.
+  void _maybeNoteMention(Community community, Channel channel, Message m) {
+    if (m.isMe || m.text.isEmpty) return;
+    final me = AppState.profile.value;
+    if (!FeedStore.mentionsMe(m.text,
+        myName: me.name, myUsername: me.username)) {
+      return;
+    }
+    FeedStore.instance.noteChannelMention(
+      messageId: m.id,
+      communityId: community.id,
+      channelId: channel.id,
+      channelName: channel.name,
+      actorName: m.senderName.isEmpty ? 'A member' : m.senderName,
+      preview: m.text,
+      time: m.time,
+    );
   }
 
   /// Applies a member-joined event from the relay.
