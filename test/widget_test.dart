@@ -10032,6 +10032,69 @@ void main() {
     });
   });
 
+  group('Channel composer', () {
+    testWidgets('attachments open in place, and the bar stays uncluttered',
+        (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      CommunityStore.instance.resetForTest();
+      ChannelTypingStore.instance.resetForTest();
+      addTearDown(ChannelTypingStore.instance.resetForTest);
+      final community = CommunityStore.instance.createCommunity('Guild');
+      final channel = CommunityStore.instance.byId(community.id)!.channels
+          .firstWhere((c) => c.type == ChannelType.text);
+
+      await tester.pumpWidget(MaterialApp(
+        home: ChannelScreen(
+            communityId: community.id, channelId: channel.id),
+      ));
+      await tester.pump();
+
+      // Closed: the options aren't taking up room in the bar.
+      expect(find.text('Photo'), findsNothing);
+      expect(find.text('Poll'), findsNothing);
+
+      await tester.tap(find.byTooltip('Attach'));
+      await tester.pump();
+      expect(find.text('Photo'), findsOneWidget);
+      expect(find.text('Poll'), findsOneWidget);
+      // In place, not a modal sheet — the channel stays visible behind it.
+      expect(find.byType(BottomSheet), findsNothing);
+
+      await tester.tap(find.byTooltip('Attach'));
+      await tester.pump();
+      expect(find.text('Photo'), findsNothing);
+    });
+
+    testWidgets('typing in a channel shows who else is mid-sentence',
+        (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      CommunityStore.instance.resetForTest();
+      ChannelTypingStore.instance.resetForTest();
+      addTearDown(ChannelTypingStore.instance.resetForTest);
+      final community = CommunityStore.instance.createCommunity('Guild');
+      final channel = CommunityStore.instance.byId(community.id)!.channels
+          .firstWhere((c) => c.type == ChannelType.text);
+
+      await tester.pumpWidget(MaterialApp(
+        home: ChannelScreen(
+            communityId: community.id, channelId: channel.id),
+      ));
+      await tester.pump();
+      expect(find.textContaining('is typing'), findsNothing);
+
+      ChannelTypingStore.instance
+          .noteRemote(channelId: channel.id, digits: '1', name: 'Ada');
+      await tester.pump();
+      expect(find.text('Ada is typing…'), findsOneWidget);
+
+      // It has to clear itself — nobody sends a "stopped typing".
+      ChannelTypingStore.instance
+          .expireNow(DateTime.now().add(ChannelTypingStore.linger * 2));
+      await tester.pump();
+      expect(find.textContaining('is typing'), findsNothing);
+    });
+  });
+
   group('Voice channel screen', () {
     testWidgets('joining then leaving the screen disconnects cleanly',
         (tester) async {

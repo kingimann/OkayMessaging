@@ -91,6 +91,9 @@ class ChannelTypingStore extends ChangeNotifier {
 
   @visibleForTesting
   void expireNow(DateTime now) {
+    // Supersedes the pending timer rather than racing it.
+    _expiry?.cancel();
+    _expiry = null;
     _expire(now: now);
     notifyListeners();
   }

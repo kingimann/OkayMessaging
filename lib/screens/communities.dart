@@ -13,6 +13,8 @@ import '../relay/relay_service.dart';
 import '../state/community_store.dart';
 import '../state/channel_typing_store.dart';
 import '../state/voice_presence_store.dart';
+import '../util/file_moderation.dart';
+import '../util/photo_prep.dart';
 import '../state/feed_store.dart';
 import '../theme/app_theme.dart';
 import '../utils/date_formatter.dart';
@@ -621,6 +623,10 @@ class _CommunityScreenState extends State<CommunityScreen> {
           return const Scaffold(body: Center(child: Text('Community not found')));
         }
         final onlineCount = community.members.where((m) => m.online).length;
+        final voiceHere = VoicePresenceStore.instance.countInChannels([
+          for (final c in community.channels)
+            if (c.type == ChannelType.voice) c.id
+        ]);
         return Scaffold(
           appBar: AppBar(
             title: Row(
@@ -737,6 +743,17 @@ class _CommunityScreenState extends State<CommunityScreen> {
                     Text('$onlineCount online · ${community.members.length} members',
                         style: TextStyle(
                             fontSize: 12.5, color: Colors.grey.shade600)),
+                    if (voiceHere > 0) ...[
+                      const SizedBox(width: 10),
+                      Icon(Icons.volume_up_rounded,
+                          size: 14, color: Colors.green.shade600),
+                      const SizedBox(width: 4),
+                      Text('$voiceHere in voice',
+                          style: TextStyle(
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.green.shade600)),
+                    ],
                   ],
                 ),
               ),
@@ -1505,6 +1522,85 @@ class _ChannelScreenState extends State<ChannelScreen> {
     }
   }
 
+  /// Whether the inline attach panel is showing.
+  bool _attachOpen = false;
+
+  Widget _attachOption({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback onTap,
+  }) =>
+      Expanded(
+        child: Material(
+          color: color.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(14),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(14),
+            onTap: onTap,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(icon, color: color, size: 22),
+                  const SizedBox(height: 4),
+                  Text(label,
+                      style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: color)),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+
+  /// Sends a real photo into the channel. Same path as a 1:1 chat: picked
+  /// from the device, moderated, shrunk to fit the relay, and carried inline
+  /// — there is no bucket in the middle for channel media either.
+  Future<void> _sendPhoto() async {
+    if (!_sendAllowed()) return;
+    String? dataUri;
+    try {
+      dataUri = await PhotoPrep.pickPhoto();
+    } on FileRejected catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.reason)));
+      }
+      return;
+    }
+    // Null is either a cancel (say nothing) or an unusable image.
+    if (dataUri == null || !mounted) return;
+    _lastSentAt = DateTime.now();
+    final now = DateTime.now();
+    _post(Message(
+      id: 'ch_img_${now.microsecondsSinceEpoch}',
+      text: '',
+      time: now,
+      isMe: true,
+      status: MessageStatus.sent,
+      isImage: true,
+      imageUrl: dataUri,
+      imageSeed: now.microsecondsSinceEpoch % 6,
+      replyTo: _replyTo == null
+          ? null
+          : ReplyInfo(
+              senderName: _replyTo!.isMe
+                  ? 'You'
+                  : (_replyTo!.senderName.isEmpty
+                      ? 'Member'
+                      : _replyTo!.senderName),
+              text: _replyTo!.isImage ? 'Photo' : _replyTo!.text,
+              isMe: _replyTo!.isMe,
+              messageId: _replyTo!.id,
+            ),
+    ));
+    setState(() => _replyTo = null);
+  }
+
   /// Emoji go into the message being typed; a GIF posts straight away.
   Future<void> _pickEmojiOrGif() async {
     final picked = await showEmojiGifSheet(context);
@@ -1631,8 +1727,34 @@ class _ChannelScreenState extends State<ChannelScreen> {
                 : Row(
                     children: [
                       Icon(_channelIcon(channel.type), size: 20),
-                      const SizedBox(width: 4),
-                      Text(channel.name),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(channel.name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(fontSize: 18)),
+                            // The topic is what the channel is *for*; hiding
+                            // it once you're inside is where it's least
+                            // useful.
+                            if (channel.topic.isNotEmpty)
+                              Text(channel.topic,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                      fontSize: 11.5,
+                                      fontWeight: FontWeight.w400,
+                                      color: Theme.of(context)
+                                          .textTheme
+                                          .bodySmall
+                                          ?.color
+                                          ?.withValues(alpha: 0.75))),
+                          ],
+                        ),
+                      ),
                     ],
                   ),
             actions: [
@@ -1897,6 +2019,35 @@ class _ChannelScreenState extends State<ChannelScreen> {
                         ),
                       );
                     }),
+                    // Opens in place rather than a modal sheet, so the
+                    // channel stays visible while you choose.
+                    if (_attachOpen)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
+                        child: Row(
+                          children: [
+                            _attachOption(
+                              icon: Icons.photo_outlined,
+                              label: 'Photo',
+                              color: const Color(0xFF7A5CFF),
+                              onTap: () {
+                                setState(() => _attachOpen = false);
+                                _sendPhoto();
+                              },
+                            ),
+                            const SizedBox(width: 10),
+                            _attachOption(
+                              icon: Icons.poll_outlined,
+                              label: 'Poll',
+                              color: const Color(0xFF2AA6A0),
+                              onTap: () {
+                                setState(() => _attachOpen = false);
+                                _createPoll();
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
                     Padding(
                   padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
                   child: Row(
@@ -1907,11 +2058,20 @@ class _ChannelScreenState extends State<ChannelScreen> {
                         tooltip: 'Emoji & GIFs',
                         onPressed: _pickEmojiOrGif,
                       ),
+                      // One attach button owns everything that isn't typing,
+                      // so the bar stays two icons and a field — the same
+                      // shape as the 1:1 composer.
                       IconButton(
-                        icon: const Icon(Icons.poll_outlined),
+                        icon: Icon(
+                            _attachOpen ? Icons.close : Icons.attach_file),
                         color: Colors.grey,
-                        tooltip: 'Create poll',
-                        onPressed: _createPoll,
+                        tooltip: 'Attach',
+                        onPressed: () {
+                          setState(() => _attachOpen = !_attachOpen);
+                          if (_attachOpen) {
+                            FocusManager.instance.primaryFocus?.unfocus();
+                          }
+                        },
                       ),
                       Expanded(
                         child: TextField(
