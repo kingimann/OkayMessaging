@@ -126,6 +126,11 @@ class FeedStore extends ChangeNotifier {
   // Bookmarks: posts saved on this device.
   final Set<String> _savedIds = {};
 
+  // Tombstones for deleted posts: without them a deleted post resurrects
+  // the next time the encrypted cloud blob (uploaded before the delete) or
+  // a queued relay copy replays it.
+  final Set<String> _deletedIds = {};
+
   bool isSaved(String postId) => _savedIds.contains(postId);
 
   /// Saves/unsaves a post for the Saved filter; returns true when now saved.
@@ -233,6 +238,12 @@ class FeedStore extends ChangeNotifier {
   /// Dedupes by id; incoming replies bump their parent's count and
   /// incoming reposts bump their original's.
   void addRemote(FeedPost post) {
+    if (_deletedIds.contains(post.id)) {
+      // Deleted content stays deleted. A repost stub is the one exception:
+      // its id is deterministic, so re-reposting legitimately reuses it.
+      if (post.repostOfId == null) return;
+      _deletedIds.remove(post.id);
+    }
     if (_posts.any((p) => p.id == post.id)) return;
     _posts.add(post);
     final parentId = post.parentId;
@@ -293,6 +304,7 @@ class FeedStore extends ChangeNotifier {
     final myUsername = me.username.isEmpty ? 'you' : me.username;
     final entryId = repostEntryId(target.id, myUsername);
     if (target.reposted) {
+      _deletedIds.add(entryId); // a stale blob must not resurrect it
       _posts.removeWhere((x) => x.id == entryId);
       if (ti >= 0) {
         _posts[ti] = target.copyWith(
@@ -303,6 +315,7 @@ class FeedStore extends ChangeNotifier {
         RelayService.instance.sendFeedDelete(target.communityId, entryId);
       }
     } else {
+      _deletedIds.remove(entryId); // re-reposting revives the same slot
       final entry = FeedPost(
         id: entryId,
         communityId: target.communityId,
@@ -338,6 +351,14 @@ class FeedStore extends ChangeNotifier {
 
   void _removeLocally(String postId) {
     final removed = postById(postId);
+    // Tombstone everything that goes: the post and its cascade, so no
+    // stale copy anywhere can bring any of it back.
+    for (final p in _posts) {
+      if (p.id == postId || p.parentId == postId || p.repostOfId == postId) {
+        _deletedIds.add(p.id);
+      }
+    }
+    _deletedIds.add(postId);
     _posts.removeWhere((p) =>
         p.id == postId || p.parentId == postId || p.repostOfId == postId);
     // An un-repost gives the original its counter back.
@@ -356,13 +377,15 @@ class FeedStore extends ChangeNotifier {
   List<Map<String, dynamic>> exportPosts() =>
       [for (final p in _posts) p.toJson()];
 
-  /// Replaces the feed with posts from a decrypted cloud backup.
+  /// Replaces the feed with posts from a decrypted cloud backup. Posts this
+  /// device deleted stay deleted, even when the backup predates the delete.
   void hydratePosts(List<dynamic> raw) {
     _posts
       ..clear()
       ..addAll(raw
           .whereType<Map>()
-          .map((m) => FeedPost.fromJson(Map<String, dynamic>.from(m))));
+          .map((m) => FeedPost.fromJson(Map<String, dynamic>.from(m)))
+          .where((p) => !_deletedIds.contains(p.id)));
     _save();
     notifyListeners();
   }
@@ -390,6 +413,10 @@ class FeedStore extends ChangeNotifier {
           ..clear()
           ..addAll(
               (decoded['saved'] as List? ?? const []).whereType<String>());
+        _deletedIds
+          ..clear()
+          ..addAll(
+              (decoded['deleted'] as List? ?? const []).whereType<String>());
       } else if (decoded is List) {
         rawPosts = decoded;
       } else {
@@ -415,6 +442,7 @@ class FeedStore extends ChangeNotifier {
             'hidden': _hiddenIds.toList(),
             'muted': _mutedUsernames.toList(),
             'saved': _savedIds.toList(),
+            'deleted': _deletedIds.toList(),
           }));
     } catch (_) {}
   }
@@ -425,6 +453,7 @@ class FeedStore extends ChangeNotifier {
     _hiddenIds.clear();
     _mutedUsernames.clear();
     _savedIds.clear();
+    _deletedIds.clear();
     _nextId = 1;
     notifyListeners();
   }

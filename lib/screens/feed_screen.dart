@@ -90,6 +90,36 @@ class _FeedScreenState extends State<FeedScreen> {
     _post(gifUrl: dataUri);
   }
 
+  /// The composer as a bottom sheet, opened from the app bar's pencil.
+  void _openComposer() {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) => Padding(
+        padding: EdgeInsets.only(
+            bottom: MediaQuery.of(sheetContext).viewInsets.bottom),
+        child: SafeArea(
+          child: _Composer(
+            controller: _composer,
+            onPost: () {
+              _post();
+              Navigator.pop(sheetContext);
+            },
+            onPostGif: (url) {
+              _post(gifUrl: url);
+              Navigator.pop(sheetContext);
+            },
+            onAttachPhoto: () async {
+              await _attachPhoto();
+              if (sheetContext.mounted) Navigator.pop(sheetContext);
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
   void _openThread(FeedPost post) {
     Navigator.of(context).push(MaterialPageRoute(
       builder: (_) => FeedPostScreen(postId: post.id),
@@ -272,11 +302,8 @@ class _FeedScreenState extends State<FeedScreen> {
         onAuthor: () => _authorSheet(post),
         saved: FeedStore.instance.isSaved(post.id),
         onSave: () => FeedStore.instance.toggleSaved(post.id),
-        // Only your own posts are deletable.
-        onDelete: post.authorUsername == 'you' ||
-                post.authorUsername == AppState.profile.value.username
-            ? () => FeedStore.instance.deletePost(post.id)
-            : null,
+        // Deleting lives in the long-press options — no standing trash
+        // icon cluttering every own post.
       ),
     );
   }
@@ -337,6 +364,12 @@ class _FeedScreenState extends State<FeedScreen> {
               MaterialPageRoute(builder: (_) => const PeopleScreen()),
             ),
           ),
+          // Composing lives up here now — the timeline keeps the screen.
+          IconButton(
+            icon: const Icon(Icons.edit_outlined),
+            tooltip: 'New post',
+            onPressed: _openComposer,
+          ),
         ],
       ),
       body: ListenableBuilder(
@@ -356,13 +389,6 @@ class _FeedScreenState extends State<FeedScreen> {
           return PullToRefresh(
             child: ListView(
               children: [
-                _Composer(
-                  controller: _composer,
-                  onPost: _post,
-                  onPostGif: (url) => _post(gifUrl: url),
-                  onAttachPhoto: _attachPhoto,
-                ),
-                const Divider(height: 1),
                 if (all.isNotEmpty)
                   SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
@@ -424,7 +450,8 @@ class _FeedScreenState extends State<FeedScreen> {
                     padding: const EdgeInsets.all(32),
                     child: Center(
                       child: Text(
-                        'No posts yet. Be the first to say something!',
+                        'No posts yet. Tap the pencil up top to say '
+                        'something!',
                         textAlign: TextAlign.center,
                         style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
                       ),
@@ -567,7 +594,6 @@ class _PostCard extends StatelessWidget {
   final VoidCallback onLike;
   final VoidCallback onRepost;
   final VoidCallback onReply;
-  final VoidCallback? onDelete;
   final VoidCallback? onAuthor;
   final bool saved;
   final VoidCallback? onSave;
@@ -577,7 +603,6 @@ class _PostCard extends StatelessWidget {
     required this.onLike,
     required this.onRepost,
     required this.onReply,
-    this.onDelete,
     this.onAuthor,
     this.saved = false,
     this.onSave,
@@ -622,18 +647,6 @@ class _PostCard extends StatelessWidget {
                           style: TextStyle(color: grey, fontSize: 13.5)),
                     ),
                     const Spacer(),
-                    if (onDelete != null)
-                      SizedBox(
-                        height: 28,
-                        width: 28,
-                        child: IconButton(
-                          padding: EdgeInsets.zero,
-                          iconSize: 16,
-                          icon: const Icon(Icons.delete_outline),
-                          tooltip: 'Delete post',
-                          onPressed: onDelete,
-                        ),
-                      ),
                   ],
                 ),
                 const SizedBox(height: 3),

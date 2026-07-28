@@ -5090,21 +5090,22 @@ void main() {
       ));
       await tester.pump();
 
-      // No fake accounts: a fresh feed is honestly empty, and Post stays
-      // disabled until there's text.
+      // No fake accounts: a fresh feed is honestly empty.
       expect(find.textContaining('No posts yet'), findsOneWidget);
+
+      // Composing moved to the app-bar pencil; Post stays disabled until
+      // there's text.
+      await tester.tap(find.byTooltip('New post'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Post'), warnIfMissed: false);
       await tester.pump();
       expect(FeedStore.instance.postsFor('c1'), isEmpty);
-
-      // Compose a post — it appears with a delete affordance.
       await tester.enterText(
-          find.byType(TextField).first, 'First post from me!');
+          find.byType(TextField).last, 'First post from me!');
       await tester.pump(); // the Post button enables on the next frame
       await tester.tap(find.text('Post'));
-      await tester.pump();
+      await tester.pumpAndSettle(); // posting closes the sheet
       expect(find.text('First post from me!'), findsOneWidget);
-      expect(find.byTooltip('Delete post'), findsOneWidget);
 
       // Like it: the heart count appears.
       await tester.tap(find.byTooltip('Like'));
@@ -5129,6 +5130,13 @@ void main() {
       expect(find.text('And a reply'), findsNothing); // threaded, not inline
       expect(find.text('For you'), findsNothing);
       expect(find.text('Following'), findsNothing);
+
+      // Deleting lives in the long-press sheet now, not a standing icon.
+      await tester.longPress(find.text('First post from me!'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Delete post'));
+      await tester.pumpAndSettle();
+      expect(find.text('First post from me!'), findsNothing);
     });
 
     test('backupCount pluralises the backup summary', () {
@@ -5262,6 +5270,43 @@ void main() {
       expect(store.isSaved(keeper.id), isTrue);
       expect(store.toggleSaved(keeper.id), isFalse);
       expect(store.isSaved(keeper.id), isFalse);
+    });
+
+    test('deleted posts stay deleted through backup replays', () {
+      FeedStore.instance.resetForTest();
+      final store = FeedStore.instance;
+      final post = store.add('c1', 'delete me');
+      store.reply(post.id, 'a reply');
+      // A backup snapshot taken BEFORE the delete...
+      final staleBackup = store.exportPosts();
+
+      store.deletePost(post.id);
+      expect(store.postsFor('c1'), isEmpty);
+
+      // ...must not resurrect the post when it replays after the delete —
+      // this was the "when I delete post it comes back" bug.
+      store.hydratePosts(staleBackup);
+      expect(store.postById(post.id), isNull);
+      expect(store.postsFor('c1'), isEmpty);
+      // Nor can a stale relay copy bring it back.
+      store.addRemote(FeedPost(
+          id: post.id,
+          communityId: 'c1',
+          authorName: 'Me',
+          authorUsername: 'you',
+          time: DateTime.now(),
+          text: 'delete me'));
+      expect(store.postById(post.id), isNull);
+
+      // Repost slots are the exception: un-repost then re-repost reuses
+      // the deterministic id legitimately.
+      final keeper = store.add('c1', 'reshare me');
+      store.toggleRepost(keeper.id);
+      store.toggleRepost(keeper.id); // un-repost (tombstones the slot)
+      store.toggleRepost(keeper.id); // re-repost revives it
+      final entryId = FeedStore.repostEntryId(
+          keeper.id, AppState.profile.value.username);
+      expect(store.postById(entryId), isNotNull);
     });
 
     test('feed trending tags, top sort, and tag filter', () {

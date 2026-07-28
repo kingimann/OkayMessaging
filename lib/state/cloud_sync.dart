@@ -247,6 +247,15 @@ class CloudSync extends ChangeNotifier {
   Future<void> refreshFromServer() async {
     if (!_enabled || !configured) return;
     try {
+      // Local edits still waiting on the upload debounce are NEWER than the
+      // blob — pulling now would resurrect what was just changed (a deleted
+      // feed post, famously). Flush the upload instead; the next refresh
+      // pulls a blob that already includes it.
+      if (_debounce?.isActive ?? false) {
+        _debounce!.cancel();
+        await syncNow();
+        return;
+      }
       await restore();
     } catch (_) {}
   }
