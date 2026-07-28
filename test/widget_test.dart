@@ -5399,6 +5399,24 @@ void main() {
       expect(storage.availableBytes, storage.quotaBytes - 2 * 1024 * 1024);
       expect(storage.usedFraction, greaterThan(0));
       expect(storage.usedFraction, lessThan(1));
+      expect(storage.nearLimit, isFalse);
+      expect(storage.isFull, isFalse);
+
+      // Fill it: near-limit then full.
+      storage.setUsedBytes((storage.quotaBytes * 0.95).round());
+      expect(storage.nearLimit, isTrue);
+      expect(storage.isFull, isFalse);
+      storage.setUsedBytes(storage.quotaBytes);
+      expect(storage.isFull, isTrue);
+
+      // Upgrade suggestion: the smallest plan that would hold the data.
+      const tenGb = 10 * 1024 * 1024 * 1024;
+      expect(storage.smallestPlanFor(tenGb)?.tier, StorageTier.personal);
+      const threeHundredGb = 300 * 1024 * 1024 * 1024;
+      expect(storage.smallestPlanFor(threeHundredGb)?.tier, StorageTier.studio);
+      // Nothing holds more than the top tier — no unlimited.
+      const oneTb = 1024 * 1024 * 1024 * 1024;
+      expect(storage.smallestPlanFor(oneTb), isNull);
     });
 
     test('chats need a key, back up to paid storage, and are quota-gated',

@@ -109,6 +109,22 @@ class StorageStore extends ChangeNotifier {
   /// Whether a chat backup of [bytes] fits under the current ceiling.
   bool fits(int bytes) => bytes <= quotaBytes;
 
+  /// At or over the plan ceiling — no more can be backed up until they free
+  /// space or upgrade.
+  bool get isFull => _usedBytes >= quotaBytes;
+
+  /// Within the last 10% of the plan — worth nudging an upgrade.
+  bool get nearLimit => usedFraction >= 0.9;
+
+  /// The smallest paid plan that would hold [bytes], or null if none does
+  /// (there is no unlimited tier). Powers the "upgrade to X" suggestion.
+  StoragePlan? smallestPlanFor(int bytes) {
+    for (final p in plans) {
+      if (bytes <= p.quotaBytes) return p;
+    }
+    return null;
+  }
+
   String get usedLabel => formatBytes(_usedBytes);
   String get availableLabel => formatBytes(availableBytes);
   String get quotaLabel => formatBytes(quotaBytes);

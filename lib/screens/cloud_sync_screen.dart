@@ -174,6 +174,9 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
                 value: storage.usedFraction,
                 minHeight: 8,
                 backgroundColor: scheme.surfaceContainerHighest,
+                color: storage.isFull
+                    ? scheme.error
+                    : (storage.nearLimit ? const Color(0xFFF0A020) : null),
               ),
             ),
             const SizedBox(height: 6),
@@ -183,8 +186,57 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
               style:
                   TextStyle(fontSize: 12.5, color: scheme.onSurfaceVariant),
             ),
+            if (storage.isFull || storage.nearLimit) ...[
+              const SizedBox(height: 10),
+              _limitBanner(context, storage),
+            ],
           ],
         ),
+      ),
+    );
+  }
+
+  /// A gentle nudge (near limit) or a hard stop (full), with a one-tap upgrade
+  /// to the smallest plan that would actually fit.
+  Widget _limitBanner(BuildContext context, StorageStore storage) {
+    final scheme = Theme.of(context).colorScheme;
+    final full = storage.isFull;
+    final bigger = StorageStore.plans
+        .where((p) => p.quotaBytes > storage.quotaBytes)
+        .cast<StoragePlan?>()
+        .firstWhere((_) => true, orElse: () => null);
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: (full ? scheme.errorContainer : scheme.tertiaryContainer)
+            .withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        children: [
+          Icon(full ? Icons.error_outline : Icons.info_outline,
+              size: 18, color: scheme.onSurface),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              full
+                  ? 'Your ${storage.plan.name} storage is full. Upgrade to keep '
+                      'backing up chats.'
+                  : 'You\'re almost out of ${storage.plan.name} storage.',
+              style: const TextStyle(fontSize: 12.5),
+            ),
+          ),
+          if (bigger != null) ...[
+            const SizedBox(width: 8),
+            FilledButton.tonal(
+              onPressed: _busy ? null : () => _choosePlan(bigger),
+              style: FilledButton.styleFrom(
+                  visualDensity: VisualDensity.compact,
+                  padding: const EdgeInsets.symmetric(horizontal: 12)),
+              child: Text('Get ${bigger.name}'),
+            ),
+          ],
+        ],
       ),
     );
   }
