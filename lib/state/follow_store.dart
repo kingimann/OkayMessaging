@@ -51,6 +51,15 @@ class FollowStore extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Folds a cloud backup's follow list in without dropping anyone followed
+  /// since the blob was uploaded — a pull-to-refresh restores on every
+  /// screen, and replacement would quietly undo a fresh follow.
+  void mergeAll(Iterable<String> usernames) {
+    _following.addAll(usernames.map(_clean).where((u) => u.isNotEmpty));
+    _save();
+    notifyListeners();
+  }
+
   Future<void> _save() async {
     try {
       final prefs = await SharedPreferences.getInstance();

@@ -37,12 +37,21 @@ class SavedPlacesStore extends ChangeNotifier {
   List<Map<String, dynamic>> exportPlaces() =>
       [for (final p in _places) p.toJson()];
 
-  /// Replaces saved places (from a decrypted cloud backup).
+  /// Merges saved places in from a decrypted cloud backup. The blob is a
+  /// snapshot from some earlier moment, so anything saved since then is
+  /// local-only and has to survive — a pull-to-refresh restores on every
+  /// screen, and wholesale replacement would quietly drop it.
   void hydratePlaces(List<dynamic> raw) {
-    _places = raw
+    final incoming = raw
         .whereType<Map>()
         .map((m) => SavedPlace.fromJson(Map<String, dynamic>.from(m)))
         .toList();
+    final incomingKeys = {for (final p in incoming) p.key};
+    final localOnly = [
+      for (final p in _places)
+        if (!incomingKeys.contains(p.key)) p
+    ];
+    _places = [...incoming, ...localOnly];
     _persist();
     notifyListeners();
   }

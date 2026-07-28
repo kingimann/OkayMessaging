@@ -859,12 +859,23 @@ class FeedStore extends ChangeNotifier {
   /// Replaces the feed with posts from a decrypted cloud backup. Posts this
   /// device deleted stay deleted, even when the backup predates the delete.
   void hydratePosts(List<dynamic> raw) {
+    final incoming = [
+      for (final m in raw.whereType<Map>())
+        FeedPost.fromJson(Map<String, dynamic>.from(m))
+    ].where((p) => !_deletedIds.contains(p.id)).toList();
+    final incomingIds = {for (final p in incoming) p.id};
+    // Merge, don't replace. A restore pulls a blob that was uploaded at some
+    // earlier moment; anything posted since (or while offline, before the
+    // upload landed) isn't in it, and wholesale replacement would silently
+    // destroy it. Tombstones still take out anything genuinely deleted.
+    final localOnly = [
+      for (final p in _posts)
+        if (!incomingIds.contains(p.id) && !_deletedIds.contains(p.id)) p
+    ];
     _posts
       ..clear()
-      ..addAll(raw
-          .whereType<Map>()
-          .map((m) => FeedPost.fromJson(Map<String, dynamic>.from(m)))
-          .where((p) => !_deletedIds.contains(p.id)));
+      ..addAll(incoming)
+      ..addAll(localOnly);
     _save();
     notifyListeners();
   }
@@ -902,6 +913,17 @@ class FeedStore extends ChangeNotifier {
               .whereType<Map>()
               .map((m) =>
                   FeedNotification.fromJson(Map<String, dynamic>.from(m))));
+        _likedBy
+          ..clear()
+          ..addAll(
+              (decoded['likedBy'] as List? ?? const []).whereType<String>());
+        _votedBy
+          ..clear()
+          ..addAll({
+            for (final e in (decoded['votedBy'] as Map? ?? const {}).entries)
+              if (e.key is String && e.value is num)
+                e.key as String: (e.value as num).toInt()
+          });
       } else if (decoded is List) {
         rawPosts = decoded;
       } else {
@@ -929,6 +951,11 @@ class FeedStore extends ChangeNotifier {
             'saved': _savedIds.toList(),
             'deleted': _deletedIds.toList(),
             'notifs': [for (final n in _notifications) n.toJson()],
+            // The replay guards have to outlive the process: a mailbox row
+            // whose delete failed comes back next launch, and without these
+            // it would be counted a second time.
+            'likedBy': _likedBy.toList(),
+            'votedBy': _votedBy,
           }));
     } catch (_) {}
   }

@@ -3865,7 +3865,7 @@ void main() {
 
       // Wipe chats and servers, then restore from the encrypted archive.
       ChatStore.instance.clearAll();
-      CommunityStore.instance.hydrate(const []);
+      CommunityStore.instance.clearAll();
       expect(ChatStore.instance.chats, isEmpty);
       expect(CommunityStore.instance.communities, isEmpty);
 
@@ -5318,7 +5318,7 @@ void main() {
       expect(blob.contains('Autosaved'), isFalse); // ciphertext only
 
       // Wipe the device — restoring brings the server back with no input.
-      CommunityStore.instance.hydrate([]);
+      CommunityStore.instance.clearAll();
       expect(CommunityStore.instance.communities, isEmpty);
       expect(await CloudSync.instance.restore(), isNull);
       expect(
@@ -9799,6 +9799,107 @@ void main() {
       }
       // Capped per session so an error loop can't flood the table.
       expect(sent.length, CrashReporter.maxPerSession);
+    });
+  });
+
+  group('Sync and replay safety', () {
+    setUp(() => SharedPreferences.setMockInitialValues({}));
+
+    test('a like replayed after a restart is still counted once', () async {
+      final store = FeedStore.instance;
+      store.resetForTest();
+      final post = store.add('c1', 'likeable');
+      store.applyRemoteLike(post.id,
+          liked: true, likerName: 'Grace', likerUsername: 'grace');
+      expect(store.postById(post.id)!.likes, 1);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      // Restart: memory cleared, state reloaded from disk.
+      store.resetForTest();
+      await store.load();
+      expect(store.postById(post.id)!.likes, 1);
+
+      // The same mailbox row comes back because its DELETE never landed.
+      store.applyRemoteLike(post.id,
+          liked: true, likerName: 'Grace', likerUsername: 'grace');
+      expect(store.postById(post.id)!.likes, 1,
+          reason: 'the who-liked-it guard has to survive the restart');
+    });
+
+    test('a poll vote replayed after a restart is still counted once',
+        () async {
+      final store = FeedStore.instance;
+      store.resetForTest();
+      final poll = store.addPoll('c1', 'Q?', ['A', 'B'])!;
+      store.applyRemoteVote(poll.id,
+          option: 0, previous: -1, voterUsername: 'grace');
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      store.resetForTest();
+      await store.load();
+      expect(store.postById(poll.id)!.pollTotalVotes, 1);
+      store.applyRemoteVote(poll.id,
+          option: 0, previous: -1, voterUsername: 'grace');
+      expect(store.postById(poll.id)!.pollTotalVotes, 1);
+    });
+
+    test('a deleted post stays deleted across a restart', () async {
+      final store = FeedStore.instance;
+      store.resetForTest();
+      final post = store.add('c1', 'delete me');
+      store.deletePost(post.id);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      store.resetForTest();
+      await store.load();
+      store.addRemote(post); // a stale relay copy replays it
+      expect(store.postById(post.id), isNull);
+    });
+
+    test('restoring an older blob never drops what is only on the device',
+        () {
+      // Every automatic restore merges: the blob is a snapshot from some
+      // earlier moment, and pull-to-refresh runs one on every screen.
+      final feed = FeedStore.instance;
+      feed.resetForTest();
+      final old = feed.add('c1', 'already backed up');
+      final feedBlob = feed.exportPosts();
+      final fresh = feed.add('c1', 'posted while offline');
+      feed.hydratePosts(feedBlob);
+      expect(feed.postById(old.id), isNotNull);
+      expect(feed.postById(fresh.id), isNotNull);
+
+      CommunityStore.instance.resetForTest();
+      final oldServer = CommunityStore.instance.createCommunity('Old Guild');
+      final serverBlob = CommunityStore.instance.toJsonList();
+      final newServer = CommunityStore.instance.createCommunity('New Guild');
+      CommunityStore.instance.hydrate(serverBlob);
+      final serverIds = {
+        for (final c in CommunityStore.instance.communities) c.id
+      };
+      expect(serverIds, containsAll([oldServer.id, newServer.id]));
+
+      SavedPlacesStore.instance.resetForTest();
+      SavedPlacesStore.instance.toggle(const SavedPlace('Old', 1, 1));
+      final placeBlob = SavedPlacesStore.instance.exportPlaces();
+      SavedPlacesStore.instance.toggle(const SavedPlace('New', 2, 2));
+      SavedPlacesStore.instance.hydratePlaces(placeBlob);
+      expect({for (final p in SavedPlacesStore.instance.places) p.name},
+          containsAll(['Old', 'New']));
+
+      FollowStore.instance.setAll(const ['alreadyfollowed']);
+      final followBlob = FollowStore.instance.following.toList();
+      FollowStore.instance.toggle('justfollowed');
+      FollowStore.instance.mergeAll(followBlob);
+      expect(FollowStore.instance.following,
+          containsAll(['alreadyfollowed', 'justfollowed']));
+    });
+
+    test('clearAll is how a restore starts from an empty device', () {
+      CommunityStore.instance.resetForTest();
+      expect(CommunityStore.instance.communities, isNotEmpty);
+      CommunityStore.instance.clearAll();
+      expect(CommunityStore.instance.communities, isEmpty);
     });
   });
 }

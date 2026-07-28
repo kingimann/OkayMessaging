@@ -232,7 +232,7 @@ class CloudSync extends ChangeNotifier {
     if (feed is List) FeedStore.instance.hydratePosts(feed);
     final follows = payload['follows'];
     if (follows is List) {
-      FollowStore.instance.setAll(follows.whereType<String>());
+      FollowStore.instance.mergeAll(follows.whereType<String>());
     }
     final places = payload['places'];
     if (places is List) SavedPlacesStore.instance.hydratePlaces(places);

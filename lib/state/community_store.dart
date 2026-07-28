@@ -100,12 +100,30 @@ class CommunityStore extends ChangeNotifier {
   /// Replaces all communities from a backup snapshot and persists them.
   void hydrate(List<dynamic> json) {
     try {
-      _communities = json
+      final incoming = json
           .map((c) => Community.fromJson(Map<String, dynamic>.from(c as Map)))
           .toList();
+      final incomingIds = {for (final c in incoming) c.id};
+      // Merge, don't replace. The blob was uploaded at some earlier moment,
+      // so a server joined or created since then isn't in it — and a
+      // pull-to-refresh is enough to pull one down, which would silently
+      // destroy it. Use clearAll() when a wipe is what's actually wanted.
+      final localOnly = [
+        for (final c in _communities)
+          if (!incomingIds.contains(c.id)) c
+      ];
+      _communities = [...incoming, ...localOnly];
       _save();
       notifyListeners();
     } catch (_) {}
+  }
+
+  /// Drops every server. Used when a restore should start from an empty
+  /// device rather than merge onto what is already here.
+  void clearAll() {
+    _communities = [];
+    _save();
+    notifyListeners();
   }
 
   /// Loads persisted communities, seeding a sample one on first run.
