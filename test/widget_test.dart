@@ -5352,9 +5352,12 @@ void main() {
       expect(storage.daysLeft, inInclusiveRange(58, 60));
 
       // Prices match the plan sheet; there is deliberately no unlimited tier.
-      expect(StorageStore.planFor(StorageTier.personal).priceCents, 700);
+      expect(StorageStore.planFor(StorageTier.personal).priceCents, 999);
       expect(StorageStore.planFor(StorageTier.pro).priceCents, 1900);
       expect(StorageStore.planFor(StorageTier.studio).priceCents, 4900);
+      // Price labels: cents show for $9.99, whole dollars stay clean.
+      expect(StorageStore.planFor(StorageTier.personal).priceLabel, '\$9.99/mo');
+      expect(StorageStore.planFor(StorageTier.pro).priceLabel, '\$19/mo');
       expect(StorageStore.plans.length, 4);
 
       // Cancelling drops straight back to Free.

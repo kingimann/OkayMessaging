@@ -14,8 +14,15 @@ class StoragePlan {
   const StoragePlan(this.tier, this.name, this.priceCents, this.quotaBytes);
 
   bool get isFree => priceCents == 0;
-  String get priceLabel =>
-      isFree ? 'Free' : '\$${(priceCents / 100).toStringAsFixed(0)}/mo';
+  String get priceLabel {
+    if (isFree) return 'Free';
+    // Whole dollars read cleaner without ".00"; otherwise show the cents.
+    final dollars = priceCents / 100;
+    final text = priceCents % 100 == 0
+        ? dollars.toStringAsFixed(0)
+        : dollars.toStringAsFixed(2);
+    return '\$$text/mo';
+  }
 }
 
 /// Paid chat-backup storage.
@@ -43,7 +50,7 @@ class StorageStore extends ChangeNotifier {
   /// The catalogue, cheapest first.
   static const List<StoragePlan> plans = [
     StoragePlan(StorageTier.free, 'Free', 0, 2 * _gb),
-    StoragePlan(StorageTier.personal, 'Personal', 700, 20 * _gb),
+    StoragePlan(StorageTier.personal, 'Personal', 999, 20 * _gb),
     StoragePlan(StorageTier.pro, 'Pro', 1900, 100 * _gb),
     StoragePlan(StorageTier.studio, 'Studio', 4900, 500 * _gb),
   ];
