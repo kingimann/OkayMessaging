@@ -63,7 +63,7 @@ const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY") ?? "", {
 /// approximate landing amount rather than the amount typed.
 function applicationFee(amountCents: number): number {
   const pct = parseFloat(Deno.env.get("PLATFORM_FEE_PERCENT") ?? "3.4");
-  const fixed = parseInt(Deno.env.get("PLATFORM_FEE_FIXED_CENTS") ?? "35", 10);
+  const fixed = parseInt(Deno.env.get("PLATFORM_FEE_FIXED_CENTS") ?? "10", 10);
   return Math.max(0, Math.round((amountCents * pct) / 100) + fixed);
 }
 

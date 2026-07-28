@@ -16,7 +16,7 @@ $18.37 lands. The send sheet shows all three lines before you confirm.
 
 | | Paid by | Rate |
 |---|---|---|
-| Platform fee | recipient (out of the transfer) | 3.4% + 35¢ — **all of it yours** |
+| Platform fee | recipient (out of the transfer) | 3.4% + 10¢ — **all of it yours** |
 | Stripe processing | recipient's account | 2.9% + 30¢ domestic, ~3.7% + 30¢ on a foreign card |
 
 Because Stripe bills the recipient's account rather than yours, **the
@@ -24,12 +24,27 @@ application fee is pure revenue and a transfer cannot cost you money**,
 whatever card the sender used. That retired the old fee floor, so senders pay
 slightly less than they did under destination charges.
 
-| Transfer | Your fee | You keep | Recipient gets ≈ |
-|---|---|---|---|
-| $5 | 52¢ | 52¢ | $4.04 |
-| $10 | 69¢ | 69¢ | $8.72 |
-| $50 | $2.05 | $2.05 | $46.50 |
-| $100 | $3.75 | $3.75 | $93.05 |
+| Transfer | Your fee | You keep | Recipient gets ≈ | Total taken |
+|---|---|---|---|---|
+| $5 | 27¢ | 27¢ | $4.29 | 14.2% |
+| $10 | 44¢ | 44¢ | $8.97 | 10.3% |
+| $50 | $1.80 | $1.80 | $46.45 | 7.1% |
+| $100 | $3.50 | $3.50 | $93.30 | 6.7% |
+
+The fixed part is 10¢, not the 35¢ it started at. Fixed components dominate
+small amounts: at 35¢ the platform fee alone was **10.4% of a $5 transfer**,
+and with Stripe's 30¢ on top nearly a fifth of it vanished. Since a direct
+charge costs the platform nothing to carry, there is no floor to respect and
+the fee can simply be fair.
+
+**Your fee covers no per-transaction cost.** It is not processing — that is
+Stripe's separate line, charged to the recipient. It funds the service:
+Supabase, the Apple developer account, Stripe Identity checks, and the work.
+Worth saying that way rather than implying it covers the payment.
+
+Very small transfers are still poor value, and that is Stripe's 30¢, not
+yours: at the $0.50 Stripe minimum, 30¢ of it is processing however little
+you charge. A minimum send amount is the only real fix if that matters.
 
 ### Chargebacks
 

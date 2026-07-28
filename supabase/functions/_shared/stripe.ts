@@ -4,7 +4,7 @@
 //   STRIPE_SECRET_KEY        sk_live_... / sk_test_...
 //   STRIPE_WEBHOOK_SECRET    whsec_...            (payments-webhook only)
 //   PLATFORM_FEE_PERCENT     optional, defaults to 3.4 (your application_fee %)
-//   PLATFORM_FEE_FIXED_CENTS optional, defaults to 35  (flat add-on)
+//   PLATFORM_FEE_FIXED_CENTS optional, defaults to 10  (flat add-on)
 //   APP_RETURN_URL           deep link back into the app after onboarding
 // SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY are injected automatically.
 
@@ -32,6 +32,6 @@ export const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY") ?? "", {
 /// approximate landing amount rather than the amount typed.
 export function applicationFee(amountCents: number): number {
   const pct = parseFloat(Deno.env.get("PLATFORM_FEE_PERCENT") ?? "3.4");
-  const fixed = parseInt(Deno.env.get("PLATFORM_FEE_FIXED_CENTS") ?? "35", 10);
+  const fixed = parseInt(Deno.env.get("PLATFORM_FEE_FIXED_CENTS") ?? "10", 10);
   return Math.max(0, Math.round((amountCents * pct) / 100) + fixed);
 }

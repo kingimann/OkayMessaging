@@ -56,7 +56,7 @@ Edge Functions → **Secrets**:
 don't add them by hand.
 
 Optional: `PLATFORM_FEE_PERCENT` (default 3.4) and `PLATFORM_FEE_FIXED_CENTS`
-(default 35). These are the numbers `lib/payments/storage_economics.dart`
+(default 10). These are the numbers `lib/payments/storage_economics.dart`
 proves profitable against Stripe's 2.9% + 30¢; overriding them here without
 changing the code puts the two out of sync, and only the code side is
 test-covered. Anything lower loses money on small transfers.

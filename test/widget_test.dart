@@ -5428,13 +5428,19 @@ void main() {
         expect(PaymentEconomics.isProfitable(amount), isTrue,
             reason: '\$${amount / 100} transfer must not lose money');
       }
-      // A $10 transfer: 69¢ fee, all of it kept.
-      expect(PaymentEconomics.applicationFeeCents(1000), 69);
-      expect(PaymentEconomics.netCents(1000), 69);
+      // A $10 transfer: 44¢ fee, all of it kept.
+      expect(PaymentEconomics.applicationFeeCents(1000), 44);
+      expect(PaymentEconomics.netCents(1000), 44);
       // The recipient's side is separate, and is what shrinks the landing
       // amount — 59¢ of Stripe on a domestic card.
       expect(PaymentEconomics.stripeCostCents(1000), 59);
-      expect(PaymentEconomics.estimatedReceivedCents(1000), 1000 - 69 - 59);
+      expect(PaymentEconomics.estimatedReceivedCents(1000), 1000 - 44 - 59);
+
+      // Small transfers were the reason the fixed part came down: at 35¢ a
+      // $5 send lost 10.4% to the platform fee alone, before Stripe.
+      expect(PaymentEconomics.platformFixedCents, lessThanOrEqualTo(10));
+      expect(PaymentEconomics.applicationFeeCents(500) / 500,
+          lessThan(0.07));
     });
 
     test('a direct charge keeps the platform out of the flow of funds', () {

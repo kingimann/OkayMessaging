@@ -133,8 +133,14 @@ class PaymentEconomics {
 
   /// What the platform charges. On a direct charge this is pure revenue: no
   /// floor is needed, because there is no platform-side cost for it to clear.
+  ///
+  /// The fixed part is deliberately small. It used to be 35¢, which on a $5
+  /// transfer was 10.4% on its own — the fixed components dominate small
+  /// amounts, and someone splitting a coffee shouldn't watch a fifth of it
+  /// disappear. Since a transfer costs the platform nothing to carry, there
+  /// is no floor to respect: the fee can be whatever is fair.
   static const double platformPercent = 3.4;
-  static const int platformFixedCents = 35;
+  static const int platformFixedCents = 10;
 
   /// Stripe's cost to the RECIPIENT for an [amountCents] charge, domestic card.
   static int stripeCostCents(int amountCents) =>
