@@ -22,7 +22,40 @@ class CommunityStore extends ChangeNotifier {
   List<Community> _communities = [];
   SharedPreferences? _prefs;
 
+  /// Fired after any structural change a member makes (channels, roster,
+  /// settings, identity) so the relay can broadcast the new shape to the
+  /// other members. Remote applies never fire it — no echo storms.
+  void Function(String communityId)? onStructureChanged;
+
+  /// How many messages of each channel this device has seen, for unread
+  /// badges. Persisted separately from the communities themselves.
+  static const _seenKey = 'community_seen_v1';
+  Map<String, int> _seen = {};
+
   List<Community> get communities => List.unmodifiable(_communities);
+
+  /// Unread messages in one channel (never negative).
+  int unreadInChannel(Channel ch) {
+    final unread = ch.messages.length - (_seen[ch.id] ?? 0);
+    return unread < 0 ? 0 : unread;
+  }
+
+  /// Total unread across a server's message channels.
+  int unreadInCommunity(Community c) {
+    var total = 0;
+    for (final ch in c.channels) {
+      total += unreadInChannel(ch);
+    }
+    return total;
+  }
+
+  /// Marks a channel fully read. No-op (and no rebuild) when already there.
+  void markChannelSeen(String channelId, int count) {
+    if (_seen[channelId] == count) return;
+    _seen[channelId] = count;
+    _prefs?.setString(_seenKey, jsonEncode(_seen));
+    notifyListeners();
+  }
 
   /// A serializable snapshot of every community (used by chat backup).
   List<Map<String, dynamic>> toJsonList() =>
@@ -47,6 +80,14 @@ class CommunityStore extends ChangeNotifier {
   Future<void> load() async {
     final prefs = await SharedPreferences.getInstance();
     _prefs = prefs;
+    try {
+      final seenRaw = prefs.getString(_seenKey);
+      if (seenRaw != null) {
+        _seen = Map<String, int>.from(
+            (jsonDecode(seenRaw) as Map).map((k, v) =>
+                MapEntry(k as String, (v as num).toInt())));
+      }
+    } catch (_) {}
     final raw = prefs.getString(_key);
     if (raw != null) {
       try {
@@ -287,6 +328,7 @@ class CommunityStore extends ChangeNotifier {
       category: cat,
     );
     _replace(community.copyWith(channels: [...community.channels, channel]));
+    onStructureChanged?.call(communityId);
   }
 
   void renameChannel(String communityId, String channelId, String newName) {
@@ -298,6 +340,7 @@ class CommunityStore extends ChangeNotifier {
       return clean.isEmpty ? ch : ch.copyWith(name: clean);
     }).toList();
     _replace(community.copyWith(channels: channels));
+    onStructureChanged?.call(communityId);
   }
 
   void setChannelTopic(String communityId, String channelId, String topic) {
@@ -308,6 +351,7 @@ class CommunityStore extends ChangeNotifier {
       return ch.copyWith(topic: topic.trim());
     }).toList();
     _replace(community.copyWith(channels: channels));
+    onStructureChanged?.call(communityId);
   }
 
   /// Moves a channel under a different category header, creating the header
@@ -322,6 +366,7 @@ class CommunityStore extends ChangeNotifier {
       return ch.copyWith(category: cat);
     }).toList();
     _replace(community.copyWith(channels: channels));
+    onStructureChanged?.call(communityId);
   }
 
   void deleteChannel(String communityId, String channelId) {
@@ -330,6 +375,7 @@ class CommunityStore extends ChangeNotifier {
     final channels =
         community.channels.where((c) => c.id != channelId).toList();
     _replace(community.copyWith(channels: channels));
+    onStructureChanged?.call(communityId);
   }
 
   void postMessage(String communityId, String channelId, Message message) {
@@ -604,18 +650,21 @@ class CommunityStore extends ChangeNotifier {
     final community = byId(communityId);
     if (community == null || name.trim().isEmpty) return;
     _replace(community.copyWith(name: name.trim()));
+    onStructureChanged?.call(communityId);
   }
 
   void setCommunityColor(String communityId, String color) {
     final community = byId(communityId);
     if (community == null) return;
     _replace(community.copyWith(color: color));
+    onStructureChanged?.call(communityId);
   }
 
   void setCommunityDescription(String communityId, String description) {
     final community = byId(communityId);
     if (community == null) return;
     _replace(community.copyWith(description: description.trim()));
+    onStructureChanged?.call(communityId);
   }
 
   /// Sets the server's emoji icon ('' returns to the letter avatar).
@@ -623,6 +672,7 @@ class CommunityStore extends ChangeNotifier {
     final community = byId(communityId);
     if (community == null) return;
     _replace(community.copyWith(icon: icon.trim()));
+    onStructureChanged?.call(communityId);
   }
 
   // --- Moderation settings -------------------------------------------------
@@ -631,18 +681,21 @@ class CommunityStore extends ChangeNotifier {
     final community = byId(communityId);
     if (community == null || seconds < 0) return;
     _replace(community.copyWith(slowModeSeconds: seconds));
+    onStructureChanged?.call(communityId);
   }
 
   void setMembersCanCreateChannels(String communityId, bool allowed) {
     final community = byId(communityId);
     if (community == null) return;
     _replace(community.copyWith(membersCanCreateChannels: allowed));
+    onStructureChanged?.call(communityId);
   }
 
   void setMembersCanPost(String communityId, bool allowed) {
     final community = byId(communityId);
     if (community == null) return;
     _replace(community.copyWith(membersCanPost: allowed));
+    onStructureChanged?.call(communityId);
   }
 
   /// Adds a word to the server's filter (deduplicated, case-insensitive).
@@ -656,6 +709,7 @@ class CommunityStore extends ChangeNotifier {
     }
     _replace(
         community.copyWith(bannedWords: [...community.bannedWords, w]));
+    onStructureChanged?.call(communityId);
   }
 
   void removeBannedWord(String communityId, String word) {
@@ -664,6 +718,7 @@ class CommunityStore extends ChangeNotifier {
     _replace(community.copyWith(
         bannedWords:
             community.bannedWords.where((w) => w != word).toList()));
+    onStructureChanged?.call(communityId);
   }
 
   /// The filtered word [text] trips in this server, or null when it's clean.
@@ -690,6 +745,7 @@ class CommunityStore extends ChangeNotifier {
       mutedIds:
           community.mutedIds.where((id) => id != memberId).toList(),
     ));
+    onStructureChanged?.call(communityId);
   }
 
   /// Lifts a ban. The person is not re-added — they can rejoin via invite.
@@ -700,6 +756,7 @@ class CommunityStore extends ChangeNotifier {
         bannedMembers: community.bannedMembers
             .where((m) => m.id != memberId)
             .toList()));
+    onStructureChanged?.call(communityId);
   }
 
   /// Hides (or shows again) everything a member says, just for you.
@@ -748,6 +805,7 @@ class CommunityStore extends ChangeNotifier {
       return m.copyWith(role: role);
     }).toList();
     _replace(community.copyWith(members: members));
+    onStructureChanged?.call(communityId);
   }
 
   /// Removes a member (the owner can't be removed).
@@ -758,6 +816,7 @@ class CommunityStore extends ChangeNotifier {
         .where((m) => m.id != memberId || m.role == MemberRole.owner)
         .toList();
     _replace(community.copyWith(members: members));
+    onStructureChanged?.call(communityId);
   }
 
   /// Adds a member (used when someone joins via an invite). Banned people
@@ -817,6 +876,107 @@ class CommunityStore extends ChangeNotifier {
               .toJson()
       ],
     };
+  }
+
+  /// The full shareable shape of a server — the invite snapshot plus its
+  /// moderation settings — broadcast to members whenever a structural
+  /// change lands, so every copy converges.
+  Map<String, dynamic>? exportStructure(String communityId,
+      {required String myDigits, required String myName}) {
+    final base = exportInvite(communityId,
+        myDigits: myDigits, myName: myName);
+    final community = byId(communityId);
+    if (base == null || community == null) return null;
+    return {
+      ...base,
+      'slowModeSeconds': community.slowModeSeconds,
+      'membersCanCreateChannels': community.membersCanCreateChannels,
+      'membersCanPost': community.membersCanPost,
+      'bannedWords': community.bannedWords,
+      'bannedMembers':
+          community.bannedMembers.map((m) => m.toJson()).toList(),
+    };
+  }
+
+  /// Applies a structure broadcast from another member: channel layout,
+  /// identity, roster and settings converge while everything local-only —
+  /// message history, forum posts, pins, who I muted — stays put. A device
+  /// whose member entry vanished from the roster was removed or banned, and
+  /// its copy of the server goes with it.
+  void applyRemoteStructure(Map<String, dynamic> snapshot,
+      {required String myDigits}) {
+    final id = snapshot['id'] as String?;
+    if (id == null) return;
+    final mine = byId(id);
+    if (mine == null) return;
+    final me = mine.members
+        .cast<Member?>()
+        .firstWhere((m) => m?.id == 'me', orElse: () => null);
+    final members = [
+      for (final raw in (snapshot['members'] as List? ?? const []))
+        if (raw is Map) Member.fromJson(Map<String, dynamic>.from(raw)),
+    ];
+    final stillIn = members.any((m) => m.id == wireId(myDigits));
+    if (!stillIn && me?.role != MemberRole.owner) {
+      deleteCommunity(id);
+      return;
+    }
+    final byChannelId = {for (final ch in mine.channels) ch.id: ch};
+    final channels = <Channel>[
+      for (final raw in (snapshot['channels'] as List? ?? const []))
+        if (raw is Map)
+          () {
+            final meta =
+                Channel.fromJson(Map<String, dynamic>.from(raw));
+            final existing = byChannelId[meta.id];
+            return existing == null
+                ? meta
+                : existing.copyWith(
+                    name: meta.name,
+                    category: meta.category,
+                    topic: meta.topic,
+                  );
+          }(),
+    ];
+    _replace(mine.copyWith(
+      name: snapshot['name'] as String? ?? mine.name,
+      color: snapshot['color'] as String? ?? mine.color,
+      icon: snapshot['icon'] as String? ?? mine.icon,
+      description:
+          snapshot['description'] as String? ?? mine.description,
+      channels: channels,
+      members: [
+        for (final m in members)
+          if (m.id != wireId(myDigits)) m,
+        // My own entry keeps its local 'me' identity, at the role the
+        // roster now assigns it.
+        Member(
+            id: 'me',
+            name: 'You',
+            role: members
+                .cast<Member?>()
+                .firstWhere((m) => m?.id == wireId(myDigits),
+                    orElse: () => null)
+                ?.role ??
+                me?.role ??
+                MemberRole.member,
+            online: true),
+      ],
+      slowModeSeconds:
+          (snapshot['slowModeSeconds'] as num?)?.toInt() ??
+              mine.slowModeSeconds,
+      membersCanCreateChannels:
+          snapshot['membersCanCreateChannels'] as bool? ??
+              mine.membersCanCreateChannels,
+      membersCanPost:
+          snapshot['membersCanPost'] as bool? ?? mine.membersCanPost,
+      bannedWords: (snapshot['bannedWords'] as List?)?.cast<String>() ??
+          mine.bannedWords,
+      bannedMembers: [
+        for (final raw in (snapshot['bannedMembers'] as List? ?? const []))
+          if (raw is Map) Member.fromJson(Map<String, dynamic>.from(raw)),
+      ],
+    ));
   }
 
   /// Joins a server from an invite snapshot. Channels arrive empty (history
@@ -881,6 +1041,8 @@ class CommunityStore extends ChangeNotifier {
   void resetForTest() {
     _communities = _seed();
     _prefs = null;
+    _seen.clear();
+    onStructureChanged = null;
     notifyListeners();
   }
 }

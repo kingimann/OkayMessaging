@@ -946,6 +946,16 @@ class RelayService {
                 cid, Member.fromJson(Map<String, dynamic>.from(rawMember)));
           }),
         )
+        .onBroadcast(
+          event: 'chupd',
+          callback: (payload) => _onCommunityEvent(payload, me, (cid, body) {
+            final structure = body['structure'];
+            if (structure is! Map) return;
+            CommunityStore.instance.applyRemoteStructure(
+                Map<String, dynamic>.from(structure),
+                myDigits: digits(me));
+          }),
+        )
         .subscribe();
     // Catch up on whatever arrived while the app was closed.
     fetchMailbox();
@@ -1009,6 +1019,21 @@ class RelayService {
   /// Announces that this device's user joined the server.
   Future<void> sendServerJoin(String communityId, Member member) =>
       _sendCommunityEvent('chjoin', communityId, {'member': member.toJson()});
+
+  /// Broadcasts the server's current shape so members converge after any
+  /// structural change — a new channel, a rename, a ban, a settings flip.
+  Future<void> sendCommunityUpdate(String communityId) async {
+    final me = Session.instance.user.value;
+    if (me == null) return;
+    final structure = CommunityStore.instance.exportStructure(
+      communityId,
+      myDigits: digits(me.phone),
+      myName: AppState.profile.value.name,
+    );
+    if (structure == null) return;
+    await _sendCommunityEvent(
+        'chupd', communityId, {'structure': structure});
+  }
 
   /// Broadcasts a feed post to everyone in the server channel.
   Future<void> sendFeedPost(FeedPost post) async {

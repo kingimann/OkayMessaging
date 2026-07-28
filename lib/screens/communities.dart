@@ -144,6 +144,31 @@ class _CommunitiesTabState extends State<CommunitiesTab> {
   }
 }
 
+/// The rounded unread-count pill used on channel rows and server cards.
+class _UnreadBadge extends StatelessWidget {
+  final int count;
+  const _UnreadBadge({required this.count});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+      decoration: BoxDecoration(
+        color: scheme.primary,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Text(
+        count > 99 ? '99+' : '$count',
+        style: TextStyle(
+            color: scheme.onPrimary,
+            fontSize: 11,
+            fontWeight: FontWeight.w700),
+      ),
+    );
+  }
+}
+
 /// A single community rendered as a rounded card with a gradient badge.
 class _CommunityCard extends StatelessWidget {
   final Community community;
@@ -205,11 +230,26 @@ class _CommunityCard extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(community.name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                              fontSize: 17, fontWeight: FontWeight.w700)),
+                      Row(
+                        children: [
+                          Flexible(
+                            child: Text(community.name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                    fontSize: 17,
+                                    fontWeight: FontWeight.w700)),
+                          ),
+                          if (CommunityStore.instance
+                                  .unreadInCommunity(community) >
+                              0) ...[
+                            const SizedBox(width: 8),
+                            _UnreadBadge(
+                                count: CommunityStore.instance
+                                    .unreadInCommunity(community)),
+                          ],
+                        ],
+                      ),
                       const SizedBox(height: 5),
                       Row(
                         children: [
@@ -745,9 +785,23 @@ class _CommunityScreenState extends State<CommunityScreen> {
                 for (final ch in community.channelsIn(category))
                   ListTile(
                     dense: true,
-                    leading:
-                        Icon(_channelIcon(ch.type), color: Colors.grey, size: 22),
-                    title: Text(ch.name),
+                    leading: Icon(_channelIcon(ch.type),
+                        color: CommunityStore.instance.unreadInChannel(ch) > 0
+                            ? Theme.of(context).colorScheme.primary
+                            : Colors.grey,
+                        size: 22),
+                    title: Row(
+                      children: [
+                        Flexible(child: Text(ch.name)),
+                        if (CommunityStore.instance.unreadInChannel(ch) >
+                            0) ...[
+                          const SizedBox(width: 8),
+                          _UnreadBadge(
+                              count: CommunityStore.instance
+                                  .unreadInChannel(ch)),
+                        ],
+                      ],
+                    ),
                     subtitle: ch.type == ChannelType.voice
                         ? const Text('Voice channel')
                         : ch.type == ChannelType.forum
@@ -1296,6 +1350,14 @@ class _ChannelScreenState extends State<ChannelScreen> {
         }
         // A found channel implies its community exists.
         final comm = community!;
+        // Being in the channel reads it; after the frame so the store never
+        // mutates mid-build (markChannelSeen no-ops when already current).
+        final seenCount = channel.messages.length;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            CommunityStore.instance.markChannelSeen(channel.id, seenCount);
+          }
+        });
         // What muted members said stays out of your view.
         final mutedNames = {
           for (final m in comm.members)

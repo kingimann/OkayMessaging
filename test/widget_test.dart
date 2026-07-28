@@ -1820,6 +1820,76 @@ void main() {
       expect(jsonDecode(decoded.serverInvite)['id'], c.id);
     });
 
+    test('structure sync: members converge, kicked devices drop out', () {
+      CommunityStore.instance.resetForTest();
+      final store = CommunityStore.instance;
+      // Alice's device: create a server and reshape it.
+      final c = store.createCommunity('Crew');
+      final changed = <String>[];
+      store.onStructureChanged = changed.add;
+      store.addChannel(c.id, 'plans');
+      store.setSlowMode(c.id, 30);
+      expect(changed, [c.id, c.id]); // every structural edit broadcasts
+
+      final structure = store.exportStructure(c.id,
+          myDigits: '15550101111', myName: 'Alice')!;
+      expect(structure['slowModeSeconds'], 30);
+
+      // Bob's device: joined earlier (fewer channels), then the update lands.
+      final invite = store.exportInvite(c.id,
+          myDigits: '15550101111', myName: 'Alice')!;
+      store.deleteCommunity(c.id);
+      store.joinFromInvite(Map<String, dynamic>.from(invite),
+          myDigits: '15550102222', myName: 'Bob');
+      // Bob has local history in general that a sync must not erase.
+      final generalId = store.byId(c.id)!.channels.first.id;
+      store.postMessage(c.id, generalId,
+          Message(id: 'kept', text: 'hi', time: DateTime.now(), isMe: true));
+      // Bob must appear in the incoming roster to stay a member.
+      final withBob = Map<String, dynamic>.from(structure);
+      withBob['members'] = [
+        ...(structure['members'] as List),
+        const Member(id: 'u_15550102222', name: 'Bob').toJson(),
+      ];
+      store.applyRemoteStructure(withBob, myDigits: '15550102222');
+      final synced = store.byId(c.id)!;
+      expect(synced.channels.any((ch) => ch.name == 'plans'), isTrue);
+      expect(synced.slowModeSeconds, 30);
+      expect(
+          synced.channels
+              .firstWhere((ch) => ch.id == generalId)
+              .messages
+              .any((m) => m.id == 'kept'),
+          isTrue); // local history survived
+      expect(synced.members.any((m) => m.id == 'me'), isTrue);
+
+      // A roster that no longer lists Bob removes the server from his device.
+      store.applyRemoteStructure(Map<String, dynamic>.from(structure),
+          myDigits: '15550102222');
+      expect(store.byId(c.id), isNull);
+    });
+
+    test('unread badges count what this device has not seen', () {
+      CommunityStore.instance.resetForTest();
+      final store = CommunityStore.instance;
+      final c = store.createCommunity('Team');
+      final chan = c.channels.first;
+      store.postMessage(c.id, chan.id,
+          Message(id: 'u1', text: 'a', time: DateTime.now(), isMe: false));
+      store.postMessage(c.id, chan.id,
+          Message(id: 'u2', text: 'b', time: DateTime.now(), isMe: false));
+      Channel channel() =>
+          store.byId(c.id)!.channels.firstWhere((x) => x.id == chan.id);
+      expect(store.unreadInChannel(channel()), 2);
+      expect(store.unreadInCommunity(store.byId(c.id)!), 2);
+      store.markChannelSeen(chan.id, channel().messages.length);
+      expect(store.unreadInChannel(channel()), 0);
+      // New arrivals count again.
+      store.postMessage(c.id, chan.id,
+          Message(id: 'u3', text: 'c', time: DateTime.now(), isMe: false));
+      expect(store.unreadInChannel(channel()), 1);
+    });
+
     test('a server description can be set and survives JSON', () {
       CommunityStore.instance.resetForTest();
       CommunityStore.instance

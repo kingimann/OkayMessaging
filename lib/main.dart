@@ -264,6 +264,12 @@ class _OkayMessagingAppState extends State<OkayMessagingApp>
     IncomingLinks.instance
         .init(onPhone: openChatForPhone, onCall: openCallForPhone);
     CallKitBridge.instance.init();
+    // Structural server edits fan out to the other members live.
+    CommunityStore.instance.onStructureChanged = (id) {
+      if (RelayConfig.isEnabled) {
+        RelayService.instance.sendCommunityUpdate(id);
+      }
+    };
   }
 
   @override
