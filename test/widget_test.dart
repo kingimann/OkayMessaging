@@ -9964,6 +9964,30 @@ void main() {
       expect(store.isMessageDeleted(messageId), isTrue);
     });
 
+    test('a deleted channel message stays deleted when the bus replays it',
+        () {
+      final store = CommunityStore.instance;
+      store.resetForTest();
+      final community = store.createCommunity('Guild');
+      final channel = store.byId(community.id)!.channels.first;
+      final message = Message(
+          id: 'cm_replay', text: 'hi', time: DateTime.now(), isMe: false);
+      Channel current() => store
+          .byId(community.id)!
+          .channels
+          .firstWhere((c) => c.id == channel.id);
+
+      store.addRemoteChannelMessage(community.id, channel.id, message);
+      expect(current().messages.any((m) => m.id == 'cm_replay'), isTrue);
+
+      store.deleteChannelMessage(community.id, channel.id, 'cm_replay');
+      expect(current().messages.any((m) => m.id == 'cm_replay'), isFalse);
+
+      store.addRemoteChannelMessage(community.id, channel.id, message);
+      expect(current().messages.any((m) => m.id == 'cm_replay'), isFalse,
+          reason: 'a queued copy must not undo the delete');
+    });
+
     test('clearAll is how a restore starts from an empty device', () {
       CommunityStore.instance.resetForTest();
       expect(CommunityStore.instance.communities, isNotEmpty);

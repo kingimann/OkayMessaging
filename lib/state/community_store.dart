@@ -40,6 +40,14 @@ class CommunityStore extends ChangeNotifier {
   static const _mutedChannelsKey = 'community_muted_channels_v1';
   Set<String> _mutedChannels = {};
 
+  /// Ids of channel messages deleted on this device. The community bus
+  /// replays whatever is still queued in the mailbox, and the "already got
+  /// it?" check looks in the channel — where a deleted message no longer is,
+  /// so without these it comes straight back.
+  static const _deletedChannelMessagesKey = 'community_deleted_msgs_v1';
+  static const int _maxDeletedChannelMessages = 5000;
+  Set<String> _deletedChannelMessages = {};
+
   List<Community> get communities => List.unmodifiable(_communities);
 
   /// Whether [channelId] is muted for this device.
@@ -52,6 +60,22 @@ class CommunityStore extends ChangeNotifier {
     _prefs?.setString(_mutedChannelsKey, jsonEncode(_mutedChannels.toList()));
     notifyListeners();
     return nowMuted;
+  }
+
+  /// Whether [messageId] was deleted here and must not be re-added.
+  bool isChannelMessageDeleted(String messageId) =>
+      _deletedChannelMessages.contains(messageId);
+
+  void _tombstoneChannelMessages(Iterable<String> ids) {
+    _deletedChannelMessages.addAll(ids);
+    if (_deletedChannelMessages.length > _maxDeletedChannelMessages) {
+      final excess =
+          _deletedChannelMessages.length - _maxDeletedChannelMessages;
+      _deletedChannelMessages
+          .removeAll(_deletedChannelMessages.take(excess).toList());
+    }
+    _prefs?.setString(_deletedChannelMessagesKey,
+        jsonEncode(_deletedChannelMessages.toList()));
   }
 
   /// Unread messages in one channel (never negative).
@@ -145,6 +169,11 @@ class CommunityStore extends ChangeNotifier {
       if (mutedRaw != null) {
         _mutedChannels =
             (jsonDecode(mutedRaw) as List).whereType<String>().toSet();
+      }
+      final deletedRaw = prefs.getString(_deletedChannelMessagesKey);
+      if (deletedRaw != null) {
+        _deletedChannelMessages =
+            (jsonDecode(deletedRaw) as List).whereType<String>().toSet();
       }
     } catch (_) {}
     final raw = prefs.getString(_key);
@@ -460,6 +489,7 @@ class CommunityStore extends ChangeNotifier {
             ch.pinnedMessageIds.where((id) => id != messageId).toList(),
       );
     }).toList();
+    _tombstoneChannelMessages([messageId]);
     _replace(community.copyWith(channels: channels));
   }
 
@@ -1148,6 +1178,7 @@ class CommunityStore extends ChangeNotifier {
         .firstWhere((c) => c?.id == channelId, orElse: () => null);
     if (channel == null) return;
     if (channel.messages.any((m) => m.id == message.id)) return;
+    if (isChannelMessageDeleted(message.id)) return;
     postMessage(communityId, channelId, message);
     _maybeNoteMention(community, channel, message);
   }
@@ -1184,6 +1215,7 @@ class CommunityStore extends ChangeNotifier {
     _prefs = null;
     _seen.clear();
     _mutedChannels.clear();
+    _deletedChannelMessages.clear();
     onStructureChanged = null;
     notifyListeners();
   }
