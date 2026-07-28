@@ -37,6 +37,7 @@ import 'state/saved_places_store.dart';
 import 'state/scheduler.dart';
 import 'state/score_store.dart';
 import 'state/session.dart';
+import 'state/storage_store.dart';
 import 'state/status_store.dart';
 import 'state/streak_store.dart';
 import 'state/two_step.dart';
@@ -85,6 +86,7 @@ Future<void> main() async {
   await _boot('places', SavedPlacesStore.instance.load);
   await _boot('follows', FollowStore.instance.load);
   await _boot('feed', FeedStore.instance.load);
+  await _boot('storage', StorageStore.instance.load);
   await _boot('cloud sync', CloudSync.instance.load);
   await _boot('status', StatusStore.instance.load);
   await _boot('favourites', FavouritesStore.instance.load);

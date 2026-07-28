@@ -141,9 +141,17 @@ copies of the Edge Functions), `docs/supabase_setup.sql`.
   Tenor key passed at build time (`--dart-define=TENOR_API_KEY=…`). Without
   it the GIF tab says so; emoji and everything else are unaffected, and a GIF
   someone already sent still plays.
-- **Communities and Okay Score on the server**: both ride the encrypted cloud
-  sync (`lib/state/cloud_sync.dart`), so they only leave the device once the
-  user sets a sync passphrase in Settings → Encrypted cloud sync. There is no
-  server-side auth (`REQUIRE_OTP` is off), so a user-known passphrase is what
-  makes restoring on a new device possible at all.
+- **Cloud storage is a paid subscription** (`lib/state/storage_store.dart`):
+  backup used to be free and on for everyone; now everything except chats
+  (servers, feed, follows, places, score, email) rides the encrypted cloud
+  sync (`lib/state/cloud_sync.dart`) only while storage is active, gated by
+  `StorageStore.instance.active`. **Chats are never in the backup** — message
+  content stays on the device it was sent from, paid or not (the old
+  "passphrase includes chats" path is gone; a passphrase now only changes the
+  key). A purchase (`PaymentService.buyStorage`, test-mode aware) extends the
+  entitlement 30 days; it's a monthly pass you renew, not a silent auto-renew
+  — true recurring billing would need a Stripe subscription Price + webhook
+  deployed. There's no server-side auth (`REQUIRE_OTP` off), so the gate is
+  client-side and the key (phone-derived, or a user passphrase) is what makes
+  restoring on a new device possible at all.
 - Check `git log` for what actually shipped most recently.

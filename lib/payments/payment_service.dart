@@ -156,6 +156,31 @@ class PaymentService {
     );
   }
 
+  /// Whether cloud storage can be purchased on this device. Test mode works
+  /// everywhere (simulated); the real charge needs Stripe configured, a
+  /// developer account to bill to, and the native sheet (mobile).
+  bool get canBuyStorage =>
+      testMode.value ||
+      (_realConfigured && developerPhone.isNotEmpty && StripeSheet.isSupported);
+
+  /// Charges one month of cloud storage. Reuses the destination-charge flow to
+  /// the developer's connected account (test mode simulates it). Returns true
+  /// when the charge completes; the caller then extends the entitlement.
+  ///
+  /// This is a monthly pass, not a silent auto-renew: each month is a fresh
+  /// charge the user confirms. True recurring billing would need a Stripe
+  /// subscription Price and webhook deployed server-side.
+  Future<bool> buyStorage({required int amountCents}) {
+    if (!testMode.value && developerPhone.isEmpty) {
+      throw PaymentException('not_configured');
+    }
+    return sendMoney(
+      toPhone: developerPhone,
+      amountCents: amountCents,
+      note: 'OkayMessenger cloud storage — 1 month',
+    );
+  }
+
   /// Whether a tip can be sent from this device: test mode works everywhere;
   /// the real flow needs Stripe configured, a developer phone, and the native
   /// sheet (mobile).

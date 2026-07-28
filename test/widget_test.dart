@@ -103,6 +103,7 @@ import 'package:okay_messaging/state/recent_searches.dart';
 import 'package:okay_messaging/state/scheduler.dart';
 import 'package:okay_messaging/state/score_store.dart';
 import 'package:okay_messaging/state/session.dart';
+import 'package:okay_messaging/state/storage_store.dart';
 import 'package:okay_messaging/state/streak_store.dart';
 import 'package:okay_messaging/state/two_step.dart';
 import 'package:okay_messaging/screens/find_people_screen.dart';
@@ -5221,9 +5222,11 @@ void main() {
     test('cloud sync stores only ciphertext and restores everything',
         () async {
       CloudSync.debugServerOverride = {};
+      StorageStore.instance.debugActivate();
       addTearDown(() {
         CloudSync.debugServerOverride = null;
         CloudSync.instance.resetForTest();
+        StorageStore.instance.resetForTest();
       });
       await CloudSync.instance
           .configure(passphrase: 'correct horse battery', on: false);
@@ -5257,10 +5260,12 @@ void main() {
     test('automatic sync: servers back up with no passphrase, chats stay out',
         () async {
       CloudSync.debugServerOverride = {};
+      StorageStore.instance.debugActivate();
       final prevProfile = AppState.profile.value;
       addTearDown(() {
         CloudSync.debugServerOverride = null;
         CloudSync.instance.resetForTest();
+        StorageStore.instance.resetForTest();
         AppState.profile.value = prevProfile;
         CommunityStore.instance.resetForTest();
       });
@@ -5293,11 +5298,62 @@ void main() {
               .any((c) => c.name == 'Autosaved'),
           isTrue);
 
-      // Setting a real passphrase upgrades the key and includes chats.
+      // Setting a real passphrase upgrades the key but never adds chats —
+      // message content stays on the device it was sent from.
       await CloudSync.instance
           .configure(passphrase: 'stronger key', on: true);
       expect(CloudSync.instance.autoMode, isFalse);
-      expect(CloudSync.instance.buildPayload().containsKey('chats'), isTrue);
+      expect(CloudSync.instance.buildPayload().containsKey('chats'), isFalse);
+    });
+
+    test('storage entitlement: starts off, a purchase grants a month, stacks',
+        () {
+      final storage = StorageStore.instance;
+      addTearDown(storage.resetForTest);
+      storage.resetForTest();
+      // Free tier: nothing is paid up.
+      expect(storage.active, isFalse);
+      expect(storage.daysLeft, 0);
+
+      // One purchase turns it on for ~30 days.
+      storage.addPeriod();
+      expect(storage.active, isTrue);
+      expect(storage.daysLeft, inInclusiveRange(28, 30));
+
+      // Renewing before expiry stacks time rather than wasting the leftover.
+      storage.addPeriod();
+      expect(storage.daysLeft, inInclusiveRange(58, 60));
+
+      // Cancelling stops it immediately.
+      storage.cancel();
+      expect(storage.active, isFalse);
+    });
+
+    test('without a storage subscription nothing uploads or restores',
+        () async {
+      CloudSync.debugServerOverride = {};
+      addTearDown(() {
+        CloudSync.debugServerOverride = null;
+        CloudSync.instance.resetForTest();
+        StorageStore.instance.resetForTest();
+      });
+      StorageStore.instance.resetForTest(); // unpaid
+      await CloudSync.instance
+          .configure(passphrase: 'correct horse battery', on: true);
+
+      // Uploads and restores are refused with a clear, actionable message.
+      expect(CloudSync.instance.hasStorage, isFalse);
+      final upErr = await CloudSync.instance.syncNow();
+      expect(upErr, contains('subscribe'));
+      final downErr = await CloudSync.instance.restore();
+      expect(downErr, contains('subscribe'));
+      // The server was never touched.
+      expect(CloudSync.debugServerOverride, isEmpty);
+
+      // Subscribing lets the very same upload through.
+      StorageStore.instance.debugActivate();
+      expect(await CloudSync.instance.syncNow(), isNull);
+      expect(CloudSync.debugServerOverride, isNotEmpty);
     });
 
     test('reposts are real entries, deletes cascade, bookmarks persist', () {
@@ -7411,9 +7467,11 @@ void main() {
 
     test('a restore brings communities and the score back', () async {
       CloudSync.debugServerOverride = {};
+      StorageStore.instance.debugActivate();
       addTearDown(() {
         CloudSync.debugServerOverride = null;
         CloudSync.instance.resetForTest();
+        StorageStore.instance.resetForTest();
         CommunityStore.instance.resetForTest();
         ScoreStore.instance.resetForTest();
       });
@@ -7541,9 +7599,11 @@ void main() {
 
     test('the account email rides the encrypted sync', () async {
       CloudSync.debugServerOverride = {};
+      StorageStore.instance.debugActivate();
       addTearDown(() {
         CloudSync.debugServerOverride = null;
         CloudSync.instance.resetForTest();
+        StorageStore.instance.resetForTest();
         AccountEmail.instance.resetForTest();
       });
       await CloudSync.instance

@@ -17,6 +17,7 @@ import 'feed_store.dart';
 import 'follow_store.dart';
 import 'saved_places_store.dart';
 import 'score_store.dart';
+import 'storage_store.dart';
 
 /// Isolate tasks: PBKDF2 is ~120k HMAC rounds and AES chews through the
 /// whole payload — on the main isolate either one freezes the UI (pull-to-
@@ -30,22 +31,28 @@ String _encryptTask(({Uint8List key, String plain}) args) =>
 String? _decryptTask(({Uint8List key, String blob}) args) =>
     E2eCrypto.decrypt(args.key, args.blob);
 
-/// End-to-end encrypted cloud sync. Two modes:
+/// End-to-end encrypted cloud sync.
 ///
-/// **Automatic (the default)** — on for everyone with no setup. Servers,
-/// feed, follows, places, score and email are encrypted on-device with a key
-/// derived from the account's phone number and uploaded. Reinstalling and
-/// signing in with the same number brings them back without the user doing
-/// anything. Chats are deliberately NOT in the automatic backup: a
-/// phone-derived key must never protect message content, since the phone
-/// number isn't a secret.
+/// Backup is a paid subscription ([StorageStore]): while cloud storage is
+/// active, servers, feed posts, follows, saved places, score and email are
+/// encrypted on-device and uploaded automatically. **Chats are never in the
+/// backup** — message content stays on the device it was sent from, paid or
+/// not. Without an active subscription nothing is uploaded; whatever was last
+/// backed up stays on the server for restore.
+///
+/// Two key modes:
+///
+/// **Automatic (the default)** — no setup. The key is derived from the
+/// account's phone number, so reinstalling and signing in with the same
+/// number restores everything.
 ///
 /// **Passphrase** — the user sets a sync passphrase in Settings; the key is
-/// derived from it instead, and chats are included. Losing the passphrase
-/// means that backup is unrecoverable by anyone, including us.
+/// derived from it instead, so the backup is portable across numbers and
+/// unrecoverable if the passphrase is lost. It changes only the key, never
+/// what's included — chats stay out either way.
 ///
-/// Either way the server stores only ciphertext, and the row id is an HMAC
-/// of the key, so blobs reveal nothing about the account.
+/// The server stores only ciphertext, and the row id is an HMAC of the key,
+/// so blobs reveal nothing about the account.
 class CloudSync extends ChangeNotifier {
   CloudSync._();
   static final CloudSync instance = CloudSync._();
@@ -76,6 +83,12 @@ class CloudSync extends ChangeNotifier {
   /// whose digits can salt the key.
   bool get configured => !autoMode || _digits != 'local';
   String get passphrase => _passphrase;
+
+  /// Whether paid cloud storage is active. Every upload/restore gates on this.
+  bool get hasStorage => StorageStore.instance.active;
+
+  /// Everything lined up for a background upload: switched on, keyed, and paid.
+  bool get canSync => _enabled && configured && hasStorage;
 
   String get _effectivePassphrase => autoMode ? autoPassphrase : _passphrase;
 
@@ -108,7 +121,7 @@ class CloudSync extends ChangeNotifier {
   /// otherwise push the local state up. Never surfaces errors — automatic
   /// mode has no UI to be noisy in.
   Future<void> autoBootstrap() async {
-    if (!_enabled || !configured) return;
+    if (!_enabled || !configured || !hasStorage) return;
     final digits = _digits;
     if (digits == _bootstrappedFor) return;
     _bootstrappedFor = digits;
@@ -146,18 +159,28 @@ class CloudSync extends ChangeNotifier {
   void _startListening() {
     if (_listening) return;
     _listening = true;
-    ChatStore.instance.addListener(scheduleSync);
     FeedStore.instance.addListener(scheduleSync);
     FollowStore.instance.addListener(scheduleSync);
     SavedPlacesStore.instance.addListener(scheduleSync);
     CommunityStore.instance.addListener(scheduleSync);
     ScoreStore.instance.addListener(scheduleSync);
     AppState.profile.addListener(autoBootstrap);
+    // Subscribing (or renewing) should back up right away, and the first
+    // bootstrap for this account may have been skipped while unpaid.
+    StorageStore.instance.addListener(_onStorageChanged);
   }
 
-  /// Debounced: bursts of edits collapse into one upload.
+  void _onStorageChanged() {
+    if (hasStorage) {
+      _bootstrappedFor = '';
+      autoBootstrap();
+    }
+  }
+
+  /// Debounced: bursts of edits collapse into one upload. No-ops without an
+  /// active storage subscription — chats never schedule a sync at all.
   void scheduleSync() {
-    if (!_enabled || !configured) return;
+    if (!canSync) return;
     _debounce?.cancel();
     _debounce = Timer(const Duration(seconds: 8), syncNow);
   }
@@ -203,11 +226,10 @@ class CloudSync extends ChangeNotifier {
   }
 
   /// Everything worth restoring on a new device, as one JSON document.
-  /// Chats ride along only under a user-set passphrase — never under the
-  /// automatic phone-derived key.
+  /// Chats are deliberately excluded — message content never leaves the
+  /// device, regardless of key mode or subscription.
   Map<String, dynamic> buildPayload() => {
         'v': 1,
-        if (!autoMode) 'chats': ChatStore.instance.toJson(),
         'feed': FeedStore.instance.exportPosts(),
         'follows': FollowStore.instance.following.toList()..sort(),
         'places': SavedPlacesStore.instance.exportPlaces(),
@@ -245,7 +267,7 @@ class CloudSync extends ChangeNotifier {
   /// Never throws and never reports an error to the user: an unconfigured or
   /// offline device should just refresh nothing.
   Future<void> refreshFromServer() async {
-    if (!_enabled || !configured) return;
+    if (!_enabled || !configured || !hasStorage) return;
     try {
       // Local edits still waiting on the upload debounce are NEWER than the
       // blob — pulling now would resurrect what was just changed (a deleted
@@ -264,6 +286,9 @@ class CloudSync extends ChangeNotifier {
   /// human-readable error.
   Future<String?> syncNow() async {
     if (!configured) return 'Sign in (or set a sync passphrase) first.';
+    if (!hasStorage) {
+      return 'Cloud storage isn\'t active — subscribe to back up.';
+    }
     syncing = true;
     lastError = null;
     notifyListeners();
@@ -314,6 +339,9 @@ class CloudSync extends ChangeNotifier {
   /// Returns null on success or a human-readable error.
   Future<String?> restore() async {
     if (!configured) return 'Sign in (or set a sync passphrase) first.';
+    if (!hasStorage) {
+      return 'Cloud storage isn\'t active — subscribe to restore.';
+    }
     syncing = true;
     lastError = null;
     notifyListeners();

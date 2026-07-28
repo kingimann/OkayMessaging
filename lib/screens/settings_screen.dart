@@ -7,6 +7,7 @@ import '../state/backup_service.dart';
 import '../util/build_info.dart';
 import '../state/chat_store.dart';
 import '../state/session.dart';
+import '../state/storage_store.dart';
 import '../widgets/app_dialogs.dart';
 import '../widgets/info_section.dart';
 import '../widgets/user_avatar.dart';
@@ -161,13 +162,24 @@ class SettingsView extends StatelessWidget {
                 MaterialPageRoute(builder: (_) => const MapsSettingsScreen()),
               ),
             ),
-            InfoTile(
-              leading: const Icon(Icons.cloud_sync_outlined),
-              title: 'Encrypted cloud sync',
-              subtitle: 'On the server, unreadable to the server',
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const CloudSyncScreen()),
-              ),
+            ListenableBuilder(
+              listenable: StorageStore.instance,
+              builder: (context, _) {
+                final storage = StorageStore.instance;
+                return InfoTile(
+                  leading: const Icon(Icons.cloud_sync_outlined),
+                  title: 'Cloud storage',
+                  subtitle: storage.active
+                      ? 'Active — backing up everything but chats, encrypted'
+                      : '${storage.priceLabel}/mo — back up everything but chats',
+                  trailing: storage.active
+                      ? null
+                      : const Icon(Icons.lock_outline, size: 20),
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const CloudSyncScreen()),
+                  ),
+                );
+              },
             ),
             InfoTile(
               leading: const Icon(Icons.data_usage_outlined),
