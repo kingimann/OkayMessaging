@@ -5,7 +5,7 @@
 --
 --   1. per-account storage accounting (bytes used), maintained automatically
 --      by a trigger as chat/communal blobs are written and deleted;
---   2. monthly egress accounting with a fair-use ceiling (3x stored bytes);
+--   2. monthly egress accounting with a fair-use ceiling (1x stored bytes);
 --   3. a totals view so you can watch the whole project against your plan's
 --      included storage (e.g. a $25 Supabase Pro project = 100 GB / 250 GB
 --      egress) and know when to raise prices or archive cold data.
@@ -126,13 +126,13 @@ begin
     updated_at = now();
 end $$;
 
--- Fair use: downloads are limited to ~3x what you store, per month. Returns
+-- Fair use: downloads are limited to ~1x what you store, per month. Returns
 -- true once an account is over — your gateway/Edge Function should then
 -- throttle further downloads for the rest of the period.
 create or replace function public.egress_over_limit(acct text)
 returns boolean language sql stable as $$
   select coalesce(
-    (select egress_bytes > 3 * greatest(used_bytes, 1)
+    (select egress_bytes > 1 * greatest(used_bytes, 1)
        from public.user_storage_usage
       where account = acct
         and period_start >= date_trunc('month', now())),

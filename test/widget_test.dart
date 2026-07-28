@@ -75,6 +75,7 @@ import 'package:okay_messaging/state/community_store.dart';
 import 'package:okay_messaging/state/file_transfer.dart';
 import 'package:okay_messaging/models/status_update.dart';
 import 'package:okay_messaging/payments/payment_service.dart';
+import 'package:okay_messaging/payments/payment_amount_sheet.dart';
 import 'package:okay_messaging/payments/storage_economics.dart';
 import 'package:okay_messaging/payments/store_purchases.dart';
 import 'package:okay_messaging/state/backup_service.dart';
@@ -5424,6 +5425,48 @@ void main() {
       expect(PaymentEconomics.netCents(1000), 10);
     });
 
+    test('a card issued abroad still cannot lose money', () {
+      // The sender picks the card; we only find out what it cost afterwards.
+      // At a flat 3.4% + 35¢ against an international card's 3.7% + 30¢ the
+      // two crossed near $17.75, and every larger transfer bled — silently,
+      // because nothing about the charge announces the issuing country.
+      expect(PaymentEconomics.worstCasePercent, greaterThan(3.4));
+      for (final amount in [50, 100, 1775, 2500, 5000, 10000, 50000, 200000]) {
+        expect(PaymentEconomics.worstCaseNetCents(amount), greaterThan(0),
+            reason: '\$${amount / 100} on a foreign card must not lose money');
+      }
+      // Small transfers are untouched by the floor — it only bites where the
+      // flat percentage stopped covering the real cost.
+      expect(PaymentEconomics.applicationFeeCents(1000), 69);
+      // A $100 transfer now clears the international rate rather than
+      // undercutting it by 25¢.
+      expect(PaymentEconomics.applicationFeeCents(10000),
+          greaterThan(PaymentEconomics.worstCaseStripeCostCents(10000)));
+    });
+
+    test('the fair-use egress ceiling sits below what the price can pay for',
+        () {
+      // Egress dominates the cost of a stored GB: at 3x stored per month a
+      // $0.20 GB costs ~$0.29 to serve, so the ceiling was 2.3x past the
+      // point where the plan starts losing money.
+      expect(StorageEconomics.fairUseEgressMultiple,
+          lessThan(StorageEconomics.breakEvenEgressMultiple),
+          reason: 'an allowance the price cannot cover is not fair use');
+
+      // At the enforced ceiling, every size still profits.
+      double costAtCeiling(int gb) =>
+          gb *
+          (StorageEconomics.fileStoragePerGb +
+              StorageEconomics.fairUseEgressMultiple *
+                  StorageEconomics.egressPerGb);
+      for (final gb in StorageStore.sizes) {
+        final net =
+            StorageEconomics.developerNet(StorageStore.priceCentsFor(gb) / 100);
+        expect(net, greaterThan(costAtCeiling(gb)),
+            reason: '$gb GB must still profit with a user at the egress cap');
+      }
+    });
+
     test('chat backups go to the cheap bucket, not the pricey table', () async {
       // Storage buckets bill ~6x less than Postgres disk — the difference
       // between selling storage at a profit and at a loss.
@@ -9857,8 +9900,14 @@ void main() {
             greaterThan(PaymentEconomics.stripePercent));
         expect(int.parse(fixed!),
             greaterThan(PaymentEconomics.stripeFixedCents));
-        expect(copy.contains('Math.max(fee, stripeCost + 1)'), isTrue,
+        expect(copy.contains('Math.max(fee, worstCase + 1)'), isTrue,
             reason: '$name lost the floor that stops a bad env var');
+        // The floor has to clear an international card, not just a domestic
+        // one — that's the case a flat percentage silently underpriced.
+        expect(
+            copy.contains('STRIPE_INTERNATIONAL_SURCHARGE_PERCENT'), isTrue,
+            reason: '$name floors on the domestic rate, which loses money '
+                'on a foreign card above ~\$17.75');
       }
     });
   });
@@ -10092,6 +10141,47 @@ void main() {
           .expireNow(DateTime.now().add(ChannelTypingStore.linger * 2));
       await tester.pump();
       expect(find.textContaining('is typing'), findsNothing);
+    });
+  });
+
+  group('Fee disclosure', () {
+    testWidgets('the sender sees the fee and what actually lands',
+        (tester) async {
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => TextButton(
+              onPressed: () => showModalBottomSheet(
+                context: context,
+                isScrollControlled: true,
+                builder: (_) =>
+                    const PaymentAmountSheet(peerName: 'Grace'),
+              ),
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      ));
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+
+      // Nothing to disclose before an amount is entered.
+      expect(find.text('Fee'), findsNothing);
+
+      await tester.enterText(find.byType(TextField).first, '20');
+      await tester.pump();
+
+      // 2000c: fee is the international floor (3.7% + 30c + 1c = 105c),
+      // so $20.00 sent leaves $18.95 landing.
+      final fee = PaymentEconomics.applicationFeeCents(2000);
+      expect(find.text('You pay'), findsOneWidget);
+      expect(find.text('Fee'), findsOneWidget);
+      expect(find.text('Grace receives'), findsOneWidget);
+      expect(find.text('\$${(fee / 100).toStringAsFixed(2)}'), findsOneWidget);
+      expect(
+          find.text('\$${((2000 - fee) / 100).toStringAsFixed(2)}'),
+          findsOneWidget,
+          reason: 'the amount that lands is not the amount typed, so say so');
     });
   });
 

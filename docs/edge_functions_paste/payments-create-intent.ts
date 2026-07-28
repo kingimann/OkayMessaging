@@ -65,14 +65,24 @@ const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY") ?? "", {
 const STRIPE_PERCENT = 2.9;
 const STRIPE_FIXED_CENTS = 30;
 
+/// Stripe surcharges cards issued outside the platform's country. The sender
+/// chooses the card, so this — not the domestic rate — is what the fee has to
+/// clear. At 3.4% + 35c against 3.7% + 30c the two cross around $17.75, and
+/// every larger transfer on a foreign card was losing money invisibly.
+const STRIPE_INTERNATIONAL_SURCHARGE_PERCENT = 0.8;
+
 function applicationFee(amountCents: number): number {
   const pct = parseFloat(Deno.env.get("PLATFORM_FEE_PERCENT") ?? "3.4");
   const fixed = parseInt(Deno.env.get("PLATFORM_FEE_FIXED_CENTS") ?? "35", 10);
   const fee = Math.round((amountCents * pct) / 100) + fixed;
-  // Never let a misconfigured env var make the platform eat Stripe's cut.
-  const stripeCost =
-    Math.round((amountCents * STRIPE_PERCENT) / 100) + STRIPE_FIXED_CENTS;
-  return Math.max(fee, stripeCost + 1);
+  // Floored at the worst realistic Stripe cost, so neither a foreign card nor
+  // a misconfigured env var can make the platform eat the difference.
+  const worstCase =
+    Math.round(
+      (amountCents * (STRIPE_PERCENT + STRIPE_INTERNATIONAL_SURCHARGE_PERCENT)) /
+        100,
+    ) + STRIPE_FIXED_CENTS;
+  return Math.max(fee, worstCase + 1);
 }
 
 // Creates a PaymentIntent that routes money straight to the RECEIVER's Stripe

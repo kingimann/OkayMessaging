@@ -33,10 +33,23 @@ class StorageEconomics {
   /// overage rates above — which the per-GB price already covers.
   static const int includedGb = 100;
 
-  /// How much monthly egress to budget per stored GB. The fair-use limit caps
-  /// downloads at 3× stored, but a real user restores rarely — half a copy a
-  /// month is a conservative-but-sane allowance.
+  /// How much monthly egress to budget per stored GB. A real user restores
+  /// rarely — half a copy a month is a conservative-but-sane allowance.
   static const double egressAllowance = 0.5;
+
+  /// The most egress a stored GB can pull in a month before it stops paying
+  /// for itself. Above [maxEgressMultiple] the download bill overtakes what
+  /// the plan earns after Apple's cut, so the fair-use ceiling has to sit
+  /// under it — an allowance the price can't cover isn't fair use, it's a
+  /// loss the user is entitled to take.
+  static double get breakEvenEgressMultiple =>
+      (developerNet(pricePerGb) - fileStoragePerGb) / egressPerGb;
+
+  /// The fair-use ceiling actually enforced (see `docs/storage_usage_setup.sql`
+  /// and the Terms). Deliberately below [breakEvenEgressMultiple], with room
+  /// to spare, while still allowing a full restore of everything you store
+  /// every single month.
+  static const double fairUseEgressMultiple = 1.0;
 
   /// The retail rate: what a user pays per GB per month, before Apple's cut.
   /// Set well above [costPerGb] so every GB — included or overage — profits.
@@ -92,31 +105,58 @@ class StorageEconomics {
 class PaymentEconomics {
   PaymentEconomics._();
 
-  /// What Stripe charges the platform per successful charge.
+  /// What Stripe charges the platform per successful charge on a card issued
+  /// in the platform's own country.
   static const double stripePercent = 2.9;
   static const int stripeFixedCents = 30;
 
-  /// What the platform charges the sender. Must clear Stripe's cut.
+  /// Stripe surcharges cards issued abroad. The sender picks the card, not us,
+  /// so this is the rate that has to be planned for — budgeting on the
+  /// domestic one and hoping is how a fee schedule quietly goes underwater.
+  static const double internationalSurchargePercent = 0.8;
+
+  /// The worst realistic rate: an international card.
+  static double get worstCasePercent =>
+      stripePercent + internationalSurchargePercent;
+
+  /// What the platform charges. Clears Stripe's domestic cut comfortably; the
+  /// floor below is what handles the international case.
   static const double platformPercent = 3.4;
   static const int platformFixedCents = 35;
 
-  /// Stripe's cost to the platform for an [amountCents] charge.
+  /// Stripe's cost for an [amountCents] charge on a domestic card.
   static int stripeCostCents(int amountCents) =>
       (amountCents * stripePercent / 100).round() + stripeFixedCents;
 
-  /// The platform's application fee, floored so a misconfiguration can never
-  /// make the platform eat Stripe's cut.
+  /// Stripe's cost when the sender pays with a card issued abroad.
+  static int worstCaseStripeCostCents(int amountCents) =>
+      (amountCents * worstCasePercent / 100).round() + stripeFixedCents;
+
+  /// The platform's application fee.
+  ///
+  /// Floored at the *international* cost rather than the domestic one. At
+  /// 3.4% + 35¢ against an international card's 3.7% + 30¢ the two cross at
+  /// about \$17.75, and every transfer above that lost money — invisibly,
+  /// since nothing about the charge says which country issued the card.
+  /// The floor makes the worst case break even instead of bleed, and leaves
+  /// smaller transfers untouched.
   static int applicationFeeCents(int amountCents) {
     final fee =
         (amountCents * platformPercent / 100).round() + platformFixedCents;
-    final floor = stripeCostCents(amountCents) + 1;
+    final floor = worstCaseStripeCostCents(amountCents) + 1;
     return fee > floor ? fee : floor;
   }
 
-  /// What the platform actually keeps on an [amountCents] transfer.
+  /// What the platform keeps on an [amountCents] transfer paid by a domestic
+  /// card.
   static int netCents(int amountCents) =>
       applicationFeeCents(amountCents) - stripeCostCents(amountCents);
 
-  /// Every transfer must leave the platform ahead.
-  static bool isProfitable(int amountCents) => netCents(amountCents) > 0;
+  /// What the platform keeps when the card was issued abroad — the thin case.
+  static int worstCaseNetCents(int amountCents) =>
+      applicationFeeCents(amountCents) - worstCaseStripeCostCents(amountCents);
+
+  /// Every transfer must leave the platform ahead, whichever card is used.
+  static bool isProfitable(int amountCents) =>
+      netCents(amountCents) > 0 && worstCaseNetCents(amountCents) > 0;
 }

@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import 'storage_economics.dart';
 import 'package:flutter/services.dart';
 
 /// A bottom sheet to enter an amount and optional note before sending money.
@@ -21,6 +23,36 @@ class _PaymentAmountSheetState extends State<PaymentAmountSheet> {
   }
 
   bool get _valid => _cents >= 50; // Stripe minimum ~$0.50
+
+  /// The platform fee for the amount typed. Same arithmetic the Edge Function
+  /// applies, so the number quoted here is the number actually charged.
+  int get _feeCents =>
+      _cents <= 0 ? 0 : PaymentEconomics.applicationFeeCents(_cents);
+
+  /// What lands in the recipient's account: the fee is taken out of the
+  /// transfer, not added on top of it.
+  int get _receivedCents {
+    final left = _cents - _feeCents;
+    return left < 0 ? 0 : left;
+  }
+
+  Widget _feeRow(BuildContext context, String label, int cents,
+      {bool muted = false, bool bold = false}) {
+    final style = TextStyle(
+      fontSize: bold ? 15 : 13.5,
+      fontWeight: bold ? FontWeight.w700 : FontWeight.w500,
+      color: muted ? Colors.grey.shade600 : null,
+    );
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Flexible(
+            child: Text(label,
+                maxLines: 1, overflow: TextOverflow.ellipsis, style: style)),
+        Text('\$${(cents / 100).toStringAsFixed(2)}', style: style),
+      ],
+    );
+  }
 
   @override
   void dispose() {
@@ -110,6 +142,38 @@ class _PaymentAmountSheetState extends State<PaymentAmountSheet> {
                       const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                 ),
               ),
+              // What the fee actually is, before anyone commits to paying it.
+              // The fee comes out of the transfer, so the amount typed and the
+              // amount that lands are different numbers — saying so plainly is
+              // the only honest way to show this.
+              if (_valid) ...[
+                const SizedBox(height: 18),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 14, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context)
+                        .colorScheme
+                        .surfaceContainerHighest
+                        .withValues(alpha: 0.5),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Column(
+                    children: [
+                      _feeRow(context, 'You pay', _cents),
+                      const SizedBox(height: 6),
+                      _feeRow(context, 'Fee', _feeCents, muted: true),
+                      const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 8),
+                        child: Divider(height: 1),
+                      ),
+                      _feeRow(context, '${widget.peerName} receives',
+                          _receivedCents,
+                          bold: true),
+                    ],
+                  ),
+                ),
+              ],
               const SizedBox(height: 20),
               FilledButton(
                 style: FilledButton.styleFrom(
