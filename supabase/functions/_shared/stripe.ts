@@ -3,8 +3,8 @@
 // Required Edge Function secrets (set with `supabase secrets set`):
 //   STRIPE_SECRET_KEY        sk_live_... / sk_test_...
 //   STRIPE_WEBHOOK_SECRET    whsec_...            (payments-webhook only)
-//   PLATFORM_FEE_PERCENT     e.g. "1.5"           (your application_fee %)
-//   PLATFORM_FEE_FIXED_CENTS e.g. "0"             (flat add-on, optional)
+//   PLATFORM_FEE_PERCENT     optional, defaults to 3.4 (your application_fee %)
+//   PLATFORM_FEE_FIXED_CENTS optional, defaults to 35  (flat add-on)
 //   APP_RETURN_URL           deep link back into the app after onboarding
 // SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY are injected automatically.
 

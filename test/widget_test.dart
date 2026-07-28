@@ -7,6 +7,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../tool/paste_functions.dart';
 import 'package:okay_messaging/app_state.dart';
 import 'package:okay_messaging/crypto/e2e.dart';
 import 'package:okay_messaging/data/mock_data.dart';
@@ -9799,6 +9800,62 @@ void main() {
       }
       // Capped per session so an error loop can't flood the table.
       expect(sent.length, CrashReporter.maxPerSession);
+    });
+  });
+
+  group('Edge Function paste copies', () {
+    // The dashboard editor can't resolve _shared/stripe.ts, so the paste
+    // copies inline it. They drifted once — the platform fee sat at the old
+    // 1.5% + 0c long after the shared helper moved to 3.4% + 35c, which would
+    // have deployed a fee below Stripe's own cut on every transfer.
+    test('every paste copy matches what the generator produces', () {
+      final shared =
+          File('supabase/functions/_shared/stripe.ts').readAsStringSync();
+      for (final name in pasteFunctions) {
+        final source =
+            File('supabase/functions/$name/index.ts').readAsStringSync();
+        final expected = buildPasteCopy(name,
+            sharedSource: shared, functionSource: source);
+        final onDisk =
+            File('docs/edge_functions_paste/$name.ts').readAsStringSync();
+        expect(onDisk, expected,
+            reason: '$name is stale — run: dart tool/paste_functions.dart');
+      }
+    });
+
+    test('no paste copy still imports the shared helper', () {
+      for (final name in pasteFunctions) {
+        final copy =
+            File('docs/edge_functions_paste/$name.ts').readAsStringSync();
+        final importsShared = copy
+            .split('\n')
+            .any((l) => l.startsWith('import') && l.contains('_shared/'));
+        expect(importsShared, isFalse,
+            reason: '$name would fail to bundle in the dashboard editor');
+      }
+    });
+
+    test('the inlined platform fee never falls below Stripe\'s own cut', () {
+      // Mirrors applicationFee() in the shared helper. A fee at or under
+      // Stripe's 2.9% + 30c means the platform pays the difference.
+      for (final name in pasteFunctions) {
+        final copy =
+            File('docs/edge_functions_paste/$name.ts').readAsStringSync();
+        final pct = RegExp(r'PLATFORM_FEE_PERCENT"\) \?\? "([\d.]+)"')
+            .firstMatch(copy)
+            ?.group(1);
+        final fixed = RegExp(r'PLATFORM_FEE_FIXED_CENTS"\) \?\? "(\d+)"')
+            .firstMatch(copy)
+            ?.group(1);
+        expect(pct, isNotNull, reason: '$name lost its fee default');
+        expect(fixed, isNotNull, reason: '$name lost its fee default');
+        expect(double.parse(pct!),
+            greaterThan(PaymentEconomics.stripePercent));
+        expect(int.parse(fixed!),
+            greaterThan(PaymentEconomics.stripeFixedCents));
+        expect(copy.contains('Math.max(fee, stripeCost + 1)'), isTrue,
+            reason: '$name lost the floor that stops a bad env var');
+      }
     });
   });
 
