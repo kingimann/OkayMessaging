@@ -43,6 +43,30 @@ class ChatStore extends ChangeNotifier {
   /// Per-chat wallpaper color (ARGB int) overriding the global default.
   final Map<String, int> _wallpapers = {};
 
+  /// Ids of messages the user deleted from this device. The offline mailbox
+  /// only drops a row once its DELETE round-trips, so a failed delete (or a
+  /// crash mid-drain) replays the same envelope on the next launch — and the
+  /// "have I already got this?" check can't see a message that is gone.
+  /// Without these, deleting a message or a whole conversation is undone the
+  /// next time the queue drains.
+  final Set<String> _deletedMessageIds = {};
+
+  /// How many tombstones to keep. They only have to outlive the mailbox TTL
+  /// (14 days), so this is generous; oldest go first.
+  static const int _maxDeletedIds = 5000;
+
+  /// Whether [messageId] was deleted here and must not be re-added.
+  bool isMessageDeleted(String messageId) =>
+      _deletedMessageIds.contains(messageId);
+
+  void _tombstone(Iterable<String> ids) {
+    _deletedMessageIds.addAll(ids);
+    if (_deletedMessageIds.length > _maxDeletedIds) {
+      final excess = _deletedMessageIds.length - _maxDeletedIds;
+      _deletedMessageIds.removeAll(_deletedMessageIds.take(excess).toList());
+    }
+  }
+
   /// Invoked after every change so a persistence layer can save.
   void Function()? onChanged;
 
@@ -57,6 +81,7 @@ class ChatStore extends ChangeNotifier {
         'starred': _starred.toList(),
         'drafts': Map<String, String>.of(_drafts),
         'wallpapers': Map<String, int>.of(_wallpapers),
+        'deletedIds': _deletedMessageIds.toList(),
       };
 
   /// Replaces all state from a previously-saved [json] snapshot.
@@ -80,6 +105,9 @@ class ChatStore extends ChangeNotifier {
       ..clear()
       ..addAll((json['wallpapers'] as Map? ?? const {})
           .map((k, v) => MapEntry('$k', v as int)));
+    _deletedMessageIds
+      ..clear()
+      ..addAll((json['deletedIds'] as List? ?? const []).map((e) => '$e'));
     notifyListeners();
   }
 
@@ -136,6 +164,7 @@ class ChatStore extends ChangeNotifier {
     _starred.clear();
     _drafts.clear();
     _wallpapers.clear();
+    _deletedMessageIds.clear();
     notifyListeners();
   }
 
@@ -147,6 +176,7 @@ class ChatStore extends ChangeNotifier {
     _starred.clear();
     _drafts.clear();
     _wallpapers.clear();
+    _deletedMessageIds.clear();
     notifyListeners();
   }
 
@@ -265,6 +295,7 @@ class ChatStore extends ChangeNotifier {
   void deleteChat(String id) {
     final i = _indexOf(id);
     if (i != -1) {
+      _tombstone([for (final m in _chats[i].messages) m.id]);
       _chats.removeAt(i);
       notifyListeners();
     }
@@ -512,6 +543,7 @@ class ChatStore extends ChangeNotifier {
   void clearMessages(String chatId) {
     final i = _indexOf(chatId);
     if (i == -1) return;
+    _tombstone([for (final m in _chats[i].messages) m.id]);
     _replace(i, _chats[i].copyWith(messages: const [], clearPinned: true));
   }
 
@@ -546,7 +578,12 @@ class ChatStore extends ChangeNotifier {
             text: '', isDeleted: true, reactions: const []);
       }).toList();
     } else {
+      // Deleted for me only: the message leaves the list entirely, so the
+      // tombstone is the only thing stopping a mailbox replay bringing it
+      // back. A delete-for-everyone stays in place as an empty bubble and
+      // is caught by the ordinary duplicate check.
       msgs = _chats[i].messages.where((m) => m.id != messageId).toList();
+      _tombstone([messageId]);
     }
     // Drop the deleted message from the pin list (leaving other pins intact).
     final pins = _chats[i]

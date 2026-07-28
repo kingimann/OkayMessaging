@@ -241,6 +241,10 @@ class RelayService {
     final target = store ?? ChatStore.instance;
     final id = payload['id'] as String? ?? 'relay_${payload['ts']}';
 
+    // Something the user deleted here stays deleted, even if the mailbox
+    // row outlived its delivery and replays the envelope.
+    if (target.isMessageDeleted(id)) return false;
+
     // Privacy: blocked senders are always ignored.
     final knownChat = target.chatWithContact(from);
     if (AppState.isBlocked(from)) return false;

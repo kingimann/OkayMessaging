@@ -9895,6 +9895,75 @@ void main() {
           containsAll(['alreadyfollowed', 'justfollowed']));
     });
 
+    test('a deleted message stays deleted when the mailbox replays it', () {
+      AppState.messagesFromContactsOnly.value = false;
+      final store = ChatStore.instance;
+      store.reset();
+      const peer = '+1 555 010 9999';
+      store.upsert(const Chat(
+        id: 'chat_$peer',
+        contact: AppUser(
+            id: peer, name: 'Peer', avatarColor: '#111111', phone: peer),
+        messages: [],
+      ));
+      final envelope = <String, dynamic>{
+        'id': 'm_replay_1',
+        'from': peer,
+        'ts': DateTime.now().toUtc().toIso8601String(),
+        'text': 'hello there',
+      };
+      expect(
+          RelayService.applyIncoming(envelope, myPhone: '+1 555 010 0000'),
+          isTrue);
+
+      store.deleteMessage('chat_$peer', 'm_replay_1');
+      expect(store.chatById('chat_$peer')!.messages, isEmpty);
+
+      // The mailbox row's DELETE never landed, so the envelope comes back.
+      expect(
+          RelayService.applyIncoming(envelope, myPhone: '+1 555 010 0000'),
+          isFalse);
+      expect(store.chatById('chat_$peer')!.messages, isEmpty);
+    });
+
+    test('a deleted conversation does not rebuild itself from the mailbox',
+        () {
+      AppState.messagesFromContactsOnly.value = false;
+      final store = ChatStore.instance;
+      store.reset();
+      const peer = '+1 555 010 8888';
+      store.upsert(const Chat(
+        id: 'chat_$peer',
+        contact: AppUser(
+            id: peer, name: 'Peer2', avatarColor: '#111111', phone: peer),
+        messages: [],
+      ));
+      final envelope = <String, dynamic>{
+        'id': 'm_replay_2',
+        'from': peer,
+        'ts': DateTime.now().toUtc().toIso8601String(),
+        'text': 'hi',
+      };
+      RelayService.applyIncoming(envelope, myPhone: '+1 555 010 0000');
+      store.deleteChat('chat_$peer');
+      RelayService.applyIncoming(envelope, myPhone: '+1 555 010 0000');
+      expect(store.chatById('chat_$peer'), isNull);
+    });
+
+    test('delete tombstones survive a save and reload', () {
+      final store = ChatStore.instance;
+      store.reset();
+      final chatId = store.chats.first.id;
+      final messageId = store.chatById(chatId)!.messages.first.id;
+      store.deleteMessage(chatId, messageId);
+      final snapshot = store.toJson();
+
+      store.reset();
+      expect(store.isMessageDeleted(messageId), isFalse);
+      store.hydrate(snapshot);
+      expect(store.isMessageDeleted(messageId), isTrue);
+    });
+
     test('clearAll is how a restore starts from an empty device', () {
       CommunityStore.instance.resetForTest();
       expect(CommunityStore.instance.communities, isNotEmpty);
