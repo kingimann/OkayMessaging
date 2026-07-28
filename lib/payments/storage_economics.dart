@@ -164,6 +164,18 @@ class PaymentEconomics {
   /// Every transfer leaves the platform ahead, by construction.
   static bool isProfitable(int amountCents) => netCents(amountCents) > 0;
 
+  /// The smallest transfer worth making.
+  ///
+  /// Stripe's own floor is 50¢, but the fixed parts of both fees (10¢ + 30¢)
+  /// would eat 86% of that — send 50¢ and 7¢ lands, which is not a payment,
+  /// it is a complaint waiting to happen. This is the first round amount
+  /// where the recipient keeps at least three quarters of it.
+  static const int minimumSendCents = 300;
+
+  /// Whether [amountCents] leaves enough of itself to be worth sending.
+  static bool isWorthSending(int amountCents) =>
+      amountCents >= minimumSendCents;
+
   /// Roughly what lands in the recipient's account: the amount less the
   /// platform fee and Stripe's processing fee. Approximate because the card's
   /// issuing country — which moves Stripe's rate — is not known until the

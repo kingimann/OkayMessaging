@@ -80,7 +80,7 @@ class CommunityStore extends ChangeNotifier {
 
   /// Unread messages in one channel (never negative).
   int unreadInChannel(Channel ch) {
-    final unread = ch.messages.length - (_seen[ch.id] ?? 0);
+    final unread = ch.messages.length - _seenWithin(ch);
     return unread < 0 ? 0 : unread;
   }
 
@@ -89,11 +89,22 @@ class CommunityStore extends ChangeNotifier {
   /// screen marks everything read.
   int seenCountFor(String channelId) => _seen[channelId] ?? 0;
 
+  /// The seen count, never past the end of the channel.
+  ///
+  /// Deleting messages shortens a channel without moving the count, which
+  /// left it pointing beyond the last message — and everything arriving after
+  /// that was silently treated as already read. A channel could take a dozen
+  /// new messages, including ones naming you, and still look caught up.
+  int _seenWithin(Channel ch) {
+    final seen = _seen[ch.id] ?? 0;
+    return seen > ch.messages.length ? ch.messages.length : seen;
+  }
+
   /// The id of the first message in [ch] the user hasn't seen, or null when
   /// they're caught up. Pure — this is what the unread divider anchors to, so
   /// it survives muted-member filtering that would shift plain indices.
   String? firstUnreadIdIn(Channel ch) {
-    final seen = seenCountFor(ch.id);
+    final seen = _seenWithin(ch);
     if (seen <= 0 || seen >= ch.messages.length) return null;
     return ch.messages[seen].id;
   }
@@ -105,7 +116,7 @@ class CommunityStore extends ChangeNotifier {
   /// muting a channel says "stop shouting about every message", not "hide it
   /// when someone is talking to me".
   int unreadMentionsIn(Channel ch) {
-    final seen = seenCountFor(ch.id);
+    final seen = _seenWithin(ch);
     if (seen >= ch.messages.length) return 0;
     final me = AppState.profile.value;
     var count = 0;
@@ -520,6 +531,17 @@ class CommunityStore extends ChangeNotifier {
       );
     }).toList();
     _tombstoneChannelMessages([messageId]);
+    // A shorter channel must not leave the seen count past its end.
+    final shortened =
+        channels.cast<Channel?>().firstWhere((c) => c?.id == channelId,
+            orElse: () => null);
+    if (shortened != null) {
+      final seen = _seen[channelId];
+      if (seen != null && seen > shortened.messages.length) {
+        _seen[channelId] = shortened.messages.length;
+        _prefs?.setString(_seenKey, jsonEncode(_seen));
+      }
+    }
     _replace(community.copyWith(channels: channels));
   }
 

@@ -22,7 +22,12 @@ class _PaymentAmountSheetState extends State<PaymentAmountSheet> {
     return (v * 100).round();
   }
 
-  bool get _valid => _cents >= 50; // Stripe minimum ~$0.50
+  // Stripe's own floor is 50c, but at that size the fixed fees take 86% of
+  // it. See PaymentEconomics.minimumSendCents.
+  bool get _valid => PaymentEconomics.isWorthSending(_cents);
+
+  /// Something was typed, but not enough to send.
+  bool get _tooSmall => _cents > 0 && !_valid;
 
   /// Whether the sender has ticked the "this is final" box. Required before
   /// sending: the paper trail is only worth having if it is always there.
@@ -278,11 +283,13 @@ class _PaymentAmountSheetState extends State<PaymentAmountSheet> {
                             ))
                         : null,
                     child: Text(
-                      !_valid
-                          ? 'Enter an amount'
-                          : (_acknowledged
-                              ? 'Send \$${(_cents / 100).toStringAsFixed(2)}'
-                              : 'Confirm to continue'),
+                      _tooSmall
+                          ? 'Minimum \$${(PaymentEconomics.minimumSendCents / 100).toStringAsFixed(2)}'
+                          : !_valid
+                              ? 'Enter an amount'
+                              : (_acknowledged
+                                  ? 'Send \$${(_cents / 100).toStringAsFixed(2)}'
+                                  : 'Confirm to continue'),
                       style: const TextStyle(
                           fontSize: 16, fontWeight: FontWeight.w600),
                     ),

@@ -15,12 +15,14 @@ class StoragePlan {
 
   const StoragePlan(this.gb, this.priceCents);
 
-  bool get isFree => priceCents == 0;
-  String get name => isFree ? 'Free' : '$gb GB';
+  /// No plan at all — there is no free tier, so this is the "not subscribed"
+  /// state rather than a tier anyone is on.
+  bool get isNone => priceCents == 0;
+  String get name => isNone ? 'No plan' : '$gb GB';
   int get quotaBytes => gb * 1024 * 1024 * 1024;
 
   String get priceLabel {
-    if (isFree) return 'Free';
+    if (isNone) return 'Not subscribed';
     final dollars = priceCents / 100;
     final text = priceCents % 100 == 0
         ? dollars.toStringAsFixed(0)
@@ -144,10 +146,14 @@ class StorageStore extends ChangeNotifier {
 
   /// At or over the ceiling — nothing more can be backed up until they free
   /// space or buy more.
-  bool get isFull => _usedBytes >= quotaBytes;
+  ///
+  /// Having no plan is not "full": nothing has been stored and nothing needs
+  /// clearing out. Without this guard an account that had never backed
+  /// anything up was greeted with a red "your 0 B of storage is full".
+  bool get isFull => quotaBytes > 0 && _usedBytes >= quotaBytes;
 
-  /// Within the last 10% — worth nudging.
-  bool get nearLimit => usedFraction >= 0.9;
+  /// Within the last 10% of a plan — worth nudging. Meaningless without one.
+  bool get nearLimit => quotaBytes > 0 && usedFraction >= 0.9;
 
   /// The smallest purchasable size that would hold [bytes], or null when even
   /// [maxGb] wouldn't (there is no unlimited).

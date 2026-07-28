@@ -10349,7 +10349,142 @@ void main() {
       storage.resetForTest();
       expect(storage.quotaBytes, 0);
       expect(storage.fits(1), isFalse);
-      expect(storage.isFull, isTrue, reason: 'nothing stored, nothing spare');
+      // Nothing fits, but that is "no plan", not "full" — see the
+      // 'Storage with no plan' group.
+      expect(storage.isFull, isFalse);
+    });
+  });
+
+  group('Unread after deletions', () {
+    setUp(() => SharedPreferences.setMockInitialValues({}));
+
+    test('deleting messages does not make a channel permanently look read',
+        () {
+      final store = CommunityStore.instance;
+      store.resetForTest();
+      AppState.profile.value = const AppUser(
+          id: 'me',
+          name: 'Ada',
+          avatarColor: '#000000',
+          phone: '+1 555 010 7777',
+          username: 'ada');
+      final community = store.createCommunity('Guild');
+      final channel = store.byId(community.id)!.channels.first;
+      Message msg(String id, String text) =>
+          Message(id: id, text: text, time: DateTime.now(), isMe: false);
+
+      for (final m in [
+        msg('m1', 'hi @ada'),
+        msg('m2', 'again @ada'),
+        msg('m3', 'plain'),
+      ]) {
+        store.postMessage(community.id, channel.id, m);
+      }
+      Channel current() => store
+          .byId(community.id)!
+          .channels
+          .firstWhere((c) => c.id == channel.id);
+      store.markChannelSeen(channel.id, 3);
+      expect(store.unreadInChannel(current()), 0);
+
+      // Deleting shortens the channel but left the seen count at 3 — past the
+      // end. Everything arriving after that was treated as already read, so
+      // the channel looked caught up forever, mentions included.
+      store.deleteChannelMessage(community.id, channel.id, 'm3');
+      store.deleteChannelMessage(community.id, channel.id, 'm2');
+      expect(store.seenCountFor(channel.id),
+          lessThanOrEqualTo(current().messages.length));
+
+      store.postMessage(community.id, channel.id, msg('m4', 'yo @ada'));
+      expect(store.unreadInChannel(current()), 1,
+          reason: 'a new message after a delete must still count as unread');
+      expect(store.unreadMentionsIn(current()), 1,
+          reason: 'and being named in it must still reach you');
+      expect(store.firstUnreadIdIn(current()), 'm4');
+    });
+  });
+
+  group('Storage with no plan', () {
+    setUp(() => SharedPreferences.setMockInitialValues({}));
+
+    test('an account that never backed up is not "full"', () {
+      final storage = StorageStore.instance;
+      addTearDown(storage.resetForTest);
+      storage.resetForTest();
+
+      // Removing the free tier made quotaBytes 0, and "used >= quota" is
+      // trivially true at zero — so an account that had never stored a byte
+      // was greeted with a red "your 0 B of storage is full".
+      expect(storage.quotaBytes, 0);
+      expect(storage.usedBytes, 0);
+      expect(storage.isFull, isFalse,
+          reason: 'nothing stored is not a full disk');
+      expect(storage.nearLimit, isFalse);
+
+      // With a plan, both still work the way they always did.
+      storage.subscribe(10);
+      expect(storage.isFull, isFalse);
+      storage.setUsedBytes(storage.quotaBytes);
+      expect(storage.isFull, isTrue);
+      storage.setUsedBytes((storage.quotaBytes * 0.95).round());
+      expect(storage.nearLimit, isTrue);
+      expect(storage.isFull, isFalse);
+    });
+
+    test('the no-plan state does not call itself Free', () {
+      // There is no free tier any more, so labelling the unsubscribed state
+      // "Free" promises something that does not exist.
+      const none = StoragePlan(0, 0);
+      expect(none.isNone, isTrue);
+      expect(none.name, 'No plan');
+      expect(none.priceLabel, 'Not subscribed');
+      expect(StorageStore.planForGb(10).name, '10 GB');
+    });
+  });
+
+  group('Minimum transfer', () {
+    test('a send too small to be worth making is refused', () {
+      // Stripe's floor is 50c, but the fixed fees (10c + 30c) take 86% of it:
+      // send 50c and 7c lands. That is a complaint, not a payment.
+      expect(PaymentEconomics.isWorthSending(50), isFalse);
+      expect(PaymentEconomics.estimatedReceivedCents(50), lessThan(10));
+      expect(PaymentEconomics.isWorthSending(299), isFalse);
+      expect(PaymentEconomics.isWorthSending(300), isTrue);
+
+      // At the minimum the recipient keeps at least three quarters.
+      final lands = PaymentEconomics.estimatedReceivedCents(
+          PaymentEconomics.minimumSendCents);
+      expect(lands / PaymentEconomics.minimumSendCents, greaterThan(0.75));
+    });
+
+    testWidgets('the sheet says so rather than just refusing', (tester) async {
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => TextButton(
+              onPressed: () => showModalBottomSheet(
+                context: context,
+                isScrollControlled: true,
+                builder: (_) => const PaymentAmountSheet(peerName: 'Grace'),
+              ),
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      ));
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextField).first, '0.50');
+      await tester.pump();
+      expect(find.text('Minimum \$3.00'), findsOneWidget);
+      expect(
+          tester.widget<FilledButton>(find.byType(FilledButton)).onPressed,
+          isNull);
+
+      await tester.enterText(find.byType(TextField).first, '5');
+      await tester.pump();
+      expect(find.text('Minimum \$3.00'), findsNothing);
     });
   });
 
