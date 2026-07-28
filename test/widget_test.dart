@@ -6333,6 +6333,36 @@ void main() {
       expect(store.unreadInCommunity(live()), 3);
     });
 
+    testWidgets('a muted channel looks muted in the channel list',
+        (tester) async {
+      CommunityStore.instance.resetForTest();
+      addTearDown(CommunityStore.instance.resetForTest);
+      final store = CommunityStore.instance;
+      final c = store.createCommunity('Quiet');
+      final chan = c.channels.firstWhere((ch) => ch.type == ChannelType.text);
+      store.postMessage(
+          c.id,
+          chan.id,
+          Message(
+              id: 'x1',
+              text: 'hello',
+              time: DateTime(2026, 3, 1),
+              isMe: false));
+
+      await tester.pumpWidget(MaterialApp(
+        home: CommunityScreen(communityId: c.id),
+      ));
+      await tester.pumpAndSettle();
+
+      // Unmuted: no muted-bell marker beside the channel name.
+      expect(find.byIcon(Icons.notifications_off), findsNothing);
+
+      // Muting must be visible in the list, or it looks like nothing happened.
+      store.toggleChannelMute(chan.id);
+      await tester.pumpAndSettle();
+      expect(find.byIcon(Icons.notifications_off), findsWidgets);
+    });
+
     test('the dark map is lifted off near-black', () {
       // CARTO's dark basemap sits around #0E1013 — a lift keeps it dark
       // without reading as a blank screen.

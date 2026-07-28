@@ -179,7 +179,11 @@ class _CommunitiesTabState extends State<CommunitiesTab> {
 /// The rounded unread-count pill used on channel rows and server cards.
 class _UnreadBadge extends StatelessWidget {
   final int count;
-  const _UnreadBadge({required this.count});
+
+  /// A muted channel still counts what you missed, but in grey — it shouldn't
+  /// compete for attention with the channels you actually follow.
+  final bool muted;
+  const _UnreadBadge({required this.count, this.muted = false});
 
   @override
   Widget build(BuildContext context) {
@@ -187,13 +191,13 @@ class _UnreadBadge extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
       decoration: BoxDecoration(
-        color: scheme.primary,
+        color: muted ? scheme.surfaceContainerHighest : scheme.primary,
         borderRadius: BorderRadius.circular(10),
       ),
       child: Text(
         count > 99 ? '99+' : '$count',
         style: TextStyle(
-            color: scheme.onPrimary,
+            color: muted ? scheme.onSurfaceVariant : scheme.onPrimary,
             fontSize: 11,
             fontWeight: FontWeight.w700),
       ),
@@ -478,6 +482,18 @@ class _CommunityScreenState extends State<CommunityScreen> {
               subtitle: ch.topic.isEmpty ? null : Text(ch.topic),
             ),
             const Divider(height: 1),
+            // Muting is personal and needs no permission, so it leads.
+            ListTile(
+                leading: Icon(store.isChannelMuted(ch.id)
+                    ? Icons.notifications_off
+                    : Icons.notifications_none),
+                title: Text(store.isChannelMuted(ch.id)
+                    ? 'Unmute channel'
+                    : 'Mute channel'),
+                subtitle: store.isChannelMuted(ch.id)
+                    ? null
+                    : const Text('Stop it badging this server'),
+                onTap: () => Navigator.pop(context, 'mute')),
             ListTile(
                 leading: const Icon(Icons.edit_outlined),
                 title: const Text('Rename channel'),
@@ -501,6 +517,9 @@ class _CommunityScreenState extends State<CommunityScreen> {
     );
     if (action == null || !context.mounted) return;
     switch (action) {
+      case 'mute':
+        store.toggleChannelMute(ch.id);
+        return;
       case 'rename':
         final name = await _promptName(context, 'Rename channel', ch.name);
         if (name != null && name.isNotEmpty) {
@@ -815,22 +834,30 @@ class _CommunityScreenState extends State<CommunityScreen> {
                 ),
                 if (!_collapsed.contains(category))
                 for (final ch in community.channelsIn(category))
-                  ListTile(
+                  Builder(builder: (context) {
+                  final muted = CommunityStore.instance.isChannelMuted(ch.id);
+                  final unread = CommunityStore.instance.unreadInChannel(ch);
+                  return ListTile(
                     dense: true,
                     leading: Icon(_channelIcon(ch.type),
-                        color: CommunityStore.instance.unreadInChannel(ch) > 0
+                        // A muted channel never highlights, however busy it is.
+                        color: unread > 0 && !muted
                             ? Theme.of(context).colorScheme.primary
                             : Colors.grey,
                         size: 22),
                     title: Row(
                       children: [
                         Flexible(child: Text(ch.name)),
-                        if (CommunityStore.instance.unreadInChannel(ch) >
-                            0) ...[
+                        if (muted) ...[
+                          const SizedBox(width: 6),
+                          Icon(Icons.notifications_off,
+                              size: 14, color: Colors.grey.shade500),
+                        ],
+                        if (unread > 0) ...[
                           const SizedBox(width: 8),
-                          _UnreadBadge(
-                              count: CommunityStore.instance
-                                  .unreadInChannel(ch)),
+                          // Still counted so you can see what you missed —
+                          // just muted-grey rather than shouting.
+                          _UnreadBadge(count: unread, muted: muted),
                         ],
                       ],
                     ),
@@ -859,7 +886,8 @@ class _CommunityScreenState extends State<CommunityScreen> {
                             communityId: communityId, channelId: ch.id),
                       },
                     )),
-                  ),
+                  );
+                  }),
               ],
               const SizedBox(height: 20),
             ],
