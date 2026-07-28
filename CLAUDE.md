@@ -135,8 +135,14 @@ copies of the Edge Functions), `docs/supabase_setup.sql`.
   Default Messaging capability enabled in the developer portal (same visit
   as the Push toggle) and the old profile deleted so Codemagic mints a
   fresh one.
-- **Payments**: Stripe publishable key is wired; the Edge Functions still
-  need deploying with `STRIPE_SECRET_KEY` set.
+- **Payments split**: Stripe is ONLY for peer-to-peer transfers (`sendMoney`);
+  its publishable key is wired and the Edge Functions still need deploying with
+  `STRIPE_SECRET_KEY` set. Digital goods — the cloud-storage subscription and
+  developer tips — bill through Apple/Google In-App Purchase
+  (`lib/payments/store_purchases.dart` + `apple_iap*.dart`), which App Store
+  rules require. The IAP products still need creating in App Store Connect and
+  the In-App Purchase capability enabling — see `docs/in_app_purchases_setup.md`.
+  Payments test mode simulates both without charging.
 - **GIFs**: the picker is built and tested, but GIF *search* needs a free
   Tenor key passed at build time (`--dart-define=TENOR_API_KEY=…`). Without
   it the GIF tab says so; emoji and everything else are unaffected, and a GIF

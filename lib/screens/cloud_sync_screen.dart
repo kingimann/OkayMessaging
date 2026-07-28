@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../payments/payment_service.dart';
+import '../payments/store_purchases.dart';
 import '../state/cloud_sync.dart';
 import '../state/storage_store.dart';
 import '../utils/date_formatter.dart';
@@ -54,21 +54,23 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
       }
       return;
     }
-    final payments = PaymentService.instance;
-    if (!payments.canBuyStorage) {
-      _snack('Payments aren\'t set up on this device. Turn on payments test '
-          'mode in Wallet to try it, or open the app on your phone.');
+    // Storage is a subscription — it bills through the App Store, not Stripe.
+    final store = StorePurchases.instance;
+    if (!store.isSupported) {
+      _snack('Purchases aren\'t available on this device. Turn on payments '
+          'test mode in Wallet to try it, or open the app on your iPhone.');
       return;
     }
     setState(() => _busy = true);
     try {
-      final ok = await payments.buyStorage(amountCents: plan.priceCents);
+      final ok = await store.buyStorage(plan.tier);
       if (!mounted) return;
       if (ok) {
         await storage.subscribe(plan.tier);
-        _snack('You\'re on ${plan.name} — ${plan.quotaBytes ~/ (1024 * 1024 * 1024)} GB of chat storage.');
+        _snack('You\'re on ${plan.name} — '
+            '${plan.quotaBytes ~/ (1024 * 1024 * 1024)} GB of chat storage.');
       } else {
-        _snack('Payment cancelled.');
+        _snack('Purchase cancelled.');
       }
     } catch (_) {
       _snack('Couldn\'t complete the purchase. Try again.');

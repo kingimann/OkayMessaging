@@ -71,6 +71,7 @@ import 'package:okay_messaging/state/community_store.dart';
 import 'package:okay_messaging/state/file_transfer.dart';
 import 'package:okay_messaging/models/status_update.dart';
 import 'package:okay_messaging/payments/payment_service.dart';
+import 'package:okay_messaging/payments/store_purchases.dart';
 import 'package:okay_messaging/state/backup_service.dart';
 import 'package:okay_messaging/screens/status_screen.dart';
 import 'package:okay_messaging/state/status_store.dart';
@@ -4151,15 +4152,16 @@ void main() {
     expect(find.text('per month'), findsNothing);
     expect(find.textContaining('Choose Pro'), findsNothing);
 
-    // Picking the $10 preset updates the send button (scroll to reveal it).
-    await tester.tap(find.text(r'$10'));
+    // Fixed store products (Apple IAP) — pick the Lunch tip and the send
+    // button follows (scroll to reveal it).
+    await tester.tap(find.text(r'$10.99'));
     await tester.pumpAndSettle();
     await tester.scrollUntilVisible(
-      find.text(r'Send $10.00 tip'),
+      find.text(r'Send $10.99 tip'),
       200,
       scrollable: find.byType(Scrollable).first,
     );
-    expect(find.text(r'Send $10.00 tip'), findsOneWidget);
+    expect(find.text(r'Send $10.99 tip'), findsOneWidget);
   });
 
   group('In-call reactions', () {
@@ -5364,6 +5366,37 @@ void main() {
       storage.cancel();
       expect(storage.tier, StorageTier.free);
       expect(storage.quotaBytes, 2 * 1024 * 1024 * 1024);
+    });
+
+    test('storage & tips are store products (Apple), not Stripe', () async {
+      // Each paid tier maps to its own auto-renewable product; Free needs none.
+      expect(StorePurchases.storageProductId(StorageTier.free), '');
+      expect(StorePurchases.storageProductId(StorageTier.personal),
+          contains('storage.personal'));
+      expect(StorePurchases.storageProductId(StorageTier.pro),
+          contains('storage.pro'));
+      expect(StorePurchases.storageProductId(StorageTier.studio),
+          contains('storage.studio'));
+
+      // Tips are a fixed set of consumable products, priced low-to-high.
+      const tips = StorePurchases.tipProducts;
+      expect(tips.length, 4);
+      for (var i = 1; i < tips.length; i++) {
+        expect(tips[i].cents, greaterThan(tips[i - 1].cents));
+        expect(tips[i].id, startsWith('com.okaymessaging.tip'));
+      }
+
+      // In payments test mode both flows simulate a completed purchase.
+      final payments = PaymentService.instance;
+      final wasTest = payments.testMode.value;
+      addTearDown(() => payments.setTestMode(wasTest));
+      payments.setTestMode(true);
+      expect(StorePurchases.instance.isSupported, isTrue);
+      expect(await StorePurchases.instance.buyStorage(StorageTier.pro), isTrue);
+      expect(await StorePurchases.instance.tip(tips.first.id), isTrue);
+      // Free "purchase" is a no-op that doesn't pretend to charge.
+      expect(
+          await StorePurchases.instance.buyStorage(StorageTier.free), isFalse);
     });
 
     test('a lapsed paid plan falls back to Free', () {

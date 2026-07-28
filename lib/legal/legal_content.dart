@@ -19,7 +19,9 @@ const String legalLastUpdated = 'Last updated: July 2026';
 /// queue, and on-device file-upload moderation.
 /// v3 — cloud storage is now tiered and chat-only (servers are communal/free),
 /// videos can't be uploaded, and a fair-use egress limit applies.
-const int legalVersion = 3;
+/// v4 — digital purchases (storage subscription, developer tips) bill through
+/// the App Store; Stripe is now only for peer-to-peer transfers.
+const int legalVersion = 4;
 
 /// Privacy Policy — reflects the no-storage architecture: messages ride
 /// Supabase Realtime Broadcast (memory only) and live only on your devices.
@@ -147,20 +149,25 @@ const List<LegalSection> termsOfService = [
   ),
   LegalSection(
     'Payments',
-    'In-chat payments are processed by Stripe. When you send or receive money '
-        'you agree to the Stripe Connected Account Agreement and Stripe’s '
-        'terms. OkayMessenger is not a bank or money-services business, does '
-        'not hold your funds, and never takes custody of the money — funds '
-        'move from the sender’s card through Stripe to the recipient’s '
-        'Stripe account and are paid out to their bank by Stripe. We charge a '
-        'small application fee per transaction, shown before you pay. You are '
-        'responsible for any taxes on money you receive.',
+    'Peer-to-peer payments — money you send to or receive from another person '
+        'in a chat — are processed by Stripe, and only these use Stripe. When '
+        'you send or receive money you agree to the Stripe Connected Account '
+        'Agreement and Stripe’s terms. OkayMessenger is not a bank or '
+        'money-services business, does not hold your funds, and never takes '
+        'custody of the money — funds move from the sender’s card through '
+        'Stripe to the recipient’s Stripe account and are paid out to their '
+        'bank by Stripe. We charge a small application fee per transaction, '
+        'shown before you pay. You are responsible for any taxes on money you '
+        'receive. Digital purchases — the cloud-storage subscription and tips '
+        'to the developer — are billed by the App Store instead, not Stripe.',
   ),
   LegalSection(
     'Cloud storage subscription',
     'Cloud storage backs up your chats and is offered in tiers: a free '
-        'allowance and paid monthly plans (billed through Stripe at the price '
-        'shown before you buy) for more space. There is no unlimited plan. '
+        'allowance and paid monthly plans for more space, billed through your '
+        'App Store account (Apple) at the price shown before you buy — not '
+        'through Stripe. Subscriptions renew and can be managed or cancelled in '
+        'your App Store settings. There is no unlimited plan. '
         'Each paid purchase adds 30 days and stacks on any time remaining; it '
         'does not auto-renew silently — you confirm each renewal. Your servers '
         'and posts are communal and never count against your storage. '

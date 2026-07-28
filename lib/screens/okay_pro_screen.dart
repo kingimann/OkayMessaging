@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../payments/payment_service.dart';
+import '../payments/store_purchases.dart';
 import '../widgets/app_dialogs.dart';
 
 /// A place for people to support the developer with an optional tip. There are
@@ -14,70 +15,30 @@ class OkayProScreen extends StatefulWidget {
 }
 
 class _OkayProScreenState extends State<OkayProScreen> {
-  /// Preset tip amounts in cents.
-  static const _presets = [
-    (300, '☕', 'Coffee'),
-    (500, '🍩', 'Snack'),
-    (1000, '🍕', 'Lunch'),
-    (2500, '🎉', 'Generous'),
-  ];
+  /// Fixed tip products from the store (Apple/Google) — no arbitrary amounts,
+  /// since in-app purchases are set prices.
+  static const _tips = StorePurchases.tipProducts;
 
-  int _amountCents = 500;
+  // Default to the second tier (Snack).
+  int _selected = 1;
   bool _sending = false;
 
-  Future<void> _customAmount() async {
-    final controller = TextEditingController(
-        text: (_amountCents / 100).toStringAsFixed(0));
-    final result = await showDialog<int>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Custom amount'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          keyboardType: const TextInputType.numberWithOptions(decimal: true),
-          decoration: const InputDecoration(
-            prefixText: r'$',
-            hintText: '5',
-            border: OutlineInputBorder(),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () {
-              final dollars = double.tryParse(controller.text.trim()) ?? 0;
-              Navigator.pop(dialogContext, (dollars * 100).round());
-            },
-            child: const Text('Set'),
-          ),
-        ],
-      ),
-    );
-    if (result != null && result >= 100) {
-      setState(() => _amountCents = result);
-    }
-  }
+  int get _amountCents => _tips[_selected].cents;
+  String get _amountLabel => '\$${(_amountCents / 100).toStringAsFixed(2)}';
 
   Future<void> _send() async {
     final messenger = ScaffoldMessenger.of(context);
+    if (!StorePurchases.instance.isSupported) {
+      messenger.showSnackBar(const SnackBar(
+          content: Text('Tips are available in the iPhone app.')));
+      return;
+    }
     setState(() => _sending = true);
     try {
-      final ok = await PaymentService.instance.tip(amountCents: _amountCents);
+      final ok = await StorePurchases.instance.tip(_tips[_selected].id);
       if (!mounted) return;
       setState(() => _sending = false);
       if (ok) _thankYou();
-    } on PaymentException catch (e) {
-      if (!mounted) return;
-      setState(() => _sending = false);
-      messenger.showSnackBar(SnackBar(
-        content: Text(e.code == 'not_configured'
-            ? 'Tips aren\'t set up yet — try again soon.'
-            : 'Payment couldn\'t be completed.'),
-      ));
     } catch (_) {
       if (!mounted) return;
       setState(() => _sending = false);
@@ -97,9 +58,6 @@ class _OkayProScreenState extends State<OkayProScreen> {
       cancelLabel: null,
     );
   }
-
-
-  String get _amountLabel => '\$${(_amountCents / 100).toStringAsFixed(2)}';
 
   @override
   Widget build(BuildContext context) {
@@ -153,23 +111,15 @@ class _OkayProScreenState extends State<OkayProScreen> {
             mainAxisSpacing: 12,
             childAspectRatio: 2.4,
             children: [
-              for (final (cents, emoji, label) in _presets)
+              for (var i = 0; i < _tips.length; i++)
                 _AmountTile(
-                  emoji: emoji,
-                  label: label,
-                  amount: '\$${(cents / 100).toStringAsFixed(0)}',
-                  selected: _amountCents == cents,
-                  onTap: () => setState(() => _amountCents = cents),
+                  emoji: _tips[i].emoji,
+                  label: _tips[i].label,
+                  amount: '\$${(_tips[i].cents / 100).toStringAsFixed(2)}',
+                  selected: _selected == i,
+                  onTap: () => setState(() => _selected = i),
                 ),
             ],
-          ),
-          const SizedBox(height: 12),
-          OutlinedButton.icon(
-            onPressed: _customAmount,
-            icon: const Icon(Icons.tune),
-            label: Text(_presets.every((p) => p.$1 != _amountCents)
-                ? 'Custom · $_amountLabel'
-                : 'Custom amount'),
           ),
           const SizedBox(height: 20),
           SizedBox(
@@ -196,7 +146,7 @@ class _OkayProScreenState extends State<OkayProScreen> {
             child: Text(
               testMode
                   ? 'Payments are in test mode — no real charge is made.'
-                  : 'Paid securely in-app. Amounts in CAD. 100% optional.',
+                  : 'Billed by the App Store. 100% optional.',
               textAlign: TextAlign.center,
               style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
             ),

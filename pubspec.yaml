@@ -32,9 +32,15 @@ dependencies:
   # iCloud Drive / Dropbox / Google Drive / Files (guarded by a conditional
   # import so the web build never references it).
   share_plus: ^10.1.4
-  # Native card / Apple Pay / Google Pay sheet for in-chat payments. Used only
-  # on mobile (guarded by a conditional import so the web build stays clean).
+  # Native card / Apple Pay / Google Pay sheet for in-chat (peer-to-peer)
+  # payments only. Used on mobile (guarded by a conditional import so the web
+  # build stays clean).
   flutter_stripe: ^11.1.0
+  # Apple / Google in-app purchases. Digital goods — the cloud-storage
+  # subscription and tipping the developer — MUST bill through the platform
+  # store, not Stripe. Guarded by a conditional import so the web build never
+  # references it.
+  in_app_purchase: ^3.2.0
   # Opens the Stripe-hosted Express onboarding (KYC) link in an in-app browser.
   url_launcher: ^6.2.0
   flutter_map: ^8.3.1
