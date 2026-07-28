@@ -4269,6 +4269,27 @@ void main() {
     expect(CallService.instance.current.value?.video, isTrue);
   });
 
+
+  testWidgets('A favourite added while on the Calls tab appears immediately',
+      (tester) async {
+    FavouritesStore.instance.resetForTest();
+    await tester.pumpWidget(const OkayMessagingApp());
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.call_outlined));
+    await tester.pumpAndSettle();
+    expect(find.text('Neo'), findsNothing);
+
+    // Adding AFTER the row is already built must refresh it — a const child
+    // used to be skipped by canonicalization and not show until you left.
+    FavouritesStore.instance.add(const AppUser(
+        id: '+15550777',
+        name: 'Neo One',
+        avatarColor: '#123456',
+        phone: '+15550777'));
+    await tester.pumpAndSettle();
+    expect(find.text('Neo'), findsOneWidget);
+  });
+
   group('Call favourites store', () {
     setUp(() => FavouritesStore.instance.resetForTest());
 

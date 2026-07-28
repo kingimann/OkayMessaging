@@ -581,6 +581,17 @@ class _FavouritesRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Self-subscribe: this row is a `const` child of CallsTab, so Flutter's
+    // const canonicalization can skip rebuilding it when the parent
+    // rebuilds — which meant a just-added favourite didn't appear until you
+    // left and came back. Listening here guarantees it refreshes on add.
+    return ListenableBuilder(
+      listenable: FavouritesStore.instance,
+      builder: (context, _) => _buildRow(context),
+    );
+  }
+
+  Widget _buildRow(BuildContext context) {
     final favourites = FavouritesStore.instance.favourites;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
