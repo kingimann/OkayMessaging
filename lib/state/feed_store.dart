@@ -190,6 +190,10 @@ class FeedStore extends ChangeNotifier {
   // event (mailbox or reconnect) can't inflate the tally.
   final Set<String> _likedBy = {};
 
+  // Where each voter currently stands on each poll, so a replayed vote can't
+  // double-count and a switch moves the tally instead of adding to it.
+  final Map<String, int> _votedBy = {};
+
   /// Feed interactions with you, newest first.
   List<FeedNotification> get notifications =>
       List.unmodifiable(_notifications);
@@ -324,20 +328,62 @@ class FeedStore extends ChangeNotifier {
 
   /// Casts (or moves) this device's vote on a feed poll. Voting the same
   /// option twice is a no-op; switching moves the tally rather than adding.
+  /// The vote is broadcast so everyone in the server sees one shared result —
+  /// a poll whose tally differs per device is worse than no poll at all.
   void votePoll(String postId, int option) {
     final i = _posts.indexWhere((p) => p.id == postId);
     if (i == -1) return;
     final p = _posts[i];
     if (!p.isPoll || option < 0 || option >= p.pollOptions.length) return;
     if (p.pollMyVote == option) return;
+    final prev = p.pollMyVote;
+    _applyVote(i, option, prev, myVote: true);
+    final me = AppState.profile.value;
+    if (RelayConfig.isEnabled) {
+      RelayService.instance.sendFeedVote(
+        p.communityId,
+        postId,
+        option: option,
+        previous: prev,
+        voterUsername: me.username.isEmpty ? 'you' : me.username,
+      );
+    }
+  }
+
+  /// Applies someone else's vote. [previous] is the option they moved off
+  /// (-1 for a first vote), so switching moves the tally instead of inflating
+  /// it. Deduped per voter so a mailbox replay or reconnect can't double-count.
+  void applyRemoteVote(String postId,
+      {required int option,
+      required int previous,
+      required String voterUsername}) {
+    final i = _posts.indexWhere((p) => p.id == postId);
+    if (i < 0) return;
+    final p = _posts[i];
+    if (!p.isPoll || option < 0 || option >= p.pollOptions.length) return;
+    // One live vote per person: re-sending the same choice changes nothing.
+    final key = 'vote_${postId}_$voterUsername';
+    if (_votedBy[key] == option) return;
+    // Trust our own record of where they were over the sender's claim, so a
+    // replayed older event can't subtract from the wrong option.
+    final known = _votedBy[key] ?? previous;
+    _votedBy[key] = option;
+    _applyVote(i, option, known, myVote: false);
+  }
+
+  /// Shared tally arithmetic: add to [option], remove from [previous].
+  void _applyVote(int i, int option, int previous, {required bool myVote}) {
+    final p = _posts[i];
     final votes = [...p.pollVotes];
     while (votes.length < p.pollOptions.length) {
       votes.add(0);
     }
-    final prev = p.pollMyVote;
-    if (prev >= 0 && prev < votes.length && votes[prev] > 0) votes[prev]--;
+    if (previous >= 0 && previous < votes.length && votes[previous] > 0) {
+      votes[previous]--;
+    }
     votes[option]++;
-    _posts[i] = p.copyWith(pollVotes: votes, pollMyVote: option);
+    _posts[i] = p.copyWith(
+        pollVotes: votes, pollMyVote: myVote ? option : p.pollMyVote);
     _save();
     notifyListeners();
   }
@@ -875,6 +921,7 @@ class FeedStore extends ChangeNotifier {
     _deletedIds.clear();
     _notifications.clear();
     _likedBy.clear();
+    _votedBy.clear();
     _nextId = 1;
     notifyListeners();
   }

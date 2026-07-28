@@ -630,7 +630,7 @@ class RelayService {
             case 'gupd':
               applyGroupUpdate(payload, myPhone: me);
             case 'chmsg' || 'chjoin' || 'chupd' || 'fpost' || 'fdel' ||
-                  'flike':
+                  'flike' || 'fvote':
               _applyCommunityEvent(event, payload, me);
           }
         } catch (_) {
@@ -943,6 +943,11 @@ class RelayService {
           callback: (payload) => _applyCommunityEvent('flike',
               Map<String, dynamic>.from(payload), me),
         )
+        .onBroadcast(
+          event: 'fvote',
+          callback: (payload) => _applyCommunityEvent('fvote',
+              Map<String, dynamic>.from(payload), me),
+        )
         .subscribe();
     // Catch up on whatever arrived while the app was closed.
     fetchMailbox();
@@ -1007,6 +1012,17 @@ class RelayService {
               liked: body['liked'] as bool? ?? true,
               likerName: body['name'] as String? ?? 'Someone',
               likerUsername: body['username'] as String? ?? '',
+            );
+          }
+        case 'fvote':
+          final id = body['id'];
+          final option = body['option'];
+          if (id is String && option is int) {
+            FeedStore.instance.applyRemoteVote(
+              id,
+              option: option,
+              previous: body['previous'] as int? ?? -1,
+              voterUsername: body['username'] as String? ?? '',
             );
           }
       }
@@ -1095,6 +1111,19 @@ class RelayService {
         'liked': liked,
         'name': likerName,
         'username': likerUsername,
+      });
+
+  /// A poll vote, so everyone in the server sees one shared tally. [previous]
+  /// is the option the voter moved off (-1 for a first vote).
+  Future<void> sendFeedVote(String communityId, String postId,
+          {required int option,
+          required int previous,
+          required String voterUsername}) =>
+      _sendCommunityEvent('fvote', communityId, {
+        'id': postId,
+        'option': option,
+        'previous': previous,
+        'username': voterUsername,
       });
 
   /// Broadcasts the server's current shape so members converge after any

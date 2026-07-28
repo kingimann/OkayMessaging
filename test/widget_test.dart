@@ -6062,6 +6062,49 @@ void main() {
       expect(revived.pollMyVote, 0);
     });
 
+    test('remote poll votes share one tally and survive replays', () {
+      FeedStore.instance.resetForTest();
+      addTearDown(FeedStore.instance.resetForTest);
+      final store = FeedStore.instance;
+      final poll = store.addPoll('c1', 'Tabs or spaces?', ['Tabs', 'Spaces'])!;
+
+      // Someone else's vote lands without touching MY choice.
+      store.applyRemoteVote(poll.id,
+          option: 1, previous: -1, voterUsername: 'grace');
+      expect(store.postById(poll.id)!.pollVotes, [0, 1]);
+      expect(store.postById(poll.id)!.pollMyVote, -1,
+          reason: 'their vote is not mine');
+
+      // A replayed copy of the same vote (mailbox / reconnect) is idempotent.
+      store.applyRemoteVote(poll.id,
+          option: 1, previous: -1, voterUsername: 'grace');
+      expect(store.postById(poll.id)!.pollTotalVotes, 1);
+
+      // They switch: the tally moves rather than growing.
+      store.applyRemoteVote(poll.id,
+          option: 0, previous: 1, voterUsername: 'grace');
+      expect(store.postById(poll.id)!.pollVotes, [1, 0]);
+      expect(store.postById(poll.id)!.pollTotalVotes, 1);
+
+      // A stale replay claiming the wrong previous can't corrupt the tally —
+      // we trust our own record of where they stood.
+      store.applyRemoteVote(poll.id,
+          option: 1, previous: -1, voterUsername: 'grace');
+      expect(store.postById(poll.id)!.pollVotes, [0, 1]);
+      expect(store.postById(poll.id)!.pollTotalVotes, 1);
+
+      // A second person adds to the same shared tally.
+      store.applyRemoteVote(poll.id,
+          option: 0, previous: -1, voterUsername: 'ada');
+      expect(store.postById(poll.id)!.pollTotalVotes, 2);
+
+      // And my own vote counts alongside theirs.
+      store.votePoll(poll.id, 0);
+      expect(store.postById(poll.id)!.pollMyVote, 0);
+      expect(store.postById(poll.id)!.pollTotalVotes, 3);
+      expect(store.postById(poll.id)!.pollVotes, [2, 1]);
+    });
+
     test('quote reposts carry their own words and stack', () {
       FeedStore.instance.resetForTest();
       addTearDown(FeedStore.instance.resetForTest);
