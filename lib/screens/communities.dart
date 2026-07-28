@@ -211,6 +211,37 @@ class _UnreadBadge extends StatelessWidget {
 }
 
 /// A single community rendered as a rounded card with a gradient badge.
+/// An "@" badge for unread mentions. Distinct from [_UnreadBadge] on purpose:
+/// a count of messages and a count of times someone said your name are not
+/// the same news, and shouldn't look the same.
+class _MentionBadge extends StatelessWidget {
+  final int count;
+  const _MentionBadge({required this.count});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+      decoration: BoxDecoration(
+        color: const Color(0xFFE0245E),
+        borderRadius: BorderRadius.circular(11),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.alternate_email, size: 11, color: Colors.white),
+          const SizedBox(width: 2),
+          Text('$count',
+              style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w700)),
+        ],
+      ),
+    );
+  }
+}
+
 class _CommunityCard extends StatelessWidget {
   final Community community;
   const _CommunityCard({required this.community});
@@ -226,6 +257,8 @@ class _CommunityCard extends StatelessWidget {
       for (final c in community.channels)
         if (c.type == ChannelType.voice) c.id
     ]);
+    final mentions =
+        CommunityStore.instance.unreadMentionsInCommunity(community);
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 5),
       child: Material(
@@ -338,6 +371,10 @@ class _CommunityCard extends StatelessWidget {
                     ],
                   ),
                 ),
+                if (mentions > 0) ...[
+                  _MentionBadge(count: mentions),
+                  const SizedBox(width: 4),
+                ],
                 Icon(Icons.chevron_right, color: Colors.grey.shade400),
               ],
             ),
@@ -875,6 +912,8 @@ class _CommunityScreenState extends State<CommunityScreen> {
                   Builder(builder: (context) {
                   final muted = CommunityStore.instance.isChannelMuted(ch.id);
                   final unread = CommunityStore.instance.unreadInChannel(ch);
+                  final mentions =
+                      CommunityStore.instance.unreadMentionsIn(ch);
                   final voice = ch.type == ChannelType.voice
                       ? VoicePresenceStore.instance.occupantsIn(ch.id)
                       : const <VoiceOccupant>[];
@@ -884,10 +923,13 @@ class _CommunityScreenState extends State<CommunityScreen> {
                   ListTile(
                     dense: true,
                     leading: Icon(_channelIcon(ch.type),
-                        // A muted channel never highlights, however busy it is.
-                        color: unread > 0 && !muted
-                            ? Theme.of(context).colorScheme.primary
-                            : Colors.grey,
+                        // A muted channel never highlights, however busy it is
+                        // — unless someone actually said your name.
+                        color: mentions > 0
+                            ? const Color(0xFFE0245E)
+                            : (unread > 0 && !muted
+                                ? Theme.of(context).colorScheme.primary
+                                : Colors.grey),
                         size: 22),
                     title: Row(
                       children: [
@@ -897,7 +939,12 @@ class _CommunityScreenState extends State<CommunityScreen> {
                           Icon(Icons.notifications_off,
                               size: 14, color: Colors.grey.shade500),
                         ],
-                        if (unread > 0) ...[
+                        if (mentions > 0) ...[
+                          const SizedBox(width: 8),
+                          // Being @mentioned is the one thing a mute doesn't
+                          // quieten: it means someone is talking *to* you.
+                          _MentionBadge(count: mentions),
+                        ] else if (unread > 0) ...[
                           const SizedBox(width: 8),
                           // Still counted so you can see what you missed —
                           // just muted-grey rather than shouting.
@@ -2196,32 +2243,77 @@ class _PinnedBar extends StatelessWidget {
   }
 }
 
-class _MembersSheet extends StatelessWidget {
+/// Filters [members] by a free-text query against their name.
+List<Member> filterMembers(List<Member> members, String query) {
+  final q = query.trim().toLowerCase();
+  if (q.isEmpty) return members;
+  return [
+    for (final m in members)
+      if (m.name.toLowerCase().contains(q)) m
+  ];
+}
+
+class _MembersSheet extends StatefulWidget {
   /// Snapshot from open time; [build] re-reads the store so mutes, bans and
   /// role changes show while the sheet is up.
   final Community community;
   const _MembersSheet({required this.community});
 
   @override
+  State<_MembersSheet> createState() => _MembersSheetState();
+}
+
+class _MembersSheetState extends State<_MembersSheet> {
+  final TextEditingController _search = TextEditingController();
+
+  Community get community => widget.community;
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: CommunityStore.instance,
+      listenable: Listenable.merge(
+          [CommunityStore.instance, VoicePresenceStore.instance]),
       builder: (context, _) {
-        final community =
-            CommunityStore.instance.byId(this.community.id) ?? this.community;
+        final community = CommunityStore.instance.byId(widget.community.id) ??
+            widget.community;
         return _build(context, community);
       },
     );
   }
 
+  /// The voice channel [m] is sitting in, or null. Presence travels by phone
+  /// digits; the roster stores those as a 'u_<digits>' wire id.
+  String? _voiceChannelOf(Community community, Member m) {
+    final digits = m.id == 'me'
+        ? null
+        : CommunityStore.digitsOfWireId(m.id);
+    for (final ch in community.channels) {
+      if (ch.type != ChannelType.voice) continue;
+      for (final o in VoicePresenceStore.instance.occupantsIn(ch.id)) {
+        if (m.id == 'me' ? o.isMe : (digits != null && o.digits == digits)) {
+          return ch.name;
+        }
+      }
+    }
+    return null;
+  }
+
   Widget _build(BuildContext context, Community community) {
     // Owner/admins first, then everyone; online before offline within a role.
-    final members = [...community.members]..sort((a, b) {
-        final r = a.role.index.compareTo(b.role.index);
-        if (r != 0) return r;
-        if (a.online != b.online) return a.online ? -1 : 1;
-        return a.name.compareTo(b.name);
-      });
+    final members = filterMembers(
+        [...community.members]..sort((a, b) {
+          final r = a.role.index.compareTo(b.role.index);
+          if (r != 0) return r;
+          if (a.online != b.online) return a.online ? -1 : 1;
+          return a.name.compareTo(b.name);
+        }),
+        _search.text);
     return DraggableScrollableSheet(
       expand: false,
       initialChildSize: 0.6,
@@ -2230,11 +2322,44 @@ class _MembersSheet extends StatelessWidget {
         controller: controller,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
             child: Text('Members — ${community.members.length}',
                 style: const TextStyle(
                     fontSize: 18, fontWeight: FontWeight.w700)),
           ),
+          // Scrolling to find one person stops working somewhere around the
+          // second screenful.
+          if (community.members.length > 6)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+              child: TextField(
+                controller: _search,
+                decoration: InputDecoration(
+                  isDense: true,
+                  prefixIcon: const Icon(Icons.search, size: 20),
+                  hintText: 'Search members',
+                  suffixIcon: _search.text.isEmpty
+                      ? null
+                      : IconButton(
+                          icon: const Icon(Icons.close, size: 18),
+                          onPressed: () => setState(_search.clear),
+                        ),
+                  border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(22)),
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                ),
+                onChanged: (_) => setState(() {}),
+              ),
+            ),
+          if (members.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 28),
+              child: Center(
+                child: Text('No members match "${_search.text.trim()}"',
+                    style: TextStyle(color: Colors.grey.shade500)),
+              ),
+            ),
           for (final m in members)
             ListTile(
               leading: Stack(
@@ -2267,17 +2392,40 @@ class _MembersSheet extends StatelessWidget {
                 ],
               ),
               title: Text(m.name),
-              subtitle: Text(
-                  community.mutedIds.contains(m.id)
-                      ? 'Muted'
-                      : (m.online ? 'Online' : 'Offline'),
-                  style: TextStyle(
-                      color: community.mutedIds.contains(m.id)
-                          ? Colors.orange.shade700
-                          : m.online
-                              ? const Color(0xFF43B581)
-                              : Colors.grey.shade500,
-                      fontSize: 12.5)),
+              // Where someone actually is beats a stale online flag, so the
+              // voice channel wins the subtitle when they're in one.
+              subtitle: Builder(builder: (context) {
+                final inVoice = _voiceChannelOf(community, m);
+                if (community.mutedIds.contains(m.id)) {
+                  return Text('Muted',
+                      style: TextStyle(
+                          color: Colors.orange.shade700, fontSize: 12.5));
+                }
+                if (inVoice != null) {
+                  return Row(
+                    children: [
+                      Icon(Icons.volume_up_rounded,
+                          size: 13, color: Colors.green.shade600),
+                      const SizedBox(width: 4),
+                      Flexible(
+                        child: Text('In $inVoice',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                                color: Colors.green.shade600,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 12.5)),
+                      ),
+                    ],
+                  );
+                }
+                return Text(m.online ? 'Online' : 'Offline',
+                    style: TextStyle(
+                        color: m.online
+                            ? const Color(0xFF43B581)
+                            : Colors.grey.shade500,
+                        fontSize: 12.5));
+              }),
               trailing: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [

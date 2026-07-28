@@ -10095,6 +10095,96 @@ void main() {
     });
   });
 
+  group('Channel mentions', () {
+    setUp(() => SharedPreferences.setMockInitialValues({}));
+
+    test('only unread messages that name you are counted', () {
+      final store = CommunityStore.instance;
+      store.resetForTest();
+      AppState.profile.value = const AppUser(
+          id: 'me',
+          name: 'Ada',
+          avatarColor: '#000000',
+          phone: '+1 555 010 7777',
+          username: 'ada');
+      final community = store.createCommunity('Guild');
+      final channel = store.byId(community.id)!.channels.first;
+
+      Message msg(String id, String text) => Message(
+          id: id, text: text, time: DateTime.now(), isMe: false);
+
+      store.postMessage(community.id, channel.id, msg('m1', 'hello everyone'));
+      store.postMessage(community.id, channel.id, msg('m2', 'hey @ada look'));
+      Channel current() =>
+          store.byId(community.id)!.channels.firstWhere((c) => c.id == channel.id);
+
+      expect(store.unreadMentionsIn(current()), 1);
+      expect(store.unreadInChannel(current()), 2);
+
+      // Reading the channel clears both.
+      store.markChannelSeen(channel.id, current().messages.length);
+      expect(store.unreadMentionsIn(current()), 0);
+      expect(store.unreadInChannel(current()), 0);
+
+      // A later mention counts again; your own messages never do.
+      store.postMessage(community.id, channel.id, msg('m3', 'ping @ada'));
+      store.postMessage(
+          community.id,
+          channel.id,
+          Message(
+              id: 'm4', text: '@ada me too', time: DateTime.now(), isMe: true));
+      expect(store.unreadMentionsIn(current()), 1);
+    });
+
+    test('muting a channel silences messages but not your own name', () {
+      final store = CommunityStore.instance;
+      store.resetForTest();
+      AppState.profile.value = const AppUser(
+          id: 'me',
+          name: 'Ada',
+          avatarColor: '#000000',
+          phone: '+1 555 010 7777',
+          username: 'ada');
+      final community = store.createCommunity('Guild');
+      final channel = store.byId(community.id)!.channels.first;
+      store.postMessage(
+          community.id,
+          channel.id,
+          Message(
+              id: 'm1', text: '@ada are you there', time: DateTime.now(),
+              isMe: false));
+      store.toggleChannelMute(channel.id);
+
+      final current =
+          store.byId(community.id)!.channels.firstWhere((c) => c.id == channel.id);
+      // The server badge stays quiet...
+      expect(store.unreadInCommunity(store.byId(community.id)!), 0);
+      // ...but the mention still gets through.
+      expect(store.unreadMentionsIn(current), 1);
+      expect(store.unreadMentionsInCommunity(store.byId(community.id)!), 1);
+    });
+  });
+
+  group('Members sheet', () {
+    test('search narrows by name, case-insensitively', () {
+      const members = [
+        Member(id: 'me', name: 'You'),
+        Member(id: 'u_1', name: 'Ada Lovelace'),
+        Member(id: 'u_2', name: 'Grace Hopper'),
+      ];
+      expect(filterMembers(members, '').length, 3);
+      expect([for (final m in filterMembers(members, 'ada')) m.name],
+          ['Ada Lovelace']);
+      expect([for (final m in filterMembers(members, 'HOPPER')) m.name],
+          ['Grace Hopper']);
+      // A surname match counts too, not just a prefix.
+      expect(filterMembers(members, 'lovelace').length, 1);
+      expect(filterMembers(members, 'nobody'), isEmpty);
+      // Whitespace-only is not a filter.
+      expect(filterMembers(members, '   ').length, 3);
+    });
+  });
+
   group('Voice channel screen', () {
     testWidgets('joining then leaving the screen disconnects cleanly',
         (tester) async {

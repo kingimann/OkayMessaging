@@ -98,6 +98,36 @@ class CommunityStore extends ChangeNotifier {
     return ch.messages[seen].id;
   }
 
+  /// How many of [ch]'s unread messages @mention the local user.
+  ///
+  /// Counted from the unread window rather than a stored flag, so it can't
+  /// drift out of step with the badge beside it. Deliberately ignores mute:
+  /// muting a channel says "stop shouting about every message", not "hide it
+  /// when someone is talking to me".
+  int unreadMentionsIn(Channel ch) {
+    final seen = seenCountFor(ch.id);
+    if (seen >= ch.messages.length) return 0;
+    final me = AppState.profile.value;
+    var count = 0;
+    for (final m in ch.messages.skip(seen)) {
+      if (m.isMe || m.text.isEmpty) continue;
+      if (FeedStore.mentionsMe(m.text,
+          myName: me.name, myUsername: me.username)) {
+        count++;
+      }
+    }
+    return count;
+  }
+
+  /// Unread mentions across every channel of a server.
+  int unreadMentionsInCommunity(Community c) {
+    var total = 0;
+    for (final ch in c.channels) {
+      total += unreadMentionsIn(ch);
+    }
+    return total;
+  }
+
   /// Total unread across a server's message channels. Muted channels are
   /// excluded — that's the whole point of muting one.
   int unreadInCommunity(Community c) {
