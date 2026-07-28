@@ -19,6 +19,17 @@ export interface SubscriptionRow {
   environment: string;
 }
 
+/// Whether sandbox purchases count towards entitlement.
+///
+/// They must NOT in production: a sandbox purchase costs nothing and Apple
+/// signs it with the same certificate chain as a real one, so without this
+/// anyone able to run the app against a Sandbox Apple ID would get paid
+/// storage for free. Set IAP_ALLOW_SANDBOX=true only while testing, and take
+/// it off before release.
+export function sandboxAllowed(): boolean {
+  return Deno.env.get("IAP_ALLOW_SANDBOX") === "true";
+}
+
 /// The storage size a product grants, or 0 when it isn't a storage product
 /// (the tip consumables land here).
 export function gbForProduct(productId: string): number {
@@ -53,13 +64,14 @@ export interface Entitlement {
 export async function entitlementFor(db: Db, phone: string): Promise<Entitlement> {
   const { data } = await db
     .from("subscriptions")
-    .select("product_id, gb, expires_at, status")
+    .select("product_id, gb, expires_at, status, environment")
     .eq("phone", phone);
 
   const now = Date.now();
   let best: Entitlement = { active: false, gb: 0, expiresAt: null, productId: null };
   for (const row of data ?? []) {
     if (row.status === "refunded" || row.status === "expired") continue;
+    if (row.environment === "Sandbox" && !sandboxAllowed()) continue;
     const expires = row.expires_at ? Date.parse(row.expires_at) : 0;
     if (!expires || expires <= now) continue;
     if (row.gb > best.gb) {

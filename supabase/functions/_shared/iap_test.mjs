@@ -43,5 +43,23 @@ eq('largest live plan wins',
      { product_id: 'c', gb: 100, expires_at: past, status: 'active' },
    ]), '1')).gb, 80);
 
+
+
+// --- sandbox gating ---------------------------------------------------------
+const sandboxRow = [{ product_id: 'p', gb: 100, expires_at: future, status: 'active', environment: 'Sandbox' }];
+const prodRow    = [{ product_id: 'p', gb: 50,  expires_at: future, status: 'active', environment: 'Production' }];
+
+globalThis.Deno = { env: { get: () => undefined } };
+eq('sandbox ignored by default',
+   (await entitlementFor(fakeDb(sandboxRow), '1')).active, false);
+eq('production unaffected',
+   (await entitlementFor(fakeDb(prodRow), '1')).gb, 50);
+eq('sandbox cannot outrank production when disallowed',
+   (await entitlementFor(fakeDb([...sandboxRow, ...prodRow]), '1')).gb, 50);
+
+globalThis.Deno = { env: { get: (k) => (k === 'IAP_ALLOW_SANDBOX' ? 'true' : undefined) } };
+eq('sandbox honoured when the flag is set',
+   (await entitlementFor(fakeDb(sandboxRow), '1')).gb, 100);
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

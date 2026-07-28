@@ -133,6 +133,19 @@ Turning off auto-renew is not a cancellation of the current month — the user
 paid for it and keeps it until it runs out. An unrecognised notification type
 never revokes anything, because Apple adds new ones over time.
 
+### Sandbox purchases do not grant storage by default
+
+A sandbox purchase costs nothing, and Apple signs sandbox transactions with the
+same certificate chain as real ones — so a sandbox receipt is cryptographically
+indistinguishable from a paid one. Anyone able to run the app against a Sandbox
+Apple ID would otherwise get 100 GB free.
+
+Sandbox rows are therefore recorded but ignored when working out entitlement,
+unless the Edge Function secret `IAP_ALLOW_SANDBOX` is set to `true`.
+
+**Set it while testing. Take it off before release** — leaving it on is a free
+storage plan for anyone who asks.
+
 ### Testing it
 
 The helpers use only standard WebCrypto, so Node runs them without Deno:
