@@ -5351,6 +5351,49 @@ void main() {
           isNull);
     });
 
+    test('like notifications carry the liker and dedupe', () {
+      FeedStore.instance.resetForTest();
+      final store = FeedStore.instance;
+      final mine = store.add('c1', 'like this');
+      expect(store.postById(mine.id)!.likes, 0);
+
+      // Grace likes my post: counter moves and I'm notified.
+      store.applyRemoteLike(mine.id,
+          liked: true, likerName: 'Grace', likerUsername: 'grace');
+      expect(store.postById(mine.id)!.likes, 1);
+      final note = store.notifications.first;
+      expect(note.type, FeedNotificationType.like);
+      expect(note.actorName, 'Grace');
+      expect(note.threadPostId, mine.id);
+
+      // A replayed like (mailbox / reconnect) can't double the count.
+      store.applyRemoteLike(mine.id,
+          liked: true, likerName: 'Grace', likerUsername: 'grace');
+      expect(store.postById(mine.id)!.likes, 1);
+      expect(store.notifications.where((n) => n.type == FeedNotificationType.like),
+          hasLength(1));
+
+      // Unlike takes the count back down.
+      store.applyRemoteLike(mine.id,
+          liked: false, likerName: 'Grace', likerUsername: 'grace');
+      expect(store.postById(mine.id)!.likes, 0);
+
+      // Liking someone else's post notifies no one here.
+      final theirs = FeedPost(
+          id: 'p_theirs',
+          communityId: 'c1',
+          authorName: 'Bob',
+          authorUsername: 'bob',
+          time: DateTime.now(),
+          text: 'not mine');
+      store.addRemote(theirs);
+      final before = store.notifications.length;
+      store.applyRemoteLike('p_theirs',
+          liked: true, likerName: 'Cara', likerUsername: 'cara');
+      expect(store.postById('p_theirs')!.likes, 1);
+      expect(store.notifications.length, before); // no self-notification
+    });
+
     test('threads nest, mentions autocomplete, authors resolve', () {
       FeedStore.instance.resetForTest();
       final store = FeedStore.instance;

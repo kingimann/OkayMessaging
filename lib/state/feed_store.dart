@@ -132,8 +132,12 @@ class FeedStore extends ChangeNotifier {
   // a queued relay copy replays it.
   final Set<String> _deletedIds = {};
 
-  // Interactions with you — replies, @mentions, reposts — newest first.
+  // Interactions with you — replies, @mentions, reposts, likes — newest first.
   final List<FeedNotification> _notifications = [];
+
+  // Which (post, liker) pairs this device has counted, so a replayed like
+  // event (mailbox or reconnect) can't inflate the tally.
+  final Set<String> _likedBy = {};
 
   /// Feed interactions with you, newest first.
   List<FeedNotification> get notifications =>
@@ -359,8 +363,68 @@ class FeedStore extends ChangeNotifier {
     final i = _posts.indexWhere((p) => p.id == postId);
     if (i < 0) return;
     final p = _posts[i];
+    final nowLiked = !p.liked;
     _posts[i] = p.copyWith(
-        liked: !p.liked, likes: p.liked ? p.likes - 1 : p.likes + 1);
+        liked: nowLiked, likes: p.liked ? p.likes - 1 : p.likes + 1);
+    _save();
+    notifyListeners();
+    // Tell the author's server who liked, so their count moves and — if the
+    // post is theirs — they get a "liked you" notification.
+    if (RelayConfig.isEnabled) {
+      final me = AppState.profile.value;
+      RelayService.instance.sendFeedLike(
+        p.communityId,
+        postId,
+        liked: nowLiked,
+        likerName: me.name,
+        likerUsername: me.username.isEmpty ? 'you' : me.username,
+      );
+    }
+  }
+
+  /// Applies a like/unlike that arrived from another member: moves the
+  /// counter and, when it's a like of one of your posts, records a
+  /// notification. Deduped so a replayed like can't inflate the count.
+  void applyRemoteLike(String postId,
+      {required bool liked,
+      required String likerName,
+      required String likerUsername}) {
+    final i = _posts.indexWhere((p) => p.id == postId);
+    if (i < 0) return;
+    final key = 'like_${postId}_$likerUsername';
+    final already = _likedBy.contains(key);
+    if (liked == already) return; // idempotent
+    if (liked) {
+      _likedBy.add(key);
+    } else {
+      _likedBy.remove(key);
+    }
+    final p = _posts[i];
+    _posts[i] = p.copyWith(
+        likes: liked ? p.likes + 1 : (p.likes > 0 ? p.likes - 1 : 0));
+    if (liked) {
+      final me = AppState.profile.value;
+      final myUsername = me.username.isEmpty ? 'you' : me.username;
+      final mine = p.authorUsername == 'you' ||
+          p.authorUsername.toLowerCase() == myUsername.toLowerCase();
+      if (mine && likerUsername.toLowerCase() != myUsername.toLowerCase()) {
+        final noteId = 'likenote_${postId}_$likerUsername';
+        if (!_notifications.any((n) => n.id == noteId)) {
+          _notifications.insert(
+              0,
+              FeedNotification(
+                id: noteId,
+                type: FeedNotificationType.like,
+                communityId: p.communityId,
+                actorName: likerName,
+                actorUsername: likerUsername,
+                time: DateTime.now(),
+                threadPostId: postId,
+              ));
+          if (_notifications.length > 50) _notifications.removeLast();
+        }
+      }
+    }
     _save();
     notifyListeners();
   }
@@ -561,6 +625,7 @@ class FeedStore extends ChangeNotifier {
     _savedIds.clear();
     _deletedIds.clear();
     _notifications.clear();
+    _likedBy.clear();
     _nextId = 1;
     notifyListeners();
   }

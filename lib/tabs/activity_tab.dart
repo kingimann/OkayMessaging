@@ -219,9 +219,12 @@ class _ActivityTabState extends State<ActivityTab> {
                                         ),
                                         child: Icon(_notifIcon(n.type),
                                             size: 14,
-                                            color: Theme.of(context)
-                                                .colorScheme
-                                                .primary),
+                                            color: n.type ==
+                                                    FeedNotificationType.like
+                                                ? const Color(0xFFF91880)
+                                                : Theme.of(context)
+                                                    .colorScheme
+                                                    .primary),
                                       ),
                                     ),
                                   ],
@@ -326,11 +329,13 @@ class _ActivityTabState extends State<ActivityTab> {
         FeedNotificationType.reply => Icons.reply,
         FeedNotificationType.mention => Icons.alternate_email,
         FeedNotificationType.repost => Icons.repeat,
+        FeedNotificationType.like => Icons.favorite,
       };
 
   String _notifVerb(FeedNotificationType t) => switch (t) {
         FeedNotificationType.reply => 'replied to you',
         FeedNotificationType.mention => 'mentioned you',
         FeedNotificationType.repost => 'reposted you',
+        FeedNotificationType.like => 'liked your post',
       };
 }

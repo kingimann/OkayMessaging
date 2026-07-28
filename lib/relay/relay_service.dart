@@ -629,7 +629,8 @@ class RelayService {
               applyMessageEvent(event, payload, myPhone: me);
             case 'gupd':
               applyGroupUpdate(payload, myPhone: me);
-            case 'chmsg' || 'chjoin' || 'chupd' || 'fpost' || 'fdel':
+            case 'chmsg' || 'chjoin' || 'chupd' || 'fpost' || 'fdel' ||
+                  'flike':
               _applyCommunityEvent(event, payload, me);
           }
         } catch (_) {
@@ -937,6 +938,11 @@ class RelayService {
           callback: (payload) => _applyCommunityEvent('fdel',
               Map<String, dynamic>.from(payload), me),
         )
+        .onBroadcast(
+          event: 'flike',
+          callback: (payload) => _applyCommunityEvent('flike',
+              Map<String, dynamic>.from(payload), me),
+        )
         .subscribe();
     // Catch up on whatever arrived while the app was closed.
     fetchMailbox();
@@ -993,6 +999,16 @@ class RelayService {
         case 'fdel':
           final id = body['id'];
           if (id is String) FeedStore.instance.removeRemote(id);
+        case 'flike':
+          final id = body['id'];
+          if (id is String) {
+            FeedStore.instance.applyRemoteLike(
+              id,
+              liked: body['liked'] as bool? ?? true,
+              likerName: body['name'] as String? ?? 'Someone',
+              likerUsername: body['username'] as String? ?? '',
+            );
+          }
       }
     });
   }
@@ -1067,6 +1083,19 @@ class RelayService {
   /// sealed servers can do this; legacy ones delete locally alone.
   Future<void> sendFeedDelete(String communityId, String postId) =>
       _sendCommunityEvent('fdel', communityId, {'id': postId});
+
+  /// Broadcasts a like/unlike, carrying who so the author's count moves and
+  /// they can be notified. Sealed with the server key like all feed traffic.
+  Future<void> sendFeedLike(String communityId, String postId,
+          {required bool liked,
+          required String likerName,
+          required String likerUsername}) =>
+      _sendCommunityEvent('flike', communityId, {
+        'id': postId,
+        'liked': liked,
+        'name': likerName,
+        'username': likerUsername,
+      });
 
   /// Broadcasts the server's current shape so members converge after any
   /// structural change — a new channel, a rename, a ban, a settings flip.

@@ -1,5 +1,5 @@
 /// The kind of feed interaction that mentions you.
-enum FeedNotificationType { reply, mention, repost }
+enum FeedNotificationType { reply, mention, repost, like }
 
 /// A record that another member interacted with you in a server feed — they
 /// replied to your post, @mentioned you, or reposted you. Shown in the
