@@ -117,3 +117,23 @@ identity.verification_session.canceled
 
 And run `docs/identity_verification.sql`, then deploy `identity-start` and
 `identity-status` (JWT verification **on** for both).
+
+## Chargeback bans
+
+Run `docs/chargeback_bans.sql`, and subscribe the webhook to:
+
+```
+charge.dispute.created
+```
+
+A dispute bans the sender from sending money (enforced in
+`payments-create-intent`, which then returns `sender_banned`). Lift a ban by
+hand:
+
+```sql
+delete from public.payment_bans where phone = '15551234567';
+```
+
+Optionally set `STATEMENT_DESCRIPTOR` (defaults to `OKAYMSG`) so the charge is
+recognisable on a card statement — unrecognised descriptors are a leading
+cause of disputes.

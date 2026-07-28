@@ -11,7 +11,7 @@ import '../utils/date_formatter.dart';
 /// Servers, posts and follows sync for free and are not shown here — this
 /// screen is about the one thing that counts as *your* storage: your chat
 /// history. It can be backed up to the cloud, encrypted under a key only you
-/// hold, on a tiered plan (Free up to paid). Chats can also just be backed up
+/// hold, on a paid plan — there is no free allowance. Chats can also just be backed up
 /// locally to iCloud / app storage instead.
 class CloudSyncScreen extends StatefulWidget {
   const CloudSyncScreen({super.key});
@@ -57,15 +57,15 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
         .showSnackBar(SnackBar(content: Text(error ?? success)));
   }
 
-  /// Buys [gb] of storage. Passing 0 cancels back to the free allowance.
+  /// Buys [gb] of storage. Passing 0 cancels the subscription outright —
+  /// there is no free allowance to fall back to.
   Future<void> _buyGb(int gb) async {
     final storage = StorageStore.instance;
     if (gb <= 0) {
       final ok = await _confirm(
-          'Switch to Free?',
-          'You drop to ${StorageStore.freeGb} GB. If your chat backup is '
-              'larger than that, it stays on the server but you can\'t add to '
-              'it until you\'re back under the limit.');
+          'Cancel storage?',
+          'Chat backup stops. What is already stored stays on the server '
+              'until the paid period ends, but nothing new can be added.');
       if (ok) await storage.cancel();
       return;
     }

@@ -83,12 +83,31 @@ Deno.serve(async (req) => {
   const fromPhone = await callerPhone(req);
   if (!fromPhone) return json({ error: "unauthorized" }, 401);
 
-  let body: { toPhone?: string; amountCents?: number; currency?: string; note?: string };
+  let body: {
+    toPhone?: string;
+    amountCents?: number;
+    currency?: string;
+    note?: string;
+    receiptEmail?: string;
+    // The sender ticked the box saying they understand the transfer is
+    // final. Recorded as dispute evidence, not as a gate.
+    acknowledged?: boolean;
+  };
   try {
     body = await req.json();
   } catch {
     return json({ error: "invalid body" }, 400);
   }
+
+  // Banned senders cannot start a charge. A chargeback ends the ability to
+  // send, and the check belongs here rather than in the app — a client-side
+  // ban is a suggestion.
+  const { data: ban } = await admin
+    .from("payment_bans")
+    .select("reason")
+    .eq("phone", fromPhone)
+    .maybeSingle();
+  if (ban) return json({ error: "sender_banned" }, 403);
 
   const toPhone = (body.toPhone ?? "").replace(/\D/g, "");
   const amountCents = Math.round(Number(body.amountCents ?? 0));
@@ -125,7 +144,25 @@ Deno.serve(async (req) => {
       // Enables cards + Apple/Google Pay in the native Payment Sheet.
       automatic_payment_methods: { enabled: true },
       application_fee_amount: feeCents,
-      metadata: { from_phone: fromPhone, to_phone: toPhone, note: body.note ?? "" },
+      // A statement line the sender will recognise. "STRIPE* SOMETHING" is a
+      // leading cause of friendly fraud: people dispute what they don't
+      // recognise instead of asking about it.
+      statement_descriptor_suffix:
+        (Deno.env.get("STATEMENT_DESCRIPTOR") ?? "OKAYMSG").slice(0, 22),
+      // Stripe emails a real receipt, which is the other half of the same
+      // problem — a charge nobody has a record of is a charge worth
+      // disputing.
+      receipt_email: body.receiptEmail,
+      metadata: {
+        from_phone: fromPhone,
+        to_phone: toPhone,
+        note: body.note ?? "",
+        // Evidence, gathered up front. A dispute is defended with what was
+        // recorded at the time, so record it at the time: who sent what to
+        // whom, and that they confirmed it was final.
+        acknowledged_final: body.acknowledged === true ? "yes" : "no",
+        acknowledged_at: new Date().toISOString(),
+      },
     }, { stripeAccount: dest.stripe_account_id });
 
     await admin.from("payment_transactions").upsert({

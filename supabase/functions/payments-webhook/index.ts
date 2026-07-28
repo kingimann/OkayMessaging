@@ -31,6 +31,45 @@ Deno.serve(async (req) => {
         }).eq("id", pi.id);
         break;
       }
+      // A chargeback on a peer-to-peer transfer is not a billing dispute with
+      // a merchant: the money reached another person who has already been
+      // paid, and clawing it back through the card network leaves them
+      // carrying the loss. Filing one ends the sender's ability to send.
+      //
+      // It protects the platform too — Stripe closes accounts whose dispute
+      // ratio climbs, and that ratio counts disputes whether they are won or
+      // lost.
+      case "charge.dispute.created": {
+        const dispute = event.data.object as {
+          id: string;
+          charge: string;
+          amount: number;
+          payment_intent?: string;
+        };
+        const intentId = dispute.payment_intent;
+        if (intentId) {
+          const { data: tx } = await admin
+            .from("payment_transactions")
+            .select("from_phone")
+            .eq("id", intentId)
+            .maybeSingle();
+          if (tx?.from_phone) {
+            await admin.from("payment_bans").upsert({
+              phone: tx.from_phone,
+              reason: "chargeback",
+              dispute_id: dispute.id,
+              charge_id: dispute.charge,
+              amount_cents: dispute.amount,
+              banned_at: new Date().toISOString(),
+            });
+          }
+          await admin.from("payment_transactions").update({
+            status: "disputed",
+            updated_at: new Date().toISOString(),
+          }).eq("id", intentId);
+        }
+        break;
+      }
       case "account.updated": {
         const acct = event.data.object as {
           id: string;

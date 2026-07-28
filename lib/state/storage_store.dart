@@ -35,8 +35,11 @@ class StoragePlan {
 /// communal — they sync to everyone in a server for free and never count
 /// against anyone's quota.
 ///
-/// Everyone gets [freeGb] for nothing. Above that a user picks how much space
-/// they want, up to [maxGb], and pays monthly through the App Store. Every
+/// Cloud backup is paid only — there is no free allowance. Every stored GB
+/// costs real money to hold and serve (see [StorageEconomics]), and giving
+/// some away meant every signed-up account carried a bill whether or not it
+/// ever paid anything. A user picks how much space they want, up to [maxGb],
+/// and pays monthly through the App Store. Every
 /// step on the ladder is priced above its own Supabase cost (see
 /// [StorageEconomics]), so selling more space is always profitable — including
 /// once the project outgrows the 100 GB the Pro plan includes and Supabase
@@ -52,8 +55,12 @@ class StorageStore extends ChangeNotifier {
 
   static const int _bytesPerGb = 1024 * 1024 * 1024;
 
-  /// Free allowance, no purchase required.
-  static const int freeGb = 2;
+  /// Free allowance. Zero: backup requires a subscription.
+  ///
+  /// Kept as a named constant rather than deleted, because "how much do you
+  /// get without paying" is a real question the UI and the economics both ask,
+  /// and the answer wants to be stated in one place.
+  static const int freeGb = 0;
 
   /// The most one account may buy. Caps a single user's claim on the
   /// project's capacity, and keeps "no unlimited" true.
@@ -77,9 +84,8 @@ class StorageStore extends ChangeNotifier {
 
   static StoragePlan planForGb(int gb) => StoragePlan(gb, priceCentsFor(gb));
 
-  /// The free plan plus every paid size, cheapest first.
+  /// Every purchasable size, cheapest first. No free entry — there isn't one.
   static List<StoragePlan> get plans => [
-        const StoragePlan(freeGb, 0),
         for (final gb in sizes) planForGb(gb),
       ];
 

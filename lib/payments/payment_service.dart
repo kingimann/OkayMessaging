@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide Session;
 
 import '../relay/relay_config.dart';
+import '../state/account_email.dart';
 import 'stripe_sheet.dart';
 
 /// Raised when a payment Edge Function returns an error.
@@ -131,6 +132,7 @@ class PaymentService {
     required String toPhone,
     required int amountCents,
     String? note,
+    bool acknowledged = false,
   }) async {
     if (testMode.value) {
       await Future<void>.delayed(const Duration(milliseconds: 1200));
@@ -141,6 +143,13 @@ class PaymentService {
       'amountCents': amountCents,
       'currency': 'cad',
       if (note != null && note.isNotEmpty) 'note': note,
+      // Stripe emails the receipt. A charge the sender has no record of is a
+      // charge worth disputing, so give them one.
+      if (AccountEmail.instance.isSet)
+        'receiptEmail': AccountEmail.instance.email,
+      // Recorded as dispute evidence: they were told it was final and said
+      // they understood.
+      'acknowledged': acknowledged,
     });
     await StripeSheet.init(_publishableKey);
     return StripeSheet.presentPayment(

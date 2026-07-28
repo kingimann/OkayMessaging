@@ -31,6 +31,34 @@ slightly less than they did under destination charges.
 | $50 | $2.05 | $2.05 | $46.50 |
 | $100 | $3.75 | $3.75 | $93.05 |
 
+### Chargebacks
+
+**A chargeback bans the sender from sending money.** A dispute here is not a
+billing disagreement with a merchant — the money reached another person who
+has already been paid, and clawing it back leaves them carrying the loss. The
+ban is enforced server-side in `payments-create-intent`, so it is not a
+suggestion the app can be talked out of.
+
+It protects the platform too: Stripe closes accounts whose dispute ratio
+climbs, and that ratio counts disputes **whether they are won or lost**.
+
+Prevention, in the order it does the most good:
+
+1. **A recognisable statement descriptor.** Set `STATEMENT_DESCRIPTOR` (it
+   defaults to `OKAYMSG`). "STRIPE* SOMETHING" on a statement is a leading
+   cause of friendly fraud — people dispute what they do not recognise
+   instead of asking.
+2. **A real receipt.** Stripe emails one when the account has an address on
+   file. A charge with no record attached is a charge worth disputing.
+3. **An acknowledgement at send time.** The sender must tick a box saying the
+   transfer is final and that reversing it will block them. Recorded in the
+   PaymentIntent metadata with a timestamp, so the evidence exists before it
+   is needed.
+4. **Stripe Radar.** Rules live in your Stripe dashboard, not in this repo.
+   Worth configuring — it costs more per transaction and less than a dispute.
+5. **Fight every dispute you have documentation for.** Winning keeps the ratio
+   down even when the fee is gone either way.
+
 ### What is NOT covered, and could still cost you
 
 - **Disputes now land on the recipient**, not you — that is a direct
@@ -83,10 +111,9 @@ which still allows restoring everything you store, every month.
   price. The model proves each GB is profitable *at the margin*, which is not
   the same as the business covering its fixed costs. You need to sell roughly
   **339 GB** before the base plan pays for itself.
-- **The free tier is a cost centre.** 2 GB free per user costs about **$0.13
-  per user per month** at the budgeted egress. 1,000 free users ≈ $133/month
-  with no revenue against it. That is a deliberate acquisition cost, but it
-  should be a decision, not a surprise.
+- ~~The free tier is a cost centre.~~ **Removed.** There is no free
+  allowance: backup requires a subscription. It previously cost about $0.13
+  per signed-up account per month whether or not that account ever paid.
 - **Apple's Small Business Program** cuts their take from 30% to 15% under
   $1M/year. The model assumes 30%, so if you are enrolled every margin above
   is understated — the conservative direction.

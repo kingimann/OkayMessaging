@@ -1658,7 +1658,7 @@ class _ChatScreenState extends State<ChatScreen> {
     }
     if (!await _confirmRecipient()) return;
     if (!mounted) return;
-    final result = await showModalBottomSheet<({int cents, String note})>(
+    final result = await showModalBottomSheet<({int cents, String note, bool acknowledged})>(
       context: context,
       isScrollControlled: true,
       builder: (_) => PaymentAmountSheet(peerName: widget.chat.contact.name),
@@ -1694,14 +1694,21 @@ class _ChatScreenState extends State<ChatScreen> {
         toPhone: phone,
         amountCents: result.cents,
         note: result.note,
+        acknowledged: result.acknowledged,
       );
       settle(ok ? 'paid' : 'failed'); // false = cancelled/declined in the sheet
     } on PaymentException catch (e) {
       settle('failed');
       messenger.showSnackBar(SnackBar(
-        content: Text(e.code == 'receiver_not_onboarded'
-            ? '${widget.chat.contact.name} hasn\'t set up payments yet'
-            : 'Payment failed: ${e.code}'),
+        content: Text(switch (e.code) {
+          'receiver_not_onboarded' =>
+            '${widget.chat.contact.name} hasn\'t set up payments yet',
+          // Say why, plainly. A silent failure here reads as a bug and
+          // invites another attempt.
+          'sender_banned' =>
+            'Sending money is blocked on this account after a chargeback.',
+          _ => 'Payment failed: ${e.code}',
+        }),
       ));
     } catch (_) {
       settle('failed');

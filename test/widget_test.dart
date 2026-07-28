@@ -5340,14 +5340,20 @@ void main() {
       expect(CloudSync.instance.buildPayload().containsKey('chats'), isFalse);
     });
 
-    test('custom storage: free by default, buy any size up to the cap', () {
+    test('storage is paid only — buy any size up to the cap', () {
       final storage = StorageStore.instance;
       addTearDown(storage.resetForTest);
       storage.resetForTest();
-      // Everyone starts on the free allowance — no expiry, not "paid".
-      expect(storage.activeGb, StorageStore.freeGb);
+      // There is no free allowance: an unpaid account stores nothing. Every
+      // held GB costs real money, so giving some away meant every signed-up
+      // account carried a bill whether or not it ever paid.
+      expect(StorageStore.freeGb, 0);
+      expect(storage.activeGb, 0);
       expect(storage.isPaid, isFalse);
-      expect(storage.quotaBytes, 2 * 1024 * 1024 * 1024);
+      expect(storage.quotaBytes, 0);
+      expect(storage.fits(1), isFalse, reason: 'nothing fits without a plan');
+      // No free entry on the ladder either.
+      expect(StorageStore.plans.any((p) => p.priceCents == 0), isFalse);
 
       // Buying 30 GB raises the ceiling for ~30 days.
       storage.subscribe(30);
@@ -5367,10 +5373,11 @@ void main() {
       storage.subscribe(500); // over the cap
       expect(storage.activeGb, StorageStore.maxGb, reason: 'clamped to 100 GB');
 
-      // Cancelling drops straight back to the free allowance.
+      // Cancelling stops storage entirely rather than dropping to a freebie.
       storage.cancel();
       expect(storage.isPaid, isFalse);
-      expect(storage.activeGb, StorageStore.freeGb);
+      expect(storage.activeGb, 0);
+      expect(storage.quotaBytes, 0);
     });
 
     test('per-GB pricing lands on real App Store price points', () {
@@ -5486,6 +5493,9 @@ void main() {
         CloudSync.instance.resetForTest();
         StorageStore.instance.resetForTest();
       });
+      // Storage is paid only, so a plan has to exist before any of this
+      // means anything.
+      await StorageStore.instance.subscribe(10);
       await CloudSync.instance
           .configure(passphrase: 'bucket-path-key', on: false);
       expect(await CloudSync.instance.backUpChats(), isNull);
@@ -5550,7 +5560,10 @@ void main() {
       expect(StorageStore.formatBytes(1536), '1.5 KB');
       expect(StorageStore.formatBytes(5 * 1024 * 1024 * 1024), '5 GB');
 
-      // Fresh Free tier: nothing used, whole 2 GB free.
+      // No plan means no room at all — buy one before any of the
+      // used/available maths means anything.
+      expect(storage.quotaBytes, 0);
+      storage.subscribe(10);
       expect(storage.usedBytes, 0);
       expect(storage.usedFraction, 0);
       expect(storage.availableBytes, storage.quotaBytes);
@@ -5576,7 +5589,10 @@ void main() {
       // Nothing holds more than the 100 GB cap — no unlimited.
       const oneTb = 1024 * 1024 * 1024 * 1024;
       expect(storage.smallestPlanFor(oneTb), isNull);
-      // The next step up from the free allowance is the first ladder size.
+      // The next step up from the 10 GB bought above is the next rung.
+      expect(storage.nextSizeUp?.gb, 20);
+      // And with nothing bought, it's the cheapest size on the ladder.
+      storage.cancel();
       expect(storage.nextSizeUp?.gb, StorageStore.sizes.first);
     });
 
@@ -5597,7 +5613,10 @@ void main() {
       expect(await CloudSync.instance.backUpChats(), contains('key'));
       expect(CloudSync.debugServerOverride, isEmpty);
 
-      // With a real key, chats back up and record their size against quota.
+      // With a real key AND a plan, chats back up and record their size
+      // against quota. Storage is paid only, so without the plan the backup
+      // is refused for want of room, not for want of a key.
+      await StorageStore.instance.subscribe(10);
       await CloudSync.instance
           .configure(passphrase: 'my-secret-chat-key', on: false);
       expect(CloudSync.instance.chatBackupReady, isTrue);
@@ -5621,6 +5640,9 @@ void main() {
         CloudSync.instance.resetForTest();
         StorageStore.instance.resetForTest();
       });
+      // Storage is paid only, so a plan has to exist before any of this
+      // means anything.
+      await StorageStore.instance.subscribe(10);
       await CloudSync.instance
           .configure(passphrase: 'over-quota-key', on: false);
       // fits() gates on the plan ceiling.
@@ -5639,6 +5661,9 @@ void main() {
         CloudSync.instance.resetForTest();
         StorageStore.instance.resetForTest();
       });
+      // Storage is paid only, so a plan has to exist before any of this
+      // means anything.
+      await StorageStore.instance.subscribe(10);
       await CloudSync.instance
           .configure(passphrase: 'verify-chat-unique-key', on: false);
 
@@ -10147,6 +10172,59 @@ void main() {
     });
   });
 
+  group('Chargeback policy', () {
+    testWidgets('the sender is told the consequence before money moves',
+        (tester) async {
+      // Banning after a chargeback is only fair if it was said plainly first,
+      // and the acknowledgement is the paper trail that defends the dispute.
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => TextButton(
+              onPressed: () => showModalBottomSheet(
+                context: context,
+                isScrollControlled: true,
+                builder: (_) => const PaymentAmountSheet(peerName: 'Grace'),
+              ),
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      ));
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).first, '20');
+      await tester.pump();
+
+      expect(find.textContaining('cannot be reversed'), findsOneWidget);
+      expect(find.textContaining('block me from sending money'),
+          findsOneWidget,
+          reason: 'the ban has to be stated, not just enforced');
+      // And it cannot be skipped past.
+      expect(
+          tester
+              .widget<FilledButton>(find.byType(FilledButton))
+              .onPressed,
+          isNull);
+    });
+
+    test('storage has no free allowance to give away', () {
+      // Every held GB costs real money to store and serve. A free tier meant
+      // every signed-up account carried a bill whether or not it ever paid.
+      expect(StorageStore.freeGb, 0);
+      expect(StorageStore.plans, isNotEmpty);
+      expect(StorageStore.plans.every((p) => p.priceCents > 0), isTrue);
+      expect(StorageStore.plans.first.gb, StorageStore.sizes.first);
+
+      final storage = StorageStore.instance;
+      addTearDown(storage.resetForTest);
+      storage.resetForTest();
+      expect(storage.quotaBytes, 0);
+      expect(storage.fits(1), isFalse);
+      expect(storage.isFull, isTrue, reason: 'nothing stored, nothing spare');
+    });
+  });
+
   group('Blue check', () {
     setUp(IdentityVerification.instance.resetForTest);
     tearDown(IdentityVerification.instance.resetForTest);
@@ -10220,6 +10298,14 @@ void main() {
 
       await tester.enterText(find.byType(TextField).first, '20');
       await tester.pump();
+
+      // The transfer is final, so sending is gated on saying so — the paper
+      // trail is only worth having if it is always there.
+      expect(find.text('Confirm to continue'), findsOneWidget);
+      expect(find.textContaining('cannot be reversed'), findsOneWidget);
+      await tester.tap(find.byType(Checkbox));
+      await tester.pump();
+      expect(find.textContaining('Send \$20.00'), findsOneWidget);
 
       final fee = PaymentEconomics.applicationFeeCents(2000);
       final lands = PaymentEconomics.estimatedReceivedCents(2000);
