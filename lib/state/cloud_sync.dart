@@ -321,6 +321,66 @@ class CloudSync extends ChangeNotifier {
     return null;
   }
 
+  // --- Object storage (Supabase Storage buckets) -------------------------
+  //
+  // Chat backups are the only large, *paid* thing stored, so they live in a
+  // Storage bucket rather than a Postgres table. Buckets bill at $0.0213/GB
+  // against database disk at $0.125/GB — roughly 6× cheaper, and the
+  // difference is what makes selling storage profitable at all. The small
+  // communal blob stays in the table, where its size is irrelevant.
+
+  /// Bucket holding the sealed chat backups.
+  static const chatBucket = 'chat-backups';
+
+  /// Uploads [data] to the chat bucket at [path] (upserting). Returns null on
+  /// success or a human-readable error.
+  Future<String?> _putObject(String path, String data) async {
+    final debug = debugServerOverride;
+    if (debug != null) {
+      debug[path] = data;
+      return null;
+    }
+    if (!RelayConfig.isEnabled) return _fail('No server configured.');
+    final res = await http
+        .post(
+          Uri.parse(
+              '${RelayConfig.supabaseUrl}/storage/v1/object/$chatBucket/$path'),
+          headers: {
+            'apikey': RelayConfig.supabaseAnonKey,
+            'Authorization': 'Bearer ${RelayConfig.supabaseAnonKey}',
+            'Content-Type': 'text/plain',
+            'x-upsert': 'true',
+          },
+          body: data,
+        )
+        .timeout(const Duration(seconds: 30));
+    if (res.statusCode == 404 && res.body.contains('Bucket not found')) {
+      return _fail('Chat storage isn\'t provisioned yet — run '
+          'docs/chat_backup_bucket.sql once in the Supabase SQL editor.');
+    }
+    if (res.statusCode >= 300) {
+      return _fail('Upload failed (${res.statusCode}).');
+    }
+    return null;
+  }
+
+  /// Downloads the object at [path] from the chat bucket, or null if absent.
+  Future<String?> _getObject(String path) async {
+    final debug = debugServerOverride;
+    if (debug != null) return debug[path];
+    if (!RelayConfig.isEnabled) return null;
+    final res = await http.get(
+      Uri.parse(
+          '${RelayConfig.supabaseUrl}/storage/v1/object/$chatBucket/$path'),
+      headers: {
+        'apikey': RelayConfig.supabaseAnonKey,
+        'Authorization': 'Bearer ${RelayConfig.supabaseAnonKey}',
+      },
+    ).timeout(const Duration(seconds: 30));
+    if (res.statusCode >= 300) return null;
+    return res.body.isEmpty ? null : res.body;
+  }
+
   /// Uploads the communal data (servers, feed, follows, …). Free — no quota,
   /// no subscription. Returns null on success or a human-readable error.
   Future<String?> syncNow() async {
@@ -412,7 +472,7 @@ class CloudSync extends ChangeNotifier {
         return _fail('Your chats are larger than your plan — upgrade to back '
             'them up.');
       }
-      final err = await _put(chatBlobIdFor(key), data);
+      final err = await _putObject(chatBlobIdFor(key), data);
       if (err != null) return err;
       await StorageStore.instance.setUsedBytes(data.length);
       lastSync = DateTime.now();
@@ -435,7 +495,7 @@ class CloudSync extends ChangeNotifier {
     notifyListeners();
     try {
       final key = await _syncKey();
-      final data = await _get(chatBlobIdFor(key));
+      final data = await _getObject(chatBlobIdFor(key));
       if (data == null) return _fail('No chat backup found for this key.');
       final plain = await compute(_decryptTask, (key: key, blob: data));
       if (plain == null) {
@@ -466,7 +526,7 @@ class CloudSync extends ChangeNotifier {
     notifyListeners();
     try {
       final key = await _syncKey();
-      final data = await _get(chatBlobIdFor(key));
+      final data = await _getObject(chatBlobIdFor(key));
       if (data == null) return _fail('No chat backup yet — back up first.');
       final plain = await compute(_decryptTask, (key: key, blob: data));
       if (plain == null) {
@@ -490,6 +550,17 @@ class CloudSync extends ChangeNotifier {
     lastError = message;
     return message;
   }
+
+  /// The account digits the current key is salted with.
+  @visibleForTesting
+  String get digitsForTest => _digits;
+
+  /// Derives a sync key the same way the store does, for tests that need to
+  /// predict a blob's object name.
+  @visibleForTesting
+  static Future<Uint8List> deriveSyncKeyForTest(
+          String passphrase, String digits) async =>
+      compute(_deriveKeyTask, (pass: passphrase, digits: digits));
 
   @visibleForTesting
   void resetForTest() {

@@ -80,3 +80,43 @@ class StorageEconomics {
           {bool useBuckets = true}) =>
       isProfitable(grossPrice, gb, useBuckets: useBuckets);
 }
+
+/// The economics of peer-to-peer transfers (the Stripe side).
+///
+/// Mirrors `supabase/functions/_shared/stripe.ts` so the margin is verifiable
+/// in the test suite and the app can quote an honest fee before someone pays.
+/// On a destination charge the platform is merchant of record: Stripe's
+/// processing fee comes out of the platform's balance, and only the
+/// application fee comes back in — so the fee must exceed Stripe's cut or
+/// every transfer loses money.
+class PaymentEconomics {
+  PaymentEconomics._();
+
+  /// What Stripe charges the platform per successful charge.
+  static const double stripePercent = 2.9;
+  static const int stripeFixedCents = 30;
+
+  /// What the platform charges the sender. Must clear Stripe's cut.
+  static const double platformPercent = 3.4;
+  static const int platformFixedCents = 35;
+
+  /// Stripe's cost to the platform for an [amountCents] charge.
+  static int stripeCostCents(int amountCents) =>
+      (amountCents * stripePercent / 100).round() + stripeFixedCents;
+
+  /// The platform's application fee, floored so a misconfiguration can never
+  /// make the platform eat Stripe's cut.
+  static int applicationFeeCents(int amountCents) {
+    final fee =
+        (amountCents * platformPercent / 100).round() + platformFixedCents;
+    final floor = stripeCostCents(amountCents) + 1;
+    return fee > floor ? fee : floor;
+  }
+
+  /// What the platform actually keeps on an [amountCents] transfer.
+  static int netCents(int amountCents) =>
+      applicationFeeCents(amountCents) - stripeCostCents(amountCents);
+
+  /// Every transfer must leave the platform ahead.
+  static bool isProfitable(int amountCents) => netCents(amountCents) > 0;
+}

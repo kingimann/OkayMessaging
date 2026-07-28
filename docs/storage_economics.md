@@ -58,25 +58,61 @@ the $25 base, so early on marginal cost is effectively $0 and margins are
 fatter than the table — this is the steady state once you're past the
 allowance.
 
-## ⚠️ Required before selling big sizes: move backups to Storage buckets
+## ✅ Backups live in Storage buckets
 
-Chat backups are currently text rows in the Postgres `sync_blobs` table, which
-bills as **database disk at $0.125/GB** — ~6× the bucket rate. On disk,
-break-even is **$0.243/GB**, which is *above* the $0.20/GB retail rate:
+Chat backups upload to the **`chat-backups` Storage bucket** ($0.0213/GB), not
+the Postgres `sync_blobs` table ($0.125/GB). That 6× difference is what makes
+the table above real — on database disk, break-even is $0.243/GB, *above* the
+$0.20/GB retail rate, and every size would lose money:
 
-| Size | Profit on buckets | Profit on Postgres disk |
+| Size | On buckets (actual) | On Postgres disk (avoided) |
 |---|---|---|
-| 10 GB | +$0.73 | −$0.31 |
-| 50 GB | +$3.67 | −$1.51 |
-| 100 GB | +$7.36 | −$3.01 |
+| 10 GB | **+$0.73** | −$0.31 |
+| 50 GB | **+$3.67** | −$1.51 |
+| 100 GB | **+$7.36** | −$3.01 |
 
-**Every size loses money on Postgres disk.** The pricing above is only valid
-once the chat-backup blob moves to a Supabase Storage bucket — which is also
-the correct backend for large blobs (Postgres is for small sync metadata).
+The small communal sync blob (servers, feed, follows) stays in the table, where
+it's free and its size is irrelevant. Privacy is unchanged — the bucket holds
+the same AES-256-GCM ciphertext, named by an unguessable HMAC of the user's
+key.
 
-Until that migration lands, either keep sizes small and raise the rate, or
-treat the current paid storage as launch-only. Ask and I'll wire the bucket
-path (client upload, bucket + RLS, migration of existing blobs).
+**Deploy step:** run `docs/chat_backup_bucket.sql` once. Until you do, chat
+backup reports "Chat storage isn't provisioned yet" rather than silently
+failing.
+
+## Peer-to-peer transfers (Stripe)
+
+Separate revenue line, and it *was* losing money: the platform fee defaulted to
+**1.5% + 0¢** while Stripe charges the platform **2.9% + 30¢** on a destination
+charge — a loss on every single transfer.
+
+Now **3.4% + 35¢**, with a hard floor so a bad env var can't drop it below
+Stripe's cut:
+
+| Transfer | Fee in | Stripe takes | **You keep** |
+|---|---|---|---|
+| $10 | $0.69 | $0.59 | **+$0.10** |
+| $50 | $2.05 | $1.75 | **+$0.30** |
+| $250 | $8.85 | $7.55 | **+$1.30** |
+
+Margins are thin by nature on card processing — the fixed 30¢ dominates small
+transfers. Raise `PLATFORM_FEE_PERCENT` / `PLATFORM_FEE_FIXED_CENTS` if you
+want more. Enforced by the test "peer-to-peer transfers profit after Stripe
+takes its cut".
+
+## The free tier is the one thing that isn't profitable — by design
+
+2 GB × every user, at $0 revenue, is customer acquisition, not a business line.
+Two things keep it cheap:
+
+- Chat backup is **opt-in** and requires setting an encryption key, so most
+  free users store **zero bytes** — the allowance costs nothing until used.
+- A fully-used free account costs **$0.043/month** on buckets. 1,000 of them is
+  ~$43/mo, and your first 100 GB is included in the $25 base anyway.
+
+Watch `storage_totals` / `chat_backup_totals`; if free usage ever becomes a
+real line item, cut the allowance or require a paid plan for cloud backup
+(local iCloud backup stays free either way).
 
 ## Capacity watch
 

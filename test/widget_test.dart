@@ -5405,6 +5405,45 @@ void main() {
       expect(StorageEconomics.monthlyProfit(19.99, 100), greaterThan(5));
     });
 
+    test('peer-to-peer transfers profit after Stripe takes its cut', () {
+      // The bug this locks down: a 1.5% + 0¢ fee against Stripe's 2.9% + 30¢
+      // lost money on every single transfer.
+      for (final amount in [100, 500, 1000, 2500, 5000, 25000]) {
+        expect(PaymentEconomics.isProfitable(amount), isTrue,
+            reason: '\$${amount / 100} transfer must not lose money');
+        expect(PaymentEconomics.applicationFeeCents(amount),
+            greaterThan(PaymentEconomics.stripeCostCents(amount)));
+      }
+      // A $10 transfer: 69¢ fee in, 59¢ to Stripe → 10¢ kept.
+      expect(PaymentEconomics.applicationFeeCents(1000), 69);
+      expect(PaymentEconomics.stripeCostCents(1000), 59);
+      expect(PaymentEconomics.netCents(1000), 10);
+    });
+
+    test('chat backups go to the cheap bucket, not the pricey table', () async {
+      // Storage buckets bill ~6x less than Postgres disk — the difference
+      // between selling storage at a profit and at a loss.
+      CloudSync.instance.resetForTest();
+      CloudSync.debugServerOverride = {};
+      StorageStore.instance.resetForTest();
+      addTearDown(() {
+        CloudSync.debugServerOverride = null;
+        CloudSync.instance.resetForTest();
+        StorageStore.instance.resetForTest();
+      });
+      await CloudSync.instance
+          .configure(passphrase: 'bucket-path-key', on: false);
+      expect(await CloudSync.instance.backUpChats(), isNull);
+
+      // The chat blob is keyed by its bucket object name, and round-trips.
+      final key = await CloudSync.deriveSyncKeyForTest(
+          'bucket-path-key', CloudSync.instance.digitsForTest);
+      final objectName = CloudSync.chatBlobIdFor(key);
+      expect(CloudSync.debugServerOverride!.containsKey(objectName), isTrue);
+      expect(CloudSync.chatBucket, 'chat-backups');
+      expect(await CloudSync.instance.restoreChats(), isNull);
+    });
+
     test('storage & tips are store products (Apple), not Stripe', () async {
       // Each purchasable size maps to its own auto-renewable product; the free
       // allowance needs none.

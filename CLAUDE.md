@@ -143,6 +143,14 @@ copies of the Edge Functions), `docs/supabase_setup.sql`.
   rules require. The IAP products still need creating in App Store Connect and
   the In-App Purchase capability enabling — see `docs/in_app_purchases_setup.md`.
   Payments test mode simulates both without charging.
+- **Unit economics are enforced by tests** (`lib/payments/storage_economics.dart`,
+  `docs/storage_economics.md`). Storage sells at ~$0.20/GB against a $0.095/GB
+  break-even (Supabase bucket rate ÷ Apple's 70% net); the P2P platform fee is
+  3.4%+35¢ against Stripe's 2.9%+30¢. If you change a price, the suite fails
+  when a line would lose money. **Chat backups must stay in the `chat-backups`
+  Storage bucket** ($0.0213/GB) — moving them back into a Postgres table
+  ($0.125/GB) would make every storage plan unprofitable. Bucket setup:
+  `docs/chat_backup_bucket.sql`.
 - **GIFs**: the picker is built and tested, but GIF *search* needs a free
   Tenor key passed at build time (`--dart-define=TENOR_API_KEY=…`). Without
   it the GIF tab says so; emoji and everything else are unaffected, and a GIF
