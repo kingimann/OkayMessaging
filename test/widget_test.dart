@@ -14,6 +14,7 @@ import 'package:okay_messaging/crypto/key_exchange.dart';
 import 'package:okay_messaging/main.dart';
 import 'package:okay_messaging/state/callkit_bridge.dart';
 import 'package:okay_messaging/state/incoming_links.dart';
+import 'package:okay_messaging/util/phone_format.dart';
 import 'package:okay_messaging/legal/legal_content.dart';
 import 'package:okay_messaging/models/call.dart' as callmodel;
 import 'package:okay_messaging/screens/auth/phone_login_screen.dart';
@@ -741,9 +742,11 @@ void main() {
     await tester.tap(find.text('Bob Carter'));
     await tester.pumpAndSettle();
 
-    // Start a voice call from the chat header.
+    // Start a voice call from the chat header. The ringing halo animates
+    // forever, so pump fixed frames instead of settling.
     await tester.tap(find.byIcon(Icons.call));
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
 
     // The call screen shows the contact and a ringing status.
     expect(find.byType(CallScreen), findsOneWidget);
@@ -3831,6 +3834,17 @@ void main() {
       final dupes =
           ContactsSync.hashesFor(['15550123456', '+1 555 012 3456']);
       expect(dupes.toSet().length, dupes.length);
+    });
+
+    test('phone display formatting touches numbers, never names', () {
+      expect(formatPhoneForDisplay('14386386261'), '+1 (438) 638-6261');
+      expect(formatPhoneForDisplay('+1 438 638 6261'), '+1 (438) 638-6261');
+      expect(formatPhoneForDisplay('4386386261'), '(438) 638-6261');
+      expect(formatPhoneForDisplay('+447911123456'), '+447911123456');
+      // Real names, usernames, and short fragments pass through untouched.
+      expect(formatPhoneForDisplay('Grace Hopper'), 'Grace Hopper');
+      expect(formatPhoneForDisplay('555-0123'), '555-0123');
+      expect(formatPhoneForDisplay(''), '');
     });
 
     test('CallKit uuids are stable per call and version-4 shaped', () {

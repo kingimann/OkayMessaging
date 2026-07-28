@@ -45,6 +45,9 @@ class MessageBubble extends StatelessWidget {
   /// Called with the chosen option index when the user votes on a poll.
   final ValueChanged<int>? onPollVote;
 
+  /// Tapping a call-record chip calls that person back.
+  final VoidCallback? onCallBack;
+
   const MessageBubble({
     super.key,
     required this.message,
@@ -57,6 +60,7 @@ class MessageBubble extends StatelessWidget {
     this.onOpenLocation,
     this.onOpenContact,
     this.onPollVote,
+    this.onCallBack,
   });
 
   @override
@@ -147,6 +151,7 @@ class MessageBubble extends StatelessWidget {
         textColor: textColor,
         metaColor: metaColor,
         onLongPress: onLongPress,
+        onCallBack: onCallBack,
       );
     }
 
@@ -382,6 +387,7 @@ class _CallEventBubble extends StatelessWidget {
   final Color textColor;
   final Color metaColor;
   final VoidCallback? onLongPress;
+  final VoidCallback? onCallBack;
 
   const _CallEventBubble({
     required this.message,
@@ -390,6 +396,7 @@ class _CallEventBubble extends StatelessWidget {
     required this.textColor,
     required this.metaColor,
     required this.onLongPress,
+    this.onCallBack,
   });
 
   String get _label {
@@ -417,6 +424,7 @@ class _CallEventBubble extends StatelessWidget {
       alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
       child: GestureDetector(
         onLongPress: onLongPress,
+        onTap: onCallBack,
         child: Container(
           margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
@@ -424,39 +432,53 @@ class _CallEventBubble extends StatelessWidget {
             color: bubbleColor.withValues(alpha: 0.75),
             borderRadius: BorderRadius.circular(16),
           ),
-          child: Row(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-              Container(
-                padding: const EdgeInsets.all(6),
-                decoration: BoxDecoration(
-                  color: iconColor.withValues(alpha: 0.14),
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(
-                  message.callVideo
-                      ? (missed ? Icons.missed_video_call : Icons.videocam)
-                      : (missed
-                          ? Icons.phone_missed
-                          : (isMe ? Icons.call_made : Icons.call_received)),
-                  size: 16,
-                  color: iconColor,
-                ),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(6),
+                    decoration: BoxDecoration(
+                      color: iconColor.withValues(alpha: 0.14),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      message.callVideo
+                          ? (missed ? Icons.missed_video_call : Icons.videocam)
+                          : (missed
+                              ? Icons.phone_missed
+                              : (isMe ? Icons.call_made : Icons.call_received)),
+                      size: 16,
+                      color: iconColor,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    _label,
+                    style: TextStyle(
+                      color: missed ? Colors.redAccent : textColor,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    DateFormatter.messageTime(message.time),
+                    style: TextStyle(color: metaColor, fontSize: 11),
+                  ),
+                ],
               ),
-              const SizedBox(width: 8),
-              Text(
-                _label,
-                style: TextStyle(
-                  color: missed ? Colors.redAccent : textColor,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
+              if (onCallBack != null)
+                Padding(
+                  padding: const EdgeInsets.only(left: 36, top: 2),
+                  child: Text(
+                    'Tap to call back',
+                    style: TextStyle(color: metaColor, fontSize: 11.5),
+                  ),
                 ),
-              ),
-              const SizedBox(width: 8),
-              Text(
-                DateFormatter.messageTime(message.time),
-                style: TextStyle(color: metaColor, fontSize: 11),
-              ),
             ],
           ),
         ),

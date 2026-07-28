@@ -16,6 +16,7 @@ import '../payments/payment_amount_sheet.dart';
 import '../payments/payment_service.dart';
 import '../relay/relay_config.dart';
 import '../state/score_store.dart';
+import '../util/phone_format.dart';
 import '../util/photo_prep.dart';
 import '../widgets/app_dialogs.dart';
 import '../widgets/poll_widgets.dart';
@@ -884,6 +885,13 @@ class _ChatScreenState extends State<ChatScreen> {
             m.isContact && !_selectionMode ? () => _openSharedContact(m) : null,
         onPollVote:
             m.isPoll && !_selectionMode ? (i) => _handleVotePoll(m, i) : null,
+        // A call record is the natural place to return the call from.
+        onCallBack: m.isCallEvent &&
+                !_selectionMode &&
+                !widget.chat.contact.isGroup
+            ? () => CallService.instance
+                .startOutgoing(widget.chat.contact, video: m.callVideo)
+            : null,
       );
 
       final key = _messageKeys.putIfAbsent(m.id, () => GlobalKey());
@@ -1883,7 +1891,10 @@ class _ChatScreenState extends State<ChatScreen> {
                                   children: [
                                     Flexible(
                                       child: NameWithBadge(
-                                        name: contact.name,
+                                        // Bare numbers print like a phone
+                                        // would show them.
+                                        name: formatPhoneForDisplay(
+                                            contact.name),
                                         verified: contact.verified,
                                         badgeSize: 16,
                                         style: const TextStyle(
@@ -2074,7 +2085,11 @@ class _ChatScreenState extends State<ChatScreen> {
                         heroTag: 'scrollToBottom',
                         backgroundColor:
                             isDark ? AppColors.darkAppBar : Colors.white,
-                        foregroundColor: AppColors.tealGreenDark,
+                        // Theme-aware: the light accent is invisible on the
+                        // dark app-bar surface.
+                        foregroundColor: isDark
+                            ? Colors.white
+                            : AppColors.tealGreenDark,
                         elevation: 2,
                         onPressed: _animateToBottom,
                         child: const Icon(Icons.keyboard_arrow_down),

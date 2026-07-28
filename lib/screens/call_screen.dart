@@ -11,6 +11,7 @@ import '../state/call_media.dart';
 import '../state/call_service.dart';
 import '../state/chat_store.dart';
 import '../theme/app_theme.dart';
+import '../util/phone_format.dart';
 import '../util/ringtone.dart';
 import '../widgets/user_avatar.dart';
 import 'chat_screen.dart';
@@ -30,7 +31,11 @@ class CallScreen extends StatefulWidget {
   State<CallScreen> createState() => _CallScreenState();
 }
 
-class _CallScreenState extends State<CallScreen> {
+class _CallScreenState extends State<CallScreen>
+    with SingleTickerProviderStateMixin {
+  /// Drives the expanding halo behind the avatar while the call rings.
+  late final AnimationController _pulse = AnimationController(
+      vsync: this, duration: const Duration(milliseconds: 1600));
   Timer? _tick;
   Timer? _dismiss;
   /// Elapsed connected time, derived from the session's connect timestamp —
@@ -103,8 +108,10 @@ class _CallScreenState extends State<CallScreen> {
     if (s == CallStatus.ringing) {
       startRinging(
           incoming: widget.session.direction == CallDirection.incoming);
+      _pulse.repeat();
     } else {
       stopRinging();
+      _pulse.stop();
     }
     if (s == CallStatus.connected && _tick == null) {
       _tick = Timer.periodic(const Duration(seconds: 1), (_) {
@@ -146,6 +153,7 @@ class _CallScreenState extends State<CallScreen> {
   @override
   void dispose() {
     stopRinging();
+    _pulse.dispose();
     _tick?.cancel();
     _dismiss?.cancel();
     CallMedia.instance.remoteReady.removeListener(_onRemoteReady);
@@ -279,11 +287,17 @@ class _CallScreenState extends State<CallScreen> {
               children: [
                 const SizedBox(height: 44),
                 if (!showingRemoteVideo) ...[
-                  UserAvatar(user: session.peer, radius: 56),
+                  _RingingHalo(
+                    animation: _pulse,
+                    active: session.status == CallStatus.ringing,
+                    color: _peerColor(session.peer.avatarColor),
+                    child: UserAvatar(user: session.peer, radius: 56),
+                  ),
                   const SizedBox(height: 20),
                 ],
                 Text(
-                  session.peer.name,
+                  // A bare number reads like a phone would print it.
+                  formatPhoneForDisplay(session.peer.name),
                   style: const TextStyle(
                     color: Colors.white,
                     fontSize: 26,
@@ -1181,4 +1195,59 @@ Color _peerColor(String avatarColor) {
   var hex = avatarColor.replaceFirst('#', '');
   if (hex.length == 6) hex = 'FF$hex';
   return Color(int.tryParse(hex, radix: 16) ?? 0xFF9E9E9E);
+}
+
+/// Two soft rings that swell out behind the avatar while a call rings —
+/// the universal "this is live" cue.
+class _RingingHalo extends StatelessWidget {
+  final Animation<double> animation;
+  final bool active;
+  final Color color;
+  final Widget child;
+
+  const _RingingHalo({
+    required this.animation,
+    required this.active,
+    required this.color,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (!active) return child;
+    // The rings paint OUTSIDE the avatar's box (Clip.none + negative
+    // insets) so ringing doesn't change the column's layout at all.
+    return AnimatedBuilder(
+      animation: animation,
+      builder: (context, _) {
+        Widget ring(double phase) {
+          final t = (animation.value + phase) % 1.0;
+          final spread = t * 36;
+          return Positioned(
+            left: -spread,
+            top: -spread,
+            right: -spread,
+            bottom: -spread,
+            child: IgnorePointer(
+              child: Container(
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: Color.lerp(color, Colors.white, 0.4)!
+                        .withValues(alpha: (1 - t) * 0.45),
+                    width: 2,
+                  ),
+                ),
+              ),
+            ),
+          );
+        }
+
+        return Stack(
+          clipBehavior: Clip.none,
+          children: [child, ring(0), ring(0.5)],
+        );
+      },
+    );
+  }
 }
