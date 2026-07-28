@@ -38,6 +38,9 @@ class FeedPost {
   /// changed after people replied to it.
   final bool edited;
 
+  /// Pinned to the top of its server's feed by a moderator.
+  final bool pinned;
+
   const FeedPost({
     required this.id,
     required this.communityId,
@@ -54,6 +57,7 @@ class FeedPost {
     this.gifUrl,
     this.repostOfId,
     this.edited = false,
+    this.pinned = false,
   });
 
   FeedPost copyWith({
@@ -64,6 +68,7 @@ class FeedPost {
     bool? reposted,
     String? text,
     bool? edited,
+    bool? pinned,
   }) =>
       FeedPost(
         id: id,
@@ -81,6 +86,7 @@ class FeedPost {
         gifUrl: gifUrl,
         repostOfId: repostOfId,
         edited: edited ?? this.edited,
+        pinned: pinned ?? this.pinned,
       );
 
   Map<String, dynamic> toJson() => {
@@ -99,6 +105,7 @@ class FeedPost {
         if (gifUrl != null) 'gifUrl': gifUrl,
         if (repostOfId != null) 'repostOfId': repostOfId,
         if (edited) 'edited': true,
+        if (pinned) 'pinned': true,
       };
 
   factory FeedPost.fromJson(Map<String, dynamic> j) => FeedPost(
@@ -117,6 +124,7 @@ class FeedPost {
         gifUrl: j['gifUrl'] as String?,
         repostOfId: j['repostOfId'] as String?,
         edited: j['edited'] as bool? ?? false,
+        pinned: j['pinned'] as bool? ?? false,
       );
 }
 
@@ -249,6 +257,65 @@ class FeedStore extends ChangeNotifier {
     if (_notifications.length > 50) _notifications.removeLast();
     _save();
     notifyListeners();
+  }
+
+  /// Reposts [postId] with your own comment on top. Unlike a plain repost this
+  /// is a real post of its own — you can quote the same thing twice with
+  /// different words — so it gets a fresh id rather than the deterministic
+  /// repost slot, and it doesn't toggle.
+  FeedPost? quoteRepost(String postId, String comment) {
+    final text = comment.trim();
+    if (text.isEmpty) return null;
+    final p = postById(postId);
+    if (p == null) return null;
+    // Quoting someone's repost quotes the original, like every other client.
+    final target = p.repostOfId == null ? p : postById(p.repostOfId!) ?? p;
+    final me = AppState.profile.value;
+    final entry = FeedPost(
+      id: 'q${_nextId++}_${DateTime.now().microsecondsSinceEpoch}',
+      communityId: target.communityId,
+      authorName: me.name,
+      authorUsername: me.username.isEmpty ? 'you' : me.username,
+      time: DateTime.now(),
+      text: text,
+      repostOfId: target.id,
+    );
+    _posts.add(entry);
+    final ti = _posts.indexWhere((x) => x.id == target.id);
+    if (ti >= 0) {
+      _posts[ti] = _posts[ti].copyWith(reposts: _posts[ti].reposts + 1);
+    }
+    if (RelayConfig.isEnabled) RelayService.instance.sendFeedPost(entry);
+    _save();
+    notifyListeners();
+    return entry;
+  }
+
+  /// Whether [post] is a quote — a repost carrying its own commentary — as
+  /// opposed to a plain "reposted" entry.
+  static bool isQuote(FeedPost post) =>
+      post.repostOfId != null && post.text.trim().isNotEmpty;
+
+  /// Pins/unpins a post to the top of its server's feed. Moderator action —
+  /// the caller checks permission. Returns true when now pinned.
+  bool togglePinned(String postId) {
+    final i = _posts.indexWhere((p) => p.id == postId);
+    if (i == -1) return false;
+    final nowPinned = !_posts[i].pinned;
+    // One pinned post per server, like a pinned tweet — pinning a second
+    // replaces the first rather than stacking banners.
+    if (nowPinned) {
+      final community = _posts[i].communityId;
+      for (var j = 0; j < _posts.length; j++) {
+        if (_posts[j].pinned && _posts[j].communityId == community) {
+          _posts[j] = _posts[j].copyWith(pinned: false);
+        }
+      }
+    }
+    _posts[i] = _posts[i].copyWith(pinned: nowPinned);
+    _save();
+    notifyListeners();
+    return nowPinned;
   }
 
   /// Rewrites one of the local user's own posts, flagging it edited. Ignores
@@ -753,7 +820,8 @@ List<(String, int)> trendingTags(List<FeedPost> posts, {int limit = 6}) {
 }
 
 /// Orders a timeline: newest first, or by engagement (likes + reposts,
-/// newest breaking ties) when [top]. Pure.
+/// newest breaking ties) when [top]. A pinned post always leads, whichever
+/// order is chosen — that's what pinning means. Pure.
 List<FeedPost> sortFeed(List<FeedPost> posts, {bool top = false}) {
   final list = [...posts];
   if (top) {
@@ -765,7 +833,11 @@ List<FeedPost> sortFeed(List<FeedPost> posts, {bool top = false}) {
   } else {
     list.sort((a, b) => b.time.compareTo(a.time));
   }
-  return list;
+  // Stable partition, so pinning doesn't disturb the order of everything else.
+  return [
+    ...list.where((p) => p.pinned),
+    ...list.where((p) => !p.pinned),
+  ];
 }
 
 /// Keeps only posts mentioning [tag] (case-insensitive), '' = all. Pure.

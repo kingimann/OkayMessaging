@@ -6010,6 +6010,74 @@ void main() {
       expect(revived.edited, isTrue);
     });
 
+    test('quote reposts carry their own words and stack', () {
+      FeedStore.instance.resetForTest();
+      addTearDown(FeedStore.instance.resetForTest);
+      final store = FeedStore.instance;
+      final original = store.add('c1', 'the original take');
+
+      // A quote is a real post of its own, not the toggle slot.
+      final q1 = store.quoteRepost(original.id, 'strong agree')!;
+      expect(q1.text, 'strong agree');
+      expect(q1.repostOfId, original.id);
+      expect(FeedStore.isQuote(q1), isTrue);
+      expect(store.postById(original.id)!.reposts, 1);
+
+      // You can quote the same post twice with different words — unlike a
+      // plain repost, which toggles.
+      final q2 = store.quoteRepost(original.id, 'on reflection, no')!;
+      expect(q2.id, isNot(q1.id));
+      expect(store.postById(original.id)!.reposts, 2);
+      expect(store.postById(q1.id)!.text, 'strong agree');
+
+      // A plain repost is not a quote (no words of its own).
+      store.toggleRepost(original.id);
+      final plain = store
+          .postsFor('c1')
+          .firstWhere((p) => p.repostOfId == original.id && p.text.isEmpty);
+      expect(FeedStore.isQuote(plain), isFalse);
+
+      // Empty commentary isn't a quote at all.
+      expect(store.quoteRepost(original.id, '   '), isNull);
+      // Quoting a quote points at the original, not the quote.
+      final q3 = store.quoteRepost(q1.id, 'nesting check')!;
+      expect(q3.repostOfId, original.id);
+    });
+
+    test('a pinned post leads the feed in either sort order', () {
+      FeedStore.instance.resetForTest();
+      addTearDown(FeedStore.instance.resetForTest);
+      final store = FeedStore.instance;
+      final old = store.add('c1', 'the announcement');
+      store.add('c1', 'newer chatter');
+      store.add('c1', 'newest chatter');
+
+      // Unpinned, the oldest post sorts last by time.
+      var timeline = sortFeed(store.postsFor('c1'));
+      expect(timeline.last.id, old.id);
+
+      // Pinned, it leads — in Latest and in Top.
+      expect(store.togglePinned(old.id), isTrue);
+      expect(sortFeed(store.postsFor('c1')).first.id, old.id);
+      expect(sortFeed(store.postsFor('c1'), top: true).first.id, old.id);
+
+      // Only one pin per server: pinning another releases the first.
+      final other = store.postsFor('c1').firstWhere((p) => p.id != old.id);
+      store.togglePinned(other.id);
+      expect(store.postById(old.id)!.pinned, isFalse);
+      expect(store.postById(other.id)!.pinned, isTrue);
+
+      // Unpinning restores plain time order.
+      store.togglePinned(other.id);
+      timeline = sortFeed(store.postsFor('c1'));
+      expect(timeline.last.id, old.id);
+      // The flag round-trips through JSON.
+      expect(
+          FeedPost.fromJson(store.postById(old.id)!.copyWith(pinned: true)
+              .toJson()).pinned,
+          isTrue);
+    });
+
     test('searchPosts matches text, author, and @username', () {
       final posts = [
         FeedPost(

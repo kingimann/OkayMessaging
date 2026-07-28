@@ -237,6 +237,21 @@ class _FeedScreenState extends State<FeedScreen> {
                 },
               ),
             ],
+            if (CommunityStore.instance.canModerate(widget.communityId))
+              ListTile(
+                leading: Icon(
+                    post.pinned ? Icons.push_pin : Icons.push_pin_outlined),
+                title: Text(post.pinned ? 'Unpin from feed' : 'Pin to feed'),
+                onTap: () {
+                  final pinned = FeedStore.instance.togglePinned(post.id);
+                  Navigator.of(sheetContext).pop();
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                    content: Text(pinned
+                        ? 'Pinned to the top of the feed.'
+                        : 'Unpinned.'),
+                  ));
+                },
+              ),
             if (mine) ...[
               ListTile(
                 leading: const Icon(Icons.edit_outlined),
@@ -263,6 +278,113 @@ class _FeedScreenState extends State<FeedScreen> {
     );
   }
 
+  /// A quote post: the quoter's own card, with the quoted post in a bordered
+  /// card underneath.
+  Widget _quoteTile(FeedPost entry) {
+    final original = FeedStore.instance.postById(entry.repostOfId!);
+    final scheme = Theme.of(context).colorScheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _postTile(entry),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(64, 0, 16, 12),
+          child: Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              border: Border.all(color: scheme.outlineVariant),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: original == null
+                ? Text('This post isn\'t available.',
+                    style: TextStyle(
+                        color: scheme.onSurfaceVariant, fontSize: 13.5))
+                : InkWell(
+                    onTap: () => _openThread(original),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '${original.authorName} · @${original.authorUsername}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                              fontSize: 13, fontWeight: FontWeight.w700),
+                        ),
+                        if (original.text.isNotEmpty) ...[
+                          const SizedBox(height: 3),
+                          Text(original.text,
+                              maxLines: 4,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(fontSize: 13.5)),
+                        ],
+                      ],
+                    ),
+                  ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Tapping repost offers the plain repeat or a quote with your own words.
+  void _repostOptions(FeedPost post) {
+    final reposted = post.reposted ||
+        (FeedStore.instance.postById(post.repostOfId ?? post.id)?.reposted ??
+            false);
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.repeat),
+              title: Text(reposted ? 'Undo repost' : 'Repost'),
+              onTap: () {
+                FeedStore.instance.toggleRepost(post.id);
+                Navigator.of(sheetContext).pop();
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.format_quote),
+              title: const Text('Quote'),
+              subtitle: const Text('Repost with your own comment'),
+              onTap: () {
+                Navigator.of(sheetContext).pop();
+                _quotePost(post);
+              },
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _quotePost(FeedPost post) async {
+    final text = await showAppTextPrompt(
+      context,
+      icon: Icons.format_quote,
+      title: 'Quote post',
+      hint: 'Add a comment',
+      confirmLabel: 'Post',
+      capitalization: TextCapitalization.sentences,
+      maxLines: 4,
+    );
+    if (text == null || text.trim().isEmpty) return;
+    // The server's word filter guards quotes like any other post.
+    final hit = CommunityStore.instance.filterHit(widget.communityId, text);
+    if (hit != null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('"$hit" is blocked by this server\'s word filter')));
+      return;
+    }
+    FeedStore.instance.quoteRepost(post.id, text);
+  }
+
   /// Rewrites one of your own posts, keeping its replies and likes intact.
   Future<void> _editPost(FeedPost post) async {
     final text = await showAppTextPrompt(
@@ -286,7 +408,7 @@ class _FeedScreenState extends State<FeedScreen> {
       child: _PostCard(
         post: post,
         onLike: () => FeedStore.instance.toggleLike(post.id),
-        onRepost: () => FeedStore.instance.toggleRepost(post.id),
+        onRepost: () => _repostOptions(post),
         onReply: () => _openThread(post),
         onAuthor: () => _authorSheet(post),
         saved: FeedStore.instance.isSaved(post.id),
@@ -303,6 +425,9 @@ class _FeedScreenState extends State<FeedScreen> {
   /// A repost entry: a slim "reposted" header over the original post (whose
   /// actions all target the original).
   Widget _repostTile(FeedPost entry) {
+    // A quote carries its own words, so it reads as the quoter's post with the
+    // original embedded beneath — not as a bare "X reposted" header.
+    if (FeedStore.isQuote(entry)) return _quoteTile(entry);
     final original = FeedStore.instance.postById(entry.repostOfId!);
     final grey = Theme.of(context).colorScheme.onSurfaceVariant;
     final header = Padding(
@@ -697,6 +822,22 @@ class _PostCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                if (post.pinned)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 2),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.push_pin,
+                            size: 12, color: Color(0xFF43B581)),
+                        const SizedBox(width: 4),
+                        Text('Pinned',
+                            style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                                color: Colors.green.shade700)),
+                      ],
+                    ),
+                  ),
                 Row(
                   children: [
                     Flexible(
