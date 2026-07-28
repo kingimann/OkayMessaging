@@ -14,6 +14,7 @@ import 'package:okay_messaging/crypto/key_exchange.dart';
 import 'package:okay_messaging/main.dart';
 import 'package:okay_messaging/state/callkit_bridge.dart';
 import 'package:okay_messaging/state/incoming_links.dart';
+import 'package:okay_messaging/models/feed_notification.dart';
 import 'package:okay_messaging/util/phone_format.dart';
 import 'package:okay_messaging/legal/legal_content.dart';
 import 'package:okay_messaging/models/call.dart' as callmodel;
@@ -5290,6 +5291,64 @@ void main() {
       expect(store.isSaved(keeper.id), isTrue);
       expect(store.toggleSaved(keeper.id), isFalse);
       expect(store.isSaved(keeper.id), isFalse);
+    });
+
+    test('feed notifications fire for replies, mentions, and reposts', () {
+      FeedStore.instance.resetForTest();
+      final store = FeedStore.instance;
+      // 'you' owns this post (default profile has no username → 'you').
+      final mine = store.add('c1', 'my original post');
+
+      FeedPost remote(String id, {String? parent, String text = '',
+              String? repostOf}) =>
+          FeedPost(
+              id: id,
+              communityId: 'c1',
+              authorName: 'Grace',
+              authorUsername: 'grace',
+              time: DateTime.now(),
+              text: text,
+              parentId: parent,
+              repostOfId: repostOf);
+
+      // A reply to my post notifies me, pointing at the reply's thread.
+      store.addRemote(remote('r1', parent: mine.id, text: 'nice one'));
+      // A repost of my post notifies me, pointing at the original.
+      store.addRemote(
+          remote('rp_${mine.id}_by_grace', repostOf: mine.id));
+      // An @you mention notifies me.
+      store.addRemote(remote('m1', text: 'hey @you look at this'));
+      // Someone else's unrelated post does NOT.
+      store.addRemote(remote('x1', text: 'just talking to myself'));
+
+      final notes = store.notifications;
+      expect(notes, hasLength(3));
+      expect(notes.map((n) => n.type).toSet(), {
+        FeedNotificationType.reply,
+        FeedNotificationType.repost,
+        FeedNotificationType.mention,
+      });
+      expect(
+          notes
+              .firstWhere((n) => n.type == FeedNotificationType.repost)
+              .threadPostId,
+          mine.id);
+      expect(store.unseenNotificationCount, 3);
+
+      // Dedup: the same event arriving twice doesn't double-count.
+      store.addRemote(remote('r1', parent: mine.id, text: 'nice one'));
+      expect(store.notifications, hasLength(3));
+
+      // Marking seen clears the badge but keeps the history.
+      store.markNotificationsSeen();
+      expect(store.unseenNotificationCount, 0);
+      expect(store.notifications, hasLength(3));
+
+      // The pure detector never fires on your own echoed post.
+      expect(
+          FeedStore.notificationFor(mine,
+              myUsername: 'you', myPostIds: {mine.id}),
+          isNull);
     });
 
     test('threads nest, mentions autocomplete, authors resolve', () {

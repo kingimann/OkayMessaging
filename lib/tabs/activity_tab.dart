@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../models/chat.dart';
+import '../models/feed_notification.dart';
 import '../state/call_log.dart';
 import '../state/call_service.dart';
 import '../state/chat_store.dart';
@@ -53,6 +54,8 @@ class _ActivityTabState extends State<ActivityTab> {
         final missed =
             CallLog.instance.records.where((r) => r.isMissed).take(10).toList();
         final posts = FeedStore.instance.recentPosts(limit: 5);
+        // Interactions that name you come first — they're the most personal.
+        final mentions = FeedStore.instance.notifications.take(15).toList();
 
         final showMessages =
             _filter == _Filter.all || _filter == _Filter.messages;
@@ -62,7 +65,7 @@ class _ActivityTabState extends State<ActivityTab> {
 
         final somethingVisible = (showMessages && unread.isNotEmpty) ||
             (showCalls && missed.isNotEmpty) ||
-            (showServers && posts.isNotEmpty);
+            (showServers && (mentions.isNotEmpty || posts.isNotEmpty));
 
         return Column(
           children: [
@@ -191,6 +194,79 @@ class _ActivityTabState extends State<ActivityTab> {
                                 },
                               ),
                           ],
+                          if (showServers && mentions.isNotEmpty) ...[
+                            _sectionLabel(context, 'MENTIONS & REPLIES'),
+                            for (final n in mentions)
+                              ListTile(
+                                leading: Stack(
+                                  clipBehavior: Clip.none,
+                                  children: [
+                                    CircleAvatar(
+                                      radius: 22,
+                                      child: Text(n.actorName.isEmpty
+                                          ? '?'
+                                          : n.actorName[0].toUpperCase()),
+                                    ),
+                                    Positioned(
+                                      right: -2,
+                                      bottom: -2,
+                                      child: Container(
+                                        padding: const EdgeInsets.all(3),
+                                        decoration: BoxDecoration(
+                                          color: Theme.of(context)
+                                              .scaffoldBackgroundColor,
+                                          shape: BoxShape.circle,
+                                        ),
+                                        child: Icon(_notifIcon(n.type),
+                                            size: 14,
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .primary),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                title: Text.rich(TextSpan(children: [
+                                  TextSpan(
+                                      text: n.actorName,
+                                      style: const TextStyle(
+                                          fontWeight: FontWeight.w600)),
+                                  TextSpan(text: ' ${_notifVerb(n.type)}'),
+                                ])),
+                                subtitle: n.preview.isEmpty
+                                    ? null
+                                    : Text(n.preview,
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis),
+                                trailing: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    if (!n.seen)
+                                      Container(
+                                        width: 8,
+                                        height: 8,
+                                        margin:
+                                            const EdgeInsets.only(right: 6),
+                                        decoration: BoxDecoration(
+                                          color: Theme.of(context)
+                                              .colorScheme
+                                              .primary,
+                                          shape: BoxShape.circle,
+                                        ),
+                                      ),
+                                    Text(DateFormatter.callLabel(n.time),
+                                        style: TextStyle(
+                                            fontSize: 12,
+                                            color: Colors.grey.shade500)),
+                                  ],
+                                ),
+                                onTap: () => Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                      builder: (_) => FeedPostScreen(
+                                          postId: n.threadPostId)),
+                                ),
+                              ),
+                          ],
                           if (showServers && posts.isNotEmpty) ...[
                             _sectionLabel(context, 'NEW IN YOUR SERVERS'),
                             for (final p in posts)
@@ -245,4 +321,16 @@ class _ActivityTabState extends State<ActivityTab> {
 
   Widget _sectionLabel(BuildContext context, String text) =>
       SectionHeader(text);
+
+  IconData _notifIcon(FeedNotificationType t) => switch (t) {
+        FeedNotificationType.reply => Icons.reply,
+        FeedNotificationType.mention => Icons.alternate_email,
+        FeedNotificationType.repost => Icons.repeat,
+      };
+
+  String _notifVerb(FeedNotificationType t) => switch (t) {
+        FeedNotificationType.reply => 'replied to you',
+        FeedNotificationType.mention => 'mentioned you',
+        FeedNotificationType.repost => 'reposted you',
+      };
 }

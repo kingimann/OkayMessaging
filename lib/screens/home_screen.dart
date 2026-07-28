@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../state/call_log.dart';
 import '../state/chat_store.dart';
+import '../state/feed_store.dart';
 import '../state/follow_store.dart';
 import '../tabs/activity_tab.dart';
 import '../tabs/calls_tab.dart';
@@ -159,12 +160,13 @@ class _HomeScreenState extends State<HomeScreen>
         ),
       ),
       bottomNavigationBar: ListenableBuilder(
-        listenable:
-            Listenable.merge([CallLog.instance, ChatStore.instance]),
+        listenable: Listenable.merge(
+            [CallLog.instance, ChatStore.instance, FeedStore.instance]),
         builder: (context, _) => _ModernNavBar(
           index: _index,
           missedCalls: CallLog.instance.newMissedCount,
           activityCount: CallLog.instance.newMissedCount +
+              FeedStore.instance.unseenNotificationCount +
               ChatStore.instance.chats
                   .fold(0, (n, c) => n + (c.unreadCount > 0 ? 1 : 0)),
           onSelect: _onSelectTab,
@@ -178,6 +180,8 @@ class _HomeScreenState extends State<HomeScreen>
     setState(() => _index = i);
     // Opening the Calls tab clears the missed-call badge.
     if (i == 2) CallLog.instance.markSeen();
+    // Opening Notifications clears the feed mention/reply badge.
+    if (i == 3) FeedStore.instance.markNotificationsSeen();
   }
 
   String get _titleForIndex => switch (_index) {

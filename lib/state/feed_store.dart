@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../app_state.dart';
+import '../models/feed_notification.dart';
 import '../relay/relay_config.dart';
 import '../relay/relay_service.dart';
 
@@ -130,6 +131,60 @@ class FeedStore extends ChangeNotifier {
   // the next time the encrypted cloud blob (uploaded before the delete) or
   // a queued relay copy replays it.
   final Set<String> _deletedIds = {};
+
+  // Interactions with you — replies, @mentions, reposts — newest first.
+  final List<FeedNotification> _notifications = [];
+
+  /// Feed interactions with you, newest first.
+  List<FeedNotification> get notifications =>
+      List.unmodifiable(_notifications);
+
+  /// How many are still unseen (drives the tab badge).
+  int get unseenNotificationCount =>
+      _notifications.where((n) => !n.seen).length;
+
+  /// Marks every feed notification seen.
+  void markNotificationsSeen() {
+    if (_notifications.every((n) => n.seen)) return;
+    for (var i = 0; i < _notifications.length; i++) {
+      _notifications[i] = _notifications[i].copyWith(seen: true);
+    }
+    _save();
+    notifyListeners();
+  }
+
+  /// Pure: whether an incoming [post] interacts with [myUsername] (whose own
+  /// posts are [myPostIds]), and if so, as what. Returns null for anything
+  /// that isn't about you — including your own posts echoing back.
+  static FeedNotification? notificationFor(FeedPost post,
+      {required String myUsername, required Set<String> myPostIds}) {
+    final me = myUsername.toLowerCase();
+    // Never notify yourself about your own actions.
+    if (post.authorUsername.toLowerCase() == me) return null;
+
+    FeedNotificationType? type;
+    var thread = post.id;
+    if (post.repostOfId != null && myPostIds.contains(post.repostOfId)) {
+      type = FeedNotificationType.repost;
+      thread = post.repostOfId!;
+    } else if (post.parentId != null && myPostIds.contains(post.parentId)) {
+      type = FeedNotificationType.reply;
+    } else if (RegExp('@$myUsername\\b', caseSensitive: false)
+        .hasMatch(post.text)) {
+      type = FeedNotificationType.mention;
+    }
+    if (type == null || me.isEmpty) return null;
+    return FeedNotification(
+      id: post.id,
+      type: type,
+      communityId: post.communityId,
+      actorName: post.authorName,
+      actorUsername: post.authorUsername,
+      time: post.time,
+      threadPostId: thread,
+      preview: post.text,
+    );
+  }
 
   bool isSaved(String postId) => _savedIds.contains(postId);
 
@@ -270,6 +325,7 @@ class FeedStore extends ChangeNotifier {
     }
     if (_posts.any((p) => p.id == post.id)) return;
     _posts.add(post);
+    _maybeNotify(post);
     final parentId = post.parentId;
     if (parentId != null) {
       final i = _posts.indexWhere((p) => p.id == parentId);
@@ -307,6 +363,25 @@ class FeedStore extends ChangeNotifier {
         liked: !p.liked, likes: p.liked ? p.likes - 1 : p.likes + 1);
     _save();
     notifyListeners();
+  }
+
+  /// Records a notification if [post] interacts with the local user. Deduped
+  /// by id and capped so the list can't grow without bound.
+  void _maybeNotify(FeedPost post) {
+    final me = AppState.profile.value;
+    final myUsername = me.username.isEmpty ? 'you' : me.username;
+    final myPostIds = {
+      for (final p in _posts)
+        if (p.authorUsername == 'you' ||
+            p.authorUsername.toLowerCase() == myUsername.toLowerCase())
+          p.id
+    };
+    final note = notificationFor(post,
+        myUsername: myUsername, myPostIds: myPostIds);
+    if (note == null) return;
+    if (_notifications.any((n) => n.id == note.id)) return;
+    _notifications.insert(0, note);
+    if (_notifications.length > 50) _notifications.removeLast();
   }
 
   /// The deterministic id of [username]'s repost of [postId] — the same on
@@ -441,6 +516,12 @@ class FeedStore extends ChangeNotifier {
           ..clear()
           ..addAll(
               (decoded['deleted'] as List? ?? const []).whereType<String>());
+        _notifications
+          ..clear()
+          ..addAll((decoded['notifs'] as List? ?? const [])
+              .whereType<Map>()
+              .map((m) =>
+                  FeedNotification.fromJson(Map<String, dynamic>.from(m))));
       } else if (decoded is List) {
         rawPosts = decoded;
       } else {
@@ -467,6 +548,7 @@ class FeedStore extends ChangeNotifier {
             'muted': _mutedUsernames.toList(),
             'saved': _savedIds.toList(),
             'deleted': _deletedIds.toList(),
+            'notifs': [for (final n in _notifications) n.toJson()],
           }));
     } catch (_) {}
   }
@@ -478,6 +560,7 @@ class FeedStore extends ChangeNotifier {
     _mutedUsernames.clear();
     _savedIds.clear();
     _deletedIds.clear();
+    _notifications.clear();
     _nextId = 1;
     notifyListeners();
   }
