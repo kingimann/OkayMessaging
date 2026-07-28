@@ -24,6 +24,25 @@ enum MapLayer {
       values.firstWhere((l) => l.name == name, orElse: () => MapLayer.standard);
 }
 
+/// Brightness lift applied to the Dark basemap's tiles.
+///
+/// CARTO's `dark_all` sits at roughly #0E1013 — near-black, so at night the
+/// map reads as an empty screen and the streets vanish into the background.
+/// This is a standard 5x4 colour matrix that scales each channel slightly
+/// (0.82, keeping some contrast) and then adds a flat +38 offset, moving the
+/// background to about #3A3C3F — a charcoal that still reads as "dark" while
+/// letting roads, water and labels separate. Alpha is untouched.
+const List<double> darkMapLift = <double>[
+  0.82, 0, 0, 0, 38, //
+  0, 0.82, 0, 0, 38, //
+  0, 0, 0.82, 0, 38, //
+  0, 0, 0, 1, 0, //
+];
+
+/// The channel value [v] (0-255) as the lift above renders it. Pure, so the
+/// "is it actually lighter" question is testable rather than eyeballed.
+double liftedChannel(double v) => (v * 0.82 + 38).clamp(0, 255);
+
 /// The raster tile layer for a given [layer].
 ///
 /// Standard and Dark use CARTO's basemaps (rendered from up-to-date
@@ -77,6 +96,13 @@ TileLayer tileLayerFor(MapLayer layer, {bool lowData = false}) {
         retinaMode: retina,
         maxNativeZoom: 20,
         maxZoom: 22,
+        // CARTO's dark basemap is nearly black, which reads as a blank screen
+        // at night and buries the streets. Lift it to a charcoal so roads and
+        // labels separate from the background.
+        tileBuilder: (context, tileWidget, tile) => ColorFiltered(
+          colorFilter: const ColorFilter.matrix(darkMapLift),
+          child: tileWidget,
+        ),
       );
     case MapLayer.standard:
       return TileLayer(

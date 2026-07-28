@@ -319,7 +319,7 @@ class _PostCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const SizedBox(height: 4),
-                    if (post.pinned || post.tag.isNotEmpty) ...[
+                    if (post.pinned || post.locked || post.tag.isNotEmpty) ...[
                       Row(
                         children: [
                           if (post.pinned) ...[
@@ -331,6 +331,17 @@ class _PostCard extends StatelessWidget {
                                     fontSize: 11,
                                     fontWeight: FontWeight.w700,
                                     color: Colors.green.shade700)),
+                            const SizedBox(width: 8),
+                          ],
+                          if (post.locked) ...[
+                            Icon(Icons.lock,
+                                size: 13, color: Colors.grey.shade600),
+                            const SizedBox(width: 3),
+                            Text('Locked',
+                                style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                    color: Colors.grey.shade600)),
                             const SizedBox(width: 8),
                           ],
                           if (post.tag.isNotEmpty)
@@ -445,6 +456,9 @@ class _PostMenu extends StatelessWidget {
         if (v == 'pin') {
           CommunityStore.instance
               .togglePinForumPost(communityId, channelId, post.id);
+        } else if (v == 'lock') {
+          CommunityStore.instance
+              .toggleLockForumPost(communityId, channelId, post.id);
         } else if (v == 'edit') {
           Navigator.of(context).push(MaterialPageRoute(
             builder: (_) => CreateForumPostScreen(
@@ -463,9 +477,13 @@ class _PostMenu extends StatelessWidget {
       itemBuilder: (context) => [
         if (isMineAuthor(post.authorId))
           const PopupMenuItem(value: 'edit', child: Text('Edit')),
-        if (mod)
+        if (mod) ...[
           PopupMenuItem(
               value: 'pin', child: Text(post.pinned ? 'Unpin' : 'Pin')),
+          PopupMenuItem(
+              value: 'lock',
+              child: Text(post.locked ? 'Unlock thread' : 'Lock thread')),
+        ],
         const PopupMenuItem(value: 'delete', child: Text('Delete')),
       ],
     );
@@ -549,7 +567,7 @@ class _ForumPostScreenState extends State<ForumPostScreen> {
       return;
     }
     final me = AppState.profile.value;
-    CommunityStore.instance.addForumComment(
+    final added = CommunityStore.instance.addForumComment(
       widget.communityId,
       widget.channelId,
       widget.postId,
@@ -564,6 +582,11 @@ class _ForumPostScreenState extends State<ForumPostScreen> {
         parentId: _replyingTo?.id,
       ),
     );
+    if (!added) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('This thread is locked — no new comments.')));
+      return;
+    }
     _comment.clear();
     setState(() => _replyingTo = null);
     FocusScope.of(context).unfocus();
@@ -735,7 +758,32 @@ class _ForumPostScreenState extends State<ForumPostScreen> {
                   ],
                 ),
               ),
-              SafeArea(
+              if (post.locked)
+                SafeArea(
+                  top: false,
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 14),
+                    color: Theme.of(context)
+                        .colorScheme
+                        .surfaceContainerHighest
+                        .withValues(alpha: 0.5),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.lock_outline,
+                            size: 18, color: Colors.grey.shade600),
+                        const SizedBox(width: 8),
+                        Text('This thread is locked',
+                            style: TextStyle(
+                                color: Colors.grey.shade600, fontSize: 13.5)),
+                      ],
+                    ),
+                  ),
+                )
+              else
+                SafeArea(
                 top: false,
                 child: Column(
                   mainAxisSize: MainAxisSize.min,

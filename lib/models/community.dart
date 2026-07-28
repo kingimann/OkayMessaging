@@ -118,6 +118,10 @@ class ForumPost {
   final bool pinned;
   final bool edited;
 
+  /// A locked thread is closed to new comments; moderators can still unlock
+  /// it. Existing comments stay readable.
+  final bool locked;
+
   /// One of [forumTags], or '' for an untagged post.
   final String tag;
   final List<ForumComment> comments;
@@ -133,6 +137,7 @@ class ForumPost {
     this.myVote = 1,
     this.pinned = false,
     this.edited = false,
+    this.locked = false,
     this.tag = '',
     this.comments = const [],
   });
@@ -144,6 +149,7 @@ class ForumPost {
     int? myVote,
     bool? pinned,
     bool? edited,
+    bool? locked,
     String? tag,
     List<ForumComment>? comments,
   }) =>
@@ -158,6 +164,7 @@ class ForumPost {
         myVote: myVote ?? this.myVote,
         pinned: pinned ?? this.pinned,
         edited: edited ?? this.edited,
+        locked: locked ?? this.locked,
         tag: tag ?? this.tag,
         comments: comments ?? this.comments,
       );
@@ -173,6 +180,7 @@ class ForumPost {
         'myVote': myVote,
         'pinned': pinned,
         'edited': edited,
+        if (locked) 'locked': true,
         'tag': tag,
         'comments': comments.map((c) => c.toJson()).toList(),
       };
@@ -188,6 +196,7 @@ class ForumPost {
         myVote: (j['myVote'] as num?)?.toInt() ?? 0,
         pinned: j['pinned'] as bool? ?? false,
         edited: j['edited'] as bool? ?? false,
+        locked: j['locked'] as bool? ?? false,
         tag: j['tag'] as String? ?? '',
         comments: (j['comments'] as List? ?? const [])
             .map((c) => ForumComment.fromJson(Map<String, dynamic>.from(c as Map)))

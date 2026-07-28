@@ -34,7 +34,25 @@ class CommunityStore extends ChangeNotifier {
   static const _seenKey = 'community_seen_v1';
   Map<String, int> _seen = {};
 
+  /// Channels the user has muted. A muted channel still receives messages and
+  /// shows its own unread count when you look at it — it just stops pushing
+  /// the server's badge, so one busy channel can't make everything look unread.
+  static const _mutedChannelsKey = 'community_muted_channels_v1';
+  Set<String> _mutedChannels = {};
+
   List<Community> get communities => List.unmodifiable(_communities);
+
+  /// Whether [channelId] is muted for this device.
+  bool isChannelMuted(String channelId) => _mutedChannels.contains(channelId);
+
+  /// Mutes/unmutes a channel; returns true when it is now muted.
+  bool toggleChannelMute(String channelId) {
+    final nowMuted = !_mutedChannels.remove(channelId);
+    if (nowMuted) _mutedChannels.add(channelId);
+    _prefs?.setString(_mutedChannelsKey, jsonEncode(_mutedChannels.toList()));
+    notifyListeners();
+    return nowMuted;
+  }
 
   /// Unread messages in one channel (never negative).
   int unreadInChannel(Channel ch) {
@@ -56,10 +74,12 @@ class CommunityStore extends ChangeNotifier {
     return ch.messages[seen].id;
   }
 
-  /// Total unread across a server's message channels.
+  /// Total unread across a server's message channels. Muted channels are
+  /// excluded — that's the whole point of muting one.
   int unreadInCommunity(Community c) {
     var total = 0;
     for (final ch in c.channels) {
+      if (isChannelMuted(ch.id)) continue;
       total += unreadInChannel(ch);
     }
     return total;
@@ -102,6 +122,11 @@ class CommunityStore extends ChangeNotifier {
         _seen = Map<String, int>.from(
             (jsonDecode(seenRaw) as Map).map((k, v) =>
                 MapEntry(k as String, (v as num).toInt())));
+      }
+      final mutedRaw = prefs.getString(_mutedChannelsKey);
+      if (mutedRaw != null) {
+        _mutedChannels =
+            (jsonDecode(mutedRaw) as List).whereType<String>().toSet();
       }
     } catch (_) {}
     final raw = prefs.getString(_key);
@@ -536,10 +561,13 @@ class CommunityStore extends ChangeNotifier {
   }
 
   /// Adds a [comment] under a forum post.
-  void addForumComment(String communityId, String channelId, String postId,
+  /// Adds a comment to a forum post. Returns false when the thread is locked,
+  /// so the caller can say why instead of dropping the comment silently.
+  bool addForumComment(String communityId, String channelId, String postId,
       ForumComment comment) {
     final community = byId(communityId);
-    if (community == null) return;
+    if (community == null) return false;
+    if (isForumPostLocked(communityId, channelId, postId)) return false;
     final channels = community.channels.map((ch) {
       if (ch.id != channelId) return ch;
       final posts = ch.posts.map((p) {
@@ -550,6 +578,36 @@ class CommunityStore extends ChangeNotifier {
     }).toList();
     _replace(community.copyWith(channels: channels));
     ScoreStore.instance.award(ScoreStore.pointsPerForumComment);
+    return true;
+  }
+
+  /// Whether a forum thread is closed to new comments.
+  bool isForumPostLocked(
+      String communityId, String channelId, String postId) {
+    final post = byId(communityId)
+        ?.channels
+        .cast<Channel?>()
+        .firstWhere((c) => c?.id == channelId, orElse: () => null)
+        ?.posts
+        .cast<ForumPost?>()
+        .firstWhere((p) => p?.id == postId, orElse: () => null);
+    return post?.locked ?? false;
+  }
+
+  /// Locks or unlocks a forum thread (moderator action). A locked thread
+  /// stays readable and votable — it just takes no new comments.
+  void toggleLockForumPost(
+      String communityId, String channelId, String postId) {
+    final community = byId(communityId);
+    if (community == null || !canModerate(communityId)) return;
+    final channels = community.channels.map((ch) {
+      if (ch.id != channelId) return ch;
+      final posts = ch.posts
+          .map((p) => p.id == postId ? p.copyWith(locked: !p.locked) : p)
+          .toList();
+      return ch.copyWith(posts: posts);
+    }).toList();
+    _replace(community.copyWith(channels: channels));
   }
 
   /// Applies a [dir] (+1/-1) vote to a comment under a forum post.
@@ -1096,6 +1154,7 @@ class CommunityStore extends ChangeNotifier {
     _communities = _seed();
     _prefs = null;
     _seen.clear();
+    _mutedChannels.clear();
     onStructureChanged = null;
     notifyListeners();
   }

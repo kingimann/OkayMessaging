@@ -1512,6 +1512,27 @@ class _ChannelScreenState extends State<ChannelScreen> {
                   _searching = !_searching;
                 }),
               ),
+              if (!_searching)
+                Builder(builder: (context) {
+                  final muted =
+                      CommunityStore.instance.isChannelMuted(channel.id);
+                  return IconButton(
+                    icon: Icon(muted
+                        ? Icons.notifications_off
+                        : Icons.notifications_none),
+                    tooltip: muted ? 'Unmute channel' : 'Mute channel',
+                    onPressed: () {
+                      final nowMuted = CommunityStore.instance
+                          .toggleChannelMute(channel.id);
+                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                        content: Text(nowMuted
+                            ? '#${channel.name} muted — it won\'t badge the '
+                                'server.'
+                            : '#${channel.name} unmuted.'),
+                      ));
+                    },
+                  );
+                }),
             ],
           ),
           body: Column(

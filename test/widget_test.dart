@@ -6118,6 +6118,116 @@ void main() {
       expect(FeedStore.instance.notifications.length, 1);
     });
 
+    test('a locked forum thread takes no new comments', () {
+      CommunityStore.instance.resetForTest();
+      final store = CommunityStore.instance;
+      final c = store.createCommunity('Builders');
+      store.addChannel(c.id, 'Help', type: ChannelType.forum);
+      final forum = store
+          .byId(c.id)!
+          .channels
+          .firstWhere((ch) => ch.type == ChannelType.forum);
+      store.addForumPost(
+          c.id,
+          forum.id,
+          ForumPost(
+              id: 'fp1',
+              authorId: 'me',
+              authorName: 'You',
+              time: DateTime(2026),
+              title: 'How do I flash the firmware?'));
+
+      ForumPost live() => store
+          .byId(c.id)!
+          .channels
+          .firstWhere((ch) => ch.id == forum.id)
+          .posts
+          .firstWhere((p) => p.id == 'fp1');
+
+      ForumComment comment(String id) => ForumComment(
+          id: id,
+          authorId: 'm2',
+          authorName: 'Grace',
+          time: DateTime(2026),
+          body: 'try holding boot');
+
+      // Open: comments land.
+      expect(store.addForumComment(c.id, forum.id, 'fp1', comment('c1')),
+          isTrue);
+      expect(live().comments.length, 1);
+      expect(live().locked, isFalse);
+
+      // The owner locks it; further comments are refused, not dropped silently.
+      store.toggleLockForumPost(c.id, forum.id, 'fp1');
+      expect(live().locked, isTrue);
+      expect(store.isForumPostLocked(c.id, forum.id, 'fp1'), isTrue);
+      expect(store.addForumComment(c.id, forum.id, 'fp1', comment('c2')),
+          isFalse);
+      expect(live().comments.length, 1, reason: 'existing comments survive');
+
+      // Unlocking reopens it.
+      store.toggleLockForumPost(c.id, forum.id, 'fp1');
+      expect(live().locked, isFalse);
+      expect(store.addForumComment(c.id, forum.id, 'fp1', comment('c3')),
+          isTrue);
+      expect(live().comments.length, 2);
+
+      // The flag round-trips through JSON.
+      expect(ForumPost.fromJson(live().copyWith(locked: true).toJson()).locked,
+          isTrue);
+    });
+
+    test('muting a channel keeps it out of the server badge', () {
+      CommunityStore.instance.resetForTest();
+      addTearDown(CommunityStore.instance.resetForTest);
+      final store = CommunityStore.instance;
+      final c = store.createCommunity('Noisy');
+      final chan = c.channels.firstWhere((ch) => ch.type == ChannelType.text);
+      for (var i = 0; i < 3; i++) {
+        store.postMessage(
+            c.id,
+            chan.id,
+            Message(
+                id: 'n$i',
+                text: 'chatter $i',
+                time: DateTime(2026, 2, 1, 9, i),
+                isMe: false));
+      }
+      Community live() => store.byId(c.id)!;
+
+      // Unmuted, the channel drives the server badge.
+      expect(store.isChannelMuted(chan.id), isFalse);
+      expect(store.unreadInCommunity(live()), 3);
+
+      // Muted, the server stops badging — but the channel's own count stands,
+      // so opening it still shows what you missed.
+      expect(store.toggleChannelMute(chan.id), isTrue);
+      expect(store.unreadInCommunity(live()), 0);
+      expect(
+          store.unreadInChannel(
+              live().channels.firstWhere((ch) => ch.id == chan.id)),
+          3);
+
+      // Unmuting restores the badge.
+      expect(store.toggleChannelMute(chan.id), isFalse);
+      expect(store.unreadInCommunity(live()), 3);
+    });
+
+    test('the dark map is lifted off near-black', () {
+      // CARTO's dark basemap sits around #0E1013 — a lift keeps it dark
+      // without reading as a blank screen.
+      expect(liftedChannel(14), greaterThan(45));
+      expect(liftedChannel(0), 38);
+      // Still clearly dark, not washed out to mid-grey.
+      expect(liftedChannel(14), lessThan(90));
+      // Ordering is preserved, so roads stay lighter than the background.
+      expect(liftedChannel(60), greaterThan(liftedChannel(14)));
+      // Whites stay in range.
+      expect(liftedChannel(255), lessThanOrEqualTo(255));
+      // The matrix is the standard 5x4 shape ColorFilter.matrix expects.
+      expect(darkMapLift.length, 20);
+    });
+
     test('the unread divider anchors to the first unseen message', () {
       CommunityStore.instance.resetForTest();
       final c = CommunityStore.instance.createCommunity('Readers');
