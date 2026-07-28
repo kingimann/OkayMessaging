@@ -5972,6 +5972,73 @@ void main() {
       expect(mentionPrefix('hi @ada there', 3), isNull);
     });
 
+    test('editing your own post keeps its replies and flags it edited', () {
+      FeedStore.instance.resetForTest();
+      addTearDown(FeedStore.instance.resetForTest);
+      final store = FeedStore.instance;
+      final mine = store.add('c1', 'frist post');
+      store.reply(mine.id, 'nice one');
+      expect(store.postById(mine.id)!.replies, 1);
+      expect(store.postById(mine.id)!.edited, isFalse);
+
+      // A real edit flags the post and keeps the reply count.
+      expect(store.editPost(mine.id, 'first post'), isTrue);
+      expect(store.postById(mine.id)!.text, 'first post');
+      expect(store.postById(mine.id)!.edited, isTrue);
+      expect(store.postById(mine.id)!.replies, 1);
+
+      // No-ops: blank text, unchanged text, and unknown ids.
+      expect(store.editPost(mine.id, '   '), isFalse);
+      expect(store.editPost(mine.id, 'first post'), isFalse);
+      expect(store.editPost('nope', 'hi'), isFalse);
+
+      // Someone else's post can't be rewritten.
+      final theirs = FeedPost(
+        id: 'other1',
+        communityId: 'c1',
+        authorName: 'Grace',
+        authorUsername: 'grace',
+        time: DateTime(2026),
+        text: 'mine to edit',
+      );
+      store.addRemote(theirs);
+      expect(store.editPost('other1', 'hijacked'), isFalse);
+      expect(store.postById('other1')!.text, 'mine to edit');
+
+      // The flag survives a save/restore round trip.
+      final revived = FeedPost.fromJson(store.postById(mine.id)!.toJson());
+      expect(revived.edited, isTrue);
+    });
+
+    test('searchPosts matches text, author, and @username', () {
+      final posts = [
+        FeedPost(
+            id: 'p1',
+            communityId: 'c1',
+            authorName: 'Grace Hopper',
+            authorUsername: 'grace',
+            time: DateTime(2026),
+            text: 'shipping the compiler today'),
+        FeedPost(
+            id: 'p2',
+            communityId: 'c1',
+            authorName: 'Ada Lovelace',
+            authorUsername: 'ada',
+            time: DateTime(2026),
+            text: 'lunch plans?'),
+      ];
+      // Empty query is a pass-through.
+      expect(FeedStore.searchPosts(posts, ''), posts);
+      // Body text, case-insensitive.
+      expect(FeedStore.searchPosts(posts, 'COMPILER').map((p) => p.id), ['p1']);
+      // Display name.
+      expect(FeedStore.searchPosts(posts, 'lovelace').map((p) => p.id), ['p2']);
+      // A leading "@" reads as "posts by", not literal text.
+      expect(FeedStore.searchPosts(posts, '@grace').map((p) => p.id), ['p1']);
+      // No match drives the empty state.
+      expect(FeedStore.searchPosts(posts, 'zzzz'), isEmpty);
+    });
+
     test('mentionsMe matches name tokens and usernames at a boundary', () {
       bool hit(String text) =>
           FeedStore.mentionsMe(text, myName: 'Ada Lovelace', myUsername: 'ada');

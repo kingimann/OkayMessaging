@@ -10,6 +10,7 @@ import '../state/feed_store.dart';
 import '../state/follow_store.dart';
 import '../util/file_moderation.dart';
 import '../util/photo_prep.dart';
+import '../widgets/app_dialogs.dart';
 import '../widgets/chat_photo.dart';
 import '../widgets/emoji_gif_sheet.dart';
 import '../widgets/pull_to_refresh.dart';
@@ -86,9 +87,14 @@ class _FeedScreenState extends State<FeedScreen> {
   /// Active trending-hashtag filter ('' = whole timeline).
   String _tag = '';
 
+  /// Free-text search over the timeline, open from the app bar.
+  final TextEditingController _search = TextEditingController();
+  bool _searching = false;
+
   @override
   void dispose() {
     _composer.dispose();
+    _search.dispose();
     super.dispose();
   }
 
@@ -231,7 +237,15 @@ class _FeedScreenState extends State<FeedScreen> {
                 },
               ),
             ],
-            if (mine)
+            if (mine) ...[
+              ListTile(
+                leading: const Icon(Icons.edit_outlined),
+                title: const Text('Edit post'),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  _editPost(post);
+                },
+              ),
               ListTile(
                 leading: const Icon(Icons.delete_outline, color: Colors.red),
                 title: const Text('Delete post',
@@ -241,11 +255,27 @@ class _FeedScreenState extends State<FeedScreen> {
                   Navigator.of(sheetContext).pop();
                 },
               ),
+            ],
             const SizedBox(height: 8),
           ],
         ),
       ),
     );
+  }
+
+  /// Rewrites one of your own posts, keeping its replies and likes intact.
+  Future<void> _editPost(FeedPost post) async {
+    final text = await showAppTextPrompt(
+      context,
+      icon: Icons.edit_outlined,
+      title: 'Edit post',
+      initial: post.text,
+      hint: 'Say something',
+      capitalization: TextCapitalization.sentences,
+      maxLines: 5,
+    );
+    if (text == null) return;
+    FeedStore.instance.editPost(post.id, text);
   }
 
   /// One regular timeline entry with its full action row.
@@ -317,21 +347,41 @@ class _FeedScreenState extends State<FeedScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('${widget.communityName} · Feed'),
+        title: _searching
+            ? TextField(
+                controller: _search,
+                autofocus: true,
+                decoration: const InputDecoration(
+                  hintText: 'Search posts, or @someone',
+                  border: InputBorder.none,
+                ),
+                onChanged: (_) => setState(() {}),
+              )
+            : Text('${widget.communityName} · Feed'),
         actions: [
           IconButton(
-            icon: const Icon(Icons.person_add_alt),
-            tooltip: 'Add and follow people',
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const PeopleScreen()),
+            icon: Icon(_searching ? Icons.close : Icons.search),
+            tooltip: _searching ? 'Close search' : 'Search posts',
+            onPressed: () => setState(() {
+              if (_searching) _search.clear();
+              _searching = !_searching;
+            }),
+          ),
+          if (!_searching) ...[
+            IconButton(
+              icon: const Icon(Icons.person_add_alt),
+              tooltip: 'Add and follow people',
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const PeopleScreen()),
+              ),
             ),
-          ),
-          // Composing lives up here now — the timeline keeps the screen.
-          IconButton(
-            icon: const Icon(Icons.edit_outlined),
-            tooltip: 'New post',
-            onPressed: _openComposer,
-          ),
+            // Composing lives up here now — the timeline keeps the screen.
+            IconButton(
+              icon: const Icon(Icons.edit_outlined),
+              tooltip: 'New post',
+              onPressed: _openComposer,
+            ),
+          ],
         ],
       ),
       body: ListenableBuilder(
@@ -347,6 +397,10 @@ class _FeedScreenState extends State<FeedScreen> {
                 .where((p) => FeedStore.instance
                     .isSaved(p.repostOfId ?? p.id))
                 .toList();
+          }
+          // Search narrows whatever the chips already selected.
+          if (_searching) {
+            posts = FeedStore.searchPosts(posts, _search.text);
           }
           return PullToRefresh(
             child: ListView(
@@ -412,8 +466,10 @@ class _FeedScreenState extends State<FeedScreen> {
                     padding: const EdgeInsets.all(32),
                     child: Center(
                       child: Text(
-                        'No posts yet. Tap the pencil up top to say '
-                        'something!',
+                        _searching && _search.text.trim().isNotEmpty
+                            ? 'No posts match "${_search.text.trim()}"'
+                            : 'No posts yet. Tap the pencil up top to say '
+                                'something!',
                         textAlign: TextAlign.center,
                         style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
                       ),
@@ -656,7 +712,8 @@ class _PostCard extends StatelessWidget {
                     const SizedBox(width: 6),
                     Flexible(
                       child: Text(
-                          '@${post.authorUsername} · ${feedAge(post.time)}',
+                          '@${post.authorUsername} · ${feedAge(post.time)}'
+                          '${post.edited ? ' · edited' : ''}',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(color: grey, fontSize: 13.5)),

@@ -34,6 +34,10 @@ class FeedPost {
   /// in the timeline under the reposter's name, X-style.
   final String? repostOfId;
 
+  /// True once the author has rewritten the post, so readers can see the text
+  /// changed after people replied to it.
+  final bool edited;
+
   const FeedPost({
     required this.id,
     required this.communityId,
@@ -49,6 +53,7 @@ class FeedPost {
     this.parentId,
     this.gifUrl,
     this.repostOfId,
+    this.edited = false,
   });
 
   FeedPost copyWith({
@@ -57,6 +62,8 @@ class FeedPost {
     int? replies,
     bool? liked,
     bool? reposted,
+    String? text,
+    bool? edited,
   }) =>
       FeedPost(
         id: id,
@@ -64,7 +71,7 @@ class FeedPost {
         authorName: authorName,
         authorUsername: authorUsername,
         time: time,
-        text: text,
+        text: text ?? this.text,
         likes: likes ?? this.likes,
         reposts: reposts ?? this.reposts,
         replies: replies ?? this.replies,
@@ -73,6 +80,7 @@ class FeedPost {
         parentId: parentId,
         gifUrl: gifUrl,
         repostOfId: repostOfId,
+        edited: edited ?? this.edited,
       );
 
   Map<String, dynamic> toJson() => {
@@ -90,6 +98,7 @@ class FeedPost {
         if (parentId != null) 'parentId': parentId,
         if (gifUrl != null) 'gifUrl': gifUrl,
         if (repostOfId != null) 'repostOfId': repostOfId,
+        if (edited) 'edited': true,
       };
 
   factory FeedPost.fromJson(Map<String, dynamic> j) => FeedPost(
@@ -107,6 +116,7 @@ class FeedPost {
         parentId: j['parentId'] as String?,
         gifUrl: j['gifUrl'] as String?,
         repostOfId: j['repostOfId'] as String?,
+        edited: j['edited'] as bool? ?? false,
       );
 }
 
@@ -239,6 +249,44 @@ class FeedStore extends ChangeNotifier {
     if (_notifications.length > 50) _notifications.removeLast();
     _save();
     notifyListeners();
+  }
+
+  /// Rewrites one of the local user's own posts, flagging it edited. Ignores
+  /// empty text, unchanged text, and anyone else's posts.
+  bool editPost(String postId, String newText) {
+    final text = newText.trim();
+    if (text.isEmpty) return false;
+    final i = _posts.indexWhere((p) => p.id == postId);
+    if (i == -1) return false;
+    final post = _posts[i];
+    final me = AppState.profile.value.username;
+    final mine = post.authorUsername == 'you' ||
+        (me.isNotEmpty && post.authorUsername == me);
+    if (!mine || post.text == text) return false;
+    _posts[i] = post.copyWith(text: text, edited: true);
+    _save();
+    notifyListeners();
+    return true;
+  }
+
+  /// Case-insensitive search over a server's posts — matches body text, the
+  /// author's display name, and their username (so "@grace" finds her posts).
+  /// Pure enough to test.
+  static List<FeedPost> searchPosts(List<FeedPost> all, String query) {
+    final q = query.trim().toLowerCase();
+    if (q.isEmpty) return all;
+    // A leading "@" reads as "posts by this person", not literal text.
+    final byAuthor = q.startsWith('@') ? q.substring(1) : null;
+    return [
+      for (final p in all)
+        if (byAuthor != null
+            ? p.authorUsername.toLowerCase().contains(byAuthor) ||
+                p.authorName.toLowerCase().contains(byAuthor)
+            : p.text.toLowerCase().contains(q) ||
+                p.authorName.toLowerCase().contains(q) ||
+                p.authorUsername.toLowerCase().contains(q))
+          p
+    ];
   }
 
   bool isSaved(String postId) => _savedIds.contains(postId);
