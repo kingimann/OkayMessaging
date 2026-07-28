@@ -281,19 +281,41 @@ class Channel {
 }
 
 /// A member's role within a community, in descending order of privilege.
-enum MemberRole { owner, admin, member }
+///
+///  * **owner**     — created the server; full control, can't be removed.
+///  * **admin**     — manages the server: settings, channels, roles, members.
+///  * **moderator** — keeps the peace: delete/pin messages, mute, kick/ban
+///                    members below them. No settings or role control.
+///  * **member**    — takes part.
+enum MemberRole { owner, admin, moderator, member }
 
 MemberRole _roleFrom(String? s) => switch (s) {
       'owner' => MemberRole.owner,
       'admin' => MemberRole.admin,
+      'moderator' => MemberRole.moderator,
       _ => MemberRole.member,
     };
 
 String roleName(MemberRole r) => switch (r) {
       MemberRole.owner => 'Owner',
       MemberRole.admin => 'Admin',
+      MemberRole.moderator => 'Moderator',
       MemberRole.member => 'Member',
     };
+
+/// Rank for privilege comparisons — higher outranks lower.
+int roleRank(MemberRole r) => switch (r) {
+      MemberRole.owner => 3,
+      MemberRole.admin => 2,
+      MemberRole.moderator => 1,
+      MemberRole.member => 0,
+    };
+
+/// Whether [r] can perform moderator actions (delete/pin/mute/kick/ban).
+bool roleCanModerate(MemberRole r) => roleRank(r) >= roleRank(MemberRole.moderator);
+
+/// Whether [r] can change server settings, channels, and roles.
+bool roleCanManageServer(MemberRole r) => roleRank(r) >= roleRank(MemberRole.admin);
 
 /// A person in a community's roster.
 class Member {

@@ -1,76 +1,106 @@
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Paid cloud storage entitlement.
+/// The storage plans on offer. Deliberately no "unlimited" — every tier has a
+/// hard ceiling so a single heavy user can't run costs away.
+enum StorageTier { free, personal, pro, studio }
+
+/// A plan's fixed facts: display name, monthly price, and the storage ceiling.
+class StoragePlan {
+  final StorageTier tier;
+  final String name;
+  final int priceCents; // per month; 0 for Free
+  final int quotaBytes;
+  const StoragePlan(this.tier, this.name, this.priceCents, this.quotaBytes);
+
+  bool get isFree => priceCents == 0;
+  String get priceLabel =>
+      isFree ? 'Free' : '\$${(priceCents / 100).toStringAsFixed(0)}/mo';
+}
+
+/// Paid chat-backup storage.
 ///
-/// Cloud backup used to be free and on for everyone. It's now a monthly
-/// subscription: while it's active, everything except chats backs up to the
-/// server automatically (see [CloudSync]). Chats never leave the device, paid
-/// or not.
+/// **This only ever holds chats.** Servers, feed posts, follows and the like
+/// are communal — they sync to everyone in a server for free and never count
+/// against anyone's quota. A user's personal storage is exactly their own
+/// message history, encrypted, and only if they choose to back it up here (the
+/// alternative being a local backup to iCloud / app storage).
 ///
-/// The entitlement is a single expiry timestamp, persisted on-device. A
-/// purchase (one month) extends it by 30 days from whichever is later —
-/// now, or the current expiry — so paying early stacks rather than wastes
-/// days. When it lapses, automatic backup simply stops; whatever was last
-/// uploaded stays on the server for restore.
+/// Plans are tiered. The Free tier gives a small allowance; paid tiers are a
+/// monthly subscription that raises the ceiling. A single expiry timestamp and
+/// the chosen tier are persisted on-device; usage is the size of the encrypted
+/// chat backup last uploaded.
 class StorageStore extends ChangeNotifier {
   StorageStore._();
   static final StorageStore instance = StorageStore._();
 
+  static const _kTier = 'cloud_storage_tier';
   static const _kActiveUntil = 'cloud_storage_active_until';
   static const _kUsedBytes = 'cloud_storage_used_bytes';
 
-  /// One month of storage, in this app's billing currency.
-  static const int priceCents = 199;
-  static const String currency = 'cad';
-  static const String planName = 'Cloud storage';
+  static const int _gb = 1024 * 1024 * 1024;
 
-  /// A single purchase buys this much time.
+  /// The catalogue, cheapest first.
+  static const List<StoragePlan> plans = [
+    StoragePlan(StorageTier.free, 'Free', 0, 2 * _gb),
+    StoragePlan(StorageTier.personal, 'Personal', 700, 20 * _gb),
+    StoragePlan(StorageTier.pro, 'Pro', 1900, 100 * _gb),
+    StoragePlan(StorageTier.studio, 'Studio', 4900, 500 * _gb),
+  ];
+
+  static StoragePlan planFor(StorageTier tier) =>
+      plans.firstWhere((p) => p.tier == tier);
+
+  /// A single paid month.
   static const Duration period = Duration(days: 30);
 
-  /// How much a subscription includes. The backup excludes chats and media
-  /// bytes, so 5 GB is far more than a text-and-metadata backup ever needs —
-  /// the meter is there to be honest, not to nickel-and-dime.
-  static const int quotaBytes = 5 * 1024 * 1024 * 1024;
-
+  StorageTier _tier = StorageTier.free;
   DateTime? _activeUntil;
   int _usedBytes = 0;
 
-  /// When the current subscription runs out, or null if never subscribed.
-  DateTime? get activeUntil => _activeUntil;
-
-  /// True while storage is paid up. Everything gates on this.
-  bool get active {
+  /// The tier the user is currently entitled to. A lapsed paid subscription
+  /// drops back to Free.
+  StorageTier get tier {
+    if (_tier == StorageTier.free) return StorageTier.free;
     final until = _activeUntil;
-    return until != null && until.isAfter(DateTime.now());
+    if (until == null || !until.isAfter(DateTime.now())) return StorageTier.free;
+    return _tier;
   }
 
-  /// Whole days remaining (0 when lapsed). Handy for the settings copy.
+  StoragePlan get plan => planFor(tier);
+
+  /// The tier the user has *selected/paid for*, even if currently lapsed —
+  /// used to show "renew" vs "subscribe".
+  StorageTier get selectedTier => _tier;
+
+  /// True while on a paid tier that hasn't lapsed.
+  bool get isPaid => tier != StorageTier.free;
+
+  DateTime? get activeUntil => _activeUntil;
+
   int get daysLeft {
     final until = _activeUntil;
-    if (until == null) return 0;
+    if (until == null || !isPaid) return 0;
     final left = until.difference(DateTime.now());
     return left.isNegative ? 0 : left.inDays;
   }
 
-  /// Formatted monthly price, e.g. "$1.99".
-  String get priceLabel => '\$${(priceCents / 100).toStringAsFixed(2)}';
-
-  /// Bytes the latest backup occupies on the server (its ciphertext size).
+  int get quotaBytes => plan.quotaBytes;
   int get usedBytes => _usedBytes;
 
-  /// Bytes still available under the plan.
   int get availableBytes {
     final left = quotaBytes - _usedBytes;
     return left < 0 ? 0 : left;
   }
 
-  /// Fraction of the quota in use, clamped to [0, 1] for a progress bar.
   double get usedFraction {
     if (quotaBytes <= 0) return 0;
     final f = _usedBytes / quotaBytes;
     return f < 0 ? 0 : (f > 1 ? 1 : f);
   }
+
+  /// Whether a chat backup of [bytes] fits under the current ceiling.
+  bool fits(int bytes) => bytes <= quotaBytes;
 
   String get usedLabel => formatBytes(_usedBytes);
   String get availableLabel => formatBytes(availableBytes);
@@ -86,14 +116,55 @@ class StorageStore extends ChangeNotifier {
       value /= 1024;
       unit++;
     }
-    // Whole numbers read cleaner without a trailing ".0".
     final rounded = value >= 100 || value == value.roundToDouble()
         ? value.round().toString()
         : value.toStringAsFixed(1);
     return '$rounded ${units[unit]}';
   }
 
-  /// Records how big the most recent backup is. Called after every upload.
+  Future<void> load() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final tierName = prefs.getString(_kTier);
+      if (tierName != null) {
+        _tier = StorageTier.values.firstWhere((t) => t.name == tierName,
+            orElse: () => StorageTier.free);
+      }
+      final ms = prefs.getInt(_kActiveUntil);
+      if (ms != null) {
+        _activeUntil = DateTime.fromMillisecondsSinceEpoch(ms);
+      }
+      _usedBytes = prefs.getInt(_kUsedBytes) ?? 0;
+      notifyListeners();
+    } catch (_) {}
+  }
+
+  /// Subscribes to (or renews) [tier], adding one month. Paid months stack on
+  /// any time remaining. The Free tier is just a downgrade with no expiry.
+  Future<void> subscribe(StorageTier tier) async {
+    _tier = tier;
+    if (tier == StorageTier.free) {
+      _activeUntil = null;
+    } else {
+      final now = DateTime.now();
+      final base = (_activeUntil != null && _activeUntil!.isAfter(now))
+          ? _activeUntil!
+          : now;
+      _activeUntil = base.add(period);
+    }
+    await _persist();
+    notifyListeners();
+  }
+
+  /// Cancels a paid plan immediately, dropping to Free.
+  Future<void> cancel() async {
+    _tier = StorageTier.free;
+    _activeUntil = null;
+    await _persist();
+    notifyListeners();
+  }
+
+  /// Records how big the latest chat backup is. Called after every chat upload.
   Future<void> setUsedBytes(int bytes) async {
     if (bytes == _usedBytes) return;
     _usedBytes = bytes < 0 ? 0 : bytes;
@@ -104,41 +175,10 @@ class StorageStore extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> load() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final ms = prefs.getInt(_kActiveUntil);
-      if (ms != null) {
-        _activeUntil = DateTime.fromMillisecondsSinceEpoch(ms);
-      }
-      _usedBytes = prefs.getInt(_kUsedBytes) ?? 0;
-      notifyListeners();
-    } catch (_) {}
-  }
-
-  /// Adds one billing period. Stacks on any time already remaining so a renewal
-  /// paid before expiry doesn't lose the leftover days.
-  Future<void> addPeriod() async {
-    final now = DateTime.now();
-    final base = (_activeUntil != null && _activeUntil!.isAfter(now))
-        ? _activeUntil!
-        : now;
-    _activeUntil = base.add(period);
-    await _persist();
-    notifyListeners();
-  }
-
-  /// Ends the subscription immediately (e.g. the user cancels). Data already
-  /// uploaded stays; nothing new goes up until they subscribe again.
-  Future<void> cancel() async {
-    _activeUntil = null;
-    await _persist();
-    notifyListeners();
-  }
-
   Future<void> _persist() async {
     try {
       final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_kTier, _tier.name);
       final until = _activeUntil;
       if (until == null) {
         await prefs.remove(_kActiveUntil);
@@ -149,13 +189,16 @@ class StorageStore extends ChangeNotifier {
   }
 
   @visibleForTesting
-  void debugActivate([Duration length = period]) {
-    _activeUntil = DateTime.now().add(length);
+  void debugSubscribe(StorageTier tier, {Duration length = period}) {
+    _tier = tier;
+    _activeUntil =
+        tier == StorageTier.free ? null : DateTime.now().add(length);
     notifyListeners();
   }
 
   @visibleForTesting
   void resetForTest() {
+    _tier = StorageTier.free;
     _activeUntil = null;
     _usedBytes = 0;
   }

@@ -1863,18 +1863,21 @@ class _MembersSheet extends StatelessWidget {
               onTap: () => Navigator.pop(context, 'mute'),
             ),
             if (manage) ...[
-              if (m.role == MemberRole.member)
+              // Assign any role below owner. The current role is disabled.
+              for (final r in const [
+                MemberRole.admin,
+                MemberRole.moderator,
+                MemberRole.member,
+              ])
                 ListTile(
-                  leading: const Icon(Icons.shield_outlined),
-                  title: const Text('Make admin'),
-                  onTap: () => Navigator.pop(context, 'promote'),
-                )
-              else
-                ListTile(
-                  leading: const Icon(Icons.person_outline),
-                  title: const Text('Remove admin'),
-                  onTap: () => Navigator.pop(context, 'demote'),
+                  leading: Icon(_roleIcon(r)),
+                  title: Text(m.role == r
+                      ? '${roleName(r)} (current)'
+                      : 'Make ${roleName(r).toLowerCase()}'),
+                  enabled: m.role != r,
+                  onTap: () => Navigator.pop(context, 'role:${r.name}'),
                 ),
+              const Divider(height: 1),
               ListTile(
                 leading: const Icon(Icons.person_remove_outlined,
                     color: Colors.red),
@@ -1894,15 +1897,16 @@ class _MembersSheet extends StatelessWidget {
         ),
       ),
     );
+    if (action == null) return;
+    if (action.startsWith('role:')) {
+      final r = MemberRole.values
+          .firstWhere((v) => v.name == action.substring(5));
+      store.setMemberRole(community.id, m.id, r);
+      return;
+    }
     switch (action) {
       case 'mute':
         store.toggleMuteMember(community.id, m.id);
-        break;
-      case 'promote':
-        store.setMemberRole(community.id, m.id, MemberRole.admin);
-        break;
-      case 'demote':
-        store.setMemberRole(community.id, m.id, MemberRole.member);
         break;
       case 'remove':
         store.removeMember(community.id, m.id);
@@ -1912,6 +1916,13 @@ class _MembersSheet extends StatelessWidget {
         break;
     }
   }
+
+  IconData _roleIcon(MemberRole r) => switch (r) {
+        MemberRole.owner => Icons.star_rounded,
+        MemberRole.admin => Icons.shield_rounded,
+        MemberRole.moderator => Icons.gpp_good_outlined,
+        MemberRole.member => Icons.person_outline,
+      };
 }
 
 class _RoleBadge extends StatelessWidget {
@@ -1920,8 +1931,18 @@ class _RoleBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color =
-        role == MemberRole.owner ? const Color(0xFFF1C40F) : AppColors.tealGreenDark;
+    final color = switch (role) {
+      MemberRole.owner => const Color(0xFFF1C40F), // gold
+      MemberRole.admin => AppColors.tealGreenDark,
+      MemberRole.moderator => const Color(0xFF3F7FBF), // blue
+      MemberRole.member => Colors.grey,
+    };
+    final icon = switch (role) {
+      MemberRole.owner => Icons.star_rounded,
+      MemberRole.admin => Icons.shield_rounded,
+      MemberRole.moderator => Icons.gpp_good_outlined,
+      MemberRole.member => Icons.person_outline,
+    };
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
@@ -1931,12 +1952,7 @@ class _RoleBadge extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-              role == MemberRole.owner
-                  ? Icons.star_rounded
-                  : Icons.shield_rounded,
-              size: 14,
-              color: color),
+          Icon(icon, size: 14, color: color),
           const SizedBox(width: 4),
           Text(roleName(role),
               style: TextStyle(

@@ -17,7 +17,9 @@ const String legalLastUpdated = 'Last updated: July 2026';
 ///
 /// v2 — added paid Cloud storage (encrypted backup), the offline message
 /// queue, and on-device file-upload moderation.
-const int legalVersion = 2;
+/// v3 — cloud storage is now tiered and chat-only (servers are communal/free),
+/// videos can't be uploaded, and a fair-use egress limit applies.
+const int legalVersion = 3;
 
 /// Privacy Policy — reflects the no-storage architecture: messages ride
 /// Supabase Realtime Broadcast (memory only) and live only on your devices.
@@ -52,11 +54,15 @@ const List<LegalSection> privacyPolicy = [
         'transaction id, amount, fee, and status (never card data) to show '
         'receipts and payout status. The money itself is held by Stripe, not '
         'us.\n'
-        '• Encrypted cloud backup (only if you subscribe to Cloud storage): '
-        'a single ciphertext blob of your servers, feed posts, follows, saved '
-        'places, Okay Score, and account email. It is encrypted on your device '
-        'before upload with a key we never receive, so we cannot read it. '
-        'Chats are never included.\n'
+        '• Communal data: your servers, feed posts and follows sync for '
+        'everyone in a server, encrypted as ciphertext we cannot read. This is '
+        'shared infrastructure — it is not part of anyone’s personal '
+        'storage and costs nothing.\n'
+        '• Encrypted chat backup (only if you choose it): a single ciphertext '
+        'blob of your message history, encrypted on your device with a key we '
+        'never receive. This is the one thing that counts as your personal '
+        'storage. You can also back up chats locally to iCloud / app storage '
+        'instead.\n'
         '• Offline message queue: when a recipient is offline, the '
         'already-end-to-end-encrypted message is briefly held as ciphertext so '
         'it can be delivered when they reconnect. It is deleted on delivery and '
@@ -66,14 +72,14 @@ const List<LegalSection> privacyPolicy = [
   ),
   LegalSection(
     'Cloud storage (optional)',
-    'Cloud storage is a paid monthly subscription. While it is active, '
-        'everything except your chats backs up automatically as encrypted '
-        'ciphertext we cannot read, and you can restore it on a new device by '
-        'signing in. Your chats are never backed up to our servers — they stay '
-        'on the device they were sent from. You can see what is stored, how '
-        'much space it uses, and cancel at any time in Settings → Cloud '
-        'storage. If your subscription lapses, we stop uploading; the last '
-        'backup remains available to restore.',
+    'Cloud storage backs up your chat history — and only your chats — as '
+        'encrypted ciphertext we cannot read. It is offered in tiers: a free '
+        'allowance and paid monthly plans for more space. Your servers, posts '
+        'and follows are communal and never count against this storage. You '
+        'can see how much space you use, change or cancel your plan, and '
+        'restore your chats on a new device with your key, all in Settings → '
+        'Cloud storage. If a paid plan lapses you drop to the free tier; your '
+        'last backup stays available to restore.',
   ),
   LegalSection(
     'End-to-end encryption',
@@ -109,9 +115,10 @@ const List<LegalSection> privacyPolicy = [
     'You can block and report other users from their profile. Reports are '
         'confidential and help us keep the community safe. Files you attach are '
         'checked on your device before they are sent: only real image files may '
-        'be sent as photos, executables and scripts are refused, and known '
-        'prohibited content is blocked. This check runs locally — we do not see '
-        'the file — and applies before anything leaves your device.',
+        'be sent as photos, videos cannot be uploaded, executables and scripts '
+        'are refused, and known prohibited content is blocked. This check runs '
+        'locally — we do not see the file — and applies before anything leaves '
+        'your device.',
   ),
   LegalSection(
     'Children',
@@ -151,22 +158,26 @@ const List<LegalSection> termsOfService = [
   ),
   LegalSection(
     'Cloud storage subscription',
-    'Cloud storage is an optional paid subscription billed monthly through '
-        'Stripe at the price shown before you buy. Each purchase adds 30 days '
-        'and stacks on any time remaining; it does not auto-renew silently — '
-        'you confirm each renewal. While active, everything except your chats '
-        'backs up as encrypted ciphertext we cannot read. You can view your '
-        'usage and cancel at any time in Settings → Cloud storage; cancelling '
-        'stops future backups, and the plan is not refundable for the current '
-        'period. Fees may change on notice.',
+    'Cloud storage backs up your chats and is offered in tiers: a free '
+        'allowance and paid monthly plans (billed through Stripe at the price '
+        'shown before you buy) for more space. There is no unlimited plan. '
+        'Each paid purchase adds 30 days and stacks on any time remaining; it '
+        'does not auto-renew silently — you confirm each renewal. Your servers '
+        'and posts are communal and never count against your storage. '
+        'Fair use: downloads (egress) are limited to roughly three times your '
+        'stored amount per month; sustained excess may be throttled. You can '
+        'view usage and change or cancel your plan anytime in Settings → Cloud '
+        'storage; cancelling drops you to the free tier and is not refundable '
+        'for the current period. Fees and limits may change on notice.',
   ),
   LegalSection(
     'Acceptable use',
     'Don’t use OkayMessenger to break the law, harass others, send spam, '
         'infringe rights, or transmit malware. Files you attach are moderated '
         'on your device before sending: only genuine image files may be sent as '
-        'photos, executables and scripts are refused, oversized files are '
-        'blocked, and known prohibited content is refused outright. Attempting '
+        'photos, videos cannot be uploaded, executables and scripts are '
+        'refused, oversized files are blocked, and known prohibited content is '
+        'refused outright. Attempting '
         'to bypass these checks, or uploading unlawful content, is a violation '
         'of these Terms. We may limit or end access that violates these Terms. '
         'Use the in-app block and report tools if someone is abusing the '

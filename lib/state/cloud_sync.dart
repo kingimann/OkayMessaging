@@ -31,28 +31,23 @@ String _encryptTask(({Uint8List key, String plain}) args) =>
 String? _decryptTask(({Uint8List key, String blob}) args) =>
     E2eCrypto.decrypt(args.key, args.blob);
 
-/// End-to-end encrypted cloud sync.
+/// End-to-end encrypted cloud sync, in two independent halves.
 ///
-/// Backup is a paid subscription ([StorageStore]): while cloud storage is
-/// active, servers, feed posts, follows, saved places, score and email are
-/// encrypted on-device and uploaded automatically. **Chats are never in the
-/// backup** — message content stays on the device it was sent from, paid or
-/// not. Without an active subscription nothing is uploaded; whatever was last
-/// backed up stays on the server for restore.
+/// **Communal data — free.** Servers, feed posts, follows, saved places, score
+/// and email sync automatically for everyone, at no charge and against no
+/// quota. They ride the account's phone-derived key so reinstalling and
+/// signing in with the same number restores them. This is the "in general for
+/// everyone" data — nobody's personal storage.
 ///
-/// Two key modes:
+/// **Chats — paid, opt-in, personal.** Message history is the only thing that
+/// counts as a user's personal storage. It is backed up here only if the user
+/// chooses to, encrypted under a user-set passphrase (never the weak
+/// phone-derived key), and its size counts against the [StorageStore] tier
+/// quota. The alternative is a local backup to iCloud / app storage.
 ///
-/// **Automatic (the default)** — no setup. The key is derived from the
-/// account's phone number, so reinstalling and signing in with the same
-/// number restores everything.
-///
-/// **Passphrase** — the user sets a sync passphrase in Settings; the key is
-/// derived from it instead, so the backup is portable across numbers and
-/// unrecoverable if the passphrase is lost. It changes only the key, never
-/// what's included — chats stay out either way.
-///
-/// The server stores only ciphertext, and the row id is an HMAC of the key,
-/// so blobs reveal nothing about the account.
+/// The server stores only ciphertext, and each row id is an HMAC of the key,
+/// so blobs reveal nothing about the account. The chat blob uses a distinct id
+/// so it never collides with the communal one.
 class CloudSync extends ChangeNotifier {
   CloudSync._();
   static final CloudSync instance = CloudSync._();
@@ -79,16 +74,17 @@ class CloudSync extends ChangeNotifier {
   /// key and excludes chats.
   bool get autoMode => _passphrase.length < 6;
 
-  /// Ready to sync: a custom passphrase, or (auto mode) a signed-in account
-  /// whose digits can salt the key.
+  /// Ready to sync the communal data: a custom passphrase, or (auto mode) a
+  /// signed-in account whose digits can salt the key.
   bool get configured => !autoMode || _digits != 'local';
   String get passphrase => _passphrase;
 
-  /// Whether paid cloud storage is active. Every upload/restore gates on this.
-  bool get hasStorage => StorageStore.instance.active;
+  /// Chats can only be backed up under a real user passphrase — never the
+  /// phone-derived key, which isn't a secret.
+  bool get chatBackupReady => !autoMode;
 
-  /// Everything lined up for a background upload: switched on, keyed, and paid.
-  bool get canSync => _enabled && configured && hasStorage;
+  /// Everything lined up for a background (communal) upload. Free — no quota.
+  bool get canSync => _enabled && configured;
 
   String get _effectivePassphrase => autoMode ? autoPassphrase : _passphrase;
 
@@ -121,7 +117,7 @@ class CloudSync extends ChangeNotifier {
   /// otherwise push the local state up. Never surfaces errors — automatic
   /// mode has no UI to be noisy in.
   Future<void> autoBootstrap() async {
-    if (!_enabled || !configured || !hasStorage) return;
+    if (!_enabled || !configured) return;
     final digits = _digits;
     if (digits == _bootstrappedFor) return;
     _bootstrappedFor = digits;
@@ -165,20 +161,10 @@ class CloudSync extends ChangeNotifier {
     CommunityStore.instance.addListener(scheduleSync);
     ScoreStore.instance.addListener(scheduleSync);
     AppState.profile.addListener(autoBootstrap);
-    // Subscribing (or renewing) should back up right away, and the first
-    // bootstrap for this account may have been skipped while unpaid.
-    StorageStore.instance.addListener(_onStorageChanged);
   }
 
-  void _onStorageChanged() {
-    if (hasStorage) {
-      _bootstrappedFor = '';
-      autoBootstrap();
-    }
-  }
-
-  /// Debounced: bursts of edits collapse into one upload. No-ops without an
-  /// active storage subscription — chats never schedule a sync at all.
+  /// Debounced: bursts of edits to communal data collapse into one free
+  /// upload. Chats are never auto-scheduled — they back up only on request.
   void scheduleSync() {
     if (!canSync) return;
     _debounce?.cancel();
@@ -238,33 +224,6 @@ class CloudSync extends ChangeNotifier {
         'accountEmail': AccountEmail.instance.toJson(),
       };
 
-  /// Plaintext size of the current backup, in bytes. A cheap live estimate for
-  /// the usage meter before (or between) uploads — the real ciphertext size is
-  /// recorded by [syncNow].
-  int estimatedBytes() => utf8.encode(jsonEncode(buildPayload())).length;
-
-  /// Bytes each category contributes to the backup, biggest first — for a
-  /// human-readable "what's using my storage" breakdown. Pure.
-  List<MapEntry<String, int>> sectionSizes() {
-    const labels = {
-      'communities': 'Servers',
-      'feed': 'Posts',
-      'follows': 'Follows',
-      'places': 'Saved places',
-      'score': 'Okay Score',
-      'accountEmail': 'Account email',
-    };
-    final payload = buildPayload();
-    final out = <MapEntry<String, int>>[];
-    labels.forEach((key, label) {
-      final value = payload[key];
-      if (value == null) return;
-      out.add(MapEntry(label, utf8.encode(jsonEncode(value)).length));
-    });
-    out.sort((a, b) => b.value.compareTo(a.value));
-    return out;
-  }
-
   /// Applies a decrypted payload back onto the local stores.
   void applyPayload(Map<String, dynamic> payload) {
     final chats = payload['chats'];
@@ -294,7 +253,7 @@ class CloudSync extends ChangeNotifier {
   /// Never throws and never reports an error to the user: an unconfigured or
   /// offline device should just refresh nothing.
   Future<void> refreshFromServer() async {
-    if (!_enabled || !configured || !hasStorage) return;
+    if (!_enabled || !configured) return;
     try {
       // Local edits still waiting on the upload debounce are NEWER than the
       // blob — pulling now would resurrect what was just changed (a deleted
@@ -309,53 +268,73 @@ class CloudSync extends ChangeNotifier {
     } catch (_) {}
   }
 
-  /// Encrypts and uploads the current state. Returns null on success or a
-  /// human-readable error.
+  /// Uploads [data] under [id]. Returns null on success or an error message.
+  Future<String?> _put(String id, String data) async {
+    final debug = debugServerOverride;
+    if (debug != null) {
+      debug[id] = data;
+      return null;
+    }
+    if (!RelayConfig.isEnabled) return _fail('No server configured.');
+    final res = await http
+        .post(
+          Uri.parse('${RelayConfig.supabaseUrl}/rest/v1/$table'),
+          headers: {
+            'apikey': RelayConfig.supabaseAnonKey,
+            'Authorization': 'Bearer ${RelayConfig.supabaseAnonKey}',
+            'Content-Type': 'application/json',
+            'Prefer': 'resolution=merge-duplicates',
+          },
+          body: jsonEncode([
+            {'id': id, 'data': data}
+          ]),
+        )
+        .timeout(const Duration(seconds: 15));
+    if (res.statusCode == 404 || res.body.contains('PGRST205')) {
+      return _fail('The server isn\'t provisioned yet — the sync table is '
+          'missing. Run docs/supabase_setup.sql once in the Supabase SQL '
+          'editor.');
+    }
+    if (res.statusCode >= 300) return _fail('Upload failed (${res.statusCode}).');
+    return null;
+  }
+
+  /// Downloads the ciphertext stored under [id], or null if none. Throws on a
+  /// transport error so callers can translate it.
+  Future<String?> _get(String id) async {
+    final debug = debugServerOverride;
+    if (debug != null) return debug[id];
+    if (!RelayConfig.isEnabled) return null;
+    final res = await http.get(
+      Uri.parse('${RelayConfig.supabaseUrl}/rest/v1/$table'
+          '?id=eq.$id&select=data'),
+      headers: {
+        'apikey': RelayConfig.supabaseAnonKey,
+        'Authorization': 'Bearer ${RelayConfig.supabaseAnonKey}',
+      },
+    ).timeout(const Duration(seconds: 15));
+    if (res.statusCode >= 300) return null;
+    final decoded = jsonDecode(res.body);
+    if (decoded is List && decoded.isNotEmpty && decoded.first is Map) {
+      return (decoded.first as Map)['data'] as String?;
+    }
+    return null;
+  }
+
+  /// Uploads the communal data (servers, feed, follows, …). Free — no quota,
+  /// no subscription. Returns null on success or a human-readable error.
   Future<String?> syncNow() async {
     if (!configured) return 'Sign in (or set a sync passphrase) first.';
-    if (!hasStorage) {
-      return 'Cloud storage isn\'t active — subscribe to back up.';
-    }
     syncing = true;
     lastError = null;
     notifyListeners();
     try {
       final key = await _syncKey();
-      final id = blobIdFor(key);
       final data = await compute(
           _encryptTask, (key: key, plain: jsonEncode(buildPayload())));
-      final debug = debugServerOverride;
-      if (debug != null) {
-        debug[id] = data;
-      } else {
-        if (!RelayConfig.isEnabled) return _fail('No server configured.');
-        final res = await http
-            .post(
-              Uri.parse('${RelayConfig.supabaseUrl}/rest/v1/$table'),
-              headers: {
-                'apikey': RelayConfig.supabaseAnonKey,
-                'Authorization': 'Bearer ${RelayConfig.supabaseAnonKey}',
-                'Content-Type': 'application/json',
-                'Prefer': 'resolution=merge-duplicates',
-              },
-              body: jsonEncode([
-                {'id': id, 'data': data}
-              ]),
-            )
-            .timeout(const Duration(seconds: 15));
-        if (res.statusCode == 404 || res.body.contains('PGRST205')) {
-          return _fail('The server isn\'t provisioned yet — the sync table '
-              'is missing. Run docs/supabase_setup.sql once in the Supabase '
-              'SQL editor.');
-        }
-        if (res.statusCode >= 300) {
-          return _fail('Upload failed (${res.statusCode}).');
-        }
-      }
+      final err = await _put(blobIdFor(key), data);
+      if (err != null) return err;
       lastSync = DateTime.now();
-      // The ciphertext is what actually occupies storage; record it so the
-      // usage meter reflects reality after every upload.
-      await StorageStore.instance.setUsedBytes(data.length);
       return null;
     } catch (_) {
       return _fail('Couldn\'t reach the server — check your connection.');
@@ -365,46 +344,16 @@ class CloudSync extends ChangeNotifier {
     }
   }
 
-  /// Downloads and decrypts the stored blob, replacing local state.
-  /// Returns null on success or a human-readable error.
+  /// Downloads and decrypts the communal blob, replacing local state.
+  /// Free — no subscription. Returns null on success or a human-readable error.
   Future<String?> restore() async {
     if (!configured) return 'Sign in (or set a sync passphrase) first.';
-    if (!hasStorage) {
-      return 'Cloud storage isn\'t active — subscribe to restore.';
-    }
     syncing = true;
     lastError = null;
     notifyListeners();
     try {
       final key = await _syncKey();
-      final id = blobIdFor(key);
-      String? data;
-      final debug = debugServerOverride;
-      if (debug != null) {
-        data = debug[id];
-      } else {
-        if (!RelayConfig.isEnabled) return _fail('No server configured.');
-        final res = await http.get(
-          Uri.parse('${RelayConfig.supabaseUrl}/rest/v1/$table'
-              '?id=eq.$id&select=data'),
-          headers: {
-            'apikey': RelayConfig.supabaseAnonKey,
-            'Authorization': 'Bearer ${RelayConfig.supabaseAnonKey}',
-          },
-        ).timeout(const Duration(seconds: 15));
-        if (res.statusCode == 404 || res.body.contains('PGRST205')) {
-          return _fail('The server isn\'t provisioned yet — the sync table '
-              'is missing. Run docs/supabase_setup.sql once in the Supabase '
-              'SQL editor.');
-        }
-        if (res.statusCode >= 300) {
-          return _fail('Download failed (${res.statusCode}).');
-        }
-        final decoded = jsonDecode(res.body);
-        if (decoded is List && decoded.isNotEmpty && decoded.first is Map) {
-          data = (decoded.first as Map)['data'] as String?;
-        }
-      }
+      final data = await _get(blobIdFor(key));
       if (data == null) return _fail('No backup found for this passphrase.');
       final plain = await compute(_decryptTask, (key: key, blob: data));
       if (plain == null) {
@@ -425,48 +374,107 @@ class CloudSync extends ChangeNotifier {
     }
   }
 
-  /// Health check: downloads the stored blob and confirms it decrypts and
-  /// parses with the current key — without touching local state. Returns null
-  /// when the backup is present and readable, or a human-readable problem.
-  Future<String?> verifyBackup() async {
-    if (!configured) return 'Sign in (or set a sync passphrase) first.';
-    if (!hasStorage) return 'Cloud storage isn\'t active.';
+  // --- Chat backup: paid, personal, quota-metered ------------------------
+
+  /// The chat backup rides a distinct blob id so it never collides with the
+  /// communal one, even under the same key.
+  static String chatBlobIdFor(Uint8List syncKey) {
+    final mac = HMac(SHA256Digest(), 64)..init(KeyParameter(syncKey));
+    final out = mac.process(Uint8List.fromList(utf8.encode('chat-blob-id')));
+    return out.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+  }
+
+  /// The chat backup document. Only ever chats.
+  Map<String, dynamic> buildChatPayload() =>
+      {'v': 1, 'chats': ChatStore.instance.toJson()};
+
+  /// Plaintext size of the chat backup, for the quota meter.
+  int chatBackupBytes() => utf8.encode(jsonEncode(buildChatPayload())).length;
+
+  /// Backs up chats to paid storage. Requires a user passphrase (chats are
+  /// never protected by the phone-derived key) and enough quota on the plan.
+  Future<String?> backUpChats() async {
+    if (!chatBackupReady) {
+      return 'Set an encryption key first to back up chats.';
+    }
+    // Cheap guard so an over-quota backup is refused before doing the work.
+    if (!StorageStore.instance.fits(chatBackupBytes())) {
+      return 'Your chats are larger than your plan — upgrade to back them up.';
+    }
     syncing = true;
     lastError = null;
     notifyListeners();
     try {
       final key = await _syncKey();
-      final id = blobIdFor(key);
-      String? data;
-      final debug = debugServerOverride;
-      if (debug != null) {
-        data = debug[id];
-      } else {
-        if (!RelayConfig.isEnabled) return _fail('No server configured.');
-        final res = await http.get(
-          Uri.parse('${RelayConfig.supabaseUrl}/rest/v1/$table'
-              '?id=eq.$id&select=data'),
-          headers: {
-            'apikey': RelayConfig.supabaseAnonKey,
-            'Authorization': 'Bearer ${RelayConfig.supabaseAnonKey}',
-          },
-        ).timeout(const Duration(seconds: 15));
-        if (res.statusCode >= 300) {
-          return _fail('Couldn\'t reach the backup (${res.statusCode}).');
-        }
-        final decoded = jsonDecode(res.body);
-        if (decoded is List && decoded.isNotEmpty && decoded.first is Map) {
-          data = (decoded.first as Map)['data'] as String?;
-        }
+      final data = await compute(
+          _encryptTask, (key: key, plain: jsonEncode(buildChatPayload())));
+      if (!StorageStore.instance.fits(data.length)) {
+        return _fail('Your chats are larger than your plan — upgrade to back '
+            'them up.');
       }
-      if (data == null) return _fail('No backup found yet — run Sync now.');
+      final err = await _put(chatBlobIdFor(key), data);
+      if (err != null) return err;
+      await StorageStore.instance.setUsedBytes(data.length);
+      lastSync = DateTime.now();
+      return null;
+    } catch (_) {
+      return _fail('Couldn\'t reach the server — check your connection.');
+    } finally {
+      syncing = false;
+      notifyListeners();
+    }
+  }
+
+  /// Restores chats from paid storage, replacing local chats.
+  Future<String?> restoreChats() async {
+    if (!chatBackupReady) {
+      return 'Set your encryption key to restore chats.';
+    }
+    syncing = true;
+    lastError = null;
+    notifyListeners();
+    try {
+      final key = await _syncKey();
+      final data = await _get(chatBlobIdFor(key));
+      if (data == null) return _fail('No chat backup found for this key.');
       final plain = await compute(_decryptTask, (key: key, blob: data));
       if (plain == null) {
-        return _fail('The backup couldn\'t be decrypted with this key.');
+        return _fail('Wrong key (or corrupted chat backup).');
       }
       final payload = jsonDecode(plain);
-      if (payload is! Map<String, dynamic>) {
-        return _fail('The backup is present but unreadable.');
+      if (payload is Map && payload['chats'] is Map) {
+        ChatStore.instance.hydrate(Map<String, dynamic>.from(payload['chats']));
+        await StorageStore.instance.setUsedBytes(data.length);
+        lastSync = DateTime.now();
+        return null;
+      }
+      return _fail('The chat backup is unreadable.');
+    } catch (_) {
+      return _fail('Couldn\'t reach the server — check your connection.');
+    } finally {
+      syncing = false;
+      notifyListeners();
+    }
+  }
+
+  /// Health check for the chat backup: confirms it's present and decrypts,
+  /// without touching local chats. Returns null when readable.
+  Future<String?> verifyChatBackup() async {
+    if (!chatBackupReady) return 'Set an encryption key first.';
+    syncing = true;
+    lastError = null;
+    notifyListeners();
+    try {
+      final key = await _syncKey();
+      final data = await _get(chatBlobIdFor(key));
+      if (data == null) return _fail('No chat backup yet — back up first.');
+      final plain = await compute(_decryptTask, (key: key, blob: data));
+      if (plain == null) {
+        return _fail('The chat backup couldn\'t be decrypted with this key.');
+      }
+      final payload = jsonDecode(plain);
+      if (payload is! Map || payload['chats'] is! Map) {
+        return _fail('The chat backup is present but unreadable.');
       }
       await StorageStore.instance.setUsedBytes(data.length);
       return null;
@@ -502,7 +510,6 @@ class CloudSync extends ChangeNotifier {
       CommunityStore.instance.removeListener(scheduleSync);
       ScoreStore.instance.removeListener(scheduleSync);
       AppState.profile.removeListener(autoBootstrap);
-      StorageStore.instance.removeListener(_onStorageChanged);
       _listening = false;
     }
   }

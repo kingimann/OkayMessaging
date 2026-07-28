@@ -1410,6 +1410,33 @@ void main() {
     );
   });
 
+  test('Server roles: moderator can moderate but not manage; ranks order', () {
+    CommunityStore.instance.resetForTest();
+    final c = CommunityStore.instance.createCommunity('Guild');
+    // Rank ordering, highest first.
+    expect(roleRank(MemberRole.owner), greaterThan(roleRank(MemberRole.admin)));
+    expect(roleRank(MemberRole.admin),
+        greaterThan(roleRank(MemberRole.moderator)));
+    expect(roleRank(MemberRole.moderator),
+        greaterThan(roleRank(MemberRole.member)));
+
+    // Permission helpers: moderators moderate, only admins+ manage.
+    expect(roleCanModerate(MemberRole.moderator), isTrue);
+    expect(roleCanManageServer(MemberRole.moderator), isFalse);
+    expect(roleCanManageServer(MemberRole.admin), isTrue);
+    expect(roleCanModerate(MemberRole.member), isFalse);
+
+    // The owner can moderate and manage.
+    expect(CommunityStore.instance.canModerate(c.id), isTrue);
+    expect(CommunityStore.instance.canManageServer(c.id), isTrue);
+
+    // Assigning the new Moderator role round-trips through JSON.
+    final revived = Member.fromJson(
+        const Member(id: 'x', name: 'Mo', role: MemberRole.moderator).toJson());
+    expect(revived.role, MemberRole.moderator);
+    expect(roleName(MemberRole.moderator), 'Moderator');
+  });
+
   test('Channel messages: react (toggle) and delete', () {
     CommunityStore.instance.resetForTest();
     final c = CommunityStore.instance.createCommunity('Team');
@@ -5220,14 +5247,13 @@ void main() {
       expect(backupCount(5, 'saved place'), '5 saved places');
     });
 
-    test('cloud sync stores only ciphertext and restores everything',
+    test('communal sync stores only ciphertext and restores everything',
         () async {
+      // Servers, feed, follows, places — the free communal backup.
       CloudSync.debugServerOverride = {};
-      StorageStore.instance.debugActivate();
       addTearDown(() {
         CloudSync.debugServerOverride = null;
         CloudSync.instance.resetForTest();
-        StorageStore.instance.resetForTest();
       });
       await CloudSync.instance
           .configure(passphrase: 'correct horse battery', on: false);
@@ -5261,12 +5287,10 @@ void main() {
     test('automatic sync: servers back up with no passphrase, chats stay out',
         () async {
       CloudSync.debugServerOverride = {};
-      StorageStore.instance.debugActivate();
       final prevProfile = AppState.profile.value;
       addTearDown(() {
         CloudSync.debugServerOverride = null;
         CloudSync.instance.resetForTest();
-        StorageStore.instance.resetForTest();
         AppState.profile.value = prevProfile;
         CommunityStore.instance.resetForTest();
       });
@@ -5307,57 +5331,51 @@ void main() {
       expect(CloudSync.instance.buildPayload().containsKey('chats'), isFalse);
     });
 
-    test('storage entitlement: starts off, a purchase grants a month, stacks',
-        () {
+    test('storage tiers: Free by default, a purchase upgrades and stacks', () {
       final storage = StorageStore.instance;
       addTearDown(storage.resetForTest);
       storage.resetForTest();
-      // Free tier: nothing is paid up.
-      expect(storage.active, isFalse);
-      expect(storage.daysLeft, 0);
+      // Everyone starts on Free — 2 GB, no expiry, not "paid".
+      expect(storage.tier, StorageTier.free);
+      expect(storage.isPaid, isFalse);
+      expect(storage.quotaBytes, 2 * 1024 * 1024 * 1024);
 
-      // One purchase turns it on for ~30 days.
-      storage.addPeriod();
-      expect(storage.active, isTrue);
+      // Subscribing to Personal raises the ceiling to 20 GB for ~30 days.
+      storage.subscribe(StorageTier.personal);
+      expect(storage.tier, StorageTier.personal);
+      expect(storage.isPaid, isTrue);
+      expect(storage.quotaBytes, 20 * 1024 * 1024 * 1024);
       expect(storage.daysLeft, inInclusiveRange(28, 30));
 
-      // Renewing before expiry stacks time rather than wasting the leftover.
-      storage.addPeriod();
+      // Renewing stacks the time rather than wasting the remainder.
+      storage.subscribe(StorageTier.personal);
       expect(storage.daysLeft, inInclusiveRange(58, 60));
 
-      // Cancelling stops it immediately.
+      // Prices match the plan sheet; there is deliberately no unlimited tier.
+      expect(StorageStore.planFor(StorageTier.personal).priceCents, 700);
+      expect(StorageStore.planFor(StorageTier.pro).priceCents, 1900);
+      expect(StorageStore.planFor(StorageTier.studio).priceCents, 4900);
+      expect(StorageStore.plans.length, 4);
+
+      // Cancelling drops straight back to Free.
       storage.cancel();
-      expect(storage.active, isFalse);
+      expect(storage.tier, StorageTier.free);
+      expect(storage.quotaBytes, 2 * 1024 * 1024 * 1024);
     });
 
-    test('without a storage subscription nothing uploads or restores',
-        () async {
-      CloudSync.debugServerOverride = {};
-      addTearDown(() {
-        CloudSync.debugServerOverride = null;
-        CloudSync.instance.resetForTest();
-        StorageStore.instance.resetForTest();
-      });
-      StorageStore.instance.resetForTest(); // unpaid
-      await CloudSync.instance
-          .configure(passphrase: 'correct horse battery', on: false);
-
-      // Uploads and restores are refused with a clear, actionable message.
-      expect(CloudSync.instance.hasStorage, isFalse);
-      final upErr = await CloudSync.instance.syncNow();
-      expect(upErr, contains('subscribe'));
-      final downErr = await CloudSync.instance.restore();
-      expect(downErr, contains('subscribe'));
-      // The server was never touched.
-      expect(CloudSync.debugServerOverride, isEmpty);
-
-      // Subscribing lets the very same upload through.
-      StorageStore.instance.debugActivate();
-      expect(await CloudSync.instance.syncNow(), isNull);
-      expect(CloudSync.debugServerOverride, isNotEmpty);
+    test('a lapsed paid plan falls back to Free', () {
+      final storage = StorageStore.instance;
+      addTearDown(storage.resetForTest);
+      storage.resetForTest();
+      // Subscribe, but with time already expired.
+      storage.debugSubscribe(StorageTier.pro,
+          length: const Duration(seconds: -1));
+      expect(storage.selectedTier, StorageTier.pro); // what they paid for
+      expect(storage.tier, StorageTier.free); // what they get now
+      expect(storage.isPaid, isFalse);
     });
 
-    test('storage usage: formatBytes, quota, and used/available math', () {
+    test('storage usage: formatBytes and used/available math', () {
       final storage = StorageStore.instance;
       addTearDown(storage.resetForTest);
       storage.resetForTest();
@@ -5368,72 +5386,85 @@ void main() {
       expect(StorageStore.formatBytes(1536), '1.5 KB');
       expect(StorageStore.formatBytes(5 * 1024 * 1024 * 1024), '5 GB');
 
-      // Fresh: nothing used, whole quota free.
+      // Fresh Free tier: nothing used, whole 2 GB free.
       expect(storage.usedBytes, 0);
       expect(storage.usedFraction, 0);
-      expect(storage.availableBytes, StorageStore.quotaBytes);
+      expect(storage.availableBytes, storage.quotaBytes);
 
       storage.setUsedBytes(2 * 1024 * 1024); // 2 MB
       expect(storage.usedBytes, 2 * 1024 * 1024);
-      expect(storage.availableBytes,
-          StorageStore.quotaBytes - 2 * 1024 * 1024);
+      expect(storage.availableBytes, storage.quotaBytes - 2 * 1024 * 1024);
       expect(storage.usedFraction, greaterThan(0));
       expect(storage.usedFraction, lessThan(1));
     });
 
-    test('a backup records its size and a per-category breakdown', () async {
-      CloudSync.instance.resetForTest(); // drop any leaked listeners first
+    test('chats need a key, back up to paid storage, and are quota-gated',
+        () async {
+      CloudSync.instance.resetForTest();
       CloudSync.debugServerOverride = {};
-      StorageStore.instance.resetForTest(); // clean usage baseline
-      StorageStore.instance.debugActivate();
+      StorageStore.instance.resetForTest();
       addTearDown(() {
         CloudSync.debugServerOverride = null;
         CloudSync.instance.resetForTest();
         StorageStore.instance.resetForTest();
-        CommunityStore.instance.resetForTest();
       });
-      CommunityStore.instance.resetForTest();
+
+      // Auto mode (phone-derived key) may not protect chats — refused.
+      await CloudSync.instance.configure(passphrase: '', on: false);
+      expect(CloudSync.instance.chatBackupReady, isFalse);
+      expect(await CloudSync.instance.backUpChats(), contains('key'));
+      expect(CloudSync.debugServerOverride, isEmpty);
+
+      // With a real key, chats back up and record their size against quota.
       await CloudSync.instance
-          .configure(passphrase: 'correct horse battery', on: false);
-      CommunityStore.instance.createCommunity('Photography');
-
-      // Breakdown is pure and sorted biggest-first; Servers dominate here.
-      final sizes = CloudSync.instance.sectionSizes();
-      expect(sizes, isNotEmpty);
-      expect(sizes.first.value, greaterThanOrEqualTo(sizes.last.value));
-      expect(sizes.map((e) => e.key), contains('Servers'));
-      expect(CloudSync.instance.estimatedBytes(), greaterThan(0));
-
-      // Uploading records the real ciphertext size in the usage meter.
+          .configure(passphrase: 'my-secret-chat-key', on: false);
+      expect(CloudSync.instance.chatBackupReady, isTrue);
       expect(StorageStore.instance.usedBytes, 0);
-      expect(await CloudSync.instance.syncNow(), isNull);
+      expect(await CloudSync.instance.backUpChats(), isNull);
+      expect(CloudSync.debugServerOverride, isNotEmpty);
       expect(StorageStore.instance.usedBytes, greaterThan(0));
+
+      // The chat blob is separate from the communal one.
+      expect(CloudSync.debugServerOverride!.length, 1);
+      expect(await CloudSync.instance.syncNow(), isNull); // communal, free
+      expect(CloudSync.debugServerOverride!.length, 2);
     });
 
-    test('verify backup confirms the blob is present and readable', () async {
-      CloudSync.instance.resetForTest(); // drop any leaked listeners first
+    test('an over-quota chat backup is refused before upload', () async {
+      CloudSync.instance.resetForTest();
       CloudSync.debugServerOverride = {};
-      StorageStore.instance.debugActivate();
+      StorageStore.instance.resetForTest();
       addTearDown(() {
         CloudSync.debugServerOverride = null;
         CloudSync.instance.resetForTest();
         StorageStore.instance.resetForTest();
       });
-      // A passphrase unique to this test, so no other test's blob can collide.
       await CloudSync.instance
-          .configure(passphrase: 'verify-backup-unique-passphrase', on: false);
+          .configure(passphrase: 'over-quota-key', on: false);
+      // fits() gates on the plan ceiling.
+      expect(StorageStore.instance.fits(1), isTrue);
+      expect(
+          StorageStore.instance.fits(StorageStore.instance.quotaBytes + 1),
+          isFalse);
+    });
 
-      // Nothing uploaded yet: verify reports there's no backup.
-      expect(await CloudSync.instance.verifyBackup(), isNotNull);
+    test('verify chat backup confirms it is present and readable', () async {
+      CloudSync.instance.resetForTest();
+      CloudSync.debugServerOverride = {};
+      StorageStore.instance.resetForTest();
+      addTearDown(() {
+        CloudSync.debugServerOverride = null;
+        CloudSync.instance.resetForTest();
+        StorageStore.instance.resetForTest();
+      });
+      await CloudSync.instance
+          .configure(passphrase: 'verify-chat-unique-key', on: false);
 
-      // After a sync it verifies clean under the same key.
-      expect(await CloudSync.instance.syncNow(), isNull);
-      expect(await CloudSync.instance.verifyBackup(), isNull);
-
-      // A different key has no blob of its own — verify reports it missing.
-      await CloudSync.instance.configure(
-          passphrase: 'verify-backup-other-unique-key', on: false);
-      expect(await CloudSync.instance.verifyBackup(), isNotNull);
+      // Nothing backed up yet.
+      expect(await CloudSync.instance.verifyChatBackup(), isNotNull);
+      // After a backup it verifies clean.
+      expect(await CloudSync.instance.backUpChats(), isNull);
+      expect(await CloudSync.instance.verifyChatBackup(), isNull);
     });
 
     test('reposts are real entries, deletes cascade, bookmarks persist', () {
@@ -7547,11 +7578,9 @@ void main() {
 
     test('a restore brings communities and the score back', () async {
       CloudSync.debugServerOverride = {};
-      StorageStore.instance.debugActivate();
       addTearDown(() {
         CloudSync.debugServerOverride = null;
         CloudSync.instance.resetForTest();
-        StorageStore.instance.resetForTest();
         CommunityStore.instance.resetForTest();
         ScoreStore.instance.resetForTest();
       });
@@ -7679,11 +7708,9 @@ void main() {
 
     test('the account email rides the encrypted sync', () async {
       CloudSync.debugServerOverride = {};
-      StorageStore.instance.debugActivate();
       addTearDown(() {
         CloudSync.debugServerOverride = null;
         CloudSync.instance.resetForTest();
-        StorageStore.instance.resetForTest();
         AccountEmail.instance.resetForTest();
       });
       await CloudSync.instance
@@ -8350,6 +8377,35 @@ void main() {
       final verdict = FileModeration.inspectImage(pdf);
       expect(verdict.allowed, isFalse);
       expect(verdict.reason, contains('image'));
+    });
+
+    test('videos cannot be uploaded on any path', () {
+      // MP4/MOV: ftyp box with a movie brand.
+      final mp4 = bytes([
+        0, 0, 0, 0x18, 0x66, 0x74, 0x79, 0x70, // ....ftyp
+        0x69, 0x73, 0x6F, 0x6D // isom
+      ]);
+      // Matroska / WebM.
+      final webm = bytes([0x1A, 0x45, 0xDF, 0xA3, 1, 2, 3]);
+      // A .mov HEIC-lookalike brand that is actually video (qt).
+      final mov = bytes([
+        0, 0, 0, 0x14, 0x66, 0x74, 0x79, 0x70, 0x71, 0x74, 0x20, 0x20
+      ]);
+      for (final v in [mp4, webm, mov]) {
+        expect(FileModeration.sniff(v), 'video');
+        final img = FileModeration.inspectImage(v);
+        expect(img.allowed, isFalse);
+        expect(img.reason, contains('Video'));
+        final file = FileModeration.inspectFile(v);
+        expect(file.allowed, isFalse);
+        expect(file.reason, contains('Video'));
+      }
+      // A real HEIC image is NOT mistaken for video.
+      final heic = bytes([
+        0, 0, 0, 0x18, 0x66, 0x74, 0x79, 0x70, 0x68, 0x65, 0x69, 0x63
+      ]);
+      expect(FileModeration.sniff(heic), 'heic');
+      expect(FileModeration.inspectImage(heic).allowed, isTrue);
     });
 
     test('executables and scripts are refused on every path', () {

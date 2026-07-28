@@ -102,16 +102,35 @@ class FileModeration {
         at(11) == 0x50) {
       return 'webp'; // ...WEBP
     }
-    // HEIC/HEIF: 'ftyp' box at offset 4, brand heic/heix/mif1/hevc.
+    // ISO base-media container: 'ftyp' box at offset 4. The brand tells a
+    // HEIC/HEIF *image* apart from an MP4/MOV/M4V *video*.
     if (at(4) == 0x66 && at(5) == 0x74 && at(6) == 0x79 && at(7) == 0x70) {
       final brand = String.fromCharCodes(
           [at(8), at(9), at(10), at(11)].where((c) => c >= 0));
       if (brand.startsWith('hei') ||
           brand.startsWith('mif') ||
-          brand.startsWith('hev')) {
+          brand.startsWith('hev') ||
+          brand.startsWith('msf')) {
         return 'heic';
       }
+      // Anything else in an ftyp box (isom, mp4x, avc1, qt, M4V, dash, …) is
+      // a movie container.
+      return 'video';
     }
+    // Other video/movie containers.
+    if (starts([0x1A, 0x45, 0xDF, 0xA3])) return 'video'; // Matroska / WebM
+    if (starts([0x46, 0x4C, 0x56])) return 'video'; // FLV
+    if (starts([0x52, 0x49, 0x46, 0x46]) && // RIFF ....AVI
+        at(8) == 0x41 &&
+        at(9) == 0x56 &&
+        at(10) == 0x49) {
+      return 'video';
+    }
+    if (starts([0x00, 0x00, 0x01, 0xBA]) ||
+        starts([0x00, 0x00, 0x01, 0xB3])) {
+      return 'video'; // MPEG program/video stream
+    }
+    if (starts([0x30, 0x26, 0xB2, 0x75])) return 'video'; // ASF / WMV
 
     // Documents.
     if (starts([0x25, 0x50, 0x44, 0x46])) return 'pdf'; // %PDF
@@ -158,6 +177,10 @@ class FileModeration {
           'That file isn’t allowed.', 'blocked');
     }
     final kind = sniff(bytes);
+    if (kind == 'video') {
+      return const ModerationVerdict.blocked(
+          'Videos can’t be uploaded.', 'video');
+    }
     if (!allowedImageKinds.contains(kind)) {
       return ModerationVerdict.blocked(
           'Only image files can be sent here.', kind);
@@ -180,6 +203,10 @@ class FileModeration {
           'That file isn’t allowed.', 'blocked');
     }
     final kind = sniff(bytes);
+    if (kind == 'video') {
+      return const ModerationVerdict.blocked(
+          'Videos can’t be uploaded.', 'video');
+    }
     if (kind == 'executable' || kind == 'script') {
       return const ModerationVerdict.blocked(
           'Executable files can’t be sent.', 'executable');

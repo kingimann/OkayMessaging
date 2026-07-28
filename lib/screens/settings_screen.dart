@@ -169,12 +169,11 @@ class SettingsView extends StatelessWidget {
                 return InfoTile(
                   leading: const Icon(Icons.cloud_sync_outlined),
                   title: 'Cloud storage',
-                  subtitle: storage.active
-                      ? 'Active — backing up everything but chats, encrypted'
-                      : '${storage.priceLabel}/mo — back up everything but chats',
-                  trailing: storage.active
-                      ? null
-                      : const Icon(Icons.lock_outline, size: 20),
+                  subtitle: storage.isPaid
+                      ? '${storage.plan.name} — encrypted chat backup, '
+                          '${storage.quotaLabel}'
+                      : 'Encrypted chat backup — Free ${storage.quotaLabel}, '
+                          'upgrade for more',
                   onTap: () => Navigator.of(context).push(
                     MaterialPageRoute(builder: (_) => const CloudSyncScreen()),
                   ),

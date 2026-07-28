@@ -2,18 +2,16 @@ import 'package:flutter/material.dart';
 
 import '../payments/payment_service.dart';
 import '../state/cloud_sync.dart';
-import '../state/community_store.dart';
-import '../state/feed_store.dart';
-import '../state/follow_store.dart';
-import '../state/saved_places_store.dart';
-import '../state/score_store.dart';
 import '../state/storage_store.dart';
 import '../utils/date_formatter.dart';
-import 'cloud_sync_count.dart';
 
-/// Cloud storage: a paid monthly subscription that backs everything (except
-/// chats) up to the server, end-to-end encrypted. Chats never leave the
-/// device. Without an active subscription nothing uploads.
+/// Cloud storage.
+///
+/// Servers, posts and follows sync for free and are not shown here — this
+/// screen is about the one thing that counts as *your* storage: your chat
+/// history. It can be backed up to the cloud, encrypted under a key only you
+/// hold, on a tiered plan (Free up to paid). Chats can also just be backed up
+/// locally to iCloud / app storage instead.
 class CloudSyncScreen extends StatefulWidget {
   const CloudSyncScreen({super.key});
 
@@ -25,7 +23,7 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
   late final TextEditingController _pass =
       TextEditingController(text: CloudSync.instance.passphrase);
   bool _obscure = true;
-  bool _buying = false;
+  bool _busy = false;
 
   @override
   void dispose() {
@@ -34,49 +32,71 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
   }
 
   Future<void> _run(Future<String?> Function() action, String success) async {
+    await CloudSync.instance
+        .configure(passphrase: _pass.text, on: CloudSync.instance.enabled);
     final error = await action();
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(error ?? success)),
-    );
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(error ?? success)));
   }
 
-  Future<void> _subscribe() async {
-    final payments = PaymentService.instance;
-    if (!payments.canBuyStorage) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text(
-            'Payments aren\'t set up on this device. Turn on payments test '
-            'mode in Wallet to try it, or open the app on your phone.'),
-      ));
+  Future<void> _choosePlan(StoragePlan plan) async {
+    final storage = StorageStore.instance;
+    if (plan.isFree) {
+      // Downgrading to Free is free and immediate.
+      if (storage.selectedTier != StorageTier.free) {
+        final ok = await _confirm(
+            'Switch to Free?',
+            'You drop to ${StorageStore.formatBytes(plan.quotaBytes)}. If your '
+                'chat backup is larger than that, it stays on the server but '
+                'you can\'t add to it until you\'re back under the limit.');
+        if (ok) await storage.subscribe(StorageTier.free);
+      }
       return;
     }
-    setState(() => _buying = true);
+    final payments = PaymentService.instance;
+    if (!payments.canBuyStorage) {
+      _snack('Payments aren\'t set up on this device. Turn on payments test '
+          'mode in Wallet to try it, or open the app on your phone.');
+      return;
+    }
+    setState(() => _busy = true);
     try {
-      final ok =
-          await payments.buyStorage(amountCents: StorageStore.priceCents);
+      final ok = await payments.buyStorage(amountCents: plan.priceCents);
       if (!mounted) return;
       if (ok) {
-        await StorageStore.instance.addPeriod();
-        // Back up immediately so the subscription pays off right away.
-        await CloudSync.instance.syncNow();
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Cloud storage is on — your data is backing up.'),
-        ));
+        await storage.subscribe(plan.tier);
+        _snack('You\'re on ${plan.name} — ${plan.quotaBytes ~/ (1024 * 1024 * 1024)} GB of chat storage.');
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Payment cancelled.'),
-        ));
+        _snack('Payment cancelled.');
       }
     } catch (_) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('Couldn\'t complete the purchase. Try again.'),
-      ));
+      _snack('Couldn\'t complete the purchase. Try again.');
     } finally {
-      if (mounted) setState(() => _buying = false);
+      if (mounted) setState(() => _busy = false);
     }
+  }
+
+  void _snack(String m) =>
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m)));
+
+  Future<bool> _confirm(String title, String body) async {
+    final r = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(title),
+        content: Text(body),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Confirm')),
+        ],
+      ),
+    );
+    return r ?? false;
   }
 
   @override
@@ -84,117 +104,21 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('Cloud storage')),
       body: ListenableBuilder(
-        listenable: Listenable.merge(
-            [CloudSync.instance, StorageStore.instance]),
+        listenable:
+            Listenable.merge([CloudSync.instance, StorageStore.instance]),
         builder: (context, _) {
           final sync = CloudSync.instance;
           final storage = StorageStore.instance;
           return ListView(
             padding: const EdgeInsets.all(16),
             children: [
-              _subscriptionCard(context, storage),
-              if (storage.active) ...[
-                const SizedBox(height: 12),
-                _usageCard(context, sync, storage),
-              ],
+              _communalNote(context),
               const SizedBox(height: 12),
-              _encryptionCard(context),
-              const SizedBox(height: 12),
-              _backupContents(context),
+              _usageCard(context, storage),
               const SizedBox(height: 16),
-              TextField(
-                controller: _pass,
-                obscureText: _obscure,
-                decoration: InputDecoration(
-                  labelText: 'Custom encryption key (optional, min 6 chars)',
-                  helperText:
-                      'Use your own key instead of your phone number — '
-                      'portable across numbers, unrecoverable if lost.',
-                  helperMaxLines: 2,
-                  border: const OutlineInputBorder(),
-                  suffixIcon: IconButton(
-                    icon: Icon(
-                        _obscure ? Icons.visibility : Icons.visibility_off),
-                    tooltip: _obscure ? 'Show' : 'Hide',
-                    onPressed: () => setState(() => _obscure = !_obscure),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 8),
-              SwitchListTile.adaptive(
-                title: const Text('Sync automatically'),
-                subtitle:
-                    const Text('Upload an encrypted copy after changes'),
-                value: sync.enabled,
-                onChanged: (v) => CloudSync.instance
-                    .configure(passphrase: _pass.text, on: v),
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                    child: FilledButton.icon(
-                      onPressed: (sync.syncing || !storage.active)
-                          ? null
-                          : () async {
-                              await CloudSync.instance.configure(
-                                  passphrase: _pass.text, on: sync.enabled);
-                              await _run(CloudSync.instance.syncNow,
-                                  'Backed up — encrypted end to end.');
-                            },
-                      icon: const Icon(Icons.cloud_upload_outlined, size: 18),
-                      label: const Text('Sync now'),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: (sync.syncing || !storage.active)
-                          ? null
-                          : () async {
-                              await CloudSync.instance.configure(
-                                  passphrase: _pass.text, on: sync.enabled);
-                              await _run(CloudSync.instance.restore,
-                                  'Restored from your encrypted backup.');
-                            },
-                      icon:
-                          const Icon(Icons.cloud_download_outlined, size: 18),
-                      label: const Text('Restore'),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 14),
-              if (sync.syncing)
-                const Center(
-                    child: Padding(
-                  padding: EdgeInsets.all(8),
-                  child: SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2)),
-                )),
-              if (sync.lastSync != null)
-                Text(
-                  'Last synced: ${DateFormatter.callLabel(sync.lastSync!)}',
-                  style: TextStyle(
-                      fontSize: 12.5,
-                      color: Theme.of(context).colorScheme.onSurfaceVariant),
-                ),
-              if (sync.lastError != null) ...[
-                const SizedBox(height: 8),
-                Card(
-                  color: Theme.of(context)
-                      .colorScheme
-                      .errorContainer
-                      .withValues(alpha: 0.4),
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Text(sync.lastError!,
-                        style: const TextStyle(fontSize: 13.5)),
-                  ),
-                ),
-              ],
+              _plansSection(context, storage),
+              const SizedBox(height: 20),
+              _chatBackupSection(context, sync, storage),
             ],
           );
         },
@@ -202,14 +126,28 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
     );
   }
 
-  /// The plan card: price, current state, and the subscribe / renew button.
-  Widget _subscriptionCard(BuildContext context, StorageStore storage) {
+  Widget _communalNote(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final active = storage.active;
+    return Row(
+      children: [
+        Icon(Icons.groups_2_outlined, size: 18, color: scheme.onSurfaceVariant),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            'Your servers, posts and follows sync automatically for everyone — '
+            'free, and never counted against your storage. This is just your '
+            'chat backup.',
+            style: TextStyle(fontSize: 12.5, color: scheme.onSurfaceVariant),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _usageCard(BuildContext context, StorageStore storage) {
+    final scheme = Theme.of(context).colorScheme;
     return Card(
-      color: active
-          ? scheme.primaryContainer.withValues(alpha: 0.5)
-          : scheme.surfaceContainerHighest.withValues(alpha: 0.5),
+      color: scheme.primaryContainer.withValues(alpha: 0.4),
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -217,194 +155,33 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
           children: [
             Row(
               children: [
-                Icon(active ? Icons.cloud_done : Icons.cloud_outlined,
-                    color: scheme.primary),
+                Icon(Icons.cloud_outlined, color: scheme.primary),
                 const SizedBox(width: 8),
-                const Expanded(
-                  child: Text(StorageStore.planName,
+                Text('${storage.plan.name} plan',
+                    style: const TextStyle(
+                        fontSize: 16, fontWeight: FontWeight.w700)),
+                const Spacer(),
+                if (storage.isPaid)
+                  Text('${storage.daysLeft} days left',
                       style: TextStyle(
-                          fontSize: 16, fontWeight: FontWeight.w700)),
-                ),
-                Text('${storage.priceLabel}/mo',
-                    style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w700,
-                        color: scheme.primary)),
+                          fontSize: 12.5, color: scheme.onSurfaceVariant)),
               ],
-            ),
-            const SizedBox(height: 8),
-            Text(
-              active
-                  ? 'Active — ${storage.daysLeft} day'
-                      '${storage.daysLeft == 1 ? '' : 's'} left. Your servers, '
-                      'posts, follows, saved places and score keep backing up '
-                      'automatically.'
-                  : 'Back up everything except chats to the server, encrypted '
-                      'end to end, and restore it on any device by signing in. '
-                      'Subscribe to turn it on.',
-              style: TextStyle(
-                  fontSize: 13.5, color: scheme.onSurfaceVariant, height: 1.35),
             ),
             const SizedBox(height: 12),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton.icon(
-                onPressed: _buying ? null : _subscribe,
-                icon: _buying
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2))
-                    : Icon(active ? Icons.refresh : Icons.lock_open, size: 18),
-                label: Text(_buying
-                    ? 'Processing…'
-                    : active
-                        ? 'Renew — ${storage.priceLabel} for 30 more days'
-                        : 'Subscribe — ${storage.priceLabel}/month'),
-              ),
-            ),
-            if (active) ...[
-              const SizedBox(height: 4),
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton(
-                  onPressed: () => _confirmCancel(context, storage),
-                  child: const Text('Cancel storage'),
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-
-  Future<void> _confirmCancel(
-      BuildContext context, StorageStore storage) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Cancel cloud storage?'),
-        content: const Text(
-            'Automatic backup stops immediately. Whatever is already backed '
-            'up stays on the server, and you can subscribe again anytime.'),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Keep it')),
-          FilledButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Cancel storage')),
-        ],
-      ),
-    );
-    if (ok == true) await storage.cancel();
-  }
-
-  /// The usage meter: used vs available, a per-category breakdown, and a
-  /// backup health check.
-  Widget _usageCard(
-      BuildContext context, CloudSync sync, StorageStore storage) {
-    final scheme = Theme.of(context).colorScheme;
-    // Before the first upload there's no recorded size; show the live estimate
-    // so the meter isn't stuck at zero.
-    final used = storage.usedBytes > 0
-        ? storage.usedBytes
-        : sync.estimatedBytes();
-    final fraction = (used / StorageStore.quotaBytes).clamp(0.0, 1.0);
-    final sections = sync.sectionSizes().take(5).toList();
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(Icons.pie_chart_outline, color: scheme.primary),
-                const SizedBox(width: 8),
-                const Text('Storage used',
-                    style: TextStyle(fontWeight: FontWeight.w700)),
-                const Spacer(),
-                Text(
-                  '${StorageStore.formatBytes(used)} of ${storage.quotaLabel}',
-                  style: TextStyle(
-                      fontSize: 13, color: scheme.onSurfaceVariant),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
             ClipRRect(
               borderRadius: BorderRadius.circular(6),
               child: LinearProgressIndicator(
-                value: fraction,
+                value: storage.usedFraction,
                 minHeight: 8,
                 backgroundColor: scheme.surfaceContainerHighest,
               ),
             ),
             const SizedBox(height: 6),
-            Text('${storage.availableLabel} available',
-                style:
-                    TextStyle(fontSize: 12.5, color: scheme.onSurfaceVariant)),
-            if (sections.isNotEmpty) ...[
-              const Divider(height: 22),
-              for (final s in sections)
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 3),
-                  child: Row(
-                    children: [
-                      Expanded(
-                          child: Text(s.key,
-                              style: const TextStyle(fontSize: 13.5))),
-                      Text(StorageStore.formatBytes(s.value),
-                          style: TextStyle(
-                              fontSize: 13,
-                              color: scheme.onSurfaceVariant)),
-                    ],
-                  ),
-                ),
-            ],
-            const SizedBox(height: 6),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: TextButton.icon(
-                onPressed: sync.syncing
-                    ? null
-                    : () => _run(CloudSync.instance.verifyBackup,
-                        'Backup verified — present and readable.'),
-                icon: const Icon(Icons.verified_outlined, size: 18),
-                label: const Text('Verify backup'),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _encryptionCard(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(Icons.lock_outline, color: scheme.primary),
-                const SizedBox(width: 8),
-                const Text('End-to-end encrypted',
-                    style: TextStyle(fontWeight: FontWeight.w700)),
-              ],
-            ),
-            const SizedBox(height: 8),
             Text(
-              'Everything is encrypted on this device (AES-256-GCM) before it '
-              'uploads — the server only ever stores ciphertext it can\'t '
-              'read. Chats are never included: your messages stay on the '
-              'device they were sent from.',
-              style: TextStyle(fontSize: 13.5, color: scheme.onSurfaceVariant),
+              '${storage.usedLabel} of ${storage.quotaLabel} used · '
+              '${storage.availableLabel} free',
+              style:
+                  TextStyle(fontSize: 12.5, color: scheme.onSurfaceVariant),
             ),
           ],
         ),
@@ -412,41 +189,182 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
     );
   }
 
-  Widget _backupContents(BuildContext context) {
+  Widget _plansSection(BuildContext context, StorageStore storage) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(left: 4, bottom: 6),
+          child: Text('PLANS',
+              style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.6,
+                  color: Colors.grey.shade500)),
+        ),
+        for (final plan in StorageStore.plans)
+          _planTile(context, plan, storage),
+      ],
+    );
+  }
+
+  Widget _planTile(
+      BuildContext context, StoragePlan plan, StorageStore storage) {
     final scheme = Theme.of(context).colorScheme;
-    return ListenableBuilder(
-      listenable: Listenable.merge([
-        FeedStore.instance,
-        FollowStore.instance,
-        SavedPlacesStore.instance,
-        CommunityStore.instance,
-        ScoreStore.instance,
-      ]),
-      builder: (context, _) {
-        final parts = <String>[
-          backupCount(FeedStore.instance.exportPosts().length, 'post'),
-          backupCount(FollowStore.instance.followingCount, 'follow'),
-          backupCount(
-              SavedPlacesStore.instance.places.length, 'saved place'),
-          backupCount(CommunityStore.instance.communities.length, 'community',
-              plural: 'communities'),
-          '${ScoreStore.instance.points} score',
-        ];
-        return Row(
+    final current = storage.selectedTier == plan.tier;
+    final gb = plan.quotaBytes ~/ (1024 * 1024 * 1024);
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: current
+            ? BorderSide(color: scheme.primary, width: 1.5)
+            : BorderSide.none,
+      ),
+      child: ListTile(
+        title: Row(
           children: [
-            Icon(Icons.inventory_2_outlined,
-                size: 16, color: scheme.onSurfaceVariant),
+            Text(plan.name,
+                style: const TextStyle(fontWeight: FontWeight.w700)),
             const SizedBox(width: 8),
+            if (current)
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: scheme.primary.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text('Current',
+                    style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: scheme.primary)),
+              ),
+          ],
+        ),
+        subtitle: Text('$gb GB'),
+        trailing: current
+            ? (plan.isFree
+                ? null
+                : TextButton(
+                    onPressed: _busy ? null : () => _choosePlan(plan),
+                    child: const Text('Renew')))
+            : FilledButton.tonal(
+                onPressed: _busy ? null : () => _choosePlan(plan),
+                child: Text(plan.isFree ? 'Switch' : plan.priceLabel),
+              ),
+      ),
+    );
+  }
+
+  Widget _chatBackupSection(
+      BuildContext context, CloudSync sync, StorageStore storage) {
+    final scheme = Theme.of(context).colorScheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(left: 4, bottom: 6),
+          child: Text('CHAT BACKUP',
+              style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.6,
+                  color: Colors.grey.shade500)),
+        ),
+        Text(
+          'Your chats are encrypted with a key only you hold before they ever '
+          'leave the device. Lose the key and nobody — not even us — can '
+          'recover the backup.',
+          style: TextStyle(fontSize: 13, color: scheme.onSurfaceVariant),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _pass,
+          obscureText: _obscure,
+          onChanged: (_) => setState(() {}),
+          decoration: InputDecoration(
+            labelText: 'Encryption key (min 6 characters)',
+            border: const OutlineInputBorder(),
+            suffixIcon: IconButton(
+              icon: Icon(_obscure ? Icons.visibility : Icons.visibility_off),
+              tooltip: _obscure ? 'Show' : 'Hide',
+              onPressed: () => setState(() => _obscure = !_obscure),
+            ),
+          ),
+        ),
+        const SizedBox(height: 6),
+        if (!sync.chatBackupReady && _pass.text.trim().length < 6)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Text(
+              'Set a key of at least 6 characters to enable chat backup.',
+              style: TextStyle(fontSize: 12.5, color: scheme.onSurfaceVariant),
+            ),
+          ),
+        Row(
+          children: [
             Expanded(
-              child: Text(
-                'In this backup: ${parts.join(' · ')}',
-                style: TextStyle(
-                    fontSize: 12.5, color: scheme.onSurfaceVariant),
+              child: FilledButton.icon(
+                onPressed: (sync.syncing || _pass.text.trim().length < 6)
+                    ? null
+                    : () => _run(CloudSync.instance.backUpChats,
+                        'Chats backed up — encrypted end to end.'),
+                icon: const Icon(Icons.cloud_upload_outlined, size: 18),
+                label: const Text('Back up chats'),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: (sync.syncing || _pass.text.trim().length < 6)
+                    ? null
+                    : () => _run(CloudSync.instance.restoreChats,
+                        'Chats restored from your encrypted backup.'),
+                icon: const Icon(Icons.cloud_download_outlined, size: 18),
+                label: const Text('Restore'),
               ),
             ),
           ],
-        );
-      },
+        ),
+        const SizedBox(height: 4),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton.icon(
+            onPressed: (sync.syncing || _pass.text.trim().length < 6)
+                ? null
+                : () => _run(CloudSync.instance.verifyChatBackup,
+                    'Chat backup verified — present and readable.'),
+            icon: const Icon(Icons.verified_outlined, size: 18),
+            label: const Text('Verify backup'),
+          ),
+        ),
+        if (sync.syncing)
+          const Center(
+              child: Padding(
+            padding: EdgeInsets.all(8),
+            child: SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2)),
+          )),
+        if (sync.lastSync != null)
+          Text('Last backup: ${DateFormatter.callLabel(sync.lastSync!)}',
+              style:
+                  TextStyle(fontSize: 12.5, color: scheme.onSurfaceVariant)),
+        if (sync.lastError != null) ...[
+          const SizedBox(height: 8),
+          Card(
+            color: scheme.errorContainer.withValues(alpha: 0.4),
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Text(sync.lastError!,
+                  style: const TextStyle(fontSize: 13.5)),
+            ),
+          ),
+        ],
+      ],
     );
   }
 }

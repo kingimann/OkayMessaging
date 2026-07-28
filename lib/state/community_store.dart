@@ -626,16 +626,28 @@ class CommunityStore extends ChangeNotifier {
     _replace(community.copyWith(channels: channels));
   }
 
-  /// Whether the local user (always represented as member `me`) can moderate
-  /// [community] — i.e. is its owner or an admin.
-  bool canModerate(String communityId) {
+  /// The local user's role in [community], or null if not a member.
+  MemberRole? myRole(String communityId) {
     final community = byId(communityId);
-    if (community == null) return false;
+    if (community == null) return null;
     final me = community.members
         .cast<Member?>()
         .firstWhere((m) => m?.id == 'me', orElse: () => null);
-    return me != null &&
-        (me.role == MemberRole.owner || me.role == MemberRole.admin);
+    return me?.role;
+  }
+
+  /// Whether the local user can moderate [community] — delete/pin messages,
+  /// mute, kick, ban. Owners, admins, and moderators.
+  bool canModerate(String communityId) {
+    final role = myRole(communityId);
+    return role != null && roleCanModerate(role);
+  }
+
+  /// Whether the local user can change server settings, channels, and member
+  /// roles — owners and admins only.
+  bool canManageServer(String communityId) {
+    final role = myRole(communityId);
+    return role != null && roleCanManageServer(role);
   }
 
   void deleteCommunity(String communityId) {
