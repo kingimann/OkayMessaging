@@ -1801,6 +1801,12 @@ void main() {
       CommunityStore.instance
           .addRemoteChannelMessage(joined.id, 'nope', msg);
 
+      // Wire ids round-trip to inbox digits for the offline fan-out; local
+      // ids have no inbox.
+      expect(CommunityStore.digitsOfWireId('u_15550101111'), '15550101111');
+      expect(CommunityStore.digitsOfWireId('me'), isNull);
+      expect(CommunityStore.digitsOfWireId('m_ada'), isNull);
+
       // The bus payload is sealed with the server secret and round-trips.
       final sealed =
           E2eCrypto.encrypt(joined.secretBytes!, 'channel plaintext');

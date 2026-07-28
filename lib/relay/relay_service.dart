@@ -629,6 +629,8 @@ class RelayService {
               applyMessageEvent(event, payload, myPhone: me);
             case 'gupd':
               applyGroupUpdate(payload, myPhone: me);
+            case 'chmsg' || 'chjoin' || 'chupd':
+              _applyCommunityEvent(event, payload, me);
           }
         } catch (_) {
           // A corrupt envelope must not wedge the queue — it gets deleted
@@ -911,54 +913,67 @@ class RelayService {
         )
         .onBroadcast(
           event: 'chmsg',
-          callback: (payload) => _onCommunityEvent(payload, me, (cid, body) {
-            final rawMsg = body['message'];
-            if (rawMsg is! Map) return;
-            final msg =
-                Message.fromJson(Map<String, dynamic>.from(rawMsg));
-            CommunityStore.instance.addRemoteChannelMessage(
-              cid,
-              body['channelId'] as String? ?? '',
-              Message(
-                id: msg.id,
-                text: msg.text,
-                time: msg.time,
-                isMe: false,
-                status: MessageStatus.delivered,
-                senderName: body['senderName'] as String? ?? 'Member',
-                isImage: msg.isImage,
-                imageUrl: msg.imageUrl,
-                replyTo: msg.replyTo,
-                isPoll: msg.isPoll,
-                pollQuestion: msg.pollQuestion,
-                pollOptions: msg.pollOptions,
-                pollVotes: msg.pollVotes,
-              ),
-            );
-          }),
+          callback: (payload) => _applyCommunityEvent('chmsg',
+              Map<String, dynamic>.from(payload), me),
         )
         .onBroadcast(
           event: 'chjoin',
-          callback: (payload) => _onCommunityEvent(payload, me, (cid, body) {
-            final rawMember = body['member'];
-            if (rawMember is! Map) return;
-            CommunityStore.instance.applyRemoteJoin(
-                cid, Member.fromJson(Map<String, dynamic>.from(rawMember)));
-          }),
+          callback: (payload) => _applyCommunityEvent('chjoin',
+              Map<String, dynamic>.from(payload), me),
         )
         .onBroadcast(
           event: 'chupd',
-          callback: (payload) => _onCommunityEvent(payload, me, (cid, body) {
-            final structure = body['structure'];
-            if (structure is! Map) return;
-            CommunityStore.instance.applyRemoteStructure(
-                Map<String, dynamic>.from(structure),
-                myDigits: digits(me));
-          }),
+          callback: (payload) => _applyCommunityEvent('chupd',
+              Map<String, dynamic>.from(payload), me),
         )
         .subscribe();
     // Catch up on whatever arrived while the app was closed.
     fetchMailbox();
+  }
+
+  /// Routes one sealed community event ([event] = chmsg/chjoin/chupd) into
+  /// the store — shared by the live bus and the offline mailbox, so the
+  /// dedup/merge semantics are identical either way.
+  void _applyCommunityEvent(
+      String event, Map<String, dynamic> payload, String me) {
+    _onCommunityEvent(payload, me, (cid, body) {
+      switch (event) {
+        case 'chmsg':
+          final rawMsg = body['message'];
+          if (rawMsg is! Map) return;
+          final msg = Message.fromJson(Map<String, dynamic>.from(rawMsg));
+          CommunityStore.instance.addRemoteChannelMessage(
+            cid,
+            body['channelId'] as String? ?? '',
+            Message(
+              id: msg.id,
+              text: msg.text,
+              time: msg.time,
+              isMe: false,
+              status: MessageStatus.delivered,
+              senderName: body['senderName'] as String? ?? 'Member',
+              isImage: msg.isImage,
+              imageUrl: msg.imageUrl,
+              replyTo: msg.replyTo,
+              isPoll: msg.isPoll,
+              pollQuestion: msg.pollQuestion,
+              pollOptions: msg.pollOptions,
+              pollVotes: msg.pollVotes,
+            ),
+          );
+        case 'chjoin':
+          final rawMember = body['member'];
+          if (rawMember is! Map) return;
+          CommunityStore.instance.applyRemoteJoin(
+              cid, Member.fromJson(Map<String, dynamic>.from(rawMember)));
+        case 'chupd':
+          final structure = body['structure'];
+          if (structure is! Map) return;
+          CommunityStore.instance.applyRemoteStructure(
+              Map<String, dynamic>.from(structure),
+              myDigits: digits(me));
+      }
+    });
   }
 
   /// Decodes a sealed community-bus event: looks the server up by id, opens
@@ -983,28 +998,35 @@ class RelayService {
     } catch (_) {}
   }
 
-  /// Seals and broadcasts a community-bus event ('chmsg' / 'chjoin') with
-  /// the server's secret. No-op for servers without one (older builds).
+  /// Seals a community-bus event ('chmsg' / 'chjoin' / 'chupd') with the
+  /// server's secret, broadcasts it live, and fans the same envelope into
+  /// every other member's offline mailbox so nobody misses server activity
+  /// just for being away. No-op for servers without a secret (older builds).
   Future<void> _sendCommunityEvent(
       String event, String communityId, Map<String, dynamic> body) async {
     if (!_initialized) return;
     final me = Session.instance.user.value;
     if (me == null) return;
-    final secret = CommunityStore.instance.byId(communityId)?.secretBytes;
-    if (secret == null) return;
+    final community = CommunityStore.instance.byId(communityId);
+    final secret = community?.secretBytes;
+    if (community == null || secret == null) return;
+    final payload = {
+      'from': me.phone,
+      'communityId': communityId,
+      'data': E2eCrypto.encrypt(secret, jsonEncode(body)),
+    };
     final channel = _feedChannel ??
         _sendChannels.putIfAbsent(
             'server_feed', () => _client.channel('server_feed'));
     try {
-      await channel.sendBroadcastMessage(
-        event: event,
-        payload: {
-          'from': me.phone,
-          'communityId': communityId,
-          'data': E2eCrypto.encrypt(secret, jsonEncode(body)),
-        },
-      );
+      await channel.sendBroadcastMessage(event: event, payload: payload);
     } catch (_) {}
+    final mine = digits(me.phone);
+    for (final m in community.members) {
+      final d = CommunityStore.digitsOfWireId(m.id);
+      if (d == null || d == mine) continue;
+      _mailboxPut(d, payload, event: event);
+    }
   }
 
   /// Delivers a channel message to every other member of the server.

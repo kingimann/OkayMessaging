@@ -842,6 +842,11 @@ class CommunityStore extends ChangeNotifier {
   /// The roster id a member is known by across devices.
   static String wireId(String digits) => 'u_$digits';
 
+  /// The phone digits behind a wire id, or null for local-only ids ('me',
+  /// seeded members) that have no reachable inbox.
+  static String? digitsOfWireId(String id) =>
+      id.startsWith('u_') ? id.substring(2) : null;
+
   /// The invite snapshot that travels (E2E encrypted) inside a chat message:
   /// the server's identity, its secret, its channel layout — but nobody's
   /// message history. The sender's local 'me' entry is translated to their
