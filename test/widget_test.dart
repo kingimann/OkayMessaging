@@ -10209,6 +10209,92 @@ void main() {
           isNull);
     });
 
+    testWidgets('note to self offers no way to send money', (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      ChatStore.instance.reset();
+      final me = AppState.profile.value;
+      final selfChat = Chat(
+        id: 'chat_self',
+        contact: AppUser(
+            id: 'self',
+            name: 'Note to self',
+            avatarColor: me.avatarColor,
+            phone: ''),
+        messages: const [],
+      );
+      ChatStore.instance.upsert(selfChat);
+
+      await tester.pumpWidget(MaterialApp(home: ChatScreen(chat: selfChat)));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Attach'));
+      await tester.pumpAndSettle();
+
+      // Other attachments are there; paying yourself is not offered at all.
+      expect(find.text('Contact'), findsOneWidget);
+      expect(find.text('Payment'), findsNothing,
+          reason: 'there is no second party in your own notes');
+    });
+
+    testWidgets('a group asks who to pay, and makes you confirm the name',
+        (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      ChatStore.instance.reset();
+      PaymentService.instance.setTestMode(true);
+      addTearDown(() => PaymentService.instance.setTestMode(false));
+
+      const ada = AppUser(
+          id: '+15550001',
+          name: 'Ada',
+          avatarColor: '#111111',
+          phone: '+15550001');
+      const grace = AppUser(
+          id: '+15550002',
+          name: 'Grace',
+          avatarColor: '#222222',
+          phone: '+15550002');
+      const group = Chat(
+        id: 'chat_group_pay',
+        contact: AppUser(
+            id: 'g1',
+            name: 'Trip',
+            avatarColor: '#333333',
+            phone: '',
+            isGroup: true),
+        messages: [],
+        members: [ada, grace],
+      );
+      ChatStore.instance.upsert(group);
+
+      await tester.pumpWidget(
+          const MaterialApp(home: ChatScreen(chat: group)));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Attach'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Payment'));
+      await tester.pumpAndSettle();
+
+      // A group is not a recipient — it has to ask which member.
+      expect(find.text('Who are you paying?'), findsOneWidget);
+      expect(find.text('Ada'), findsOneWidget);
+      expect(find.text('Grace'), findsOneWidget);
+      // The amount sheet must NOT be reachable before someone is chosen.
+      expect(find.text('You pay'), findsNothing);
+
+      await tester.tap(find.text('Grace'));
+      await tester.pumpAndSettle();
+
+      // Picking is not sending: the name is put back for confirmation, so a
+      // mis-tap in a list cannot move money.
+      expect(find.text('Pay Grace?'), findsOneWidget);
+      expect(find.textContaining('cannot be reversed'), findsOneWidget);
+
+      await tester.tap(find.text('Back'));
+      await tester.pumpAndSettle();
+      expect(find.text('Pay Grace?'), findsNothing);
+      expect(find.textContaining('Send money to'), findsNothing,
+          reason: 'backing out of the confirmation must send nothing');
+    });
+
     testWidgets('a recipient is told they carry the chargeback before setup',
         (tester) async {
       // The flip side of the platform not holding funds: payments land in the

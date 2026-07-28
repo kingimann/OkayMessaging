@@ -1638,9 +1638,80 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  /// Sends money to this chat's contact via Stripe Connect. Opens the amount
-  /// sheet, creates a destination PaymentIntent, presents the native payment
-  /// sheet, and on success drops a payment receipt into the conversation.
+  /// Whether this conversation is the private notes chat. Nothing leaves it,
+  /// so there is nobody to pay.
+  bool get _isNoteToSelf => widget.chat.contact.id == 'self';
+
+  /// The members of a group who could actually be paid: real, number-identified
+  /// people, never yourself and never the group itself.
+  List<AppUser> get _payableGroupMembers {
+    final me = AppState.profile.value;
+    return [
+      for (final u in widget.chat.members)
+        if (u.id != me.id && u.id != 'me' && u.id != 'self' && _isRealPeer(u))
+          u
+    ];
+  }
+
+  /// Asks which member of a group to pay, then makes them confirm it.
+  ///
+  /// A group has no single "the other person", so sending to the chat would
+  /// have to guess — and guessing wrong here moves real money to the wrong
+  /// person. Two deliberate steps: pick a name, then confirm that name.
+  Future<AppUser?> _pickGroupRecipient() async {
+    final members = _payableGroupMembers;
+    if (members.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('No one in this group has set up payments yet')));
+      return null;
+    }
+    final picked = await showModalBottomSheet<AppUser>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(20, 4, 20, 12),
+              child: Text('Who are you paying?',
+                  style:
+                      TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+            ),
+            for (final m in members)
+              ListTile(
+                leading: UserAvatar(user: m, radius: 20),
+                title: Text(m.name),
+                subtitle: Text(m.phone),
+                onTap: () => Navigator.pop(sheetContext, m),
+              ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+    if (picked == null || !mounted) return null;
+
+    // Naming them again, on their own, is the whole point — a mis-tap in a
+    // list of names shouldn't be enough to move money.
+    final ok = await showAppConfirmDialog(
+      context,
+      icon: Icons.person_outline,
+      title: 'Pay ${picked.name}?',
+      message: 'Money will go to ${picked.name} (${picked.phone}). '
+          'Check this is the right person — a sent payment cannot be '
+          'reversed from here.',
+      confirmLabel: 'Yes, ${picked.name}',
+      cancelLabel: 'Back',
+    );
+    if (!ok || !mounted) return null;
+    return picked;
+  }
+
+  /// Sends money to a person via Stripe Connect. Opens the amount sheet,
+  /// creates a direct PaymentIntent on their connected account, presents the
+  /// native payment sheet, and on success drops a receipt into the
+  /// conversation.
   Future<void> _handleSendMoney() async {
     final svc = PaymentService.instance;
     if (!svc.isConfigured) {
@@ -1651,22 +1722,38 @@ class _ChatScreenState extends State<ChatScreen> {
       _showComingSoon(context, 'Sending money (use the mobile app)');
       return;
     }
+    // Not even in test mode: there is no second party in your own notes, so
+    // offering to pay them is nonsense however the payment is simulated.
+    if (_isNoteToSelf) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('You can\'t send money to yourself')));
+      return;
+    }
+
+    // A group is not a recipient. Resolve one person, deliberately.
+    var recipient = widget.chat.contact;
+    if (recipient.isGroup) {
+      final picked = await _pickGroupRecipient();
+      if (picked == null || !mounted) return;
+      recipient = picked;
+    }
+
     // Test mode simulates locally, so it works with any contact.
-    if (!svc.testMode.value && !_isRealPeer(widget.chat.contact)) {
+    if (!svc.testMode.value && !_isRealPeer(recipient)) {
       _showComingSoon(context, 'Payments (needs a real contact)');
       return;
     }
-    if (!await _confirmRecipient()) return;
+    if (!widget.chat.contact.isGroup && !await _confirmRecipient()) return;
     if (!mounted) return;
     final result = await showModalBottomSheet<({int cents, String note, bool acknowledged})>(
       context: context,
       isScrollControlled: true,
-      builder: (_) => PaymentAmountSheet(peerName: widget.chat.contact.name),
+      builder: (_) => PaymentAmountSheet(peerName: recipient.name),
     );
     if (result == null || result.cents <= 0 || !mounted) return;
 
     final messenger = ScaffoldMessenger.of(context);
-    final phone = widget.chat.contact.phone;
+    final phone = recipient.phone;
     final now = DateTime.now();
     final payId = 'pay_${now.microsecondsSinceEpoch}';
 
@@ -1674,7 +1761,13 @@ class _ChatScreenState extends State<ChatScreen> {
     // recipient sees the payment as pending while it's confirmed.
     _deliver(Message(
       id: payId,
-      text: result.note,
+      // In a group the receipt is visible to everyone, so it has to say who
+      // was paid — otherwise it reads as a payment to the room.
+      text: widget.chat.contact.isGroup
+          ? (result.note.isEmpty
+              ? 'To ${recipient.name}'
+              : 'To ${recipient.name} — ${result.note}')
+          : result.note,
       time: now,
       isMe: true,
       status: MessageStatus.sent,
@@ -1790,11 +1883,14 @@ class _ChatScreenState extends State<ChatScreen> {
             label: 'Contact',
             color: const Color(0xFF009DE2),
             onTap: _pickContactToShare),
-        AttachmentOption(
-            icon: Icons.attach_money,
-            label: 'Payment',
-            color: const Color(0xFF12B76A),
-            onTap: _handleSendMoney),
+        // Not offered in your own notes: there is no second party to pay.
+        // Groups keep it — the option asks which member first.
+        if (!_isNoteToSelf)
+          AttachmentOption(
+              icon: Icons.attach_money,
+              label: 'Payment',
+              color: const Color(0xFF12B76A),
+              onTap: _handleSendMoney),
         AttachmentOption(
             icon: Icons.poll_outlined,
             label: 'Poll',
