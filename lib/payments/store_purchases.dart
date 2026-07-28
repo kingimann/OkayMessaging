@@ -20,6 +20,7 @@ class StorePurchases {
   static String storageProductId(StorageTier tier) => switch (tier) {
         StorageTier.free => '', // free needs no purchase
         StorageTier.personal => '$_prefix.storage.personal.monthly',
+        StorageTier.plus => '$_prefix.storage.plus.monthly',
       };
 
   /// Fixed consumable tip products. Apple doesn't allow arbitrary amounts, so

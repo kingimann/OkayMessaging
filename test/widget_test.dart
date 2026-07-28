@@ -71,6 +71,7 @@ import 'package:okay_messaging/state/community_store.dart';
 import 'package:okay_messaging/state/file_transfer.dart';
 import 'package:okay_messaging/models/status_update.dart';
 import 'package:okay_messaging/payments/payment_service.dart';
+import 'package:okay_messaging/payments/storage_economics.dart';
 import 'package:okay_messaging/payments/store_purchases.dart';
 import 'package:okay_messaging/state/backup_service.dart';
 import 'package:okay_messaging/screens/status_screen.dart';
@@ -5353,10 +5354,14 @@ void main() {
       storage.subscribe(StorageTier.personal);
       expect(storage.daysLeft, inInclusiveRange(58, 60));
 
-      // One paid plan: Personal at $9.99/mo. No unlimited.
+      // Personal $9.99, Plus $19.99. No unlimited.
       expect(StorageStore.planFor(StorageTier.personal).priceCents, 999);
       expect(StorageStore.planFor(StorageTier.personal).priceLabel, '\$9.99/mo');
-      expect(StorageStore.plans.length, 2); // Free + Personal
+      expect(StorageStore.planFor(StorageTier.plus).priceCents, 1999);
+      expect(StorageStore.planFor(StorageTier.plus).priceLabel, '\$19.99/mo');
+      expect(StorageStore.planFor(StorageTier.plus).quotaBytes,
+          100 * 1024 * 1024 * 1024);
+      expect(StorageStore.plans.length, 3); // Free + Personal + Plus
 
       // Cancelling drops straight back to Free.
       storage.cancel();
@@ -5364,11 +5369,32 @@ void main() {
       expect(storage.quotaBytes, 2 * 1024 * 1024 * 1024);
     });
 
+    test('every paid plan profits after Apple\'s cut and Supabase cost', () {
+      // On the right backend (Storage buckets) every paid plan clears cost.
+      for (final plan in StorageStore.plans) {
+        if (plan.isFree) continue;
+        final gb = plan.quotaBytes ~/ (1024 * 1024 * 1024);
+        final price = plan.priceCents / 100;
+        expect(StorageEconomics.isProfitable(price, gb, useBuckets: true), isTrue,
+            reason: '${plan.name} must profit on buckets');
+        // Sanity on the model: Apple keeps 30%, so the developer nets 70%.
+        expect(StorageEconomics.developerNet(10), closeTo(7.0, 0.0001));
+        // Buckets are far cheaper per GB than Postgres disk.
+        expect(StorageEconomics.costPerGb(useBuckets: true),
+            lessThan(StorageEconomics.costPerGb(useBuckets: false)));
+      }
+      // Concretely: Plus (100 GB @ $19.99) nets $13.99, costs ~$6.63 on
+      // buckets → clear profit.
+      expect(StorageEconomics.monthlyProfit(19.99, 100), greaterThan(5));
+    });
+
     test('storage & tips are store products (Apple), not Stripe', () async {
-      // The paid tier maps to an auto-renewable product; Free needs none.
+      // Each paid tier maps to its own auto-renewable product; Free needs none.
       expect(StorePurchases.storageProductId(StorageTier.free), '');
       expect(StorePurchases.storageProductId(StorageTier.personal),
           contains('storage.personal'));
+      expect(StorePurchases.storageProductId(StorageTier.plus),
+          contains('storage.plus'));
 
       // Tips are a fixed set of consumable products, priced low-to-high.
       const tips = StorePurchases.tipProducts;

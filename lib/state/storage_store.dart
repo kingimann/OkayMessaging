@@ -2,8 +2,9 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// The storage plans on offer. Deliberately no "unlimited" — every tier has a
-/// hard ceiling so a single heavy user can't run costs away.
-enum StorageTier { free, personal }
+/// hard ceiling so a single heavy user can't run costs away. Prices come from
+/// [StorageEconomics] (Supabase cost + Apple's 30% cut), not guesswork.
+enum StorageTier { free, personal, plus }
 
 /// A plan's fixed facts: display name, monthly price, and the storage ceiling.
 class StoragePlan {
@@ -47,10 +48,12 @@ class StorageStore extends ChangeNotifier {
 
   static const int _gb = 1024 * 1024 * 1024;
 
-  /// The catalogue, cheapest first.
+  /// The catalogue, cheapest first. Each paid plan clears cost + Apple's cut
+  /// (verified in tests via [StorageEconomics]).
   static const List<StoragePlan> plans = [
     StoragePlan(StorageTier.free, 'Free', 0, 2 * _gb),
     StoragePlan(StorageTier.personal, 'Personal', 999, 15 * _gb),
+    StoragePlan(StorageTier.plus, 'Plus', 1999, 100 * _gb),
   ];
 
   static StoragePlan planFor(StorageTier tier) =>

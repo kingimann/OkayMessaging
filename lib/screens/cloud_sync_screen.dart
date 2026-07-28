@@ -248,13 +248,23 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: const EdgeInsets.only(left: 4, bottom: 6),
-          child: Text('PLANS',
+          padding: const EdgeInsets.only(left: 4, bottom: 2),
+          child: Text('NEED MORE SPACE?',
               style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w700,
                   letterSpacing: 0.6,
                   color: Colors.grey.shade500)),
+        ),
+        Padding(
+          padding: const EdgeInsets.only(left: 4, bottom: 8),
+          child: Text(
+            'Pick a plan to add storage. The App Store sets fixed sizes, so '
+            'these are the amounts on offer.',
+            style: TextStyle(
+                fontSize: 12,
+                color: Theme.of(context).colorScheme.onSurfaceVariant),
+          ),
         ),
         for (final plan in StorageStore.plans)
           _planTile(context, plan, storage),
