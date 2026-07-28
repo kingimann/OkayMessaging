@@ -3,7 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 /// The storage plans on offer. Deliberately no "unlimited" — every tier has a
 /// hard ceiling so a single heavy user can't run costs away.
-enum StorageTier { free, personal, pro, studio }
+enum StorageTier { free, personal }
 
 /// A plan's fixed facts: display name, monthly price, and the storage ceiling.
 class StoragePlan {
@@ -50,9 +50,7 @@ class StorageStore extends ChangeNotifier {
   /// The catalogue, cheapest first.
   static const List<StoragePlan> plans = [
     StoragePlan(StorageTier.free, 'Free', 0, 2 * _gb),
-    StoragePlan(StorageTier.personal, 'Personal', 999, 20 * _gb),
-    StoragePlan(StorageTier.pro, 'Pro', 1900, 100 * _gb),
-    StoragePlan(StorageTier.studio, 'Studio', 4900, 500 * _gb),
+    StoragePlan(StorageTier.personal, 'Personal', 999, 15 * _gb),
   ];
 
   static StoragePlan planFor(StorageTier tier) =>

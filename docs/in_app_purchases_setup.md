@@ -12,15 +12,13 @@ whole flow with no store and no charge, so you can exercise the UI anywhere.
 
 ## Products to create
 
-### Auto-renewable subscriptions — cloud storage
+### Auto-renewable subscription — cloud storage
 In App Store Connect → your app → Subscriptions, create one group ("Cloud
-storage") with three subscriptions:
+storage") with a single subscription:
 
 | Product ID | Plan | Price |
 |---|---|---|
-| `com.okaymessaging.storage.personal.monthly` | Personal, 20 GB | $9.99 / mo |
-| `com.okaymessaging.storage.pro.monthly` | Pro, 100 GB | $19.99 / mo |
-| `com.okaymessaging.storage.studio.monthly` | Studio, 500 GB | $49.99 / mo |
+| `com.okaymessaging.storage.personal.monthly` | Personal, 15 GB | $9.99 / mo |
 
 ### Consumables — developer tips
 In App Store Connect → In-App Purchases, create four consumables:

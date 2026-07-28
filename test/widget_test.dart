@@ -5342,25 +5342,21 @@ void main() {
       expect(storage.isPaid, isFalse);
       expect(storage.quotaBytes, 2 * 1024 * 1024 * 1024);
 
-      // Subscribing to Personal raises the ceiling to 20 GB for ~30 days.
+      // Subscribing to Personal raises the ceiling to 15 GB for ~30 days.
       storage.subscribe(StorageTier.personal);
       expect(storage.tier, StorageTier.personal);
       expect(storage.isPaid, isTrue);
-      expect(storage.quotaBytes, 20 * 1024 * 1024 * 1024);
+      expect(storage.quotaBytes, 15 * 1024 * 1024 * 1024);
       expect(storage.daysLeft, inInclusiveRange(28, 30));
 
       // Renewing stacks the time rather than wasting the remainder.
       storage.subscribe(StorageTier.personal);
       expect(storage.daysLeft, inInclusiveRange(58, 60));
 
-      // Prices match the plan sheet; there is deliberately no unlimited tier.
+      // One paid plan: Personal at $9.99/mo. No unlimited.
       expect(StorageStore.planFor(StorageTier.personal).priceCents, 999);
-      expect(StorageStore.planFor(StorageTier.pro).priceCents, 1900);
-      expect(StorageStore.planFor(StorageTier.studio).priceCents, 4900);
-      // Price labels: cents show for $9.99, whole dollars stay clean.
       expect(StorageStore.planFor(StorageTier.personal).priceLabel, '\$9.99/mo');
-      expect(StorageStore.planFor(StorageTier.pro).priceLabel, '\$19/mo');
-      expect(StorageStore.plans.length, 4);
+      expect(StorageStore.plans.length, 2); // Free + Personal
 
       // Cancelling drops straight back to Free.
       storage.cancel();
@@ -5369,14 +5365,10 @@ void main() {
     });
 
     test('storage & tips are store products (Apple), not Stripe', () async {
-      // Each paid tier maps to its own auto-renewable product; Free needs none.
+      // The paid tier maps to an auto-renewable product; Free needs none.
       expect(StorePurchases.storageProductId(StorageTier.free), '');
       expect(StorePurchases.storageProductId(StorageTier.personal),
           contains('storage.personal'));
-      expect(StorePurchases.storageProductId(StorageTier.pro),
-          contains('storage.pro'));
-      expect(StorePurchases.storageProductId(StorageTier.studio),
-          contains('storage.studio'));
 
       // Tips are a fixed set of consumable products, priced low-to-high.
       const tips = StorePurchases.tipProducts;
@@ -5392,7 +5384,8 @@ void main() {
       addTearDown(() => payments.setTestMode(wasTest));
       payments.setTestMode(true);
       expect(StorePurchases.instance.isSupported, isTrue);
-      expect(await StorePurchases.instance.buyStorage(StorageTier.pro), isTrue);
+      expect(await StorePurchases.instance.buyStorage(StorageTier.personal),
+          isTrue);
       expect(await StorePurchases.instance.tip(tips.first.id), isTrue);
       // Free "purchase" is a no-op that doesn't pretend to charge.
       expect(
@@ -5404,9 +5397,9 @@ void main() {
       addTearDown(storage.resetForTest);
       storage.resetForTest();
       // Subscribe, but with time already expired.
-      storage.debugSubscribe(StorageTier.pro,
+      storage.debugSubscribe(StorageTier.personal,
           length: const Duration(seconds: -1));
-      expect(storage.selectedTier, StorageTier.pro); // what they paid for
+      expect(storage.selectedTier, StorageTier.personal); // what they paid for
       expect(storage.tier, StorageTier.free); // what they get now
       expect(storage.isPaid, isFalse);
     });
@@ -5445,9 +5438,7 @@ void main() {
       // Upgrade suggestion: the smallest plan that would hold the data.
       const tenGb = 10 * 1024 * 1024 * 1024;
       expect(storage.smallestPlanFor(tenGb)?.tier, StorageTier.personal);
-      const threeHundredGb = 300 * 1024 * 1024 * 1024;
-      expect(storage.smallestPlanFor(threeHundredGb)?.tier, StorageTier.studio);
-      // Nothing holds more than the top tier — no unlimited.
+      // Nothing holds more than Personal (15 GB) — no unlimited.
       const oneTb = 1024 * 1024 * 1024 * 1024;
       expect(storage.smallestPlanFor(oneTb), isNull);
     });

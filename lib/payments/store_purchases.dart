@@ -16,12 +16,10 @@ class StorePurchases {
 
   static const _prefix = 'com.okaymessaging';
 
-  /// Auto-renewable storage subscriptions, one per paid tier.
+  /// Auto-renewable storage subscription, one per paid tier.
   static String storageProductId(StorageTier tier) => switch (tier) {
         StorageTier.free => '', // free needs no purchase
         StorageTier.personal => '$_prefix.storage.personal.monthly',
-        StorageTier.pro => '$_prefix.storage.pro.monthly',
-        StorageTier.studio => '$_prefix.storage.studio.monthly',
       };
 
   /// Fixed consumable tip products. Apple doesn't allow arbitrary amounts, so
