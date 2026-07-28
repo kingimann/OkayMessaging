@@ -11,6 +11,8 @@ import '../models/message.dart';
 import '../relay/relay_config.dart';
 import '../relay/relay_service.dart';
 import '../state/community_store.dart';
+import '../state/channel_typing_store.dart';
+import '../state/voice_presence_store.dart';
 import '../state/feed_store.dart';
 import '../theme/app_theme.dart';
 import '../utils/date_formatter.dart';
@@ -118,7 +120,8 @@ class _CommunitiesTabState extends State<CommunitiesTab> {
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: CommunityStore.instance,
+      listenable: Listenable.merge(
+          [CommunityStore.instance, VoicePresenceStore.instance]),
       builder: (context, _) {
         final all = CommunityStore.instance.communities;
         final communities = filterCommunities(all, _search.text);
@@ -217,6 +220,10 @@ class _CommunityCard extends StatelessWidget {
     final online = community.members.where((m) => m.online).length;
     final channels = community.channels.length;
     final members = community.members.length;
+    final inVoice = VoicePresenceStore.instance.countInChannels([
+      for (final c in community.channels)
+        if (c.type == ChannelType.voice) c.id
+    ]);
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 5),
       child: Material(
@@ -301,6 +308,19 @@ class _CommunityCard extends StatelessWidget {
                                 style: const TextStyle(
                                     fontSize: 12.5,
                                     color: Color(0xFF43B581),
+                                    fontWeight: FontWeight.w600)),
+                          ],
+                          // Live off the community bus, so this is the one
+                          // number on the card that reflects real activity.
+                          if (inVoice > 0) ...[
+                            const SizedBox(width: 14),
+                            Icon(Icons.volume_up_rounded,
+                                size: 14, color: Colors.green.shade600),
+                            const SizedBox(width: 4),
+                            Text('$inVoice in voice',
+                                style: TextStyle(
+                                    fontSize: 12.5,
+                                    color: Colors.green.shade600,
                                     fontWeight: FontWeight.w600)),
                           ],
                         ],
@@ -593,7 +613,8 @@ class _CommunityScreenState extends State<CommunityScreen> {
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: CommunityStore.instance,
+      listenable: Listenable.merge(
+          [CommunityStore.instance, VoicePresenceStore.instance]),
       builder: (context, _) {
         final community = CommunityStore.instance.byId(communityId);
         if (community == null) {
@@ -837,7 +858,13 @@ class _CommunityScreenState extends State<CommunityScreen> {
                   Builder(builder: (context) {
                   final muted = CommunityStore.instance.isChannelMuted(ch.id);
                   final unread = CommunityStore.instance.unreadInChannel(ch);
-                  return ListTile(
+                  final voice = ch.type == ChannelType.voice
+                      ? VoicePresenceStore.instance.occupantsIn(ch.id)
+                      : const <VoiceOccupant>[];
+                  return Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                  ListTile(
                     dense: true,
                     leading: Icon(_channelIcon(ch.type),
                         // A muted channel never highlights, however busy it is.
@@ -862,7 +889,11 @@ class _CommunityScreenState extends State<CommunityScreen> {
                       ],
                     ),
                     subtitle: ch.type == ChannelType.voice
-                        ? const Text('Voice channel')
+                        ? Text(voice.isEmpty
+                            ? 'Voice channel'
+                            : '${voice.length} '
+                                '${voice.length == 1 ? 'person' : 'people'} '
+                                'in voice')
                         : ch.type == ChannelType.forum
                             ? Text('Forum · ${ch.posts.length} '
                                 '${ch.posts.length == 1 ? 'post' : 'posts'}')
@@ -886,6 +917,47 @@ class _CommunityScreenState extends State<CommunityScreen> {
                             communityId: communityId, channelId: ch.id),
                       },
                     )),
+                  ),
+                  // Who's in the room, listed under it the way Discord does —
+                  // the whole point of a voice channel is seeing it's occupied
+                  // without having to open it.
+                  for (final o in voice)
+                    Padding(
+                      padding: const EdgeInsets.only(left: 56, bottom: 2),
+                      child: Row(
+                        children: [
+                          Icon(
+                            o.screen
+                                ? Icons.screen_share
+                                : o.video
+                                    ? Icons.videocam
+                                    : o.muted
+                                        ? Icons.mic_off
+                                        : Icons.mic,
+                            size: 14,
+                            color: o.muted
+                                ? Colors.red.shade300
+                                : Colors.grey.shade500,
+                          ),
+                          const SizedBox(width: 6),
+                          Flexible(
+                            child: Text(
+                              o.isMe ? '${o.name} (you)' : o.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                  fontSize: 13,
+                                  color: Colors.grey.shade600,
+                                  fontWeight: o.isMe
+                                      ? FontWeight.w600
+                                      : FontWeight.w400),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  if (voice.isNotEmpty) const SizedBox(height: 6),
+                    ],
                   );
                   }),
               ],
@@ -912,25 +984,51 @@ class VoiceChannelScreen extends StatefulWidget {
 }
 
 class _VoiceChannelScreenState extends State<VoiceChannelScreen> {
-  bool _joined = false;
-  bool _muted = false;
+  // Deafening is about what *this* device hears, so it stays local — everyone
+  // else only needs to know it silences the mic. Mic/camera/screen state lives
+  // in the presence store, which is what the rest of the server sees.
   bool _deafened = false;
-  bool _video = false;
-  bool _screen = false;
   DateTime? _joinedAt;
   Timer? _tick;
+
+  VoicePresenceStore get _voice => VoicePresenceStore.instance;
+  bool get _joined => _voice.amIn(widget.channelId);
+
+  VoiceOccupant? get _me {
+    for (final o in _voice.occupantsIn(widget.channelId)) {
+      if (o.isMe) return o;
+    }
+    return null;
+  }
+
+  bool get _muted => _me?.muted ?? false;
+  bool get _video => _me?.video ?? false;
+  bool get _screen => _me?.screen ?? false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Rejoining a channel this device never left keeps the timer honest.
+    if (_joined) _joinedAt = DateTime.now();
+  }
 
   @override
   void dispose() {
     _tick?.cancel();
+    // Leaving the screen leaves the room. Without this the rest of the server
+    // would keep seeing you sitting in a channel you walked away from until
+    // the heartbeat aged you out.
+    if (_joined) _voice.leave();
     super.dispose();
   }
 
   void _join() {
-    setState(() {
-      _joined = true;
-      _joinedAt = DateTime.now();
-    });
+    _voice.join(
+      communityId: widget.communityId,
+      channelId: widget.channelId,
+      myName: AppState.profile.value.name,
+    );
+    setState(() => _joinedAt = DateTime.now());
     _tick = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) setState(() {});
     });
@@ -939,12 +1037,9 @@ class _VoiceChannelScreenState extends State<VoiceChannelScreen> {
   void _leave() {
     _tick?.cancel();
     _tick = null;
+    _voice.leave();
     setState(() {
-      _joined = false;
-      _muted = false;
       _deafened = false;
-      _video = false;
-      _screen = false;
       _joinedAt = null;
     });
   }
@@ -961,7 +1056,8 @@ class _VoiceChannelScreenState extends State<VoiceChannelScreen> {
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: CommunityStore.instance,
+      listenable:
+          Listenable.merge([CommunityStore.instance, VoicePresenceStore.instance]),
       builder: (context, _) {
         final community = CommunityStore.instance.byId(widget.communityId);
         final channel = community?.channels
@@ -970,9 +1066,9 @@ class _VoiceChannelScreenState extends State<VoiceChannelScreen> {
         if (channel == null) {
           return const Scaffold(body: Center(child: Text('Channel not found')));
         }
-        // Other online members already gathered here, plus yourself once joined.
-        final others =
-            community!.members.where((m) => m.online && m.id != 'me').toList();
+        // Who is actually here, live off the community bus — not a guess from
+        // the roster's online flag.
+        final occupants = _voice.occupantsIn(widget.channelId);
         return Scaffold(
           appBar: AppBar(
             title: Row(
@@ -997,7 +1093,7 @@ class _VoiceChannelScreenState extends State<VoiceChannelScreen> {
           ),
           body: Column(
             children: [
-              Expanded(child: _grid(community, channel, others)),
+              Expanded(child: _grid(community!, channel, occupants)),
               _controlBar(),
             ],
           ),
@@ -1006,8 +1102,9 @@ class _VoiceChannelScreenState extends State<VoiceChannelScreen> {
     );
   }
 
-  Widget _grid(Community community, Channel channel, List<Member> others) {
-    if (!_joined && others.isEmpty) {
+  Widget _grid(
+      Community community, Channel channel, List<VoiceOccupant> occupants) {
+    if (occupants.isEmpty) {
       return Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -1029,28 +1126,28 @@ class _VoiceChannelScreenState extends State<VoiceChannelScreen> {
       crossAxisCount: 3,
       padding: const EdgeInsets.all(16),
       children: [
-        if (_joined)
+        for (final o in occupants)
           _memberTile(
-            label: 'You',
-            avatar: UserAvatar(user: me, radius: 30),
-            speaking: !_muted && !_deafened,
-            muted: _muted || _deafened,
-            deafened: _deafened,
-            video: _video,
-            screen: _screen,
-          ),
-        for (final m in others)
-          _memberTile(
-            label: m.name,
-            avatar: CircleAvatar(
-              radius: 30,
-              backgroundColor: _hex(community.color),
-              child: Text(m.name.isEmpty ? '?' : m.name[0].toUpperCase(),
-                  style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 22,
-                      fontWeight: FontWeight.w700)),
-            ),
+            label: o.isMe ? 'You' : o.name,
+            avatar: o.isMe
+                ? UserAvatar(user: me, radius: 30)
+                : CircleAvatar(
+                    radius: 30,
+                    backgroundColor: _hex(community.color),
+                    child: Text(
+                        o.name.isEmpty ? '?' : o.name[0].toUpperCase(),
+                        style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 22,
+                            fontWeight: FontWeight.w700)),
+                  ),
+            // Nobody's mic is actually open yet — the ring means "not muted",
+            // which is as much as presence can honestly claim.
+            speaking: !o.muted && !(o.isMe && _deafened),
+            muted: o.muted || (o.isMe && _deafened),
+            deafened: o.isMe && _deafened,
+            video: o.video,
+            screen: o.screen,
           ),
       ],
     );
@@ -1134,26 +1231,29 @@ class _VoiceChannelScreenState extends State<VoiceChannelScreen> {
                     label: _muted ? 'Unmute' : 'Mute',
                     color:
                         _muted ? Colors.grey.shade700 : AppColors.tealGreenDark,
-                    onTap: () => setState(() {
-                      _muted = !_muted;
-                      if (!_muted) _deafened = false;
-                    }),
+                    onTap: () {
+                      final nowMuted = !_muted;
+                      if (!nowMuted) _deafened = false;
+                      _voice.setLocalState(muted: nowMuted);
+                      setState(() {});
+                    },
                   ),
                   _voiceButton(
                     icon: _deafened ? Icons.headset_off : Icons.headset_mic,
                     label: 'Deafen',
                     color: _deafened ? Colors.red : Colors.grey.shade700,
-                    onTap: () => setState(() {
+                    onTap: () {
                       _deafened = !_deafened;
                       // Deafening also mutes you, à la Discord.
-                      if (_deafened) _muted = true;
-                    }),
+                      if (_deafened) _voice.setLocalState(muted: true);
+                      setState(() {});
+                    },
                   ),
                   _voiceButton(
                     icon: _video ? Icons.videocam : Icons.videocam_off,
                     label: 'Video',
                     color: _video ? AppColors.tealGreenDark : Colors.grey.shade700,
-                    onTap: () => setState(() => _video = !_video),
+                    onTap: () => _voice.setLocalState(video: !_video),
                   ),
                   _voiceButton(
                     icon: _screen
@@ -1162,7 +1262,7 @@ class _VoiceChannelScreenState extends State<VoiceChannelScreen> {
                     label: 'Screen',
                     color:
                         _screen ? AppColors.tealGreenDark : Colors.grey.shade700,
-                    onTap: () => setState(() => _screen = !_screen),
+                    onTap: () => _voice.setLocalState(screen: !_screen),
                   ),
                   _voiceButton(
                     icon: Icons.call_end,
@@ -1385,6 +1485,9 @@ class _ChannelScreenState extends State<ChannelScreen> {
             ),
     ));
     _controller.clear();
+    // Sending ends this burst, so typing again announces straight away rather
+    // than waiting out the throttle.
+    ChannelTypingStore.instance.clearLocal(widget.channelId);
     setState(() => _replyTo = null);
   }
 
@@ -1480,7 +1583,8 @@ class _ChannelScreenState extends State<ChannelScreen> {
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: CommunityStore.instance,
+      listenable: Listenable.merge(
+          [CommunityStore.instance, ChannelTypingStore.instance]),
       builder: (context, _) {
         final community = CommunityStore.instance.byId(widget.communityId);
         final channel = community?.channels
@@ -1763,6 +1867,36 @@ class _ChannelScreenState extends State<ChannelScreen> {
                         matches: _mentionMatches(comm),
                         onPick: _applyMention,
                       ),
+                    Builder(builder: (context) {
+                      final label = ChannelTypingStore.instance
+                          .labelFor(widget.channelId);
+                      if (label == null) return const SizedBox.shrink();
+                      return Padding(
+                        padding: const EdgeInsets.fromLTRB(18, 0, 18, 4),
+                        child: Row(
+                          children: [
+                            SizedBox(
+                              width: 12,
+                              height: 12,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 1.6,
+                                color: Colors.grey.shade400,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Flexible(
+                              child: Text(label,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                      fontSize: 12.5,
+                                      fontStyle: FontStyle.italic,
+                                      color: Colors.grey.shade600)),
+                            ),
+                          ],
+                        ),
+                      );
+                    }),
                     Padding(
                   padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
                   child: Row(
@@ -1791,7 +1925,13 @@ class _ChannelScreenState extends State<ChannelScreen> {
                                 horizontal: 16, vertical: 10),
                           ),
                           // Keeps the mention suggestions in step with typing.
-                          onChanged: (_) => setState(() {}),
+                          onChanged: (v) {
+                            if (v.isNotEmpty) {
+                              ChannelTypingStore.instance.noteLocalTyping(
+                                  widget.communityId, widget.channelId);
+                            }
+                            setState(() {});
+                          },
                           onSubmitted: (_) => _send(),
                         ),
                       ),

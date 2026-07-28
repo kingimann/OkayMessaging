@@ -9,6 +9,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../tool/paste_functions.dart';
 import 'package:okay_messaging/payments/iap_entitlement.dart';
+import 'package:okay_messaging/state/voice_presence_store.dart';
+import 'package:okay_messaging/state/channel_typing_store.dart';
 import 'package:okay_messaging/app_state.dart';
 import 'package:okay_messaging/crypto/e2e.dart';
 import 'package:okay_messaging/data/mock_data.dart';
@@ -9858,6 +9860,262 @@ void main() {
         expect(copy.contains('Math.max(fee, stripeCost + 1)'), isTrue,
             reason: '$name lost the floor that stops a bad env var');
       }
+    });
+  });
+
+  group('Voice presence', () {
+    setUp(() {
+      VoicePresenceStore.instance.resetForTest();
+      SharedPreferences.setMockInitialValues({});
+    });
+    tearDown(VoicePresenceStore.instance.resetForTest);
+
+    test('joining puts you in the room and tells the server', () {
+      final voice = VoicePresenceStore.instance;
+      final sent = <String>[];
+      voice.onPresence = (c, ch,
+              {required joined,
+              required muted,
+              required video,
+              required screen}) =>
+          sent.add('$ch:$joined');
+
+      expect(voice.occupantsIn('vc1'), isEmpty);
+      voice.join(communityId: 'c1', channelId: 'vc1', myName: 'Me');
+      expect(voice.amIn('vc1'), isTrue);
+      expect(voice.occupantsIn('vc1').single.isMe, isTrue);
+      expect(sent, ['vc1:true']);
+
+      voice.leave();
+      expect(voice.occupantsIn('vc1'), isEmpty);
+      expect(voice.myChannelId, isNull);
+      expect(sent.last, 'vc1:false');
+    });
+
+    test('you can only be in one voice channel at a time', () {
+      final voice = VoicePresenceStore.instance;
+      voice.join(communityId: 'c1', channelId: 'vc1', myName: 'Me');
+      voice.join(communityId: 'c1', channelId: 'vc2', myName: 'Me');
+      expect(voice.occupantsIn('vc1'), isEmpty);
+      expect(voice.occupantsIn('vc2').single.isMe, isTrue);
+      expect(voice.amIn('vc2'), isTrue);
+    });
+
+    test('a member hopping channels never appears in two at once', () {
+      final voice = VoicePresenceStore.instance;
+      voice.applyRemote(
+          channelId: 'vc1', digits: '15550001', name: 'Ada', joined: true);
+      expect(voice.countIn('vc1'), 1);
+      voice.applyRemote(
+          channelId: 'vc2', digits: '15550001', name: 'Ada', joined: true);
+      expect(voice.countIn('vc1'), 0);
+      expect(voice.countIn('vc2'), 1);
+    });
+
+    test('someone who goes quiet is swept, but you never are', () {
+      final voice = VoicePresenceStore.instance;
+      voice.join(communityId: 'c1', channelId: 'vc1', myName: 'Me');
+      voice.applyRemote(
+          channelId: 'vc1', digits: '15550001', name: 'Ada', joined: true);
+      expect(voice.countIn('vc1'), 2);
+
+      // A force-quit leaves no "left" message, so presence has to age out.
+      voice.sweep(
+          now: DateTime.now()
+              .add(VoicePresenceStore.staleAfter)
+              .add(const Duration(seconds: 1)));
+      expect(voice.countIn('vc1'), 1);
+      expect(voice.occupantsIn('vc1').single.isMe, isTrue,
+          reason: 'this device knows perfectly well that it is still here');
+    });
+
+    test('a heartbeat keeps someone from being swept', () {
+      final voice = VoicePresenceStore.instance;
+      voice.applyRemote(
+          channelId: 'vc1', digits: '15550001', name: 'Ada', joined: true);
+      voice.sweep(
+          now: DateTime.now().add(VoicePresenceStore.staleAfter ~/ 2));
+      expect(voice.countIn('vc1'), 1);
+    });
+
+    test('mic and camera state reaches everyone else', () {
+      final voice = VoicePresenceStore.instance;
+      var lastMuted = false;
+      voice.onPresence = (c, ch,
+          {required joined,
+          required muted,
+          required video,
+          required screen}) {
+        lastMuted = muted;
+      };
+      voice.join(communityId: 'c1', channelId: 'vc1', myName: 'Me');
+      voice.setLocalState(muted: true);
+      expect(lastMuted, isTrue);
+      expect(voice.occupantsIn('vc1').single.muted, isTrue);
+      voice.setLocalState(video: true);
+      expect(voice.occupantsIn('vc1').single.video, isTrue);
+      // Turning the camera on must not silently unmute.
+      expect(voice.occupantsIn('vc1').single.muted, isTrue);
+    });
+
+    test('you are listed first, then everyone else by name', () {
+      final voice = VoicePresenceStore.instance;
+      voice.applyRemote(
+          channelId: 'vc1', digits: '2', name: 'Zoe', joined: true);
+      voice.applyRemote(
+          channelId: 'vc1', digits: '3', name: 'Ada', joined: true);
+      voice.join(communityId: 'c1', channelId: 'vc1', myName: 'Me');
+      expect([for (final o in voice.occupantsIn('vc1')) o.name],
+          ['Me', 'Ada', 'Zoe']);
+    });
+
+    test('a leave broadcast removes them', () {
+      final voice = VoicePresenceStore.instance;
+      voice.applyRemote(
+          channelId: 'vc1', digits: '1', name: 'Ada', joined: true);
+      voice.applyRemote(
+          channelId: 'vc1', digits: '1', name: 'Ada', joined: false);
+      expect(voice.countIn('vc1'), 0);
+    });
+  });
+
+  group('Voice channels in the server UI', () {
+    testWidgets('occupants are listed under the channel, without opening it',
+        (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      CommunityStore.instance.resetForTest();
+      VoicePresenceStore.instance.resetForTest();
+      addTearDown(VoicePresenceStore.instance.resetForTest);
+
+      final community = CommunityStore.instance.createCommunity('Guild');
+      CommunityStore.instance
+          .addChannel(community.id, 'Lounge', type: ChannelType.voice);
+      final voiceChannel = CommunityStore.instance
+          .byId(community.id)!
+          .channels
+          .firstWhere((c) => c.type == ChannelType.voice);
+
+      await tester.pumpWidget(MaterialApp(
+          home: CommunityScreen(communityId: community.id)));
+      await tester.pump();
+      expect(find.text('Voice channel'), findsWidgets);
+      expect(find.text('Ada'), findsNothing);
+
+      VoicePresenceStore.instance.applyRemote(
+          channelId: voiceChannel.id,
+          digits: '15550001',
+          name: 'Ada',
+          joined: true);
+      await tester.pump();
+
+      // The name shows up on the server screen itself — the point of a voice
+      // channel is seeing it's occupied without having to go in.
+      expect(find.text('Ada'), findsOneWidget);
+      expect(find.text('1 person in voice'), findsOneWidget);
+
+      VoicePresenceStore.instance.applyRemote(
+          channelId: voiceChannel.id,
+          digits: '15550002',
+          name: 'Grace',
+          joined: true);
+      await tester.pump();
+      expect(find.text('2 people in voice'), findsOneWidget);
+
+      VoicePresenceStore.instance.applyRemote(
+          channelId: voiceChannel.id,
+          digits: '15550001',
+          name: 'Ada',
+          joined: false);
+      await tester.pump();
+      expect(find.text('Ada'), findsNothing);
+      expect(find.text('1 person in voice'), findsOneWidget);
+    });
+  });
+
+  group('Voice channel screen', () {
+    testWidgets('joining then leaving the screen disconnects cleanly',
+        (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      CommunityStore.instance.resetForTest();
+      VoicePresenceStore.instance.resetForTest();
+      addTearDown(VoicePresenceStore.instance.resetForTest);
+      final community = CommunityStore.instance.createCommunity('Guild');
+      CommunityStore.instance
+          .addChannel(community.id, 'Lounge', type: ChannelType.voice);
+      final channel = CommunityStore.instance
+          .byId(community.id)!
+          .channels
+          .firstWhere((c) => c.type == ChannelType.voice);
+
+      await tester.pumpWidget(MaterialApp(
+        home: VoiceChannelScreen(
+            communityId: community.id, channelId: channel.id),
+      ));
+      await tester.pump();
+      expect(find.text('Join Voice'), findsOneWidget);
+
+      await tester.tap(find.text('Join Voice'));
+      await tester.pump();
+      expect(VoicePresenceStore.instance.amIn(channel.id), isTrue);
+
+      // Walking away from the screen has to leave the room — otherwise the
+      // rest of the server keeps seeing you in it. Tearing the tree down
+      // must not fire a notification into widgets that are already gone.
+      await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+      expect(VoicePresenceStore.instance.amIn(channel.id), isFalse);
+      expect(VoicePresenceStore.instance.countIn(channel.id), 0);
+    });
+  });
+
+  group('Channel typing', () {
+    setUp(ChannelTypingStore.instance.resetForTest);
+    tearDown(ChannelTypingStore.instance.resetForTest);
+
+    test('the label reads naturally as more people join in', () {
+      final typing = ChannelTypingStore.instance;
+      expect(typing.labelFor('ch1'), isNull);
+      typing.noteRemote(channelId: 'ch1', digits: '1', name: 'Ada');
+      expect(typing.labelFor('ch1'), 'Ada is typing…');
+      typing.noteRemote(channelId: 'ch1', digits: '2', name: 'Grace');
+      expect(typing.labelFor('ch1'), 'Ada and Grace are typing…');
+      typing.noteRemote(channelId: 'ch1', digits: '3', name: 'Zoe');
+      expect(typing.labelFor('ch1'), '3 people are typing…');
+      // Another channel is unaffected.
+      expect(typing.labelFor('ch2'), isNull);
+    });
+
+    test('typing stops showing on its own', () {
+      final typing = ChannelTypingStore.instance;
+      typing.noteRemote(channelId: 'ch1', digits: '1', name: 'Ada');
+      expect(typing.labelFor('ch1'), isNotNull);
+      typing.expireNow(
+          DateTime.now().add(ChannelTypingStore.linger * 2));
+      expect(typing.labelFor('ch1'), isNull);
+    });
+
+    test('local pings are throttled, and sending resets the throttle', () {
+      final typing = ChannelTypingStore.instance;
+      var pings = 0;
+      typing.onTyping = (_, __) => pings++;
+      typing.noteLocalTyping('c1', 'ch1');
+      typing.noteLocalTyping('c1', 'ch1');
+      typing.noteLocalTyping('c1', 'ch1');
+      expect(pings, 1, reason: 'a keystroke each would flood the bus');
+
+      typing.clearLocal('ch1');
+      typing.noteLocalTyping('c1', 'ch1');
+      expect(pings, 2);
+    });
+
+    test('a nameless ping still reads as somebody', () {
+      final typing = ChannelTypingStore.instance;
+      typing.noteRemote(channelId: 'ch1', digits: '1', name: '');
+      expect(typing.labelFor('ch1'), 'Someone is typing…');
+      // An empty sender is ignored entirely — it can't be attributed.
+      typing.noteRemote(channelId: 'ch2', digits: '', name: 'Ghost');
+      expect(typing.labelFor('ch2'), isNull);
     });
   });
 

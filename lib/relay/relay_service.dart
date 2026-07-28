@@ -20,7 +20,9 @@ import '../state/file_transfer.dart';
 import '../state/live_location_store.dart';
 import '../state/score_store.dart';
 import '../state/session.dart';
+import '../state/channel_typing_store.dart';
 import '../state/streak_store.dart';
+import '../state/voice_presence_store.dart';
 import 'relay_config.dart';
 
 /// Delivers messages between devices with **nothing stored on a server**.
@@ -933,6 +935,16 @@ class RelayService {
               Map<String, dynamic>.from(payload), me),
         )
         .onBroadcast(
+          event: 'vpres',
+          callback: (payload) => _applyCommunityEvent('vpres',
+              Map<String, dynamic>.from(payload), me),
+        )
+        .onBroadcast(
+          event: 'chtyp',
+          callback: (payload) => _applyCommunityEvent('chtyp',
+              Map<String, dynamic>.from(payload), me),
+        )
+        .onBroadcast(
           event: 'fpost',
           callback: (payload) => _applyCommunityEvent('fpost',
               Map<String, dynamic>.from(payload), me),
@@ -998,6 +1010,28 @@ class RelayService {
           CommunityStore.instance.applyRemoteStructure(
               Map<String, dynamic>.from(structure),
               myDigits: digits(me));
+        case 'chtyp':
+          final channelId = body['channelId'];
+          final fromDigits = digits(payload['from'] as String? ?? '');
+          if (channelId is! String || fromDigits.isEmpty) return;
+          ChannelTypingStore.instance.noteRemote(
+            channelId: channelId,
+            digits: fromDigits,
+            name: body['name'] as String? ?? '',
+          );
+        case 'vpres':
+          final channelId = body['channelId'];
+          final fromDigits = digits(payload['from'] as String? ?? '');
+          if (channelId is! String || fromDigits.isEmpty) return;
+          VoicePresenceStore.instance.applyRemote(
+            channelId: channelId,
+            digits: fromDigits,
+            name: body['name'] as String? ?? '',
+            joined: body['joined'] as bool? ?? false,
+            muted: body['muted'] as bool? ?? false,
+            video: body['video'] as bool? ?? false,
+            screen: body['screen'] as bool? ?? false,
+          );
         case 'fpost':
           final rawPost = body['post'];
           if (rawPost is! Map) return;
@@ -1085,6 +1119,56 @@ class RelayService {
       _mailboxPut(d, payload, event: event);
     }
   }
+
+  /// Like [_sendCommunityEvent] but broadcast only — nothing is queued into
+  /// anyone's mailbox. For presence that is exactly right: a "joined voice"
+  /// replayed from a mailbox hours later would park a ghost in a channel
+  /// nobody is actually in.
+  Future<void> _broadcastCommunityEvent(
+      String event, String communityId, Map<String, dynamic> body) async {
+    if (!_initialized) return;
+    final me = Session.instance.user.value;
+    if (me == null) return;
+    final community = CommunityStore.instance.byId(communityId);
+    final secret = community?.secretBytes;
+    if (community == null || secret == null) return;
+    final channel = _feedChannel ??
+        _sendChannels.putIfAbsent(
+            'server_feed', () => _client.channel('server_feed'));
+    try {
+      await channel.sendBroadcastMessage(event: event, payload: {
+        'from': me.phone,
+        'communityId': communityId,
+        'data': E2eCrypto.encrypt(secret, jsonEncode(body)),
+      });
+    } catch (_) {}
+  }
+
+  /// Announces that this device joined or left a voice channel.
+  Future<void> sendVoicePresence(
+    String communityId,
+    String channelId, {
+    required bool joined,
+    required bool muted,
+    required bool video,
+    required bool screen,
+  }) =>
+      _broadcastCommunityEvent('vpres', communityId, {
+        'channelId': channelId,
+        'name': Session.instance.user.value?.name ?? '',
+        'joined': joined,
+        'muted': muted,
+        'video': video,
+        'screen': screen,
+      });
+
+  /// Tells the server someone is typing in a channel. Live only — a typing
+  /// ping replayed from a mailbox would be nonsense.
+  Future<void> sendChannelTyping(String communityId, String channelId) =>
+      _broadcastCommunityEvent('chtyp', communityId, {
+        'channelId': channelId,
+        'name': Session.instance.user.value?.name ?? '',
+      });
 
   /// Delivers a channel message to every other member of the server.
   Future<void> sendChannelMessage(String communityId, String channelId,

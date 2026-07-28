@@ -41,6 +41,8 @@ import 'state/session.dart';
 import 'state/storage_store.dart';
 import 'state/status_store.dart';
 import 'state/streak_store.dart';
+import 'state/channel_typing_store.dart';
+import 'state/voice_presence_store.dart';
 import 'state/two_step.dart';
 import 'theme/app_theme.dart';
 import 'widgets/file_transfer_banner.dart';
@@ -91,6 +93,15 @@ Future<void> main() async {
   // StoreKit replays renewals that happened while the app was closed, so this
   // has to be listening before the purchase stream opens.
   IapEntitlement.instance.start();
+  ChannelTypingStore.instance.onTyping = (communityId, channelId) =>
+      RelayService.instance.sendChannelTyping(communityId, channelId);
+  VoicePresenceStore.instance.onPresence = (communityId, channelId,
+          {required joined,
+          required muted,
+          required video,
+          required screen}) =>
+      RelayService.instance.sendVoicePresence(communityId, channelId,
+          joined: joined, muted: muted, video: video, screen: screen);
   await _boot('cloud sync', CloudSync.instance.load);
   await _boot('status', StatusStore.instance.load);
   await _boot('favourites', FavouritesStore.instance.load);
