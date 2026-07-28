@@ -98,65 +98,82 @@ class StorageEconomics {
 ///
 /// Mirrors `supabase/functions/_shared/stripe.ts` so the margin is verifiable
 /// in the test suite and the app can quote an honest fee before someone pays.
-/// On a destination charge the platform is merchant of record: Stripe's
-/// processing fee comes out of the platform's balance, and only the
-/// application fee comes back in — so the fee must exceed Stripe's cut or
-/// every transfer loses money.
+///
+/// Transfers are **direct charges**: the PaymentIntent is created on the
+/// recipient's connected account, so the money never passes through the
+/// platform's balance. Three things follow, and they are why it is done this
+/// way:
+///
+///   1. The platform is not in the flow of funds and is not merchant of
+///      record — it never holds anyone's money.
+///   2. The recipient's account pays Stripe's processing fee, so the
+///      application fee is what the platform keeps, in full. A transfer
+///      cannot lose the platform money, whatever card the sender used.
+///   3. Disputes land on the recipient. Under a destination charge a
+///      chargeback clawed funds back out of the platform's balance after it
+///      had already paid them away.
+///
+/// The trade is that the recipient receives the amount minus BOTH fees, so
+/// the send sheet has to say so plainly rather than quote the typed amount.
 class PaymentEconomics {
   PaymentEconomics._();
 
-  /// What Stripe charges the platform per successful charge on a card issued
-  /// in the platform's own country.
+  /// What Stripe charges *the recipient's account* per successful charge on a
+  /// domestic card. The platform never pays this on a direct charge; it is
+  /// modelled only so the sender can be shown a realistic landing amount.
   static const double stripePercent = 2.9;
   static const int stripeFixedCents = 30;
 
-  /// Stripe surcharges cards issued abroad. The sender picks the card, not us,
-  /// so this is the rate that has to be planned for — budgeting on the
-  /// domestic one and hoping is how a fee schedule quietly goes underwater.
+  /// Stripe surcharges cards issued abroad. Also the recipient's cost, not the
+  /// platform's — kept so the quoted estimate can be honest about the range.
   static const double internationalSurchargePercent = 0.8;
 
-  /// The worst realistic rate: an international card.
   static double get worstCasePercent =>
       stripePercent + internationalSurchargePercent;
 
-  /// What the platform charges. Clears Stripe's domestic cut comfortably; the
-  /// floor below is what handles the international case.
+  /// What the platform charges. On a direct charge this is pure revenue: no
+  /// floor is needed, because there is no platform-side cost for it to clear.
   static const double platformPercent = 3.4;
   static const int platformFixedCents = 35;
 
-  /// Stripe's cost for an [amountCents] charge on a domestic card.
+  /// Stripe's cost to the RECIPIENT for an [amountCents] charge, domestic card.
   static int stripeCostCents(int amountCents) =>
       (amountCents * stripePercent / 100).round() + stripeFixedCents;
 
-  /// Stripe's cost when the sender pays with a card issued abroad.
+  /// Stripe's cost to the recipient when the sender's card was issued abroad.
   static int worstCaseStripeCostCents(int amountCents) =>
       (amountCents * worstCasePercent / 100).round() + stripeFixedCents;
 
   /// The platform's application fee.
-  ///
-  /// Floored at the *international* cost rather than the domestic one. At
-  /// 3.4% + 35¢ against an international card's 3.7% + 30¢ the two cross at
-  /// about \$17.75, and every transfer above that lost money — invisibly,
-  /// since nothing about the charge says which country issued the card.
-  /// The floor makes the worst case break even instead of bleed, and leaves
-  /// smaller transfers untouched.
-  static int applicationFeeCents(int amountCents) {
-    final fee =
-        (amountCents * platformPercent / 100).round() + platformFixedCents;
-    final floor = worstCaseStripeCostCents(amountCents) + 1;
-    return fee > floor ? fee : floor;
+  static int applicationFeeCents(int amountCents) =>
+      (amountCents * platformPercent / 100).round() + platformFixedCents;
+
+  /// What the platform keeps: the whole application fee. Stripe's cut comes
+  /// out of the recipient's account, not the platform's.
+  static int netCents(int amountCents) => applicationFeeCents(amountCents);
+
+  /// Same on a foreign card — the platform's side does not vary by card.
+  static int worstCaseNetCents(int amountCents) => netCents(amountCents);
+
+  /// Every transfer leaves the platform ahead, by construction.
+  static bool isProfitable(int amountCents) => netCents(amountCents) > 0;
+
+  /// Roughly what lands in the recipient's account: the amount less the
+  /// platform fee and Stripe's processing fee. Approximate because the card's
+  /// issuing country — which moves Stripe's rate — is not known until the
+  /// charge is made.
+  static int estimatedReceivedCents(int amountCents) {
+    final left = amountCents -
+        applicationFeeCents(amountCents) -
+        stripeCostCents(amountCents);
+    return left < 0 ? 0 : left;
   }
 
-  /// What the platform keeps on an [amountCents] transfer paid by a domestic
-  /// card.
-  static int netCents(int amountCents) =>
-      applicationFeeCents(amountCents) - stripeCostCents(amountCents);
-
-  /// What the platform keeps when the card was issued abroad — the thin case.
-  static int worstCaseNetCents(int amountCents) =>
-      applicationFeeCents(amountCents) - worstCaseStripeCostCents(amountCents);
-
-  /// Every transfer must leave the platform ahead, whichever card is used.
-  static bool isProfitable(int amountCents) =>
-      netCents(amountCents) > 0 && worstCaseNetCents(amountCents) > 0;
+  /// The low end of that estimate, if the sender pays with a foreign card.
+  static int worstCaseReceivedCents(int amountCents) {
+    final left = amountCents -
+        applicationFeeCents(amountCents) -
+        worstCaseStripeCostCents(amountCents);
+    return left < 0 ? 0 : left;
+  }
 }

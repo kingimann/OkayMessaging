@@ -29,12 +29,12 @@ class _PaymentAmountSheetState extends State<PaymentAmountSheet> {
   int get _feeCents =>
       _cents <= 0 ? 0 : PaymentEconomics.applicationFeeCents(_cents);
 
-  /// What lands in the recipient's account: the fee is taken out of the
-  /// transfer, not added on top of it.
-  int get _receivedCents {
-    final left = _cents - _feeCents;
-    return left < 0 ? 0 : left;
-  }
+  /// Roughly what lands. Approximate on purpose: this is a direct charge, so
+  /// the recipient's account also pays Stripe's processing fee, and Stripe's
+  /// rate depends on where the sender's card was issued — which nobody knows
+  /// until the charge goes through.
+  int get _receivedCents =>
+      _cents <= 0 ? 0 : PaymentEconomics.estimatedReceivedCents(_cents);
 
   Widget _feeRow(BuildContext context, String label, int cents,
       {bool muted = false, bool bold = false}) {
@@ -162,14 +162,26 @@ class _PaymentAmountSheetState extends State<PaymentAmountSheet> {
                     children: [
                       _feeRow(context, 'You pay', _cents),
                       const SizedBox(height: 6),
-                      _feeRow(context, 'Fee', _feeCents, muted: true),
+                      _feeRow(context, 'Our fee', _feeCents, muted: true),
+                      const SizedBox(height: 6),
+                      _feeRow(context, 'Card processing',
+                          PaymentEconomics.stripeCostCents(_cents),
+                          muted: true),
                       const Padding(
                         padding: EdgeInsets.symmetric(vertical: 8),
                         child: Divider(height: 1),
                       ),
-                      _feeRow(context, '${widget.peerName} receives',
+                      _feeRow(context, '${widget.peerName} gets about',
                           _receivedCents,
                           bold: true),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Money goes straight to ${widget.peerName} — we never '
+                        'hold it. Card processing is charged to them and can '
+                        'be a little higher on a foreign card.',
+                        style: TextStyle(
+                            fontSize: 11.5, color: Colors.grey.shade600),
+                      ),
                     ],
                   ),
                 ),

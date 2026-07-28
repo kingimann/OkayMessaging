@@ -46,6 +46,29 @@ Deno.serve(async (req) => {
         }).eq("stripe_account_id", acct.id);
         break;
       }
+      // Identity — what actually earns the blue check. Verified is the only
+      // status that grants it; everything else (requires_input, canceled,
+      // processing) leaves or takes the badge away.
+      case "identity.verification_session.verified":
+      case "identity.verification_session.requires_input":
+      case "identity.verification_session.canceled":
+      case "identity.verification_session.processing": {
+        const session = event.data.object as {
+          id: string;
+          status: string;
+          metadata?: { phone?: string };
+        };
+        const phone = session.metadata?.phone;
+        if (phone) {
+          await admin.from("identity_verifications").upsert({
+            phone,
+            session_id: session.id,
+            status: session.status,
+            updated_at: new Date().toISOString(),
+          });
+        }
+        break;
+      }
       case "payout.created":
       case "payout.paid":
       case "payout.failed":

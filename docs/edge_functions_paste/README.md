@@ -97,3 +97,23 @@ the caller's verified phone from their Supabase JWT and 401s without one.
 
 Payments are mobile-only: the Stripe Payment Sheet is native, so the web build
 compiles a stub that reports unsupported.
+
+## Direct charges: one extra webhook setting
+
+Transfers are now **direct charges** — created on the recipient's connected
+account so the platform never holds funds. Stripe fires `payment_intent.*`
+events for those on the *connected account*, not the platform, so the webhook
+endpoint must have **"Listen to events on Connected accounts"** turned on or
+`payment_transactions` will never leave its initial status.
+
+Also subscribe these, for the blue check:
+
+```
+identity.verification_session.verified
+identity.verification_session.requires_input
+identity.verification_session.processing
+identity.verification_session.canceled
+```
+
+And run `docs/identity_verification.sql`, then deploy `identity-start` and
+`identity-status` (JWT verification **on** for both).

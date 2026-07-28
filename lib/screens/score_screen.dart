@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart' hide Badge;
+import 'package:url_launcher/url_launcher.dart';
 
 import '../app_state.dart';
 import '../models/chat.dart';
 import '../state/chat_store.dart';
+import '../state/identity_verification.dart';
 import '../state/score_store.dart';
 import '../state/session.dart';
 import '../state/streak_store.dart';
@@ -299,10 +301,10 @@ class _VerifiedRow extends StatelessWidget {
                   child: Text('You\'re verified',
                       style: TextStyle(fontWeight: FontWeight.w600)),
                 ),
-                TextButton(
-                  onPressed: () => _setVerified(context, false),
-                  child: const Text('Remove'),
-                ),
+                // No "remove": the badge reflects a completed ID check, so
+                // it isn't the device's to switch off.
+                Icon(Icons.lock_outline,
+                    size: 16, color: Colors.grey.shade500),
               ],
             ),
           );
@@ -346,13 +348,48 @@ class _VerifiedRow extends StatelessWidget {
       context,
       icon: Icons.verified_outlined,
       title: 'Get verified',
-      message: 'The blue check marks your account as verified across your '
-          'chats. It\'s free. Turn it on now?',
-      confirmLabel: 'Verify me',
+      message: 'The blue check means your identity has actually been '
+          'checked, so it takes a photo of a government ID and a selfie.\n\n'
+          'The check is handled by Stripe. Your ID never reaches this app, '
+          'and we only ever learn whether you passed.',
+      confirmLabel: 'Continue',
       cancelLabel: 'Not now',
     );
-    if (ok && context.mounted) {
-      _setVerified(context, true);
+    if (!ok || !context.mounted) return;
+
+    final messenger = ScaffoldMessenger.of(context);
+    final url = await IdentityVerification.instance.start();
+    if (url == null) {
+      messenger.showSnackBar(const SnackBar(
+          content: Text('Could not start verification. Try again later.')));
+      return;
+    }
+    if (url.isEmpty) {
+      // Already verified server-side — adopt it rather than pay for a
+      // second check.
+      if (context.mounted) _syncBadge(context);
+      return;
+    }
+    final launched = await launchUrl(Uri.parse(url),
+        mode: LaunchMode.externalApplication);
+    if (!launched) {
+      messenger.showSnackBar(const SnackBar(
+          content: Text('Could not open the verification page.')));
+      return;
+    }
+    messenger.showSnackBar(const SnackBar(
+        content: Text('Finish the ID check, then come back — the badge '
+            'appears once Stripe confirms it.')));
+  }
+
+  /// Adopts whatever the server says. The badge is never set locally: a check
+  /// mark a device could grant itself would mean nothing.
+  Future<void> _syncBadge(BuildContext context) async {
+    final verified = await IdentityVerification.instance.refresh() ==
+        IdentityStatus.verified;
+    if (!context.mounted) return;
+    _setVerified(context, verified);
+    if (verified) {
       ScoreStore.instance.recordFlag('verified');
       ScoreStore.instance.recordFlag('pro');
     }

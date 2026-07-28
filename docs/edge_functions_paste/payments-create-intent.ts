@@ -52,37 +52,19 @@ const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY") ?? "", {
 
 /// The platform's application fee for an [amountCents] charge, in cents.
 ///
-/// This MUST exceed what Stripe charges the platform, or every transfer loses
-/// money. On a destination charge the platform is the merchant of record, so
-/// Stripe's processing fee (2.9% + 30¢ on standard CAD/USD cards) comes out of
-/// the platform's balance while only `application_fee_amount` comes back in.
+/// Transfers are DIRECT charges — the PaymentIntent is created on the
+/// recipient's connected account — so the platform is never in the flow of
+/// funds and never pays Stripe's processing fee. That makes this fee pure
+/// revenue, and means no floor is needed: unlike a destination charge, there
+/// is no platform-side cost for it to fail to clear.
 ///
-/// The defaults below (3.4% + 35¢) clear that with a thin margin:
-///   $10 transfer → fee 69¢ in, Stripe takes 59¢ → +10¢
-///   $50 transfer → fee $2.05 in, Stripe takes $1.75 → +30¢
-/// Override via PLATFORM_FEE_PERCENT / PLATFORM_FEE_FIXED_CENTS, but keep them
-/// above Stripe's own rate for your region or the platform pays the difference.
-const STRIPE_PERCENT = 2.9;
-const STRIPE_FIXED_CENTS = 30;
-
-/// Stripe surcharges cards issued outside the platform's country. The sender
-/// chooses the card, so this — not the domestic rate — is what the fee has to
-/// clear. At 3.4% + 35c against 3.7% + 30c the two cross around $17.75, and
-/// every larger transfer on a foreign card was losing money invisibly.
-const STRIPE_INTERNATIONAL_SURCHARGE_PERCENT = 0.8;
-
+/// Stripe's cut (2.9% + 30c domestic, more on a foreign card) comes out of the
+/// recipient's account instead, which is why the send sheet quotes an
+/// approximate landing amount rather than the amount typed.
 function applicationFee(amountCents: number): number {
   const pct = parseFloat(Deno.env.get("PLATFORM_FEE_PERCENT") ?? "3.4");
   const fixed = parseInt(Deno.env.get("PLATFORM_FEE_FIXED_CENTS") ?? "35", 10);
-  const fee = Math.round((amountCents * pct) / 100) + fixed;
-  // Floored at the worst realistic Stripe cost, so neither a foreign card nor
-  // a misconfigured env var can make the platform eat the difference.
-  const worstCase =
-    Math.round(
-      (amountCents * (STRIPE_PERCENT + STRIPE_INTERNATIONAL_SURCHARGE_PERCENT)) /
-        100,
-    ) + STRIPE_FIXED_CENTS;
-  return Math.max(fee, worstCase + 1);
+  return Math.max(0, Math.round((amountCents * pct) / 100) + fixed);
 }
 
 // Creates a PaymentIntent that routes money straight to the RECEIVER's Stripe
@@ -126,15 +108,25 @@ Deno.serve(async (req) => {
 
   try {
     const feeCents = applicationFee(amountCents);
+    // DIRECT charge, not a destination charge: the PaymentIntent is created
+    // ON the recipient's connected account. The money goes straight there and
+    // never lands in the platform's balance, so the platform is not in the
+    // flow of funds and is not merchant of record.
+    //
+    // The consequences are the whole point of doing it this way:
+    //   * the recipient's account pays Stripe's processing fee, so the
+    //     platform's application fee is what it keeps, full stop;
+    //   * chargebacks land on the recipient, not the platform — under a
+    //     destination charge a dispute clawed money back out of a balance
+    //     the platform had already paid away.
     const intent = await stripe.paymentIntents.create({
       amount: amountCents,
       currency,
       // Enables cards + Apple/Google Pay in the native Payment Sheet.
       automatic_payment_methods: { enabled: true },
       application_fee_amount: feeCents,
-      transfer_data: { destination: dest.stripe_account_id },
       metadata: { from_phone: fromPhone, to_phone: toPhone, note: body.note ?? "" },
-    });
+    }, { stripeAccount: dest.stripe_account_id });
 
     await admin.from("payment_transactions").upsert({
       id: intent.id,
@@ -153,6 +145,9 @@ Deno.serve(async (req) => {
       amountCents,
       feeCents,
       currency,
+      // A direct charge's client secret only means anything to the SDK when
+      // it is told which connected account the intent lives on.
+      stripeAccountId: dest.stripe_account_id,
     });
   } catch (e) {
     return json({ error: String((e as Error).message ?? e) }, 400);

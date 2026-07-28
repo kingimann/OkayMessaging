@@ -11,6 +11,7 @@ class StripeSheet {
   static Future<bool> presentPayment({
     required String clientSecret,
     required String merchantName,
+    String? stripeAccountId,
   }) async {
     throw UnsupportedError('Payments are available in the mobile app.');
   }

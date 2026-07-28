@@ -6,45 +6,59 @@ changes to something that loses money, the suite fails.
 
 ## Peer-to-peer transfers (Stripe)
 
-**The fee comes out of the transfer, not on top of it.** Send $20 and the
-recipient gets $18.95. The send sheet says so before you confirm — "You pay /
-Fee / They receive" — because the amount typed and the amount that lands are
-different numbers.
+**You never hold anyone's money.** Transfers are Stripe *direct charges*: the
+PaymentIntent is created on the recipient's connected account, so funds go
+straight there and never pass through your balance. You are not the merchant
+of record and not in the flow of funds.
 
-| | |
-|---|---|
-| Platform fee | 3.4% + 35¢, floored at Stripe's worst-case cost + 1¢ |
-| Stripe, domestic card | 2.9% + 30¢ |
-| Stripe, card issued abroad | ~3.7% + 30¢ |
+**Two fees come out of the transfer, not on top of it.** Send $20 and about
+$18.37 lands. The send sheet shows all three lines before you confirm.
 
-The floor exists because **the sender chooses the card and we only learn what
-it cost afterwards.** A flat 3.4% + 35¢ crosses under an international card's
-3.7% + 30¢ at about **$17.75**, so every larger transfer on a foreign card was
-losing money — silently, since nothing about a charge announces its issuing
-country. The floor makes that case break even instead of bleed and leaves
-smaller transfers untouched.
+| | Paid by | Rate |
+|---|---|---|
+| Platform fee | recipient (out of the transfer) | 3.4% + 35¢ — **all of it yours** |
+| Stripe processing | recipient's account | 2.9% + 30¢ domestic, ~3.7% + 30¢ on a foreign card |
 
-| Transfer | Fee | Kept, domestic card | Kept, foreign card |
+Because Stripe bills the recipient's account rather than yours, **the
+application fee is pure revenue and a transfer cannot cost you money**,
+whatever card the sender used. That retired the old fee floor, so senders pay
+slightly less than they did under destination charges.
+
+| Transfer | Your fee | You keep | Recipient gets ≈ |
 |---|---|---|---|
-| $5 | 52¢ | +8¢ | +4¢ |
-| $10 | 69¢ | +10¢ | +2¢ |
-| $50 | $2.15 | +40¢ | +1¢ |
-| $100 | $4.01 | +81¢ | +1¢ |
+| $5 | 52¢ | 52¢ | $4.04 |
+| $10 | 69¢ | 69¢ | $8.72 |
+| $50 | $2.05 | $2.05 | $46.50 |
+| $100 | $3.75 | $3.75 | $93.05 |
 
 ### What is NOT covered, and could still cost you
 
-These are real and unmodelled — decide deliberately rather than discover them:
-
-- **Disputes.** Stripe charges roughly **C$15 per chargeback**, and on a
-  destination charge the *platform* is liable — the money already went to the
-  recipient. One dispute wipes out the margin on well over a hundred $10
-  transfers. This is the single biggest risk in the P2P product.
-- **Refunds.** Stripe does not return its processing fee on a refund. A
-  refunded $50 transfer costs you the $1.75 Stripe already took.
+- **Disputes now land on the recipient**, not you — that is a direct
+  consequence of direct charges and was the single biggest P2P risk under the
+  old model. Worth telling recipients plainly during onboarding, because it is
+  a real obligation they are taking on.
+- **Refunds.** Stripe does not return its processing fee. That cost falls on
+  the recipient's account, and your application fee is refunded with it.
 - **Connect account fees.** Stripe bills for active Express accounts and for
   payouts in some regions. Check your own Connect pricing page — the rates
   vary by country and I could not verify Canada's from here.
 - **Currency conversion**, if you ever accept a currency other than CAD.
+
+## Identity verification (the blue check)
+
+The badge requires a Stripe Identity document check with a selfie match. It
+used to be a free toggle.
+
+**Stripe Identity is billed per verification session** — around **$1.50** at
+list price, charged whether or not the person passes. That is a real cost per
+attempt, so:
+
+- an already-verified account never starts a second session;
+- the badge is currently offered free to the user, which means each one costs
+  you. If verification is popular, this becomes a line item worth watching.
+
+Verify the current rate on your own Stripe pricing page rather than trusting
+the number here.
 
 ## Cloud storage (Apple IAP)
 

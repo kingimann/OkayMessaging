@@ -47,15 +47,25 @@ Deno.serve(async (req) => {
 
   try {
     const feeCents = applicationFee(amountCents);
+    // DIRECT charge, not a destination charge: the PaymentIntent is created
+    // ON the recipient's connected account. The money goes straight there and
+    // never lands in the platform's balance, so the platform is not in the
+    // flow of funds and is not merchant of record.
+    //
+    // The consequences are the whole point of doing it this way:
+    //   * the recipient's account pays Stripe's processing fee, so the
+    //     platform's application fee is what it keeps, full stop;
+    //   * chargebacks land on the recipient, not the platform — under a
+    //     destination charge a dispute clawed money back out of a balance
+    //     the platform had already paid away.
     const intent = await stripe.paymentIntents.create({
       amount: amountCents,
       currency,
       // Enables cards + Apple/Google Pay in the native Payment Sheet.
       automatic_payment_methods: { enabled: true },
       application_fee_amount: feeCents,
-      transfer_data: { destination: dest.stripe_account_id },
       metadata: { from_phone: fromPhone, to_phone: toPhone, note: body.note ?? "" },
-    });
+    }, { stripeAccount: dest.stripe_account_id });
 
     await admin.from("payment_transactions").upsert({
       id: intent.id,
@@ -74,6 +84,9 @@ Deno.serve(async (req) => {
       amountCents,
       feeCents,
       currency,
+      // A direct charge's client secret only means anything to the SDK when
+      // it is told which connected account the intent lives on.
+      stripeAccountId: dest.stripe_account_id,
     });
   } catch (e) {
     return json({ error: String((e as Error).message ?? e) }, 400);

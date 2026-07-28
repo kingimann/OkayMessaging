@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -42,6 +44,7 @@ import 'state/storage_store.dart';
 import 'state/status_store.dart';
 import 'state/streak_store.dart';
 import 'state/channel_typing_store.dart';
+import 'state/identity_verification.dart';
 import 'state/voice_presence_store.dart';
 import 'state/two_step.dart';
 import 'theme/app_theme.dart';
@@ -93,6 +96,10 @@ Future<void> main() async {
   // StoreKit replays renewals that happened while the app was closed, so this
   // has to be listening before the purchase stream opens.
   IapEntitlement.instance.start();
+  // The blue check is decided server-side, so ask rather than assume — a
+  // check finished on another device (or after the app was closed) still
+  // has to land here.
+  unawaited(IdentityVerification.instance.refresh());
   ChannelTypingStore.instance.onTyping = (communityId, channelId) =>
       RelayService.instance.sendChannelTyping(communityId, channelId);
   VoicePresenceStore.instance.onPresence = (communityId, channelId,

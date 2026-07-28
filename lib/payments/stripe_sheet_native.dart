@@ -38,7 +38,31 @@ class StripeSheet {
 
   /// Presents the payment sheet for [clientSecret]. Returns true on a completed
   /// payment, false if the user cancels or it fails.
+  /// [stripeAccountId] is the connected account a direct charge was created
+  /// on. The client secret is meaningless to the SDK without it, so it is set
+  /// before the sheet opens and cleared afterwards — leaving it set would
+  /// silently scope the next unrelated call to someone else's account.
   static Future<bool> presentPayment({
+    required String clientSecret,
+    required String merchantName,
+    String? stripeAccountId,
+  }) async {
+    if (stripeAccountId != null && stripeAccountId.isNotEmpty) {
+      stripe.Stripe.stripeAccountId = stripeAccountId;
+      await stripe.Stripe.instance.applySettings();
+    }
+    try {
+      return await _present(
+          clientSecret: clientSecret, merchantName: merchantName);
+    } finally {
+      if (stripeAccountId != null && stripeAccountId.isNotEmpty) {
+        stripe.Stripe.stripeAccountId = null;
+        await stripe.Stripe.instance.applySettings();
+      }
+    }
+  }
+
+  static Future<bool> _present({
     required String clientSecret,
     required String merchantName,
   }) async {

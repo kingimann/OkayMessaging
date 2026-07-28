@@ -22,6 +22,8 @@ const pasteFunctions = [
   'iap-validate',
   'iap-notify',
   'iap-status',
+  'identity-start',
+  'identity-status',
 ];
 
 /// Whatever the paste copy's own header should say for [name].

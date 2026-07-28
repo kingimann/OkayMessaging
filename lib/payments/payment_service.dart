@@ -146,6 +146,8 @@ class PaymentService {
     return StripeSheet.presentPayment(
       clientSecret: intent['clientSecret'] as String,
       merchantName: 'OkayMessenger',
+      // Direct charge: the intent lives on the recipient's connected account.
+      stripeAccountId: intent['stripeAccountId'] as String?,
     );
   }
 

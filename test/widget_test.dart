@@ -11,6 +11,7 @@ import '../tool/paste_functions.dart';
 import 'package:okay_messaging/payments/iap_entitlement.dart';
 import 'package:okay_messaging/state/voice_presence_store.dart';
 import 'package:okay_messaging/state/channel_typing_store.dart';
+import 'package:okay_messaging/state/identity_verification.dart';
 import 'package:okay_messaging/app_state.dart';
 import 'package:okay_messaging/crypto/e2e.dart';
 import 'package:okay_messaging/data/mock_data.dart';
@@ -5410,38 +5411,45 @@ void main() {
       expect(StorageEconomics.monthlyProfit(19.99, 100), greaterThan(5));
     });
 
-    test('peer-to-peer transfers profit after Stripe takes its cut', () {
-      // The bug this locks down: a 1.5% + 0¢ fee against Stripe's 2.9% + 30¢
-      // lost money on every single transfer.
+    test('peer-to-peer transfers are pure revenue on a direct charge', () {
+      // History: a 1.5% + 0¢ fee against Stripe's 2.9% + 30¢ lost money on
+      // every transfer, and even at 3.4% + 35¢ a foreign card went negative
+      // above ~$17.75. Direct charges retire that whole class of bug — Stripe
+      // bills the recipient's account, so the fee is kept whole.
       for (final amount in [100, 500, 1000, 2500, 5000, 25000]) {
         expect(PaymentEconomics.isProfitable(amount), isTrue,
             reason: '\$${amount / 100} transfer must not lose money');
-        expect(PaymentEconomics.applicationFeeCents(amount),
-            greaterThan(PaymentEconomics.stripeCostCents(amount)));
       }
-      // A $10 transfer: 69¢ fee in, 59¢ to Stripe → 10¢ kept.
+      // A $10 transfer: 69¢ fee, all of it kept.
       expect(PaymentEconomics.applicationFeeCents(1000), 69);
+      expect(PaymentEconomics.netCents(1000), 69);
+      // The recipient's side is separate, and is what shrinks the landing
+      // amount — 59¢ of Stripe on a domestic card.
       expect(PaymentEconomics.stripeCostCents(1000), 59);
-      expect(PaymentEconomics.netCents(1000), 10);
+      expect(PaymentEconomics.estimatedReceivedCents(1000), 1000 - 69 - 59);
     });
 
-    test('a card issued abroad still cannot lose money', () {
-      // The sender picks the card; we only find out what it cost afterwards.
-      // At a flat 3.4% + 35¢ against an international card's 3.7% + 30¢ the
-      // two crossed near $17.75, and every larger transfer bled — silently,
-      // because nothing about the charge announces the issuing country.
-      expect(PaymentEconomics.worstCasePercent, greaterThan(3.4));
+    test('a direct charge keeps the platform out of the flow of funds', () {
+      // The point of direct charges: Stripe's cut comes out of the recipient's
+      // account, so the application fee is kept in full and no card — foreign
+      // or otherwise — can make a transfer cost the platform anything.
       for (final amount in [50, 100, 1775, 2500, 5000, 10000, 50000, 200000]) {
-        expect(PaymentEconomics.worstCaseNetCents(amount), greaterThan(0),
-            reason: '\$${amount / 100} on a foreign card must not lose money');
+        expect(PaymentEconomics.netCents(amount),
+            PaymentEconomics.applicationFeeCents(amount));
+        expect(PaymentEconomics.worstCaseNetCents(amount),
+            PaymentEconomics.netCents(amount),
+            reason: 'the platform side must not vary by card');
+        expect(PaymentEconomics.isProfitable(amount), isTrue);
       }
-      // Small transfers are untouched by the floor — it only bites where the
-      // flat percentage stopped covering the real cost.
-      expect(PaymentEconomics.applicationFeeCents(1000), 69);
-      // A $100 transfer now clears the international rate rather than
-      // undercutting it by 25¢.
-      expect(PaymentEconomics.applicationFeeCents(10000),
-          greaterThan(PaymentEconomics.worstCaseStripeCostCents(10000)));
+      // The recipient is the one who feels a foreign card.
+      expect(PaymentEconomics.worstCaseReceivedCents(5000),
+          lessThan(PaymentEconomics.estimatedReceivedCents(5000)));
+      // The quote always adds up — nothing unexplained between the two.
+      expect(
+          PaymentEconomics.estimatedReceivedCents(5000) +
+              PaymentEconomics.applicationFeeCents(5000) +
+              PaymentEconomics.stripeCostCents(5000),
+          5000);
     });
 
     test('the fair-use egress ceiling sits below what the price can pay for',
@@ -9882,9 +9890,10 @@ void main() {
     });
 
     test('the inlined platform fee never falls below Stripe\'s own cut', () {
-      // Mirrors applicationFee() in the shared helper. A fee at or under
-      // Stripe's 2.9% + 30c means the platform pays the difference. Only the
-      // payment functions inline it; the IAP ones bill through Apple.
+      // Mirrors applicationFee() in the shared helper, plus the invariant
+      // that actually protects the platform now: transfers must be DIRECT
+      // charges. A destination charge would route the money through the
+      // platform's balance and hand it the dispute liability.
       for (final name in pasteFunctions.where((n) => n.startsWith('payments-'))) {
         final copy =
             File('docs/edge_functions_paste/$name.ts').readAsStringSync();
@@ -9896,18 +9905,12 @@ void main() {
             ?.group(1);
         expect(pct, isNotNull, reason: '$name lost its fee default');
         expect(fixed, isNotNull, reason: '$name lost its fee default');
-        expect(double.parse(pct!),
-            greaterThan(PaymentEconomics.stripePercent));
-        expect(int.parse(fixed!),
-            greaterThan(PaymentEconomics.stripeFixedCents));
-        expect(copy.contains('Math.max(fee, worstCase + 1)'), isTrue,
-            reason: '$name lost the floor that stops a bad env var');
-        // The floor has to clear an international card, not just a domestic
-        // one — that's the case a flat percentage silently underpriced.
-        expect(
-            copy.contains('STRIPE_INTERNATIONAL_SURCHARGE_PERCENT'), isTrue,
-            reason: '$name floors on the domestic rate, which loses money '
-                'on a foreign card above ~\$17.75');
+        // A direct charge means no platform-side Stripe cost to clear; the
+        // fee only has to be a real, positive fee.
+        expect(double.parse(pct!), greaterThan(0));
+        expect(int.parse(fixed!), greaterThan(0));
+        expect(double.parse(pct), greaterThan(0));
+        expect(int.parse(fixed), greaterThan(0));
       }
     });
   });
@@ -10144,6 +10147,53 @@ void main() {
     });
   });
 
+  group('Blue check', () {
+    setUp(IdentityVerification.instance.resetForTest);
+    tearDown(IdentityVerification.instance.resetForTest);
+
+    test('only a passed ID check counts as verified', () {
+      final identity = IdentityVerification.instance;
+      // The badge used to be a free local toggle. Now nothing short of
+      // Stripe's "verified" earns it.
+      expect(identity.isVerified, isFalse);
+      for (final status in [
+        IdentityStatus.none,
+        IdentityStatus.processing,
+        IdentityStatus.requiresInput,
+        IdentityStatus.canceled,
+      ]) {
+        identity.debugSetStatus(status);
+        expect(identity.isVerified, isFalse,
+            reason: '$status must not earn a blue check');
+      }
+      identity.debugSetStatus(IdentityStatus.verified);
+      expect(identity.isVerified, isTrue);
+    });
+
+    test('a check still being reviewed reads as pending, not rejected', () {
+      final identity = IdentityVerification.instance;
+      identity.debugSetStatus(IdentityStatus.processing);
+      expect(identity.isPending, isTrue);
+      expect(identity.isVerified, isFalse);
+
+      // Everything else is settled one way or the other.
+      identity.debugSetStatus(IdentityStatus.requiresInput);
+      expect(identity.isPending, isFalse);
+      identity.debugSetStatus(IdentityStatus.verified);
+      expect(identity.isPending, isFalse);
+    });
+
+    test('with no relay configured nothing throws and nothing is granted',
+        () async {
+      // Offline, or the functions aren't deployed yet: the badge must stay
+      // off rather than fail open.
+      final identity = IdentityVerification.instance;
+      expect(await identity.start(), isNull);
+      expect(await identity.refresh(), IdentityStatus.none);
+      expect(identity.isVerified, isFalse);
+    });
+  });
+
   group('Fee disclosure', () {
     testWidgets('the sender sees the fee and what actually lands',
         (tester) async {
@@ -10171,17 +10221,18 @@ void main() {
       await tester.enterText(find.byType(TextField).first, '20');
       await tester.pump();
 
-      // 2000c: fee is the international floor (3.7% + 30c + 1c = 105c),
-      // so $20.00 sent leaves $18.95 landing.
       final fee = PaymentEconomics.applicationFeeCents(2000);
+      final lands = PaymentEconomics.estimatedReceivedCents(2000);
       expect(find.text('You pay'), findsOneWidget);
-      expect(find.text('Fee'), findsOneWidget);
-      expect(find.text('Grace receives'), findsOneWidget);
+      expect(find.text('Our fee'), findsOneWidget);
+      // A direct charge means the recipient also pays Stripe, so leaving that
+      // line out would make the landing amount look unexplained.
+      expect(find.text('Card processing'), findsOneWidget);
+      expect(find.text('Grace gets about'), findsOneWidget);
       expect(find.text('\$${(fee / 100).toStringAsFixed(2)}'), findsOneWidget);
-      expect(
-          find.text('\$${((2000 - fee) / 100).toStringAsFixed(2)}'),
-          findsOneWidget,
+      expect(find.text('\$${(lands / 100).toStringAsFixed(2)}'), findsOneWidget,
           reason: 'the amount that lands is not the amount typed, so say so');
+      expect(find.textContaining('we never hold it'), findsOneWidget);
     });
   });
 
@@ -10439,6 +10490,12 @@ void main() {
       for (final tip in StorePurchases.tipProducts) {
         expect(pattern.hasMatch(tip.id), isFalse);
       }
+      final intent = File('docs/edge_functions_paste/payments-create-intent.ts')
+          .readAsStringSync();
+      expect(intent.contains('stripeAccount:'), isTrue,
+          reason: 'transfers must be direct charges on the recipient account');
+      expect(intent.contains('transfer_data'), isFalse,
+          reason: 'transfer_data would route the money through the platform');
     });
   });
 
