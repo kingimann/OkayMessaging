@@ -1,5 +1,7 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../app_state.dart';
 import '../state/chat_store.dart';
@@ -31,6 +33,27 @@ List<TextSpan> feedSpans(String text, TextStyle base, TextStyle accent) {
     spans.add(TextSpan(text: text.substring(last), style: base));
   }
   return spans.isEmpty ? [TextSpan(text: text, style: base)] : spans;
+}
+
+/// The @mention being typed at the end of [text] (without the '@'), or null
+/// when the text doesn't end in one. Pure.
+String? activeMentionPrefix(String text) =>
+    RegExp(r'@([A-Za-z0-9_]*)$').firstMatch(text)?.group(1);
+
+/// Known usernames starting with [prefix], case-insensitive, first five,
+/// deduped. Pure over the given sources.
+List<String> mentionMatches(String prefix, Iterable<String> known) {
+  final p = prefix.toLowerCase();
+  final seen = <String>{};
+  final out = <String>[];
+  for (final u in known) {
+    final lu = u.toLowerCase();
+    if (lu.isEmpty || lu == 'you' || !lu.startsWith(p)) continue;
+    if (!seen.add(lu)) continue;
+    out.add(u);
+    if (out.length == 5) break;
+  }
+  return out;
 }
 
 /// An X-style feed for a server: a composer up top, then a timeline of
@@ -102,6 +125,11 @@ class _FeedScreenState extends State<FeedScreen> {
         child: SafeArea(
           child: _Composer(
             controller: _composer,
+            mentionCandidates: (prefix) => mentionMatches(prefix, [
+              ...FeedStore.instance.usernamesFor(widget.communityId),
+              for (final c in ChatStore.instance.allChats)
+                if (c.contact.username.isNotEmpty) c.contact.username,
+            ]),
             onPost: () {
               _post();
               Navigator.pop(sheetContext);
@@ -127,87 +155,8 @@ class _FeedScreenState extends State<FeedScreen> {
   }
 
   /// Tapping an author: follow/unfollow them, or jump to your chat.
-  void _authorSheet(FeedPost post) {
-    final mine = post.authorUsername == 'you' ||
-        post.authorUsername == AppState.profile.value.username;
-    final contact = ChatStore.instance.chats
-        .map((c) => c.contact)
-        .where((u) =>
-            u.username.toLowerCase() == post.authorUsername.toLowerCase())
-        .toList();
-    showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      builder: (sheetContext) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _FeedAvatar(
-                  name: post.authorName, username: post.authorUsername),
-              const SizedBox(height: 8),
-              Text(post.authorName,
-                  style: const TextStyle(
-                      fontSize: 17, fontWeight: FontWeight.w700)),
-              Text('@${post.authorUsername}',
-                  style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
-              const SizedBox(height: 14),
-              if (mine)
-                Text('This is you.',
-                    style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant))
-              else
-                ListenableBuilder(
-                  listenable: FollowStore.instance,
-                  builder: (context, _) {
-                    final following = FollowStore.instance
-                        .isFollowing(post.authorUsername);
-                    return Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        following
-                            ? OutlinedButton.icon(
-                                onPressed: () => FollowStore.instance
-                                    .toggle(post.authorUsername),
-                                icon: const Icon(Icons.check, size: 18),
-                                label: const Text('Following'),
-                              )
-                            : FilledButton.icon(
-                                onPressed: () => FollowStore.instance
-                                    .toggle(post.authorUsername),
-                                icon: const Icon(Icons.person_add_alt_1,
-                                    size: 18),
-                                label: const Text('Follow'),
-                              ),
-                        if (contact.isNotEmpty) ...[
-                          const SizedBox(width: 10),
-                          OutlinedButton.icon(
-                            onPressed: () {
-                              Navigator.of(sheetContext).pop();
-                              final chat = ChatStore.instance
-                                  .chatWithContact(contact.first.id);
-                              if (chat != null) {
-                                Navigator.of(context).push(
-                                    MaterialPageRoute(
-                                        builder: (_) =>
-                                            ChatScreen(chat: chat)));
-                              }
-                            },
-                            icon: const Icon(Icons.chat_bubble_outline,
-                                size: 16),
-                            label: const Text('Message'),
-                          ),
-                        ],
-                      ],
-                    );
-                  },
-                ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
+  void _authorSheet(FeedPost post) => showPersonSheet(context,
+      username: post.authorUsername, name: post.authorName);
 
   void _postOptions(FeedPost post) {
     final mine = post.authorUsername == 'you' ||
@@ -302,6 +251,9 @@ class _FeedScreenState extends State<FeedScreen> {
         onAuthor: () => _authorSheet(post),
         saved: FeedStore.instance.isSaved(post.id),
         onSave: () => FeedStore.instance.toggleSaved(post.id),
+        // Tags filter the timeline in place; mentions open the person.
+        onTag: (t) => setState(() => _tag = _tag == t ? '' : t),
+        onMention: (u) => showPersonSheet(context, username: u),
         // Deleting lives in the long-press options — no standing trash
         // icon cluttering every own post.
       ),
@@ -486,11 +438,15 @@ class _Composer extends StatelessWidget {
   /// Opens the photo picker and posts the shot the same way.
   final VoidCallback? onAttachPhoto;
 
+  /// Usernames matching the @prefix being typed, for tag-a-person chips.
+  final List<String> Function(String prefix)? mentionCandidates;
+
   const _Composer({
     required this.controller,
     required this.onPost,
     this.onPostGif,
     this.onAttachPhoto,
+    this.mentionCandidates,
   });
 
   Future<void> _pick(BuildContext context) async {
@@ -517,7 +473,48 @@ class _Composer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // Tag-a-person chips while an @mention is being typed.
+        if (mentionCandidates != null)
+          ValueListenableBuilder<TextEditingValue>(
+            valueListenable: controller,
+            builder: (context, value, _) {
+              final prefix = activeMentionPrefix(value.text);
+              final matches =
+                  prefix == null ? const <String>[] : mentionCandidates!(prefix);
+              if (matches.isEmpty) return const SizedBox.shrink();
+              return Padding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Wrap(
+                    spacing: 6,
+                    children: [
+                      for (final u in matches)
+                        ActionChip(
+                          avatar: const Icon(Icons.alternate_email,
+                              size: 14),
+                          label: Text(u),
+                          visualDensity: VisualDensity.compact,
+                          onPressed: () {
+                            final text = value.text.replaceFirst(
+                                RegExp(r'@[A-Za-z0-9_]*$'), '@$u ');
+                            controller.value = TextEditingValue(
+                              text: text,
+                              selection: TextSelection.collapsed(
+                                  offset: text.length),
+                            );
+                          },
+                        ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -584,6 +581,8 @@ class _Composer extends StatelessWidget {
           ),
         ],
       ),
+        ),
+      ],
     );
   }
 }
@@ -598,6 +597,10 @@ class _PostCard extends StatelessWidget {
   final bool saved;
   final VoidCallback? onSave;
 
+  /// Tapping a #hashtag / @mention in the text.
+  final ValueChanged<String>? onTag;
+  final ValueChanged<String>? onMention;
+
   const _PostCard({
     required this.post,
     required this.onLike,
@@ -606,6 +609,8 @@ class _PostCard extends StatelessWidget {
     this.onAuthor,
     this.saved = false,
     this.onSave,
+    this.onTag,
+    this.onMention,
   });
 
   @override
@@ -651,19 +656,17 @@ class _PostCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 3),
                 if (post.text.isNotEmpty)
-                  Text.rich(
-                    TextSpan(
-                      children: feedSpans(
-                        post.text,
-                        const TextStyle(fontSize: 15.5, height: 1.35),
-                        TextStyle(
-                          fontSize: 15.5,
-                          height: 1.35,
-                          fontWeight: FontWeight.w600,
-                          color: Theme.of(context).colorScheme.primary,
-                        ),
-                      ),
+                  _FeedRichText(
+                    text: post.text,
+                    base: const TextStyle(fontSize: 15.5, height: 1.35),
+                    accent: TextStyle(
+                      fontSize: 15.5,
+                      height: 1.35,
+                      fontWeight: FontWeight.w600,
+                      color: Theme.of(context).colorScheme.primary,
                     ),
+                    onTag: onTag,
+                    onMention: onMention,
                   ),
                 if (post.gifUrl != null) ...[
                   const SizedBox(height: 8),
@@ -830,6 +833,49 @@ class _FeedPostScreenState extends State<FeedPostScreen> {
                 child: PullToRefresh(
                   child: ListView(
                     children: [
+                      // Threading: a reply-of-a-reply shows where it hangs.
+                      if (post.parentId != null)
+                        Builder(builder: (context) {
+                          final parent =
+                              FeedStore.instance.postById(post.parentId!);
+                          return InkWell(
+                            onTap: parent == null
+                                ? null
+                                : () => Navigator.of(context).push(
+                                    MaterialPageRoute(
+                                        builder: (_) => FeedPostScreen(
+                                            postId: parent.id))),
+                            child: Padding(
+                              padding:
+                                  const EdgeInsets.fromLTRB(16, 10, 16, 0),
+                              child: Row(
+                                children: [
+                                  Icon(Icons.subdirectory_arrow_left,
+                                      size: 15,
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .onSurfaceVariant),
+                                  const SizedBox(width: 6),
+                                  Flexible(
+                                    child: Text(
+                                      parent == null
+                                          ? 'In reply to an unavailable post'
+                                          : 'In reply to @${parent.authorUsername} — view thread',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                          fontSize: 12.5,
+                                          fontWeight: FontWeight.w600,
+                                          color: Theme.of(context)
+                                              .colorScheme
+                                              .primary),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        }),
                       _PostCard(
                         post: post,
                         onLike: () => FeedStore.instance.toggleLike(post.id),
@@ -839,6 +885,8 @@ class _FeedPostScreenState extends State<FeedPostScreen> {
                         saved: FeedStore.instance.isSaved(post.id),
                         onSave: () =>
                             FeedStore.instance.toggleSaved(post.id),
+                        onMention: (u) =>
+                            showPersonSheet(context, username: u),
                       ),
                       if (post.likes > 0 ||
                           post.reposts > 0 ||
@@ -878,13 +926,26 @@ class _FeedPostScreenState extends State<FeedPostScreen> {
                       for (final r in replies) ...[
                         Padding(
                           padding: const EdgeInsets.only(left: 16),
-                          child: _PostCard(
-                            post: r,
-                            onLike: () =>
-                                FeedStore.instance.toggleLike(r.id),
-                            onRepost: () =>
-                                FeedStore.instance.toggleRepost(r.id),
-                            onReply: () {},
+                          // A reply is a post: open its own thread to read
+                          // or continue its sub-conversation.
+                          child: InkWell(
+                            onTap: () => Navigator.of(context).push(
+                                MaterialPageRoute(
+                                    builder: (_) =>
+                                        FeedPostScreen(postId: r.id))),
+                            child: _PostCard(
+                              post: r,
+                              onLike: () =>
+                                  FeedStore.instance.toggleLike(r.id),
+                              onRepost: () =>
+                                  FeedStore.instance.toggleRepost(r.id),
+                              onReply: () => Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                      builder: (_) =>
+                                          FeedPostScreen(postId: r.id))),
+                              onMention: (u) =>
+                                  showPersonSheet(context, username: u),
+                            ),
                           ),
                         ),
                         const Divider(height: 1),
@@ -968,5 +1029,177 @@ class _FeedAvatar extends StatelessWidget {
               fontSize: 13.5,
               fontWeight: FontWeight.w700)),
     );
+  }
+}
+
+/// The profile sheet for any @username — post authors and text mentions
+/// alike: follow/unfollow them, or jump to your chat.
+void showPersonSheet(BuildContext context,
+    {required String username, String? name}) {
+  // Best display name we know: the given one, a post by them, or the handle.
+  final displayName =
+      name ?? FeedStore.instance.authorNameFor(username) ?? '@$username';
+  final mine =
+      username == 'you' || username == AppState.profile.value.username;
+  final contact = ChatStore.instance.chats
+      .map((c) => c.contact)
+      .where((u) => u.username.toLowerCase() == username.toLowerCase())
+      .toList();
+  showModalBottomSheet<void>(
+    context: context,
+    showDragHandle: true,
+    builder: (sheetContext) => SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _FeedAvatar(name: displayName, username: username),
+            const SizedBox(height: 8),
+            Text(displayName,
+                style: const TextStyle(
+                    fontSize: 17, fontWeight: FontWeight.w700)),
+            Text('@$username',
+                style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant)),
+            const SizedBox(height: 14),
+            if (mine)
+              Text('This is you.',
+                  style: TextStyle(
+                      color:
+                          Theme.of(context).colorScheme.onSurfaceVariant))
+            else
+              ListenableBuilder(
+                listenable: FollowStore.instance,
+                builder: (context, _) {
+                  final following =
+                      FollowStore.instance.isFollowing(username);
+                  return Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      following
+                          ? OutlinedButton.icon(
+                              onPressed: () =>
+                                  FollowStore.instance.toggle(username),
+                              icon: const Icon(Icons.check, size: 18),
+                              label: const Text('Following'),
+                            )
+                          : FilledButton.icon(
+                              onPressed: () =>
+                                  FollowStore.instance.toggle(username),
+                              icon: const Icon(Icons.person_add_alt_1,
+                                  size: 18),
+                              label: const Text('Follow'),
+                            ),
+                      if (contact.isNotEmpty) ...[
+                        const SizedBox(width: 10),
+                        OutlinedButton.icon(
+                          onPressed: () {
+                            Navigator.of(sheetContext).pop();
+                            final chat = ChatStore.instance
+                                .chatWithContact(contact.first.id);
+                            if (chat != null) {
+                              Navigator.of(context).push(MaterialPageRoute(
+                                  builder: (_) => ChatScreen(chat: chat)));
+                            }
+                          },
+                          icon: const Icon(Icons.chat_bubble_outline,
+                              size: 16),
+                          label: const Text('Message'),
+                        ),
+                      ],
+                    ],
+                  );
+                },
+              ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+/// Post text with live #hashtags, @mentions, and links: tags filter the
+/// timeline, mentions open the person, links open the browser.
+class _FeedRichText extends StatefulWidget {
+  final String text;
+  final TextStyle base;
+  final TextStyle accent;
+  final ValueChanged<String>? onTag;
+  final ValueChanged<String>? onMention;
+
+  const _FeedRichText({
+    required this.text,
+    required this.base,
+    required this.accent,
+    this.onTag,
+    this.onMention,
+  });
+
+  @override
+  State<_FeedRichText> createState() => _FeedRichTextState();
+}
+
+class _FeedRichTextState extends State<_FeedRichText> {
+  final List<TapGestureRecognizer> _recognizers = [];
+
+  void _clearRecognizers() {
+    for (final r in _recognizers) {
+      r.dispose();
+    }
+    _recognizers.clear();
+  }
+
+  @override
+  void dispose() {
+    _clearRecognizers();
+    super.dispose();
+  }
+
+  TapGestureRecognizer? _recognizerFor(String token) {
+    VoidCallback? action;
+    if (token.startsWith('#') && widget.onTag != null) {
+      action = () => widget.onTag!(token);
+    } else if (token.startsWith('@') && widget.onMention != null) {
+      action = () => widget.onMention!(token.substring(1));
+    } else if (token.startsWith('http')) {
+      action = () async {
+        try {
+          await launchUrl(Uri.parse(token));
+        } catch (_) {}
+      };
+    }
+    if (action == null) return null;
+    final r = TapGestureRecognizer()..onTap = action;
+    _recognizers.add(r);
+    return r;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    _clearRecognizers();
+    final pattern = RegExp(r'(@[A-Za-z0-9_]+|#[A-Za-z0-9_]+|https?://\S+)');
+    final spans = <TextSpan>[];
+    var last = 0;
+    for (final m in pattern.allMatches(widget.text)) {
+      if (m.start > last) {
+        spans.add(TextSpan(
+            text: widget.text.substring(last, m.start), style: widget.base));
+      }
+      final token = m.group(0)!;
+      spans.add(TextSpan(
+          text: token,
+          style: widget.accent,
+          recognizer: _recognizerFor(token)));
+      last = m.end;
+    }
+    if (last < widget.text.length) {
+      spans.add(
+          TextSpan(text: widget.text.substring(last), style: widget.base));
+    }
+    return Text.rich(TextSpan(
+        children: spans.isEmpty
+            ? [TextSpan(text: widget.text, style: widget.base)]
+            : spans));
   }
 }

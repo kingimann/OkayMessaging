@@ -5272,6 +5272,37 @@ void main() {
       expect(store.isSaved(keeper.id), isFalse);
     });
 
+    test('threads nest, mentions autocomplete, authors resolve', () {
+      FeedStore.instance.resetForTest();
+      final store = FeedStore.instance;
+      final root = store.add('c1', 'root post');
+      store.reply(root.id, 'first reply');
+      final reply = store.repliesTo(root.id).single;
+      // Reply to the reply: it threads under the reply, not the root.
+      store.reply(reply.id, 'nested reply');
+      expect(store.repliesTo(reply.id).single.text, 'nested reply');
+      expect(store.repliesTo(root.id), hasLength(1));
+      expect(store.postById(reply.id)!.replies, 1);
+
+      // Mention prefix extraction from the composer text.
+      expect(activeMentionPrefix('hey @gra'), 'gra');
+      expect(activeMentionPrefix('hey @'), '');
+      expect(activeMentionPrefix('no mention here'), isNull);
+      expect(activeMentionPrefix('email a@b already done '), isNull);
+
+      // Candidate matching: prefix, dedupe, never "you", capped at five.
+      final known = ['grace', 'Graham', 'grace', 'you', 'bob', 'g1', 'g2',
+        'g3', 'g4'];
+      expect(mentionMatches('gra', known), ['grace', 'Graham']);
+      expect(mentionMatches('g', known), hasLength(5));
+      expect(mentionMatches('zz', known), isEmpty);
+
+      // Author names resolve from their posts for the person sheet.
+      expect(store.authorNameFor(root.authorUsername), isNotNull);
+      expect(store.authorNameFor('nobody'), isNull);
+      expect(store.usernamesFor('c1'), isNot(contains('you')));
+    });
+
     test('deleted posts stay deleted through backup replays', () {
       FeedStore.instance.resetForTest();
       final store = FeedStore.instance;

@@ -212,6 +212,30 @@ class FeedStore extends ChangeNotifier {
     return i < 0 ? null : _posts[i];
   }
 
+  /// The display name we know for [username] from their posts, or null.
+  String? authorNameFor(String username) {
+    final lu = username.toLowerCase();
+    for (final p in _posts) {
+      if (p.authorUsername.toLowerCase() == lu && p.authorName.isNotEmpty) {
+        return p.authorName;
+      }
+    }
+    return null;
+  }
+
+  /// Every username that has posted in [communityId] — mention suggestions.
+  List<String> usernamesFor(String communityId) {
+    final seen = <String>{};
+    final out = <String>[];
+    for (final p in _posts) {
+      if (p.communityId != communityId) continue;
+      final u = p.authorUsername;
+      if (u.isEmpty || u == 'you' || !seen.add(u.toLowerCase())) continue;
+      out.add(u);
+    }
+    return out;
+  }
+
   /// Posts [text] as the signed-in user. Returns the new post.
   FeedPost add(String communityId, String text,
       {String? parentId, String? gifUrl}) {
