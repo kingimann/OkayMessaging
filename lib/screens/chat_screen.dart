@@ -1783,10 +1783,11 @@ class _ChatScreenState extends State<ChatScreen> {
     final contact = widget.chat.contact;
 
     return ListenableBuilder(
-      // Rebuild on wallpaper changes and on the Okay Pro custom bubble color,
-      // so switching either updates the open conversation immediately.
-      listenable:
-          Listenable.merge([AppState.chatWallpaper, AppState.bubbleColor]),
+      // Rebuild on wallpaper and the Okay Pro custom bubble color, and on
+      // the chat store — so mute / disappearing / pin toggled from the
+      // contact-info screen refresh the header the moment you return.
+      listenable: Listenable.merge(
+          [AppState.chatWallpaper, AppState.bubbleColor, _store]),
       builder: (context, _) {
         final globalWallpaper = AppState.chatWallpaper.value;
         return Scaffold(
@@ -1993,51 +1994,26 @@ class _ChatScreenState extends State<ChatScreen> {
                         icon: const Icon(Icons.videocam),
                         onPressed: () => _startCall(video: true),
                       ),
+                      // The heavy settings moved to the contact info
+                      // screen (View contact) — the menu keeps only what
+                      // belongs to this moment in the conversation.
                       PopupMenuButton<String>(
                         onSelected: _onMenuSelected,
-                        itemBuilder: (context) {
-                          final pinned =
-                              _store.chatById(_chatId)?.isPinned ?? false;
-                          final muted =
-                              _store.chatById(_chatId)?.isMuted ?? false;
-                          return [
+                        itemBuilder: (context) => [
+                          const PopupMenuItem(
+                              value: 'search', child: Text('Search')),
+                          const PopupMenuItem(
+                              value: 'view',
+                              child: Text('Contact & chat settings')),
+                          const PopupMenuItem(
+                              value: 'media',
+                              child: Text('Media, links, and docs')),
+                          if (!widget.chat.contact.isGroup &&
+                              widget.chat.contact.phone.isNotEmpty)
                             const PopupMenuItem(
-                                value: 'search', child: Text('Search')),
-                            const PopupMenuItem(
-                                value: 'view', child: Text('View contact')),
-                            const PopupMenuItem(
-                                value: 'media',
-                                child: Text('Media, links, and docs')),
-                            const PopupMenuItem(
-                                value: 'places',
-                                child: Text('Shared places')),
-                            if (!widget.chat.contact.isGroup &&
-                                widget.chat.contact.phone.isNotEmpty)
-                              const PopupMenuItem(
-                                  value: 'sms',
-                                  child: Text('Send as text (SMS)')),
-                            PopupMenuItem(
-                                value: 'pin',
-                                child:
-                                    Text(pinned ? 'Unpin chat' : 'Pin chat')),
-                            PopupMenuItem(
-                                value: 'mute',
-                                child: Text(muted
-                                    ? 'Unmute notifications'
-                                    : 'Mute notifications')),
-                            const PopupMenuItem(
-                                value: 'disappearing',
-                                child: Text('Disappearing messages')),
-                            const PopupMenuItem(
-                                value: 'wallpaper', child: Text('Wallpaper')),
-                            const PopupMenuItem(
-                                value: 'export', child: Text('Export chat')),
-                            const PopupMenuItem(
-                                value: 'clear', child: Text('Clear chat')),
-                            const PopupMenuItem(
-                                value: 'delete', child: Text('Delete chat')),
-                          ];
-                        },
+                                value: 'sms',
+                                child: Text('Send as text (SMS)')),
+                        ],
                       ),
                     ],
                   ),

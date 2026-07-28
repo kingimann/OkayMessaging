@@ -45,6 +45,7 @@ import 'package:okay_messaging/screens/chat_screen.dart';
 import 'package:okay_messaging/tabs/activity_tab.dart';
 import 'package:okay_messaging/tabs/chats_tab.dart';
 import 'package:okay_messaging/utils/maps_link.dart';
+import 'package:okay_messaging/widgets/info_section.dart';
 import 'package:okay_messaging/widgets/message_bubble.dart';
 import 'package:okay_messaging/widgets/osm_map.dart';
 import 'package:okay_messaging/screens/score_screen.dart';
@@ -109,6 +110,26 @@ import 'package:okay_messaging/state/favourites_store.dart';
 import 'package:okay_messaging/state/onboarding_store.dart';
 import 'package:okay_messaging/widgets/heart_burst.dart';
 import 'package:okay_messaging/widgets/rich_message_text.dart';
+
+/// Opens the contact-info / chat-settings screen from an open chat: the
+/// overflow menu's "Contact & chat settings" now hosts what used to be
+/// scattered menu items.
+Future<void> openChatSettings(WidgetTester tester) async {
+  await tester.tap(find.byIcon(Icons.more_vert));
+  await tester.pumpAndSettle();
+  await tester.tap(find.text('Contact & chat settings'));
+  await tester.pumpAndSettle();
+}
+
+/// Scrolls the contact-info ListView until [finder] is on screen, then taps
+/// it — the chat-settings tiles live below the fold.
+Future<void> tapInSettings(WidgetTester tester, Finder finder) async {
+  await tester.scrollUntilVisible(finder, 120,
+      scrollable: find.byType(Scrollable).first);
+  await tester.pumpAndSettle();
+  await tester.tap(finder);
+  await tester.pumpAndSettle();
+}
 
 void main() {
   // Singletons persist across tests; reset them so each starts clean. Most
@@ -1233,11 +1254,10 @@ void main() {
     await tester.tap(find.text('Bob Carter'));
     await tester.pumpAndSettle();
 
-    // Wallpaper opens the picker screen.
-    await tester.tap(find.byIcon(Icons.more_vert));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Wallpaper'));
-    await tester.pumpAndSettle();
+    // Wallpaper opens the picker screen (chat settings now live on the
+    // contact info screen).
+    await openChatSettings(tester);
+    await tapInSettings(tester, find.text('Wallpaper & sound'));
     // Per-chat wallpaper picker (its "Default" swatch is shown).
     expect(find.text('Default'), findsOneWidget);
     await tester.pageBack();
@@ -1245,9 +1265,7 @@ void main() {
 
     // Export builds a transcript and hands it off (share/download), then
     // confirms via a snackbar.
-    await tester.tap(find.byIcon(Icons.more_vert));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Export chat'));
+    await tapInSettings(tester, find.text('Export chat'));
     // The save goes through a real platform channel (path_provider), so let it
     // run on the real event loop before the confirmation snackbar appears.
     await tester.runAsync(
@@ -1256,7 +1274,7 @@ void main() {
     expect(find.byType(SnackBar), findsOneWidget);
   });
 
-  testWidgets('Disappearing-messages menu sets a timer and shows the indicator',
+  testWidgets('Disappearing-messages setting sets a timer and shows the indicator',
       (tester) async {
     await tester.pumpWidget(const OkayMessagingApp());
     await tester.pumpAndSettle();
@@ -1264,12 +1282,11 @@ void main() {
     await tester.tap(find.text('Bob Carter'));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byIcon(Icons.more_vert));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Disappearing messages'));
-    await tester.pumpAndSettle();
-
+    await openChatSettings(tester);
+    await tapInSettings(tester, find.text('Disappearing messages'));
     await tester.tap(find.text('1 day'));
+    await tester.pumpAndSettle();
+    await tester.pageBack(); // back to the chat
     await tester.pumpAndSettle();
 
     // The timer indicator now shows in the header.
@@ -2259,16 +2276,21 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byIcon(Icons.volume_off), findsNothing);
 
-    await tester.tap(find.byIcon(Icons.more_vert));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Mute notifications'));
+    await openChatSettings(tester);
+    // The Switch beside "Mute notifications".
+    await tapInSettings(
+        tester,
+        find.descendant(
+            of: find.widgetWithText(InfoTile, 'Mute notifications'),
+            matching: find.byType(Switch)));
+    await tester.pageBack();
     await tester.pumpAndSettle();
 
     expect(ChatStore.instance.chatWithContact('u_bob')!.isMuted, isTrue);
     expect(find.byIcon(Icons.volume_off), findsOneWidget);
   });
 
-  testWidgets('Pinning from the chat menu pins the conversation',
+  testWidgets('Pinning from chat settings pins the conversation',
       (tester) async {
     await tester.pumpWidget(const OkayMessagingApp());
     await tester.pumpAndSettle();
@@ -2276,10 +2298,12 @@ void main() {
     await tester.tap(find.text('Bob Carter'));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byIcon(Icons.more_vert));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Pin chat'));
-    await tester.pumpAndSettle();
+    await openChatSettings(tester);
+    await tapInSettings(
+        tester,
+        find.descendant(
+            of: find.widgetWithText(InfoTile, 'Pin chat'),
+            matching: find.byType(Switch)));
 
     expect(ChatStore.instance.chatWithContact('u_bob')!.isPinned, isTrue);
   });
@@ -2305,10 +2329,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(ChatStore.instance.chatWithContact('u_bob')!.messages, isNotEmpty);
 
-    await tester.tap(find.byIcon(Icons.more_vert));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Clear chat'));
-    await tester.pumpAndSettle();
+    await openChatSettings(tester);
+    await tapInSettings(tester, find.text('Clear chat'));
     // Confirm in the dialog (the red action button).
     await tester.tap(find.widgetWithText(FilledButton, 'Clear chat'));
     await tester.pumpAndSettle();
@@ -2324,10 +2346,8 @@ void main() {
     await tester.tap(find.text('Bob Carter'));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byIcon(Icons.more_vert));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Delete chat'));
-    await tester.pumpAndSettle();
+    await openChatSettings(tester);
+    await tapInSettings(tester, find.text('Delete chat'));
     await tester.tap(find.widgetWithText(FilledButton, 'Delete chat'));
     await tester.pumpAndSettle();
 

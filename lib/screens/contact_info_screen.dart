@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -7,12 +9,16 @@ import '../state/call_service.dart';
 import '../state/chat_store.dart';
 import '../state/follow_store.dart';
 import '../theme/app_theme.dart';
+import '../util/file_saver.dart';
+import '../utils/chat_transcript.dart';
 import '../widgets/app_dialogs.dart';
 import '../widgets/info_section.dart';
 import '../widgets/user_avatar.dart';
 import '../widgets/verified_badge.dart';
+import 'chat_places_screen.dart';
 import 'media_gallery_screen.dart';
 import 'security_code_screen.dart';
+import 'wallpaper_screen.dart';
 
 /// A modern contact detail screen: a clean surface header with a large
 /// avatar, tonal action buttons, and grouped info sections.
@@ -215,13 +221,11 @@ class ContactInfoScreen extends StatelessWidget {
               ],
             ),
           if (chatId != null) _ConfirmBeforeSendSection(chatId: chatId!),
+          // The chat's own settings, moved here from the overflow menu so
+          // everything about this conversation lives on one screen.
+          if (chatId != null) _ChatSettingsSection(chatId: chatId!, user: user),
           InfoSection(
             children: [
-              const InfoTile(
-                leading: Icon(Icons.notifications_outlined),
-                title: 'Notifications',
-                subtitle: 'On',
-              ),
               InfoTile(
                 leading: const Icon(Icons.lock_outline),
                 title: 'Encryption',
@@ -233,12 +237,9 @@ class ContactInfoScreen extends StatelessWidget {
                   ),
                 ),
               ),
-              const InfoTile(
-                leading: Icon(Icons.wallpaper_outlined),
-                title: 'Wallpaper & sound',
-              ),
             ],
           ),
+          if (chatId != null) _ChatDangerSection(chatId: chatId!),
           ValueListenableBuilder<Set<String>>(
             valueListenable: AppState.blockedContacts,
             builder: (context, _, __) {
@@ -497,6 +498,197 @@ class _ConfirmBeforeSendSection extends StatelessWidget {
           ],
         );
       },
+    );
+  }
+}
+
+/// The conversation's own settings — pin, mute, disappearing messages,
+/// wallpaper, shared places, export — live here instead of a long overflow
+/// menu on the chat screen.
+class _ChatSettingsSection extends StatelessWidget {
+  final String chatId;
+  final AppUser user;
+  const _ChatSettingsSection({required this.chatId, required this.user});
+
+  String _ttlLabel(int seconds) => switch (seconds) {
+        0 => 'Off',
+        3600 => '1 hour',
+        86400 => '1 day',
+        604800 => '1 week',
+        _ => '${seconds}s',
+      };
+
+  Future<void> _chooseDisappearing(BuildContext context) async {
+    const options = <String, int>{
+      'Off': 0,
+      '1 hour': 3600,
+      '1 day': 86400,
+      '1 week': 604800,
+    };
+    final current =
+        ChatStore.instance.chatById(chatId)?.disappearingSeconds ?? 0;
+    final chosen = await showModalBottomSheet<int>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(20, 0, 20, 10),
+              child: Text(
+                'New messages in this chat will be deleted from this device '
+                'after the selected time.',
+                style: TextStyle(color: Colors.grey, fontSize: 13),
+              ),
+            ),
+            for (final entry in options.entries)
+              ListTile(
+                title: Text(entry.key),
+                trailing: entry.value == current
+                    ? Icon(Icons.check,
+                        color: Theme.of(sheetContext).colorScheme.primary)
+                    : null,
+                onTap: () => Navigator.of(sheetContext).pop(entry.value),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (chosen != null) ChatStore.instance.setDisappearing(chatId, chosen);
+  }
+
+  Future<void> _exportChat(BuildContext context) async {
+    final chat = ChatStore.instance.chatById(chatId);
+    if (chat == null) return;
+    final messenger = ScaffoldMessenger.of(context);
+    if (chat.messages.isEmpty) {
+      messenger.showSnackBar(
+          const SnackBar(content: Text('Nothing to export yet')));
+      return;
+    }
+    final transcript =
+        buildChatTranscript(chat, AppState.profile.value.name);
+    final result = await saveIncomingFile(
+      transcriptFileName(user.name),
+      Uint8List.fromList(utf8.encode(transcript)),
+    );
+    messenger.showSnackBar(
+        SnackBar(content: Text(result ?? 'Couldn\'t export the chat')));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: ChatStore.instance,
+      builder: (context, _) {
+        final store = ChatStore.instance;
+        final chat = store.chatById(chatId);
+        if (chat == null) return const SizedBox.shrink();
+        return InfoSection(
+          children: [
+            InfoTile(
+              leading: const Icon(Icons.push_pin_outlined),
+              title: 'Pin chat',
+              trailing: Switch(
+                value: chat.isPinned,
+                onChanged: (_) => store.togglePin(chatId),
+              ),
+            ),
+            InfoTile(
+              leading: const Icon(Icons.notifications_outlined),
+              title: 'Mute notifications',
+              trailing: Switch(
+                value: chat.isMuted,
+                onChanged: (_) => store.toggleMute(chatId),
+              ),
+            ),
+            InfoTile(
+              leading: const Icon(Icons.timer_outlined),
+              title: 'Disappearing messages',
+              subtitle: _ttlLabel(chat.disappearingSeconds),
+              onTap: () => _chooseDisappearing(context),
+            ),
+            InfoTile(
+              leading: const Icon(Icons.wallpaper_outlined),
+              title: 'Wallpaper & sound',
+              onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => WallpaperScreen(chatId: chatId))),
+            ),
+            InfoTile(
+              leading: const Icon(Icons.place_outlined),
+              title: 'Shared places',
+              onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => ChatPlacesScreen(
+                      chatId: chatId, contactName: user.name))),
+            ),
+            InfoTile(
+              leading: const Icon(Icons.ios_share_outlined),
+              title: 'Export chat',
+              onTap: () => _exportChat(context),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+/// Clear and delete, kept beside Block/Report where destructive actions
+/// belong.
+class _ChatDangerSection extends StatelessWidget {
+  final String chatId;
+  const _ChatDangerSection({required this.chatId});
+
+  Future<bool> _confirm(BuildContext context,
+          {required String title,
+          required String message,
+          required String action}) =>
+      showAppConfirmDialog(
+        context,
+        icon: Icons.warning_amber_rounded,
+        title: title,
+        message: message,
+        confirmLabel: action,
+        destructive: true,
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    return InfoSection(
+      children: [
+        InfoTile(
+          leading: const Icon(Icons.cleaning_services_outlined,
+              color: Colors.red),
+          title: 'Clear chat',
+          titleColor: Colors.red,
+          onTap: () async {
+            final ok = await _confirm(context,
+                title: 'Clear this chat?',
+                message:
+                    'All messages in this conversation will be removed from '
+                    'this device. This cannot be undone.',
+                action: 'Clear chat');
+            if (ok) ChatStore.instance.clearMessages(chatId);
+          },
+        ),
+        InfoTile(
+          leading: const Icon(Icons.delete_outline, color: Colors.red),
+          title: 'Delete chat',
+          titleColor: Colors.red,
+          onTap: () async {
+            final ok = await _confirm(context,
+                title: 'Delete this chat?',
+                message: 'This conversation will be removed from this '
+                    'device. This cannot be undone.',
+                action: 'Delete chat');
+            if (!ok || !context.mounted) return;
+            ChatStore.instance.deleteChat(chatId);
+            // Leave both this screen and the now-deleted conversation.
+            Navigator.of(context).popUntil((r) => r.isFirst);
+          },
+        ),
+      ],
     );
   }
 }
