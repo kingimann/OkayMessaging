@@ -629,7 +629,7 @@ class RelayService {
               applyMessageEvent(event, payload, myPhone: me);
             case 'gupd':
               applyGroupUpdate(payload, myPhone: me);
-            case 'chmsg' || 'chjoin' || 'chupd':
+            case 'chmsg' || 'chjoin' || 'chupd' || 'fpost':
               _applyCommunityEvent(event, payload, me);
           }
         } catch (_) {
@@ -891,10 +891,11 @@ class RelayService {
         )
         .subscribe();
 
-    // The shared server-feed channel: posts are public-to-the-server by
-    // nature, so they ride a common broadcast (memory-only, like messages).
-    // Channel messages and roster joins share the same bus, but sealed with
-    // the server's own secret so only its members can read them.
+    // The shared community bus. Everything server-scoped — channel messages,
+    // joins, structure syncs, and feed posts — rides it sealed with each
+    // server's own secret, so only members can read any of it. The bare
+    // 'post' event below is the legacy plaintext feed path, kept only so
+    // pre-secret servers and old builds still interoperate.
     _feedChannel = _client
         .channel('server_feed')
         .onBroadcast(
@@ -924,6 +925,11 @@ class RelayService {
         .onBroadcast(
           event: 'chupd',
           callback: (payload) => _applyCommunityEvent('chupd',
+              Map<String, dynamic>.from(payload), me),
+        )
+        .onBroadcast(
+          event: 'fpost',
+          callback: (payload) => _applyCommunityEvent('fpost',
               Map<String, dynamic>.from(payload), me),
         )
         .subscribe();
@@ -972,6 +978,13 @@ class RelayService {
           CommunityStore.instance.applyRemoteStructure(
               Map<String, dynamic>.from(structure),
               myDigits: digits(me));
+        case 'fpost':
+          final rawPost = body['post'];
+          if (rawPost is! Map) return;
+          try {
+            FeedStore.instance.addRemote(
+                FeedPost.fromJson(Map<String, dynamic>.from(rawPost)));
+          } catch (_) {}
       }
     });
   }
@@ -1057,11 +1070,20 @@ class RelayService {
         'chupd', communityId, {'structure': structure});
   }
 
-  /// Broadcasts a feed post to everyone in the server channel.
+  /// Delivers a feed post to the server's members. Servers with a secret
+  /// get it sealed on the community bus — members-only, offline-queued like
+  /// every other server event. Only a legacy server with no secret still
+  /// uses the old plaintext broadcast (kept so old builds interoperate).
   Future<void> sendFeedPost(FeedPost post) async {
     if (!_initialized) return;
     final me = Session.instance.user.value;
     if (me == null) return;
+    final community = CommunityStore.instance.byId(post.communityId);
+    if (community != null && community.secretBytes != null) {
+      await _sendCommunityEvent(
+          'fpost', post.communityId, {'post': post.toJson()});
+      return;
+    }
     final channel = _feedChannel ??
         _sendChannels.putIfAbsent(
             'server_feed', () => _client.channel('server_feed'));

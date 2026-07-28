@@ -1814,6 +1814,26 @@ void main() {
       expect(E2eCrypto.decrypt(joined.secretBytes!, sealed),
           'channel plaintext');
 
+      // Feed posts ride the same sealed bus: their body round-trips through
+      // the server key and leaks nothing in ciphertext.
+      final post = FeedPost(
+          id: 'fp1',
+          communityId: joined.id,
+          authorName: 'Alice',
+          authorUsername: 'alice',
+          time: DateTime(2026, 1, 1),
+          text: 'secret plans for the launch');
+      final sealedPost = E2eCrypto.encrypt(
+          joined.secretBytes!, jsonEncode({'post': post.toJson()}));
+      expect(sealedPost.contains('secret plans'), isFalse);
+      final opened = jsonDecode(
+          E2eCrypto.decrypt(joined.secretBytes!, sealedPost)!) as Map;
+      expect(
+          FeedPost.fromJson(
+                  Map<String, dynamic>.from(opened['post'] as Map))
+              .text,
+          'secret plans for the launch');
+
       // An invite message survives the JSON round trip.
       final inviteMsg = Message(
           id: 'i1',
