@@ -629,7 +629,7 @@ class RelayService {
               applyMessageEvent(event, payload, myPhone: me);
             case 'gupd':
               applyGroupUpdate(payload, myPhone: me);
-            case 'chmsg' || 'chjoin' || 'chupd' || 'fpost':
+            case 'chmsg' || 'chjoin' || 'chupd' || 'fpost' || 'fdel':
               _applyCommunityEvent(event, payload, me);
           }
         } catch (_) {
@@ -932,6 +932,11 @@ class RelayService {
           callback: (payload) => _applyCommunityEvent('fpost',
               Map<String, dynamic>.from(payload), me),
         )
+        .onBroadcast(
+          event: 'fdel',
+          callback: (payload) => _applyCommunityEvent('fdel',
+              Map<String, dynamic>.from(payload), me),
+        )
         .subscribe();
     // Catch up on whatever arrived while the app was closed.
     fetchMailbox();
@@ -985,6 +990,9 @@ class RelayService {
             FeedStore.instance.addRemote(
                 FeedPost.fromJson(Map<String, dynamic>.from(rawPost)));
           } catch (_) {}
+        case 'fdel':
+          final id = body['id'];
+          if (id is String) FeedStore.instance.removeRemote(id);
       }
     });
   }
@@ -1054,6 +1062,11 @@ class RelayService {
   /// Announces that this device's user joined the server.
   Future<void> sendServerJoin(String communityId, Member member) =>
       _sendCommunityEvent('chjoin', communityId, {'member': member.toJson()});
+
+  /// Removes a feed post (or repost entry) on every member's device. Only
+  /// sealed servers can do this; legacy ones delete locally alone.
+  Future<void> sendFeedDelete(String communityId, String postId) =>
+      _sendCommunityEvent('fdel', communityId, {'id': postId});
 
   /// Broadcasts the server's current shape so members converge after any
   /// structural change — a new channel, a rename, a ban, a settings flip.

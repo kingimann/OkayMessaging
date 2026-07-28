@@ -5219,6 +5219,51 @@ void main() {
       expect(CloudSync.instance.buildPayload().containsKey('chats'), isTrue);
     });
 
+    test('reposts are real entries, deletes cascade, bookmarks persist', () {
+      FeedStore.instance.resetForTest();
+      final store = FeedStore.instance;
+      final original = store.add('c1', 'worth resharing');
+
+      // Repost: a deterministic entry appears and the counter moves.
+      store.toggleRepost(original.id);
+      final entryId = FeedStore.repostEntryId(
+          original.id, AppState.profile.value.username);
+      expect(store.postById(entryId)?.repostOfId, original.id);
+      expect(store.postById(original.id)!.reposts, 1);
+      expect(store.postById(original.id)!.reposted, isTrue);
+
+      // Un-repost removes the entry and gives the counter back.
+      store.toggleRepost(original.id);
+      expect(store.postById(entryId), isNull);
+      expect(store.postById(original.id)!.reposts, 0);
+
+      // A remote member's repost bumps the original once, deduped.
+      final remote = FeedPost(
+          id: 'rp_${original.id}_by_grace',
+          communityId: 'c1',
+          authorName: 'Grace',
+          authorUsername: 'grace',
+          time: DateTime.now(),
+          text: '',
+          repostOfId: original.id);
+      store.addRemote(remote);
+      store.addRemote(remote);
+      expect(store.postById(original.id)!.reposts, 1);
+      // Deleting the original takes reposts (and replies) with it.
+      store.reply(original.id, 'a reply');
+      store.removeRemote(original.id);
+      expect(store.postById(original.id), isNull);
+      expect(store.postById(remote.id), isNull);
+      expect(store.postsFor('c1'), isEmpty);
+
+      // Bookmarks toggle and are per-post.
+      final keeper = store.add('c1', 'save me');
+      expect(store.toggleSaved(keeper.id), isTrue);
+      expect(store.isSaved(keeper.id), isTrue);
+      expect(store.toggleSaved(keeper.id), isFalse);
+      expect(store.isSaved(keeper.id), isFalse);
+    });
+
     test('feed trending tags, top sort, and tag filter', () {
       final t = DateTime(2024, 1, 1);
       FeedPost p(String id, String text,

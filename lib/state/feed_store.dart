@@ -29,6 +29,10 @@ class FeedPost {
   /// An animated GIF attached to the post, by URL. Null for a text post.
   final String? gifUrl;
 
+  /// When set, this entry is a repost: it re-surfaces the post with this id
+  /// in the timeline under the reposter's name, X-style.
+  final String? repostOfId;
+
   const FeedPost({
     required this.id,
     required this.communityId,
@@ -43,6 +47,7 @@ class FeedPost {
     this.reposted = false,
     this.parentId,
     this.gifUrl,
+    this.repostOfId,
   });
 
   FeedPost copyWith({
@@ -66,6 +71,7 @@ class FeedPost {
         reposted: reposted ?? this.reposted,
         parentId: parentId,
         gifUrl: gifUrl,
+        repostOfId: repostOfId,
       );
 
   Map<String, dynamic> toJson() => {
@@ -82,6 +88,7 @@ class FeedPost {
         'reposted': reposted,
         if (parentId != null) 'parentId': parentId,
         if (gifUrl != null) 'gifUrl': gifUrl,
+        if (repostOfId != null) 'repostOfId': repostOfId,
       };
 
   factory FeedPost.fromJson(Map<String, dynamic> j) => FeedPost(
@@ -98,6 +105,7 @@ class FeedPost {
         reposted: j['reposted'] as bool? ?? false,
         parentId: j['parentId'] as String?,
         gifUrl: j['gifUrl'] as String?,
+        repostOfId: j['repostOfId'] as String?,
       );
 }
 
@@ -114,6 +122,20 @@ class FeedStore extends ChangeNotifier {
   // Moderation: locally hidden posts and muted authors.
   final Set<String> _hiddenIds = {};
   final Set<String> _mutedUsernames = {};
+
+  // Bookmarks: posts saved on this device.
+  final Set<String> _savedIds = {};
+
+  bool isSaved(String postId) => _savedIds.contains(postId);
+
+  /// Saves/unsaves a post for the Saved filter; returns true when now saved.
+  bool toggleSaved(String postId) {
+    final nowSaved = !_savedIds.remove(postId);
+    if (nowSaved) _savedIds.add(postId);
+    _save();
+    notifyListeners();
+    return nowSaved;
+  }
 
   Set<String> get mutedUsernames => Set.unmodifiable(_mutedUsernames);
 
@@ -163,6 +185,9 @@ class FeedStore extends ChangeNotifier {
     final list = _posts
         .where((p) =>
             p.parentId == null &&
+            // Repost entries carry no text of their own — the activity
+            // preview shows originals only.
+            p.repostOfId == null &&
             !_hiddenIds.contains(p.id) &&
             !_mutedUsernames.contains(p.authorUsername.toLowerCase()))
         .toList()
@@ -205,7 +230,8 @@ class FeedStore extends ChangeNotifier {
   }
 
   /// Merges a post that arrived over the relay from another device.
-  /// Dedupes by id; incoming replies bump their parent's count.
+  /// Dedupes by id; incoming replies bump their parent's count and
+  /// incoming reposts bump their original's.
   void addRemote(FeedPost post) {
     if (_posts.any((p) => p.id == post.id)) return;
     _posts.add(post);
@@ -214,6 +240,13 @@ class FeedStore extends ChangeNotifier {
       final i = _posts.indexWhere((p) => p.id == parentId);
       if (i >= 0) {
         _posts[i] = _posts[i].copyWith(replies: _posts[i].replies + 1);
+      }
+    }
+    final repostOfId = post.repostOfId;
+    if (repostOfId != null) {
+      final i = _posts.indexWhere((p) => p.id == repostOfId);
+      if (i >= 0) {
+        _posts[i] = _posts[i].copyWith(reposts: _posts[i].reposts + 1);
       }
     }
     _save();
@@ -241,20 +274,80 @@ class FeedStore extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// The deterministic id of [username]'s repost of [postId] — the same on
+  /// every device, so reposts dedupe and un-reposts find their entry.
+  static String repostEntryId(String postId, String username) =>
+      'rp_${postId}_by_$username';
+
+  /// Repost = a real timeline entry under your name pointing at the
+  /// original, shared with the server like any post; un-repost removes it
+  /// everywhere. (Not just a counter anymore.)
   void toggleRepost(String postId) {
     final i = _posts.indexWhere((p) => p.id == postId);
     if (i < 0) return;
     final p = _posts[i];
-    _posts[i] = p.copyWith(
-        reposted: !p.reposted,
-        reposts: p.reposted ? p.reposts - 1 : p.reposts + 1);
+    // Repost the original even when tapped on someone else's repost entry.
+    final target = p.repostOfId == null ? p : postById(p.repostOfId!) ?? p;
+    final ti = _posts.indexWhere((x) => x.id == target.id);
+    final me = AppState.profile.value;
+    final myUsername = me.username.isEmpty ? 'you' : me.username;
+    final entryId = repostEntryId(target.id, myUsername);
+    if (target.reposted) {
+      _posts.removeWhere((x) => x.id == entryId);
+      if (ti >= 0) {
+        _posts[ti] = target.copyWith(
+            reposted: false,
+            reposts: target.reposts > 0 ? target.reposts - 1 : 0);
+      }
+      if (RelayConfig.isEnabled) {
+        RelayService.instance.sendFeedDelete(target.communityId, entryId);
+      }
+    } else {
+      final entry = FeedPost(
+        id: entryId,
+        communityId: target.communityId,
+        authorName: me.name,
+        authorUsername: myUsername,
+        time: DateTime.now(),
+        text: '',
+        repostOfId: target.id,
+      );
+      _posts.add(entry);
+      if (ti >= 0) {
+        _posts[ti] =
+            target.copyWith(reposted: true, reposts: target.reposts + 1);
+      }
+      if (RelayConfig.isEnabled) RelayService.instance.sendFeedPost(entry);
+    }
     _save();
     notifyListeners();
   }
 
+  /// Removes the post and its whole reply thread — here and, for posts of a
+  /// sealed server, on every member's device.
   void deletePost(String postId) {
-    // Removes the post and its whole reply thread.
-    _posts.removeWhere((p) => p.id == postId || p.parentId == postId);
+    final post = postById(postId);
+    _removeLocally(postId);
+    if (post != null && RelayConfig.isEnabled) {
+      RelayService.instance.sendFeedDelete(post.communityId, postId);
+    }
+  }
+
+  /// Applies a deletion that arrived over the relay from another member.
+  void removeRemote(String postId) => _removeLocally(postId);
+
+  void _removeLocally(String postId) {
+    final removed = postById(postId);
+    _posts.removeWhere((p) =>
+        p.id == postId || p.parentId == postId || p.repostOfId == postId);
+    // An un-repost gives the original its counter back.
+    final targetId = removed?.repostOfId;
+    if (targetId != null) {
+      final ti = _posts.indexWhere((x) => x.id == targetId);
+      if (ti >= 0 && _posts[ti].reposts > 0) {
+        _posts[ti] = _posts[ti].copyWith(reposts: _posts[ti].reposts - 1);
+      }
+    }
     _save();
     notifyListeners();
   }
@@ -293,6 +386,10 @@ class FeedStore extends ChangeNotifier {
           ..clear()
           ..addAll(
               (decoded['muted'] as List? ?? const []).whereType<String>());
+        _savedIds
+          ..clear()
+          ..addAll(
+              (decoded['saved'] as List? ?? const []).whereType<String>());
       } else if (decoded is List) {
         rawPosts = decoded;
       } else {
@@ -317,6 +414,7 @@ class FeedStore extends ChangeNotifier {
             'posts': [for (final p in _posts) p.toJson()],
             'hidden': _hiddenIds.toList(),
             'muted': _mutedUsernames.toList(),
+            'saved': _savedIds.toList(),
           }));
     } catch (_) {}
   }
@@ -326,6 +424,7 @@ class FeedStore extends ChangeNotifier {
     _posts.clear();
     _hiddenIds.clear();
     _mutedUsernames.clear();
+    _savedIds.clear();
     _nextId = 1;
     notifyListeners();
   }

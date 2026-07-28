@@ -56,6 +56,9 @@ class _FeedScreenState extends State<FeedScreen> {
   /// False = newest first; true = most liked/reposted first.
   bool _top = false;
 
+  /// Show only bookmarked posts.
+  bool _savedOnly = false;
+
   /// Active trending-hashtag filter ('' = whole timeline).
   String _tag = '';
 
@@ -256,6 +259,71 @@ class _FeedScreenState extends State<FeedScreen> {
     );
   }
 
+  /// One regular timeline entry with its full action row.
+  Widget _postTile(FeedPost post) {
+    return InkWell(
+      onTap: () => _openThread(post),
+      onLongPress: () => _postOptions(post),
+      child: _PostCard(
+        post: post,
+        onLike: () => FeedStore.instance.toggleLike(post.id),
+        onRepost: () => FeedStore.instance.toggleRepost(post.id),
+        onReply: () => _openThread(post),
+        onAuthor: () => _authorSheet(post),
+        saved: FeedStore.instance.isSaved(post.id),
+        onSave: () => FeedStore.instance.toggleSaved(post.id),
+        // Only your own posts are deletable.
+        onDelete: post.authorUsername == 'you' ||
+                post.authorUsername == AppState.profile.value.username
+            ? () => FeedStore.instance.deletePost(post.id)
+            : null,
+      ),
+    );
+  }
+
+  /// A repost entry: a slim "reposted" header over the original post (whose
+  /// actions all target the original).
+  Widget _repostTile(FeedPost entry) {
+    final original = FeedStore.instance.postById(entry.repostOfId!);
+    final grey = Theme.of(context).colorScheme.onSurfaceVariant;
+    final header = Padding(
+      padding: const EdgeInsets.fromLTRB(48, 8, 16, 0),
+      child: Row(
+        children: [
+          Icon(Icons.repeat, size: 14, color: grey),
+          const SizedBox(width: 6),
+          Flexible(
+            child: Text(
+              '${entry.authorName} reposted',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                  fontSize: 12.5, fontWeight: FontWeight.w600, color: grey),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (original == null) {
+      // The original hasn't reached this device (or was deleted).
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          header,
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+            child: Text('This post isn\'t available.',
+                style: TextStyle(color: grey, fontSize: 13.5)),
+          ),
+        ],
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [header, _postTile(original)],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -278,7 +346,13 @@ class _FeedScreenState extends State<FeedScreen> {
           // split.
           final all = FeedStore.instance.postsFor(widget.communityId);
           final tags = trendingTags(all);
-          final posts = sortFeed(filterFeedByTag(all, _tag), top: _top);
+          var posts = sortFeed(filterFeedByTag(all, _tag), top: _top);
+          if (_savedOnly) {
+            posts = posts
+                .where((p) => FeedStore.instance
+                    .isSaved(p.repostOfId ?? p.id))
+                .toList();
+          }
           return PullToRefresh(
             child: ListView(
               children: [
@@ -307,6 +381,19 @@ class _FeedScreenState extends State<FeedScreen> {
                           selected: _top,
                           visualDensity: VisualDensity.compact,
                           onSelected: (_) => setState(() => _top = true),
+                        ),
+                        const SizedBox(width: 8),
+                        FilterChip(
+                          avatar: Icon(
+                              _savedOnly
+                                  ? Icons.bookmark
+                                  : Icons.bookmark_border,
+                              size: 16),
+                          label: const Text('Saved'),
+                          selected: _savedOnly,
+                          visualDensity: VisualDensity.compact,
+                          onSelected: (v) =>
+                              setState(() => _savedOnly = v),
                         ),
                         if (tags.isNotEmpty)
                           Container(
@@ -344,23 +431,10 @@ class _FeedScreenState extends State<FeedScreen> {
                     ),
                   ),
                 for (final post in posts) ...[
-                  InkWell(
-                    onTap: () => _openThread(post),
-                    onLongPress: () => _postOptions(post),
-                    child: _PostCard(
-                      post: post,
-                      onLike: () => FeedStore.instance.toggleLike(post.id),
-                      onRepost: () => FeedStore.instance.toggleRepost(post.id),
-                      onReply: () => _openThread(post),
-                      onAuthor: () => _authorSheet(post),
-                      // Only your own posts are deletable.
-                      onDelete: post.authorUsername == 'you' ||
-                              post.authorUsername ==
-                                  AppState.profile.value.username
-                          ? () => FeedStore.instance.deletePost(post.id)
-                          : null,
-                    ),
-                  ),
+                  if (post.repostOfId != null)
+                    _repostTile(post)
+                  else
+                    _postTile(post),
                   const Divider(height: 1),
                 ],
                 const SizedBox(height: 24),
@@ -495,6 +569,8 @@ class _PostCard extends StatelessWidget {
   final VoidCallback onReply;
   final VoidCallback? onDelete;
   final VoidCallback? onAuthor;
+  final bool saved;
+  final VoidCallback? onSave;
 
   const _PostCard({
     required this.post,
@@ -503,6 +579,8 @@ class _PostCard extends StatelessWidget {
     required this.onReply,
     this.onDelete,
     this.onAuthor,
+    this.saved = false,
+    this.onSave,
   });
 
   @override
@@ -618,6 +696,16 @@ class _PostCard extends StatelessWidget {
                         onTap: onLike,
                         tooltip: 'Like',
                       ),
+                      if (onSave != null)
+                        _PostAction(
+                          icon:
+                              saved ? Icons.bookmark : Icons.bookmark_border,
+                          count: 0,
+                          active: saved,
+                          activeColor: const Color(0xFFF5A623),
+                          tooltip: saved ? 'Unsave' : 'Save',
+                          onTap: onSave!,
+                        ),
                       _PostAction(
                         icon: Icons.ios_share,
                         count: 0,
@@ -735,7 +823,35 @@ class _FeedPostScreenState extends State<FeedPostScreen> {
                         onRepost: () =>
                             FeedStore.instance.toggleRepost(post.id),
                         onReply: () {},
+                        saved: FeedStore.instance.isSaved(post.id),
+                        onSave: () =>
+                            FeedStore.instance.toggleSaved(post.id),
                       ),
+                      if (post.likes > 0 ||
+                          post.reposts > 0 ||
+                          replies.isNotEmpty)
+                        Padding(
+                          padding:
+                              const EdgeInsets.fromLTRB(64, 0, 16, 10),
+                          child: Text(
+                            [
+                              if (replies.isNotEmpty)
+                                '${replies.length} '
+                                    '${replies.length == 1 ? 'reply' : 'replies'}',
+                              if (post.reposts > 0)
+                                '${post.reposts} '
+                                    '${post.reposts == 1 ? 'repost' : 'reposts'}',
+                              if (post.likes > 0)
+                                '${post.likes} '
+                                    '${post.likes == 1 ? 'like' : 'likes'}',
+                            ].join(' · '),
+                            style: TextStyle(
+                                fontSize: 12.5,
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .onSurfaceVariant),
+                          ),
+                        ),
                       const Divider(height: 1),
                       if (replies.isEmpty)
                         Padding(
