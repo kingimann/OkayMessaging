@@ -63,6 +63,20 @@ List<Community> filterCommunities(List<Community> all, String query) {
   ];
 }
 
+/// Case-insensitive filter over channel messages, matching text, poll
+/// questions, and sender names. Pure enough to test.
+List<Message> filterMessages(List<Message> all, String query) {
+  final q = query.trim().toLowerCase();
+  if (q.isEmpty) return all;
+  return [
+    for (final m in all)
+      if (m.text.toLowerCase().contains(q) ||
+          m.pollQuestion.toLowerCase().contains(q) ||
+          m.senderName.toLowerCase().contains(q))
+        m
+  ];
+}
+
 class CommunitiesTab extends StatefulWidget {
   const CommunitiesTab({super.key});
 
@@ -1177,9 +1191,11 @@ class ChannelScreen extends StatefulWidget {
 
 class _ChannelScreenState extends State<ChannelScreen> {
   final _controller = TextEditingController();
+  final _search = TextEditingController();
 
   /// The message the next send replies to, shown in a bar over the composer.
   Message? _replyTo;
+  bool _searching = false;
 
   /// When the local user last sent here — what slow mode counts from.
   DateTime? _lastSentAt;
@@ -1187,6 +1203,7 @@ class _ChannelScreenState extends State<ChannelScreen> {
   @override
   void dispose() {
     _controller.dispose();
+    _search.dispose();
     super.dispose();
   }
 
@@ -1367,19 +1384,43 @@ class _ChannelScreenState extends State<ChannelScreen> {
           for (final m in channel.messages)
             if (m.isMe || !mutedNames.contains(m.senderName)) m
         ];
+        // While searching, narrow to messages whose text or poll question
+        // matches; otherwise the full (mute-filtered) list.
+        final visible =
+            _searching ? filterMessages(messages, _search.text) : messages;
         return Scaffold(
           appBar: AppBar(
-            title: Row(
-              children: [
-                Icon(_channelIcon(channel.type), size: 20),
-                const SizedBox(width: 4),
-                Text(channel.name),
-              ],
-            ),
+            title: _searching
+                ? TextField(
+                    controller: _search,
+                    autofocus: true,
+                    decoration: InputDecoration(
+                      hintText: 'Search #${channel.name}',
+                      border: InputBorder.none,
+                    ),
+                    onChanged: (_) => setState(() {}),
+                  )
+                : Row(
+                    children: [
+                      Icon(_channelIcon(channel.type), size: 20),
+                      const SizedBox(width: 4),
+                      Text(channel.name),
+                    ],
+                  ),
+            actions: [
+              IconButton(
+                icon: Icon(_searching ? Icons.close : Icons.search),
+                tooltip: _searching ? 'Close search' : 'Search messages',
+                onPressed: () => setState(() {
+                  if (_searching) _search.clear();
+                  _searching = !_searching;
+                }),
+              ),
+            ],
           ),
           body: Column(
             children: [
-              if (channel.topic.isNotEmpty)
+              if (channel.topic.isNotEmpty && !_searching)
                 Container(
                   width: double.infinity,
                   padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
@@ -1391,27 +1432,31 @@ class _ChannelScreenState extends State<ChannelScreen> {
                       style: TextStyle(
                           fontSize: 13, color: Colors.grey.shade600)),
                 ),
-              if (channel.pinnedMessages.isNotEmpty)
+              if (channel.pinnedMessages.isNotEmpty && !_searching)
                 _PinnedBar(
                   count: channel.pinnedMessages.length,
                   onTap: () => _showPinned(channel),
                 ),
               Expanded(
-                child: messages.isEmpty
+                child: visible.isEmpty
                     ? Center(
-                        child: Text('This is the start of #${channel.name}',
+                        child: Text(
+                            _searching
+                                ? 'No messages match "${_search.text.trim()}"'
+                                : 'This is the start of #${channel.name}',
+                            textAlign: TextAlign.center,
                             style: TextStyle(color: Colors.grey.shade500)),
                       )
                     : ListView.builder(
                         padding: const EdgeInsets.symmetric(vertical: 8),
-                        itemCount: messages.length,
+                        itemCount: visible.length,
                         itemBuilder: (context, i) {
-                          final m = messages[i];
+                          final m = visible[i];
                           final showDate = i == 0 ||
-                              !_sameDay(messages[i - 1].time, m.time);
+                              !_sameDay(visible[i - 1].time, m.time);
                           // Group a run from the same sender: only the first
                           // shows the name, the rest tuck in tight — like chat.
-                          final prev = i == 0 ? null : messages[i - 1];
+                          final prev = i == 0 ? null : visible[i - 1];
                           final grouped = prev != null &&
                               !showDate &&
                               prev.isMe == m.isMe &&
@@ -1471,7 +1516,11 @@ class _ChannelScreenState extends State<ChannelScreen> {
               ),
               // Announcement channels are broadcast-only: members read, and
               // only the owner/admins can post — like every news channel.
-              if (!_canPost(comm, channel))
+              // The composer stays hidden while searching so results fill the
+              // screen.
+              if (_searching)
+                const SizedBox.shrink()
+              else if (!_canPost(comm, channel))
                 SafeArea(
                   top: false,
                   child: Container(

@@ -5624,6 +5624,40 @@ void main() {
       expect(filterCommunities(all, 'zzz-no-such-server'), isEmpty);
     });
 
+    test('filterMessages matches text and poll questions', () {
+      final now = DateTime(2026, 1, 1);
+      final msgs = [
+        Message(id: 'a', text: 'Deploy is green', time: now, isMe: true),
+        Message(
+            id: 'b',
+            text: 'lunch plans?',
+            time: now,
+            isMe: false,
+            senderName: 'Ada Lovelace'),
+        Message(
+            id: 'c',
+            text: '',
+            time: now,
+            isMe: false,
+            isPoll: true,
+            pollQuestion: 'Best deploy window?'),
+      ];
+      // Empty query is a pass-through.
+      expect(filterMessages(msgs, ''), msgs);
+      expect(filterMessages(msgs, '   '), msgs);
+      // Case-insensitive text match.
+      final green = filterMessages(msgs, 'GREEN');
+      expect(green.map((m) => m.id), ['a']);
+      // Matches poll questions too, so a poll surfaces by its prompt.
+      final deploy = filterMessages(msgs, 'deploy');
+      expect(deploy.map((m) => m.id), containsAll(['a', 'c']));
+      // Matches sender names, so you can find who said something.
+      final byName = filterMessages(msgs, 'ada');
+      expect(byName.map((m) => m.id), ['b']);
+      // No match yields an empty list, driving the empty state.
+      expect(filterMessages(msgs, 'zzzz'), isEmpty);
+    });
+
     testWidgets('the servers tab search filters the list', (tester) async {
       await tester.pumpWidget(
           const MaterialApp(home: Scaffold(body: CommunitiesTab())));
