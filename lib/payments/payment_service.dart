@@ -61,13 +61,6 @@ class PaymentService {
   static const String _publishableKey =
       String.fromEnvironment('STRIPE_PUBLISHABLE_KEY', defaultValue: '');
 
-  /// The developer's own verified phone (E.164 digits) that tips are sent to.
-  /// Set with --dart-define=DEVELOPER_PHONE=1XXXXXXXXXX; the developer onboards
-  /// their Stripe account once (Wallet) to receive real tips. Empty = tips only
-  /// work in payments test mode (simulated).
-  static const String developerPhone =
-      String.fromEnvironment('DEVELOPER_PHONE', defaultValue: '');
-
   static const _kTestMode = 'payments_test_mode';
 
   /// Sandbox mode: simulates the whole send/receive flow with no real Stripe

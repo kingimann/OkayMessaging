@@ -3,6 +3,9 @@
 class StripeSheet {
   static bool get isSupported => false;
 
+  static const String appleMerchantId = '';
+  static const String merchantCountry = 'CA';
+
   static Future<void> init(String publishableKey) async {}
 
   static Future<bool> presentPayment({

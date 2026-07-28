@@ -101,7 +101,11 @@ Deno.serve(async (req) => {
     if (!accountId) {
       const account = await stripe.accounts.create({
         type: "express",
-        country: "CA",
+        // The connected account's country decides which bank details Stripe
+        // asks for, so it has to match where the receiver actually banks.
+        // Everyone onboards in the platform's country today; supporting
+        // receivers elsewhere means asking them and passing it in here.
+        country: Deno.env.get("CONNECT_COUNTRY") ?? "CA",
         capabilities: {
           card_payments: { requested: true },
           transfers: { requested: true },

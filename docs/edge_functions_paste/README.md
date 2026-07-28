@@ -76,3 +76,24 @@ Connect. Receivers onboard from the app's Wallet screen.
 
 > Keep these paste files in sync: if `supabase/functions/` changes, regenerate
 > or re-edit the copies here too.
+
+## P2P payments: what has to be true before money moves
+
+Deployed functions and secrets are not the whole story. Working through the
+send path end to end, these also have to hold:
+
+| | Where | Notes |
+|---|---|---|
+| Stripe Connect (Express) enabled | Stripe → Settings → Connect | Without it `payments-onboard` cannot create an account at all |
+| Platform account activated | Stripe → Dashboard | A live `sk_` on an unactivated account can't take real charges |
+| Receiver onboarded | in-app Wallet → onboarding | `payments-create-intent` returns `receiver_not_onboarded` until `charges_enabled` is true |
+| `CONNECT_COUNTRY` | Edge Function secret, optional | Defaults to `CA`. Connected accounts are created in this country and it must match where the receiver banks |
+| `APPLE_PAY_MERCHANT_ID` | `--dart-define` at build | Optional. Cards work without it; the Apple Pay button only appears when it is set, and it also needs a Merchant ID in the Apple portal plus the Apple Pay capability on the App ID |
+| `PAYMENTS_COUNTRY` | `--dart-define` at build | Defaults to `CA`; the wallets' merchant country |
+
+Only the sender needs the app; the receiver needs a completed Stripe
+onboarding. Both need a signed-in session — every payment function resolves
+the caller's verified phone from their Supabase JWT and 401s without one.
+
+Payments are mobile-only: the Stripe Payment Sheet is native, so the web build
+compiles a stub that reports unsupported.
