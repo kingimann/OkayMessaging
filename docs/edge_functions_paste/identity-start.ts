@@ -96,8 +96,10 @@ Deno.serve(async (req) => {
     return json({ alreadyVerified: true });
   }
 
-  const returnUrl =
-    Deno.env.get("APP_RETURN_URL") ?? "okaymsg://identity/return";
+  // Same rule as onboarding: Stripe's hosted flow needs an http(s) URL, and
+  // a custom scheme is rejected as "Not a valid URL".
+  const returnUrl = Deno.env.get("APP_RETURN_URL") ??
+    "https://kingimann.github.io/OkayMessaging/";
 
   try {
     const session = await stripe.identity.verificationSessions.create({

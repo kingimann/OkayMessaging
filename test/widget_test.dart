@@ -10349,6 +10349,75 @@ void main() {
     });
   });
 
+  group('Send-money sheet escape hatches', () {
+    testWidgets('there is always a way out with the number pad up',
+        (tester) async {
+      // The amount field autofocuses a number pad, which on iOS has no Done
+      // or Return key. With the sheet filling the screen and dragging it down
+      // fighting the scroll view, there was no exit at all from a screen that
+      // is about to move money.
+      var closed = false;
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => TextButton(
+              onPressed: () async {
+                await showModalBottomSheet(
+                  context: context,
+                  isScrollControlled: true,
+                  builder: (_) => const PaymentAmountSheet(peerName: 'Grace'),
+                );
+                closed = true;
+              },
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      ));
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Send money to'), findsOneWidget);
+
+      final cancel = find.byTooltip('Cancel');
+      expect(cancel, findsOneWidget, reason: 'the sheet needs a visible exit');
+      await tester.tap(cancel);
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('Send money to'), findsNothing);
+      expect(closed, isTrue, reason: 'cancelling must return nothing');
+    });
+
+    testWidgets('tapping the sheet dismisses the keyboard', (tester) async {
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => TextButton(
+              onPressed: () => showModalBottomSheet(
+                context: context,
+                isScrollControlled: true,
+                builder: (_) => const PaymentAmountSheet(peerName: 'Grace'),
+              ),
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      ));
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+
+      // Autofocus put the number pad up on the amount field.
+      bool amountFocused() => tester
+          .widgetList<EditableText>(find.byType(EditableText))
+          .any((e) => e.focusNode.hasFocus);
+      expect(amountFocused(), isTrue);
+
+      await tester.tap(find.textContaining('Send money to'));
+      await tester.pumpAndSettle();
+      expect(amountFocused(), isFalse,
+          reason: 'a number pad has no Done key, so a tap has to close it');
+    });
+  });
+
   group('Blue check', () {
     setUp(IdentityVerification.instance.resetForTest);
     tearDown(IdentityVerification.instance.resetForTest);

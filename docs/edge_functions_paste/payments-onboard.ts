@@ -113,7 +113,13 @@ Deno.serve(async (req) => {
       });
     }
 
-    const returnUrl = Deno.env.get("APP_RETURN_URL") ?? "okaymsg://payments/return";
+    // Stripe's hosted onboarding requires an http(s) URL and rejects custom
+    // schemes outright — "okaymsg://payments/return" comes back as
+    // "Not a valid URL", which is a 400 the user sees as "could not start
+    // setup". The app's own web page is a fine landing spot; it just has to
+    // be somewhere a browser can go.
+    const returnUrl = Deno.env.get("APP_RETURN_URL") ??
+      "https://kingimann.github.io/OkayMessaging/";
     const link = await stripe.accountLinks.create({
       account: accountId,
       refresh_url: returnUrl,
