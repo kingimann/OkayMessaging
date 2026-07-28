@@ -54,13 +54,7 @@ class _ConnectOnboardingScreenState extends State<ConnectOnboardingScreen> {
             return const Center(child: CircularProgressIndicator());
           }
           if (snap.hasError || !ConnectWebView.isSupported) {
-            return _problem(
-              context,
-              ConnectWebView.isSupported
-                  ? 'Could not start setup. Check your connection and try '
-                      'again.'
-                  : 'Setting up payments needs the mobile app.',
-            );
+            return _problem(context, _reasonFor(snap.error));
           }
           final session = snap.data!;
           return ConnectWebView.build(
@@ -76,6 +70,31 @@ class _ConnectOnboardingScreenState extends State<ConnectOnboardingScreen> {
     );
   }
 
+  /// Why setup didn't start, in words that point at the actual cause.
+  ///
+  /// This used to say "check your connection" for everything, which sent
+  /// people to look at their wifi when the real answer was a function that
+  /// hadn't been deployed or a Stripe setting that wasn't switched on.
+  String _reasonFor(Object? error) {
+    if (!ConnectWebView.isSupported) {
+      return 'Setting up payments needs the mobile app.';
+    }
+    final text = error?.toString() ?? '';
+    if (text.contains('NOT_FOUND') || text.contains('not found')) {
+      return 'Payment setup isn\'t switched on for this app yet.\n\n'
+          '(payments-account-session is not deployed)';
+    }
+    if (text.contains('unauthorized') || text.contains('401')) {
+      return 'Sign in again to set up payments.';
+    }
+    if (text.isEmpty) {
+      return 'Could not start setup. Check your connection and try again.';
+    }
+    // Anything else: show it. A vague message here costs more than an ugly
+    // one, because nobody can act on "something went wrong".
+    return 'Could not start setup.\n\n$text';
+  }
+
   Widget _problem(BuildContext context, String message) => Center(
         child: Padding(
           padding: const EdgeInsets.all(32),
@@ -86,7 +105,7 @@ class _ConnectOnboardingScreenState extends State<ConnectOnboardingScreen> {
               const SizedBox(height: 12),
               Text(message,
                   textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.grey.shade600)),
+                  style: TextStyle(color: Colors.grey.shade600, fontSize: 13.5)),
               const SizedBox(height: 16),
               FilledButton(
                 onPressed: () => setState(
