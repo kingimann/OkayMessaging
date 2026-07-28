@@ -4238,6 +4238,37 @@ void main() {
     expect(ScoreStore.instance.isEarned('daily'), isTrue);
   });
 
+
+  testWidgets('A favourite opens call/video/message actions and calls',
+      (tester) async {
+    FavouritesStore.instance.resetForTest();
+    FavouritesStore.instance.add(const AppUser(
+        id: '+15550100',
+        name: 'Zed Fav',
+        avatarColor: '#123456',
+        phone: '+15550100'));
+    addTearDown(CallService.instance.resetForTest);
+
+    await tester.pumpWidget(const OkayMessagingApp());
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.call_outlined));
+    await tester.pumpAndSettle();
+
+    // The favourite chip is shown; tapping opens the actions sheet.
+    expect(find.text('Zed'), findsOneWidget);
+    await tester.tap(find.text('Zed'));
+    await tester.pumpAndSettle();
+    expect(find.text('Voice call'), findsOneWidget);
+    expect(find.text('Video call'), findsOneWidget);
+    expect(find.text('Message'), findsOneWidget);
+
+    // Video call actually starts the call.
+    await tester.tap(find.text('Video call'));
+    await tester.pumpAndSettle(const Duration(milliseconds: 300));
+    expect(CallService.instance.current.value?.peer.name, 'Zed Fav');
+    expect(CallService.instance.current.value?.video, isTrue);
+  });
+
   group('Call favourites store', () {
     setUp(() => FavouritesStore.instance.resetForTest());
 

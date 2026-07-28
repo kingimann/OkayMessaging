@@ -7,6 +7,7 @@ import '../app_state.dart';
 import '../models/user.dart';
 import '../state/call_service.dart';
 import '../state/chat_store.dart';
+import '../state/favourites_store.dart';
 import '../state/follow_store.dart';
 import '../theme/app_theme.dart';
 import '../util/file_saver.dart';
@@ -203,6 +204,28 @@ class ContactInfoScreen extends StatelessWidget {
               ),
             ],
           ),
+          // Star this person for one-tap calling from the Calls tab.
+          if (!user.isGroup && user.phone.isNotEmpty)
+            ListenableBuilder(
+              listenable: FavouritesStore.instance,
+              builder: (context, _) {
+                final fav = FavouritesStore.instance.isFavourite(user.id);
+                return InfoSection(children: [
+                  InfoTile(
+                    leading: Icon(fav ? Icons.star : Icons.star_outline,
+                        color: fav ? const Color(0xFFF1C40F) : null),
+                    title: fav
+                        ? 'Favourite'
+                        : 'Add to call favourites',
+                    trailing: Switch(
+                      value: fav,
+                      onChanged: (_) =>
+                          FavouritesStore.instance.toggle(user),
+                    ),
+                  ),
+                ]);
+              },
+            ),
           if (chatId != null)
             InfoSection(
               children: [

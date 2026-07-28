@@ -26,6 +26,70 @@ void _startCall(BuildContext context, AppUser user, {required bool video}) {
   CallService.instance.startOutgoing(user, video: video);
 }
 
+/// A favourite tap: Voice / Video / Message on one sheet, so quick calling
+/// isn't a blind single-tap and video is one tap away too.
+Future<void> _favouriteActions(BuildContext context, AppUser user) async {
+  final chat = ChatStore.instance.chatWithContact(user.id);
+  await showModalBottomSheet<void>(
+    context: context,
+    showDragHandle: true,
+    builder: (sheetContext) => SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ListTile(
+            leading: UserAvatar(user: user, radius: 20),
+            title: Text(user.name,
+                style: const TextStyle(fontWeight: FontWeight.w600)),
+            subtitle: user.username.isEmpty ? null : Text('@${user.username}'),
+          ),
+          const Divider(height: 1),
+          ListTile(
+            leading: const Icon(Icons.call),
+            title: const Text('Voice call'),
+            onTap: () {
+              Navigator.pop(sheetContext);
+              _startCall(context, user, video: false);
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.videocam),
+            title: const Text('Video call'),
+            onTap: () {
+              Navigator.pop(sheetContext);
+              _startCall(context, user, video: true);
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.chat_bubble_outline),
+            title: const Text('Message'),
+            onTap: () {
+              Navigator.pop(sheetContext);
+              final c = chat ??
+                  ChatStore.instance.upsertReturning(Chat(
+                      id: 'chat_${user.id}',
+                      contact: user,
+                      messages: const []));
+              Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => ChatScreen(chat: c)));
+            },
+          ),
+          ListTile(
+            leading:
+                const Icon(Icons.star_outline, color: Colors.red),
+            title: const Text('Remove favourite',
+                style: TextStyle(color: Colors.red)),
+            onTap: () {
+              FavouritesStore.instance.remove(user.id);
+              Navigator.pop(sheetContext);
+            },
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
 /// A received voicemail — a voicemail voice message plus the chat it lives in.
 class _Voicemail {
   final Chat chat;
@@ -535,7 +599,7 @@ class _FavouritesRow extends StatelessWidget {
               }
               final user = favourites[i];
               return GestureDetector(
-                onTap: () => _startCall(context, user, video: false),
+                onTap: () => _favouriteActions(context, user),
                 onLongPress: () => _confirmRemove(context, user),
                 child: SizedBox(
                   width: 66,
@@ -559,7 +623,7 @@ class _FavouritesRow extends StatelessWidget {
         if (favourites.isNotEmpty)
           Padding(
             padding: const EdgeInsets.only(left: 20, top: 2),
-            child: Text('Tap to call · hold to remove',
+            child: Text('Tap for call, video or message',
                 style: TextStyle(fontSize: 11.5, color: Colors.grey.shade500)),
           ),
       ],

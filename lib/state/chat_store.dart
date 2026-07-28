@@ -279,6 +279,16 @@ class ChatStore extends ChangeNotifier {
     }
   }
 
+  /// Like [upsert] but returns the live chat — the existing one when it's
+  /// already there, else the newly-added one.
+  Chat upsertReturning(Chat chat) {
+    final i = _indexOf(chat.id);
+    if (i != -1) return _chats[i];
+    _chats.add(chat);
+    notifyListeners();
+    return chat;
+  }
+
   /// Refreshes the stored [name], [avatarColor], and/or [about] of the contact
   /// whose id matches [contactId] — used both when a peer shares updated
   /// profile info on an incoming message (subject to their privacy settings)

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../app_state.dart';
 import '../models/user.dart';
+import '../state/community_store.dart';
 import '../state/feed_store.dart';
 import '../state/follow_store.dart';
 import '../utils/date_formatter.dart';
@@ -11,6 +12,7 @@ import '../widgets/verified_badge.dart';
 import 'edit_profile_screen.dart';
 import 'feed_screen.dart';
 import 'my_qr_screen.dart';
+import 'people_screen.dart';
 import 'score_screen.dart';
 
 /// The "You" tab: a social-media-style profile — big avatar, handle, bio,
@@ -24,7 +26,11 @@ class ProfileView extends StatelessWidget {
     return ValueListenableBuilder<AppUser>(
       valueListenable: AppState.profile,
       builder: (context, me, _) => ListenableBuilder(
-        listenable: Listenable.merge([FollowStore.instance, FeedStore.instance]),
+        listenable: Listenable.merge([
+          FollowStore.instance,
+          FeedStore.instance,
+          CommunityStore.instance,
+        ]),
         builder: (context, _) {
           final myPosts = FeedStore.instance
               .recentPosts(limit: 100)
@@ -103,9 +109,17 @@ class ProfileView extends StatelessWidget {
                         onTap: null),
                     _statDivider(context),
                     _Stat(
+                        value:
+                            '${CommunityStore.instance.communities.length}',
+                        label: 'Servers',
+                        onTap: null),
+                    _statDivider(context),
+                    _Stat(
                         value: '${FollowStore.instance.followingCount}',
                         label: 'Following',
-                        onTap: null),
+                        onTap: () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                                builder: (_) => const PeopleScreen()))),
                     _statDivider(context),
                     _Stat(
                         value: '${me.score}',
