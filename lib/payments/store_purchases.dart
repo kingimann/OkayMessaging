@@ -1,4 +1,3 @@
-import '../state/storage_store.dart';
 import 'apple_iap.dart';
 import 'payment_service.dart';
 
@@ -16,12 +15,11 @@ class StorePurchases {
 
   static const _prefix = 'com.okaymessaging';
 
-  /// Auto-renewable storage subscription, one per paid tier.
-  static String storageProductId(StorageTier tier) => switch (tier) {
-        StorageTier.free => '', // free needs no purchase
-        StorageTier.personal => '$_prefix.storage.personal.monthly',
-        StorageTier.plus => '$_prefix.storage.plus.monthly',
-      };
+  /// Auto-renewable storage subscription, one product per purchasable size.
+  /// Apple only sells fixed price points, so the size ladder *is* the product
+  /// list — `…storage.gb30.monthly` for 30 GB, and so on.
+  static String storageProductId(int gb) =>
+      gb <= 0 ? '' : '$_prefix.storage.gb$gb.monthly';
 
   /// Fixed consumable tip products. Apple doesn't allow arbitrary amounts, so
   /// support is a small set of set prices.
@@ -39,10 +37,10 @@ class StorePurchases {
   /// the real store is mobile-only.
   bool get isSupported => _testMode || AppleIap.isSupported;
 
-  /// Buys (or renews) the storage subscription for [tier]. Returns true when
-  /// the purchase completes.
-  Future<bool> buyStorage(StorageTier tier) async {
-    final id = storageProductId(tier);
+  /// Buys (or renews) the storage subscription for [gb]. Returns true when the
+  /// purchase completes.
+  Future<bool> buyStorage(int gb) async {
+    final id = storageProductId(gb);
     if (id.isEmpty) return false;
     if (_testMode) {
       await Future<void>.delayed(const Duration(milliseconds: 900));

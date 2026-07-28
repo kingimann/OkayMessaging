@@ -25,6 +25,10 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
   bool _obscure = true;
   bool _busy = false;
 
+  /// The size the picker is currently showing, in GB. Null until first build,
+  /// which seeds it from what the user already has.
+  int? _pickedGb;
+
   @override
   void dispose() {
     _pass.dispose();
@@ -40,18 +44,16 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
         .showSnackBar(SnackBar(content: Text(error ?? success)));
   }
 
-  Future<void> _choosePlan(StoragePlan plan) async {
+  /// Buys [gb] of storage. Passing 0 cancels back to the free allowance.
+  Future<void> _buyGb(int gb) async {
     final storage = StorageStore.instance;
-    if (plan.isFree) {
-      // Downgrading to Free is free and immediate.
-      if (storage.selectedTier != StorageTier.free) {
-        final ok = await _confirm(
-            'Switch to Free?',
-            'You drop to ${StorageStore.formatBytes(plan.quotaBytes)}. If your '
-                'chat backup is larger than that, it stays on the server but '
-                'you can\'t add to it until you\'re back under the limit.');
-        if (ok) await storage.subscribe(StorageTier.free);
-      }
+    if (gb <= 0) {
+      final ok = await _confirm(
+          'Switch to Free?',
+          'You drop to ${StorageStore.freeGb} GB. If your chat backup is '
+              'larger than that, it stays on the server but you can\'t add to '
+              'it until you\'re back under the limit.');
+      if (ok) await storage.cancel();
       return;
     }
     // Storage is a subscription — it bills through the App Store, not Stripe.
@@ -63,12 +65,11 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
     }
     setState(() => _busy = true);
     try {
-      final ok = await store.buyStorage(plan.tier);
+      final ok = await store.buyStorage(gb);
       if (!mounted) return;
       if (ok) {
-        await storage.subscribe(plan.tier);
-        _snack('You\'re on ${plan.name} — '
-            '${plan.quotaBytes ~/ (1024 * 1024 * 1024)} GB of chat storage.');
+        await storage.subscribe(gb);
+        _snack('You now have $gb GB of chat storage.');
       } else {
         _snack('Purchase cancelled.');
       }
@@ -198,15 +199,12 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
     );
   }
 
-  /// A gentle nudge (near limit) or a hard stop (full), with a one-tap upgrade
-  /// to the smallest plan that would actually fit.
+  /// A gentle nudge (near limit) or a hard stop (full), with a one-tap jump to
+  /// the next size up.
   Widget _limitBanner(BuildContext context, StorageStore storage) {
     final scheme = Theme.of(context).colorScheme;
     final full = storage.isFull;
-    final bigger = StorageStore.plans
-        .where((p) => p.quotaBytes > storage.quotaBytes)
-        .cast<StoragePlan?>()
-        .firstWhere((_) => true, orElse: () => null);
+    final bigger = storage.nextSizeUp;
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
@@ -222,20 +220,20 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
           Expanded(
             child: Text(
               full
-                  ? 'Your ${storage.plan.name} storage is full. Upgrade to keep '
-                      'backing up chats.'
-                  : 'You\'re almost out of ${storage.plan.name} storage.',
+                  ? 'Your ${storage.quotaLabel} of storage is full. Add more '
+                      'to keep backing up chats.'
+                  : 'You\'re almost out of storage.',
               style: const TextStyle(fontSize: 12.5),
             ),
           ),
           if (bigger != null) ...[
             const SizedBox(width: 8),
             FilledButton.tonal(
-              onPressed: _busy ? null : () => _choosePlan(bigger),
+              onPressed: _busy ? null : () => _buyGb(bigger.gb),
               style: FilledButton.styleFrom(
                   visualDensity: VisualDensity.compact,
                   padding: const EdgeInsets.symmetric(horizontal: 12)),
-              child: Text('Get ${bigger.name}'),
+              child: Text('Get ${bigger.gb} GB'),
             ),
           ],
         ],
@@ -243,7 +241,16 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
     );
   }
 
+  /// "Choose how much space you want": a slider over the purchasable sizes,
+  /// with the live price and a buy/renew button.
   Widget _plansSection(BuildContext context, StorageStore storage) {
+    final scheme = Theme.of(context).colorScheme;
+    final sizes = StorageStore.sizes;
+    // Default the picker to what they have (or the first step up from free).
+    _pickedGb ??= storage.isPaid ? storage.selectedGb : sizes.first;
+    final picked = _pickedGb!;
+    final plan = StorageStore.planForGb(picked);
+    final isCurrent = storage.isPaid && storage.selectedGb == picked;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -257,68 +264,90 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
                   color: Colors.grey.shade500)),
         ),
         Padding(
-          padding: const EdgeInsets.only(left: 4, bottom: 8),
+          padding: const EdgeInsets.only(left: 4, bottom: 4),
           child: Text(
-            'Pick a plan to add storage. The App Store sets fixed sizes, so '
-            'these are the amounts on offer.',
-            style: TextStyle(
-                fontSize: 12,
-                color: Theme.of(context).colorScheme.onSurfaceVariant),
+            'Choose how much you want — up to ${StorageStore.maxGb} GB. '
+            'The App Store sells fixed sizes, so the slider steps in '
+            '${StorageStore.stepGb} GB.',
+            style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
           ),
         ),
-        for (final plan in StorageStore.plans)
-          _planTile(context, plan, storage),
-      ],
-    );
-  }
-
-  Widget _planTile(
-      BuildContext context, StoragePlan plan, StorageStore storage) {
-    final scheme = Theme.of(context).colorScheme;
-    final current = storage.selectedTier == plan.tier;
-    final gb = plan.quotaBytes ~/ (1024 * 1024 * 1024);
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: current
-            ? BorderSide(color: scheme.primary, width: 1.5)
-            : BorderSide.none,
-      ),
-      child: ListTile(
-        title: Row(
-          children: [
-            Text(plan.name,
-                style: const TextStyle(fontWeight: FontWeight.w700)),
-            const SizedBox(width: 8),
-            if (current)
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                decoration: BoxDecoration(
-                  color: scheme.primary.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(8),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.baseline,
+                  textBaseline: TextBaseline.alphabetic,
+                  children: [
+                    Text('$picked GB',
+                        style: const TextStyle(
+                            fontSize: 26, fontWeight: FontWeight.w800)),
+                    const Spacer(),
+                    Text(plan.priceLabel,
+                        style: TextStyle(
+                            fontSize: 17,
+                            fontWeight: FontWeight.w700,
+                            color: scheme.primary)),
+                  ],
                 ),
-                child: Text('Current',
-                    style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
-                        color: scheme.primary)),
-              ),
-          ],
+                Slider(
+                  value: picked.toDouble(),
+                  min: sizes.first.toDouble(),
+                  max: sizes.last.toDouble(),
+                  divisions: sizes.length - 1,
+                  label: '$picked GB',
+                  onChanged: _busy
+                      ? null
+                      : (v) => setState(() => _pickedGb =
+                          (v / StorageStore.stepGb).round() *
+                              StorageStore.stepGb),
+                ),
+                Row(
+                  children: [
+                    Text('${sizes.first} GB',
+                        style: TextStyle(
+                            fontSize: 11.5, color: scheme.onSurfaceVariant)),
+                    const Spacer(),
+                    Text('${sizes.last} GB',
+                        style: TextStyle(
+                            fontSize: 11.5, color: scheme.onSurfaceVariant)),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: _busy ? null : () => _buyGb(picked),
+                    icon: _busy
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2))
+                        : Icon(isCurrent ? Icons.refresh : Icons.cloud_done,
+                            size: 18),
+                    label: Text(_busy
+                        ? 'Processing…'
+                        : isCurrent
+                            ? 'Renew $picked GB — ${plan.priceLabel}'
+                            : 'Get $picked GB — ${plan.priceLabel}'),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
-        subtitle: Text('$gb GB'),
-        trailing: current
-            ? (plan.isFree
-                ? null
-                : TextButton(
-                    onPressed: _busy ? null : () => _choosePlan(plan),
-                    child: const Text('Renew')))
-            : FilledButton.tonal(
-                onPressed: _busy ? null : () => _choosePlan(plan),
-                child: Text(plan.isFree ? 'Switch' : plan.priceLabel),
-              ),
-      ),
+        if (storage.isPaid)
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton(
+              onPressed: _busy ? null : () => _buyGb(0),
+              child: const Text('Cancel storage'),
+            ),
+          ),
+      ],
     );
   }
 

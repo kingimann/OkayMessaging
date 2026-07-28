@@ -1,35 +1,46 @@
-/// The unit economics behind the storage plans, so prices are derived from
-/// real costs instead of guessed — and provably profitable after the store's
-/// cut. All figures are USD per month; keep them in sync with the Supabase
-/// plan and the App Store agreement.
+/// The unit economics behind cloud storage, so prices are derived from real
+/// costs instead of guessed — and provably profitable after the store's cut,
+/// *including* once the project outgrows its included allowance.
 ///
-/// Two costs bite into every paid plan:
+/// Two costs bite into every paid GB:
 ///   1. The **store cut**: Apple / Google keep 30% of each in-app purchase, so
 ///      the developer nets only 70% of the price shown.
-///   2. **Supabase**, beyond the amounts the $25 Pro plan already includes:
+///   2. **Supabase**, at the rates that apply once the $25 Pro plan's included
+///      allowances are used up:
 ///        * file storage (Storage buckets): $0.0213 / GB  ← the right backend
 ///        * database disk (Postgres):       $0.125  / GB  ← the current one
 ///        * egress:                         $0.09   / GB  (250 GB included)
 ///
-/// Chat backups should live in Storage buckets, not the Postgres sync table —
-/// buckets are ~6× cheaper per GB and are what makes selling storage
-/// profitable at competitive prices. [monthlyProfit] can be evaluated against
-/// either backend so the difference is explicit.
+/// The key property this file enforces: **every GB sold is priced above its
+/// own marginal overage cost.** That's what makes going past the project's
+/// included 100 GB safe — the user who pushed usage over has already paid more
+/// than the extra Supabase bill for their own GB, so growth never costs money.
+/// There is no retroactive surcharge (the App Store can't bill variable
+/// amounts anyway); the margin is built into the per-GB price up front.
 class StorageEconomics {
   StorageEconomics._();
 
   /// Apple / Google take 30% of every in-app purchase.
   static const double storeCut = 0.30;
 
-  /// Supabase Pro marginal rates (beyond the included allowances).
+  /// Supabase Pro marginal rates (what a GB costs *beyond* the included
+  /// allowances — i.e. exactly the overage the project starts paying).
   static const double fileStoragePerGb = 0.0213; // Storage buckets
   static const double dbDiskPerGb = 0.125; // Postgres disk
   static const double egressPerGb = 0.09;
+
+  /// Storage included in the $25 Pro plan. Past this, every GB bills at the
+  /// overage rates above — which the per-GB price already covers.
+  static const int includedGb = 100;
 
   /// How much monthly egress to budget per stored GB. The fair-use limit caps
   /// downloads at 3× stored, but a real user restores rarely — half a copy a
   /// month is a conservative-but-sane allowance.
   static const double egressAllowance = 0.5;
+
+  /// The retail rate: what a user pays per GB per month, before Apple's cut.
+  /// Set well above [costPerGb] so every GB — included or overage — profits.
+  static const double pricePerGb = 0.20;
 
   /// What the developer actually keeps from a [grossPrice] after the store cut.
   static double developerNet(double grossPrice) => grossPrice * (1 - storeCut);
@@ -40,6 +51,11 @@ class StorageEconomics {
   static double costPerGb({bool useBuckets = true}) =>
       (useBuckets ? fileStoragePerGb : dbDiskPerGb) +
       egressAllowance * egressPerGb;
+
+  /// The lowest price per GB that merely breaks even after the store's cut.
+  /// [pricePerGb] must sit above this for the model to work.
+  static double breakEvenPricePerGb({bool useBuckets = true}) =>
+      costPerGb(useBuckets: useBuckets) / (1 - storeCut);
 
   /// Infra cost to hold [gb] of backup for a month.
   static double monthlyCost(int gb, {bool useBuckets = true}) =>
@@ -52,6 +68,15 @@ class StorageEconomics {
       developerNet(grossPrice) - monthlyCost(gb, useBuckets: useBuckets);
 
   /// True when a plan is profitable on the given backend.
-  static bool isProfitable(double grossPrice, int gb, {bool useBuckets = true}) =>
+  static bool isProfitable(double grossPrice, int gb,
+          {bool useBuckets = true}) =>
       monthlyProfit(grossPrice, gb, useBuckets: useBuckets) > 0;
+
+  /// Whether [grossPrice] for [gb] still covers cost when those GB are
+  /// *overage* — i.e. the project has already used its included allowance and
+  /// Supabase is billing per GB. Since the included and overage rates are the
+  /// same marginal numbers, this is the honest test that growth is safe.
+  static bool coversOverage(double grossPrice, int gb,
+          {bool useBuckets = true}) =>
+      isProfitable(grossPrice, gb, useBuckets: useBuckets);
 }

@@ -21,7 +21,9 @@ const String legalLastUpdated = 'Last updated: July 2026';
 /// videos can't be uploaded, and a fair-use egress limit applies.
 /// v4 — digital purchases (storage subscription, developer tips) bill through
 /// the App Store; Stripe is now only for peer-to-peer transfers.
-const int legalVersion = 4;
+/// v5 — storage is sold by the gigabyte (choose your amount, 100 GB max)
+/// instead of named tiers.
+const int legalVersion = 5;
 
 /// Privacy Policy — reflects the no-storage architecture: messages ride
 /// Supabase Realtime Broadcast (memory only) and live only on your devices.
@@ -163,11 +165,12 @@ const List<LegalSection> termsOfService = [
   ),
   LegalSection(
     'Cloud storage subscription',
-    'Cloud storage backs up your chats and is offered in tiers: a free '
-        'allowance and paid monthly plans for more space, billed through your '
-        'App Store account (Apple) at the price shown before you buy — not '
-        'through Stripe. Subscriptions renew and can be managed or cancelled in '
-        'your App Store settings. There is no unlimited plan. '
+    'Cloud storage backs up your chats. You get a free allowance, and can buy '
+        'more space monthly — choose the amount you want, up to a maximum of '
+        '100 GB. There is no unlimited option. Paid storage is billed through '
+        'your App Store account (Apple) at the price shown before you buy — not '
+        'through Stripe. Subscriptions renew and can be managed, changed, or '
+        'cancelled in your App Store settings. '
         'Each paid purchase adds 30 days and stacks on any time remaining; it '
         'does not auto-renew silently — you confirm each renewal. Your servers '
         'and posts are communal and never count against your storage. '

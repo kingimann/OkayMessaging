@@ -1,23 +1,26 @@
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// The storage plans on offer. Deliberately no "unlimited" — every tier has a
-/// hard ceiling so a single heavy user can't run costs away. Prices come from
-/// [StorageEconomics] (Supabase cost + Apple's 30% cut), not guesswork.
-enum StorageTier { free, personal, plus }
+import '../payments/storage_economics.dart';
 
-/// A plan's fixed facts: display name, monthly price, and the storage ceiling.
+/// One purchasable storage size. The App Store can only sell **fixed** price
+/// points, so "choose your own amount" is a ladder of real products the picker
+/// snaps to — not a free-form number.
 class StoragePlan {
-  final StorageTier tier;
-  final String name;
-  final int priceCents; // per month; 0 for Free
-  final int quotaBytes;
-  const StoragePlan(this.tier, this.name, this.priceCents, this.quotaBytes);
+  /// Gigabytes this plan grants.
+  final int gb;
+
+  /// Monthly price in cents, before Apple's cut.
+  final int priceCents;
+
+  const StoragePlan(this.gb, this.priceCents);
 
   bool get isFree => priceCents == 0;
+  String get name => isFree ? 'Free' : '$gb GB';
+  int get quotaBytes => gb * 1024 * 1024 * 1024;
+
   String get priceLabel {
     if (isFree) return 'Free';
-    // Whole dollars read cleaner without ".00"; otherwise show the cents.
     final dollars = priceCents / 100;
     final text = priceCents % 100 == 0
         ? dollars.toStringAsFixed(0)
@@ -26,63 +29,86 @@ class StoragePlan {
   }
 }
 
-/// Paid chat-backup storage.
+/// Paid chat-backup storage, sold by the gigabyte.
 ///
-/// **This only ever holds chats.** Servers, feed posts, follows and the like
-/// are communal — they sync to everyone in a server for free and never count
-/// against anyone's quota. A user's personal storage is exactly their own
-/// message history, encrypted, and only if they choose to back it up here (the
-/// alternative being a local backup to iCloud / app storage).
+/// **This only ever holds chats.** Servers, feed posts and follows are
+/// communal — they sync to everyone in a server for free and never count
+/// against anyone's quota.
 ///
-/// Plans are tiered. The Free tier gives a small allowance; paid tiers are a
-/// monthly subscription that raises the ceiling. A single expiry timestamp and
-/// the chosen tier are persisted on-device; usage is the size of the encrypted
-/// chat backup last uploaded.
+/// Everyone gets [freeGb] for nothing. Above that a user picks how much space
+/// they want, up to [maxGb], and pays monthly through the App Store. Every
+/// step on the ladder is priced above its own Supabase cost (see
+/// [StorageEconomics]), so selling more space is always profitable — including
+/// once the project outgrows the 100 GB the Pro plan includes and Supabase
+/// starts billing overage.
 class StorageStore extends ChangeNotifier {
   StorageStore._();
   static final StorageStore instance = StorageStore._();
 
-  static const _kTier = 'cloud_storage_tier';
+  static const _kGb = 'cloud_storage_gb';
+  static const _kTierLegacy = 'cloud_storage_tier'; // pre-custom-GB builds
   static const _kActiveUntil = 'cloud_storage_active_until';
   static const _kUsedBytes = 'cloud_storage_used_bytes';
 
-  static const int _gb = 1024 * 1024 * 1024;
+  static const int _bytesPerGb = 1024 * 1024 * 1024;
 
-  /// The catalogue, cheapest first. Each paid plan clears cost + Apple's cut
-  /// (verified in tests via [StorageEconomics]).
-  static const List<StoragePlan> plans = [
-    StoragePlan(StorageTier.free, 'Free', 0, 2 * _gb),
-    StoragePlan(StorageTier.personal, 'Personal', 999, 15 * _gb),
-    StoragePlan(StorageTier.plus, 'Plus', 1999, 100 * _gb),
-  ];
+  /// Free allowance, no purchase required.
+  static const int freeGb = 2;
 
-  static StoragePlan planFor(StorageTier tier) =>
-      plans.firstWhere((p) => p.tier == tier);
+  /// The most one account may buy. Caps a single user's claim on the
+  /// project's capacity, and keeps "no unlimited" true.
+  static const int maxGb = 100;
+
+  /// Ladder granularity: sizes are sold in this step, so the picker snaps.
+  static const int stepGb = 10;
+
+  /// The purchasable sizes: 10, 20, … up to [maxGb].
+  static List<int> get sizes =>
+      [for (var gb = stepGb; gb <= maxGb; gb += stepGb) gb];
+
+  /// Price for [gb], in cents: the per-GB retail rate, landed on a normal
+  /// App Store price point (x.99).
+  static int priceCentsFor(int gb) {
+    final raw = gb * StorageEconomics.pricePerGb * 100; // cents
+    // Round up to the next whole dollar, then shave a cent → $N.99.
+    final dollars = (raw / 100).ceil();
+    return dollars * 100 - 1;
+  }
+
+  static StoragePlan planForGb(int gb) => StoragePlan(gb, priceCentsFor(gb));
+
+  /// The free plan plus every paid size, cheapest first.
+  static List<StoragePlan> get plans => [
+        const StoragePlan(freeGb, 0),
+        for (final gb in sizes) planForGb(gb),
+      ];
 
   /// A single paid month.
   static const Duration period = Duration(days: 30);
 
-  StorageTier _tier = StorageTier.free;
+  /// Gigabytes the user has bought (0 = free tier only).
+  int _purchasedGb = 0;
   DateTime? _activeUntil;
   int _usedBytes = 0;
 
-  /// The tier the user is currently entitled to. A lapsed paid subscription
-  /// drops back to Free.
-  StorageTier get tier {
-    if (_tier == StorageTier.free) return StorageTier.free;
+  /// The size the user paid for, even if the subscription has since lapsed —
+  /// used to show "renew" rather than "subscribe".
+  int get selectedGb => _purchasedGb;
+
+  /// True while a paid size is bought and unexpired.
+  bool get isPaid {
+    if (_purchasedGb <= 0) return false;
     final until = _activeUntil;
-    if (until == null || !until.isAfter(DateTime.now())) return StorageTier.free;
-    return _tier;
+    return until != null && until.isAfter(DateTime.now());
   }
 
-  StoragePlan get plan => planFor(tier);
+  /// Gigabytes actually available right now: the purchase if it's live, else
+  /// the free allowance.
+  int get activeGb => isPaid ? _purchasedGb : freeGb;
 
-  /// The tier the user has *selected/paid for*, even if currently lapsed —
-  /// used to show "renew" vs "subscribe".
-  StorageTier get selectedTier => _tier;
-
-  /// True while on a paid tier that hasn't lapsed.
-  bool get isPaid => tier != StorageTier.free;
+  /// The plan in force right now.
+  StoragePlan get plan =>
+      isPaid ? planForGb(_purchasedGb) : const StoragePlan(freeGb, 0);
 
   DateTime? get activeUntil => _activeUntil;
 
@@ -93,7 +119,7 @@ class StorageStore extends ChangeNotifier {
     return left.isNegative ? 0 : left.inDays;
   }
 
-  int get quotaBytes => plan.quotaBytes;
+  int get quotaBytes => activeGb * _bytesPerGb;
   int get usedBytes => _usedBytes;
 
   int get availableBytes {
@@ -110,18 +136,26 @@ class StorageStore extends ChangeNotifier {
   /// Whether a chat backup of [bytes] fits under the current ceiling.
   bool fits(int bytes) => bytes <= quotaBytes;
 
-  /// At or over the plan ceiling — no more can be backed up until they free
-  /// space or upgrade.
+  /// At or over the ceiling — nothing more can be backed up until they free
+  /// space or buy more.
   bool get isFull => _usedBytes >= quotaBytes;
 
-  /// Within the last 10% of the plan — worth nudging an upgrade.
+  /// Within the last 10% — worth nudging.
   bool get nearLimit => usedFraction >= 0.9;
 
-  /// The smallest paid plan that would hold [bytes], or null if none does
-  /// (there is no unlimited tier). Powers the "upgrade to X" suggestion.
+  /// The smallest purchasable size that would hold [bytes], or null when even
+  /// [maxGb] wouldn't (there is no unlimited).
   StoragePlan? smallestPlanFor(int bytes) {
-    for (final p in plans) {
-      if (bytes <= p.quotaBytes) return p;
+    for (final gb in sizes) {
+      if (bytes <= gb * _bytesPerGb) return planForGb(gb);
+    }
+    return null;
+  }
+
+  /// The next size up from what's active, or null at the ceiling.
+  StoragePlan? get nextSizeUp {
+    for (final gb in sizes) {
+      if (gb > activeGb) return planForGb(gb);
     }
     return null;
   }
@@ -149,11 +183,7 @@ class StorageStore extends ChangeNotifier {
   Future<void> load() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final tierName = prefs.getString(_kTier);
-      if (tierName != null) {
-        _tier = StorageTier.values.firstWhere((t) => t.name == tierName,
-            orElse: () => StorageTier.free);
-      }
+      _purchasedGb = prefs.getInt(_kGb) ?? _migratedLegacyGb(prefs);
       final ms = prefs.getInt(_kActiveUntil);
       if (ms != null) {
         _activeUntil = DateTime.fromMillisecondsSinceEpoch(ms);
@@ -163,26 +193,36 @@ class StorageStore extends ChangeNotifier {
     } catch (_) {}
   }
 
-  /// Subscribes to (or renews) [tier], adding one month. Paid months stack on
-  /// any time remaining. The Free tier is just a downgrade with no expiry.
-  Future<void> subscribe(StorageTier tier) async {
-    _tier = tier;
-    if (tier == StorageTier.free) {
-      _activeUntil = null;
-    } else {
-      final now = DateTime.now();
-      final base = (_activeUntil != null && _activeUntil!.isAfter(now))
-          ? _activeUntil!
-          : now;
-      _activeUntil = base.add(period);
+  /// Builds before custom sizes stored a named tier. Carry those purchases
+  /// across rather than silently dropping someone to the free allowance.
+  int _migratedLegacyGb(SharedPreferences prefs) => switch (
+          prefs.getString(_kTierLegacy)) {
+        'personal' => 20, // nearest ladder step at or above the old 15 GB
+        'pro' || 'plus' => 100,
+        'studio' => maxGb,
+        _ => 0,
+      };
+
+  /// Buys (or renews) [gb] of storage, adding one month. Paid months stack on
+  /// any time remaining. Sizes are clamped to the ladder's ceiling.
+  Future<void> subscribe(int gb) async {
+    if (gb <= 0) {
+      await cancel();
+      return;
     }
+    _purchasedGb = gb > maxGb ? maxGb : gb;
+    final now = DateTime.now();
+    final base = (_activeUntil != null && _activeUntil!.isAfter(now))
+        ? _activeUntil!
+        : now;
+    _activeUntil = base.add(period);
     await _persist();
     notifyListeners();
   }
 
-  /// Cancels a paid plan immediately, dropping to Free.
+  /// Drops back to the free allowance immediately.
   Future<void> cancel() async {
-    _tier = StorageTier.free;
+    _purchasedGb = 0;
     _activeUntil = null;
     await _persist();
     notifyListeners();
@@ -202,7 +242,8 @@ class StorageStore extends ChangeNotifier {
   Future<void> _persist() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_kTier, _tier.name);
+      await prefs.setInt(_kGb, _purchasedGb);
+      await prefs.remove(_kTierLegacy);
       final until = _activeUntil;
       if (until == null) {
         await prefs.remove(_kActiveUntil);
@@ -213,16 +254,15 @@ class StorageStore extends ChangeNotifier {
   }
 
   @visibleForTesting
-  void debugSubscribe(StorageTier tier, {Duration length = period}) {
-    _tier = tier;
-    _activeUntil =
-        tier == StorageTier.free ? null : DateTime.now().add(length);
+  void debugSubscribe(int gb, {Duration length = period}) {
+    _purchasedGb = gb;
+    _activeUntil = gb <= 0 ? null : DateTime.now().add(length);
     notifyListeners();
   }
 
   @visibleForTesting
   void resetForTest() {
-    _tier = StorageTier.free;
+    _purchasedGb = 0;
     _activeUntil = null;
     _usedBytes = 0;
   }

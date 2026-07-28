@@ -5334,67 +5334,85 @@ void main() {
       expect(CloudSync.instance.buildPayload().containsKey('chats'), isFalse);
     });
 
-    test('storage tiers: Free by default, a purchase upgrades and stacks', () {
+    test('custom storage: free by default, buy any size up to the cap', () {
       final storage = StorageStore.instance;
       addTearDown(storage.resetForTest);
       storage.resetForTest();
-      // Everyone starts on Free — 2 GB, no expiry, not "paid".
-      expect(storage.tier, StorageTier.free);
+      // Everyone starts on the free allowance — no expiry, not "paid".
+      expect(storage.activeGb, StorageStore.freeGb);
       expect(storage.isPaid, isFalse);
       expect(storage.quotaBytes, 2 * 1024 * 1024 * 1024);
 
-      // Subscribing to Personal raises the ceiling to 15 GB for ~30 days.
-      storage.subscribe(StorageTier.personal);
-      expect(storage.tier, StorageTier.personal);
+      // Buying 30 GB raises the ceiling for ~30 days.
+      storage.subscribe(30);
+      expect(storage.activeGb, 30);
       expect(storage.isPaid, isTrue);
-      expect(storage.quotaBytes, 15 * 1024 * 1024 * 1024);
+      expect(storage.quotaBytes, 30 * 1024 * 1024 * 1024);
       expect(storage.daysLeft, inInclusiveRange(28, 30));
 
       // Renewing stacks the time rather than wasting the remainder.
-      storage.subscribe(StorageTier.personal);
+      storage.subscribe(30);
       expect(storage.daysLeft, inInclusiveRange(58, 60));
 
-      // Personal $9.99, Plus $19.99. No unlimited.
-      expect(StorageStore.planFor(StorageTier.personal).priceCents, 999);
-      expect(StorageStore.planFor(StorageTier.personal).priceLabel, '\$9.99/mo');
-      expect(StorageStore.planFor(StorageTier.plus).priceCents, 1999);
-      expect(StorageStore.planFor(StorageTier.plus).priceLabel, '\$19.99/mo');
-      expect(StorageStore.planFor(StorageTier.plus).quotaBytes,
-          100 * 1024 * 1024 * 1024);
-      expect(StorageStore.plans.length, 3); // Free + Personal + Plus
+      // Any ladder size is buyable, and 100 GB is the hard ceiling.
+      expect(StorageStore.sizes.first, 10);
+      expect(StorageStore.sizes.last, StorageStore.maxGb);
+      expect(StorageStore.maxGb, 100);
+      storage.subscribe(500); // over the cap
+      expect(storage.activeGb, StorageStore.maxGb, reason: 'clamped to 100 GB');
 
-      // Cancelling drops straight back to Free.
+      // Cancelling drops straight back to the free allowance.
       storage.cancel();
-      expect(storage.tier, StorageTier.free);
-      expect(storage.quotaBytes, 2 * 1024 * 1024 * 1024);
+      expect(storage.isPaid, isFalse);
+      expect(storage.activeGb, StorageStore.freeGb);
     });
 
-    test('every paid plan profits after Apple\'s cut and Supabase cost', () {
-      // On the right backend (Storage buckets) every paid plan clears cost.
-      for (final plan in StorageStore.plans) {
-        if (plan.isFree) continue;
-        final gb = plan.quotaBytes ~/ (1024 * 1024 * 1024);
-        final price = plan.priceCents / 100;
-        expect(StorageEconomics.isProfitable(price, gb, useBuckets: true), isTrue,
-            reason: '${plan.name} must profit on buckets');
-        // Sanity on the model: Apple keeps 30%, so the developer nets 70%.
-        expect(StorageEconomics.developerNet(10), closeTo(7.0, 0.0001));
-        // Buckets are far cheaper per GB than Postgres disk.
-        expect(StorageEconomics.costPerGb(useBuckets: true),
-            lessThan(StorageEconomics.costPerGb(useBuckets: false)));
+    test('per-GB pricing lands on real App Store price points', () {
+      // ~$0.20/GB, rounded onto an x.99 point.
+      expect(StorageStore.priceCentsFor(10), 199);
+      expect(StorageStore.priceCentsFor(50), 999);
+      expect(StorageStore.priceCentsFor(100), 1999);
+      expect(StorageStore.planForGb(50).priceLabel, '\$9.99/mo');
+      // Bigger always costs more — never a cheaper price for more space.
+      for (var i = 1; i < StorageStore.sizes.length; i++) {
+        expect(StorageStore.priceCentsFor(StorageStore.sizes[i]),
+            greaterThan(StorageStore.priceCentsFor(StorageStore.sizes[i - 1])));
       }
-      // Concretely: Plus (100 GB @ $19.99) nets $13.99, costs ~$6.63 on
-      // buckets → clear profit.
+    });
+
+    test('every size profits after Apple\'s cut — including as overage', () {
+      // Apple keeps 30%, so the developer nets 70%.
+      expect(StorageEconomics.developerNet(10), closeTo(7.0, 0.0001));
+      // Buckets are far cheaper per GB than Postgres disk.
+      expect(StorageEconomics.costPerGb(useBuckets: true),
+          lessThan(StorageEconomics.costPerGb(useBuckets: false)));
+      // The retail rate must clear the break-even rate, or nothing below works.
+      expect(StorageEconomics.pricePerGb,
+          greaterThan(StorageEconomics.breakEvenPricePerGb()));
+
+      for (final gb in StorageStore.sizes) {
+        final price = StorageStore.priceCentsFor(gb) / 100;
+        expect(StorageEconomics.isProfitable(price, gb), isTrue,
+            reason: '$gb GB must profit on buckets');
+        // The load-bearing property: because each GB is priced above its own
+        // marginal rate, the GB that push the project past its included 100 GB
+        // still pay for their own Supabase overage.
+        expect(StorageEconomics.coversOverage(price, gb), isTrue,
+            reason: '$gb GB must cover its own overage past the included tier');
+      }
+
+      // Concretely: 100 GB @ $19.99 nets $13.99, costs ~$6.63 on buckets.
       expect(StorageEconomics.monthlyProfit(19.99, 100), greaterThan(5));
     });
 
     test('storage & tips are store products (Apple), not Stripe', () async {
-      // Each paid tier maps to its own auto-renewable product; Free needs none.
-      expect(StorePurchases.storageProductId(StorageTier.free), '');
-      expect(StorePurchases.storageProductId(StorageTier.personal),
-          contains('storage.personal'));
-      expect(StorePurchases.storageProductId(StorageTier.plus),
-          contains('storage.plus'));
+      // Each purchasable size maps to its own auto-renewable product; the free
+      // allowance needs none.
+      expect(StorePurchases.storageProductId(0), '');
+      expect(StorePurchases.storageProductId(30),
+          'com.okaymessaging.storage.gb30.monthly');
+      expect(StorePurchases.storageProductId(100),
+          'com.okaymessaging.storage.gb100.monthly');
 
       // Tips are a fixed set of consumable products, priced low-to-high.
       const tips = StorePurchases.tipProducts;
@@ -5410,23 +5428,20 @@ void main() {
       addTearDown(() => payments.setTestMode(wasTest));
       payments.setTestMode(true);
       expect(StorePurchases.instance.isSupported, isTrue);
-      expect(await StorePurchases.instance.buyStorage(StorageTier.personal),
-          isTrue);
+      expect(await StorePurchases.instance.buyStorage(30), isTrue);
       expect(await StorePurchases.instance.tip(tips.first.id), isTrue);
-      // Free "purchase" is a no-op that doesn't pretend to charge.
-      expect(
-          await StorePurchases.instance.buyStorage(StorageTier.free), isFalse);
+      // A zero-GB "purchase" is a no-op that doesn't pretend to charge.
+      expect(await StorePurchases.instance.buyStorage(0), isFalse);
     });
 
-    test('a lapsed paid plan falls back to Free', () {
+    test('a lapsed purchase falls back to the free allowance', () {
       final storage = StorageStore.instance;
       addTearDown(storage.resetForTest);
       storage.resetForTest();
-      // Subscribe, but with time already expired.
-      storage.debugSubscribe(StorageTier.personal,
-          length: const Duration(seconds: -1));
-      expect(storage.selectedTier, StorageTier.personal); // what they paid for
-      expect(storage.tier, StorageTier.free); // what they get now
+      // Bought 50 GB, but the month has already run out.
+      storage.debugSubscribe(50, length: const Duration(seconds: -1));
+      expect(storage.selectedGb, 50); // what they paid for
+      expect(storage.activeGb, StorageStore.freeGb); // what they get now
       expect(storage.isPaid, isFalse);
     });
 
@@ -5461,12 +5476,14 @@ void main() {
       storage.setUsedBytes(storage.quotaBytes);
       expect(storage.isFull, isTrue);
 
-      // Upgrade suggestion: the smallest plan that would hold the data.
-      const tenGb = 10 * 1024 * 1024 * 1024;
-      expect(storage.smallestPlanFor(tenGb)?.tier, StorageTier.personal);
-      // Nothing holds more than Personal (15 GB) — no unlimited.
+      // Upgrade suggestion: the smallest size that would hold the data.
+      const twentyFiveGb = 25 * 1024 * 1024 * 1024;
+      expect(storage.smallestPlanFor(twentyFiveGb)?.gb, 30);
+      // Nothing holds more than the 100 GB cap — no unlimited.
       const oneTb = 1024 * 1024 * 1024 * 1024;
       expect(storage.smallestPlanFor(oneTb), isNull);
+      // The next step up from the free allowance is the first ladder size.
+      expect(storage.nextSizeUp?.gb, StorageStore.sizes.first);
     });
 
     test('chats need a key, back up to paid storage, and are quota-gated',

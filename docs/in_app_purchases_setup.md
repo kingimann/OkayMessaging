@@ -13,13 +13,27 @@ whole flow with no store and no charge, so you can exercise the UI anywhere.
 ## Products to create
 
 ### Auto-renewable subscriptions — cloud storage
-In App Store Connect → your app → Subscriptions, create one group ("Cloud
-storage") with these subscriptions (prices from `docs/storage_economics.md`):
+Users pick how much space they want with a slider. Apple only sells fixed
+price points, so each step on that slider is its own product. In App Store
+Connect → your app → Subscriptions, create one group ("Cloud storage")
+containing all ten (prices from `docs/storage_economics.md`, ~$0.20/GB):
 
-| Product ID | Plan | Price |
+| Product ID | Size | Price |
 |---|---|---|
-| `com.okaymessaging.storage.personal.monthly` | Personal, 15 GB | $9.99 / mo |
-| `com.okaymessaging.storage.plus.monthly` | Plus, 100 GB | $19.99 / mo |
+| `com.okaymessaging.storage.gb10.monthly` | 10 GB | $1.99 / mo |
+| `com.okaymessaging.storage.gb20.monthly` | 20 GB | $3.99 / mo |
+| `com.okaymessaging.storage.gb30.monthly` | 30 GB | $5.99 / mo |
+| `com.okaymessaging.storage.gb40.monthly` | 40 GB | $7.99 / mo |
+| `com.okaymessaging.storage.gb50.monthly` | 50 GB | $9.99 / mo |
+| `com.okaymessaging.storage.gb60.monthly` | 60 GB | $11.99 / mo |
+| `com.okaymessaging.storage.gb70.monthly` | 70 GB | $13.99 / mo |
+| `com.okaymessaging.storage.gb80.monthly` | 80 GB | $15.99 / mo |
+| `com.okaymessaging.storage.gb90.monthly` | 90 GB | $17.99 / mo |
+| `com.okaymessaging.storage.gb100.monthly` | 100 GB | $19.99 / mo |
+
+Put them all in the **same subscription group** so switching size is an
+upgrade/downgrade (Apple prorates automatically) rather than a second
+concurrent subscription. Sizes above 100 GB are deliberately not offered.
 
 ### Consumables — developer tips
 In App Store Connect → In-App Purchases, create four consumables:
