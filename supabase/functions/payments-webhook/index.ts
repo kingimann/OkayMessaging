@@ -4,6 +4,7 @@
 // set STRIPE_WEBHOOK_SECRET. Deploy with `--no-verify-jwt` (Stripe signs it).
 
 import { admin, corsHeaders, stripe } from "../_shared/stripe.ts";
+import { type CardVerdict, judgeCard } from "../_shared/cardholder.ts";
 
 const webhookSecret = Deno.env.get("STRIPE_WEBHOOK_SECRET") ?? "";
 
@@ -39,6 +40,48 @@ Deno.serve(async (req) => {
       // It protects the platform too — Stripe closes accounts whose dispute
       // ratio climbs, and that ratio counts disputes whether they are won or
       // lost.
+      // The card is authorised but not yet charged. This is the only moment
+      // the cardholder name and funding type are knowable *before* money
+      // moves, so both rules are enforced here: capture a card that passes,
+      // cancel one that doesn't. A cancelled authorisation releases the hold
+      // and the sender is never charged.
+      case "payment_intent.amount_capturable_updated": {
+        const pi = event.data.object as {
+          id: string;
+          payment_method?: string;
+          metadata?: { verified_name?: string };
+        };
+        const account = event.account; // direct charges live on the recipient
+        const opts = account ? { stripeAccount: account } : undefined;
+        let verdict: CardVerdict = { ok: false, reason: "unknown_card" };
+        try {
+          const pm = pi.payment_method
+            ? await stripe.paymentMethods.retrieve(pi.payment_method, opts)
+            : null;
+          verdict = judgeCard(
+            pm?.card as { funding?: string | null } | null,
+            pm?.billing_details?.name,
+            pi.metadata?.verified_name,
+          );
+        } catch (_) {
+          // Anything we can't inspect, we don't capture.
+        }
+
+        if (verdict.ok) {
+          await stripe.paymentIntents.capture(pi.id, opts);
+          await admin.from("payment_transactions").update({
+            status: "succeeded",
+            updated_at: new Date().toISOString(),
+          }).eq("id", pi.id);
+        } else {
+          await stripe.paymentIntents.cancel(pi.id, opts);
+          await admin.from("payment_transactions").update({
+            status: `blocked_${verdict.reason}`,
+            updated_at: new Date().toISOString(),
+          }).eq("id", pi.id);
+        }
+        break;
+      }
       case "charge.dispute.created": {
         const dispute = event.data.object as {
           id: string;
@@ -99,10 +142,29 @@ Deno.serve(async (req) => {
         };
         const phone = session.metadata?.phone;
         if (phone) {
+          // On a pass, keep the legal name Stripe read off the document. It
+          // is the only trustworthy thing to check a cardholder name against,
+          // and verified_outputs has to be asked for explicitly.
+          let verifiedName: string | null = null;
+          if (session.status === "verified") {
+            try {
+              const full = await stripe.identity.verificationSessions.retrieve(
+                session.id,
+                { expand: ["verified_outputs"] },
+              );
+              const out = (full as { verified_outputs?: { name?: string } })
+                .verified_outputs;
+              verifiedName = out?.name ?? null;
+            } catch (_) {
+              // A missing name means the name check can't pass; it must never
+              // mean the name check is skipped.
+            }
+          }
           await admin.from("identity_verifications").upsert({
             phone,
             session_id: session.id,
             status: session.status,
+            ...(verifiedName ? { verified_name: verifiedName } : {}),
             updated_at: new Date().toISOString(),
           });
         }

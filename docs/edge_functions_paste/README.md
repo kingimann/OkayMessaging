@@ -172,3 +172,47 @@ the screen never grants the badge itself.
 Re-deploy `identity-start` for the client secret. `IDENTITY_PAGE_URL` and
 `CONNECT_PAGE_URL` are `--dart-define`s that default to the project's Pages
 deployment, so they only need setting if the web build moves.
+
+## Who may send money
+
+Two gates, both enforced server-side — a rule the app enforces is a rule a
+modified app can skip.
+
+**Before a charge is created** (`payments-create-intent`):
+
+- The sender's phone is verified already: `callerPhone` comes from a Supabase
+  session whose JWT carries an SMS-verified number.
+- Their identity must be `verified` in `identity_verifications`, and must have
+  a `verified_name`. No name means nothing to check a card against, and that
+  fails closed.
+
+Otherwise the call returns `identity_required` (403).
+
+**Before the money is taken** (`payment_intent.amount_capturable_updated`):
+
+The intent is created with `capture_method: "manual"`, so the card is
+authorised but not charged. Once a card is attached, the webhook judges it:
+
+| Rule | Failure |
+|---|---|
+| Not a prepaid card | `blocked_prepaid` |
+| Cardholder name matches the name on the sender's ID | `blocked_name_mismatch` |
+| Card readable at all | `blocked_unknown_card` |
+
+A card that passes is captured; one that fails is **cancelled**, which
+releases the hold — the sender is never charged. Checking after capture would
+be a refund, not a check.
+
+Name matching is deliberately lenient one way and strict the other: cards
+print names abbreviated and reordered ("SMITH ROBERT J", "Rob Smith"), so the
+surname must appear and the given name must match or abbreviate. A different
+person's name shares neither. Run the cases with:
+
+```bash
+node --experimental-strip-types supabase/functions/_shared/cardholder_test.mjs
+```
+
+**Deploy for this:** run `docs/identity_name_match.sql`, re-paste
+`payments-create-intent` and `payments-webhook`, and deploy
+`payments-intent-status`. Subscribe the webhook to
+`payment_intent.amount_capturable_updated` as well.

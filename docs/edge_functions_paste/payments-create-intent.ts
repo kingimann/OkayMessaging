@@ -109,6 +109,23 @@ Deno.serve(async (req) => {
     .maybeSingle();
   if (ban) return json({ error: "sender_banned" }, 403);
 
+  // Sending money requires a checked identity. The phone is already verified —
+  // callerPhone comes from a Supabase session whose JWT carries an SMS-verified
+  // number — so this is the other half.
+  const { data: identity } = await admin
+    .from("identity_verifications")
+    .select("status, verified_name")
+    .eq("phone", fromPhone)
+    .maybeSingle();
+  if (identity?.status !== "verified") {
+    return json({ error: "identity_required" }, 403);
+  }
+  // Without a name there is nothing to check the card against, and the card
+  // check is not optional.
+  if (!identity.verified_name) {
+    return json({ error: "identity_required" }, 403);
+  }
+
   const toPhone = (body.toPhone ?? "").replace(/\D/g, "");
   const amountCents = Math.round(Number(body.amountCents ?? 0));
   const currency = (body.currency ?? "cad").toLowerCase();
@@ -144,6 +161,11 @@ Deno.serve(async (req) => {
       // Enables cards + Apple/Google Pay in the native Payment Sheet.
       automatic_payment_methods: { enabled: true },
       application_fee_amount: feeCents,
+      // Authorise now, capture only once the card has been judged. The
+      // cardholder name and whether it is prepaid are not knowable until a
+      // card is actually attached, so the alternative is checking after the
+      // money has moved — which is not a check, it is a refund.
+      capture_method: "manual",
       // A statement line the sender will recognise. "STRIPE* SOMETHING" is a
       // leading cause of friendly fraud: people dispute what they don't
       // recognise instead of asking about it.
@@ -162,6 +184,9 @@ Deno.serve(async (req) => {
         // whom, and that they confirmed it was final.
         acknowledged_final: body.acknowledged === true ? "yes" : "no",
         acknowledged_at: new Date().toISOString(),
+        // Carried on the intent so the capture gate can compare without
+        // another round trip to our own database.
+        verified_name: identity.verified_name,
       },
     }, { stripeAccount: dest.stripe_account_id });
 

@@ -9928,7 +9928,9 @@ void main() {
       // that actually protects the platform now: transfers must be DIRECT
       // charges. A destination charge would route the money through the
       // platform's balance and hand it the dispute liability.
-      for (final name in pasteFunctions.where((n) => n.startsWith('payments-'))) {
+      // Only the function that actually charges inlines the fee; the others
+      // in the family (status lookups, account sessions) never touch it.
+      for (final name in const ['payments-create-intent']) {
         final copy =
             File('docs/edge_functions_paste/$name.ts').readAsStringSync();
         final pct = RegExp(r'PLATFORM_FEE_PERCENT"\) \?\? "([\d.]+)"')
@@ -10348,6 +10350,43 @@ void main() {
       expect(storage.quotaBytes, 0);
       expect(storage.fits(1), isFalse);
       expect(storage.isFull, isTrue, reason: 'nothing stored, nothing spare');
+    });
+  });
+
+  group('Who may send money', () {
+    test('both gates are enforced on the server, not the client', () {
+      // A rule the app enforces is a rule an app can be modified to skip, so
+      // the checks live in payments-create-intent and the capture gate.
+      final intent = File('supabase/functions/payments-create-intent/index.ts')
+          .readAsStringSync();
+
+      // Identity: the phone is already verified (callerPhone comes from a
+      // session whose JWT carries an SMS-verified number); this is the ID half.
+      expect(intent.contains('identity_verifications'), isTrue);
+      expect(intent.contains('identity_required'), isTrue);
+      expect(intent.contains("identity?.status !== \"verified\""), isTrue);
+
+      // The card cannot be judged until one is attached, so the charge is
+      // authorised and held rather than taken.
+      expect(intent.contains('capture_method: "manual"'), isTrue,
+          reason: 'checking after capture is a refund, not a check');
+
+      final webhook = File('supabase/functions/payments-webhook/index.ts')
+          .readAsStringSync();
+      expect(webhook.contains('amount_capturable_updated'), isTrue);
+      expect(webhook.contains('paymentIntents.capture'), isTrue);
+      expect(webhook.contains('paymentIntents.cancel'), isTrue,
+          reason: 'a card that fails must be released, never captured');
+      expect(webhook.contains('judgeCard'), isTrue);
+    });
+
+    test('no verified name means no sending', () {
+      // Without a name there is nothing to check a card against. That has to
+      // fail closed, or the card rule quietly stops applying to anyone whose
+      // ID check returned no name.
+      final intent = File('supabase/functions/payments-create-intent/index.ts')
+          .readAsStringSync();
+      expect(intent.contains('!identity.verified_name'), isTrue);
     });
   });
 

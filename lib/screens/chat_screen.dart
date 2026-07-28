@@ -1789,7 +1789,30 @@ class _ChatScreenState extends State<ChatScreen> {
         note: result.note,
         acknowledged: result.acknowledged,
       );
-      settle(ok ? 'paid' : 'failed'); // false = cancelled/declined in the sheet
+      // The sheet returning true means the card authorised, not that it was
+      // charged: capture waits on the cardholder check. Saying "paid" here
+      // would be a lie for a card that is about to be refused.
+      if (!ok) {
+        settle('failed');
+        return;
+      }
+      settle('pending');
+      final intentId = svc.lastPaymentIntentId;
+      final outcome = intentId.isEmpty
+          ? 'pending'
+          : await svc.awaitSettlement(intentId);
+      settle(switch (outcome) {
+        'succeeded' || 'paid' => 'paid',
+        'pending' => 'pending',
+        _ => 'failed',
+      });
+      if (outcome.startsWith('blocked_') && mounted) {
+        messenger.showSnackBar(SnackBar(
+          content: Text(outcome == 'blocked_prepaid'
+              ? 'Prepaid cards can\'t be used to send money.'
+              : 'That card has to be in your own name.'),
+        ));
+      }
     } on PaymentException catch (e) {
       settle('failed');
       messenger.showSnackBar(SnackBar(
@@ -1800,6 +1823,9 @@ class _ChatScreenState extends State<ChatScreen> {
           // invites another attempt.
           'sender_banned' =>
             'Sending money is blocked on this account after a chargeback.',
+          'identity_required' =>
+            'Verify your identity before sending money — Settings → Get '
+                'verified.',
           _ => 'Payment failed: ${e.code}',
         }),
       ));

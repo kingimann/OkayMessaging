@@ -67,6 +67,91 @@ function applicationFee(amountCents: number): number {
   return Math.max(0, Math.round((amountCents * pct) / 100) + fixed);
 }
 
+// Deciding whether a card may be used to send money.
+//
+// Two rules, both of which have to hold before a charge is captured:
+//
+//   1. The card is not prepaid. A prepaid card is bought with cash and tied
+//      to nobody, which is the whole appeal for someone moving money they
+//      shouldn't be.
+//   2. The cardholder name matches the name Stripe read off the sender's
+//      government ID. Someone else's card is not yours to send from.
+//
+// Both are checked against the *authorised* payment method, before capture,
+// so a card that fails is never actually charged.
+
+/// Strips case, accents and punctuation so "O'BRIEN-Smith" and "obrien smith"
+/// compare equal.
+///
+/// Apostrophes are deleted rather than turned into spaces: they never
+/// separate one name from another, and splitting "O'Brien" into "o" and
+/// "brien" would stop it matching a card printed "OBRIEN". Hyphens do
+/// separate, so they become spaces.
+function normalizeName(name: string): string {
+  return name
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/['’ʼ]/g, "")
+    .replace(/[^a-z\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/// Whether [cardName] plausibly belongs to the person whose ID says
+/// [verifiedName].
+///
+/// Deliberately lenient in one direction and strict in the other. Cards carry
+/// abbreviated and reordered names — "SMITH/ROBERT J", "Rob Smith", "Robert
+/// John Smith" — and rejecting a legitimate sender is a worse failure here
+/// than accepting a nickname. So: every surname-ish token of the ID name must
+/// appear, and the first name must match or be a prefix of it. A different
+/// person's name shares neither.
+function nameMatches(cardName: string, verifiedName: string): boolean {
+  const card = normalizeName(cardName);
+  const id = normalizeName(verifiedName);
+  if (card.length === 0 || id.length === 0) return false;
+  if (card === id) return true;
+
+  const cardParts = card.split(" ").filter((p) => p.length > 1);
+  const idParts = id.split(" ").filter((p) => p.length > 1);
+  if (cardParts.length === 0 || idParts.length === 0) return false;
+
+  // The last token of the ID name is the one that must be present outright.
+  const surname = idParts[idParts.length - 1];
+  if (!cardParts.includes(surname)) return false;
+
+  // And something on the card has to correspond to the given name, allowing
+  // "Rob" for "Robert" but not "Alice" for "Robert".
+  const given = idParts[0];
+  return cardParts.some((p) =>
+    p === given || given.startsWith(p) || p.startsWith(given)
+  );
+}
+
+type CardVerdict =
+  | { ok: true }
+  | { ok: false; reason: "prepaid" | "name_mismatch" | "unknown_card" };
+
+/// The full decision for one authorised card.
+function judgeCard(
+  card: { funding?: string | null } | null | undefined,
+  billingName: string | null | undefined,
+  verifiedName: string | null | undefined,
+): CardVerdict {
+  if (!card) return { ok: false, reason: "unknown_card" };
+  if (card.funding === "prepaid") return { ok: false, reason: "prepaid" };
+  // No verified name means the sender never passed the ID check, or Stripe
+  // gave us no name to compare. Either way there is nothing to match against,
+  // and "nothing to match" must fail closed.
+  if (!verifiedName || !billingName) {
+    return { ok: false, reason: "name_mismatch" };
+  }
+  return nameMatches(billingName, verifiedName)
+    ? { ok: true }
+    : { ok: false, reason: "name_mismatch" };
+}
+
 // Stripe webhook: keeps our payment metadata in sync with the source of truth.
 // Handles payment success/failure, connected-account KYC updates, and payouts
 // to the receiver's bank. Configure the endpoint in the Stripe Dashboard and
@@ -107,6 +192,48 @@ Deno.serve(async (req) => {
       // It protects the platform too — Stripe closes accounts whose dispute
       // ratio climbs, and that ratio counts disputes whether they are won or
       // lost.
+      // The card is authorised but not yet charged. This is the only moment
+      // the cardholder name and funding type are knowable *before* money
+      // moves, so both rules are enforced here: capture a card that passes,
+      // cancel one that doesn't. A cancelled authorisation releases the hold
+      // and the sender is never charged.
+      case "payment_intent.amount_capturable_updated": {
+        const pi = event.data.object as {
+          id: string;
+          payment_method?: string;
+          metadata?: { verified_name?: string };
+        };
+        const account = event.account; // direct charges live on the recipient
+        const opts = account ? { stripeAccount: account } : undefined;
+        let verdict: CardVerdict = { ok: false, reason: "unknown_card" };
+        try {
+          const pm = pi.payment_method
+            ? await stripe.paymentMethods.retrieve(pi.payment_method, opts)
+            : null;
+          verdict = judgeCard(
+            pm?.card as { funding?: string | null } | null,
+            pm?.billing_details?.name,
+            pi.metadata?.verified_name,
+          );
+        } catch (_) {
+          // Anything we can't inspect, we don't capture.
+        }
+
+        if (verdict.ok) {
+          await stripe.paymentIntents.capture(pi.id, opts);
+          await admin.from("payment_transactions").update({
+            status: "succeeded",
+            updated_at: new Date().toISOString(),
+          }).eq("id", pi.id);
+        } else {
+          await stripe.paymentIntents.cancel(pi.id, opts);
+          await admin.from("payment_transactions").update({
+            status: `blocked_${verdict.reason}`,
+            updated_at: new Date().toISOString(),
+          }).eq("id", pi.id);
+        }
+        break;
+      }
       case "charge.dispute.created": {
         const dispute = event.data.object as {
           id: string;
@@ -167,10 +294,29 @@ Deno.serve(async (req) => {
         };
         const phone = session.metadata?.phone;
         if (phone) {
+          // On a pass, keep the legal name Stripe read off the document. It
+          // is the only trustworthy thing to check a cardholder name against,
+          // and verified_outputs has to be asked for explicitly.
+          let verifiedName: string | null = null;
+          if (session.status === "verified") {
+            try {
+              const full = await stripe.identity.verificationSessions.retrieve(
+                session.id,
+                { expand: ["verified_outputs"] },
+              );
+              const out = (full as { verified_outputs?: { name?: string } })
+                .verified_outputs;
+              verifiedName = out?.name ?? null;
+            } catch (_) {
+              // A missing name means the name check can't pass; it must never
+              // mean the name check is skipped.
+            }
+          }
           await admin.from("identity_verifications").upsert({
             phone,
             session_id: session.id,
             status: session.status,
+            ...(verifiedName ? { verified_name: verifiedName } : {}),
             updated_at: new Date().toISOString(),
           });
         }

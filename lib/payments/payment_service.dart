@@ -107,6 +107,11 @@ class PaymentService {
   bool get canSendOnThisDevice =>
       testMode.value || (_realConfigured && StripeSheet.isSupported);
 
+  /// The PaymentIntent from the most recent [sendMoney]. The charge is
+  /// authorised before it is captured, so the caller needs this to find out
+  /// how it ended.
+  String lastPaymentIntentId = '';
+
   SupabaseClient get _client => Supabase.instance.client;
 
   Future<Map<String, dynamic>> _invoke(String name,
@@ -135,6 +140,35 @@ class PaymentService {
     'CONNECT_PAGE_URL',
     defaultValue: 'https://kingimann.github.io/OkayMessaging/connect.html',
   );
+
+  /// Waits for a transfer to settle.
+  ///
+  /// The card is authorised, then judged, then captured — so the answer isn't
+  /// known the moment the payment sheet closes. Polls briefly and returns the
+  /// final status, or 'pending' if it is still undecided (the webhook will
+  /// have finished long before this gives up in practice).
+  Future<String> awaitSettlement(String paymentIntentId,
+      {Duration timeout = const Duration(seconds: 20)}) async {
+    final deadline = DateTime.now().add(timeout);
+    while (DateTime.now().isBefore(deadline)) {
+      try {
+        final r = await _invoke(
+            'payments-intent-status', {'paymentIntentId': paymentIntentId});
+        final status = r['status'] as String? ?? '';
+        if (status.isNotEmpty &&
+            status != 'pending' &&
+            status != 'requires_capture' &&
+            status != 'unknown') {
+          return status;
+        }
+      } catch (_) {
+        // Offline mid-poll: keep the receipt pending rather than claim it
+        // failed. The server has already decided either way.
+      }
+      await Future<void>.delayed(const Duration(seconds: 2));
+    }
+    return 'pending';
+  }
 
   /// An Account Session for Stripe's Connect embedded components — the
   /// in-app onboarding path, with no browser and no handoff.
@@ -194,6 +228,7 @@ class PaymentService {
       // they understood.
       'acknowledged': acknowledged,
     });
+    lastPaymentIntentId = intent['paymentIntentId'] as String? ?? '';
     await StripeSheet.init(_publishableKey);
     return StripeSheet.presentPayment(
       clientSecret: intent['clientSecret'] as String,
