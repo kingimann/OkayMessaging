@@ -77,6 +77,7 @@ import 'package:okay_messaging/state/file_transfer.dart';
 import 'package:okay_messaging/models/status_update.dart';
 import 'package:okay_messaging/payments/payment_service.dart';
 import 'package:okay_messaging/payments/payment_amount_sheet.dart';
+import 'package:okay_messaging/screens/wallet_screen.dart';
 import 'package:okay_messaging/payments/storage_economics.dart';
 import 'package:okay_messaging/payments/store_purchases.dart';
 import 'package:okay_messaging/state/backup_service.dart';
@@ -10206,6 +10207,37 @@ void main() {
               .widget<FilledButton>(find.byType(FilledButton))
               .onPressed,
           isNull);
+    });
+
+    testWidgets('a recipient is told they carry the chargeback before setup',
+        (tester) async {
+      // The flip side of the platform not holding funds: payments land in the
+      // recipient's own Stripe account, so a reversal comes out of it. Saying
+      // so belongs before onboarding, not at their first dispute.
+      bool? accepted;
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => TextButton(
+              onPressed: () async =>
+                  accepted = await showRecipientLiabilityNotice(context),
+              child: const Text('onboard'),
+            ),
+          ),
+        ),
+      ));
+      await tester.tap(find.text('onboard'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Before you set up payments'), findsOneWidget);
+      expect(find.textContaining('we never hold it'), findsOneWidget);
+      expect(find.textContaining('comes back out of your account'),
+          findsOneWidget);
+      // Backing out must not start onboarding.
+      await tester.tap(find.text('Not now'));
+      await tester.pumpAndSettle();
+      expect(find.text('Before you set up payments'), findsNothing);
+      expect(accepted, isFalse, reason: 'declining must not onboard anyone');
     });
 
     test('storage has no free allowance to give away', () {

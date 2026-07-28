@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../payments/payment_service.dart';
+import '../widgets/app_dialogs.dart';
 import '../theme/app_theme.dart';
 import '../widgets/pull_to_refresh.dart';
 
@@ -9,6 +10,29 @@ import '../widgets/pull_to_refresh.dart';
 /// connected-account balance, and track automatic payouts to the bank. The
 /// platform never holds funds — money sits in the user's Stripe balance and
 /// Stripe auto-pays it out.
+/// Tells a would-be recipient what they are taking on before they onboard.
+///
+/// Receiving money here means being the merchant of record: payments land in
+/// their own Stripe account, and a chargeback comes back out of it. That is
+/// the trade for the platform never holding anyone's money, and it belongs
+/// before sign-up rather than at their first dispute.
+///
+/// Returns true when they accept.
+Future<bool> showRecipientLiabilityNotice(BuildContext context) =>
+    showAppConfirmDialog(
+      context,
+      icon: Icons.account_balance_outlined,
+      title: 'Before you set up payments',
+      message: 'Money people send you goes straight into your own Stripe '
+          'account — we never hold it.\n\n'
+          'That also means the payment is yours: Stripe\'s processing fee '
+          'comes out of it, and if a sender reverses a payment through their '
+          'bank, the amount comes back out of your account. We ban anyone who '
+          'does that, but the money is still yours to lose.',
+      confirmLabel: 'I understand',
+      cancelLabel: 'Not now',
+    );
+
 class WalletScreen extends StatefulWidget {
   const WalletScreen({super.key});
 
@@ -44,6 +68,9 @@ class _WalletScreenState extends State<WalletScreen> {
   void _refresh() => setState(() => _future = _load());
 
   Future<void> _startOnboarding() async {
+    final understood = await showRecipientLiabilityNotice(context);
+    if (!understood || !mounted) return;
+
     setState(() => _busy = true);
     final messenger = ScaffoldMessenger.of(context);
     try {
