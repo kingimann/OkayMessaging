@@ -220,6 +220,31 @@ class StorageStore extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Adopts the server's view of the subscription.
+  ///
+  /// Apple renews (and cancels, and refunds) whether or not the app is open,
+  /// so `iap-status` — not a local +30 days — is what actually decides. The
+  /// local copy is kept only so the screens have something to show before the
+  /// first round trip and while offline; a null [expiresAt] with [active]
+  /// true means Apple gave no date, so the local period stands in.
+  Future<void> applyServerEntitlement({
+    required bool active,
+    required int gb,
+    DateTime? expiresAt,
+  }) async {
+    if (!active || gb <= 0) {
+      // Only clear a paid plan the server denies — never wipe one just
+      // because the call came back empty (that path returns without calling).
+      _purchasedGb = 0;
+      _activeUntil = null;
+    } else {
+      _purchasedGb = gb > maxGb ? maxGb : gb;
+      _activeUntil = expiresAt ?? DateTime.now().add(period);
+    }
+    await _persist();
+    notifyListeners();
+  }
+
   /// Drops back to the free allowance immediately.
   Future<void> cancel() async {
     _purchasedGb = 0;

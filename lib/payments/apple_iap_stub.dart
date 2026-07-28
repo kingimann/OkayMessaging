@@ -3,11 +3,15 @@
 class AppleIap {
   static bool get isSupported => false;
 
+  /// Never fires here; declared so the entitlement service can wire itself up
+  /// without a platform check.
+  static void Function(String jws)? onTransaction;
+
   static Future<void> init() async {}
 
   static Future<bool> storeAvailable() async => false;
 
-  static Future<bool> buy(String productId, {bool consumable = false}) async {
+  static Future<String?> buy(String productId, {bool consumable = false}) async {
     throw UnsupportedError('In-app purchases are available in the mobile app.');
   }
 

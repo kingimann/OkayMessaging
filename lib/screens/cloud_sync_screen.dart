@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../payments/store_purchases.dart';
 import '../state/cloud_sync.dart';
+import '../payments/iap_entitlement.dart';
 import '../state/storage_store.dart';
 import '../utils/date_formatter.dart';
 
@@ -28,6 +29,18 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
   /// The size the picker is currently showing, in GB. Null until first build,
   /// which seeds it from what the user already has.
   int? _pickedGb;
+
+  @override
+  void initState() {
+    super.initState();
+    // Ask the server what Apple has done since last time — a renewal, a
+    // cancellation, or a refund all happen without the app being open.
+    IapEntitlement.instance.refresh().then((e) {
+      if (e == null || !mounted) return;
+      StorageStore.instance.applyServerEntitlement(
+          active: e.active, gb: e.gb, expiresAt: e.expiresAt);
+    });
+  }
 
   @override
   void dispose() {

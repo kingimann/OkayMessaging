@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../tool/paste_functions.dart';
+import 'package:okay_messaging/payments/iap_entitlement.dart';
 import 'package:okay_messaging/app_state.dart';
 import 'package:okay_messaging/crypto/e2e.dart';
 import 'package:okay_messaging/data/mock_data.dart';
@@ -9809,13 +9810,13 @@ void main() {
     // 1.5% + 0c long after the shared helper moved to 3.4% + 35c, which would
     // have deployed a fee below Stripe's own cut on every transfer.
     test('every paste copy matches what the generator produces', () {
-      final shared =
-          File('supabase/functions/_shared/stripe.ts').readAsStringSync();
+      String readShared(String n) =>
+          File('supabase/functions/_shared/$n.ts').readAsStringSync();
       for (final name in pasteFunctions) {
         final source =
             File('supabase/functions/$name/index.ts').readAsStringSync();
         final expected = buildPasteCopy(name,
-            sharedSource: shared, functionSource: source);
+            readShared: readShared, functionSource: source);
         final onDisk =
             File('docs/edge_functions_paste/$name.ts').readAsStringSync();
         expect(onDisk, expected,
@@ -9837,8 +9838,9 @@ void main() {
 
     test('the inlined platform fee never falls below Stripe\'s own cut', () {
       // Mirrors applicationFee() in the shared helper. A fee at or under
-      // Stripe's 2.9% + 30c means the platform pays the difference.
-      for (final name in pasteFunctions) {
+      // Stripe's 2.9% + 30c means the platform pays the difference. Only the
+      // payment functions inline it; the IAP ones bill through Apple.
+      for (final name in pasteFunctions.where((n) => n.startsWith('payments-'))) {
         final copy =
             File('docs/edge_functions_paste/$name.ts').readAsStringSync();
         final pct = RegExp(r'PLATFORM_FEE_PERCENT"\) \?\? "([\d.]+)"')
@@ -9855,6 +9857,86 @@ void main() {
             greaterThan(PaymentEconomics.stripeFixedCents));
         expect(copy.contains('Math.max(fee, stripeCost + 1)'), isTrue,
             reason: '$name lost the floor that stops a bad env var');
+      }
+    });
+  });
+
+  group('Subscription entitlement', () {
+    // Apple bills an auto-renewable subscription monthly whether or not the
+    // app is ever opened, so a local "+30 days" would drift the moment a
+    // renewal, cancellation, or refund happened elsewhere. The server's answer
+    // is what counts; these cover the client half of adopting it.
+    setUp(() => SharedPreferences.setMockInitialValues({}));
+
+    test('the server can grant, extend, and revoke a plan', () async {
+      final storage = StorageStore.instance;
+      addTearDown(storage.resetForTest);
+      storage.resetForTest();
+      expect(storage.isPaid, isFalse);
+      expect(storage.activeGb, StorageStore.freeGb);
+
+      final renewal = DateTime.now().add(const Duration(days: 30));
+      await storage.applyServerEntitlement(
+          active: true, gb: 50, expiresAt: renewal);
+      expect(storage.isPaid, isTrue);
+      expect(storage.activeGb, 50);
+
+      // A renewal moves the date out without another purchase.
+      final next = DateTime.now().add(const Duration(days: 60));
+      await storage.applyServerEntitlement(
+          active: true, gb: 50, expiresAt: next);
+      expect(storage.daysLeft, greaterThan(30));
+
+      // A refund ends it immediately, even mid-period.
+      await storage.applyServerEntitlement(active: false, gb: 0);
+      expect(storage.isPaid, isFalse);
+      expect(storage.activeGb, StorageStore.freeGb);
+    });
+
+    test('an expiry already past leaves the account on the free tier',
+        () async {
+      final storage = StorageStore.instance;
+      addTearDown(storage.resetForTest);
+      storage.resetForTest();
+      await storage.applyServerEntitlement(
+          active: true,
+          gb: 30,
+          expiresAt: DateTime.now().subtract(const Duration(days: 1)));
+      expect(storage.isPaid, isFalse);
+      expect(storage.activeGb, StorageStore.freeGb);
+      // Still remembered, so the screen offers "renew" rather than "subscribe".
+      expect(storage.selectedGb, 30);
+    });
+
+    test('entitlement JSON survives the round trip', () {
+      final e = Entitlement.fromJson(const {
+        'active': true,
+        'gb': 20,
+        'expiresAt': '2030-01-01T00:00:00Z',
+        'productId': 'com.okaymessaging.storage.gb20.monthly',
+      });
+      expect(e.active, isTrue);
+      expect(e.gb, 20);
+      expect(e.expiresAt!.toUtc().year, 2030);
+      expect(Entitlement.fromJson(const {}).active, isFalse);
+      expect(Entitlement.fromJson(const {'active': true, 'gb': 10}).expiresAt,
+          isNull);
+    });
+
+    test('every purchasable size has a product id the server can price back',
+        () {
+      // gbForProduct() in _shared/iap.ts parses the size back out of the id.
+      // If the two ever disagree a purchase would validate to 0 GB.
+      final pattern = RegExp(r'\.storage\.gb(\d+)\.monthly$');
+      for (final gb in StorageStore.sizes) {
+        final id = StorePurchases.storageProductId(gb);
+        final m = pattern.firstMatch(id);
+        expect(m, isNotNull, reason: '$id is not in the form the server parses');
+        expect(int.parse(m!.group(1)!), gb);
+      }
+      // Tips must NOT parse as storage — they grant no entitlement.
+      for (final tip in StorePurchases.tipProducts) {
+        expect(pattern.hasMatch(tip.id), isFalse);
       }
     });
   });

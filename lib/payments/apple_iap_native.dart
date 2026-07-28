@@ -21,28 +21,36 @@ class AppleIap {
   static StreamSubscription<List<PurchaseDetails>>? _sub;
 
   // Only one purchase is ever in flight from the UI at a time.
-  static Completer<bool>? _pending;
+  static Completer<String?>? _pending;
   static String? _pendingId;
+
+  /// Called with Apple's signed transaction for every delivered purchase —
+  /// including restores and the renewals StoreKit replays on launch, which
+  /// never pass through [buy]. Wired to the entitlement service so a
+  /// subscription that renewed while the app was closed still lands.
+  static void Function(String jws)? onTransaction;
 
   static Future<void> init() async {
     _sub ??= _iap.purchaseStream.listen(
       _onPurchases,
-      onError: (_) => _resolvePending(false),
+      onError: (_) => _resolvePending(null),
     );
   }
 
   static Future<bool> storeAvailable() => _iap.isAvailable();
 
   /// Presents the store sheet for [productId] and completes when the purchase
-  /// resolves. Returns true on success, false on cancel/error/unknown product.
-  static Future<bool> buy(String productId, {bool consumable = false}) async {
+  /// resolves. Returns Apple's signed transaction (JWS) on success, or null on
+  /// cancel, error, or an unknown product. The caller hands that token to
+  /// `iap-validate`; the app itself never decides what a purchase granted.
+  static Future<String?> buy(String productId, {bool consumable = false}) async {
     await init();
-    if (!await _iap.isAvailable()) return false;
+    if (!await _iap.isAvailable()) return null;
     final resp = await _iap.queryProductDetails({productId});
-    if (resp.productDetails.isEmpty) return false;
+    if (resp.productDetails.isEmpty) return null;
     final param = PurchaseParam(productDetails: resp.productDetails.first);
 
-    _pending = Completer<bool>();
+    _pending = Completer<String?>();
     _pendingId = productId;
     final started = consumable
         ? await _iap.buyConsumable(purchaseParam: param)
@@ -50,7 +58,7 @@ class AppleIap {
     if (!started) {
       _pending = null;
       _pendingId = null;
-      return false;
+      return null;
     }
     return _pending!.future;
   }
@@ -64,20 +72,22 @@ class AppleIap {
         case PurchaseStatus.restored:
           // Storefront requires acknowledging every delivered purchase.
           if (p.pendingCompletePurchase) _iap.completePurchase(p);
-          if (p.productID == _pendingId) _resolvePending(true);
+          final jws = p.verificationData.serverVerificationData;
+          if (jws.isNotEmpty) onTransaction?.call(jws);
+          if (p.productID == _pendingId) _resolvePending(jws);
         case PurchaseStatus.error:
         case PurchaseStatus.canceled:
-          if (p.productID == _pendingId) _resolvePending(false);
+          if (p.productID == _pendingId) _resolvePending(null);
         case PurchaseStatus.pending:
           break;
       }
     }
   }
 
-  static void _resolvePending(bool ok) {
+  static void _resolvePending(String? jws) {
     final c = _pending;
     _pending = null;
     _pendingId = null;
-    if (c != null && !c.isCompleted) c.complete(ok);
+    if (c != null && !c.isCompleted) c.complete(jws);
   }
 }

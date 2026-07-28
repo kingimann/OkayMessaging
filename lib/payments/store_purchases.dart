@@ -1,4 +1,5 @@
 import 'apple_iap.dart';
+import 'iap_entitlement.dart';
 import 'payment_service.dart';
 
 /// Digital purchases that MUST go through the platform store (Apple / Google),
@@ -39,6 +40,11 @@ class StorePurchases {
 
   /// Buys (or renews) the storage subscription for [gb]. Returns true when the
   /// purchase completes.
+  ///
+  /// What the purchase *granted* is not decided here: StoreKit's signed
+  /// transaction goes to `iap-validate`, and the entitlement that comes back
+  /// is what the app honours. Apple renews monthly on its own, so the device
+  /// can't be the source of truth.
   Future<bool> buyStorage(int gb) async {
     final id = storageProductId(gb);
     if (id.isEmpty) return false;
@@ -46,7 +52,12 @@ class StorePurchases {
       await Future<void>.delayed(const Duration(milliseconds: 900));
       return true;
     }
-    return AppleIap.buy(id, consumable: false);
+    final jws = await AppleIap.buy(id, consumable: false);
+    if (jws == null) return false;
+    // AppleIap.onTransaction has already forwarded this for validation; the
+    // await is so the caller sees the entitlement before the screen redraws.
+    await IapEntitlement.instance.validate(jws);
+    return true;
   }
 
   /// Sends a tip to the developer via a consumable in-app purchase.
@@ -55,6 +66,6 @@ class StorePurchases {
       await Future<void>.delayed(const Duration(milliseconds: 900));
       return true;
     }
-    return AppleIap.buy(productId, consumable: true);
+    return await AppleIap.buy(productId, consumable: true) != null;
   }
 }

@@ -3,6 +3,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import 'app_state.dart';
 import 'crypto/key_exchange.dart';
+import 'payments/iap_entitlement.dart';
 import 'payments/payment_service.dart';
 import 'relay/relay_config.dart';
 import 'relay/relay_service.dart';
@@ -87,6 +88,9 @@ Future<void> main() async {
   await _boot('follows', FollowStore.instance.load);
   await _boot('feed', FeedStore.instance.load);
   await _boot('storage', StorageStore.instance.load);
+  // StoreKit replays renewals that happened while the app was closed, so this
+  // has to be listening before the purchase stream opens.
+  IapEntitlement.instance.start();
   await _boot('cloud sync', CloudSync.instance.load);
   await _boot('status', StatusStore.instance.load);
   await _boot('favourites', FavouritesStore.instance.load);

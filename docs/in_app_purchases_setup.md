@@ -72,3 +72,76 @@ the labels to the live store price).
 - **Server validation** (receipt verification) isn't set up — entitlement is
   currently client-trusted. If you later add server auth, validate receipts in
   an Edge Function before granting the tier.
+
+## Auto-renewable subscriptions: the server half
+
+Apple charges a subscription every month whether or not the app is ever
+opened. The device therefore cannot decide who has paid — a local "+30 days"
+drifts the first time Apple renews, cancels, or refunds something, and month
+two would bill the customer while their storage quietly stopped working.
+
+Three Edge Functions close that gap:
+
+| Function | Called by | JWT verification |
+|---|---|---|
+| `iap-validate` | the app, right after a purchase or restore | **on** |
+| `iap-notify` | Apple, whenever a subscription changes | **off** |
+| `iap-status` | the app, on launch and when the storage screen opens | **on** |
+
+`iap-notify` must have "Enforce JWT verification" turned **off** — Apple
+authenticates with its own signature, not a Supabase login, exactly like
+`payments-webhook`.
+
+### No App Store Connect API key is needed
+
+StoreKit 2 transactions and App Store Server Notifications V2 are both JWS
+with Apple's full certificate chain in the header, so they verify offline.
+`_shared/apple_jws.ts` pins Apple Root CA G3 **and** walks the chain — pinning
+alone would prove nothing, since that root is public and anyone could staple
+it onto a chain they forged.
+
+### Setup
+
+1. Run `docs/iap_subscriptions.sql` in the SQL editor.
+2. Deploy `iap-validate`, `iap-notify`, `iap-status` (paste copies are in
+   `docs/edge_functions_paste/`). Turn JWT verification off on `iap-notify`.
+3. App Store Connect -> your app -> App Information -> **App Store Server
+   Notifications**. Set BOTH URLs, production and sandbox, to:
+
+   ```
+   https://trbdqucphtsstnrwwfnw.supabase.co/functions/v1/iap-notify
+   ```
+
+   Choose **Version 2** notifications.
+
+`APNS_BUNDLE_ID` doubles as the bundle id these functions check a receipt
+against; it defaults to `com.okaymessaging` when unset.
+
+### What each notification does
+
+| Apple says | Row becomes | Access |
+|---|---|---|
+| `SUBSCRIBED`, `DID_RENEW`, `OFFER_REDEEMED` | `active` | yes, to the new expiry |
+| `DID_CHANGE_RENEWAL_STATUS` / `AUTO_RENEW_DISABLED` | `canceled` | **yes, until the paid period ends** |
+| `DID_FAIL_TO_RENEW` / `GRACE_PERIOD` | `grace` | yes, to the grace expiry |
+| `DID_FAIL_TO_RENEW` (no grace) | `expired` | no |
+| `EXPIRED` | `expired` | no |
+| `REFUND`, `REVOKE` | `refunded` | no, immediately |
+| anything unrecognised | unchanged | unchanged |
+
+Turning off auto-renew is not a cancellation of the current month — the user
+paid for it and keeps it until it runs out. An unrecognised notification type
+never revokes anything, because Apple adds new ones over time.
+
+### Testing it
+
+The helpers use only standard WebCrypto, so Node runs them without Deno:
+
+```bash
+node --experimental-strip-types supabase/functions/_shared/apple_jws_test.mjs
+node --experimental-strip-types supabase/functions/_shared/iap_test.mjs
+```
+
+End to end, use a Sandbox Apple ID: sandbox subscriptions renew every few
+minutes rather than monthly, so a renewal can be observed in `subscriptions`
+within the hour.
