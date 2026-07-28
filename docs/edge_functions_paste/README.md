@@ -137,3 +137,23 @@ delete from public.payment_bans where phone = '15551234567';
 Optionally set `STATEMENT_DESCRIPTOR` (defaults to `OKAYMSG`) so the charge is
 recognisable on a card statement — unrecognised descriptors are a leading
 cause of disputes.
+
+## In-app onboarding (Connect embedded components)
+
+Setting up payments no longer sends anyone to a browser. `payments-account-session`
+returns an Account Session client secret, `web/connect.html` mounts Stripe's
+`account-onboarding` component, and the app loads that page in a WebView inside
+its own screen.
+
+Deploy `payments-account-session` (JWT verification **on**) and, in the Stripe
+dashboard, enable **Connect embedded components** if it is not already on.
+
+Two Edge Function secrets matter here:
+
+| Secret | Why |
+|---|---|
+| `STRIPE_PUBLISHABLE_KEY` | the embedded component needs it to initialise; the app falls back to its own compiled-in key if unset |
+| `CONNECT_COUNTRY` | optional, defaults to `CA` |
+
+`payments-onboard` stays deployed as the fallback for the web build, which has
+no WebView.

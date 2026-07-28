@@ -19,6 +19,7 @@ const pasteFunctions = [
   'payments-onboard',
   'payments-status',
   'payments-webhook',
+  'payments-account-session',
   'iap-validate',
   'iap-notify',
   'iap-status',

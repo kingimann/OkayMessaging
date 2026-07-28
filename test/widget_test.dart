@@ -76,6 +76,8 @@ import 'package:okay_messaging/state/community_store.dart';
 import 'package:okay_messaging/state/file_transfer.dart';
 import 'package:okay_messaging/models/status_update.dart';
 import 'package:okay_messaging/payments/payment_service.dart';
+import 'package:okay_messaging/payments/connect_webview.dart';
+import 'package:okay_messaging/payments/connect_webview_stub.dart' as stub;
 import 'package:okay_messaging/payments/payment_amount_sheet.dart';
 import 'package:okay_messaging/screens/wallet_screen.dart';
 import 'package:okay_messaging/payments/storage_economics.dart';
@@ -10346,6 +10348,52 @@ void main() {
       expect(storage.quotaBytes, 0);
       expect(storage.fits(1), isFalse);
       expect(storage.isFull, isTrue, reason: 'nothing stored, nothing spare');
+    });
+  });
+
+  group('In-app Connect onboarding', () {
+    test('the embedded page ships with the web build and is reachable', () {
+      // The page is served from the app's own deployment, so it has to be in
+      // web/ (Flutter copies that into build/web) rather than docs/.
+      final page = File('web/connect.html');
+      expect(page.existsSync(), isTrue,
+          reason: 'web/connect.html is what the WebView loads');
+      final html = page.readAsStringSync();
+
+      // Stripe's own script renders the forms — that is what keeps identity
+      // and bank details going to Stripe and never through this app.
+      expect(html.contains('connect-js.stripe.com'), isTrue);
+      expect(html.contains('account-onboarding'), isTrue);
+
+      // The secret arrives by function call after load, never in the URL.
+      expect(html.contains('window.startConnect'), isTrue);
+      expect(html.contains('location.search'), isFalse,
+          reason: 'a client secret in the URL lands in history and logs');
+
+      expect(PaymentService.connectPageUrl.endsWith('/connect.html'), isTrue);
+      expect(PaymentService.connectPageUrl.startsWith('https://'), isTrue);
+    });
+
+    test('the web build gets a stub that reports unsupported, not a crash',
+        () {
+      // webview_flutter is mobile-only, so the web build compiles the stub
+      // and the Wallet falls back to the hosted link. Tested against the stub
+      // directly: `flutter test` runs on the VM, which has dart:io and so
+      // picks the *native* side of the conditional import.
+      expect(stub.ConnectWebView.isSupported, isFalse);
+      expect(
+          stub.ConnectWebView.build(
+            url: 'https://example.test/connect.html',
+            clientSecret: 'cs_test',
+            publishableKey: 'pk_test',
+            dark: true,
+            accent: const Color(0xFF12B76A),
+            onEvent: (_) {},
+          ),
+          isA<Widget>(),
+          reason: 'the stub must build something rather than throw');
+      // And the native side is what a phone gets.
+      expect(ConnectWebView.isSupported, isTrue);
     });
   });
 

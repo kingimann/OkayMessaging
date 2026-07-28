@@ -55,6 +55,18 @@ class WalletStatus {
 /// Client for the Stripe Connect payment flow. All secret-key work happens in
 /// Supabase Edge Functions; this only calls them (with the user's session) and
 /// drives the native payment sheet. The platform never holds funds or card data.
+/// Everything the embedded onboarding page needs to start.
+class ConnectSession {
+  final String clientSecret;
+  final String publishableKey;
+  final String pageUrl;
+  const ConnectSession({
+    required this.clientSecret,
+    required this.publishableKey,
+    required this.pageUrl,
+  });
+}
+
 class PaymentService {
   PaymentService._();
   static final PaymentService instance = PaymentService._();
@@ -105,9 +117,36 @@ class PaymentService {
   }
 
   /// Starts (or resumes) Express onboarding; returns the Stripe-hosted KYC URL.
+  ///
+  /// Kept as the fallback for anywhere the embedded flow can't run (the web
+  /// build has no WebView). Prefer [connectSession].
   Future<String> onboardingUrl() async {
     final r = await _invoke('payments-onboard');
     return r['url'] as String;
+  }
+
+  /// Where the embedded onboarding page lives. It ships with the web build,
+  /// so it sits next to the app's own deployment.
+  static const String connectPageUrl = String.fromEnvironment(
+    'CONNECT_PAGE_URL',
+    defaultValue: 'https://kingimann.github.io/OkayMessaging/connect.html',
+  );
+
+  /// An Account Session for Stripe's Connect embedded components — the
+  /// in-app onboarding path, with no browser and no handoff.
+  Future<ConnectSession> connectSession() async {
+    final r = await _invoke('payments-account-session');
+    final secret = r['clientSecret'] as String? ?? '';
+    if (secret.isEmpty) throw PaymentException('no_client_secret');
+    return ConnectSession(
+      clientSecret: secret,
+      // The function knows its own publishable key; fall back to the one
+      // compiled in, so a missing secret there isn't fatal.
+      publishableKey: (r['publishableKey'] as String?)?.isNotEmpty == true
+          ? r['publishableKey'] as String
+          : _publishableKey,
+      pageUrl: connectPageUrl,
+    );
   }
 
   /// The caller's current wallet + payout status.

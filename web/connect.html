@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<!--
+  Stripe Connect embedded onboarding, hosted by this app.
+
+  Loaded inside a WebView on a screen that has the app's own app bar, so
+  setting up payments never leaves the app or opens a browser. Stripe's own
+  forms render here, which is what keeps identity and banking details going
+  straight to Stripe and never through this app.
+
+  The client secret is NOT in the URL — the host calls startConnect() once the
+  page is up, so the secret stays out of history and logs.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Set up payments</title>
+<script src="https://connect-js.stripe.com/v1.0/connect.js"></script>
+<style>
+  :root { color-scheme: light dark; }
+  html, body {
+    margin: 0; padding: 0; background: transparent;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  #container { padding: 8px 12px 24px; }
+  #status {
+    padding: 40px 20px; text-align: center; font-size: 15px; color: #8b8f98;
+  }
+  .spinner {
+    width: 26px; height: 26px; margin: 0 auto 14px;
+    border: 3px solid rgba(140,140,150,.25); border-top-color: #12b76a;
+    border-radius: 50%; animation: spin .8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<div id="status"><div class="spinner"></div>Loading…</div>
+<div id="container"></div>
+<script>
+  // Told to the host so it can close the screen and refresh the wallet.
+  function notify(event) {
+    try {
+      if (window.OkayConnect && window.OkayConnect.postMessage) {
+        window.OkayConnect.postMessage(event);
+      }
+    } catch (e) {}
+  }
+
+  function fail(message) {
+    document.getElementById('status').textContent = message;
+    notify('error');
+  }
+
+  // Called by the host once the page has loaded, so the client secret never
+  // appears in a URL.
+  window.startConnect = function (clientSecret, publishableKey, dark, accent) {
+    if (!window.StripeConnect || !window.StripeConnect.initialize) {
+      fail('Could not reach Stripe. Check your connection and try again.');
+      return;
+    }
+    try {
+      var instance = window.StripeConnect.initialize({
+        publishableKey: publishableKey,
+        fetchClientSecret: function () { return Promise.resolve(clientSecret); },
+        appearance: {
+          overlays: 'dialog',
+          variables: {
+            colorPrimary: accent || '#12b76a',
+            colorBackground: dark ? '#121417' : '#ffffff',
+            colorText: dark ? '#e8eaed' : '#1a1c1e',
+            colorSecondaryText: dark ? '#9aa0a6' : '#5f6368',
+            borderRadius: '12px',
+            fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+          }
+        }
+      });
+      var onboarding = instance.create('account-onboarding');
+      onboarding.setOnExit(function () { notify('exit'); });
+      document.getElementById('status').style.display = 'none';
+      document.getElementById('container').appendChild(onboarding);
+      notify('ready');
+    } catch (e) {
+      fail('Could not start setup: ' + (e && e.message ? e.message : e));
+    }
+  };
+
+  // If the host never calls in, say so rather than spinning forever.
+  setTimeout(function () {
+    var s = document.getElementById('status');
+    if (s && s.style.display !== 'none' && s.textContent.indexOf('Loading') === 0) {
+      fail('Setup did not start. Close this and try again.');
+    }
+  }, 20000);
+</script>
+</body>
+</html>

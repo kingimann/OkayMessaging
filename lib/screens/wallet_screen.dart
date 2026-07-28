@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../payments/payment_service.dart';
+import '../payments/connect_webview.dart';
+import 'connect_onboarding_screen.dart';
 import '../widgets/app_dialogs.dart';
 import '../theme/app_theme.dart';
 import '../widgets/pull_to_refresh.dart';
@@ -70,6 +72,17 @@ class _WalletScreenState extends State<WalletScreen> {
   Future<void> _startOnboarding() async {
     final understood = await showRecipientLiabilityNotice(context);
     if (!understood || !mounted) return;
+
+    // Embedded, in a screen of our own: Stripe's forms render inside the app
+    // rather than in a browser or a popup. The hosted link stays as the
+    // fallback for anywhere a WebView doesn't exist (the web build).
+    if (ConnectWebView.isSupported) {
+      final done = await Navigator.of(context).push<bool>(
+        MaterialPageRoute(builder: (_) => const ConnectOnboardingScreen()),
+      );
+      if (done == true && mounted) _refresh();
+      return;
+    }
 
     setState(() => _busy = true);
     final messenger = ScaffoldMessenger.of(context);
