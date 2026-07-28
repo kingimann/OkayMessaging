@@ -1409,24 +1409,61 @@ class _ChannelScreenState extends State<ChannelScreen> {
                           final m = messages[i];
                           final showDate = i == 0 ||
                               !_sameDay(messages[i - 1].time, m.time);
+                          // Group a run from the same sender: only the first
+                          // shows the name, the rest tuck in tight — like chat.
+                          final prev = i == 0 ? null : messages[i - 1];
+                          final grouped = prev != null &&
+                              !showDate &&
+                              prev.isMe == m.isMe &&
+                              prev.senderName == m.senderName &&
+                              !prev.isCallEvent;
+                          final bubble = _ChannelBubble(
+                            message: m,
+                            communityId: widget.communityId,
+                            channelId: widget.channelId,
+                            announcement:
+                                channel.type == ChannelType.announcement,
+                            pinned:
+                                channel.pinnedMessageIds.contains(m.id),
+                            grouped: grouped,
+                            onReply: () => setState(() => _replyTo = m),
+                            onQuickReact: () => CommunityStore.instance
+                                .toggleChannelReaction(widget.communityId,
+                                    widget.channelId, m.id, '❤️'),
+                            onVote: m.isPoll
+                                ? (opt) => _votePoll(m, opt)
+                                : null,
+                          );
+                          // Swipe a message to the right to reply, exactly
+                          // like the 1:1 chat.
+                          final row = m.isPoll ||
+                                  channel.type == ChannelType.announcement
+                              ? bubble
+                              : Dismissible(
+                                  key: ValueKey('chmsg_${m.id}'),
+                                  direction: DismissDirection.startToEnd,
+                                  dismissThresholds: const {
+                                    DismissDirection.startToEnd: 0.25
+                                  },
+                                  confirmDismiss: (_) async {
+                                    setState(() => _replyTo = m);
+                                    return false;
+                                  },
+                                  background: const Padding(
+                                    padding: EdgeInsets.only(left: 24),
+                                    child: Align(
+                                      alignment: Alignment.centerLeft,
+                                      child: Icon(Icons.reply,
+                                          color: Colors.grey),
+                                    ),
+                                  ),
+                                  child: bubble,
+                                );
                           return Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
                               if (showDate) _DateSeparator(time: m.time),
-                              _ChannelBubble(
-                                message: m,
-                                communityId: widget.communityId,
-                                channelId: widget.channelId,
-                                announcement:
-                                    channel.type == ChannelType.announcement,
-                                pinned:
-                                    channel.pinnedMessageIds.contains(m.id),
-                                onReply: () =>
-                                    setState(() => _replyTo = m),
-                                onVote: m.isPoll
-                                    ? (opt) => _votePoll(m, opt)
-                                    : null,
-                              ),
+                              row,
                             ],
                           );
                         },
@@ -1901,7 +1938,14 @@ class _ChannelBubble extends StatelessWidget {
   final String channelId;
   final bool announcement;
   final bool pinned;
+
+  /// True when the previous message was from the same sender — the name is
+  /// dropped and the spacing tightens so a run reads as one turn.
+  final bool grouped;
   final VoidCallback? onReply;
+
+  /// Double-tap quick reaction (a heart), like the 1:1 chat.
+  final VoidCallback? onQuickReact;
   final ValueChanged<int>? onVote;
   const _ChannelBubble({
     required this.message,
@@ -1909,7 +1953,9 @@ class _ChannelBubble extends StatelessWidget {
     required this.channelId,
     this.announcement = false,
     this.pinned = false,
+    this.grouped = false,
     this.onReply,
+    this.onQuickReact,
     this.onVote,
   });
 
@@ -1958,6 +2004,20 @@ class _ChannelBubble extends StatelessWidget {
                         child: Text(e, style: const TextStyle(fontSize: 26)),
                       ),
                     ),
+                  // Any emoji, like the 1:1 chat's reaction picker.
+                  InkWell(
+                    borderRadius: BorderRadius.circular(24),
+                    onTap: () async {
+                      Navigator.pop(sheetContext);
+                      final picked = await showEmojiGifSheet(context);
+                      final emoji = picked?.emoji;
+                      if (emoji != null) _react(emoji);
+                    },
+                    child: const Padding(
+                      padding: EdgeInsets.all(8),
+                      child: Icon(Icons.add_reaction_outlined, size: 26),
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -2085,8 +2145,9 @@ class _ChannelBubble extends StatelessWidget {
         children: [
           GestureDetector(
             onLongPress: () => _showActions(context),
+            onDoubleTap: onQuickReact,
             child: Container(
-              margin: const EdgeInsets.fromLTRB(10, 3, 10, 1),
+              margin: EdgeInsets.fromLTRB(10, grouped ? 1 : 4, 10, 1),
               padding: const EdgeInsets.fromLTRB(13, 8, 13, 7),
               constraints: BoxConstraints(
                   maxWidth: MediaQuery.of(context).size.width * 0.78),
@@ -2104,7 +2165,9 @@ class _ChannelBubble extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  if (!message.isMe && message.senderName.isNotEmpty)
+                  if (!grouped &&
+                      !message.isMe &&
+                      message.senderName.isNotEmpty)
                     Padding(
                       padding: const EdgeInsets.only(bottom: 2),
                       child: Text(message.senderName,
