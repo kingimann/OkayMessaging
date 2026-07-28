@@ -13,6 +13,7 @@ class ConnectWebView {
     required bool dark,
     required Color accent,
     required void Function(String event) onEvent,
+    bool needsCamera = false,
   }) =>
       const SizedBox.shrink();
 }

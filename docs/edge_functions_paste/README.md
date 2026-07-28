@@ -157,3 +157,18 @@ Two Edge Function secrets matter here:
 
 `payments-onboard` stays deployed as the fallback for the web build, which has
 no WebView.
+
+## In-app ID check (the blue check)
+
+The verification runs inside the app too. `identity-start` returns the
+VerificationSession's `client_secret`, `web/identity.html` calls Stripe.js
+`verifyIdentity()`, and the same WebView hosts it — with camera permission
+granted up front, since the user already agreed on the previous screen.
+
+The documents and the selfie go to Stripe and are never seen, uploaded, or
+stored by this app. The verdict arrives by webhook and the app re-reads it;
+the screen never grants the badge itself.
+
+Re-deploy `identity-start` for the client secret. `IDENTITY_PAGE_URL` and
+`CONNECT_PAGE_URL` are `--dart-define`s that default to the project's Pages
+deployment, so they only need setting if the web build moves.

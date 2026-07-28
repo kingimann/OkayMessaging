@@ -10366,12 +10366,43 @@ void main() {
       expect(html.contains('account-onboarding'), isTrue);
 
       // The secret arrives by function call after load, never in the URL.
-      expect(html.contains('window.startConnect'), isTrue);
+      expect(html.contains('window.okayStart'), isTrue);
       expect(html.contains('location.search'), isFalse,
           reason: 'a client secret in the URL lands in history and logs');
 
       expect(PaymentService.connectPageUrl.endsWith('/connect.html'), isTrue);
       expect(PaymentService.connectPageUrl.startsWith('https://'), isTrue);
+    });
+
+    test('the ID check page ships too, and keeps documents with Stripe', () {
+      final page = File('web/identity.html');
+      expect(page.existsSync(), isTrue);
+      final html = page.readAsStringSync();
+
+      // Stripe.js runs the capture, so the document photos and the selfie go
+      // straight to Stripe and never touch this app.
+      expect(html.contains('js.stripe.com'), isTrue);
+      expect(html.contains('verifyIdentity'), isTrue);
+      // Nothing here may upload or keep an image itself.
+      expect(html.contains('FormData'), isFalse);
+      expect(html.contains('getUserMedia'), isFalse,
+          reason: 'capture belongs to Stripe, not to this page');
+
+      // Same secret discipline as onboarding.
+      expect(html.contains('window.okayStart'), isTrue);
+      expect(html.contains('location.search'), isFalse);
+
+      expect(IdentityVerification.pageUrl.endsWith('/identity.html'), isTrue);
+      expect(IdentityVerification.pageUrl.startsWith('https://'), isTrue);
+    });
+
+    test('both pages answer to the same entry point', () {
+      // One WebView serves both, so the pages must agree on the contract.
+      for (final f in ['web/connect.html', 'web/identity.html']) {
+        expect(File(f).readAsStringSync().contains('window.okayStart ='),
+            isTrue,
+            reason: '$f must expose okayStart');
+      }
     });
 
     test('the web build gets a stub that reports unsupported, not a crash',

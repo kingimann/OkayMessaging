@@ -29,6 +29,27 @@ IdentityStatus _statusFrom(String? raw) => switch (raw) {
       _ => IdentityStatus.none,
     };
 
+/// A started ID check: the secret drives the in-app flow, the hosted URL is
+/// the fallback for anywhere a WebView can't run.
+class IdentitySession {
+  final String clientSecret;
+  final String hostedUrl;
+  final String publishableKey;
+  const IdentitySession({
+    required this.clientSecret,
+    required this.hostedUrl,
+    required this.publishableKey,
+  });
+
+  /// Nothing to do — the account already passed.
+  const IdentitySession.alreadyVerified()
+      : clientSecret = '',
+        hostedUrl = '',
+        publishableKey = '';
+
+  bool get isAlreadyVerified => clientSecret.isEmpty && hostedUrl.isEmpty;
+}
+
 /// Drives the government-ID check that earns the blue check.
 ///
 /// The badge used to be a free local toggle, which made it a decoration rather
@@ -69,23 +90,31 @@ class IdentityVerification extends ChangeNotifier {
     return _status;
   }
 
-  /// Starts a check and returns the URL to send the user to, or null when a
-  /// session couldn't be created. Returns an empty string when the account is
-  /// already verified, so the caller can say so instead of charging for
-  /// another check.
-  Future<String?> start() async {
+  /// Everything needed to run the check inside the app.
+  Future<IdentitySession?> start() async {
     final result = await _invoke('identity-start', const {});
     if (result == null) return null;
     if (result['alreadyVerified'] == true) {
       _apply(IdentityStatus.verified);
-      return '';
+      return const IdentitySession.alreadyVerified();
     }
-    final url = result['url'];
-    if (url is! String || url.isEmpty) return null;
+    final secret = result['clientSecret'] as String? ?? '';
+    final url = result['url'] as String? ?? '';
+    if (secret.isEmpty && url.isEmpty) return null;
     // The session exists but nothing is decided yet.
     _apply(IdentityStatus.processing);
-    return url;
+    return IdentitySession(
+      clientSecret: secret,
+      hostedUrl: url,
+      publishableKey: result['publishableKey'] as String? ?? '',
+    );
   }
+
+  /// Where the in-app verification page lives. It ships with the web build.
+  static const String pageUrl = String.fromEnvironment(
+    'IDENTITY_PAGE_URL',
+    defaultValue: 'https://kingimann.github.io/OkayMessaging/identity.html',
+  );
 
   void _apply(IdentityStatus next) {
     if (_status == next) return;

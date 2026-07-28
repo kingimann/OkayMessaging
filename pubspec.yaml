@@ -55,6 +55,7 @@ dependencies:
   # under the scene lifecycle this app uses, crashing iOS instantly at launch.
   flutter_contacts: ^2.3.0
   webview_flutter: ^4.14.1
+  webview_flutter_wkwebview: ^3.26.0
 
 dev_dependencies:
   flutter_test:

@@ -74,6 +74,10 @@ class PaymentService {
   static const String _publishableKey =
       String.fromEnvironment('STRIPE_PUBLISHABLE_KEY', defaultValue: '');
 
+  /// The client-safe key, for anything that has to initialise Stripe.js
+  /// itself (the embedded onboarding and ID-check pages).
+  static String get publishableKey => _publishableKey;
+
   static const _kTestMode = 'payments_test_mode';
 
   /// Sandbox mode: simulates the whole send/receive flow with no real Stripe

@@ -4,7 +4,9 @@ import 'package:url_launcher/url_launcher.dart';
 import '../app_state.dart';
 import '../models/chat.dart';
 import '../state/chat_store.dart';
+import '../payments/connect_webview.dart';
 import '../state/identity_verification.dart';
+import 'identity_check_screen.dart';
 import '../state/score_store.dart';
 import '../state/session.dart';
 import '../state/streak_store.dart';
@@ -358,21 +360,34 @@ class _VerifiedRow extends StatelessWidget {
     if (!ok || !context.mounted) return;
 
     final messenger = ScaffoldMessenger.of(context);
-    final url = await IdentityVerification.instance.start();
-    if (url == null) {
+    final session = await IdentityVerification.instance.start();
+    if (session == null) {
       messenger.showSnackBar(const SnackBar(
           content: Text('Could not start verification. Try again later.')));
       return;
     }
-    if (url.isEmpty) {
+    if (session.isAlreadyVerified) {
       // Already verified server-side — adopt it rather than pay for a
       // second check.
       if (context.mounted) _syncBadge(context);
       return;
     }
-    final launched = await launchUrl(Uri.parse(url),
-        mode: LaunchMode.externalApplication);
-    if (!launched) {
+    if (!context.mounted) return;
+
+    // In the app, on a screen of our own. Stripe still runs the check and
+    // still holds the documents; it just isn't a browser any more.
+    if (ConnectWebView.isSupported && session.clientSecret.isNotEmpty) {
+      await Navigator.of(context).push<bool>(MaterialPageRoute(
+        builder: (_) => IdentityCheckScreen(session: session),
+      ));
+      if (context.mounted) await _syncBadge(context);
+      return;
+    }
+
+    // No WebView here (the web build) — fall back to Stripe's hosted page.
+    if (session.hostedUrl.isEmpty ||
+        !await launchUrl(Uri.parse(session.hostedUrl),
+            mode: LaunchMode.externalApplication)) {
       messenger.showSnackBar(const SnackBar(
           content: Text('Could not open the verification page.')));
       return;

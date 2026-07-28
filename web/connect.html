@@ -54,7 +54,7 @@
 
   // Called by the host once the page has loaded, so the client secret never
   // appears in a URL.
-  window.startConnect = function (clientSecret, publishableKey, dark, accent) {
+  window.okayStart = function (clientSecret, publishableKey, dark, accent) {
     if (!window.StripeConnect || !window.StripeConnect.initialize) {
       fail('Could not reach Stripe. Check your connection and try again.');
       return;

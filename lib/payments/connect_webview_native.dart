@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
+import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
 
 /// The WebView that hosts Stripe's Connect embedded components.
 ///
@@ -10,6 +11,9 @@ import 'package:webview_flutter/webview_flutter.dart';
 class ConnectWebView {
   static bool get isSupported => true;
 
+  /// [needsCamera] is for the ID check, which captures a document photo and a
+  /// selfie in the page. Without inline playback and a granted permission the
+  /// capture silently fails to start.
   static Widget build({
     required String url,
     required String clientSecret,
@@ -17,6 +21,7 @@ class ConnectWebView {
     required bool dark,
     required Color accent,
     required void Function(String event) onEvent,
+    bool needsCamera = false,
   }) =>
       _ConnectWebView(
         url: url,
@@ -25,6 +30,7 @@ class ConnectWebView {
         dark: dark,
         accent: accent,
         onEvent: onEvent,
+        needsCamera: needsCamera,
       );
 }
 
@@ -35,6 +41,7 @@ class _ConnectWebView extends StatefulWidget {
   final bool dark;
   final Color accent;
   final void Function(String event) onEvent;
+  final bool needsCamera;
 
   const _ConnectWebView({
     required this.url,
@@ -43,6 +50,7 @@ class _ConnectWebView extends StatefulWidget {
     required this.dark,
     required this.accent,
     required this.onEvent,
+    required this.needsCamera,
   });
 
   @override
@@ -55,8 +63,20 @@ class _ConnectWebViewState extends State<_ConnectWebView> {
   @override
   void initState() {
     super.initState();
-    _controller = WebViewController()
-      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+    // The ID check films a document and a face, which WKWebView will not do
+    // unless inline playback is allowed up front.
+    final params = widget.needsCamera && WebViewPlatform.instance is WebKitWebViewPlatform
+        ? WebKitWebViewControllerCreationParams(
+            allowsInlineMediaPlayback: true,
+            mediaTypesRequiringUserAction: const {},
+          )
+        : const PlatformWebViewControllerCreationParams();
+    _controller = WebViewController.fromPlatformCreationParams(
+      params,
+      // The user already agreed to the ID check on the previous screen; a
+      // second prompt inside the page is friction, not consent.
+      onPermissionRequest: widget.needsCamera ? (r) => r.grant() : null,
+    )..setJavaScriptMode(JavaScriptMode.unrestricted)
       // The page paints its own background so it matches the app's theme
       // rather than flashing white on a dark screen.
       ..setBackgroundColor(Colors.transparent)
@@ -74,7 +94,7 @@ class _ConnectWebViewState extends State<_ConnectWebView> {
     final hex =
         '#${(widget.accent.toARGB32() & 0xFFFFFF).toRadixString(16).padLeft(6, '0')}';
     _controller.runJavaScript(
-      'window.startConnect && window.startConnect('
+      'window.okayStart && window.okayStart('
       '${_js(widget.clientSecret)}, ${_js(widget.publishableKey)}, '
       '${widget.dark}, ${_js(hex)});',
     );

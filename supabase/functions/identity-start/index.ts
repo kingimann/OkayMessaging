@@ -56,7 +56,14 @@ Deno.serve(async (req) => {
       updated_at: new Date().toISOString(),
     });
 
-    return json({ url: session.url, sessionId: session.id });
+    return json({
+      // client_secret drives the in-app flow (Stripe.js verifyIdentity);
+      // url is the hosted fallback for anywhere a WebView can't run.
+      clientSecret: session.client_secret,
+      url: session.url,
+      sessionId: session.id,
+      publishableKey: Deno.env.get("STRIPE_PUBLISHABLE_KEY") ?? "",
+    });
   } catch (e) {
     return json({ error: String((e as Error).message ?? e) }, 400);
   }
