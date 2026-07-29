@@ -10363,12 +10363,23 @@ void main() {
       for (final target in [300, 500, 1000, 1234, 2000, 5000, 50000]) {
         final total = PaymentEconomics.grossUpCents(target);
         expect(total, greaterThan(target));
-        expect(PaymentEconomics.estimatedReceivedCents(total),
+
+        // The guarantee holds on the WORST card, not just a domestic one.
+        // The sender picks the card and its country is only known after the
+        // fact, so budgeting on the cheap rate would under-deliver every
+        // international transfer — breaking the one promise this makes.
+        expect(PaymentEconomics.worstCaseReceivedCents(total),
             greaterThanOrEqualTo(target),
-            reason: 'a \$$target transfer must actually deliver \$$target');
-        // And not wildly over — a cent or two of rounding, not a surcharge.
-        expect(PaymentEconomics.estimatedReceivedCents(total) - target,
-            lessThan(3));
+            reason: 'a \$$target transfer must deliver \$$target on any card');
+
+        // On a domestic card a little extra arrives. That surplus goes to the
+        // recipient, never to the platform, and is small enough not to read
+        // as a surcharge.
+        final surplus =
+            PaymentEconomics.estimatedReceivedCents(total) - target;
+        expect(surplus, greaterThanOrEqualTo(0));
+        expect(surplus, lessThan(target * 0.02 + 5),
+            reason: 'erring high must stay rounding, not become a markup');
       }
       expect(PaymentEconomics.grossUpCents(0), 0);
     });
@@ -10431,6 +10442,89 @@ void main() {
       // about to hand money to.
       expect(find.textContaining('14386386261'), findsNothing);
       expect(find.textContaining('438'), findsWidgets);
+    });
+  });
+
+  group('Payment controls and history', () {
+    test('a transfer reads correctly from either side', () {
+      final sent = PaymentRecord.fromJson(const {
+        'id': 'pi_1',
+        'direction': 'sent',
+        'otherPhone': '15550001',
+        'amountCents': 577,
+        'feeCents': 30,
+        'status': 'succeeded',
+      });
+      expect(sent.sent, isTrue);
+      expect(sent.isComplete, isTrue);
+      expect(sent.isBlocked, isFalse);
+
+      final got = PaymentRecord.fromJson(const {
+        'id': 'pi_2',
+        'direction': 'received',
+        'otherPhone': '15550002',
+        'amountCents': 1000,
+        'status': 'succeeded',
+      });
+      expect(got.sent, isFalse);
+      expect(got.isComplete, isTrue);
+    });
+
+    test('a refused card is shown as refused, not as a failure', () {
+      // "Failed" invites another attempt with the same card. Naming the rule
+      // tells the sender what to change.
+      for (final (status, words) in const [
+        ('blocked_prepaid', 'Prepaid'),
+        ('blocked_name_mismatch', 'name'),
+        ('blocked_unknown_card', 'checked'),
+      ]) {
+        final t = PaymentRecord.fromJson({
+          'id': 'x',
+          'direction': 'sent',
+          'amountCents': 500,
+          'status': status,
+        });
+        expect(t.isBlocked, isTrue);
+        expect(t.isComplete, isFalse);
+        expect(t.blockedReason.toLowerCase(), contains(words.toLowerCase()));
+      }
+    });
+
+    test('controls default to open, and parse what the server says', () {
+      const fresh = PaymentControls();
+      expect(fresh.acceptsAnyone, isTrue,
+          reason: 'receiving is on unless someone turns it off');
+      expect(fresh.dailySendLimitCents, 50000);
+
+      final off = PaymentControls.fromJson(const {
+        'acceptsFrom': 'nobody',
+        'dailySendLimitCents': 10000,
+        'blocked': ['15550009'],
+      });
+      expect(off.acceptsAnyone, isFalse);
+      expect(off.dailySendLimitCents, 10000);
+      expect(off.blocked, ['15550009']);
+    });
+
+    test('every guard against an accidental send is on the server', () {
+      // The app can ask twice, but only the server can refuse.
+      final intent = File('supabase/functions/payments-create-intent/index.ts')
+          .readAsStringSync();
+      expect(intent.contains('recipient_not_accepting'), isTrue,
+          reason: 'the recipient decides who may pay them');
+      expect(intent.contains('payment_blocks'), isTrue);
+      expect(intent.contains('daily_limit_reached'), isTrue,
+          reason: 'a day has a ceiling, so a lost phone has one too');
+      // A refused charge never took money, so it must not use up the day.
+      expect(intent.contains("startsWith(\"blocked_\")"), isTrue);
+    });
+
+    test('a large amount is confirmed twice', () {
+      // The sheet's checkbox covers "this is final"; this covers "I meant
+      // this many zeros".
+      expect(PaymentEconomics.confirmTwiceAboveCents,
+          greaterThan(PaymentEconomics.minimumSendCents));
+      expect(PaymentEconomics.confirmTwiceAboveCents, 5000);
     });
   });
 

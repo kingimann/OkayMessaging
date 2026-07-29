@@ -55,6 +55,81 @@ class WalletStatus {
 /// Client for the Stripe Connect payment flow. All secret-key work happens in
 /// Supabase Edge Functions; this only calls them (with the user's session) and
 /// drives the native payment sheet. The platform never holds funds or card data.
+/// One transfer, from this account's point of view.
+class PaymentRecord {
+  final String id;
+  final bool sent;
+  final String otherPhone;
+  final int amountCents;
+  final int feeCents;
+  final String currency;
+  final String status;
+  final DateTime? at;
+
+  const PaymentRecord({
+    required this.id,
+    required this.sent,
+    required this.otherPhone,
+    required this.amountCents,
+    required this.feeCents,
+    required this.currency,
+    required this.status,
+    this.at,
+  });
+
+  /// Whether the money actually moved.
+  bool get isComplete => status == 'succeeded' || status == 'paid';
+
+  /// Refused by a card rule rather than failing on its own.
+  bool get isBlocked => status.startsWith('blocked_');
+
+  bool get isPending => status == 'pending' || status == 'requires_capture';
+
+  /// Why it was refused, in words.
+  String get blockedReason => switch (status) {
+        'blocked_prepaid' => 'Prepaid card',
+        'blocked_name_mismatch' => 'Card name did not match',
+        'blocked_unknown_card' => 'Card could not be checked',
+        _ => 'Blocked',
+      };
+
+  factory PaymentRecord.fromJson(Map<String, dynamic> j) => PaymentRecord(
+        id: j['id'] as String? ?? '',
+        sent: j['direction'] == 'sent',
+        otherPhone: j['otherPhone'] as String? ?? '',
+        amountCents: (j['amountCents'] as num?)?.toInt() ?? 0,
+        feeCents: (j['feeCents'] as num?)?.toInt() ?? 0,
+        currency: (j['currency'] as String? ?? 'cad').toUpperCase(),
+        status: j['status'] as String? ?? '',
+        at: DateTime.tryParse(j['at'] as String? ?? '')?.toLocal(),
+      );
+}
+
+/// Who may pay this account, and how much it may send in a day.
+class PaymentControls {
+  final String acceptsFrom; // 'anyone' | 'nobody'
+  final int dailySendLimitCents;
+  final List<String> blocked;
+
+  const PaymentControls({
+    this.acceptsFrom = 'anyone',
+    this.dailySendLimitCents = 50000,
+    this.blocked = const [],
+  });
+
+  bool get acceptsAnyone => acceptsFrom == 'anyone';
+
+  factory PaymentControls.fromJson(Map<String, dynamic> j) => PaymentControls(
+        acceptsFrom: j['acceptsFrom'] as String? ?? 'anyone',
+        dailySendLimitCents:
+            (j['dailySendLimitCents'] as num?)?.toInt() ?? 50000,
+        blocked: [
+          for (final b in (j['blocked'] as List? ?? const []))
+            if (b is String) b
+        ],
+      );
+}
+
 /// Everything the embedded onboarding page needs to start.
 class ConnectSession {
   final String clientSecret;
@@ -140,6 +215,34 @@ class PaymentService {
     'CONNECT_PAGE_URL',
     defaultValue: 'https://kingimann.github.io/OkayMessaging/connect.html',
   );
+
+  /// The caller's transfers, newest first, both directions.
+  Future<List<PaymentRecord>> history({int limit = 100}) async {
+    final r = await _invoke('payments-history', {'limit': limit});
+    final raw = r['transactions'];
+    if (raw is! List) return const [];
+    return [
+      for (final t in raw.whereType<Map>())
+        PaymentRecord.fromJson(Map<String, dynamic>.from(t))
+    ];
+  }
+
+  /// Reads the account's payment controls. Passing values updates them.
+  Future<PaymentControls> controls({
+    String? acceptsFrom,
+    int? dailySendLimitCents,
+    String? block,
+    String? unblock,
+  }) async {
+    final r = await _invoke('payments-settings', {
+      if (acceptsFrom != null) 'acceptsFrom': acceptsFrom,
+      if (dailySendLimitCents != null)
+        'dailySendLimitCents': dailySendLimitCents,
+      if (block != null) 'block': block,
+      if (unblock != null) 'unblock': unblock,
+    });
+    return PaymentControls.fromJson(r);
+  }
 
   /// Waits for a transfer to settle.
   ///

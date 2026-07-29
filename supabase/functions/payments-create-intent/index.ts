@@ -81,6 +81,62 @@ Deno.serve(async (req) => {
     return json({ error: "receiver_not_onboarded" }, 409);
   }
 
+  // The recipient's own rules come first: they decide who may pay them, and
+  // refusing a specific person outranks accepting everyone.
+  const { data: recipientSettings } = await admin
+    .from("payment_settings")
+    .select("accepts_from")
+    .eq("phone", toPhone)
+    .maybeSingle();
+  if (recipientSettings?.accepts_from === "nobody") {
+    return json({ error: "recipient_not_accepting" }, 403);
+  }
+  const { data: blocked } = await admin
+    .from("payment_blocks")
+    .select("blocked_phone")
+    .eq("phone", toPhone)
+    .eq("blocked_phone", fromPhone)
+    .maybeSingle();
+  if (blocked) return json({ error: "recipient_not_accepting" }, 403);
+
+  // A rolling-day cap on the sender. It bounds what a phone someone else has
+  // picked up can move, and what one bad afternoon can cost — neither of
+  // which the per-transfer checks address.
+  const { data: senderSettings } = await admin
+    .from("payment_settings")
+    .select("daily_send_limit_cents")
+    .eq("phone", fromPhone)
+    .maybeSingle();
+  const dailyLimit = senderSettings?.daily_send_limit_cents ?? 50000;
+  if (dailyLimit > 0) {
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const { data: recent } = await admin
+      .from("payment_transactions")
+      .select("amount_cents, status")
+      .eq("from_phone", fromPhone)
+      .gte("updated_at", since);
+    // Only money that actually moved (or is still moving) counts. A blocked
+    // or failed charge never left the account and must not use up the day.
+    const spent = (recent ?? [])
+      .filter((t: { status?: string }) =>
+        !String(t.status ?? "").startsWith("blocked_") &&
+        t.status !== "canceled" &&
+        t.status !== "failed"
+      )
+      .reduce(
+        (sum: number, t: { amount_cents?: number }) =>
+          sum + (t.amount_cents ?? 0),
+        0,
+      );
+    if (spent + amountCents > dailyLimit) {
+      return json({
+        error: "daily_limit_reached",
+        limitCents: dailyLimit,
+        spentCents: spent,
+      }, 403);
+    }
+  }
+
   try {
     // amountCents is what the RECIPIENT should receive. Both fees come out of
     // the transfer, so the sender is charged the grossed-up total — paying

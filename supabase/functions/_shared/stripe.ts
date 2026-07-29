@@ -57,10 +57,19 @@ export function grossUp(targetCents: number): number {
   if (targetCents <= 0) return 0;
   const pct = parseFloat(Deno.env.get("PLATFORM_FEE_PERCENT") ?? "3.4");
   const fixed = parseInt(Deno.env.get("PLATFORM_FEE_FIXED_CENTS") ?? "10", 10);
-  const rate = 1 - (pct + STRIPE_PERCENT) / 100;
+  // Grossed up against the WORST-case Stripe rate. The sender picks the card
+  // and its country is only known afterwards, so budgeting on the domestic
+  // rate would under-deliver every international transfer — the recipient
+  // would get less than the sender typed, which is the one promise this
+  // makes. Erring the other way costs a domestic sender a few cents and the
+  // surplus goes to the recipient, never to the platform.
+  const worst = STRIPE_PERCENT + STRIPE_INTERNATIONAL_SURCHARGE_PERCENT;
+  const worstCost = (t: number) =>
+    Math.round((t * worst) / 100) + STRIPE_FIXED_CENTS;
+  const rate = 1 - (pct + worst) / 100;
   let total = Math.floor((targetCents + fixed + STRIPE_FIXED_CENTS) / rate);
-  for (let i = 0; i < 8; i++) {
-    if (total - stripeCost(total) - applicationFee(total) >= targetCents) {
+  for (let i = 0; i < 12; i++) {
+    if (total - worstCost(total) - applicationFee(total) >= targetCents) {
       return total;
     }
     total++;

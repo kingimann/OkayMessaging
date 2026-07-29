@@ -3,6 +3,8 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../payments/payment_service.dart';
 import '../payments/connect_webview.dart';
+import 'payment_controls_screen.dart';
+import 'payment_history_screen.dart';
 import 'connect_onboarding_screen.dart';
 import '../widgets/app_dialogs.dart';
 import '../theme/app_theme.dart';
@@ -108,12 +110,27 @@ class _WalletScreenState extends State<WalletScreen> {
       appBar: AppBar(
         title: const Text('Wallet'),
         actions: [
-          if (PaymentService.instance.isConfigured)
+          if (PaymentService.instance.isConfigured) ...[
+            IconButton(
+              icon: const Icon(Icons.tune),
+              tooltip: 'Payment controls',
+              onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => const PaymentControlsScreen())),
+            ),
             IconButton(
                 icon: const Icon(Icons.refresh),
                 onPressed: _busy ? null : _refresh),
+          ],
         ],
       ),
+      floatingActionButton: !PaymentService.instance.isConfigured
+          ? null
+          : FloatingActionButton.extended(
+              onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => const PaymentHistoryScreen())),
+              icon: const Icon(Icons.receipt_long_outlined),
+              label: const Text('Transactions'),
+            ),
       body: !PaymentService.instance.isConfigured
           ? const _NotConfigured()
           : FutureBuilder<WalletStatus>(

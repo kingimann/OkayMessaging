@@ -126,7 +126,7 @@ class PaymentEconomics {
 
   /// Stripe surcharges cards issued abroad. Also the recipient's cost, not the
   /// platform's — kept so the quoted estimate can be honest about the range.
-  static const double internationalSurchargePercent = 0.8;
+  static const double internationalSurchargePercent = 1.5;
 
   static double get worstCasePercent =>
       stripePercent + internationalSurchargePercent;
@@ -164,6 +164,14 @@ class PaymentEconomics {
   /// Every transfer leaves the platform ahead, by construction.
   static bool isProfitable(int amountCents) => netCents(amountCents) > 0;
 
+  /// Above this, the app asks a second time, naming the person and the
+  /// amount.
+  ///
+  /// The sheet's checkbox covers "I know this is final". This covers "I meant
+  /// this many zeros" — a fat-fingered extra digit is the other way a send
+  /// goes wrong, and it is the one that hurts.
+  static const int confirmTwiceAboveCents = 5000; // $50
+
   /// The smallest transfer worth making.
   ///
   /// Stripe's own floor is 50¢, but the fixed parts of both fees (10¢ + 30¢)
@@ -190,12 +198,18 @@ class PaymentEconomics {
   /// which is exact by construction.
   static int grossUpCents(int targetCents) {
     if (targetCents <= 0) return 0;
-    const rate = 1 - (platformPercent + stripePercent) / 100;
+    // Grossed up against the WORST-case Stripe rate, not the domestic one.
+    // The sender picks the card and we only learn its country afterwards, so
+    // budgeting on the cheap rate would quietly under-deliver every
+    // international transfer — the recipient would get less than the number
+    // the sender typed, which is the one promise this is making. Erring the
+    // other way costs a domestic sender a few cents and the surplus goes to
+    // the recipient, never to us.
+    const rate = 1 - (platformPercent + stripePercent + internationalSurchargePercent) / 100;
     var total =
         ((targetCents + platformFixedCents + stripeFixedCents) / rate).floor();
-    // A handful of steps at most; the estimate is never far off.
-    for (var i = 0; i < 8; i++) {
-      if (estimatedReceivedCents(total) >= targetCents) return total;
+    for (var i = 0; i < 12; i++) {
+      if (worstCaseReceivedCents(total) >= targetCents) return total;
       total++;
     }
     return total;

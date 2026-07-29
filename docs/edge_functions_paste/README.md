@@ -216,3 +216,25 @@ node --experimental-strip-types supabase/functions/_shared/cardholder_test.mjs
 `payments-create-intent` and `payments-webhook`, and deploy
 `payments-intent-status`. Subscribe the webhook to
 `payment_intent.amount_capturable_updated` as well.
+
+## Payment controls and history
+
+Run `docs/payment_controls.sql`, then deploy `payments-history` and
+`payments-settings` (JWT verification **on** for both).
+
+| Control | Where it lives | Enforced |
+|---|---|---|
+| Who may pay you (`anyone` / `nobody`) | `payment_settings` | `payments-create-intent` |
+| Blocked senders | `payment_blocks` | `payments-create-intent` |
+| Daily send cap (default $500) | `payment_settings` | `payments-create-intent` |
+
+All three are checked before a charge exists. A limit the app applies is a
+limit a modified app ignores, and a limit matters most when something has
+already gone wrong.
+
+Blocked and failed charges are excluded from the daily total — money that
+never moved must not use up someone's day.
+
+`payments-history` returns both directions from `payment_transactions`, which
+is where the whole picture lives: a transfer has two sides and only one of
+them is any given phone.

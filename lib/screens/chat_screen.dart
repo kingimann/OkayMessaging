@@ -14,6 +14,7 @@ import '../models/message.dart';
 import '../models/user.dart';
 import '../payments/payment_amount_sheet.dart';
 import '../payments/payment_service.dart';
+import '../payments/storage_economics.dart';
 import '../relay/relay_config.dart';
 import '../state/score_store.dart';
 import '../util/phone_format.dart';
@@ -1752,6 +1753,24 @@ class _ChatScreenState extends State<ChatScreen> {
     );
     if (result == null || result.cents <= 0 || !mounted) return;
 
+    // A large amount gets one more look, naming both the person and the
+    // number. The sheet's checkbox covers "I know this is final"; this covers
+    // "I meant this many zeros", which is the other way a send goes wrong.
+    if (result.cents >= PaymentEconomics.confirmTwiceAboveCents) {
+      final sure = await showAppConfirmDialog(
+        context,
+        icon: Icons.warning_amber_rounded,
+        title: 'Send \$${(result.cents / 100).toStringAsFixed(2)}?',
+        message: '${recipient.name} will receive '
+            '\$${(result.cents / 100).toStringAsFixed(2)}. '
+            'This cannot be undone from here.',
+        confirmLabel: 'Yes, send it',
+        cancelLabel: 'Go back',
+        destructive: true,
+      );
+      if (!sure || !mounted) return;
+    }
+
     final messenger = ScaffoldMessenger.of(context);
     final phone = recipient.phone;
     final now = DateTime.now();
@@ -1826,6 +1845,11 @@ class _ChatScreenState extends State<ChatScreen> {
           'identity_required' =>
             'Verify your identity before sending money — Settings → Get '
                 'verified.',
+          'recipient_not_accepting' =>
+            '${recipient.name} isn\'t accepting payments.',
+          'daily_limit_reached' =>
+            'You\'ve reached your daily sending limit. Raise it in '
+                'Wallet → Payment controls.',
           _ => 'Payment failed: ${e.code}',
         }),
       ));
