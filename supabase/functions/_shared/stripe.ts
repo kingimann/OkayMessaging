@@ -36,6 +36,20 @@ export function applicationFee(amountCents: number): number {
   return Math.max(0, Math.round((amountCents * pct) / 100) + fixed);
 }
 
+/// Stripe's published card rates, mirroring StorageEconomics in
+/// lib/payments/storage_economics.dart — the Dart side is the documented
+/// source of these numbers and the test suite holds it to them.
+///
+/// Not read from the environment on purpose: these are Stripe's prices, not
+/// ours. A deployment cannot negotiate them, and an env var would only offer
+/// a way to gross up against a rate Stripe isn't charging.
+const STRIPE_PERCENT = 2.9;
+const STRIPE_FIXED_CENTS = 30;
+
+/// Stripe's extra cut on a card issued abroad. The card's country is only
+/// known after the charge, so grossing up has to assume it.
+const STRIPE_INTERNATIONAL_SURCHARGE_PERCENT = 1.5;
+
 /// Stripe's own cost for a charge of [amountCents] on a domestic card. Paid by
 /// the recipient's account on a direct charge, which is why it has to be
 /// accounted for when grossing up.

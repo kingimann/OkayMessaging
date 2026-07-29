@@ -13021,6 +13021,79 @@ void main() {
     });
   });
 
+  group('Edge Function sources', () {
+    /// Comments and string literals removed, so a name that only appears
+    /// inside `Deno.env.get("SUPABASE_URL")` or a header string isn't mistaken
+    /// for a code reference.
+    String stripLiterals(String src) => src
+        .replaceAll(RegExp(r'/\*.*?\*/', dotAll: true), '')
+        .replaceAll(RegExp(r'//[^\n]*'), '')
+        .replaceAll(RegExp(r'"(?:[^"\\\n]|\\.)*"'), '""')
+        .replaceAll(RegExp(r"'(?:[^'\\\n]|\\.)*'"), "''")
+        .replaceAll(RegExp(r'`(?:[^`\\]|\\.)*`', dotAll: true), '``');
+
+    test('every constant a function references is defined in that file', () {
+      // These deploy by paste, one self-contained file at a time, and nothing
+      // type-checks them on the way — Deno isn't in this toolchain. So a
+      // helper moved into _shared that refers to a constant left behind
+      // compiles nowhere and fails at deploy with "Cannot find name X",
+      // which is exactly what shipped: stripeCost() and grossUp() used
+      // STRIPE_PERCENT and friends that were never declared, and six paste
+      // copies inherited it.
+      final files = [
+        ...Directory('supabase/functions')
+            .listSync(recursive: true)
+            .whereType<File>()
+            .where((f) => f.path.endsWith('.ts')),
+        ...Directory('docs/edge_functions_paste')
+            .listSync()
+            .whereType<File>()
+            .where((f) => f.path.endsWith('.ts')),
+      ];
+      expect(files, isNotEmpty, reason: 'nothing was scanned');
+
+      // Bare SCREAMING_SNAKE names are how this codebase writes module-level
+      // constants, which is the thing that goes missing when code moves.
+      final name = RegExp(r'\b([A-Z][A-Z0-9_]{2,})\b');
+      final declaration =
+          RegExp(r'\b(?:const|let|var|enum|function|class)\s+([A-Z][A-Z0-9_]{2,})\b');
+      // Platform globals that are legitimately never declared.
+      const globals = {'JSON', 'URL', 'OPTIONS', 'POST', 'GET'};
+
+      final offenders = <String, Set<String>>{};
+      for (final f in files) {
+        final code = stripLiterals(f.readAsStringSync());
+        final declared =
+            declaration.allMatches(code).map((m) => m.group(1)!).toSet();
+        final used = name.allMatches(code).map((m) => m.group(1)!).toSet();
+        final missing = used.difference(declared).difference(globals);
+        if (missing.isNotEmpty) offenders[f.path] = missing;
+      }
+      expect(offenders, isEmpty,
+          reason: 'these would fail to deploy with "Cannot find name": '
+              '$offenders');
+    });
+
+    test('the shared fee rates match the documented economics', () {
+      // Stripe's published rates live on the Dart side, where the unit
+      // economics tests hold them; the Edge Function copy has to agree or
+      // grossing up budgets against a rate Stripe isn't charging.
+      final shared =
+          File('supabase/functions/_shared/stripe.ts').readAsStringSync();
+      expect(shared.contains('const STRIPE_PERCENT = '
+          '${PaymentEconomics.stripePercent};'), isTrue);
+      expect(shared.contains('const STRIPE_FIXED_CENTS = '
+          '${PaymentEconomics.stripeFixedCents};'), isTrue);
+      expect(
+          shared.contains('const STRIPE_INTERNATIONAL_SURCHARGE_PERCENT = '
+              '${PaymentEconomics.internationalSurchargePercent};'),
+          isTrue);
+      // And they are NOT environment-tunable: they are Stripe's prices, not
+      // ours, so a deployment must not be able to pretend otherwise.
+      expect(shared.contains('Deno.env.get("STRIPE_PERCENT")'), isFalse);
+    });
+  });
+
   group('Who may send money', () {
     test('both gates are enforced on the server, not the client', () {
       // A rule the app enforces is a rule an app can be modified to skip, so
