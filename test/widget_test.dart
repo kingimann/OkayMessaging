@@ -5709,6 +5709,169 @@ void main() {
       expect(FeedStore.instance.listings(), isEmpty);
     });
 
+    test('reviews: one voice per person, never the seller, honest average',
+        () {
+      FeedStore.instance.resetForTest();
+      addTearDown(FeedStore.instance.resetForTest);
+
+      // A listing from someone else, as the relay would deliver it.
+      final theirs = FeedPost(
+        id: 'lst_grace',
+        communityId: 'c1',
+        authorName: 'Grace',
+        authorUsername: 'grace',
+        time: DateTime.now(),
+        text: 'Lamp',
+        priceCents: 500,
+        listingCategory: 'Home & Garden',
+      );
+      FeedStore.instance.addRemote(theirs);
+
+      // Rating clamps into 1..5 and the review text rides along.
+      expect(
+          FeedStore.instance
+              .addReview('lst_grace', rating: 9, text: 'Great lamp'),
+          isTrue);
+      var reviews = FeedStore.instance.reviewsFor('lst_grace');
+      expect(reviews.single.rating, 5);
+      expect(reviews.single.text, 'Great lamp');
+      // And it survives the relay JSON round trip.
+      expect(FeedPost.fromJson(reviews.single.toJson()).rating, 5);
+
+      // Reviewing again replaces — one person is one voice, not a chorus.
+      FeedStore.instance.addReview('lst_grace', rating: 2, text: 'Broke');
+      reviews = FeedStore.instance.reviewsFor('lst_grace');
+      expect(reviews.length, 1);
+      expect(reviews.single.rating, 2);
+
+      // The seller cannot review their own listing: five stars you gave
+      // yourself would make every rating worthless.
+      final mine = FeedStore.instance
+          .addListing('c1', title: 'Chair', priceCents: 100, category: 'Other');
+      expect(FeedStore.instance.addReview(mine.id, rating: 5), isFalse);
+      expect(FeedStore.instance.reviewsFor(mine.id), isEmpty);
+
+      // The seller's average spans their listings, from what this device
+      // can see.
+      final second = FeedPost.fromJson(theirs.toJson());
+      FeedStore.instance.addRemote(FeedPost(
+        id: 'lst_grace2',
+        communityId: second.communityId,
+        authorName: 'Grace',
+        authorUsername: 'grace',
+        time: DateTime.now(),
+        text: 'Desk',
+        priceCents: 2000,
+        listingCategory: 'Furniture',
+      ));
+      // A review from another buyer arrives over the relay.
+      FeedStore.instance.addRemote(FeedPost(
+        id: 'rev_ada',
+        communityId: 'c1',
+        authorName: 'Ada',
+        authorUsername: 'ada',
+        time: DateTime.now(),
+        text: '',
+        parentId: 'lst_grace2',
+        rating: 4,
+      ));
+      final (avg, count) = FeedStore.instance.sellerRating('grace');
+      expect(count, 2);
+      expect(avg, 3.0); // (2 + 4) / 2
+    });
+
+    testWidgets('a buyer can review from the listing screen; the seller '
+        'cannot', (tester) async {
+      FeedStore.instance.resetForTest();
+      addTearDown(FeedStore.instance.resetForTest);
+      FeedStore.instance.addRemote(FeedPost(
+        id: 'lst_rev',
+        communityId: 'c1',
+        authorName: 'Grace',
+        authorUsername: 'grace',
+        time: DateTime.now(),
+        text: 'Lamp',
+        priceCents: 500,
+        listingCategory: 'Home & Garden',
+      ));
+
+      await tester.pumpWidget(
+          const MaterialApp(home: ListingScreen(listingId: 'lst_rev')));
+      await tester.pump();
+      expect(find.text('No reviews yet.'), findsOneWidget);
+
+      await tester.tap(find.text('Write a review'));
+      await tester.pumpAndSettle();
+      // Post review stays off until stars are given — the rating is the one
+      // required part.
+      expect(
+          tester
+              .widget<FilledButton>(
+                  find.widgetWithText(FilledButton, 'Post review'))
+              .onPressed,
+          isNull);
+      await tester.tap(find.byIcon(Icons.star_outline_rounded).at(3)); // 4th
+      await tester.pump();
+      await tester.enterText(
+          find.widgetWithText(TextField, 'How did it go? (optional)'),
+          'Solid lamp');
+      await tester.tap(find.text('Post review'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Solid lamp'), findsOneWidget);
+      expect(find.text('Edit your review'), findsOneWidget);
+      expect(find.textContaining('4.0 · 1 review'), findsOneWidget);
+
+      // The seller's own listing offers no review button at all.
+      final mine = FeedStore.instance
+          .addListing('c1', title: 'Chair', priceCents: 100, category: 'Other');
+      await tester.pumpWidget(
+          MaterialApp(home: ListingScreen(listingId: mine.id)));
+      await tester.pump();
+      expect(find.text('Write a review'), findsNothing);
+    });
+
+    testWidgets('Message seller opens the chat with the question typed',
+        (tester) async {
+      FeedStore.instance.resetForTest();
+      ChatStore.instance.reset();
+      addTearDown(() {
+        FeedStore.instance.resetForTest();
+        ChatStore.instance.reset();
+        debugResolveSellerOverride = null;
+      });
+      FeedStore.instance.addRemote(FeedPost(
+        id: 'lst_msg',
+        communityId: 'c1',
+        authorName: 'Grace',
+        authorUsername: 'grace',
+        time: DateTime.now(),
+        text: 'Blue bike',
+        priceCents: 2000,
+        listingCategory: 'Sports',
+      ));
+      // The directory knows the seller.
+      debugResolveSellerOverride = (username) async => AppUser(
+          id: 'u_grace',
+          name: 'Grace',
+          avatarColor: '#123456',
+          username: username);
+
+      await tester.pumpWidget(
+          const MaterialApp(home: ListingScreen(listingId: 'lst_msg')));
+      await tester.pump();
+      await tester.tap(find.text('Message Grace'));
+      await tester.pumpAndSettle();
+
+      // Landed in the chat, question already typed — sending stays the
+      // user's choice.
+      expect(find.byType(ChatScreen), findsOneWidget);
+      final chat = ChatStore.instance.chatWithContact('u_grace');
+      expect(chat, isNotNull);
+      expect(ChatStore.instance.draftFor(chat!.id),
+          'Is this still available? — "Blue bike" (\$20)');
+    });
+
     testWidgets('an open listing follows the relay: sold updates, removal '
         'says so', (tester) async {
       FeedStore.instance.resetForTest();

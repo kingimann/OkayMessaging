@@ -1,11 +1,16 @@
 import 'package:flutter/material.dart';
 
 import '../app_state.dart';
+import '../models/chat.dart';
+import '../models/user.dart';
+import '../state/account_service.dart';
+import '../state/chat_store.dart';
 import '../state/community_store.dart';
 import '../state/feed_store.dart';
 import '../util/file_moderation.dart';
 import '../util/photo_prep.dart';
 import '../widgets/chat_photo.dart';
+import 'chat_screen.dart';
 import 'feed_screen.dart' show showPersonSheet, feedSpans;
 
 /// The categories a listing can file under. A fixed list, because filters
@@ -46,6 +51,70 @@ int? parseListingPrice(String raw) {
       : int.parse(parts[1].padRight(2, '0').substring(0, 2));
   if (dollars > 1000000) return null; // a typo, not a price
   return dollars * 100 + cents;
+}
+
+/// Test hook: replaces the directory lookup that turns a seller's username
+/// into a messageable contact.
+@visibleForTesting
+Future<AppUser?> Function(String username)? debugResolveSellerOverride;
+
+/// Opens (or starts) a chat with [listing]'s seller, seeding the composer
+/// with the question every marketplace conversation starts with — unless a
+/// draft is already there, because overwriting someone's half-typed words
+/// would be worse than no head start.
+///
+/// Resolution order: an existing chat whose contact carries the username,
+/// then the server directory. When neither knows the seller (offline, or a
+/// seller who never registered a username), the person sheet opens instead —
+/// a follow is still possible there, and pretending a chat exists isn't.
+Future<void> messageSeller(BuildContext context, FeedPost listing) async {
+  final username = listing.authorUsername;
+  final title = listing.text.split('\n').first;
+  final opener = 'Is this still available? — "$title" '
+      '(${formatListingPrice(listing.priceCents ?? 0)})';
+
+  AppUser? seller;
+  for (final c in ChatStore.instance.chats) {
+    if (!c.contact.isGroup &&
+        c.contact.username.toLowerCase() == username.toLowerCase()) {
+      seller = c.contact;
+      break;
+    }
+  }
+  if (seller == null) {
+    final resolve = debugResolveSellerOverride;
+    if (resolve != null) {
+      seller = await resolve(username);
+    } else {
+      final matches = await AccountService.instance.searchByUsername(username);
+      for (final u in matches) {
+        if (u.username.toLowerCase() == username.toLowerCase()) {
+          seller = u;
+          break;
+        }
+      }
+    }
+  }
+  if (!context.mounted) return;
+  if (seller == null) {
+    showPersonSheet(context, username: username, name: listing.authorName);
+    return;
+  }
+
+  final store = ChatStore.instance;
+  final existing = store.chatWithContact(seller.id);
+  final Chat chat;
+  if (existing != null) {
+    if (existing.isArchived) store.setArchived(existing.id, false);
+    chat = existing;
+  } else {
+    chat = Chat(id: 'chat_${seller.id}', contact: seller, messages: const []);
+    store.upsert(chat);
+  }
+  if (store.draftFor(chat.id).isEmpty) store.setDraft(chat.id, opener);
+  await Navigator.of(context).push(
+    MaterialPageRoute(builder: (_) => ChatScreen(chat: chat)),
+  );
 }
 
 /// A Facebook-style marketplace over the servers the user is in.
@@ -510,9 +579,7 @@ class ListingScreen extends StatelessWidget {
                     ],
                   )
                 : FilledButton.icon(
-                    onPressed: () => showPersonSheet(context,
-                        username: listing.authorUsername,
-                        name: listing.authorName),
+                    onPressed: () => messageSeller(context, listing),
                     icon: const Icon(Icons.chat_bubble_outline, size: 18),
                     label: Text('Message ${listing.authorName}'),
                     style: FilledButton.styleFrom(
@@ -617,13 +684,35 @@ class ListingScreen extends StatelessWidget {
                                 style: const TextStyle(
                                     fontWeight: FontWeight.w600,
                                     fontSize: 14.5)),
-                            if (!mine &&
-                                listing.authorUsername.isNotEmpty &&
-                                listing.authorUsername != 'you')
-                              Text('@${listing.authorUsername}',
-                                  style: TextStyle(
-                                      fontSize: 12.5,
-                                      color: Colors.grey.shade600)),
+                            Builder(builder: (context) {
+                              final (avg, count) = FeedStore.instance
+                                  .sellerRating(listing.authorUsername);
+                              if (count == 0) {
+                                return !mine &&
+                                        listing.authorUsername.isNotEmpty &&
+                                        listing.authorUsername != 'you'
+                                    ? Text('@${listing.authorUsername}',
+                                        style: TextStyle(
+                                            fontSize: 12.5,
+                                            color: Colors.grey.shade600))
+                                    : const SizedBox.shrink();
+                              }
+                              return Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(Icons.star_rounded,
+                                      size: 15, color: Color(0xFFF5A623)),
+                                  const SizedBox(width: 2),
+                                  Text(
+                                    '${avg.toStringAsFixed(1)} · $count '
+                                    '${count == 1 ? "review" : "reviews"}',
+                                    style: TextStyle(
+                                        fontSize: 12.5,
+                                        color: Colors.grey.shade600),
+                                  ),
+                                ],
+                              );
+                            }),
                           ],
                         ),
                       ),
@@ -658,6 +747,8 @@ class ListingScreen extends StatelessWidget {
                   ),
                 ),
               ],
+              const Divider(height: 24, indent: 16, endIndent: 16),
+              _ReviewsSection(listing: listing, mine: mine),
               const SizedBox(height: 24),
             ],
           ),
@@ -665,6 +756,203 @@ class ListingScreen extends StatelessWidget {
       },
     );
   }
+}
+
+/// A row of five stars, filled up to [rating]. Tappable when [onRate] is set.
+class _Stars extends StatelessWidget {
+  final int rating;
+  final double size;
+  final ValueChanged<int>? onRate;
+  const _Stars({required this.rating, this.size = 16, this.onRate});
+
+  @override
+  Widget build(BuildContext context) => Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (var i = 1; i <= 5; i++)
+            GestureDetector(
+              onTap: onRate == null ? null : () => onRate!(i),
+              child: Padding(
+                padding: EdgeInsets.all(onRate == null ? 0 : 4),
+                child: Icon(
+                  i <= rating ? Icons.star_rounded : Icons.star_outline_rounded,
+                  size: size,
+                  color: i <= rating
+                      ? const Color(0xFFF5A623)
+                      : Colors.grey.shade500,
+                ),
+              ),
+            ),
+        ],
+      );
+}
+
+/// The listing's reviews: average up top, each voice below, and — for anyone
+/// but the seller — a button to add or change their own.
+class _ReviewsSection extends StatelessWidget {
+  final FeedPost listing;
+  final bool mine;
+  const _ReviewsSection({required this.listing, required this.mine});
+
+  Future<void> _write(BuildContext context) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) => Padding(
+        padding: EdgeInsets.only(
+            bottom: MediaQuery.of(sheetContext).viewInsets.bottom),
+        child: SafeArea(
+          child: _ReviewSheet(
+            listingId: listing.id,
+            existing: FeedStore.instance.myReviewOf(listing.id),
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final reviews = FeedStore.instance.reviewsFor(listing.id);
+    final myReview = FeedStore.instance.myReviewOf(listing.id);
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text('Reviews',
+                  style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.grey.shade600)),
+              const Spacer(),
+              if (!mine)
+                TextButton(
+                  onPressed: () => _write(context),
+                  child: Text(
+                      myReview == null ? 'Write a review' : 'Edit your review'),
+                ),
+            ],
+          ),
+          if (reviews.isEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 2, bottom: 6),
+              child: Text('No reviews yet.',
+                  style:
+                      TextStyle(fontSize: 13.5, color: Colors.grey.shade600)),
+            )
+          else
+            for (final r in reviews)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        _Stars(rating: r.rating),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            '${r.authorName} · ${feedAge(r.time)}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                                fontSize: 12.5,
+                                color: Colors.grey.shade600),
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (r.text.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 3),
+                        child: Text(r.text,
+                            style: const TextStyle(
+                                fontSize: 14, height: 1.35)),
+                      ),
+                  ],
+                ),
+              ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Writing or editing one's review: tappable stars and an optional note.
+/// Its own widget so the text controller has a real lifecycle — disposing it
+/// after the sheet's future resolved raced the closing animation.
+class _ReviewSheet extends StatefulWidget {
+  final String listingId;
+  final FeedPost? existing;
+  const _ReviewSheet({required this.listingId, required this.existing});
+
+  @override
+  State<_ReviewSheet> createState() => _ReviewSheetState();
+}
+
+class _ReviewSheetState extends State<_ReviewSheet> {
+  late int _rating = widget.existing?.rating ?? 0;
+  late final TextEditingController _text =
+      TextEditingController(text: widget.existing?.text ?? '');
+
+  @override
+  void dispose() {
+    _text.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+                widget.existing == null
+                    ? 'Review this listing'
+                    : 'Edit your review',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                    fontSize: 17, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 10),
+            Center(
+              child: _Stars(
+                rating: _rating,
+                size: 34,
+                onRate: (r) => setState(() => _rating = r),
+              ),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _text,
+              minLines: 2,
+              maxLines: 5,
+              maxLength: 300,
+              textCapitalization: TextCapitalization.sentences,
+              decoration: const InputDecoration(
+                  hintText: 'How did it go? (optional)'),
+            ),
+            const SizedBox(height: 4),
+            FilledButton(
+              // No stars, no review — the rating is the one required part.
+              onPressed: _rating == 0
+                  ? null
+                  : () {
+                      FeedStore.instance.addReview(widget.listingId,
+                          rating: _rating, text: _text.text);
+                      Navigator.of(context).pop();
+                    },
+              child: Text(widget.existing == null ? 'Post review' : 'Save'),
+            ),
+          ],
+        ),
+      );
 }
 
 /// A listing's photo, uncropped and pinch-zoomable on its own screen.

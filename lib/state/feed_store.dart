@@ -55,6 +55,12 @@ class FeedPost {
   /// roll back a sold flag.
   final int listingRev;
 
+  /// Star rating 1-5 when this post is a review of a listing (it then also
+  /// carries the listing's id in [parentId]); 0 everywhere else.
+  final int rating;
+
+  bool get isReview => rating > 0;
+
   /// Poll fields. [pollOptions] empty means this isn't a poll; [pollVotes]
   /// is the tally per option and [pollMyVote] this device's choice (-1 none).
   final String pollQuestion;
@@ -93,6 +99,7 @@ class FeedPost {
     this.listingCategory = '',
     this.listingSold = false,
     this.listingRev = 0,
+    this.rating = 0,
     this.pollQuestion = '',
     this.pollOptions = const [],
     this.pollVotes = const [],
@@ -134,6 +141,7 @@ class FeedPost {
         listingCategory: listingCategory,
         listingSold: listingSold ?? this.listingSold,
         listingRev: listingRev ?? this.listingRev,
+        rating: rating,
         pollQuestion: pollQuestion,
         pollOptions: pollOptions,
         pollVotes: pollVotes ?? this.pollVotes,
@@ -163,6 +171,7 @@ class FeedPost {
           if (listingSold) 'listingSold': true,
           'listingRev': listingRev,
         },
+        if (rating > 0) 'rating': rating,
         if (isPoll) ...{
           'pollQuestion': pollQuestion,
           'pollOptions': pollOptions,
@@ -192,6 +201,7 @@ class FeedPost {
         listingCategory: j['listingCategory'] as String? ?? '',
         listingSold: j['listingSold'] as bool? ?? false,
         listingRev: (j['listingRev'] as num?)?.toInt() ?? 0,
+        rating: (j['rating'] as num?)?.toInt() ?? 0,
         pollQuestion: j['pollQuestion'] as String? ?? '',
         pollOptions:
             (j['pollOptions'] as List? ?? const []).whereType<String>().toList(),
@@ -704,6 +714,87 @@ class FeedStore extends ChangeNotifier {
         .toList()
       ..sort((a, b) => b.time.compareTo(a.time));
     return list;
+  }
+
+  /// Writes (or rewrites) the local user's review of a listing.
+  ///
+  /// One voice per person: an existing review by this user is deleted first —
+  /// which broadcasts its tombstone — and the new one posts in its place, so
+  /// editing a review propagates with the machinery replies already have.
+  /// Sellers cannot review their own listings; five stars you gave yourself
+  /// would make every rating worthless.
+  bool addReview(String listingId, {required int rating, String text = ''}) {
+    final i = _posts.indexWhere((p) => p.id == listingId);
+    if (i == -1 || !_posts[i].isListing) return false;
+    final listing = _posts[i];
+    final me = AppState.profile.value;
+    final myUsername = me.username.isEmpty ? 'you' : me.username;
+    final ownListing = listing.authorUsername == 'you' ||
+        listing.authorUsername == myUsername ||
+        (me.username.isNotEmpty && listing.authorUsername == me.username);
+    if (ownListing) return false;
+    final clamped = rating.clamp(1, 5);
+    final existing = myReviewOf(listingId);
+    if (existing != null) deletePost(existing.id);
+    final review = FeedPost(
+      id: 'post_${DateTime.now().microsecondsSinceEpoch}_${_nextId++}',
+      communityId: listing.communityId,
+      authorName: me.name,
+      authorUsername: myUsername,
+      time: DateTime.now(),
+      text: text.trim(),
+      parentId: listingId,
+      rating: clamped,
+    );
+    _posts.add(review);
+    _save();
+    notifyListeners();
+    if (RelayConfig.isEnabled) RelayService.instance.sendFeedPost(review);
+    return true;
+  }
+
+  /// A listing's reviews, newest first.
+  List<FeedPost> reviewsFor(String listingId) {
+    final list = _posts
+        .where((p) =>
+            p.parentId == listingId &&
+            p.isReview &&
+            !_hiddenIds.contains(p.id) &&
+            !_mutedUsernames.contains(p.authorUsername.toLowerCase()))
+        .toList()
+      ..sort((a, b) => b.time.compareTo(a.time));
+    return list;
+  }
+
+  /// The local user's review of [listingId], or null.
+  FeedPost? myReviewOf(String listingId) {
+    final me = AppState.profile.value.username;
+    for (final p in _posts) {
+      if (p.parentId == listingId &&
+          p.isReview &&
+          (p.authorUsername == 'you' ||
+              (me.isNotEmpty && p.authorUsername == me))) {
+        return p;
+      }
+    }
+    return null;
+  }
+
+  /// A seller's average rating and review count, across every listing of
+  /// theirs this device can see. Honest about its horizon: the audience of a
+  /// listing is its server's members, and so is the audience of its reviews.
+  (double, int) sellerRating(String username) {
+    var sum = 0;
+    var count = 0;
+    for (final l in _posts) {
+      if (!l.isListing) continue;
+      if (l.authorUsername.toLowerCase() != username.toLowerCase()) continue;
+      for (final r in reviewsFor(l.id)) {
+        sum += r.rating;
+        count++;
+      }
+    }
+    return count == 0 ? (0, 0) : (sum / count, count);
   }
 
   /// Rewrites one of the local user's own listings — title, price, category,
