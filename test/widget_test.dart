@@ -33,6 +33,7 @@ import 'package:okay_messaging/screens/contact_info_screen.dart';
 import 'package:okay_messaging/screens/chats_settings_screen.dart';
 import 'package:okay_messaging/screens/okay_pro_screen.dart';
 import 'package:okay_messaging/screens/community_settings_screen.dart';
+import 'package:okay_messaging/screens/create_server_screen.dart';
 import 'package:okay_messaging/screens/forum_screen.dart';
 import 'package:okay_messaging/screens/location_picker_screen.dart';
 import 'package:okay_messaging/screens/marketplace_screen.dart';
@@ -1496,6 +1497,135 @@ void main() {
         const Member(id: 'x', name: 'Mo', role: MemberRole.moderator).toJson());
     expect(revived.role, MemberRole.moderator);
     expect(roleName(MemberRole.moderator), 'Moderator');
+  });
+
+  test('a server is born with its privacy settings, not wide open', () {
+    CommunityStore.instance.resetForTest();
+    final c = CommunityStore.instance.createCommunity(
+      'Announcements',
+      description: 'Read-only news',
+      icon: '🚀',
+      invitePolicy: invitePolicyAdmins,
+      membersCanMessage: false,
+      membersCanCreateChannels: false,
+      membersCanPost: false,
+      slowModeSeconds: 30,
+    );
+    expect(c.description, 'Read-only news');
+    expect(c.icon, '🚀');
+    expect(c.invitePolicy, invitePolicyAdmins);
+    expect(c.membersCanMessage, isFalse);
+    expect(c.membersCanCreateChannels, isFalse);
+    expect(c.membersCanPost, isFalse);
+    expect(c.slowModeSeconds, 30);
+
+    // The new fields survive a JSON round trip…
+    final revived = Community.fromJson(c.toJson());
+    expect(revived.invitePolicy, invitePolicyAdmins);
+    expect(revived.membersCanMessage, isFalse);
+    // …and JSON from an older build (no such keys) reads as open, which is
+    // the behaviour every existing server already had.
+    final oldJson = c.toJson()
+      ..remove('invitePolicy')
+      ..remove('membersCanMessage');
+    final old = Community.fromJson(oldJson);
+    expect(old.invitePolicy, invitePolicyEveryone);
+    expect(old.membersCanMessage, isTrue);
+
+    // Defaults stay open when nothing is chosen.
+    final open = CommunityStore.instance.createCommunity('Open');
+    expect(open.invitePolicy, invitePolicyEveryone);
+    expect(open.membersCanMessage, isTrue);
+  });
+
+  test('invite policy decides who may share the server', () {
+    // The pure matrix, role by role.
+    expect(roleCanInvite(MemberRole.member, invitePolicyEveryone), isTrue);
+    expect(roleCanInvite(MemberRole.member, invitePolicyModerators), isFalse);
+    expect(
+        roleCanInvite(MemberRole.moderator, invitePolicyModerators), isTrue);
+    expect(roleCanInvite(MemberRole.moderator, invitePolicyAdmins), isFalse);
+    expect(roleCanInvite(MemberRole.admin, invitePolicyAdmins), isTrue);
+    expect(roleCanInvite(MemberRole.owner, invitePolicyAdmins), isTrue);
+    // A policy string this build doesn't know fails closed for members —
+    // a privacy choice must not widen on devices that can't read it.
+    expect(roleCanInvite(MemberRole.member, 'via-qr'), isFalse);
+    expect(roleCanInvite(MemberRole.owner, 'via-qr'), isTrue);
+
+    // Store level: the creator (owner) may always invite; the policy rides
+    // inside the invite itself and binds a joiner from the first moment.
+    CommunityStore.instance.resetForTest();
+    final store = CommunityStore.instance;
+    final c =
+        store.createCommunity('Sealed', invitePolicy: invitePolicyAdmins);
+    expect(store.canInvite(c.id), isTrue);
+    final invite = store.exportInvite(c.id,
+        myDigits: '15550101111', myName: 'Alice')!;
+    expect(invite['invitePolicy'], invitePolicyAdmins);
+    store.deleteCommunity(c.id);
+    final joined = store.joinFromInvite(Map<String, dynamic>.from(invite),
+        myDigits: '15550102222', myName: 'Bob')!;
+    expect(joined.invitePolicy, invitePolicyAdmins);
+    expect(store.canInvite(joined.id), isFalse);
+  });
+
+  test('a broadcast-only server silences members, not moderators', () {
+    CommunityStore.instance.resetForTest();
+    final store = CommunityStore.instance;
+    final c = store.createCommunity('News', membersCanMessage: false);
+    // The owner speaks freely in their own broadcast server.
+    expect(store.canSendMessages(c.id), isTrue);
+
+    // A joiner is read-only from the moment they join — the setting travels
+    // inside the invite, not only in later structure broadcasts.
+    final invite = store.exportInvite(c.id,
+        myDigits: '15550101111', myName: 'Alice')!;
+    store.deleteCommunity(c.id);
+    store.joinFromInvite(Map<String, dynamic>.from(invite),
+        myDigits: '15550102222', myName: 'Bob');
+    expect(store.canSendMessages(c.id), isFalse);
+
+    // The owner later opens the floor; the structure broadcast flips it
+    // on Bob's device too.
+    final opened = Map<String, dynamic>.from(invite);
+    opened['membersCanMessage'] = true;
+    opened['members'] = [
+      ...(invite['members'] as List),
+      const Member(id: 'u_15550102222', name: 'Bob').toJson(),
+    ];
+    store.applyRemoteStructure(opened, myDigits: '15550102222');
+    expect(store.canSendMessages(c.id), isTrue);
+  });
+
+  testWidgets('the create-server form bakes privacy in from birth',
+      (tester) async {
+    CommunityStore.instance.resetForTest();
+    // The form is one long scroll; a tall viewport keeps it all mounted.
+    tester.view.physicalSize = const Size(500, 2600);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(const MaterialApp(home: CreateServerScreen()));
+    // Without a name there is nothing to create.
+    final createBtn = find.widgetWithText(FilledButton, 'Create server');
+    expect(tester.widget<FilledButton>(createBtn).onPressed, isNull);
+
+    await tester.enterText(
+        find.widgetWithText(TextField, 'Server name'), 'Book Club');
+    await tester.tap(find.text('Admins only'));
+    await tester.tap(find.text('Members can send messages'));
+    await tester.pump();
+    await tester.tap(createBtn);
+    await tester.pump();
+
+    final c = CommunityStore.instance.communities
+        .firstWhere((c) => c.name == 'Book Club');
+    expect(c.invitePolicy, invitePolicyAdmins);
+    expect(c.membersCanMessage, isFalse);
+    expect(c.members.single.role, MemberRole.owner);
+    // Untouched switches keep their open defaults.
+    expect(c.membersCanCreateChannels, isTrue);
+    expect(c.membersCanPost, isTrue);
   });
 
   test('Channel messages: react (toggle) and delete', () {

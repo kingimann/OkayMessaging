@@ -393,14 +393,33 @@ class CommunityStore extends ChangeNotifier {
   }
 
   /// Creates a community with a starter set of channels, its own encryption
-  /// secret, and the creator as owner.
-  Community createCommunity(String name, {String color = '#7A5CFF'}) {
+  /// secret, and the creator as owner. The optional settings let the create
+  /// screen bake privacy choices in from the first moment, instead of the
+  /// server existing wide-open until someone finds the settings screen.
+  Community createCommunity(
+    String name, {
+    String color = '#7A5CFF',
+    String icon = '',
+    String description = '',
+    String invitePolicy = invitePolicyEveryone,
+    bool membersCanMessage = true,
+    bool membersCanCreateChannels = true,
+    bool membersCanPost = true,
+    int slowModeSeconds = 0,
+  }) {
     final id = 'c_${name.hashCode}_${_communities.length}';
     final community = Community(
       id: id,
       name: name.trim(),
       color: color,
+      icon: icon.trim(),
+      description: description.trim(),
       secret: mintSecret(),
+      invitePolicy: invitePolicy,
+      membersCanMessage: membersCanMessage,
+      membersCanCreateChannels: membersCanCreateChannels,
+      membersCanPost: membersCanPost,
+      slowModeSeconds: slowModeSeconds < 0 ? 0 : slowModeSeconds,
       channels: [
         Channel(
             id: '${id}_general',
@@ -895,6 +914,20 @@ class CommunityStore extends ChangeNotifier {
     onStructureChanged?.call(communityId);
   }
 
+  void setMembersCanMessage(String communityId, bool allowed) {
+    final community = byId(communityId);
+    if (community == null) return;
+    _replace(community.copyWith(membersCanMessage: allowed));
+    onStructureChanged?.call(communityId);
+  }
+
+  void setInvitePolicy(String communityId, String policy) {
+    final community = byId(communityId);
+    if (community == null) return;
+    _replace(community.copyWith(invitePolicy: policy));
+    onStructureChanged?.call(communityId);
+  }
+
   /// Adds a word to the server's filter (deduplicated, case-insensitive).
   void addBannedWord(String communityId, String word) {
     final community = byId(communityId);
@@ -974,6 +1007,20 @@ class CommunityStore extends ChangeNotifier {
 
   bool canPost(String communityId) =>
       canModerate(communityId) || (byId(communityId)?.membersCanPost ?? true);
+
+  /// Whether the local user may send channel messages here: moderators
+  /// always, members only while the server isn't broadcast-only.
+  bool canSendMessages(String communityId) =>
+      canModerate(communityId) ||
+      (byId(communityId)?.membersCanMessage ?? true);
+
+  /// Whether the local user may share this server's invite, per its policy.
+  bool canInvite(String communityId) {
+    final role = myRole(communityId);
+    if (role == null) return false;
+    return roleCanInvite(
+        role, byId(communityId)?.invitePolicy ?? invitePolicyEveryone);
+  }
 
   /// Edits a forum post's title/body (author or moderator) and flags it edited.
   void editForumPost(String communityId, String channelId, String postId,
@@ -1077,12 +1124,21 @@ class CommunityStore extends ChangeNotifier {
                   : m)
               .toJson()
       ],
+      // Settings travel inside the invite so a joiner's client enforces
+      // them from the first moment, not only after the next structure
+      // broadcast happens to land.
+      'slowModeSeconds': community.slowModeSeconds,
+      'membersCanCreateChannels': community.membersCanCreateChannels,
+      'membersCanPost': community.membersCanPost,
+      'membersCanMessage': community.membersCanMessage,
+      'invitePolicy': community.invitePolicy,
+      'bannedWords': community.bannedWords,
     };
   }
 
   /// The full shareable shape of a server — the invite snapshot plus its
-  /// moderation settings — broadcast to members whenever a structural
-  /// change lands, so every copy converges.
+  /// ban list — broadcast to members whenever a structural change lands, so
+  /// every copy converges.
   Map<String, dynamic>? exportStructure(String communityId,
       {required String myDigits, required String myName}) {
     final base = exportInvite(communityId,
@@ -1091,10 +1147,6 @@ class CommunityStore extends ChangeNotifier {
     if (base == null || community == null) return null;
     return {
       ...base,
-      'slowModeSeconds': community.slowModeSeconds,
-      'membersCanCreateChannels': community.membersCanCreateChannels,
-      'membersCanPost': community.membersCanPost,
-      'bannedWords': community.bannedWords,
       'bannedMembers':
           community.bannedMembers.map((m) => m.toJson()).toList(),
     };
@@ -1172,6 +1224,10 @@ class CommunityStore extends ChangeNotifier {
               mine.membersCanCreateChannels,
       membersCanPost:
           snapshot['membersCanPost'] as bool? ?? mine.membersCanPost,
+      membersCanMessage:
+          snapshot['membersCanMessage'] as bool? ?? mine.membersCanMessage,
+      invitePolicy:
+          snapshot['invitePolicy'] as String? ?? mine.invitePolicy,
       bannedWords: (snapshot['bannedWords'] as List?)?.cast<String>() ??
           mine.bannedWords,
       bannedMembers: [
@@ -1212,6 +1268,16 @@ class CommunityStore extends ChangeNotifier {
         ...members,
         const Member(id: 'me', name: 'You', online: true),
       ],
+      slowModeSeconds:
+          (snapshot['slowModeSeconds'] as num?)?.toInt() ?? 0,
+      membersCanCreateChannels:
+          snapshot['membersCanCreateChannels'] as bool? ?? true,
+      membersCanPost: snapshot['membersCanPost'] as bool? ?? true,
+      membersCanMessage: snapshot['membersCanMessage'] as bool? ?? true,
+      invitePolicy:
+          snapshot['invitePolicy'] as String? ?? invitePolicyEveryone,
+      bannedWords:
+          (snapshot['bannedWords'] as List?)?.cast<String>() ?? const [],
     );
     _communities.add(community);
     _save();

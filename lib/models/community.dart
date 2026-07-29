@@ -362,6 +362,21 @@ class Member {
       );
 }
 
+/// Who may share a server's invite. Stored as strings so old JSON stays
+/// valid and unknown future values degrade to the strictest reading.
+const invitePolicyEveryone = 'everyone';
+const invitePolicyModerators = 'moderators';
+const invitePolicyAdmins = 'admins';
+
+/// Whether [role] may invite people under [policy]. Pure. An unknown policy
+/// string (from a newer build) is read as admins-only — failing closed keeps
+/// a privacy choice meaningful on devices that don't understand it yet.
+bool roleCanInvite(MemberRole role, String policy) => switch (policy) {
+      invitePolicyEveryone => true,
+      invitePolicyModerators => roleCanModerate(role),
+      _ => roleCanManageServer(role),
+    };
+
 /// Returns the first entry of [words] found in [text] (case-insensitive,
 /// whole string match anywhere), or null when nothing is filtered. Pure.
 String? blockedWord(List<String> words, String text) {
@@ -407,6 +422,14 @@ class Community {
   final bool membersCanCreateChannels;
   final bool membersCanPost;
 
+  /// Whether plain members may send channel messages at all. Off makes the
+  /// server broadcast-only: everyone reads, moderators speak.
+  final bool membersCanMessage;
+
+  /// Who may share this server's invite: one of [invitePolicyEveryone],
+  /// [invitePolicyModerators], [invitePolicyAdmins].
+  final String invitePolicy;
+
   /// Messages and posts containing any of these words are refused.
   final List<String> bannedWords;
 
@@ -429,6 +452,8 @@ class Community {
     this.slowModeSeconds = 0,
     this.membersCanCreateChannels = true,
     this.membersCanPost = true,
+    this.membersCanMessage = true,
+    this.invitePolicy = invitePolicyEveryone,
     this.bannedWords = const [],
     this.bannedMembers = const [],
     this.mutedIds = const [],
@@ -466,6 +491,8 @@ class Community {
     int? slowModeSeconds,
     bool? membersCanCreateChannels,
     bool? membersCanPost,
+    bool? membersCanMessage,
+    String? invitePolicy,
     List<String>? bannedWords,
     List<Member>? bannedMembers,
     List<String>? mutedIds,
@@ -483,6 +510,8 @@ class Community {
         membersCanCreateChannels:
             membersCanCreateChannels ?? this.membersCanCreateChannels,
         membersCanPost: membersCanPost ?? this.membersCanPost,
+        membersCanMessage: membersCanMessage ?? this.membersCanMessage,
+        invitePolicy: invitePolicy ?? this.invitePolicy,
         bannedWords: bannedWords ?? this.bannedWords,
         bannedMembers: bannedMembers ?? this.bannedMembers,
         mutedIds: mutedIds ?? this.mutedIds,
@@ -500,6 +529,8 @@ class Community {
         'slowModeSeconds': slowModeSeconds,
         'membersCanCreateChannels': membersCanCreateChannels,
         'membersCanPost': membersCanPost,
+        'membersCanMessage': membersCanMessage,
+        'invitePolicy': invitePolicy,
         'bannedWords': bannedWords,
         'bannedMembers': bannedMembers.map((m) => m.toJson()).toList(),
         'mutedIds': mutedIds,
@@ -522,6 +553,9 @@ class Community {
         membersCanCreateChannels:
             json['membersCanCreateChannels'] as bool? ?? true,
         membersCanPost: json['membersCanPost'] as bool? ?? true,
+        membersCanMessage: json['membersCanMessage'] as bool? ?? true,
+        invitePolicy:
+            json['invitePolicy'] as String? ?? invitePolicyEveryone,
         bannedWords:
             (json['bannedWords'] as List?)?.cast<String>() ?? const [],
         bannedMembers: (json['bannedMembers'] as List? ?? const [])

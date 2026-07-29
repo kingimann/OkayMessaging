@@ -8,13 +8,13 @@ import '../widgets/info_section.dart';
 
 Color _hex(String s) => Color(int.parse(s.replaceFirst('#', 'ff'), radix: 16));
 
-const _palette = [
+const serverPalette = [
   '#7A5CFF', '#12B76A', '#F1C40F', '#EF5DA8', '#009DE2',
   '#F97052', '#8B5CF6', '#0F1419',
 ];
 
 /// Emoji a server can wear instead of its first letter.
-const _serverEmojis = [
+const serverEmojis = [
   '🎮', '🎨', '🎵', '📚', '💼', '⚽', '🍕', '🚀',
   '🌟', '🔥', '💬', '🛠️', '🏠', '🎬', '📷', '🌈',
 ];
@@ -29,8 +29,17 @@ String slowModeLabel(int seconds) {
   return '${seconds ~/ 60}m';
 }
 
+/// Human label for an invite policy value.
+String invitePolicyLabel(String policy) => switch (policy) {
+      invitePolicyModerators => 'Moderators',
+      invitePolicyAdmins => 'Admins only',
+      _ => 'Everyone',
+    };
+
 /// Owner/admin controls for a community: identity (name, icon, color,
-/// description), invites, and the moderation switchboard.
+/// description), invites, and the moderation switchboard. Members without
+/// manage rights get a read-only view of what the server is, plus the one
+/// action that is theirs: leaving.
 class CommunitySettingsScreen extends StatelessWidget {
   final String communityId;
   const CommunitySettingsScreen({super.key, required this.communityId});
@@ -45,6 +54,9 @@ class CommunitySettingsScreen extends StatelessWidget {
           return const Scaffold(body: Center(child: Text('Not found')));
         }
         final store = CommunityStore.instance;
+        if (!store.canManageServer(communityId)) {
+          return _memberView(context, community);
+        }
         return Scaffold(
           appBar: AppBar(title: const Text('Server settings')),
           body: ListView(
@@ -99,7 +111,7 @@ class CommunitySettingsScreen extends StatelessWidget {
                           style: const TextStyle(
                               fontSize: 18, fontWeight: FontWeight.w800)),
                     ),
-                    for (final e in _serverEmojis)
+                    for (final e in serverEmojis)
                       _iconChoice(
                         context,
                         selected: community.icon == e,
@@ -116,7 +128,7 @@ class CommunitySettingsScreen extends StatelessWidget {
                   spacing: 14,
                   runSpacing: 14,
                   children: [
-                    for (final c in _palette)
+                    for (final c in serverPalette)
                       GestureDetector(
                         onTap: () => store.setCommunityColor(communityId, c),
                         child: Container(
@@ -168,6 +180,24 @@ class CommunitySettingsScreen extends StatelessWidget {
                   onTap: () => _pickSlowMode(context, community),
                 ),
                 InfoTile(
+                  leading: const Icon(Icons.person_add_alt_1_outlined),
+                  title: 'Who can invite people',
+                  subtitle: invitePolicyLabel(community.invitePolicy),
+                  onTap: () => _pickInvitePolicy(context, community),
+                ),
+                InfoTile(
+                  leading: const Icon(Icons.chat_bubble_outline),
+                  title: 'Members can send messages',
+                  subtitle: community.membersCanMessage
+                      ? null
+                      : 'Broadcast-only: moderators speak, everyone reads',
+                  trailing: Switch(
+                    value: community.membersCanMessage,
+                    onChanged: (v) =>
+                        store.setMembersCanMessage(communityId, v),
+                  ),
+                ),
+                InfoTile(
                   leading: const Icon(Icons.tag),
                   title: 'Members can create channels',
                   trailing: Switch(
@@ -203,18 +233,118 @@ class CommunitySettingsScreen extends StatelessWidget {
                 ),
               ]),
               InfoSection(children: [
-                InfoTile(
-                  leading: const Icon(Icons.delete_outline, color: Colors.red),
-                  title: 'Delete server',
-                  titleColor: Colors.red,
-                  onTap: () => _confirmDelete(context, community),
-                ),
+                if (store.myRole(communityId) == MemberRole.owner)
+                  InfoTile(
+                    leading:
+                        const Icon(Icons.delete_outline, color: Colors.red),
+                    title: 'Delete server',
+                    titleColor: Colors.red,
+                    onTap: () => _confirmDelete(context, community),
+                  )
+                else
+                  InfoTile(
+                    leading: const Icon(Icons.logout, color: Colors.red),
+                    title: 'Leave server',
+                    titleColor: Colors.red,
+                    onTap: () => _confirmLeave(context, community),
+                  ),
               ]),
               const SizedBox(height: 24),
             ],
           ),
         );
       },
+    );
+  }
+
+  /// What a plain member sees: the server's identity, its rules as facts
+  /// rather than switches, the invite link when the policy allows sharing,
+  /// and the way out.
+  Widget _memberView(BuildContext context, Community community) {
+    final store = CommunityStore.instance;
+    return Scaffold(
+      appBar: AppBar(title: const Text('About this server')),
+      body: ListView(
+        children: [
+          const SizedBox(height: 8),
+          Center(
+            child: CircleAvatar(
+              radius: 40,
+              backgroundColor: _hex(community.color),
+              child: Text(
+                  community.icon.isNotEmpty
+                      ? community.icon
+                      : community.name[0].toUpperCase(),
+                  style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 32,
+                      fontWeight: community.icon.isNotEmpty
+                          ? FontWeight.w400
+                          : FontWeight.w800)),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Center(
+            child: Text(community.name,
+                style: const TextStyle(
+                    fontSize: 20, fontWeight: FontWeight.w800)),
+          ),
+          if (community.description.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(32, 6, 32, 0),
+              child: Text(community.description,
+                  textAlign: TextAlign.center,
+                  style:
+                      TextStyle(color: Colors.grey.shade600, fontSize: 13.5)),
+            ),
+          const SizedBox(height: 16),
+          InfoSection(children: [
+            InfoTile(
+              leading: const Icon(Icons.person_add_alt_1_outlined),
+              title: 'Who can invite people',
+              subtitle: invitePolicyLabel(community.invitePolicy),
+            ),
+            if (!community.membersCanMessage)
+              const InfoTile(
+                leading: Icon(Icons.lock_outline),
+                title: 'Read-only server',
+                subtitle: 'Only moderators can send messages',
+              ),
+            if (community.slowModeSeconds > 0)
+              InfoTile(
+                leading: const Icon(Icons.timer_outlined),
+                title: 'Slow mode',
+                subtitle: 'One message every '
+                    '${slowModeLabel(community.slowModeSeconds)}',
+              ),
+          ]),
+          if (store.canInvite(community.id))
+            InfoSection(children: [
+              InfoTile(
+                leading: const Icon(Icons.link),
+                title: 'Invite link',
+                subtitle: CommunityStore.inviteLink(community),
+                trailing: const Icon(Icons.copy, size: 20),
+                onTap: () {
+                  Clipboard.setData(ClipboardData(
+                      text: CommunityStore.inviteLink(community)));
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Invite link copied')),
+                  );
+                },
+              ),
+            ]),
+          InfoSection(children: [
+            InfoTile(
+              leading: const Icon(Icons.logout, color: Colors.red),
+              title: 'Leave server',
+              titleColor: Colors.red,
+              onTap: () => _confirmLeave(context, community),
+            ),
+          ]),
+          const SizedBox(height: 24),
+        ],
+      ),
     );
   }
 
@@ -300,6 +430,80 @@ class CommunitySettingsScreen extends StatelessWidget {
     );
     if (picked != null) {
       CommunityStore.instance.setSlowMode(communityId, picked);
+    }
+  }
+
+  Future<void> _pickInvitePolicy(
+      BuildContext context, Community community) async {
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(20, 0, 20, 4),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text('Who can invite people',
+                    style:
+                        TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                    'Controls who may share this server\'s invite. People '
+                    'already here stay either way.',
+                    style: TextStyle(
+                        fontSize: 12.5, color: Colors.grey.shade600)),
+              ),
+            ),
+            for (final (policy, label, detail) in const [
+              (invitePolicyEveryone, 'Everyone',
+                  'Any member can share the invite'),
+              (invitePolicyModerators, 'Moderators',
+                  'Moderators, admins, and the owner'),
+              (invitePolicyAdmins, 'Admins only',
+                  'Only admins and the owner'),
+            ])
+              ListTile(
+                leading: Icon(
+                    community.invitePolicy == policy
+                        ? Icons.radio_button_checked
+                        : Icons.radio_button_off,
+                    color: community.invitePolicy == policy
+                        ? Theme.of(sheetContext).colorScheme.primary
+                        : Colors.grey),
+                title: Text(label),
+                subtitle: Text(detail),
+                onTap: () => Navigator.pop(sheetContext, policy),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (picked != null) {
+      CommunityStore.instance.setInvitePolicy(communityId, picked);
+    }
+  }
+
+  Future<void> _confirmLeave(BuildContext context, Community community) async {
+    final ok = await showAppConfirmDialog(
+      context,
+      icon: Icons.logout,
+      title: 'Leave "${community.name}"?',
+      message: 'The server and its channels are removed from this device. '
+          'An invite can bring you back.',
+      confirmLabel: 'Leave server',
+      destructive: true,
+    );
+    if (ok && context.mounted) {
+      CommunityStore.instance.deleteCommunity(communityId);
+      Navigator.of(context).popUntil((r) => r.isFirst);
     }
   }
 

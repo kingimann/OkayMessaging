@@ -27,6 +27,7 @@ import '../widgets/poll_widgets.dart';
 import '../widgets/rich_message_text.dart';
 import '../widgets/user_avatar.dart';
 import 'community_settings_screen.dart';
+import 'create_server_screen.dart';
 import 'feed_screen.dart';
 import 'forum_screen.dart';
 import 'forward_screen.dart';
@@ -41,16 +42,12 @@ IconData _channelIcon(ChannelType type) => switch (type) {
       ChannelType.text => Icons.tag,
     };
 
-/// Prompts for a name, creates a community and opens it. Called from the
-/// home screen's compose button when the Communities tab is active.
+/// Opens the full create-server form (identity + privacy settings), which
+/// creates the community and replaces itself with the new server's screen.
+/// Called from the home screen's compose button on the Communities tab.
 Future<void> createCommunityFlow(BuildContext context) async {
-  final name = await _promptName(context, 'New community', 'Community name');
-  if (name == null || name.isEmpty) return;
-  final community = CommunityStore.instance.createCommunity(name);
-  if (context.mounted) {
-    Navigator.of(context).push(MaterialPageRoute(
-        builder: (_) => CommunityScreen(communityId: community.id)));
-  }
+  await Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => const CreateServerScreen()));
 }
 
 /// The "Communities" tab: Discord-style servers you can create and open,
@@ -753,21 +750,23 @@ class _CommunityScreenState extends State<CommunityScreen> {
                             fontWeight: FontWeight.w800),
                       ),
                     ),
-                    // Growing the server is the banner's one call to action.
-                    FilledButton.tonalIcon(
-                      style: FilledButton.styleFrom(
-                        backgroundColor:
-                            Colors.white.withValues(alpha: 0.22),
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 14, vertical: 8),
-                        visualDensity: VisualDensity.compact,
+                    // Growing the server is the banner's one call to action
+                    // — for those the invite policy lets share it.
+                    if (CommunityStore.instance.canInvite(communityId))
+                      FilledButton.tonalIcon(
+                        style: FilledButton.styleFrom(
+                          backgroundColor:
+                              Colors.white.withValues(alpha: 0.22),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 14, vertical: 8),
+                          visualDensity: VisualDensity.compact,
+                        ),
+                        icon: const Icon(Icons.person_add_alt_1, size: 17),
+                        label: const Text('Invite',
+                            style: TextStyle(fontWeight: FontWeight.w700)),
+                        onPressed: () => _invite(context, community),
                       ),
-                      icon: const Icon(Icons.person_add_alt_1, size: 17),
-                      label: const Text('Invite',
-                          style: TextStyle(fontWeight: FontWeight.w700)),
-                      onPressed: () => _invite(context, community),
-                    ),
                   ],
                 ),
               ),
@@ -1723,6 +1722,22 @@ class _ChannelScreenState extends State<ChannelScreen> {
         me.first.role == MemberRole.admin;
   }
 
+  /// Why the composer is locked here, or null when the user may type:
+  /// announcement channels are admin-only, and a broadcast-only server
+  /// silences plain members everywhere.
+  (IconData, String)? _composerLock(Community community, Channel channel) {
+    if (!_canPost(community, channel)) {
+      return (Icons.campaign_outlined, 'Only admins can post in this channel');
+    }
+    if (!CommunityStore.instance.canSendMessages(community.id)) {
+      return (
+        Icons.lock_outline,
+        'This server is read-only — only moderators can send messages'
+      );
+    }
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
@@ -1955,13 +1970,13 @@ class _ChannelScreenState extends State<ChannelScreen> {
                   ],
                 ),
               ),
-              // Announcement channels are broadcast-only: members read, and
-              // only the owner/admins can post — like every news channel.
-              // The composer stays hidden while searching so results fill the
-              // screen.
+              // A locked composer explains itself instead of vanishing:
+              // announcement channels are admin-only, and a broadcast-only
+              // server silences plain members everywhere. The composer stays
+              // hidden while searching so results fill the screen.
               if (_searching)
                 const SizedBox.shrink()
-              else if (!_canPost(comm, channel))
+              else if (_composerLock(comm, channel) != null)
                 SafeArea(
                   top: false,
                   child: Container(
@@ -1975,12 +1990,15 @@ class _ChannelScreenState extends State<ChannelScreen> {
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Icon(Icons.campaign_outlined,
+                        Icon(_composerLock(comm, channel)!.$1,
                             size: 18, color: Colors.grey.shade600),
                         const SizedBox(width: 8),
-                        Text('Only admins can post in this channel',
-                            style: TextStyle(
-                                color: Colors.grey.shade600, fontSize: 13.5)),
+                        Flexible(
+                          child: Text(_composerLock(comm, channel)!.$2,
+                              style: TextStyle(
+                                  color: Colors.grey.shade600,
+                                  fontSize: 13.5)),
+                        ),
                       ],
                     ),
                   ),
