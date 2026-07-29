@@ -17,7 +17,9 @@ import 'communities.dart';
 import 'explore_map_screen.dart';
 import 'new_chat_screen.dart';
 import 'profile_screen.dart';
+import 'marketplace_screen.dart';
 import 'settings_screen.dart';
+import 'wallet_screen.dart';
 import 'edit_profile_screen.dart';
 import 'starred_messages_screen.dart';
 import '../app_state.dart';
@@ -143,7 +145,7 @@ class _HomeScreenState extends State<HomeScreen>
       ),
       // Let the content flow behind the floating glass bar so it blurs through.
       extendBody: true,
-      drawer: const _AppSideBar(),
+      drawer: _AppSideBar(onSelectTab: _onSelectTab),
       // Tabs keep their state in an IndexedStack; switching softly fades the
       // incoming tab in rather than hard-cutting.
       body: FadeTransition(
@@ -310,7 +312,11 @@ class _ModernNavBar extends StatelessWidget {
 /// The left sidebar: profile up top, then one-tap shortcuts to the places
 /// that otherwise live several taps deep.
 class _AppSideBar extends StatelessWidget {
-  const _AppSideBar();
+  /// Switches the home screen's bottom tab — for destinations that ARE a tab,
+  /// where pushing a second copy on top would stack two of the same screen.
+  final ValueChanged<int> onSelectTab;
+
+  const _AppSideBar({required this.onSelectTab});
 
   void _go(BuildContext context, Widget screen) {
     Navigator.of(context).pop(); // close the drawer first
@@ -374,13 +380,38 @@ class _AppSideBar extends StatelessWidget {
                 ),
               ),
               const Divider(height: 1),
-              // Only the destinations the bottom bar can't cover — the
-              // full apps that live outside the five tabs.
+              // The full apps that live outside the five tabs, plus the
+              // destinations people kept asking where to find.
               ListTile(
                 leading: const Icon(Icons.map_outlined),
                 title: const Text('Maps'),
                 subtitle: const Text('Search, navigate, share places'),
                 onTap: () => _go(context, const ExploreMapScreen()),
+              ),
+              ListTile(
+                leading: const Icon(Icons.storefront_outlined),
+                title: const Text('Marketplace'),
+                subtitle: const Text('Buy and sell with your servers'),
+                onTap: () => _go(context, const MarketplaceScreen()),
+              ),
+              ListTile(
+                leading: const Icon(Icons.groups_outlined),
+                title: const Text('Servers'),
+                onTap: () {
+                  Navigator.of(context).pop();
+                  onSelectTab(1); // the Servers tab, without stacking a copy
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.account_balance_wallet_outlined),
+                title: const Text('Wallet'),
+                subtitle: const Text('Send and receive money'),
+                onTap: () => _go(context, const WalletScreen()),
+              ),
+              ListTile(
+                leading: const Icon(Icons.settings_outlined),
+                title: const Text('Settings'),
+                onTap: () => _go(context, const SettingsScreen()),
               ),
               const SizedBox(height: 12),
               Padding(

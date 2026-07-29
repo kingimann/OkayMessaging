@@ -35,6 +35,7 @@ import 'package:okay_messaging/screens/okay_pro_screen.dart';
 import 'package:okay_messaging/screens/community_settings_screen.dart';
 import 'package:okay_messaging/screens/forum_screen.dart';
 import 'package:okay_messaging/screens/location_picker_screen.dart';
+import 'package:okay_messaging/screens/marketplace_screen.dart';
 import 'package:okay_messaging/screens/map_screen.dart';
 import 'package:okay_messaging/screens/maps_settings_screen.dart';
 import 'package:okay_messaging/util/geocoding.dart';
@@ -4226,6 +4227,33 @@ void main() {
       expect(find.text('Grace'), findsOneWidget);
     });
 
+    testWidgets('nobody on the app yet leads to inviting, not retrying',
+        (tester) async {
+      addTearDown(() {
+        ContactsSync.debugNumbersOverride = null;
+        ContactsSync.debugLookupOverride = null;
+        ContactsSync.debugAccessLimitedOverride = null;
+        debugInviteShareOverride = null;
+      });
+      ContactsSync.debugAccessLimitedOverride = () async => false;
+      ContactsSync.debugNumbersOverride = () async => ['555-012-3456'];
+      ContactsSync.debugLookupOverride = (_) async => const [];
+      String? shared;
+      debugInviteShareOverride = (t) => shared = t;
+
+      await tester
+          .pumpWidget(const MaterialApp(home: ContactsOnAppScreen()));
+      await tester.tap(find.text('Find contacts'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('No contacts yet'), findsOneWidget);
+      await tester.tap(find.text('Invite friends'));
+      await tester.pump();
+      expect(shared, isNotNull);
+      expect(shared, contains('https://'),
+          reason: 'an invite without a link invites nobody');
+    });
+
     test('sync matches hashed numbers against the directory', () async {
       addTearDown(() {
         ContactsSync.debugNumbersOverride = null;
@@ -5462,6 +5490,129 @@ void main() {
           tester.widget<FilledButton>(find.widgetWithText(FilledButton, 'Post'))
               .onPressed,
           isNull);
+    });
+
+    test('a listing is a post with a price, and stays out of the timeline',
+        () {
+      FeedStore.instance.resetForTest();
+      addTearDown(FeedStore.instance.resetForTest);
+
+      final listing = FeedStore.instance.addListing('c1',
+          title: 'Blue bike',
+          priceCents: 12050,
+          category: 'Sports',
+          description: 'Rides fine');
+      FeedStore.instance.add('c1', 'an ordinary post');
+
+      // The timeline shows the post; the marketplace shows the listing. A
+      // feed full of price tags reads as ads, and a marketplace of chatter
+      // isn't one.
+      final timeline = FeedStore.instance.postsFor('c1');
+      expect(timeline.any((p) => p.id == listing.id), isFalse);
+      expect(timeline.any((p) => p.text == 'an ordinary post'), isTrue);
+      final listings = FeedStore.instance.listings(communityId: 'c1');
+      expect(listings.single.id, listing.id);
+      expect(listings.single.priceCents, 12050);
+
+      // And it survives the relay's JSON round trip with its structure.
+      final wire = FeedPost.fromJson(listing.toJson());
+      expect(wire.isListing, isTrue);
+      expect(wire.priceCents, 12050);
+      expect(wire.listingCategory, 'Sports');
+      expect(wire.text, 'Blue bike\nRides fine');
+    });
+
+    test('a stale mailbox replay cannot roll back a sold flag', () {
+      FeedStore.instance.resetForTest();
+      addTearDown(FeedStore.instance.resetForTest);
+
+      final listing = FeedStore.instance
+          .addListing('c1', title: 'Lamp', priceCents: 500, category: 'Home & Garden');
+      final staleCopy = FeedPost.fromJson(listing.toJson());
+
+      expect(FeedStore.instance.setListingSold(listing.id, true), isTrue);
+      expect(FeedStore.instance.listings().single.listingSold, isTrue);
+
+      // The mailbox replays the pre-sold copy: rev 0 against rev 1 loses.
+      FeedStore.instance.addRemote(staleCopy);
+      expect(FeedStore.instance.listings().single.listingSold, isTrue,
+          reason: 'a replayed old copy must never un-sell a listing');
+
+      // A genuinely newer copy (another device marking it available) wins.
+      final newer =
+          staleCopy.copyWith(listingSold: false, listingRev: 2);
+      FeedStore.instance.addRemote(newer);
+      expect(FeedStore.instance.listings().single.listingSold, isFalse);
+    });
+
+    test('prices parse forgivingly and format like price tags', () {
+      expect(parseListingPrice('20'), 2000);
+      expect(parseListingPrice(r'$1,200'), 120000);
+      expect(parseListingPrice('12.50'), 1250);
+      expect(parseListingPrice(''), 0, reason: 'blank means free');
+      expect(parseListingPrice('cheap'), isNull);
+      expect(parseListingPrice('12.345'), isNull);
+
+      expect(formatListingPrice(0), 'Free');
+      expect(formatListingPrice(2000), r'$20');
+      expect(formatListingPrice(1250), r'$12.50');
+      expect(formatListingPrice(1205), r'$12.05');
+    });
+
+    testWidgets('the marketplace browses, filters, and sells', (tester) async {
+      // Phone-shaped: at the default 800x600 the grid tiles are taller than
+      // the viewport and their labels sit below the fold, untappable.
+      tester.view.physicalSize = const Size(420, 1200);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      FeedStore.instance.resetForTest();
+      addTearDown(FeedStore.instance.resetForTest);
+      final server = CommunityStore.instance.createCommunity('Okay HQ');
+      addTearDown(CommunityStore.instance.resetForTest);
+
+      FeedStore.instance.addListing(server.id,
+          title: 'Blue bike', priceCents: 2000, category: 'Sports');
+      FeedStore.instance.addListing(server.id,
+          title: 'Green lamp', priceCents: 500, category: 'Home & Garden');
+
+      await tester
+          .pumpWidget(const MaterialApp(home: MarketplaceScreen()));
+      await tester.pump();
+
+      expect(find.text('Blue bike'), findsOneWidget);
+      expect(find.text('Green lamp'), findsOneWidget);
+      expect(find.text(r'$20'), findsOneWidget);
+
+      // The category chip narrows the grid. The chip row scrolls, so bring
+      // the chip on screen first — tapping an off-screen widget is a no-op.
+      await tester.drag(find.text('Furniture'), const Offset(-560, 0));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Sports'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Sports'));
+      await tester.pump();
+      expect(find.text('Blue bike'), findsOneWidget);
+      expect(find.text('Green lamp'), findsNothing);
+      await tester.tap(find.text('Sports'));
+      await tester.pump();
+
+      // Selling walks through the form and lands in the grid.
+      await tester.tap(find.text('Sell'));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+          find.widgetWithText(TextField, 'What are you selling?'), 'Red chair');
+      await tester.enterText(find.widgetWithText(TextField, 'Price'), '15');
+      await tester.tap(find.text('Post'));
+      await tester.pumpAndSettle();
+      expect(find.text('Red chair'), findsOneWidget);
+      expect(find.text(r'$15'), findsOneWidget);
+
+      // Own listing: open it and mark sold; the tile gains the badge.
+      await tester.tap(find.text('Red chair'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Mark as sold'));
+      await tester.pumpAndSettle();
+      expect(find.text('SOLD'), findsOneWidget);
     });
 
     testWidgets('the server feed starts empty, posts, likes, and threads',
@@ -6963,13 +7114,26 @@ void main() {
       await tester.tap(find.byTooltip('Open navigation menu'));
       await tester.pumpAndSettle();
 
-      // Only destinations the bottom bar can't reach live here — Maps.
-      // People was removed from the sidebar.
+      // The full apps, plus the destinations people kept asking where to
+      // find: Marketplace, Servers, Wallet, Settings.
       expect(find.text('Maps'), findsOneWidget);
+      expect(find.text('Marketplace'), findsOneWidget);
+      expect(find.text('Servers'), findsOneWidget);
+      expect(find.text('Wallet'), findsOneWidget);
+      expect(find.text('Settings'), findsOneWidget);
       expect(find.text('People'), findsNothing);
       expect(find.text('Starred messages'), findsNothing);
       expect(find.text('Encrypted cloud sync'), findsNothing);
       expect(find.text('My QR code'), findsNothing);
+
+      // Servers IS a bottom tab: the sidebar switches to it rather than
+      // stacking a second copy on top of the home screen.
+      await tester.tap(find.text('Servers'));
+      await tester.pumpAndSettle();
+      expect(find.text('Communities'), findsOneWidget,
+          reason: 'the home app bar should now title the Servers tab');
+      expect(find.byTooltip('Open navigation menu'), findsOneWidget,
+          reason: 'still on the home screen, not a pushed copy');
     });
 
     test('screen share reports an honest error with no active call', () async {

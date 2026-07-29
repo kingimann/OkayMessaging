@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../models/chat.dart';
 import '../models/user.dart';
@@ -21,6 +22,10 @@ class ContactsOnAppScreen extends StatefulWidget {
 }
 
 enum _View { intro, loading, done }
+
+/// Test hook: replaces the OS share sheet behind "Invite friends".
+@visibleForTesting
+void Function(String text)? debugInviteShareOverride;
 
 class _ContactsOnAppScreenState extends State<ContactsOnAppScreen> {
   _View _view = _View.intro;
@@ -157,6 +162,7 @@ class _ContactsOnAppScreenState extends State<ContactsOnAppScreen> {
                     'them and they\'ll show up here.',
             retry: true,
             settings: result.limited,
+            invite: true,
           );
         }
         return Column(
@@ -271,8 +277,20 @@ class _ContactsOnAppScreenState extends State<ContactsOnAppScreen> {
     }
   }
 
+  void _invite() {
+    const link = 'https://kingimann.github.io/OkayMessaging/';
+    const text = 'I\'m on OkayMessenger — a private messenger where chats '
+        'stay on your own phone. Join me: $link';
+    final debug = debugInviteShareOverride;
+    if (debug != null) {
+      debug(text);
+      return;
+    }
+    Share.share(text, subject: 'Join me on OkayMessenger');
+  }
+
   Widget _message_(IconData icon, String title, String body,
-      {bool retry = false, bool settings = false}) {
+      {bool retry = false, bool settings = false, bool invite = false}) {
     return Center(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 40),
@@ -289,18 +307,29 @@ class _ContactsOnAppScreenState extends State<ContactsOnAppScreen> {
             Text(body,
                 textAlign: TextAlign.center,
                 style: TextStyle(color: Colors.grey.shade600, fontSize: 14)),
+            // "Nobody's here yet" is an invitation problem, not a retry
+            // problem — so the primary action is inviting, via the OS share
+            // sheet, and syncing again is the secondary one.
+            if (invite) ...[
+              const SizedBox(height: 20),
+              FilledButton.icon(
+                onPressed: _invite,
+                icon: const Icon(Icons.person_add_alt, size: 18),
+                label: const Text('Invite friends'),
+              ),
+            ],
             // "Fix it in Settings" needs a button that goes there. The text
             // alone left people to find the right settings page themselves,
             // which most reasonably read as a dead end.
             if (settings) ...[
-              const SizedBox(height: 20),
+              SizedBox(height: invite ? 8 : 20),
               FilledButton(
                 onPressed: ContactsSync.instance.openSettings,
                 child: const Text('Open Settings'),
               ),
             ],
             if (retry) ...[
-              SizedBox(height: settings ? 8 : 20),
+              SizedBox(height: settings || invite ? 8 : 20),
               OutlinedButton(onPressed: _run, child: const Text('Try again')),
             ],
           ],

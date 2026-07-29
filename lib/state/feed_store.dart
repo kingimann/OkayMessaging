@@ -41,6 +41,20 @@ class FeedPost {
   /// Pinned to the top of its server's feed by a moderator.
   final bool pinned;
 
+  /// Asking price in cents (null = not a listing, 0 = free).
+  final int? priceCents;
+
+  /// Marketplace category (empty for ordinary posts).
+  final String listingCategory;
+
+  /// Whether the seller has marked this listing sold.
+  final bool listingSold;
+
+  /// Monotonic revision for listing updates. addRemote replaces a listing
+  /// only when this is higher, so a mailbox replaying a stale copy can never
+  /// roll back a sold flag.
+  final int listingRev;
+
   /// Poll fields. [pollOptions] empty means this isn't a poll; [pollVotes]
   /// is the tally per option and [pollMyVote] this device's choice (-1 none).
   final String pollQuestion;
@@ -50,6 +64,13 @@ class FeedPost {
 
   bool get isPoll => pollOptions.isNotEmpty;
   int get pollTotalVotes => pollVotes.fold(0, (n, v) => n + v);
+
+  /// Marketplace fields. A post with a price is a listing: it rides the same
+  /// sealed relay, persistence, and delete-tombstones as every other post —
+  /// the transport is the part that is hard to get right, and it already
+  /// exists — but it is hidden from timelines and shown in the Marketplace.
+  /// [priceCents] null means an ordinary post; 0 means "free".
+  bool get isListing => priceCents != null;
 
   const FeedPost({
     required this.id,
@@ -68,6 +89,10 @@ class FeedPost {
     this.repostOfId,
     this.edited = false,
     this.pinned = false,
+    this.priceCents,
+    this.listingCategory = '',
+    this.listingSold = false,
+    this.listingRev = 0,
     this.pollQuestion = '',
     this.pollOptions = const [],
     this.pollVotes = const [],
@@ -83,6 +108,8 @@ class FeedPost {
     String? text,
     bool? edited,
     bool? pinned,
+    bool? listingSold,
+    int? listingRev,
     List<int>? pollVotes,
     int? pollMyVote,
   }) =>
@@ -103,6 +130,10 @@ class FeedPost {
         repostOfId: repostOfId,
         edited: edited ?? this.edited,
         pinned: pinned ?? this.pinned,
+        priceCents: priceCents,
+        listingCategory: listingCategory,
+        listingSold: listingSold ?? this.listingSold,
+        listingRev: listingRev ?? this.listingRev,
         pollQuestion: pollQuestion,
         pollOptions: pollOptions,
         pollVotes: pollVotes ?? this.pollVotes,
@@ -126,6 +157,12 @@ class FeedPost {
         if (repostOfId != null) 'repostOfId': repostOfId,
         if (edited) 'edited': true,
         if (pinned) 'pinned': true,
+        if (isListing) ...{
+          'priceCents': priceCents,
+          'listingCategory': listingCategory,
+          if (listingSold) 'listingSold': true,
+          'listingRev': listingRev,
+        },
         if (isPoll) ...{
           'pollQuestion': pollQuestion,
           'pollOptions': pollOptions,
@@ -151,6 +188,10 @@ class FeedPost {
         repostOfId: j['repostOfId'] as String?,
         edited: j['edited'] as bool? ?? false,
         pinned: j['pinned'] as bool? ?? false,
+        priceCents: (j['priceCents'] as num?)?.toInt(),
+        listingCategory: j['listingCategory'] as String? ?? '',
+        listingSold: j['listingSold'] as bool? ?? false,
+        listingRev: (j['listingRev'] as num?)?.toInt() ?? 0,
         pollQuestion: j['pollQuestion'] as String? ?? '',
         pollOptions:
             (j['pollOptions'] as List? ?? const []).whereType<String>().toList(),
@@ -526,6 +567,9 @@ class FeedStore extends ChangeNotifier {
     var posts = _posts.where((p) =>
         p.communityId == communityId &&
         p.parentId == null &&
+        // Listings live in the Marketplace, not the timeline — a feed full
+        // of price tags reads as ads.
+        !p.isListing &&
         !_hiddenIds.contains(p.id) &&
         !_mutedUsernames.contains(p.authorUsername.toLowerCase()));
     if (onlyUsernames != null) {
@@ -544,6 +588,7 @@ class FeedStore extends ChangeNotifier {
     final list = _posts
         .where((p) =>
             p.parentId == null &&
+            !p.isListing &&
             // Repost entries carry no text of their own — the activity
             // preview shows originals only.
             p.repostOfId == null &&
@@ -612,6 +657,73 @@ class FeedStore extends ChangeNotifier {
     return post;
   }
 
+  /// Creates a marketplace listing and shares it with the server, riding the
+  /// exact post path — same sealed relay, same persistence, same tombstones.
+  FeedPost addListing(
+    String communityId, {
+    required String title,
+    required int priceCents,
+    required String category,
+    String description = '',
+    String? photoUrl,
+  }) {
+    final me = AppState.profile.value;
+    final post = FeedPost(
+      id: 'post_${DateTime.now().microsecondsSinceEpoch}_${_nextId++}',
+      communityId: communityId,
+      authorName: me.name,
+      authorUsername: me.username.isEmpty ? 'you' : me.username,
+      time: DateTime.now(),
+      // Title on the first line, details after — a client too old to know
+      // about listings shows a readable post instead of stray fields.
+      text: description.trim().isEmpty
+          ? title.trim()
+          : '${title.trim()}\n${description.trim()}',
+      gifUrl: photoUrl,
+      priceCents: priceCents,
+      listingCategory: category,
+    );
+    _posts.add(post);
+    _save();
+    notifyListeners();
+    if (RelayConfig.isEnabled) RelayService.instance.sendFeedPost(post);
+    return post;
+  }
+
+  /// Listings, newest first — one server's or every server's (null).
+  /// Sold listings stay listed (marked) for [soldFor] so a buyer mid-chat
+  /// isn't staring at a listing that vanished; older sold ones drop out.
+  List<FeedPost> listings({String? communityId, bool includeSold = true}) {
+    final list = _posts
+        .where((p) =>
+            p.isListing &&
+            (communityId == null || p.communityId == communityId) &&
+            (includeSold || !p.listingSold) &&
+            !_hiddenIds.contains(p.id) &&
+            !_mutedUsernames.contains(p.authorUsername.toLowerCase()))
+        .toList()
+      ..sort((a, b) => b.time.compareTo(a.time));
+    return list;
+  }
+
+  /// Flips a listing's sold flag (own listings only) and tells the server.
+  bool setListingSold(String postId, bool sold) {
+    final i = _posts.indexWhere((p) => p.id == postId);
+    if (i == -1 || !_posts[i].isListing) return false;
+    final post = _posts[i];
+    final me = AppState.profile.value.username;
+    final mine = post.authorUsername == 'you' ||
+        (me.isNotEmpty && post.authorUsername == me);
+    if (!mine || post.listingSold == sold) return false;
+    final updated =
+        post.copyWith(listingSold: sold, listingRev: post.listingRev + 1);
+    _posts[i] = updated;
+    _save();
+    notifyListeners();
+    if (RelayConfig.isEnabled) RelayService.instance.sendFeedPost(updated);
+    return true;
+  }
+
   /// Merges a post that arrived over the relay from another device.
   /// Dedupes by id; incoming replies bump their parent's count and
   /// incoming reposts bump their original's.
@@ -622,7 +734,21 @@ class FeedStore extends ChangeNotifier {
       if (post.repostOfId == null) return;
       _deletedIds.remove(post.id);
     }
-    if (_posts.any((p) => p.id == post.id)) return;
+    final existing = _posts.indexWhere((p) => p.id == post.id);
+    if (existing != -1) {
+      // A listing update (sold, edited price) arrives as the same post with
+      // a higher revision. Only higher: the mailbox replays old copies, and
+      // a stale replay must never roll a sold flag back.
+      final old = _posts[existing];
+      if (post.isListing &&
+          old.isListing &&
+          post.listingRev > old.listingRev) {
+        _posts[existing] = post;
+        _save();
+        notifyListeners();
+      }
+      return;
+    }
     _posts.add(post);
     _maybeNotify(post);
     final parentId = post.parentId;
