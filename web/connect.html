@@ -52,15 +52,19 @@
     notify('error');
   }
 
-  // Called by the host once the page has loaded, so the client secret never
-  // appears in a URL.
-  window.okayStart = function (clientSecret, publishableKey, dark, accent) {
-    if (!window.StripeConnect || !window.StripeConnect.initialize) {
-      fail('Could not reach Stripe. Check your connection and try again.');
-      return;
-    }
+  // The loader exposes StripeConnect.init — NOT .initialize, which is the npm
+  // package's name. Checking for the wrong one made the page give up before
+  // it ever called Stripe, reporting "could not reach Stripe" while Stripe
+  // was sitting there loaded.
+  //
+  // StripeConnect.onLoad is the loader's own ready hook: set it before the
+  // script finishes and it fires when init exists. That removes the race
+  // between the host calling in and the CDN script arriving.
+  window.StripeConnect = window.StripeConnect || {};
+
+  function mount(clientSecret, publishableKey, dark, accent) {
     try {
-      var instance = window.StripeConnect.initialize({
+      var instance = window.StripeConnect.init({
         publishableKey: publishableKey,
         fetchClientSecret: function () { return Promise.resolve(clientSecret); },
         appearance: {
@@ -83,6 +87,19 @@
     } catch (e) {
       fail('Could not start setup: ' + (e && e.message ? e.message : e));
     }
+  }
+
+  // Called by the host once the page has loaded, so the client secret never
+  // appears in a URL.
+  window.okayStart = function (clientSecret, publishableKey, dark, accent) {
+    if (window.StripeConnect.init) {
+      mount(clientSecret, publishableKey, dark, accent);
+      return;
+    }
+    // Script still in flight — hand Stripe the callback instead of failing.
+    window.StripeConnect.onLoad = function () {
+      mount(clientSecret, publishableKey, dark, accent);
+    };
   };
 
   // If the host never calls in, say so rather than spinning forever.

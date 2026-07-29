@@ -10539,6 +10539,15 @@ void main() {
       expect(html.contains('connect-js.stripe.com'), isTrue);
       expect(html.contains('account-onboarding'), isTrue);
 
+      // The loader exposes StripeConnect.init. The npm package's name is
+      // .initialize, and reaching for that made the page report "could not
+      // reach Stripe" while Stripe sat there fully loaded.
+      expect(html.contains('StripeConnect.init('), isTrue);
+      expect(html.contains('StripeConnect.initialize'), isFalse,
+          reason: 'that name only exists in the npm package, not the CDN one');
+      // And a slow script must not race the host calling in.
+      expect(html.contains('StripeConnect.onLoad'), isTrue);
+
       // The secret arrives by function call after load, never in the URL.
       expect(html.contains('window.okayStart'), isTrue);
       expect(html.contains('location.search'), isFalse,
