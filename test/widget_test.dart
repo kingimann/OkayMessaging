@@ -5583,23 +5583,31 @@ void main() {
       expect(find.text('Green lamp'), findsOneWidget);
       expect(find.text(r'$20'), findsOneWidget);
 
-      // The category chip narrows the grid. The chip row scrolls, so bring
-      // the chip on screen first — tapping an off-screen widget is a no-op.
-      // The chip row is lazy: keep scrolling until the chip is built and
-      // fully on screen, rather than guessing a pixel distance.
-      final chipRow = find.byType(ListView).first;
-      for (var i = 0; i < 8 && find.text('Sports').evaluate().isEmpty; i++) {
-        await tester.drag(chipRow, const Offset(-200, 0));
-        await tester.pumpAndSettle();
-      }
-      await tester.ensureVisible(find.text('Sports'));
+      // Filters moved to the top-right corner: the tune button opens a
+      // sheet, picking a category applies it and shows a removable chip.
+      await tester.tap(find.byTooltip('Filter'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Sports'));
-      await tester.pump();
+      await tester.pumpAndSettle();
       expect(find.text('Blue bike'), findsOneWidget);
       expect(find.text('Green lamp'), findsNothing);
-      await tester.tap(find.text('Sports'));
-      await tester.pump();
+      // Clearing is one tap on the active chip's delete.
+      await tester.tap(find
+          .descendant(of: find.byType(InputChip), matching: find.byType(Icon))
+          .last);
+      await tester.pumpAndSettle();
+      expect(find.text('Green lamp'), findsOneWidget);
+
+      // Search lives in the corner too and narrows as you type.
+      await tester.tap(find.byTooltip('Search Marketplace'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).first, 'lamp');
+      await tester.pumpAndSettle();
+      expect(find.text('Green lamp'), findsOneWidget);
+      expect(find.text('Blue bike'), findsNothing);
+      await tester.tap(find.byTooltip('Close search'));
+      await tester.pumpAndSettle();
+      expect(find.text('Blue bike'), findsOneWidget);
 
       // Selling walks through the form and lands in the grid.
       await tester.tap(find.text('Sell'));

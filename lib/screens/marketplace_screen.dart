@@ -67,12 +67,81 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
   String _category = '';
   String _query = '';
   bool _mineOnly = false;
+  bool _searching = false;
   final TextEditingController _search = TextEditingController();
 
   @override
   void dispose() {
     _search.dispose();
     super.dispose();
+  }
+
+  void _closeSearch() {
+    _search.clear();
+    setState(() {
+      _searching = false;
+      _query = '';
+    });
+  }
+
+  /// Category and your-listings filters, as a sheet off the filter button.
+  /// Out of the body: a permanent search bar and a chip strip spent two rows
+  /// of every visit on controls most visits never touch.
+  Future<void> _openFilters() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (sheetContext, setSheet) => SafeArea(
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                SwitchListTile.adaptive(
+                  secondary: const Icon(Icons.sell_outlined),
+                  title: const Text('Your listings'),
+                  value: _mineOnly,
+                  onChanged: (v) {
+                    setState(() => _mineOnly = v);
+                    setSheet(() {});
+                  },
+                ),
+                const Divider(height: 1),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                  child: Text('CATEGORY',
+                      style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.6,
+                          color: Colors.grey.shade600)),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final c in kMarketplaceCategories)
+                        ChoiceChip(
+                          label: Text(c),
+                          selected: _category == c,
+                          onSelected: (_) {
+                            setState(() =>
+                                _category = _category == c ? '' : c);
+                            Navigator.of(sheetContext).pop();
+                          },
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   String _serverName(String id) {
@@ -113,8 +182,44 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final hasFilter = _category.isNotEmpty || _mineOnly;
     return Scaffold(
-      appBar: AppBar(title: const Text('Marketplace')),
+      // Search and filters live in the top-right corner; the body is the
+      // goods.
+      appBar: AppBar(
+        title: _searching
+            ? TextField(
+                controller: _search,
+                autofocus: true,
+                onChanged: (v) => setState(() => _query = v),
+                decoration: const InputDecoration.collapsed(
+                    hintText: 'Search Marketplace'),
+              )
+            : const Text('Marketplace'),
+        actions: [
+          if (_searching)
+            IconButton(
+              icon: const Icon(Icons.close),
+              tooltip: 'Close search',
+              onPressed: _closeSearch,
+            )
+          else
+            IconButton(
+              icon: const Icon(Icons.search),
+              tooltip: 'Search Marketplace',
+              onPressed: () => setState(() => _searching = true),
+            ),
+          IconButton(
+            icon: Badge(
+              isLabelVisible: hasFilter,
+              smallSize: 8,
+              child: const Icon(Icons.tune),
+            ),
+            tooltip: 'Filter',
+            onPressed: _openFilters,
+          ),
+        ],
+      ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _sell,
         icon: const Icon(Icons.sell_outlined),
@@ -154,63 +259,37 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
           return Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
-                child: TextField(
-                  controller: _search,
-                  onChanged: (v) => setState(() => _query = v),
-                  decoration: InputDecoration(
-                    hintText: 'Search Marketplace',
-                    prefixIcon: const Icon(Icons.search),
-                    isDense: true,
-                    suffixIcon: _query.isEmpty
-                        ? null
-                        : IconButton(
-                            icon: const Icon(Icons.close, size: 18),
-                            tooltip: 'Clear search',
-                            onPressed: () {
-                              _search.clear();
-                              setState(() => _query = '');
-                            },
-                          ),
+              // Active filters only. When nothing is filtered, nothing is
+              // here — the grid starts at the top.
+              if (hasFilter)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+                  child: Wrap(
+                    spacing: 6,
+                    children: [
+                      if (_mineOnly)
+                        InputChip(
+                          avatar: const Icon(Icons.sell_outlined, size: 15),
+                          label: const Text('Your listings'),
+                          visualDensity: VisualDensity.compact,
+                          onDeleted: () =>
+                              setState(() => _mineOnly = false),
+                        ),
+                      if (_category.isNotEmpty)
+                        InputChip(
+                          label: Text(_category),
+                          visualDensity: VisualDensity.compact,
+                          onDeleted: () =>
+                              setState(() => _category = ''),
+                        ),
+                    ],
                   ),
                 ),
-              ),
-              SizedBox(
-                height: 46,
-                child: ListView(
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.only(right: 6),
-                      child: FilterChip(
-                        avatar: const Icon(Icons.sell_outlined, size: 15),
-                        label: const Text('Your listings'),
-                        selected: _mineOnly,
-                        visualDensity: VisualDensity.compact,
-                        onSelected: (v) => setState(() => _mineOnly = v),
-                      ),
-                    ),
-                    for (final c in kMarketplaceCategories)
-                      Padding(
-                        padding: const EdgeInsets.only(right: 6),
-                        child: ChoiceChip(
-                          label: Text(c),
-                          selected: _category == c,
-                          visualDensity: VisualDensity.compact,
-                          onSelected: (_) => setState(
-                              () => _category = _category == c ? '' : c),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
               Expanded(
                 child: listings.isEmpty
                     ? _empty(context)
                     : GridView.builder(
-                        padding: const EdgeInsets.fromLTRB(12, 4, 12, 96),
+                        padding: const EdgeInsets.fromLTRB(12, 12, 12, 96),
                         gridDelegate:
                             const SliverGridDelegateWithFixedCrossAxisCount(
                           crossAxisCount: 2,
@@ -660,10 +739,15 @@ class _SellScreenState extends State<SellScreen> {
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 12),
-            child: FilledButton(
-              onPressed: _post,
-              style: FilledButton.styleFrom(shape: const StadiumBorder()),
-              child: const Text('Post'),
+            // Live-enabled once there's a title — a Post that can only fail
+            // reads better disabled than erroring after the tap.
+            child: ValueListenableBuilder<TextEditingValue>(
+              valueListenable: _title,
+              builder: (context, value, _) => FilledButton(
+                onPressed: value.text.trim().isEmpty ? null : _post,
+                style: FilledButton.styleFrom(shape: const StadiumBorder()),
+                child: const Text('Post'),
+              ),
             ),
           ),
         ],
@@ -698,55 +782,100 @@ class _SellScreenState extends State<SellScreen> {
                     ),
             ),
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 16),
           TextField(
             controller: _title,
             textCapitalization: TextCapitalization.sentences,
+            // The title carries the listing, so it reads a size up.
+            style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
             decoration: const InputDecoration(hintText: 'What are you selling?'),
           ),
-          const SizedBox(height: 10),
-          TextField(
-            controller: _price,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            decoration: const InputDecoration(
-                hintText: 'Price', prefixText: '\$ ', helperText: 'Leave empty for free'),
-          ),
-          const SizedBox(height: 10),
-          DropdownButtonFormField<String>(
-            initialValue: _category,
-            items: [
-              for (final c in kMarketplaceCategories)
-                DropdownMenuItem(value: c, child: Text(c)),
+          const SizedBox(height: 12),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Price and category share a row: both are short, and the form
+              // shouldn't scroll for two half-width answers. "Free" belongs
+              // in the price field's own hint — as helperText it collided
+              // with the next field's label.
+              Expanded(
+                child: TextField(
+                  controller: _price,
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(
+                      hintText: 'Free', labelText: 'Price', prefixText: '\$ '),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: DropdownButtonFormField<String>(
+                  // Sized to its column, not to its widest item — "Home &
+                  // Garden" at intrinsic width overflowed the half-width slot.
+                  isExpanded: true,
+                  initialValue: _category,
+                  items: [
+                    for (final c in kMarketplaceCategories)
+                      DropdownMenuItem(value: c, child: Text(c)),
+                  ],
+                  onChanged: (v) => setState(() => _category = v ?? _category),
+                  decoration: const InputDecoration(labelText: 'Category'),
+                ),
+              ),
             ],
-            onChanged: (v) => setState(() => _category = v ?? _category),
-            decoration: const InputDecoration(labelText: 'Category'),
           ),
-          const SizedBox(height: 10),
-          if (servers.length > 1)
+          const SizedBox(height: 12),
+          if (servers.length > 1) ...[
             DropdownButtonFormField<String>(
+              isExpanded: true,
               initialValue: _communityId,
               items: [
                 for (final s in servers)
                   DropdownMenuItem(value: s.id, child: Text(s.name)),
               ],
               onChanged: (v) => setState(() => _communityId = v ?? _communityId),
-              decoration: const InputDecoration(
-                  labelText: 'Server',
-                  helperText: 'Members of this server see the listing'),
+              decoration: const InputDecoration(labelText: 'Server'),
             ),
-          const SizedBox(height: 10),
+            const SizedBox(height: 12),
+          ],
           TextField(
             controller: _description,
             minLines: 3,
             maxLines: 8,
             maxLength: 600,
             textCapitalization: TextCapitalization.sentences,
+            buildCounter: (context,
+                    {required currentLength, required isFocused, maxLength}) =>
+                currentLength > 500
+                    ? Text('$currentLength/$maxLength',
+                        style: TextStyle(
+                            fontSize: 11,
+                            color:
+                                Theme.of(context).colorScheme.onSurfaceVariant))
+                    : null,
             decoration: const InputDecoration(
                 hintText: 'Describe it — condition, size, pickup…'),
           ),
+          const SizedBox(height: 10),
+          // Who will see this. Stated on the form, not discovered after.
+          Row(
+            children: [
+              Icon(Icons.groups_outlined,
+                  size: 16, color: Colors.grey.shade600),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Shared with members of '
+                  '${servers.firstWhere((c) => c.id == _communityId, orElse: () => servers.first).name}.',
+                  style:
+                      TextStyle(fontSize: 12.5, color: Colors.grey.shade600),
+                ),
+              ),
+            ],
+          ),
           if (_error != null)
             Padding(
-              padding: const EdgeInsets.only(top: 6),
+              padding: const EdgeInsets.only(top: 10),
               child: Text(_error!,
                   style:
                       TextStyle(color: Theme.of(context).colorScheme.error)),
