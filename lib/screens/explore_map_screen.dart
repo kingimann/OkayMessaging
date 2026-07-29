@@ -952,11 +952,36 @@ class _CircleButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      elevation: 3,
-      shape: const CircleBorder(),
-      color: Theme.of(context).colorScheme.surface,
-      child: IconButton(icon: Icon(icon), tooltip: tooltip, onPressed: onTap),
+    final scheme = Theme.of(context).colorScheme;
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    // Matches the control cluster on the other side of the map: outlined and
+    // slightly translucent, because a plain dark circle on a dark basemap is
+    // nearly invisible.
+    return Container(
+      decoration: BoxDecoration(
+        color: scheme.surface.withValues(alpha: dark ? 0.88 : 0.95),
+        shape: BoxShape.circle,
+        border: Border.all(
+          color: (dark ? Colors.white : Colors.black)
+              .withValues(alpha: dark ? 0.12 : 0.06),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: dark ? 0.4 : 0.15),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: IconButton(
+        icon: Icon(icon, size: 21),
+        tooltip: tooltip,
+        color: scheme.onSurface,
+        visualDensity: VisualDensity.compact,
+        constraints: const BoxConstraints.tightFor(width: 44, height: 44),
+        padding: EdgeInsets.zero,
+        onPressed: onTap,
+      ),
     );
   }
 }

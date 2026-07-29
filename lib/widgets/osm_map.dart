@@ -292,18 +292,24 @@ class OsmAttribution extends StatelessWidget {
     final dark = Theme.of(context).brightness == Brightness.dark;
     return Align(
       alignment: Alignment.bottomRight,
-      child: Container(
-        margin: const EdgeInsets.all(6),
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-        decoration: BoxDecoration(
-          color: (dark ? Colors.black : Colors.white).withValues(alpha: 0.7),
-          borderRadius: BorderRadius.circular(4),
-        ),
-        child: Text(
-          attributionFor(layer),
-          style: TextStyle(
-            fontSize: 10,
-            color: dark ? Colors.white70 : Colors.black87,
+      child: SafeArea(
+        child: Container(
+          margin: const EdgeInsets.fromLTRB(6, 6, 8, 6),
+          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+          decoration: BoxDecoration(
+            // Legally required, so it can't be hidden — but a solid slab
+            // parked on the map is louder than a credit line needs to be.
+            color: (dark ? Colors.black : Colors.white).withValues(alpha: 0.42),
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Text(
+            attributionFor(layer),
+            style: TextStyle(
+              fontSize: 9.5,
+              height: 1.1,
+              color: (dark ? Colors.white : Colors.black)
+                  .withValues(alpha: 0.6),
+            ),
           ),
         ),
       ),
@@ -431,30 +437,92 @@ class MapControls extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    Widget btn(IconData icon, String tip, VoidCallback onTap) => Padding(
-          padding: const EdgeInsets.only(top: 8),
-          child: Material(
-            color: Theme.of(context).colorScheme.surface,
-            elevation: 3,
-            shape: const CircleBorder(),
-            child: IconButton(icon: Icon(icon), tooltip: tip, onPressed: onTap),
-          ),
+    final scheme = Theme.of(context).colorScheme;
+    final dark = Theme.of(context).brightness == Brightness.dark;
+
+    Widget icon(IconData glyph, String tip, VoidCallback onTap) => IconButton(
+          icon: Icon(glyph, size: 21),
+          tooltip: tip,
+          color: scheme.onSurface,
+          visualDensity: VisualDensity.compact,
+          constraints: const BoxConstraints.tightFor(width: 44, height: 44),
+          padding: EdgeInsets.zero,
+          onPressed: onTap,
         );
+
+    /// Related controls travel together in one rounded slab rather than as
+    /// separate floating circles. Six identical dots down the edge of a map
+    /// read as clutter and say nothing about which belong together.
+    Widget cluster(List<Widget> children) => Container(
+          margin: const EdgeInsets.only(top: 10),
+          decoration: BoxDecoration(
+            // Slightly translucent so it reads as chrome floating over the
+            // map, and outlined so it separates from a dark basemap — a
+            // plain dark circle on a dark map is nearly invisible.
+            color: scheme.surface.withValues(alpha: dark ? 0.88 : 0.95),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: (dark ? Colors.white : Colors.black)
+                  .withValues(alpha: dark ? 0.12 : 0.06),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: dark ? 0.4 : 0.15),
+                blurRadius: 10,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Column(mainAxisSize: MainAxisSize.min, children: children),
+        );
+
+    Widget divider() => Container(
+          height: 1,
+          width: 28,
+          color: scheme.onSurface.withValues(alpha: 0.12),
+        );
+
+    final actions = <Widget>[
+      if (onMyLocation != null)
+        icon(Icons.my_location, 'My location', onMyLocation!),
+      if (onSaved != null)
+        icon(Icons.bookmark_outline, 'Saved places', onSaved!),
+      if (onFriends != null)
+        icon(Icons.group_outlined, 'Friends map', onFriends!),
+      icon(Icons.layers_outlined, 'Map style', () => _pickLayer(context)),
+    ];
+
     return Positioned(
       right: 12,
       top: top,
       bottom: top == null ? bottom : null,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (onMyLocation != null)
-            btn(Icons.my_location, 'My location', onMyLocation!),
-          if (onSaved != null) btn(Icons.bookmark_outline, 'Saved places', onSaved!),
-          if (onFriends != null) btn(Icons.group_outlined, 'Friends map', onFriends!),
-          btn(Icons.layers_outlined, 'Map style', () => _pickLayer(context)),
-          btn(Icons.add, 'Zoom in', () => _zoom(1)),
-          btn(Icons.remove, 'Zoom out', () => _zoom(-1)),
-        ],
+      // Only guard the edge this stack is actually anchored to. A caller
+      // passing `top` has already added the status-bar inset itself, so
+      // guarding the top here too would push the controls down twice.
+      child: SafeArea(
+        top: false,
+        bottom: top == null,
+        left: false,
+        right: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (actions.isNotEmpty)
+              cluster([
+                for (var i = 0; i < actions.length; i++) ...[
+                  if (i > 0) divider(),
+                  actions[i],
+                ],
+              ]),
+            // Zoom is its own pair — one control with two ends, not two
+            // unrelated buttons that happen to be adjacent.
+            cluster([
+              icon(Icons.add, 'Zoom in', () => _zoom(1)),
+              divider(),
+              icon(Icons.remove, 'Zoom out', () => _zoom(-1)),
+            ]),
+          ],
+        ),
       ),
     );
   }

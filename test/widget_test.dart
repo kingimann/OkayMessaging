@@ -10445,6 +10445,84 @@ void main() {
     });
   });
 
+  group('Map controls layout', () {
+    testWidgets('controls are grouped, not six loose circles', (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final controller = MapController();
+      await tester.pumpWidget(MaterialApp(
+        theme: ThemeData.dark(),
+        home: Scaffold(
+          body: Stack(
+            children: [
+              MapControls(
+                controller: controller,
+                onMyLocation: () {},
+                onSaved: () {},
+                onFriends: () {},
+              ),
+            ],
+          ),
+        ),
+      ));
+      await tester.pump();
+
+      // Every control is still reachable.
+      for (final tip in const [
+        'My location',
+        'Saved places',
+        'Friends map',
+        'Map style',
+        'Zoom in',
+        'Zoom out',
+      ]) {
+        expect(find.byTooltip(tip), findsOneWidget, reason: '$tip is missing');
+      }
+
+      // Zoom belongs to itself: one control with two ends, sitting apart from
+      // the four actions rather than continuing one long run of circles.
+      // Asserted as a relationship rather than pixel counts — what matters is
+      // that the gap between groups exceeds the gap within one.
+      final style = tester.getRect(find.byTooltip('Map style'));
+      final zoomIn = tester.getRect(find.byTooltip('Zoom in'));
+      final zoomOut = tester.getRect(find.byTooltip('Zoom out'));
+      final withinGroup = zoomOut.top - zoomIn.bottom;
+      final betweenGroups = zoomIn.top - style.bottom;
+      expect(betweenGroups, greaterThan(withinGroup),
+          reason: 'grouping only reads if the groups are further apart '
+              'than the buttons inside them');
+
+      // The four actions are one run: no gap between them larger than the
+      // gap that separates the groups.
+      final myLocation = tester.getRect(find.byTooltip('My location'));
+      final saved = tester.getRect(find.byTooltip('Saved places'));
+      expect(saved.top - myLocation.bottom, lessThan(betweenGroups));
+    });
+
+    testWidgets('a top-anchored stack is not inset twice', (tester) async {
+      // Callers pass a top that already includes the status-bar inset, so a
+      // SafeArea guarding the top here would push the controls down twice.
+      SharedPreferences.setMockInitialValues({});
+      final controller = MapController();
+      await tester.pumpWidget(MaterialApp(
+        home: MediaQuery(
+          data: const MediaQueryData(padding: EdgeInsets.only(top: 60)),
+          child: Scaffold(
+            body: Stack(
+              children: [MapControls(controller: controller, top: 100)],
+            ),
+          ),
+        ),
+      ));
+      await tester.pump();
+      // The FIRST control is the one that reveals a double inset: it should
+      // sit just under the requested 100, not 100 plus another 60.
+      final first = tester.getRect(find.byTooltip('Map style'));
+      expect(first.top, greaterThanOrEqualTo(100));
+      expect(first.top, lessThan(140),
+          reason: 'top: 100 must mean 100, not 100 + another 60');
+    });
+  });
+
   group('Payment controls and history', () {
     test('a transfer reads correctly from either side', () {
       final sent = PaymentRecord.fromJson(const {
