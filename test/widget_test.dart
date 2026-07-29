@@ -6362,6 +6362,107 @@ void main() {
       expect(find.textContaining('away'), findsWidgets);
     });
 
+    test('every category that ever shipped still exists', () {
+      // Categories live as strings on listings already out on the relay;
+      // renaming or dropping one orphans every listing filed under it. The
+      // original ten are the floor this list can never sink below.
+      const legacy = [
+        'Electronics', 'Furniture', 'Clothing', 'Vehicles', 'Home & Garden',
+        'Sports', 'Games & Toys', 'Books', 'Free stuff', 'Other',
+      ];
+      for (final c in legacy) {
+        expect(kMarketplaceCategories, contains(c),
+            reason: '$c has shipped and cannot be renamed or dropped');
+      }
+      expect(kMarketplaceCategories.length, greaterThanOrEqualTo(15));
+      expect(kMarketplaceCategories.last, 'Other');
+    });
+
+    testWidgets('condition rides the listing and the sell form sets it',
+        (tester) async {
+      FeedStore.instance.resetForTest();
+      addTearDown(FeedStore.instance.resetForTest);
+
+      // Wire round trip, and updateListing preserves it when unmentioned.
+      final listing = FeedStore.instance.addListing('c1',
+          title: 'Bike',
+          priceCents: 2000,
+          category: 'Sports',
+          condition: 'Good');
+      expect(FeedPost.fromJson(listing.toJson()).listingCondition, 'Good');
+      FeedStore.instance.updateListing(listing.id,
+          title: 'Bike', priceCents: 1500, category: 'Sports');
+      expect(FeedStore.instance.listings().single.listingCondition, 'Good');
+      FeedStore.instance.resetForTest();
+
+      // The form: pick a condition, post, and the detail meta shows it.
+      // Pushed, not home — Post pops the route, and the home route can't pop.
+      await tester.pumpWidget(MaterialApp(
+        home: Builder(
+          builder: (context) => ElevatedButton(
+            onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const SellScreen())),
+            child: const Text('open'),
+          ),
+        ),
+      ));
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+          find.widgetWithText(TextField, 'What are you selling?'), 'Lamp');
+      await tester.ensureVisible(find.text('Like new'));
+      await tester.tap(find.text('Like new'));
+      await tester.pump();
+      await tester.tap(find.text('Post'));
+      await tester.pumpAndSettle();
+      final posted = FeedStore.instance.listings().single;
+      expect(posted.listingCondition, 'Like new');
+
+      await tester.pumpWidget(
+          MaterialApp(home: ListingScreen(listingId: posted.id)));
+      await tester.pump();
+      expect(find.textContaining('Like new ·'), findsOneWidget);
+    });
+
+    testWidgets('backing out of a dirty sell form asks; a clean one just '
+        'closes', (tester) async {
+      FeedStore.instance.resetForTest();
+      addTearDown(FeedStore.instance.resetForTest);
+
+      Object? result = 'not popped';
+      await tester.pumpWidget(MaterialApp(
+        home: Builder(
+          builder: (context) => ElevatedButton(
+            onPressed: () async => result = await Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const SellScreen())),
+            child: const Text('open'),
+          ),
+        ),
+      ));
+      // Untouched: close means close. A dialog here would teach people the
+      // dialog is noise.
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Cancel'));
+      await tester.pumpAndSettle();
+      expect(result, isNull);
+      expect(find.byType(SellScreen), findsNothing);
+
+      // Typed something: the work is guarded.
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+          find.widgetWithText(TextField, 'What are you selling?'),
+          'Half a listing');
+      await tester.tap(find.byTooltip('Cancel'));
+      await tester.pumpAndSettle();
+      expect(find.text('Discard listing?'), findsOneWidget);
+      await tester.tap(find.text('Cancel').last);
+      await tester.pumpAndSettle();
+      expect(find.byType(SellScreen), findsOneWidget,
+          reason: 'declining the discard keeps the form and the work');
+    });
+
     testWidgets('an open listing follows the relay: sold updates, removal '
         'says so', (tester) async {
       FeedStore.instance.resetForTest();

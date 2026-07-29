@@ -47,6 +47,11 @@ class FeedPost {
   /// Marketplace category (empty for ordinary posts).
   final String listingCategory;
 
+  /// Condition ('New' / 'Like new' / 'Good' / 'Fair' / 'For parts'), or ''
+  /// when the seller didn't say. Optional on purpose: a required condition
+  /// gets answered with whatever dismisses the field fastest.
+  final String listingCondition;
+
   /// Whether the seller has marked this listing sold.
   final bool listingSold;
 
@@ -117,6 +122,7 @@ class FeedPost {
     this.pinned = false,
     this.priceCents,
     this.listingCategory = '',
+    this.listingCondition = '',
     this.listingSold = false,
     this.listingRev = 0,
     this.rating = 0,
@@ -162,6 +168,7 @@ class FeedPost {
         pinned: pinned ?? this.pinned,
         priceCents: priceCents,
         listingCategory: listingCategory,
+        listingCondition: listingCondition,
         listingSold: listingSold ?? this.listingSold,
         listingRev: listingRev ?? this.listingRev,
         rating: rating,
@@ -194,6 +201,8 @@ class FeedPost {
         if (isListing) ...{
           'priceCents': priceCents,
           'listingCategory': listingCategory,
+          if (listingCondition.isNotEmpty)
+            'listingCondition': listingCondition,
           if (listingSold) 'listingSold': true,
           'listingRev': listingRev,
         },
@@ -228,6 +237,7 @@ class FeedPost {
         pinned: j['pinned'] as bool? ?? false,
         priceCents: (j['priceCents'] as num?)?.toInt(),
         listingCategory: j['listingCategory'] as String? ?? '',
+        listingCondition: j['listingCondition'] as String? ?? '',
         listingSold: j['listingSold'] as bool? ?? false,
         listingRev: (j['listingRev'] as num?)?.toInt() ?? 0,
         rating: (j['rating'] as num?)?.toInt() ?? 0,
@@ -710,6 +720,7 @@ class FeedStore extends ChangeNotifier {
     String? photoUrl,
     List<String> extraPhotos = const [],
     String videoPath = '',
+    String condition = '',
   }) {
     final me = AppState.profile.value;
     final post = FeedPost(
@@ -726,6 +737,7 @@ class FeedStore extends ChangeNotifier {
       gifUrl: photoUrl,
       priceCents: priceCents,
       listingCategory: category,
+      listingCondition: condition,
       listingVideo: videoPath,
     );
     _posts.add(post);
@@ -882,6 +894,7 @@ class FeedStore extends ChangeNotifier {
     String? photoUrl,
     List<String>? extraPhotos,
     String? videoPath,
+    String? condition,
   }) {
     final i = _posts.indexWhere((p) => p.id == postId);
     if (i == -1 || !_posts[i].isListing || title.trim().isEmpty) return false;
@@ -914,6 +927,7 @@ class FeedStore extends ChangeNotifier {
       gifUrl: photoUrl,
       priceCents: priceCents,
       listingCategory: category,
+      listingCondition: condition ?? post.listingCondition,
       listingSold: post.listingSold,
       listingRev: post.listingRev + 1,
       listingVideo: videoPath ?? post.listingVideo,

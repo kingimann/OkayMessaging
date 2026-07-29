@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../app_state.dart';
 import '../models/chat.dart';
+import '../models/community.dart';
 import '../models/user.dart';
 import '../state/account_service.dart';
 import '../state/chat_store.dart';
@@ -13,6 +14,7 @@ import '../state/market_media.dart';
 import '../state/storage_store.dart';
 import '../util/file_moderation.dart';
 import '../util/photo_prep.dart';
+import '../widgets/app_dialogs.dart';
 import '../widgets/chat_photo.dart';
 import '../widgets/listing_video.dart';
 import 'chat_screen.dart';
@@ -25,17 +27,39 @@ const int kMaxListingPhotos = 4;
 
 /// The categories a listing can file under. A fixed list, because filters
 /// only work when sellers and buyers pick from the same words.
+/// Every category name that has EVER shipped must stay in this list —
+/// categories live as strings on listings already out on the relay, and
+/// renaming one here would orphan every existing listing filed under it.
 const List<String> kMarketplaceCategories = [
   'Electronics',
+  'Phones & Tablets',
+  'Appliances',
   'Furniture',
-  'Clothing',
-  'Vehicles',
   'Home & Garden',
+  'Tools & Home Improvement',
+  'Clothing',
+  'Jewelry & Accessories',
+  'Beauty & Health',
+  'Baby & Kids',
+  'Vehicles',
   'Sports',
   'Games & Toys',
+  'Musical Instruments',
+  'Pet Supplies',
   'Books',
+  'Tickets',
   'Free stuff',
   'Other',
+];
+
+/// How used an item is. Optional on the form — a required condition gets
+/// answered with whatever dismisses the field fastest.
+const List<String> kListingConditions = [
+  'New',
+  'Like new',
+  'Good',
+  'Fair',
+  'For parts',
 ];
 
 /// "$20", "$12.50", "Free" — a price tag, not an accounting figure.
@@ -893,6 +917,8 @@ class ListingScreen extends StatelessWidget {
                     const SizedBox(height: 4),
                     Text(
                       [
+                        if (listing.listingCondition.isNotEmpty)
+                          listing.listingCondition,
                         if (listing.listingCategory.isNotEmpty)
                           listing.listingCategory,
                         if (serverName.isNotEmpty) serverName,
@@ -1373,6 +1399,7 @@ class _SellScreenState extends State<SellScreen> {
   late String _category = widget.existing?.listingCategory.isNotEmpty == true
       ? widget.existing!.listingCategory
       : kMarketplaceCategories.first;
+  late String _condition = widget.existing?.listingCondition ?? '';
   /// Up to [kMaxListingPhotos], cover first. Prefilled from the existing
   /// listing and its photo parts when editing.
   late final List<String> _photos = widget.existing == null
@@ -1490,6 +1517,7 @@ class _SellScreenState extends State<SellScreen> {
         photoUrl: _photos.firstOrNull,
         extraPhotos: _photos.skip(1).toList(),
         videoPath: removedVideo ? '' : videoPath,
+        condition: _condition,
       );
       listing = existing;
     } else {
@@ -1501,6 +1529,7 @@ class _SellScreenState extends State<SellScreen> {
         description: _description.text,
         photoUrl: _photos.firstOrNull,
         extraPhotos: _photos.skip(1).toList(),
+        condition: _condition,
       );
     }
     if (removedVideo) {
@@ -1603,12 +1632,68 @@ class _SellScreenState extends State<SellScreen> {
     );
   }
 
+  /// Whether backing out now would throw work away.
+  ///
+  /// For a new listing: anything typed or attached. For an edit: anything
+  /// actually CHANGED — asking "discard?" on an untouched form teaches
+  /// people the dialog is noise and they stop reading it.
+  bool get _dirty {
+    final existing = widget.existing;
+    if (existing == null) {
+      return _title.text.trim().isNotEmpty ||
+          _description.text.trim().isNotEmpty ||
+          _photos.isNotEmpty ||
+          _videoBytes != null;
+    }
+    final lines = existing.text.split('\n');
+    return _title.text.trim() != lines.first ||
+        _description.text.trim() != lines.skip(1).join('\n').trim() ||
+        parseListingPrice(_price.text) != (existing.priceCents ?? 0) ||
+        _category != existing.listingCategory ||
+        _condition != existing.listingCondition ||
+        _videoBytes != null ||
+        (_videoPath.isEmpty) != existing.listingVideo.isEmpty ||
+        !listEquals(
+            _photos, FeedStore.instance.listingPhotos(existing.id));
+  }
+
+  Future<void> _close() async {
+    if (!_dirty) {
+      Navigator.of(context).pop();
+      return;
+    }
+    final discard = await showAppConfirmDialog(
+      context,
+      icon: Icons.delete_outline,
+      title: widget.existing == null ? 'Discard listing?' : 'Discard changes?',
+      message: 'What you\'ve entered here will be lost.',
+      confirmLabel: 'Discard',
+      destructive: true,
+    );
+    if (discard && mounted) Navigator.of(context).pop();
+  }
+
   @override
   Widget build(BuildContext context) {
     final servers = CommunityStore.instance.communities;
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _close();
+      },
+      child: _buildScaffold(context, servers),
+    );
+  }
+
+  Widget _buildScaffold(BuildContext context, List<Community> servers) {
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.existing == null ? 'New listing' : 'Edit listing'),
+        leading: IconButton(
+          icon: const Icon(Icons.close),
+          tooltip: 'Cancel',
+          onPressed: _close,
+        ),
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 12),
@@ -1767,6 +1852,30 @@ class _SellScreenState extends State<SellScreen> {
                   decoration: const InputDecoration(labelText: 'Category'),
                 ),
               ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Text('Condition',
+                style: TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.grey.shade600)),
+          ),
+          const SizedBox(height: 6),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final c in kListingConditions)
+                ChoiceChip(
+                  label: Text(c),
+                  selected: _condition == c,
+                  visualDensity: VisualDensity.compact,
+                  onSelected: (_) => setState(
+                      () => _condition = _condition == c ? '' : c),
+                ),
             ],
           ),
           const SizedBox(height: 12),
