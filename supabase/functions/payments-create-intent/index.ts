@@ -82,7 +82,11 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const feeCents = applicationFee(amountCents);
+    // amountCents is what the RECIPIENT should receive. Both fees come out of
+    // the transfer, so the sender is charged the grossed-up total — paying
+    // the amount plus the fees, rather than the recipient absorbing them.
+    const chargeCents = grossUp(amountCents);
+    const feeCents = applicationFee(chargeCents);
     // DIRECT charge, not a destination charge: the PaymentIntent is created
     // ON the recipient's connected account. The money goes straight there and
     // never lands in the platform's balance, so the platform is not in the
@@ -95,7 +99,7 @@ Deno.serve(async (req) => {
     //     destination charge a dispute clawed money back out of a balance
     //     the platform had already paid away.
     const intent = await stripe.paymentIntents.create({
-      amount: amountCents,
+      amount: chargeCents,
       currency,
       // Enables cards + Apple/Google Pay in the native Payment Sheet.
       automatic_payment_methods: { enabled: true },
@@ -133,7 +137,7 @@ Deno.serve(async (req) => {
       id: intent.id,
       from_phone: fromPhone,
       to_phone: toPhone,
-      amount_cents: amountCents,
+      amount_cents: chargeCents,
       fee_cents: feeCents,
       currency,
       status: intent.status,
@@ -143,7 +147,9 @@ Deno.serve(async (req) => {
     return json({
       clientSecret: intent.client_secret,
       paymentIntentId: intent.id,
-      amountCents,
+      // What the sender is charged, and what the recipient is meant to get.
+      amountCents: chargeCents,
+      targetCents: amountCents,
       feeCents,
       currency,
       // A direct charge's client secret only means anything to the SDK when

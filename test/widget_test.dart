@@ -10355,6 +10355,85 @@ void main() {
     });
   });
 
+  group('Sender covers the fees', () {
+    test('the recipient gets exactly what was typed', () {
+      // Both fees come out of the transfer, so charging the typed amount
+      // delivered less than it — type $5 and $4.28 landed. Grossing up moves
+      // the fees onto the sender.
+      for (final target in [300, 500, 1000, 1234, 2000, 5000, 50000]) {
+        final total = PaymentEconomics.grossUpCents(target);
+        expect(total, greaterThan(target));
+        expect(PaymentEconomics.estimatedReceivedCents(total),
+            greaterThanOrEqualTo(target),
+            reason: 'a \$$target transfer must actually deliver \$$target');
+        // And not wildly over — a cent or two of rounding, not a surcharge.
+        expect(PaymentEconomics.estimatedReceivedCents(total) - target,
+            lessThan(3));
+      }
+      expect(PaymentEconomics.grossUpCents(0), 0);
+    });
+
+    testWidgets('the sheet shows a Done control for the number pad',
+        (tester) async {
+      // The pad has no Done or Return key. Tapping the background works but
+      // nothing on screen says so, and people got stuck.
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => TextButton(
+              onPressed: () => showModalBottomSheet(
+                context: context,
+                isScrollControlled: true,
+                builder: (_) => const PaymentAmountSheet(peerName: 'Grace'),
+              ),
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      ));
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+
+      bool amountFocused() => tester
+          .widgetList<EditableText>(find.byType(EditableText))
+          .any((e) => e.focusNode.hasFocus);
+      expect(amountFocused(), isTrue);
+      expect(find.text('Done'), findsOneWidget);
+
+      await tester.tap(find.text('Done'));
+      await tester.pumpAndSettle();
+      expect(amountFocused(), isFalse);
+      // And it goes away with the pad, rather than sitting there doing
+      // nothing.
+      expect(find.text('Done'), findsNothing);
+    });
+
+    testWidgets('a bare phone number is shown as a phone number',
+        (tester) async {
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => TextButton(
+              onPressed: () => showModalBottomSheet(
+                context: context,
+                isScrollControlled: true,
+                builder: (_) =>
+                    const PaymentAmountSheet(peerName: '14386386261'),
+              ),
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      ));
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      // "14386386261" reads as an account reference, not a person you are
+      // about to hand money to.
+      expect(find.textContaining('14386386261'), findsNothing);
+      expect(find.textContaining('438'), findsWidgets);
+    });
+  });
+
   group('Mapbox basemaps', () {
     test('without a token the map still works', () {
       // A missing token is a supported state, not a broken one: the free
@@ -10821,19 +10900,21 @@ void main() {
       expect(find.textContaining('cannot be reversed'), findsOneWidget);
       await tester.tap(find.byType(Checkbox));
       await tester.pump();
-      expect(find.textContaining('Send \$20.00'), findsOneWidget);
+      expect(find.textContaining('Pay \$'), findsOneWidget);
 
-      final fee = PaymentEconomics.applicationFeeCents(2000);
-      final lands = PaymentEconomics.estimatedReceivedCents(2000);
-      expect(find.text('You pay'), findsOneWidget);
+      // The sender covers the fees, so the amount typed is what ARRIVES and
+      // the total is what leaves their account.
+      final total = PaymentEconomics.grossUpCents(2000);
+      expect(find.text('Grace gets'), findsOneWidget);
       expect(find.text('Our fee'), findsOneWidget);
-      // A direct charge means the recipient also pays Stripe, so leaving that
-      // line out would make the landing amount look unexplained.
       expect(find.text('Card processing'), findsOneWidget);
-      expect(find.text('Grace gets about'), findsOneWidget);
-      expect(find.text('\$${(fee / 100).toStringAsFixed(2)}'), findsOneWidget);
-      expect(find.text('\$${(lands / 100).toStringAsFixed(2)}'), findsOneWidget,
-          reason: 'the amount that lands is not the amount typed, so say so');
+      expect(find.text('You pay'), findsOneWidget);
+      expect(find.text('\$20.00'), findsOneWidget,
+          reason: 'the recipient gets exactly what was typed');
+      expect(find.text('\$${(total / 100).toStringAsFixed(2)}'),
+          findsOneWidget,
+          reason: 'and the sender pays that plus both fees');
+      expect(total, greaterThan(2000));
       expect(find.textContaining('we never hold it'), findsOneWidget);
     });
   });

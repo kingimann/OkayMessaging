@@ -67,6 +67,38 @@ function applicationFee(amountCents: number): number {
   return Math.max(0, Math.round((amountCents * pct) / 100) + fixed);
 }
 
+/// Stripe's own cost for a charge of [amountCents] on a domestic card. Paid by
+/// the recipient's account on a direct charge, which is why it has to be
+/// accounted for when grossing up.
+function stripeCost(amountCents: number): number {
+  return Math.round((amountCents * STRIPE_PERCENT) / 100) + STRIPE_FIXED_CENTS;
+}
+
+/// What the sender must be charged so [targetCents] actually reaches the
+/// recipient.
+///
+/// Both fees come out of the transfer, so charging exactly what was typed
+/// delivers less than that. Grossing up moves the fees onto the sender, which
+/// is what people expect when they type a number.
+///
+/// Solved by search rather than algebra: the fees round to whole cents, so a
+/// closed form lands a cent out either way. Mirrors grossUpCents() in
+/// lib/payments/storage_economics.dart.
+function grossUp(targetCents: number): number {
+  if (targetCents <= 0) return 0;
+  const pct = parseFloat(Deno.env.get("PLATFORM_FEE_PERCENT") ?? "3.4");
+  const fixed = parseInt(Deno.env.get("PLATFORM_FEE_FIXED_CENTS") ?? "10", 10);
+  const rate = 1 - (pct + STRIPE_PERCENT) / 100;
+  let total = Math.floor((targetCents + fixed + STRIPE_FIXED_CENTS) / rate);
+  for (let i = 0; i < 8; i++) {
+    if (total - stripeCost(total) - applicationFee(total) >= targetCents) {
+      return total;
+    }
+    total++;
+  }
+  return total;
+}
+
 // Starts a government-ID check for the blue check.
 //
 // The badge used to be a free toggle: tap "Verify me" and you were verified,

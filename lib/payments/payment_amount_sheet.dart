@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../util/phone_format.dart';
 import 'storage_economics.dart';
 import 'package:flutter/services.dart';
 
@@ -14,8 +15,43 @@ class PaymentAmountSheet extends StatefulWidget {
 }
 
 class _PaymentAmountSheetState extends State<PaymentAmountSheet> {
+  /// The recipient as a person, not a digit string.
+  ///
+  /// A chat started from a number has the number as its name, and
+  /// "14386386261" reads like an account reference rather than someone you
+  /// are about to hand money to.
+  String get _peer {
+    final raw = widget.peerName.trim();
+    if (raw.isEmpty) return 'them';
+    final digits = raw.replaceAll(RegExp(r'[^0-9+]'), '');
+    final looksLikeNumber =
+        digits.length >= 10 && digits.length >= raw.length - 3;
+    return looksLikeNumber ? formatPhoneForDisplay(raw) : raw;
+  }
+
   final _amount = TextEditingController();
   final _note = TextEditingController();
+  final _amountFocus = FocusNode();
+
+  /// Whether the amount field has had its one automatic focus.
+  ///
+  /// `autofocus: true` re-requests focus whenever the field is rebuilt, and
+  /// this sheet rebuilds on every keystroke — so dismissing the number pad
+  /// instantly brought it back, which is why it felt impossible to close.
+  /// The field autofocuses once and then stays where the user puts it.
+  bool _autofocused = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Show/hide "Done" as the pad opens and closes.
+    _amountFocus.addListener(() {
+      if (mounted) setState(() {});
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) setState(() => _autofocused = true);
+    });
+  }
 
   int get _cents {
     final v = double.tryParse(_amount.text) ?? 0;
@@ -33,17 +69,19 @@ class _PaymentAmountSheetState extends State<PaymentAmountSheet> {
   /// sending: the paper trail is only worth having if it is always there.
   bool _acknowledged = false;
 
-  /// The platform fee for the amount typed. Same arithmetic the Edge Function
-  /// applies, so the number quoted here is the number actually charged.
-  int get _feeCents =>
-      _cents <= 0 ? 0 : PaymentEconomics.applicationFeeCents(_cents);
+  /// What the sender is charged: the amount typed plus both fees, so the
+  /// recipient gets the number that was actually typed.
+  int get _totalCents =>
+      _cents <= 0 ? 0 : PaymentEconomics.grossUpCents(_cents);
 
-  /// Roughly what lands. Approximate on purpose: this is a direct charge, so
-  /// the recipient's account also pays Stripe's processing fee, and Stripe's
-  /// rate depends on where the sender's card was issued — which nobody knows
-  /// until the charge goes through.
-  int get _receivedCents =>
-      _cents <= 0 ? 0 : PaymentEconomics.estimatedReceivedCents(_cents);
+  /// The platform's share of that total.
+  int get _feeCents =>
+      _cents <= 0 ? 0 : PaymentEconomics.applicationFeeCents(_totalCents);
+
+  /// Stripe's share. Approximate: their rate depends on where the card was
+  /// issued, which nobody knows until the charge goes through.
+  int get _cardCents =>
+      _cents <= 0 ? 0 : PaymentEconomics.stripeCostCents(_totalCents);
 
   Widget _feeRow(BuildContext context, String label, int cents,
       {bool muted = false, bool bold = false}) {
@@ -65,6 +103,7 @@ class _PaymentAmountSheetState extends State<PaymentAmountSheet> {
 
   @override
   void dispose() {
+    _amountFocus.dispose();
     _amount.dispose();
     _note.dispose();
     super.dispose();
@@ -73,9 +112,15 @@ class _PaymentAmountSheetState extends State<PaymentAmountSheet> {
   @override
   Widget build(BuildContext context) {
     final bottom = MediaQuery.of(context).viewInsets.bottom;
+    final topInset = MediaQuery.of(context).padding.top;
     return Padding(
+      // Only the keyboard inset here; the status bar is handled by the
+      // SafeArea below. Pushed up by the keyboard the sheet grew tall enough
+      // to reach the notch, and the title ended up sitting on the clock.
       padding: EdgeInsets.only(bottom: bottom),
       child: SafeArea(
+        top: true,
+        minimum: EdgeInsets.only(top: topInset > 0 ? 0 : 8),
         // The sheet grew a fee breakdown and a confirmation, and with the
         // keyboard up it no longer fits a small phone. Scrolling is the only
         // honest answer — clipping would hide the very numbers this sheet
@@ -85,7 +130,7 @@ class _PaymentAmountSheetState extends State<PaymentAmountSheet> {
         // Return key, so without this there is no way to get it back down.
         child: GestureDetector(
           behavior: HitTestBehavior.opaque,
-          onTap: () => FocusManager.instance.primaryFocus?.unfocus(),
+          onTap: () => FocusScope.of(context).unfocus(),
           child: SingleChildScrollView(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
@@ -110,9 +155,9 @@ class _PaymentAmountSheetState extends State<PaymentAmountSheet> {
                   // is about to move money.
                   Row(
                     children: [
-                      const SizedBox(width: 40),
+                      const SizedBox(width: 44),
                       Expanded(
-                        child: Text('Send money to ${widget.peerName}',
+                        child: Text('Send money to $_peer',
                             textAlign: TextAlign.center,
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
@@ -120,7 +165,7 @@ class _PaymentAmountSheetState extends State<PaymentAmountSheet> {
                                 fontSize: 17, fontWeight: FontWeight.w600)),
                       ),
                       SizedBox(
-                        width: 40,
+                        width: 44,
                         child: IconButton(
                           icon: const Icon(Icons.close),
                           tooltip: 'Cancel',
@@ -145,7 +190,8 @@ class _PaymentAmountSheetState extends State<PaymentAmountSheet> {
                       IntrinsicWidth(
                         child: TextField(
                           controller: _amount,
-                          autofocus: true,
+                          focusNode: _amountFocus,
+                          autofocus: !_autofocused,
                           textAlign: TextAlign.center,
                           keyboardType: const TextInputType.numberWithOptions(
                               decimal: true),
@@ -165,10 +211,29 @@ class _PaymentAmountSheetState extends State<PaymentAmountSheet> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 8),
-                  const Text('CAD',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: Colors.grey, fontSize: 13)),
+                  const SizedBox(height: 6),
+                  // The number pad has no Done or Return key, so this is the
+                  // only obvious way to put it away. Tapping the background
+                  // also works, but nothing on screen says so.
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Text('CAD',
+                          style: TextStyle(color: Colors.grey, fontSize: 13)),
+                      if (_amountFocus.hasFocus) ...[
+                        const SizedBox(width: 12),
+                        // A full-size tap target on purpose: shrink-wrapping
+                        // it made the button's hit area smaller than its own
+                        // label, so taps landed on nothing.
+                        TextButton(
+                          onPressed: () => FocusScope.of(context).unfocus(),
+                          child: const Text('Done',
+                              style: TextStyle(
+                                  fontSize: 14, fontWeight: FontWeight.w600)),
+                        ),
+                      ],
+                    ],
+                  ),
                   const SizedBox(height: 20),
                   TextField(
                     controller: _note,
@@ -202,25 +267,22 @@ class _PaymentAmountSheetState extends State<PaymentAmountSheet> {
                       ),
                       child: Column(
                         children: [
-                          _feeRow(context, 'You pay', _cents),
+                          _feeRow(context, '$_peer gets', _cents),
                           const SizedBox(height: 6),
                           _feeRow(context, 'Our fee', _feeCents, muted: true),
                           const SizedBox(height: 6),
-                          _feeRow(context, 'Card processing',
-                              PaymentEconomics.stripeCostCents(_cents),
+                          _feeRow(context, 'Card processing', _cardCents,
                               muted: true),
                           const Padding(
                             padding: EdgeInsets.symmetric(vertical: 8),
                             child: Divider(height: 1),
                           ),
-                          _feeRow(context, '${widget.peerName} gets about',
-                              _receivedCents,
-                              bold: true),
+                          _feeRow(context, 'You pay', _totalCents, bold: true),
                           const SizedBox(height: 6),
                           Text(
-                            'Money goes straight to ${widget.peerName} — we never '
-                            'hold it. Card processing is charged to them and can '
-                            'be a little higher on a foreign card.',
+                            'You cover the fees, so $_peer '
+                            'receives the full amount. Money goes straight to '
+                            'them — we never hold it.',
                             style: TextStyle(
                                 fontSize: 11.5, color: Colors.grey.shade600),
                           ),
@@ -255,7 +317,7 @@ class _PaymentAmountSheetState extends State<PaymentAmountSheet> {
                             Expanded(
                               child: Text(
                                 'I understand this goes straight to '
-                                '${widget.peerName} and cannot be reversed. '
+                                '$_peer and cannot be reversed. '
                                 'Reversing it through my bank will block me from '
                                 'sending money here.',
                                 style: TextStyle(
@@ -288,7 +350,7 @@ class _PaymentAmountSheetState extends State<PaymentAmountSheet> {
                           : !_valid
                               ? 'Enter an amount'
                               : (_acknowledged
-                                  ? 'Send \$${(_cents / 100).toStringAsFixed(2)}'
+                                  ? 'Pay \$${(_totalCents / 100).toStringAsFixed(2)}'
                                   : 'Confirm to continue'),
                       style: const TextStyle(
                           fontSize: 16, fontWeight: FontWeight.w600),

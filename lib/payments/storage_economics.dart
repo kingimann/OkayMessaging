@@ -176,6 +176,31 @@ class PaymentEconomics {
   static bool isWorthSending(int amountCents) =>
       amountCents >= minimumSendCents;
 
+  /// What the sender must be charged so [targetCents] actually reaches the
+  /// recipient.
+  ///
+  /// Both fees come out of the transfer, so charging exactly what was typed
+  /// delivers less than that — send \$5 and \$4.28 lands. Grossing up moves
+  /// the fees onto the sender, which is what "pay the amount plus the fees"
+  /// means and what people expect when they type a number.
+  ///
+  /// Solved by search rather than algebra: the fees round to whole cents, so
+  /// a closed form lands a cent out either way. This walks up from the
+  /// arithmetic estimate to the first total that genuinely clears the target,
+  /// which is exact by construction.
+  static int grossUpCents(int targetCents) {
+    if (targetCents <= 0) return 0;
+    const rate = 1 - (platformPercent + stripePercent) / 100;
+    var total =
+        ((targetCents + platformFixedCents + stripeFixedCents) / rate).floor();
+    // A handful of steps at most; the estimate is never far off.
+    for (var i = 0; i < 8; i++) {
+      if (estimatedReceivedCents(total) >= targetCents) return total;
+      total++;
+    }
+    return total;
+  }
+
   /// Roughly what lands in the recipient's account: the amount less the
   /// platform fee and Stripe's processing fee. Approximate because the card's
   /// issuing country — which moves Stripe's rate — is not known until the

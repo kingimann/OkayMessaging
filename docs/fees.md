@@ -11,8 +11,12 @@ PaymentIntent is created on the recipient's connected account, so funds go
 straight there and never pass through your balance. You are not the merchant
 of record and not in the flow of funds.
 
-**Two fees come out of the transfer, not on top of it.** Send $20 and about
-$18.37 lands. The send sheet shows all three lines before you confirm.
+**The sender covers both fees**, so the recipient gets exactly the amount
+typed. Type $20 and $20.00 lands; the sender is charged about $21.75. The
+send sheet shows every line before they confirm.
+
+The charge is grossed up server-side by search rather than algebra — the fees
+round to whole cents, so a closed form lands a cent out either way.
 
 | | Paid by | Rate |
 |---|---|---|
@@ -24,12 +28,12 @@ application fee is pure revenue and a transfer cannot cost you money**,
 whatever card the sender used. That retired the old fee floor, so senders pay
 slightly less than they did under destination charges.
 
-| Transfer | Your fee | You keep | Recipient gets ≈ | Total taken |
-|---|---|---|---|---|
-| $5 | 27¢ | 27¢ | $4.29 | 14.2% |
-| $10 | 44¢ | 44¢ | $8.97 | 10.3% |
-| $50 | $1.80 | $1.80 | $46.45 | 7.1% |
-| $100 | $3.50 | $3.50 | $93.30 | 6.7% |
+| Recipient gets | Sender pays | Your fee | Overhead |
+|---|---|---|---|
+| $5 | $5.77 | 30¢ | 15.4% |
+| $10 | $11.10 | 48¢ | 11.0% |
+| $50 | $53.79 | $1.93 | 7.6% |
+| $100 | $107.15 | $3.74 | 7.2% |
 
 The fixed part is 10¢, not the 35¢ it started at. Fixed components dominate
 small amounts: at 35¢ the platform fee alone was **10.4% of a $5 transfer**,
