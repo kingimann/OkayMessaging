@@ -81,6 +81,35 @@ class ContactsSync {
   @visibleForTesting
   static void Function()? debugOpenSettingsOverride;
 
+  /// Test hook: replaces the silent limited-access check.
+  @visibleForTesting
+  static Future<bool> Function()? debugAccessLimitedOverride;
+
+  /// Whether contact access is currently limited (iOS 18+ "Select
+  /// Contacts"), without showing any prompt.
+  ///
+  /// Checked before a sync so the app can ask the question iOS won't ask
+  /// twice: once someone picks limited access, the OS never re-raises its
+  /// dialog, and the only ways forward are Settings or living with the
+  /// selection. Undecided (never asked) reads as not limited, so the first
+  /// sync still goes straight to the real OS prompt.
+  Future<bool> isAccessLimited() async {
+    final debug = debugAccessLimitedOverride;
+    if (debug != null) return debug();
+    if (!supported) return false;
+    try {
+      // Bounded, and failing open: this check gates the sync button, and a
+      // stalled plugin channel must degrade to "just sync" — the sync path
+      // asks for permission itself and copes with whatever it gets.
+      final status = await FlutterContacts.permissions
+          .check(PermissionType.read)
+          .timeout(const Duration(seconds: 3));
+      return status == PermissionStatus.limited;
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// Test hook: replaces the server directory lookup.
   @visibleForTesting
   static Future<List<AppUser>> Function(List<String> hashes)?

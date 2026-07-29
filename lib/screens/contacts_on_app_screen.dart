@@ -5,6 +5,7 @@ import '../models/user.dart';
 import '../state/call_service.dart' show CallService;
 import '../state/chat_store.dart';
 import '../state/contacts_sync.dart';
+import '../widgets/app_dialogs.dart';
 import '../widgets/pull_to_refresh.dart';
 import '../widgets/user_avatar.dart';
 import 'chat_screen.dart';
@@ -35,6 +36,31 @@ class _ContactsOnAppScreenState extends State<ContactsOnAppScreen> {
   }
 
   Future<void> _run() async {
+    // iOS decides contact access once and never re-raises its own dialog, so
+    // when access is limited the app has to be the one that asks: here, at
+    // the moment of syncing, when the question is concrete. Skipped entirely
+    // for full access and for a first run (the real OS prompt handles that).
+    if (await ContactsSync.instance.isAccessLimited()) {
+      if (!mounted) return;
+      final toSettings = await showAppConfirmDialog(
+        context,
+        icon: Icons.playlist_add_check_circle_outlined,
+        title: 'Only some contacts are shared',
+        message: 'OkayMessenger can only see the contacts you selected. '
+            'Allow full access in Settings to check all of them, or '
+            'continue with the ones you picked.',
+        confirmLabel: 'Open Settings',
+        cancelLabel: 'Use selected',
+      );
+      if (!mounted) return;
+      if (toSettings) {
+        // Off to Settings — stay on the intro so coming back lands on the
+        // button, not on results computed from the old selection.
+        await ContactsSync.instance.openSettings();
+        return;
+      }
+    }
+    if (!mounted) return;
     setState(() => _view = _View.loading);
     final result = await ContactsSync.instance.sync();
     if (!mounted) return;

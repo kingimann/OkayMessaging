@@ -4134,9 +4134,13 @@ void main() {
         ContactsSync.debugNumbersOverride = null;
         ContactsSync.debugLimited = false;
         ContactsSync.debugOpenSettingsOverride = null;
+        ContactsSync.debugAccessLimitedOverride = null;
       });
       ContactsSync.debugNumbersOverride = () async => [];
       ContactsSync.debugLimited = true;
+      // This test is about the post-sync screen; skip the pre-sync limited
+      // check (whose real channel would hang the fake-async test clock).
+      ContactsSync.debugAccessLimitedOverride = () async => false;
       var opened = 0;
       ContactsSync.debugOpenSettingsOverride = () => opened++;
 
@@ -4153,6 +4157,73 @@ void main() {
       await tester.tap(find.text('Open Settings'));
       await tester.pump();
       expect(opened, 1);
+    });
+
+    testWidgets('limited access is questioned before syncing, not after',
+        (tester) async {
+      addTearDown(() {
+        ContactsSync.debugNumbersOverride = null;
+        ContactsSync.debugLookupOverride = null;
+        ContactsSync.debugLimited = false;
+        ContactsSync.debugAccessLimitedOverride = null;
+        ContactsSync.debugOpenSettingsOverride = null;
+      });
+      // iOS only ever raises its contacts dialog once, so with access already
+      // limited the app must do the asking itself — at sync time, when the
+      // question is concrete.
+      ContactsSync.debugAccessLimitedOverride = () async => true;
+      ContactsSync.debugLimited = true;
+      ContactsSync.debugNumbersOverride = () async => ['555-012-3456'];
+      ContactsSync.debugLookupOverride = (_) async =>
+          const [AppUser(id: 'u1', name: 'Grace', avatarColor: '#123456')];
+      var opened = 0;
+      ContactsSync.debugOpenSettingsOverride = () => opened++;
+
+      await tester
+          .pumpWidget(const MaterialApp(home: ContactsOnAppScreen()));
+      await tester.tap(find.text('Find contacts'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Only some contacts are shared'), findsOneWidget);
+
+      // Choosing Settings goes there and does NOT sync — results computed
+      // from the old selection would answer a question just declared stale.
+      await tester.tap(find.text('Open Settings'));
+      await tester.pumpAndSettle();
+      expect(opened, 1);
+      expect(find.text('Find contacts'), findsOneWidget,
+          reason: 'back on the intro, ready to re-run after Settings');
+
+      // Choosing to continue syncs with the shared subset.
+      await tester.tap(find.text('Find contacts'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Use selected'));
+      await tester.pumpAndSettle();
+      expect(find.text('Grace'), findsOneWidget);
+      // And the list admits it is partial.
+      expect(find.textContaining('Only the contacts you shared'),
+          findsOneWidget);
+    });
+
+    testWidgets('full access goes straight to syncing, no dialog',
+        (tester) async {
+      addTearDown(() {
+        ContactsSync.debugNumbersOverride = null;
+        ContactsSync.debugLookupOverride = null;
+        ContactsSync.debugAccessLimitedOverride = null;
+      });
+      ContactsSync.debugAccessLimitedOverride = () async => false;
+      ContactsSync.debugNumbersOverride = () async => ['555-012-3456'];
+      ContactsSync.debugLookupOverride = (_) async =>
+          const [AppUser(id: 'u1', name: 'Grace', avatarColor: '#123456')];
+
+      await tester
+          .pumpWidget(const MaterialApp(home: ContactsOnAppScreen()));
+      await tester.tap(find.text('Find contacts'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Only some contacts are shared'), findsNothing);
+      expect(find.text('Grace'), findsOneWidget);
     });
 
     test('sync matches hashed numbers against the directory', () async {
