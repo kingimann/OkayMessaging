@@ -36,6 +36,7 @@ import 'package:okay_messaging/screens/community_settings_screen.dart';
 import 'package:okay_messaging/screens/forum_screen.dart';
 import 'package:okay_messaging/screens/location_picker_screen.dart';
 import 'package:okay_messaging/screens/marketplace_screen.dart';
+import 'package:okay_messaging/widgets/verified_badge.dart';
 import 'package:okay_messaging/screens/map_screen.dart';
 import 'package:okay_messaging/screens/maps_settings_screen.dart';
 import 'package:okay_messaging/util/geocoding.dart';
@@ -6461,6 +6462,89 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byType(SellScreen), findsOneWidget,
           reason: 'declining the discard keeps the form and the work');
+    });
+
+    test('the blue check rides posts the way it rides messages', () {
+      FeedStore.instance.resetForTest();
+      addTearDown(() {
+        FeedStore.instance.resetForTest();
+        AppState.setVerified(false);
+      });
+
+      // Verified author: the attestation rides listing, review, and post,
+      // and survives the relay JSON round trip and edits.
+      AppState.setVerified(true);
+      final listing = FeedStore.instance
+          .addListing('c1', title: 'Bike', priceCents: 100, category: 'Other');
+      expect(listing.authorVerified, isTrue);
+      expect(FeedPost.fromJson(listing.toJson()).authorVerified, isTrue);
+      FeedStore.instance.updateListing(listing.id,
+          title: 'Bike', priceCents: 90, category: 'Other');
+      expect(FeedStore.instance.listings().single.authorVerified, isTrue,
+          reason: 'an edit must not strip the badge');
+
+      final post = FeedStore.instance.add('c1', 'hello');
+      expect(post.authorVerified, isTrue);
+
+      // Unverified author: nothing claims otherwise.
+      AppState.setVerified(false);
+      final plain = FeedStore.instance
+          .addListing('c1', title: 'Lamp', priceCents: 50, category: 'Other');
+      expect(plain.authorVerified, isFalse);
+    });
+
+    testWidgets('a verified seller shows the badge on their listing and shop',
+        (tester) async {
+      FeedStore.instance.resetForTest();
+      addTearDown(FeedStore.instance.resetForTest);
+      FeedStore.instance.addRemote(FeedPost(
+        id: 'lst_vb',
+        communityId: 'c1',
+        authorName: 'Grace',
+        authorUsername: 'grace',
+        authorVerified: true,
+        time: DateTime.now(),
+        text: 'Bike',
+        priceCents: 2000,
+        listingCategory: 'Sports',
+      ));
+
+      await tester.pumpWidget(
+          const MaterialApp(home: ListingScreen(listingId: 'lst_vb')));
+      await tester.pump();
+      expect(find.byType(VerifiedBadge), findsOneWidget);
+
+      await tester.pumpWidget(const MaterialApp(
+          home: SellerScreen(username: 'grace', name: 'Grace')));
+      await tester.pump();
+      expect(find.byType(VerifiedBadge), findsWidgets);
+    });
+
+    testWidgets('the profile says what the account has proven',
+        (tester) async {
+      AccountEmail.instance.resetForTest();
+      IdentityVerification.instance.resetForTest();
+      addTearDown(() {
+        AccountEmail.instance.resetForTest();
+        IdentityVerification.instance.resetForTest();
+      });
+
+      await tester.pumpWidget(
+          const MaterialApp(home: Scaffold(body: ProfileView())));
+      await tester.pump();
+
+      // Local mode, nothing attached: honest about all three.
+      expect(find.text('Phone unverified'), findsOneWidget);
+      expect(find.text('Add email'), findsOneWidget);
+      expect(find.text('Get the blue check'), findsOneWidget);
+
+      // States change, chips follow.
+      await AccountEmail.instance.setEmail('ada@example.com');
+      IdentityVerification.instance.debugSetStatus(IdentityStatus.verified);
+      await tester.pump();
+      expect(find.text('Email unconfirmed'), findsOneWidget,
+          reason: 'attached but never confirmed must not read as confirmed');
+      expect(find.text('ID verified'), findsOneWidget);
     });
 
     testWidgets('an open listing follows the relay: sold updates, removal '

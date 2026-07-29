@@ -60,6 +60,14 @@ class FeedPost {
   /// roll back a sold flag.
   final int listingRev;
 
+  /// Whether the author carried the blue check when they wrote this.
+  ///
+  /// Self-asserted over the sealed relay, exactly like [FeedPost.authorName]
+  /// and the `fromVerified` flag chat messages already carry — the server
+  /// grants the badge, the client attests it on its posts. The same trust
+  /// model the rest of the app uses, no stronger and no weaker.
+  final bool authorVerified;
+
   /// Star rating 1-5 when this post is a review of a listing (it then also
   /// carries the listing's id in [parentId]); 0 everywhere else.
   final int rating;
@@ -125,6 +133,7 @@ class FeedPost {
     this.listingCondition = '',
     this.listingSold = false,
     this.listingRev = 0,
+    this.authorVerified = false,
     this.rating = 0,
     this.mediaPart = 0,
     this.listingVideo = '',
@@ -171,6 +180,7 @@ class FeedPost {
         listingCondition: listingCondition,
         listingSold: listingSold ?? this.listingSold,
         listingRev: listingRev ?? this.listingRev,
+        authorVerified: authorVerified,
         rating: rating,
         mediaPart: mediaPart,
         listingVideo: listingVideo,
@@ -206,6 +216,7 @@ class FeedPost {
           if (listingSold) 'listingSold': true,
           'listingRev': listingRev,
         },
+        if (authorVerified) 'authorVerified': true,
         if (rating > 0) 'rating': rating,
         if (mediaPart > 0) 'mediaPart': mediaPart,
         if (listingVideo.isNotEmpty) 'listingVideo': listingVideo,
@@ -240,6 +251,7 @@ class FeedPost {
         listingCondition: j['listingCondition'] as String? ?? '',
         listingSold: j['listingSold'] as bool? ?? false,
         listingRev: (j['listingRev'] as num?)?.toInt() ?? 0,
+        authorVerified: j['authorVerified'] as bool? ?? false,
         rating: (j['rating'] as num?)?.toInt() ?? 0,
         mediaPart: (j['mediaPart'] as num?)?.toInt() ?? 0,
         listingVideo: j['listingVideo'] as String? ?? '',
@@ -696,6 +708,7 @@ class FeedStore extends ChangeNotifier {
       communityId: communityId,
       authorName: me.name,
       authorUsername: me.username.isEmpty ? 'you' : me.username,
+      authorVerified: me.verified,
       time: DateTime.now(),
       text: text.trim(),
       parentId: parentId,
@@ -728,6 +741,7 @@ class FeedStore extends ChangeNotifier {
       communityId: communityId,
       authorName: me.name,
       authorUsername: me.username.isEmpty ? 'you' : me.username,
+      authorVerified: me.verified,
       time: DateTime.now(),
       // Title on the first line, details after — a client too old to know
       // about listings shows a readable post instead of stray fields.
@@ -825,6 +839,7 @@ class FeedStore extends ChangeNotifier {
       communityId: listing.communityId,
       authorName: me.name,
       authorUsername: myUsername,
+      authorVerified: me.verified,
       time: DateTime.now(),
       text: text.trim(),
       parentId: listingId,
@@ -920,6 +935,7 @@ class FeedStore extends ChangeNotifier {
       communityId: post.communityId,
       authorName: post.authorName,
       authorUsername: post.authorUsername,
+      authorVerified: post.authorVerified,
       time: post.time,
       text: description.trim().isEmpty
           ? title.trim()

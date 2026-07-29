@@ -15,6 +15,7 @@ import '../widgets/chat_photo.dart';
 import '../widgets/emoji_gif_sheet.dart';
 import '../widgets/poll_widgets.dart';
 import '../widgets/pull_to_refresh.dart';
+import '../widgets/verified_badge.dart';
 import 'chat_screen.dart';
 import 'people_screen.dart';
 
@@ -709,6 +710,10 @@ class _PostCard extends StatelessWidget {
                                 fontWeight: FontWeight.w700, fontSize: 15)),
                       ),
                     ),
+                    if (post.authorVerified) ...[
+                      const SizedBox(width: 3),
+                      const VerifiedBadge(size: 14),
+                    ],
                     const SizedBox(width: 6),
                     Flexible(
                       child: Text(

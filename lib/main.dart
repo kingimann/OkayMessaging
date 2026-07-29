@@ -98,7 +98,19 @@ Future<void> main() async {
   IapEntitlement.instance.start();
   // The blue check is decided server-side, so ask rather than assume — a
   // check finished on another device (or after the app was closed) still
-  // has to land here.
+  // has to land here. And when the verdict lands, the profile follows it:
+  // the badge peers see rides outgoing messages from the profile, so a
+  // verdict that stays in the store is a badge nobody else ever sees.
+  IdentityVerification.instance.addListener(() {
+    final status = IdentityVerification.instance.status;
+    if (status == IdentityStatus.none) return; // offline/unknown: no change
+    final verified = status == IdentityStatus.verified;
+    if (Session.instance.isSignedIn) {
+      Session.instance.setVerified(verified);
+    } else {
+      AppState.setVerified(verified);
+    }
+  });
   unawaited(IdentityVerification.instance.refresh());
   ChannelTypingStore.instance.onTyping = (communityId, channelId) =>
       RelayService.instance.sendChannelTyping(communityId, channelId);

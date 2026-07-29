@@ -17,6 +17,7 @@ import '../util/photo_prep.dart';
 import '../widgets/app_dialogs.dart';
 import '../widgets/chat_photo.dart';
 import '../widgets/listing_video.dart';
+import '../widgets/verified_badge.dart';
 import 'chat_screen.dart';
 import 'feed_screen.dart' show showPersonSheet, feedSpans;
 
@@ -955,10 +956,26 @@ class ListingScreen extends StatelessWidget {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(mine ? 'Your listing' : listing.authorName,
-                                style: const TextStyle(
-                                    fontWeight: FontWeight.w600,
-                                    fontSize: 14.5)),
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Flexible(
+                                  child: Text(
+                                      mine
+                                          ? 'Your listing'
+                                          : listing.authorName,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                          fontWeight: FontWeight.w600,
+                                          fontSize: 14.5)),
+                                ),
+                                if (listing.authorVerified) ...[
+                                  const SizedBox(width: 4),
+                                  const VerifiedBadge(size: 15),
+                                ],
+                              ],
+                            ),
                             Builder(builder: (context) {
                               final (avg, count) = FeedStore.instance
                                   .sellerRating(listing.authorUsername);
@@ -1130,6 +1147,10 @@ class _ReviewsSection extends StatelessWidget {
                       children: [
                         _Stars(rating: r.rating),
                         const SizedBox(width: 8),
+                        if (r.authorVerified) ...[
+                          const VerifiedBadge(size: 13),
+                          const SizedBox(width: 4),
+                        ],
                         Expanded(
                           child: Text(
                             '${r.authorName} · ${feedAge(r.time)}',
@@ -1985,10 +2006,24 @@ class SellerScreen extends StatelessWidget {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(name,
-                              style: const TextStyle(
-                                  fontSize: 17,
-                                  fontWeight: FontWeight.w800)),
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Flexible(
+                                child: Text(name,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                        fontSize: 17,
+                                        fontWeight: FontWeight.w800)),
+                              ),
+                              if (listings
+                                  .any((l) => l.authorVerified)) ...[
+                                const SizedBox(width: 5),
+                                const VerifiedBadge(size: 17),
+                              ],
+                            ],
+                          ),
                           if (username.isNotEmpty && username != 'you')
                             Text('@$username',
                                 style: TextStyle(
