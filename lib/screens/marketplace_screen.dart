@@ -113,11 +113,24 @@ Future<AppUser?> Function(String username)? debugResolveSellerOverride;
 /// then the server directory. When neither knows the seller (offline, or a
 /// seller who never registered a username), the person sheet opens instead —
 /// a follow is still possible there, and pretending a chat exists isn't.
-Future<void> messageSeller(BuildContext context, FeedPost listing) async {
-  final username = listing.authorUsername;
-  final title = listing.text.split('\n').first;
-  final opener = 'Is this still available? — "$title" '
-      '(${formatListingPrice(listing.priceCents ?? 0)})';
+Future<void> messageSeller(BuildContext context, FeedPost listing) =>
+    openSellerChat(context,
+        username: listing.authorUsername,
+        name: listing.authorName,
+        about: listing);
+
+/// Opens (or starts) a chat with a seller. With [about], the composer is
+/// seeded with the question every marketplace conversation starts with.
+Future<void> openSellerChat(
+  BuildContext context, {
+  required String username,
+  required String name,
+  FeedPost? about,
+}) async {
+  final opener = about == null
+      ? ''
+      : 'Is this still available? — "${about.text.split('\n').first}" '
+          '(${formatListingPrice(about.priceCents ?? 0)})';
 
   AppUser? seller;
   for (final c in ChatStore.instance.chats) {
@@ -143,7 +156,7 @@ Future<void> messageSeller(BuildContext context, FeedPost listing) async {
   }
   if (!context.mounted) return;
   if (seller == null) {
-    showPersonSheet(context, username: username, name: listing.authorName);
+    showPersonSheet(context, username: username, name: name);
     return;
   }
 
@@ -157,7 +170,9 @@ Future<void> messageSeller(BuildContext context, FeedPost listing) async {
     chat = Chat(id: 'chat_${seller.id}', contact: seller, messages: const []);
     store.upsert(chat);
   }
-  if (store.draftFor(chat.id).isEmpty) store.setDraft(chat.id, opener);
+  if (opener.isNotEmpty && store.draftFor(chat.id).isEmpty) {
+    store.setDraft(chat.id, opener);
+  }
   await Navigator.of(context).push(
     MaterialPageRoute(builder: (_) => ChatScreen(chat: chat)),
   );
@@ -555,6 +570,20 @@ class _ListingCard extends StatelessWidget {
                 ),
                 if (listing.listingSold)
                   const Positioned(left: 8, top: 8, child: _SoldBadge()),
+                if (listing.listingVideo.isNotEmpty)
+                  Positioned(
+                    right: 8,
+                    bottom: 8,
+                    child: Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.6),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.play_arrow,
+                          size: 14, color: Colors.white),
+                    ),
+                  ),
                 Builder(builder: (context) {
                   final n =
                       FeedStore.instance.listingPhotos(listing.id).length;
@@ -811,9 +840,10 @@ class ListingScreen extends StatelessWidget {
               InkWell(
                 onTap: mine
                     ? null
-                    : () => showPersonSheet(context,
-                        username: listing.authorUsername,
-                        name: listing.authorName),
+                    : () => Navigator.of(context).push(MaterialPageRoute(
+                        builder: (_) => SellerScreen(
+                            username: listing.authorUsername,
+                            name: listing.authorName))),
                 child: Padding(
                   padding: const EdgeInsets.symmetric(
                       horizontal: 16, vertical: 4),
@@ -1727,6 +1757,133 @@ class _SellScreenState extends State<SellScreen> {
                       TextStyle(color: Theme.of(context).colorScheme.error)),
             ),
         ],
+      ),
+    );
+  }
+}
+
+/// One seller, whole: who they are, how they've been rated, everything they
+/// have for sale that this device can see. Where the trust question — "who
+/// am I buying from?" — gets its one-screen answer.
+class SellerScreen extends StatelessWidget {
+  final String username;
+  final String name;
+  const SellerScreen({super.key, required this.username, required this.name});
+
+  String _serverName(String id) {
+    for (final c in CommunityStore.instance.communities) {
+      if (c.id == id) return c.name;
+    }
+    return '';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text(name)),
+      body: ListenableBuilder(
+        listenable: FeedStore.instance,
+        builder: (context, _) {
+          final listings = [
+            for (final l in FeedStore.instance.listings())
+              if (l.authorUsername.toLowerCase() == username.toLowerCase()) l
+          ];
+          final (avg, count) = FeedStore.instance.sellerRating(username);
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
+                child: Row(
+                  children: [
+                    CircleAvatar(
+                      radius: 26,
+                      child: Text(
+                          name.isEmpty ? '?' : name[0].toUpperCase(),
+                          style: const TextStyle(fontSize: 20)),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(name,
+                              style: const TextStyle(
+                                  fontSize: 17,
+                                  fontWeight: FontWeight.w800)),
+                          if (username.isNotEmpty && username != 'you')
+                            Text('@$username',
+                                style: TextStyle(
+                                    fontSize: 13,
+                                    color: Colors.grey.shade600)),
+                          Row(
+                            children: [
+                              if (count > 0) ...[
+                                const Icon(Icons.star_rounded,
+                                    size: 15, color: Color(0xFFF5A623)),
+                                const SizedBox(width: 2),
+                                Text(
+                                  '${avg.toStringAsFixed(1)} · $count '
+                                  '${count == 1 ? "review" : "reviews"} · ',
+                                  style: TextStyle(
+                                      fontSize: 12.5,
+                                      color: Colors.grey.shade600),
+                                ),
+                              ],
+                              Text(
+                                '${listings.length} '
+                                '${listings.length == 1 ? "listing" : "listings"}',
+                                style: TextStyle(
+                                    fontSize: 12.5,
+                                    color: Colors.grey.shade600),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    FilledButton(
+                      onPressed: () => openSellerChat(context,
+                          username: username, name: name),
+                      child: const Text('Message'),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
+              Expanded(
+                child: listings.isEmpty
+                    ? Center(
+                        child: Text('Nothing for sale right now.',
+                            style: TextStyle(
+                                color: Colors.grey.shade600, fontSize: 14)),
+                      )
+                    : GridView.builder(
+                        padding: const EdgeInsets.all(12),
+                        gridDelegate:
+                            const SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 2,
+                          mainAxisSpacing: 10,
+                          crossAxisSpacing: 10,
+                          childAspectRatio: 0.72,
+                        ),
+                        itemCount: listings.length,
+                        itemBuilder: (context, i) => _ListingCard(
+                          listing: listings[i],
+                          serverName:
+                              _serverName(listings[i].communityId),
+                          onTap: () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => ListingScreen(
+                                  listingId: listings[i].id),
+                            ),
+                          ),
+                        ),
+                      ),
+              ),
+            ],
+          );
+        },
       ),
     );
   }

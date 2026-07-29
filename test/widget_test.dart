@@ -6222,6 +6222,64 @@ void main() {
       expect(find.text('Add a video (up to 12 MB, ~30s)'), findsOneWidget);
     });
 
+    testWidgets('the seller screen gathers a seller\'s shop in one place',
+        (tester) async {
+      FeedStore.instance.resetForTest();
+      ChatStore.instance.reset();
+      addTearDown(() {
+        FeedStore.instance.resetForTest();
+        ChatStore.instance.reset();
+        debugResolveSellerOverride = null;
+      });
+      for (final (id, title, price) in [
+        ('sl_a', 'Blue bike', 2000),
+        ('sl_b', 'Green lamp', 500),
+      ]) {
+        FeedStore.instance.addRemote(FeedPost(
+          id: id,
+          communityId: 'c1',
+          authorName: 'Grace',
+          authorUsername: 'grace',
+          time: DateTime.now(),
+          text: title,
+          priceCents: price,
+          listingCategory: 'Other',
+        ));
+      }
+      // Someone else's stuff must not leak into Grace's shop.
+      FeedStore.instance.addRemote(FeedPost(
+        id: 'sl_x',
+        communityId: 'c1',
+        authorName: 'Ada',
+        authorUsername: 'ada',
+        time: DateTime.now(),
+        text: 'Red desk',
+        priceCents: 900,
+        listingCategory: 'Other',
+      ));
+      FeedStore.instance.addReview('sl_a', rating: 4);
+
+      await tester.pumpWidget(const MaterialApp(
+          home: SellerScreen(username: 'grace', name: 'Grace')));
+      await tester.pump();
+
+      expect(find.text('Blue bike'), findsOneWidget);
+      expect(find.text('Green lamp'), findsOneWidget);
+      expect(find.text('Red desk'), findsNothing);
+      expect(find.textContaining('4.0 · 1 review'), findsOneWidget);
+      expect(find.textContaining('2 listings'), findsOneWidget);
+
+      // Message from the profile opens the chat with NO prefilled question —
+      // there is no listing being asked about.
+      debugResolveSellerOverride = (u) async =>
+          AppUser(id: 'u_grace', name: 'Grace', avatarColor: '#123456', username: u);
+      await tester.tap(find.text('Message'));
+      await tester.pumpAndSettle();
+      expect(find.byType(ChatScreen), findsOneWidget);
+      final chat = ChatStore.instance.chatWithContact('u_grace');
+      expect(ChatStore.instance.draftFor(chat!.id), isEmpty);
+    });
+
     testWidgets('an open listing follows the relay: sold updates, removal '
         'says so', (tester) async {
       FeedStore.instance.resetForTest();
