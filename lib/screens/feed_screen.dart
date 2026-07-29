@@ -552,62 +552,60 @@ class _FeedScreenState extends State<FeedScreen> {
           return PullToRefresh(
             child: ListView(
               children: [
-                if (all.isNotEmpty)
-                  SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
-                    child: Row(
-                      children: [
-                        ChoiceChip(
-                          label: const Text('Latest'),
-                          selected: !_top,
-                          visualDensity: VisualDensity.compact,
-                          onSelected: (_) => setState(() => _top = false),
-                        ),
-                        const SizedBox(width: 8),
-                        ChoiceChip(
-                          label: const Text('Top'),
-                          selected: _top,
-                          visualDensity: VisualDensity.compact,
-                          onSelected: (_) => setState(() => _top = true),
-                        ),
-                        const SizedBox(width: 8),
-                        FilterChip(
-                          avatar: Icon(
-                              _savedOnly
-                                  ? Icons.bookmark
-                                  : Icons.bookmark_border,
-                              size: 16),
-                          label: const Text('Saved'),
-                          selected: _savedOnly,
-                          visualDensity: VisualDensity.compact,
-                          onSelected: (v) =>
-                              setState(() => _savedOnly = v),
-                        ),
-                        if (tags.isNotEmpty)
-                          Container(
-                            width: 1,
-                            height: 22,
-                            margin:
-                                const EdgeInsets.symmetric(horizontal: 8),
-                            color: Colors.grey.withValues(alpha: 0.3),
-                          ),
-                        // Trending: what the server is talking about, as
-                        // one-tap filters.
-                        for (final (tag, n) in tags)
-                          Padding(
-                            padding: const EdgeInsets.only(right: 8),
-                            child: FilterChip(
-                              label: Text(n > 1 ? '$tag · $n' : tag),
-                              selected: _tag == tag,
-                              visualDensity: VisualDensity.compact,
-                              onSelected: (_) => setState(
-                                  () => _tag = _tag == tag ? '' : tag),
-                            ),
-                          ),
-                      ],
-                    ),
+                // Three tabs across the width rather than three chips huddled
+                // in the corner. The timeline has exactly one of these on at
+                // a time, and a tab says that where a chip only implies it.
+                if (all.isNotEmpty) ...[
+                  Row(
+                    children: [
+                      _FeedTab(
+                        label: 'Latest',
+                        selected: !_top && !_savedOnly,
+                        onTap: () => setState(() {
+                          _top = false;
+                          _savedOnly = false;
+                        }),
+                      ),
+                      _FeedTab(
+                        label: 'Top',
+                        selected: _top && !_savedOnly,
+                        onTap: () => setState(() {
+                          _top = true;
+                          _savedOnly = false;
+                        }),
+                      ),
+                      _FeedTab(
+                        label: 'Saved',
+                        selected: _savedOnly,
+                        onTap: () => setState(() => _savedOnly = true),
+                      ),
+                    ],
                   ),
+                  const Divider(height: 1),
+                  // Trending: what the server is talking about, as one-tap
+                  // filters. Its own row — a scrolling strip of hashtags
+                  // inside the tab row would have hidden the tabs.
+                  if (tags.isNotEmpty)
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.fromLTRB(12, 8, 12, 2),
+                      child: Row(
+                        children: [
+                          for (final (tag, n) in tags)
+                            Padding(
+                              padding: const EdgeInsets.only(right: 8),
+                              child: FilterChip(
+                                label: Text(n > 1 ? '$tag · $n' : tag),
+                                selected: _tag == tag,
+                                visualDensity: VisualDensity.compact,
+                                onSelected: (_) => setState(
+                                    () => _tag = _tag == tag ? '' : tag),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                ],
                 if (posts.isEmpty)
                   Padding(
                     padding: const EdgeInsets.all(32),
@@ -766,64 +764,125 @@ class _PostCard extends StatelessWidget {
                   ),
                 ],
                 const SizedBox(height: 8),
-                // Evenly-spread actions, X-style, with share (copy) last.
-                ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 320),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      _PostAction(
-                        icon: Icons.chat_bubble_outline,
-                        count: post.replies,
-                        onTap: onReply,
-                        tooltip: 'Reply',
-                      ),
-                      _PostAction(
-                        icon: Icons.repeat,
-                        count: post.reposts,
-                        active: post.reposted,
-                        activeColor: const Color(0xFF00BA7C),
-                        onTap: onRepost,
-                        tooltip: 'Repost',
-                      ),
-                      _PostAction(
-                        icon: post.liked
-                            ? Icons.favorite
-                            : Icons.favorite_border,
-                        count: post.likes,
-                        active: post.liked,
-                        activeColor: const Color(0xFFF91880),
-                        onTap: onLike,
-                        tooltip: 'Like',
-                      ),
-                      if (onSave != null)
-                        _PostAction(
-                          icon:
-                              saved ? Icons.bookmark : Icons.bookmark_border,
-                          count: 0,
-                          active: saved,
-                          activeColor: const Color(0xFFF5A623),
-                          tooltip: saved ? 'Unsave' : 'Save',
-                          onTap: onSave!,
+                // The three conversation actions sit together on the left,
+                // save and share against the right edge. Spreading all five
+                // evenly across the row made every one of them equally far
+                // from the thumb and equally important, which they are not:
+                // reply, repost and like are what a timeline is for.
+                Row(
+                  children: [
+                    Expanded(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 240),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            _PostAction(
+                              icon: Icons.chat_bubble_outline,
+                              count: post.replies,
+                              onTap: onReply,
+                              tooltip: 'Reply',
+                            ),
+                            _PostAction(
+                              icon: Icons.repeat,
+                              count: post.reposts,
+                              active: post.reposted,
+                              activeColor: const Color(0xFF00BA7C),
+                              onTap: onRepost,
+                              tooltip: 'Repost',
+                            ),
+                            _PostAction(
+                              icon: post.liked
+                                  ? Icons.favorite
+                                  : Icons.favorite_border,
+                              count: post.likes,
+                              active: post.liked,
+                              activeColor: const Color(0xFFF91880),
+                              onTap: onLike,
+                              tooltip: 'Like',
+                            ),
+                          ],
                         ),
-                      _PostAction(
-                        icon: Icons.ios_share,
-                        count: 0,
-                        tooltip: 'Copy text',
-                        onTap: () {
-                          Clipboard.setData(ClipboardData(text: post.text));
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Post copied')),
-                          );
-                        },
                       ),
-                    ],
-                  ),
+                    ),
+                    if (onSave != null)
+                      _PostAction(
+                        icon: saved ? Icons.bookmark : Icons.bookmark_border,
+                        count: 0,
+                        active: saved,
+                        activeColor: const Color(0xFFF5A623),
+                        tooltip: saved ? 'Unsave' : 'Save',
+                        onTap: onSave!,
+                      ),
+                    const SizedBox(width: 10),
+                    _PostAction(
+                      icon: Icons.ios_share,
+                      count: 0,
+                      tooltip: 'Copy text',
+                      onTap: () {
+                        Clipboard.setData(ClipboardData(text: post.text));
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Post copied')),
+                        );
+                      },
+                    ),
+                  ],
                 ),
               ],
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// One timeline tab: a label with a short bar under the selected one.
+///
+/// The bar is centred on the label rather than filling the segment, which is
+/// what keeps three tabs reading as a row of choices instead of three
+/// buttons welded together.
+class _FeedTab extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+  const _FeedTab(
+      {required this.label, required this.selected, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Expanded(
+      child: InkWell(
+        onTap: onTap,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(4, 13, 4, 11),
+              child: Text(
+                label,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 14.5,
+                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                  color: selected ? scheme.onSurface : scheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+            // Always laid out, only painted when selected — otherwise the
+            // labels would shift by three pixels every time a tab changed.
+            Container(
+              height: 3,
+              width: 44,
+              decoration: BoxDecoration(
+                color: selected ? scheme.primary : Colors.transparent,
+                borderRadius: const BorderRadius.vertical(
+                    top: Radius.circular(2)),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

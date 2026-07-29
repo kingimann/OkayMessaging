@@ -5198,6 +5198,45 @@ void main() {
       expect(feedAge(now.subtract(const Duration(days: 2)), now: now), '2d');
     });
 
+    testWidgets('the timeline tabs are exclusive and span the width',
+        (tester) async {
+      FeedStore.instance.add('c1', 'first');
+      await tester.pumpWidget(const MaterialApp(
+        home: FeedScreen(communityId: 'c1', communityName: 'Okay HQ'),
+      ));
+      await tester.pumpAndSettle();
+
+      // Three tabs sharing the width, not three chips in the corner.
+      final width = tester.getSize(find.byType(FeedScreen)).width;
+      for (final label in ['Latest', 'Top', 'Saved']) {
+        expect(tester.getSize(find.text(label)).width, lessThan(width),
+            reason: '$label must fit');
+      }
+      final latest = tester.getTopLeft(find.text('Latest')).dx;
+      final saved = tester.getTopLeft(find.text('Saved')).dx;
+      expect(saved - latest, greaterThan(width * 0.5),
+          reason: 'the tabs should be spread across the row, not huddled');
+
+      // Exactly one is on at a time. Saved used to be a filter you could
+      // combine with Top, which left two of the three looking selected.
+      Color? barOf(String label) {
+        final container = tester.widget<Container>(find.descendant(
+            of: find.ancestor(
+                of: find.text(label), matching: find.byType(Column)).first,
+            matching: find.byType(Container)));
+        return (container.decoration as BoxDecoration?)?.color;
+      }
+
+      expect(barOf('Latest'), isNot(Colors.transparent));
+      expect(barOf('Top'), Colors.transparent);
+
+      await tester.tap(find.text('Saved'));
+      await tester.pumpAndSettle();
+      expect(barOf('Saved'), isNot(Colors.transparent));
+      expect(barOf('Latest'), Colors.transparent);
+      expect(barOf('Top'), Colors.transparent);
+    });
+
     testWidgets('the composer gets the whole screen, not one squeezed line',
         (tester) async {
       // In a bottom sheet the field shared one row with an avatar, three icon
