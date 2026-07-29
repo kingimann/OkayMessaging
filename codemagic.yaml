@@ -1,10 +1,11 @@
 # Codemagic CI/CD configuration for Okay Messaging.
 #
-# Every workflow here runs with NO setup in the Codemagic UI: no variable
-# groups, no code-signing certificates, no App Store Connect key. That is
-# deliberate — Codemagic rejects the whole file as "invalid configuration"
-# when it references an environment group, keystore, or integration that
-# doesn't exist in your account yet.
+# The `test` workflow runs with NO setup in the Codemagic UI. The three build
+# workflows import the "test" variable group, which must exist in the account:
+# Codemagic rejects the whole file as "invalid configuration" when it
+# references an environment group, keystore, or integration that doesn't exist
+# yet. That group carries CERTIFICATE_PRIVATE_KEY (signing) and MAPBOX_TOKEN
+# (the basemap) — a UI variable reaches a workflow only through its group.
 #
 # Workflows:
 #   test           – analyze + the full test suite (Linux, fast)
@@ -53,6 +54,12 @@ workflows:
     instance_type: linux_x2
     environment:
       flutter: stable
+      # MAPBOX_TOKEN lives in the "test" group in the Codemagic UI. A UI
+      # variable reaches a workflow ONLY when its group is imported here —
+      # without this line $MAPBOX_TOKEN expands to nothing and the build
+      # quietly ships the free basemap.
+      groups:
+        - test
     scripts:
       - name: Get packages
         script: flutter pub get
@@ -60,6 +67,14 @@ workflows:
         script: |
           flutter analyze
           flutter test
+      - name: Basemap
+        script: |
+          case "$MAPBOX_TOKEN" in
+            pk.*) echo "Basemap: Mapbox" ;;
+            "")   echo "Basemap: OpenStreetMap - MAPBOX_TOKEN is empty (is it in the 'test' variable group?)" ;;
+            sk.*) echo "Basemap: OpenStreetMap - MAPBOX_TOKEN is a secret token; Mapbox needs the public pk. one" ;;
+            *)    echo "Basemap: OpenStreetMap - MAPBOX_TOKEN is not a Mapbox token" ;;
+          esac
       - name: Build APK
         script: |
           flutter build apk --debug \
@@ -114,6 +129,14 @@ workflows:
       - name: Install CocoaPods
         script: |
           find . -name "Podfile" -execdir pod install \;
+      - name: Basemap
+        script: |
+          case "$MAPBOX_TOKEN" in
+            pk.*) echo "Basemap: Mapbox" ;;
+            "")   echo "Basemap: OpenStreetMap - MAPBOX_TOKEN is empty (is it in the 'test' variable group?)" ;;
+            sk.*) echo "Basemap: OpenStreetMap - MAPBOX_TOKEN is a secret token; Mapbox needs the public pk. one" ;;
+            *)    echo "Basemap: OpenStreetMap - MAPBOX_TOKEN is not a Mapbox token" ;;
+          esac
       - name: Initialise the keychain
         script: keychain initialize
       # THE FIX. A brand-new app has no App Store provisioning profile, and
@@ -188,6 +211,10 @@ workflows:
       flutter: stable
       xcode: latest
       cocoapods: default
+      # Same as the other builds: without the group import $MAPBOX_TOKEN is
+      # empty and the simulator ships a different basemap than the phone.
+      groups:
+        - test
     scripts:
       - name: Get packages
         script: flutter pub get
@@ -198,6 +225,14 @@ workflows:
       - name: Install CocoaPods
         script: |
           find . -name "Podfile" -execdir pod install \;
+      - name: Basemap
+        script: |
+          case "$MAPBOX_TOKEN" in
+            pk.*) echo "Basemap: Mapbox" ;;
+            "")   echo "Basemap: OpenStreetMap - MAPBOX_TOKEN is empty (is it in the 'test' variable group?)" ;;
+            sk.*) echo "Basemap: OpenStreetMap - MAPBOX_TOKEN is a secret token; Mapbox needs the public pk. one" ;;
+            *)    echo "Basemap: OpenStreetMap - MAPBOX_TOKEN is not a Mapbox token" ;;
+          esac
       - name: Build for the simulator (unsigned)
         script: |
           flutter build ios --simulator --debug \

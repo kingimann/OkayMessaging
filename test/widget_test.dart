@@ -10697,6 +10697,32 @@ void main() {
       expect(find.textContaining('MAPBOX_TOKEN'), findsNothing);
     });
 
+    test('every build that passes the token can actually see it', () {
+      // A Codemagic UI variable reaches a workflow only when its group is
+      // imported. Two workflows passed --dart-define=MAPBOX_TOKEN=$MAPBOX_TOKEN
+      // without importing anything, so it expanded to nothing and the build
+      // shipped the free basemap while looking configured.
+      final text = File('codemagic.yaml').readAsStringSync();
+      final marker = RegExp(r'^  [a-z][a-z0-9-]*:$', multiLine: true);
+      final starts = marker.allMatches(text).map((m) => m.start).toList();
+      expect(starts, isNotEmpty, reason: 'no workflows found to check');
+
+      var checked = 0;
+      for (var i = 0; i < starts.length; i++) {
+        final end = i + 1 < starts.length ? starts[i + 1] : text.length;
+        final block = text.substring(starts[i], end);
+        if (!block.contains(r'$MAPBOX_TOKEN')) continue;
+        checked++;
+        final name = block.split(':').first.trim();
+        expect(block.contains('groups:'), isTrue,
+            reason: '$name passes MAPBOX_TOKEN but imports no variable group');
+        expect(block.contains('- test'), isTrue,
+            reason: '$name must import the group the token lives in');
+      }
+      expect(checked, greaterThan(0),
+          reason: 'no workflow passes the token at all');
+    });
+
     test('every style maps to a real Mapbox style id', () {
       for (final layer in MapLayer.values) {
         final style = mapboxStyleFor(layer);

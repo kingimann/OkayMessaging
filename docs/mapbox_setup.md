@@ -18,7 +18,24 @@ Both paths work; the token only changes which one draws.
 |---|---|
 | Local build | `--dart-define=MAPBOX_TOKEN=pk...` |
 | Web (GitHub Pages) | repo → Settings → Secrets → Actions → `MAPBOX_TOKEN` |
-| iOS (Codemagic) | environment variable `MAPBOX_TOKEN` in the workflow |
+| iOS / Android (Codemagic) | `MAPBOX_TOKEN` in the **`test`** variable group |
+
+The web build and the phone builds read the token from **different places** —
+a token in Codemagic does nothing for GitHub Pages, and a GitHub secret does
+nothing for TestFlight. Both need setting.
+
+In Codemagic a UI variable reaches a workflow **only** when its group is
+imported, so every build workflow in `codemagic.yaml` lists:
+
+```yaml
+    environment:
+      groups:
+        - test
+```
+
+Miss that and `$MAPBOX_TOKEN` expands to nothing and the build ships the free
+basemap looking perfectly configured. A test enforces it: any workflow passing
+`--dart-define=MAPBOX_TOKEN` must import the group.
 
 Unset is fine — the app falls back to CARTO, OpenTopoMap and Esri, exactly as
 before.
