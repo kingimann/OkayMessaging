@@ -7545,13 +7545,87 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
 
-      expect(find.text('Route 1 · 14 min'), findsOneWidget);
-      expect(find.text('Route 2 · 17 min'), findsOneWidget);
+      // Labelled by what the choice costs, not by the order OSRM returned
+      // them in — "Route 2" told nobody anything about why they'd pick it.
+      expect(find.text('14 min · fastest'), findsOneWidget);
+      expect(find.text('17 min · +3 min'), findsOneWidget);
       expect(find.text('14 min'), findsOneWidget); // the summary
 
-      await tester.tap(find.text('Route 2 · 17 min'));
+      await tester.tap(find.text('17 min · +3 min'));
       await tester.pump();
       expect(find.text('17 min'), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+    });
+
+    test('route labels say what a detour costs', () {
+      RouteResult r(double seconds) => RouteResult(
+          points: const [LatLng(43, -79), LatLng(43.1, -79.1)],
+          distanceMeters: 1000,
+          durationSeconds: seconds,
+          steps: const []);
+
+      final routes = [r(840), r(1020), r(870)];
+      expect(routeChoiceLabel(routes, 0), '14 min · fastest');
+      expect(routeChoiceLabel(routes, 1), '17 min · +3 min');
+      // 30 seconds slower is still slower: it must not round down to
+      // "+0 min" and read like a second fastest route.
+      expect(routeChoiceLabel(routes, 2), '15 min · +1 min');
+
+      // The fastest is not always the one OSRM listed first.
+      final reordered = [r(1020), r(840)];
+      expect(routeChoiceLabel(reordered, 0), '17 min · +3 min');
+      expect(routeChoiceLabel(reordered, 1), '14 min · fastest');
+    });
+
+    testWidgets('a failed route can be asked again', (tester) async {
+      // Was a dead end: a line of grey text, no button, and backing out to
+      // the previous screen as the only way to retry.
+      await tester.pumpWidget(const MaterialApp(
+        home: RouteMapScreen(dest: LatLng(43.2, -79.2), label: 'Somewhere'),
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      expect(find.text('Try again'), findsOneWidget);
+      expect(find.text('Go'), findsNothing,
+          reason: 'a Go with no route to go along is a button that lies');
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+    });
+
+    testWidgets('the tile credit clears the directions sheet',
+        (tester) async {
+      // Same licence term as the explore map: the credit was pinned to the
+      // bottom edge while the sheet covered the bottom third.
+      const route = RouteResult(
+          points: [LatLng(43, -79), LatLng(43.2, -79.2)],
+          distanceMeters: 5000,
+          durationSeconds: 840,
+          steps: []);
+      await tester.pumpWidget(const MaterialApp(
+        home: RouteMapScreen(
+          dest: LatLng(43.2, -79.2),
+          from: LatLng(43.0, -79.0),
+          initialRoute: route,
+        ),
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      final creditBottom =
+          tester.getBottomLeft(find.byType(OsmAttribution)).dy;
+      final sheetTop = tester
+          .getTopLeft(find
+              .descendant(
+                  of: find.byType(DraggableScrollableSheet),
+                  matching: find.byType(Material))
+              .first)
+          .dy;
+      expect(creditBottom, lessThanOrEqualTo(sheetTop),
+          reason: 'credit at $creditBottom is under the sheet at $sheetTop');
 
       await tester.pumpWidget(const SizedBox());
       await tester.pump();

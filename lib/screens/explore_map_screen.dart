@@ -164,16 +164,13 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
 
   /// Live, Apple-Maps-style suggestions while typing (debounced; stale
   /// responses are discarded).
-  /// Opens the sheet far enough to show what is under the search field.
+  /// What the last finished search concluded when it had nothing to show.
   ///
-  /// The sheet rests at the height of the field alone when there is nothing
-  /// behind it, which is right until the moment there is: typed suggestions
-  /// appeared below the fold, so the list existed but nobody could see it.
-  void _openSheetForContent() {
-    if (!_sheet.isAttached || _sheet.size >= 0.34) return;
-    _sheet.animateTo(0.5,
-        duration: const Duration(milliseconds: 200), curve: Curves.easeOut);
-  }
+  /// A search that found nothing, and a search that could not run at all,
+  /// both used to leave the sheet showing favourites and recents again — the
+  /// same thing it showed before anyone typed. Indistinguishable from the
+  /// app ignoring you.
+  String? _searchNote;
 
   void _onQueryChanged(String text) {
     _debounce?.cancel();
@@ -183,6 +180,7 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
         _results = const [];
         _searching = false;
         _hideSuggestions = false;
+        _searchNote = null;
       });
       return;
     }
@@ -207,8 +205,12 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
         // A failed request (null) keeps the previous suggestions on screen
         // instead of blanking them mid-typing.
         if (results != null) _results = results;
+        _searchNote = results == null
+            ? 'Couldn\'t search right now. Check your connection.'
+            : results.isEmpty
+                ? 'No places found for "$q".'
+                : null;
       });
-      if (_results.isNotEmpty) _openSheetForContent();
     });
   }
 
@@ -763,6 +765,36 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
                                     child: CircularProgressIndicator(
                                         strokeWidth: 2.4))),
                           ),
+                        // A search that came back with nothing has to say so.
+                        // Dropping back to favourites and recents looked
+                        // exactly like never having typed anything.
+                        if (!_searching &&
+                            _results.isEmpty &&
+                            _searchNote != null)
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(6, 16, 6, 6),
+                            child: Row(
+                              children: [
+                                Icon(Icons.search_off,
+                                    size: 18,
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onSurfaceVariant),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    _searchNote!,
+                                    style: TextStyle(
+                                      fontSize: 13.5,
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .onSurfaceVariant,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
                         if (_results.isEmpty && !_searching) ...[
                           _FavoritesRow(
                             onPick: (p) => _select(GeoResult(
@@ -776,7 +808,7 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
                           // Both of those render nothing at all until there
                           // is something in them, so a pulled-up sheet was a
                           // blank screen that looked broken rather than new.
-                          if (!hasSheetContent)
+                          if (!hasSheetContent && _searchNote == null)
                             Padding(
                               padding:
                                   const EdgeInsets.fromLTRB(6, 18, 6, 8),

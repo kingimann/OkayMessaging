@@ -363,3 +363,25 @@ String formatDuration(double seconds) {
   final m = mins % 60;
   return m == 0 ? '$h h' : '$h h $m min';
 }
+
+/// How to label alternative [routes] in the picker, for the one at [index].
+///
+/// "Route 1 / Route 2 / Route 3" told nobody anything: the numbers are the
+/// order OSRM happened to return them in. What a person is choosing between
+/// is time, so the quickest says so and the rest say what they cost.
+///
+/// Pure, so the arithmetic is testable without a network round trip.
+String routeChoiceLabel(List<RouteResult> routes, int index) {
+  if (routes.isEmpty) return '';
+  final route = routes[index];
+  var best = routes.first.durationSeconds;
+  for (final r in routes) {
+    if (r.durationSeconds < best) best = r.durationSeconds;
+  }
+  final time = formatDuration(route.durationSeconds);
+  if (route.durationSeconds <= best) return '$time · fastest';
+  // Anything slower is slower, so it shows a cost rather than rounding down
+  // to "+0 min" and reading like a second fastest route.
+  final extraMinutes = ((route.durationSeconds - best) / 60).ceil();
+  return '$time · +$extraMinutes min';
+}

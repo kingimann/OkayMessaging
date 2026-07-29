@@ -44,6 +44,20 @@ class RouteMapScreen extends StatefulWidget {
 
 class _RouteMapScreenState extends State<RouteMapScreen> {
   final MapController _map = MapController();
+
+  /// The directions sheet, so the things that must stay clear of it can
+  /// follow where it actually is instead of guessing.
+  final DraggableScrollableController _panel =
+      DraggableScrollableController();
+
+  /// Where the sheet rests, and how far up the map's furniture has to sit.
+  static const double _panelResting = 0.30;
+
+  double _abovePanel(BuildContext context) {
+    if (_navigating) return 150; // the nav bar takes the bottom instead
+    final size = _panel.isAttached ? _panel.size : _panelResting;
+    return MediaQuery.of(context).size.height * size.clamp(0.0, 0.5);
+  }
   List<RouteResult> _routes = const [];
   int _routeIndex = 0;
   LatLng? _from;
@@ -397,14 +411,36 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
                   mapPin(widget.dest),
                 ],
               ),
-              const Scalebar(
-                alignment: Alignment.bottomLeft,
-                padding: EdgeInsets.fromLTRB(10, 0, 0, 14),
+              // The credit and the scale bar were pinned to the bottom edge
+              // while the directions sheet covered the bottom third, so both
+              // sat underneath it — and the tile credit is a licence term,
+              // not decoration. They ride above the sheet now, wherever it
+              // has been dragged to.
+              AnimatedBuilder(
+                animation: _panel,
+                builder: (context, _) {
+                  final lift = _abovePanel(context);
+                  return Stack(
+                    children: [
+                      Scalebar(
+                        alignment: Alignment.bottomLeft,
+                        padding: EdgeInsets.fromLTRB(10, 0, 0, lift + 14),
+                      ),
+                      Padding(
+                        padding: EdgeInsets.only(bottom: lift),
+                        child: const LiveAttribution(),
+                      ),
+                    ],
+                  );
+                },
               ),
-              const LiveAttribution(),
             ],
           ),
-          MapControls(controller: _map, bottom: _navigating ? 140 : 260),
+          AnimatedBuilder(
+            animation: _panel,
+            builder: (context, _) =>
+                MapControls(controller: _map, bottom: _abovePanel(context) + 16),
+          ),
           if (_navigating && route != null) ...[
             _NavBanner(
               arrived: _arrived,
@@ -430,6 +466,7 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
             ),
           ] else
             _DirectionsPanel(
+              controller: _panel,
               loading: _loading,
               route: route,
               routes: _routes,
@@ -439,6 +476,13 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
               onMode: _setMode,
               onRoute: _pickRoute,
               onGo: _startNav,
+              onRetry: () {
+                setState(() {
+                  _loading = true;
+                  _error = null;
+                });
+                _load();
+              },
               onStep: (step) {
                 final loc = step.location;
                 if (loc != null) _map.move(loc, 17);
@@ -659,6 +703,7 @@ class _NavBottomBar extends StatelessWidget {
 /// A draggable bottom panel: travel-mode picker, ETA + distance, the in-app
 /// "Go", and the scrollable turn-by-turn steps.
 class _DirectionsPanel extends StatelessWidget {
+  final DraggableScrollableController controller;
   final bool loading;
   final RouteResult? route;
   final List<RouteResult> routes;
@@ -668,9 +713,11 @@ class _DirectionsPanel extends StatelessWidget {
   final ValueChanged<TravelMode> onMode;
   final ValueChanged<int> onRoute;
   final VoidCallback onGo;
+  final VoidCallback onRetry;
   final ValueChanged<RouteStep> onStep;
 
   const _DirectionsPanel({
+    required this.controller,
     required this.loading,
     required this.route,
     required this.routes,
@@ -680,6 +727,7 @@ class _DirectionsPanel extends StatelessWidget {
     required this.onMode,
     required this.onRoute,
     required this.onGo,
+    required this.onRetry,
     required this.onStep,
   });
 
@@ -693,16 +741,22 @@ class _DirectionsPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final surface = Theme.of(context).colorScheme.surface;
     return DraggableScrollableSheet(
-      initialChildSize: 0.28,
+      controller: controller,
+      initialChildSize: _RouteMapScreenState._panelResting,
       minChildSize: 0.16,
       maxChildSize: 0.85,
-      builder: (context, controller) => Material(
+      // Without snapping the sheet stayed wherever a finger left it, which
+      // on a screen whose whole job is "route above, steps below" meant
+      // never quite getting either.
+      snap: true,
+      snapSizes: const [0.16, _RouteMapScreenState._panelResting, 0.85],
+      builder: (context, scrollController) => Material(
         color: surface,
         elevation: 8,
         borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
         clipBehavior: Clip.antiAlias,
         child: ListView(
-          controller: controller,
+          controller: scrollController,
           padding: EdgeInsets.zero,
           children: [
             Center(
@@ -711,7 +765,10 @@ class _DirectionsPanel extends StatelessWidget {
                 width: 40,
                 height: 4,
                 decoration: BoxDecoration(
-                  color: Colors.grey.shade400,
+                  color: Theme.of(context)
+                      .colorScheme
+                      .onSurfaceVariant
+                      .withValues(alpha: 0.4),
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
@@ -735,7 +792,9 @@ class _DirectionsPanel extends StatelessWidget {
                 ),
               ),
             ),
-            // Route alternatives, when OSRM offers more than one.
+            // Route alternatives, when OSRM offers more than one. Labelled by
+            // how much longer they take than the quickest, which is the only
+            // reason anyone reads this row — "Route 2" says nothing.
             if (routes.length > 1)
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
@@ -744,9 +803,7 @@ class _DirectionsPanel extends StatelessWidget {
                   children: [
                     for (var i = 0; i < routes.length; i++)
                       ChoiceChip(
-                        label: Text(
-                            'Route ${i + 1} · '
-                            '${formatDuration(routes[i].durationSeconds)}'),
+                        label: Text(routeChoiceLabel(routes, i)),
                         selected: i == routeIndex,
                         onSelected: (_) => onRoute(i),
                       ),
@@ -759,11 +816,21 @@ class _DirectionsPanel extends StatelessWidget {
                 children: [
                   Expanded(child: _summary(context)),
                   const SizedBox(width: 12),
-                  FilledButton.icon(
-                    onPressed: route == null ? null : onGo,
-                    icon: const Icon(Icons.navigation_outlined, size: 18),
-                    label: const Text('Go'),
-                  ),
+                  if (route == null && !loading && error != null)
+                    // A failed route used to be the end of the screen: a line
+                    // of grey text and no way to ask again short of backing
+                    // out and starting over.
+                    FilledButton.icon(
+                      onPressed: onRetry,
+                      icon: const Icon(Icons.refresh, size: 18),
+                      label: const Text('Try again'),
+                    )
+                  else
+                    FilledButton.icon(
+                      onPressed: route == null ? null : onGo,
+                      icon: const Icon(Icons.navigation_outlined, size: 18),
+                      label: const Text('Go'),
+                    ),
                 ],
               ),
             ),
@@ -805,8 +872,10 @@ class _DirectionsPanel extends StatelessWidget {
     }
     final r = route;
     if (r == null) {
+      // Was grey.shade700: near-invisible on a dark surface, which is where
+      // this sits most of the time.
       return Text(error ?? 'No route available',
-          style: TextStyle(color: Colors.grey.shade700));
+          style: TextStyle(color: Theme.of(context).colorScheme.error));
     }
     final arrive = TimeOfDay.fromDateTime(
             DateTime.now().add(Duration(seconds: r.durationSeconds.round())))
