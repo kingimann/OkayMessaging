@@ -36,6 +36,39 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
   final MapController _map = MapController();
   final TextEditingController _search = TextEditingController();
   final DraggableScrollableController _sheet = DraggableScrollableController();
+
+  /// The sheet collapsed to its search field and nothing else, as a fraction
+  /// of the screen.
+  ///
+  /// The sheet used to rest at a flat 0.30 whatever was in it. With no saved
+  /// places and no recent searches — every new account — that is a third of
+  /// the screen given to an empty slab, and the map, which is the point of
+  /// the screen, gets the rest. Measured rather than guessed so it stays
+  /// right on any screen height.
+  static double compactSheetFraction(BuildContext context) {
+    final media = MediaQuery.of(context);
+    // 8 top padding + 4 handle + 10 gap + ~52 search field + 12 breathing room.
+    const contentPx = 86.0;
+    return ((contentPx + media.padding.bottom) / media.size.height)
+        .clamp(0.08, 0.34);
+  }
+
+  /// Where the sheet rests: at the search field when there is nothing behind
+  /// it, tall enough to show favourites and recents when there is. Collapsing
+  /// a sheet that has content in it would only hide it behind a drag.
+  static double restingSheetFraction(BuildContext context,
+          {required bool hasContent}) =>
+      hasContent ? 0.34 : compactSheetFraction(context);
+
+  double _resting = 0.34;
+
+  /// How far above the bottom edge the map credits have to sit to clear the
+  /// sheet. Capped: at full height the credits would ride into the middle of
+  /// the map rather than stay out of the way.
+  double _aboveSheet(BuildContext context) {
+    final size = _sheet.isAttached ? _sheet.size : _resting;
+    return MediaQuery.of(context).size.height * size.clamp(0.0, 0.5);
+  }
   bool _searching = false;
   List<GeoResult> _results = const [];
 
@@ -131,6 +164,17 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
 
   /// Live, Apple-Maps-style suggestions while typing (debounced; stale
   /// responses are discarded).
+  /// Opens the sheet far enough to show what is under the search field.
+  ///
+  /// The sheet rests at the height of the field alone when there is nothing
+  /// behind it, which is right until the moment there is: typed suggestions
+  /// appeared below the fold, so the list existed but nobody could see it.
+  void _openSheetForContent() {
+    if (!_sheet.isAttached || _sheet.size >= 0.34) return;
+    _sheet.animateTo(0.5,
+        duration: const Duration(milliseconds: 200), curve: Curves.easeOut);
+  }
+
   void _onQueryChanged(String text) {
     _debounce?.cancel();
     final q = text.trim();
@@ -164,6 +208,7 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
         // instead of blanking them mid-typing.
         if (results != null) _results = results;
       });
+      if (_results.isNotEmpty) _openSheetForContent();
     });
   }
 
@@ -467,6 +512,11 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
     // Full-bleed, Apple-Maps-style: the map fills the screen and every
     // control floats over it.
     final dark = Theme.of(context).brightness == Brightness.dark;
+    final hasSheetContent = SavedPlacesStore.instance.places.isNotEmpty ||
+        RecentSearches.maps.queries.isNotEmpty;
+    final compact = compactSheetFraction(context);
+    final resting = restingSheetFraction(context, hasContent: hasSheetContent);
+    _resting = resting;
     return Scaffold(
       extendBodyBehindAppBar: true,
       // The map must not squish (and reload tiles) every time the keyboard
@@ -564,21 +614,32 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
                   ],
                 ),
               ),
-              Scalebar(
-                alignment: Alignment.bottomLeft,
-                // Lifted clear of the collapsed search sheet.
-                padding: EdgeInsets.fromLTRB(
-                    10, 0, 0, MediaQuery.of(context).size.height * 0.10 + 12),
-                textStyle: TextStyle(
-                  color: dark ? Colors.white70 : Colors.black87,
-                  fontSize: 12,
-                ),
-                lineColor: dark ? Colors.white70 : Colors.black87,
-              ),
-              Padding(
-                padding: EdgeInsets.only(
-                    bottom: MediaQuery.of(context).size.height * 0.10 + 4),
-                child: const LiveAttribution(),
+              // Both of these ride above the sheet wherever it has been
+              // dragged to. They used to be offset by the sheet's *minimum*
+              // size, so at rest the tile credit sat underneath it — and a
+              // credit nobody can see is one that isn't being given.
+              AnimatedBuilder(
+                animation: _sheet,
+                builder: (context, _) {
+                  final lift = _aboveSheet(context);
+                  return Stack(
+                    children: [
+                      Scalebar(
+                        alignment: Alignment.bottomLeft,
+                        padding: EdgeInsets.fromLTRB(10, 0, 0, lift + 12),
+                        textStyle: TextStyle(
+                          color: dark ? Colors.white70 : Colors.black87,
+                          fontSize: 12,
+                        ),
+                        lineColor: dark ? Colors.white70 : Colors.black87,
+                      ),
+                      Padding(
+                        padding: EdgeInsets.only(bottom: lift + 4),
+                        child: const LiveAttribution(),
+                      ),
+                    ],
+                  );
+                },
               ),
             ],
           ),
@@ -632,13 +693,15 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
                     bottom: MediaQuery.of(context).viewInsets.bottom),
                 child: DraggableScrollableSheet(
                   controller: _sheet,
-                  // Compact by default — the map is the star; drag up for
-                  // favourites and recents, down for a slim handle.
-                  initialChildSize: 0.30,
-                  minChildSize: 0.10,
+                  // Rests at the height of the search field — the map is the
+                  // point of the screen. The middle stop only exists when
+                  // there are favourites or recents to stop at; without it,
+                  // dragging landed on a screenful of nothing.
+                  initialChildSize: resting,
+                  minChildSize: compact,
                   maxChildSize: 0.88,
                   snap: true,
-                  snapSizes: const [0.10, 0.30, 0.88],
+                  snapSizes: [compact, if (hasSheetContent) resting, 0.88],
                   builder: (context, scroll) => Material(
                     color: Theme.of(context).colorScheme.surface,
                     elevation: 12,
@@ -710,6 +773,25 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
                             _search.text = q;
                             _runSearch();
                           }),
+                          // Both of those render nothing at all until there
+                          // is something in them, so a pulled-up sheet was a
+                          // blank screen that looked broken rather than new.
+                          if (!hasSheetContent)
+                            Padding(
+                              padding:
+                                  const EdgeInsets.fromLTRB(6, 18, 6, 8),
+                              child: Text(
+                                'Places you save and searches you make will '
+                                'show up here.',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  height: 1.4,
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .onSurfaceVariant,
+                                ),
+                              ),
+                            ),
                         ],
                       ],
                     ),

@@ -27,6 +27,7 @@ import 'package:okay_messaging/screens/auth/phone_login_screen.dart';
 import 'package:okay_messaging/screens/blocked_contacts_screen.dart';
 import 'package:okay_messaging/screens/call_screen.dart';
 import 'package:okay_messaging/screens/communities.dart';
+import 'package:okay_messaging/screens/connect_onboarding_screen.dart';
 import 'package:okay_messaging/screens/contact_info_screen.dart';
 import 'package:okay_messaging/screens/chats_settings_screen.dart';
 import 'package:okay_messaging/screens/okay_pro_screen.dart';
@@ -6792,6 +6793,63 @@ void main() {
       await tester.pump();
     });
 
+    testWidgets('an empty search sheet rests at the search field, not a third '
+        'of the screen', (tester) async {
+      // A flat 0.30 gave every new account a third of the screen as an empty
+      // slab: nothing is saved and nothing has been searched, so the two rows
+      // under the field render nothing at all.
+      await tester.pumpWidget(const MaterialApp(
+        home: ExploreMapScreen(debugMyLocation: LatLng(43.6, -79.3)),
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      final screen = tester.getSize(find.byType(ExploreMapScreen));
+      final sheetTop = tester
+          .getTopLeft(find.byType(DraggableScrollableSheet).first)
+          .dy;
+      // The sheet's own box fills the stack; what matters is where its
+      // Material actually starts.
+      final material = find
+          .descendant(
+              of: find.byType(DraggableScrollableSheet),
+              matching: find.byType(Material))
+          .first;
+      final covered = screen.height - tester.getTopLeft(material).dy;
+      expect(covered, lessThan(screen.height * 0.22),
+          reason: 'an empty sheet should not eat a third of the map '
+              '(covers $covered of ${screen.height}, top $sheetTop)');
+
+      // And pulling it up says why it is empty rather than showing nothing.
+      expect(find.textContaining('will show up here'), findsOneWidget);
+    });
+
+    testWidgets('the tile credit is not buried under the search sheet',
+        (tester) async {
+      // Mapbox's terms — and OpenStreetMap's — require the credit to be
+      // visible. It was offset by the sheet's *minimum* size while the sheet
+      // rested well above that, so at rest it sat underneath.
+      RecentSearches.maps.add('coffee');
+      await tester.pumpWidget(const MaterialApp(
+        home: ExploreMapScreen(debugMyLocation: LatLng(43.6, -79.3)),
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      final credit = find.byType(OsmAttribution);
+      expect(credit, findsOneWidget);
+      final creditBottom = tester.getBottomLeft(credit).dy;
+      final sheetTop = tester
+          .getTopLeft(find
+              .descendant(
+                  of: find.byType(DraggableScrollableSheet),
+                  matching: find.byType(Material))
+              .first)
+          .dy;
+      expect(creditBottom, lessThanOrEqualTo(sheetTop),
+          reason: 'credit at $creditBottom is under the sheet at $sheetTop');
+    });
+
     testWidgets('saved places pin onto the idle map and open their card',
         (tester) async {
       SavedPlacesStore.instance
@@ -6961,6 +7019,12 @@ void main() {
       expect(find.text('Blue Danube Coffee'), findsOneWidget);
       // The meta line shows category + distance from the debug fix.
       expect(find.textContaining('Cafe · '), findsOneWidget);
+
+      // The sheet rests at the height of the search field when there is
+      // nothing saved yet, so it opens to put the suggestions on screen.
+      // Without that they render below the fold — findable by a test, and
+      // invisible to a person.
+      await tester.pump(const Duration(milliseconds: 250));
 
       // Picking a suggestion selects it (Directions card) and remembers it.
       await tester.tap(find.text('Blue Bottle, San Francisco'));
@@ -11055,6 +11119,38 @@ void main() {
       expect(html.contains('initialSecret = clientSecret'), isTrue);
       expect(html.contains('initialUsed'), isTrue,
           reason: 'the start-up secret must be used once, not reused forever');
+    });
+
+    testWidgets('there is a way past a component that will not authenticate',
+        (tester) async {
+      // The embedded component runs in a cross-origin iframe and can fail for
+      // reasons nothing outside it can see or fix. Stripe's hosted flow is
+      // plain navigation with no iframe, so it is the way through — and it
+      // still runs in this screen, not a browser.
+      Object? result = 'not popped';
+      await tester.pumpWidget(MaterialApp(
+        home: Builder(
+          builder: (context) => ElevatedButton(
+            onPressed: () async => result = await Navigator.of(context)
+                .push(MaterialPageRoute(
+                    builder: (_) => const ConnectOnboardingScreen())),
+            child: const Text('open'),
+          ),
+        ),
+      ));
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+
+      // Reachable before anything has gone wrong, because the failure this
+      // exists for renders inside Stripe's iframe where nothing here can see
+      // it and turn on a button.
+      expect(find.text('Trouble?'), findsOneWidget);
+
+      // Backing out without setting anything up must not tell the wallet to
+      // re-read — that would claim a change nobody made.
+      await tester.tap(find.byTooltip('Cancel'));
+      await tester.pumpAndSettle();
+      expect(result, isFalse);
     });
 
     test('a key-mode mismatch is caught server-side too', () {

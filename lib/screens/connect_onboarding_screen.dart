@@ -36,6 +36,37 @@ class _ConnectOnboardingScreenState extends State<ConnectOnboardingScreen> {
   /// later requests need a fresh trip to Stripe.
   bool _servedFirst = false;
 
+  /// Stripe's own hosted onboarding, once someone asks for it.
+  ///
+  /// The embedded component runs in a cross-origin iframe, and there are
+  /// things a WebView can refuse it that a browser would not. When it will
+  /// not authenticate there is nothing this app can do about it from the
+  /// outside — but the hosted flow is plain navigation with no iframe and no
+  /// Account Session, so it sidesteps the whole question. It still runs in
+  /// this screen's WebView: no browser, no popup.
+  String? _hostedUrl;
+  bool _loadingHosted = false;
+
+  Future<void> _useHosted() async {
+    setState(() => _loadingHosted = true);
+    try {
+      final url = await PaymentService.instance.onboardingUrl();
+      if (!mounted) return;
+      setState(() {
+        _hostedUrl = url;
+        _pageError = null;
+        _loadingHosted = false;
+        _attempt++;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loadingHosted = false;
+        _pageError = _reasonFor(e);
+      });
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -85,10 +116,34 @@ class _ConnectOnboardingScreenState extends State<ConnectOnboardingScreen> {
         leading: IconButton(
           icon: const Icon(Icons.close),
           tooltip: 'Cancel',
-          onPressed: () => Navigator.of(context).pop(false),
+          // The hosted flow gives no completion signal back to the app, so
+          // closing it has to be treated as "something may have changed" —
+          // otherwise finishing setup leaves the wallet showing the old
+          // status until the next launch.
+          onPressed: () => Navigator.of(context).pop(_hostedUrl != null),
         ),
+        actions: [
+          if (_hostedUrl == null)
+            TextButton(
+              onPressed: _loadingHosted ? null : _useHosted,
+              child: const Text('Trouble?'),
+            ),
+        ],
       ),
-      body: _pageError != null
+      body: _hostedUrl != null
+          ? KeyedSubtree(
+              key: ValueKey('hosted-$_attempt'),
+              child: ConnectWebView.build(
+                url: _hostedUrl!,
+                // Stripe's own page — nothing of ours to hand it.
+                clientSecret: '',
+                publishableKey: '',
+                dark: dark,
+                accent: AppColors.accentOn(context),
+                onEvent: _onEvent,
+              ),
+            )
+          : _pageError != null
           ? _problem(context, _pageError!)
           : FutureBuilder<ConnectSession>(
               future: _session,
@@ -175,6 +230,10 @@ class _ConnectOnboardingScreenState extends State<ConnectOnboardingScreen> {
               FilledButton(
                 onPressed: _retry,
                 child: const Text('Try again'),
+              ),
+              TextButton(
+                onPressed: _loadingHosted ? null : _useHosted,
+                child: const Text('Use Stripe\'s own page instead'),
               ),
             ],
           ),
