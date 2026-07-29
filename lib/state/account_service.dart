@@ -215,6 +215,84 @@ class AccountService {
     return rows.first['username'] as String?;
   }
 
+  /// The account behind [username]: its E.164 phone and display name, or
+  /// null when nobody owns it (or the directory is unreachable).
+  ///
+  /// This is what makes "sign in with username" possible without any new
+  /// credential: the username locates the account, and the SMS code to its
+  /// phone stays the thing that proves you own it.
+  Future<(String, String)?> accountForUsername(String username) async {
+    final normalized = normalizeUsername(username);
+    if (!isValidUsername(normalized)) return null;
+    try {
+      final rows = await _client
+          .from(_table)
+          .select('phone, name')
+          .eq('username', normalized)
+          .limit(1);
+      if (rows.isEmpty) return null;
+      final phone = rows.first['phone'] as String?;
+      if (phone == null || phone.isEmpty) return null;
+      return (phone, (rows.first['name'] as String?)?.trim() ?? '');
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Emails a one-time code to [email]. Sign-in only, never account
+  /// creation: identity here is the phone, and an email is a door back to an
+  /// account that attached one — not a substitute identity.
+  Future<void> sendEmailCode(String email) => _client.auth
+      .signInWithOtp(email: email.trim(), shouldCreateUser: false);
+
+  /// Verifies the emailed [code] and returns the E.164 phone of the account
+  /// the email belongs to — or null when that account carries no phone, in
+  /// which case the caller must not proceed (messaging identity IS the
+  /// phone) and the half-made session is discarded.
+  Future<String?> verifyEmailCode(String email, String code) async {
+    final res = await _client.auth.verifyOTP(
+      type: OtpType.email,
+      email: email.trim(),
+      token: code.trim(),
+    );
+    final phone = res.user?.phone ?? '';
+    if (phone.isEmpty) {
+      try {
+        await _client.auth.signOut();
+      } catch (_) {}
+      return null;
+    }
+    return phone;
+  }
+
+  /// "••• ••• 1234" — enough of a phone to recognise your own, not enough to
+  /// harvest someone else's from their username. Pure.
+  static String maskPhone(String phone) {
+    final digits = e164(phone);
+    if (digits.length <= 4) return digits;
+    return '••• ••• ${digits.substring(digits.length - 4)}';
+  }
+
+  /// What a login identifier is: 'email', 'username', or 'invalid'. Pure.
+  ///
+  /// An email has an @ with a domain after it; a username is bare word
+  /// characters (a leading @ is tolerated, people type their handle that
+  /// way). Anything else — spaces, half an email — is refused with a message
+  /// rather than guessed at.
+  static String loginIdentifierKind(String raw) {
+    final t = raw.trim();
+    if (t.isEmpty) return 'invalid';
+    if (RegExp(r'^[^@\s]+@[^@\s.]+(\.[^@\s.]+)+$').hasMatch(t)) {
+      return 'email';
+    }
+    // Judged as typed, not as normalizeUsername would repair it: "ada@" and
+    // "has spaces" normalize to valid handles, but someone who typed them
+    // meant something else — tell them, don't guess.
+    final handle = t.startsWith('@') ? t.substring(1) : t;
+    if (RegExp(r'^[A-Za-z0-9_.]{3,}$').hasMatch(handle)) return 'username';
+    return 'invalid';
+  }
+
   /// Whether the real (SMS-verified, server-checked) sign-in flow is active.
   /// Requires both a configured relay and the REQUIRE_OTP build flag.
   static bool get isEnabled => RelayConfig.isEnabled && RelayConfig.requireOtp;

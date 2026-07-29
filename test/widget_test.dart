@@ -1051,6 +1051,50 @@ void main() {
     expect(find.textContaining('okaydocs.example'), findsOneWidget);
   });
 
+  test('login identifiers: email vs username vs nonsense', () {
+    // What the "sign in with username or email" field does with what people
+    // actually type. Emails route to the email code; handles (with or
+    // without the @ people habitually add) route to the account's phone;
+    // anything else is refused with a message, never guessed at.
+    expect(AccountService.loginIdentifierKind('ada@example.com'), 'email');
+    expect(
+        AccountService.loginIdentifierKind(' ada.lovelace+ok@mail.co.uk '),
+        'email');
+    expect(AccountService.loginIdentifierKind('ada_l'), 'username');
+    expect(AccountService.loginIdentifierKind('@ada_l'), 'username');
+    expect(AccountService.loginIdentifierKind('ada@'), 'invalid');
+    expect(AccountService.loginIdentifierKind('has spaces'), 'invalid');
+    expect(AccountService.loginIdentifierKind(''), 'invalid');
+    expect(AccountService.loginIdentifierKind('ab'), 'invalid'); // too short
+  });
+
+  test('a username login never echoes the full phone number back', () {
+    // The directory maps handle -> phone; the login screen must show only
+    // enough of it to recognise your own.
+    expect(AccountService.maskPhone('+1 555 012 3456'), '••• ••• 3456');
+    expect(AccountService.maskPhone('15550123456'), '••• ••• 3456');
+    expect(AccountService.maskPhone('123'), '123'); // nothing to hide behind
+  });
+
+  testWidgets('registering without a username is allowed', (tester) async {
+    Session.instance.resetForTest();
+
+    await tester.pumpWidget(const OkayMessagingApp());
+    await tester.pumpAndSettle();
+    await tester.enterText(
+        find.widgetWithText(TextFormField, 'Your name'), 'Ada');
+    // Username left empty on purpose — it only means nobody can find you by
+    // handle yet, and sign-in never depended on it.
+    await tester.enterText(
+        find.widgetWithText(TextFormField, 'Phone number'), '5550123');
+    await tester.tap(find.text('Continue'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(PhoneLoginScreen), findsNothing);
+    expect(Session.instance.user.value?.username, isEmpty);
+    Session.instance.resetForTest();
+  });
+
   testWidgets('Signed out, the phone login screen gates the app then signs in',
       (tester) async {
     Session.instance.resetForTest();
@@ -1066,7 +1110,7 @@ void main() {
     await tester.enterText(find.widgetWithText(TextFormField, 'Your name'),
         'Ada');
     await tester.enterText(
-        find.widgetWithText(TextFormField, 'Username'), 'AdaL');
+        find.widgetWithText(TextFormField, 'Username (optional)'), 'AdaL');
     await tester.enterText(
         find.widgetWithText(TextFormField, 'Phone number'), '5550123');
     await tester.tap(find.text('Continue'));

@@ -52,3 +52,27 @@ meant a confirmed address kept reading "Not confirmed yet" indefinitely.
 Add an address in the app, open the email, click the link. You should get the
 confirmation page rather than a browser error. Back in the app, the Email
 screen should show **Confirmed** — reopen the screen if it was already up.
+
+## Signing in with email or username
+
+The login screen's "Sign in with username or email" needs two Supabase
+settings to work for the email half:
+
+1. **Auth → Providers → Email: enabled.** Sign-ups stay off through the app
+   (`shouldCreateUser: false` — email is a door back to a phone account, not
+   a substitute identity).
+2. **Auth → Email Templates → Magic Link: include the code.** The default
+   template only carries a link. The app asks for a 6-digit code, which is
+   `{{ .Token }}` — add a line like:
+
+   ```html
+   <p>Your OkayMessenger sign-in code is: {{ .Token }}</p>
+   ```
+
+Email login only works for accounts that added and confirmed an email in
+Settings first; the session it opens still carries the account's phone,
+which remains the identity everywhere else.
+
+Username login needs no setup at all: the username locates the account in
+the directory, and the SMS code to its (masked) phone stays the proof of
+ownership.

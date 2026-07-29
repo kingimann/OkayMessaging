@@ -26,7 +26,7 @@ class PhoneLoginScreen extends StatefulWidget {
   State<PhoneLoginScreen> createState() => _PhoneLoginScreenState();
 }
 
-enum _Step { phone, code, username }
+enum _Step { phone, identifier, code, emailCode, username }
 
 class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
   final _formKey = GlobalKey<FormState>();
@@ -34,6 +34,19 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
   final _username = TextEditingController();
   final _phone = TextEditingController();
   final _code = TextEditingController();
+  final _identifier = TextEditingController();
+
+  /// A phone resolved from a username login — used in place of the typed
+  /// number, and shown masked so signing in with a username doesn't print
+  /// the full number back out.
+  String? _identifierPhone;
+
+  /// A display name from the directory, for sign-ins that never asked for
+  /// one (username and email logins have no name field).
+  String _resolvedName = '';
+
+  /// The address an email login is mid-flight for.
+  String _emailLogin = '';
   String _dialCode = '+1';
   bool _busy = false;
   _Step _step = _Step.phone;
@@ -163,9 +176,19 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
 
   String get _fullPhone => '$_dialCode ${_phone.text.trim()}';
 
+  /// The phone this sign-in is actually about: the resolved one when the
+  /// user typed a username, the typed one otherwise.
+  String get _loginPhone => _identifierPhone ?? _fullPhone;
+
+  String get _signInName {
+    final typed = _name.text.trim();
+    return typed.isNotEmpty ? typed : _resolvedName;
+  }
+
   @override
   void dispose() {
     _resendTimer?.cancel();
+    _identifier.dispose();
     _name.dispose();
     _username.dispose();
     _phone.dispose();
@@ -233,12 +256,20 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
   Future<void> _sendCode() async {
     if (!_formKey.currentState!.validate()) return;
     await _run(() async {
-      await AccountService.instance.sendCode(_fullPhone);
+      await AccountService.instance.sendCode(_loginPhone);
       if (mounted) {
         setState(() => _step = _Step.code);
         _startResendCountdown();
       }
     });
+  }
+
+  void _submitCode() {
+    if (_step == _Step.emailCode) {
+      _verifyEmailCode();
+    } else {
+      _verifyCode();
+    }
   }
 
   Future<void> _verifyCode() async {
@@ -247,24 +278,108 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
       return;
     }
     await _run(() async {
-      await AccountService.instance.verifyCode(_fullPhone, _code.text);
+      await AccountService.instance.verifyCode(_loginPhone, _code.text);
       // A returning account already owns a username — signing in shouldn't
       // ask them to pick one again. Only a brand-new number sees that step.
       final existing =
-          await AccountService.instance.usernameForPhone(_fullPhone);
+          await AccountService.instance.usernameForPhone(_loginPhone);
       if (!mounted) return;
       if (existing != null && AccountService.isValidUsername(existing)) {
         _username.text = existing;
         if (!await _passTwoStep()) return;
         await Session.instance.signIn(
-          phone: _fullPhone,
-          name: _name.text.trim(),
+          phone: _loginPhone,
+          name: _signInName,
           username: existing,
         );
         return;
       }
       setState(() => _step = _Step.username);
     });
+  }
+
+  /// Sign-in step 1b: a username or email instead of a phone number. Either
+  /// way the account's own second factor still runs — a code texted to the
+  /// account's phone, or emailed to its address. Nothing new to guess.
+  Future<void> _continueIdentifier() async {
+    final raw = _identifier.text.trim();
+    switch (AccountService.loginIdentifierKind(raw)) {
+      case 'email':
+        await _run(() async {
+          await AccountService.instance.sendEmailCode(raw);
+          if (!mounted) return;
+          setState(() {
+            _emailLogin = raw;
+            _step = _Step.emailCode;
+          });
+          _startResendCountdown();
+        });
+      case 'username':
+        await _run(() async {
+          final account =
+              await AccountService.instance.accountForUsername(raw);
+          if (!mounted) return;
+          if (account == null) {
+            setState(() => _error =
+                'No account found for @${AccountService.normalizeUsername(raw)}.');
+            return;
+          }
+          final (phone, name) = account;
+          _identifierPhone = phone;
+          _resolvedName = name;
+          await AccountService.instance.sendCode(phone);
+          if (!mounted) return;
+          setState(() => _step = _Step.code);
+          _startResendCountdown();
+        });
+      default:
+        setState(() =>
+            _error = 'Enter a username (like ada_l) or an email address.');
+    }
+  }
+
+  /// Verifies an emailed code. The session it opens belongs to the account
+  /// that attached the email — which carries the phone that IS the identity
+  /// here. An email on no phone account is refused, not half signed in.
+  Future<void> _verifyEmailCode() async {
+    if (_code.text.trim().length < 4) {
+      setState(() => _error = 'Enter the code we emailed you.');
+      return;
+    }
+    await _run(() async {
+      final phone = await AccountService.instance
+          .verifyEmailCode(_emailLogin, _code.text);
+      if (!mounted) return;
+      if (phone == null) {
+        setState(() => _error =
+            'That email isn\'t attached to a phone account, and the phone '
+            'number is the account. Sign in with your number once, then add '
+            'the email in Settings.');
+        return;
+      }
+      _identifierPhone = phone;
+      final existing = await AccountService.instance.usernameForPhone(phone);
+      if (!mounted) return;
+      if (!await _passTwoStep()) return;
+      await Session.instance.signIn(
+        phone: phone,
+        name: _signInName,
+        username: existing ?? '',
+      );
+    });
+  }
+
+  /// Registering without a username is allowed — it only means nobody can
+  /// find you by handle until you claim one in your profile. Sign-in itself
+  /// never depended on it.
+  Future<void> _skipUsername() async {
+    if (!await _passTwoStep()) return;
+    setState(() => _busy = true);
+    await Session.instance.signIn(
+      phone: _loginPhone,
+      name: _signInName,
+      username: '',
+    );
   }
 
   Future<void> _claimAndFinish() async {
@@ -276,7 +391,7 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
     if (!await _passTwoStep()) return;
     await _run(() async {
       final status =
-          await AccountService.instance.checkUsername(_fullPhone, u);
+          await AccountService.instance.checkUsername(_loginPhone, u);
       switch (status) {
         case UsernameStatus.taken:
           if (mounted) setState(() => _error = '@$u is already taken.');
@@ -289,14 +404,14 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
           // Claim is authoritative — the DB unique index rejects a name taken
           // between the check and now.
           final claimed = await AccountService.instance
-              .claimUsername(_fullPhone, u, name: _name.text.trim());
+              .claimUsername(_loginPhone, u, name: _name.text.trim());
           if (!claimed) {
             if (mounted) setState(() => _error = '@$u was just taken.');
             return;
           }
           await Session.instance.signIn(
-            phone: _fullPhone,
-            name: _name.text.trim(),
+            phone: _loginPhone,
+            name: _signInName,
             username: u,
           );
       }
@@ -428,8 +543,17 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
     switch (_step) {
       case _Step.phone:
         return 'Enter your phone number to get started';
+      case _Step.identifier:
+        return 'Sign in with the username or email on your account';
       case _Step.code:
-        return 'Enter the code we texted to $_fullPhone';
+        // A username login resolves someone's number from the directory;
+        // echoing it in full here would hand it to whoever typed the handle.
+        return _identifierPhone != null
+            ? 'Enter the code we texted to '
+                '${AccountService.maskPhone(_identifierPhone!)}'
+            : 'Enter the code we texted to $_fullPhone';
+      case _Step.emailCode:
+        return 'Enter the code we emailed to $_emailLogin';
       case _Step.username:
         return 'Pick a username others can find you by';
     }
@@ -447,7 +571,10 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
     switch (_step) {
       case _Step.phone:
         return _phoneFields(onSubmit: _sendCode, cta: 'Send code');
+      case _Step.identifier:
+        return _identifierFields();
       case _Step.code:
+      case _Step.emailCode:
         return _codeFields();
       case _Step.username:
         return _usernameFields();
@@ -491,12 +618,14 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
   Widget _usernameField() => TextFormField(
         controller: _username,
         textInputAction: TextInputAction.next,
-        decoration: _dec('Username',
+        decoration: _dec('Username (optional)',
             icon: Icons.alternate_email,
-            helper: 'Letters, numbers, _ and .'),
+            helper: 'Letters, numbers, _ and . — so people can find you'),
         validator: (v) {
           final u = AccountService.normalizeUsername(v ?? '');
-          if (u.isEmpty) return 'Choose a username';
+          // Optional: empty is a choice, not a mistake. Only a non-empty
+          // handle that breaks the format rules is worth stopping for.
+          if (u.isEmpty && (v ?? '').trim().isEmpty) return null;
           if (!AccountService.isValidUsername(u)) {
             return 'At least 3 letters/numbers';
           }
@@ -642,6 +771,45 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
         _phoneRow(onSubmit: onSubmit),
         const SizedBox(height: 24),
         _cta(cta, onSubmit),
+        const SizedBox(height: 6),
+        TextButton(
+          onPressed: _busy
+              ? null
+              : () => setState(() {
+                    _error = null;
+                    _step = _Step.identifier;
+                  }),
+          child: Text('Sign in with username or email',
+              style: TextStyle(color: Colors.grey.shade600)),
+        ),
+      ];
+
+  // Verified step 1b: one field that takes @username or email.
+  List<Widget> _identifierFields() => [
+        TextFormField(
+          controller: _identifier,
+          autofocus: true,
+          keyboardType: TextInputType.emailAddress,
+          autocorrect: false,
+          decoration: _dec('Username or email',
+              icon: Icons.person_search_outlined,
+              helper: 'The code still goes to your phone or inbox'),
+          onFieldSubmitted: (_) => _continueIdentifier(),
+        ),
+        const SizedBox(height: 24),
+        _cta('Continue', _continueIdentifier),
+        const SizedBox(height: 6),
+        TextButton(
+          onPressed: _busy
+              ? null
+              : () => setState(() {
+                    _error = null;
+                    _identifierPhone = null;
+                    _step = _Step.phone;
+                  }),
+          child: Text('Use phone number instead',
+              style: TextStyle(color: Colors.grey.shade600)),
+        ),
       ];
 
   // Verified step 2: SMS code → Verify.
@@ -662,11 +830,11 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
                   FilteringTextInputFormatter.digitsOnly,
                   LengthLimitingTextInputFormatter(6),
                 ],
-                onFieldSubmitted: (_) => _verifyCode(),
+                onFieldSubmitted: (_) => _submitCode(),
                 // Telegram-style: verify the moment all six digits are in.
                 onChanged: (v) {
                   setState(() {});
-                  if (v.length == 6 && !_busy) _verifyCode();
+                  if (v.length == 6 && !_busy) _submitCode();
                 },
               ),
             ),
@@ -714,7 +882,7 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
           ],
         ),
         const SizedBox(height: 24),
-        _cta('Verify', _verifyCode),
+        _cta('Verify', _submitCode),
         const SizedBox(height: 8),
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -723,17 +891,36 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
               onPressed: _busy
                   ? null
                   : () => setState(() {
-                        _step = _Step.phone;
+                        _code.clear();
+                        _error = null;
+                        // Back to wherever this code came from.
+                        if (_step == _Step.emailCode ||
+                            _identifierPhone != null) {
+                          _identifierPhone = null;
+                          _step = _Step.identifier;
+                        } else {
+                          _step = _Step.phone;
+                        }
                         _showWelcomeBack = false;
                       }),
-              child: const Text('Change number'),
+              child: Text(_step == _Step.emailCode || _identifierPhone != null
+                  ? 'Start over'
+                  : 'Change number'),
             ),
             TextButton(
               onPressed: (_busy || _resendIn > 0)
                   ? null
                   : () {
                       _startResendCountdown();
-                      _sendCode();
+                      if (_step == _Step.emailCode) {
+                        _run(() =>
+                            AccountService.instance.sendEmailCode(_emailLogin));
+                      } else if (_identifierPhone != null) {
+                        _run(() =>
+                            AccountService.instance.sendCode(_identifierPhone!));
+                      } else {
+                        _sendCode();
+                      }
                     },
               child: Text(
                   _resendIn > 0 ? 'Resend in ${_resendIn}s' : 'Resend code'),
@@ -742,11 +929,18 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
         ),
       ];
 
-  // Verified step 3: username → Continue.
+  // Verified step 3: username → Continue, or skip it. A handle helps people
+  // find you; requiring one helped nobody.
   List<Widget> _usernameFields() => [
         _usernameField(),
         const SizedBox(height: 24),
         _cta('Continue', _claimAndFinish),
+        const SizedBox(height: 6),
+        TextButton(
+          onPressed: _busy ? null : _skipUsername,
+          child: Text('Skip for now',
+              style: TextStyle(color: Colors.grey.shade600)),
+        ),
       ];
 }
 
