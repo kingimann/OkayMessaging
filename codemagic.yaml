@@ -213,17 +213,17 @@ workflows:
     publishing:
       app_store_connect:
         auth: integration
-        # Uploads to TestFlight. Flip to true only when you're ready for
-        # a real App Store review submission.
-        submit_to_testflight: true
+        # Upload only. submit_to_testflight is for BETA REVIEW (external
+        # tester groups) — internal testers get every build automatically
+        # once Apple finishes processing, no submission needed. With it on,
+        # Codemagic waits for processing by polling the fresh build's
+        # buildBetaDetail, which Apple 404s for the first seconds of a
+        # build's life, and that flake marked two consecutive successful
+        # uploads as failed builds. Flip it back on when there's an external
+        # tester group to feed (and expect the occasional 404 flake), and
+        # submit_to_app_store when releasing for real.
+        submit_to_testflight: false
         submit_to_app_store: false
-        # A red build here can still be a successful upload: after uploading,
-        # Codemagic polls Apple for the build's buildBetaDetail, and a build
-        # uploaded seconds earlier sometimes 404s that endpoint before
-        # Apple's side has created the record. If the log shows "Found
-        # uploaded build on App Store Connect" above the 404, the IPA is up,
-        # Apple finishes processing on its own, and the build appears in the
-        # TestFlight tab — no rebuild needed.
       email:
         recipients:
           - ifakhargomi@gmail.com
