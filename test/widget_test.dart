@@ -6959,6 +6959,41 @@ void main() {
       expect(find.textContaining('will show up here'), findsOneWidget);
     });
 
+    testWidgets('the zoom buttons respect the map\'s own limits',
+        (tester) async {
+      // The buttons clamped to 20 while every map here allows 20.5, so after
+      // pinching all the way in, pressing + pulled the camera back DOWN to
+      // 20 — a zoom-in button that zoomed out.
+      final controller = MapController();
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: FlutterMap(
+            mapController: controller,
+            options: const MapOptions(
+              initialCenter: LatLng(43.6, -79.3),
+              initialZoom: 20.5,
+              minZoom: 2,
+              maxZoom: 20.5,
+            ),
+            children: [
+              Builder(
+                builder: (context) => Stack(
+                  children: [MapControls(controller: controller)],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ));
+      await tester.pump();
+
+      final before = controller.camera.zoom;
+      await tester.tap(find.byTooltip('Zoom in'));
+      await tester.pump();
+      expect(controller.camera.zoom, greaterThanOrEqualTo(before),
+          reason: 'zoom in must never move the camera out');
+    });
+
     testWidgets('the map controls sit low, within reach of a thumb',
         (tester) async {
       // They were pinned just under the status bar: six controls parked at

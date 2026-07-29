@@ -451,7 +451,14 @@ class MapControls extends StatelessWidget {
 
   void _zoom(double delta) {
     final cam = controller.camera;
-    controller.move(cam.center, (cam.zoom + delta).clamp(2.0, 20.0));
+    // The map's own limits, not a second set of numbers that drifted from
+    // them. Every map here allows 20.5, so a hardcoded 20 meant that after
+    // pinching all the way in, pressing + zoomed the map back OUT — the
+    // clamp pulled 21.5 down to 20, below where the camera already was.
+    controller.move(
+      cam.center,
+      (cam.zoom + delta).clamp(cam.minZoom ?? 2.0, cam.maxZoom ?? 20.5),
+    );
   }
 
   Future<void> _pickLayer(BuildContext context) async {

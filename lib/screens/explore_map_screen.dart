@@ -62,13 +62,32 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
 
   double _resting = 0.34;
 
-  /// How far above the bottom edge the map credits have to sit to clear the
-  /// sheet. Capped: at full height the credits would ride into the middle of
-  /// the map rather than stay out of the way.
+  /// The height of whatever is currently parked along the bottom edge that
+  /// isn't the search sheet — the place card, or the results list.
+  ///
+  /// The search sheet is only mounted when neither of those is, so tracking
+  /// the sheet alone left the tile credit and the zoom controls underneath
+  /// them. Measured rather than assumed: the place card's height depends on
+  /// how long the place's name is.
+  double _bottomOverlay = 0;
+
+  /// How far above the bottom edge the map credits have to sit to clear
+  /// whatever is down there. Capped: at full height the credits would ride
+  /// into the middle of the map rather than stay out of the way.
   double _aboveSheet(BuildContext context) {
+    final height = MediaQuery.of(context).size.height;
     final size = _sheet.isAttached ? _sheet.size : _resting;
-    return MediaQuery.of(context).size.height * size.clamp(0.0, 0.5);
+    final sheet = height * size.clamp(0.0, 0.5);
+    return (_bottomOverlay > 0 ? _bottomOverlay : sheet).clamp(0.0, height / 2);
   }
+
+  void _setBottomOverlay(double height) {
+    // Half a pixel of tolerance: a measurement that never quite settles would
+    // setState on every frame forever.
+    if (!mounted || (height - _bottomOverlay).abs() < 0.5) return;
+    setState(() => _bottomOverlay = height);
+  }
+
   bool _searching = false;
   List<GeoResult> _results = const [];
 
@@ -843,7 +862,14 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
               left: 12,
               right: 12,
               bottom: 20,
-              child: SafeArea(child: _placeCard(context, selected)),
+              child: SafeArea(
+                child: _MeasuredHeight(
+                  // Plus the offset it is parked at, so the credit clears the
+                  // card itself rather than the gap under it.
+                  onHeight: (h) => _setBottomOverlay(h + 20),
+                  child: _placeCard(context, selected),
+                ),
+              ),
             ),
         ],
       ),
@@ -870,7 +896,9 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
       bottom: 0,
       child: SafeArea(
         top: false,
-        child: Material(
+        child: _MeasuredHeight(
+          onHeight: _setBottomOverlay,
+          child: Material(
           elevation: 12,
           color: Theme.of(context).colorScheme.surface,
           borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
@@ -940,6 +968,7 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
               ),
             ],
           ),
+        ),
         ),
       ),
     );
@@ -1332,5 +1361,49 @@ class _SearchBox extends StatelessWidget {
           ),
       ],
     );
+  }
+}
+
+/// Reports its own laid-out height to [onHeight].
+///
+/// The map's tile credit and zoom controls have to sit above whatever is
+/// parked along the bottom edge, and what is parked there changes: a search
+/// sheet, a results list, or a place card whose height depends on how long
+/// the place's name turns out to be. Guessing a number for each one is how
+/// the credit ended up underneath them.
+class _MeasuredHeight extends StatefulWidget {
+  final Widget child;
+  final ValueChanged<double> onHeight;
+
+  const _MeasuredHeight({required this.child, required this.onHeight});
+
+  @override
+  State<_MeasuredHeight> createState() => _MeasuredHeightState();
+}
+
+class _MeasuredHeightState extends State<_MeasuredHeight> {
+  final GlobalKey _key = GlobalKey();
+  double _last = -1;
+
+  void _report(_) {
+    final box = _key.currentContext?.findRenderObject();
+    if (box is! RenderBox || !box.hasSize) return;
+    final height = box.size.height;
+    if ((height - _last).abs() < 0.5) return;
+    _last = height;
+    widget.onHeight(height);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    WidgetsBinding.instance.addPostFrameCallback(_report);
+    return KeyedSubtree(key: _key, child: widget.child);
+  }
+
+  @override
+  void dispose() {
+    // Gone from the screen: nothing to clear any more.
+    WidgetsBinding.instance.addPostFrameCallback((_) => widget.onHeight(0));
+    super.dispose();
   }
 }
