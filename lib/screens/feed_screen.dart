@@ -130,43 +130,40 @@ class _FeedScreenState extends State<FeedScreen> {
     _post(gifUrl: dataUri);
   }
 
-  /// The composer as a bottom sheet, opened from the app bar's pencil.
+  /// The composer, opened from the app bar's pencil.
+  ///
+  /// A full screen rather than a bottom sheet: the sheet gave the text field
+  /// one cramped line squeezed between an avatar and four buttons, so the
+  /// placeholder wrapped onto two lines before a single character was typed.
+  /// Writing is the whole job of this screen; it gets the whole screen.
   void _openComposer() {
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (sheetContext) => Padding(
-        padding: EdgeInsets.only(
-            bottom: MediaQuery.of(sheetContext).viewInsets.bottom),
-        child: SafeArea(
-          child: _Composer(
-            controller: _composer,
-            mentionCandidates: (prefix) => mentionMatches(prefix, [
-              ...FeedStore.instance.usernamesFor(widget.communityId),
-              for (final c in ChatStore.instance.allChats)
-                if (c.contact.username.isNotEmpty) c.contact.username,
-            ]),
-            onPost: () {
-              _post();
-              Navigator.pop(sheetContext);
-            },
-            onPostGif: (url) {
-              _post(gifUrl: url);
-              Navigator.pop(sheetContext);
-            },
-            onCreatePoll: () async {
-              Navigator.pop(sheetContext);
-              await _createPoll();
-            },
-            onAttachPhoto: () async {
-              await _attachPhoto();
-              if (sheetContext.mounted) Navigator.pop(sheetContext);
-            },
-          ),
-        ),
+    Navigator.of(context).push(MaterialPageRoute<void>(
+      fullscreenDialog: true,
+      builder: (pageContext) => FeedComposerScreen(
+        controller: _composer,
+        mentionCandidates: (prefix) => mentionMatches(prefix, [
+          ...FeedStore.instance.usernamesFor(widget.communityId),
+          for (final c in ChatStore.instance.allChats)
+            if (c.contact.username.isNotEmpty) c.contact.username,
+        ]),
+        onPost: () {
+          _post();
+          Navigator.pop(pageContext);
+        },
+        onPostGif: (url) {
+          _post(gifUrl: url);
+          Navigator.pop(pageContext);
+        },
+        onCreatePoll: () async {
+          Navigator.pop(pageContext);
+          await _createPoll();
+        },
+        onAttachPhoto: () async {
+          await _attachPhoto();
+          if (pageContext.mounted) Navigator.pop(pageContext);
+        },
       ),
-    );
+    ));
   }
 
   void _openThread(FeedPost post) {
@@ -638,182 +635,6 @@ class _FeedScreenState extends State<FeedScreen> {
           );
         },
       ),
-    );
-  }
-}
-
-/// The "What's happening?" box at the top of the feed.
-class _Composer extends StatelessWidget {
-  final TextEditingController controller;
-  final VoidCallback onPost;
-
-  /// Posts a GIF straight to the feed, with whatever has been typed as its
-  /// caption.
-  final ValueChanged<String>? onPostGif;
-
-  /// Opens the poll composer; null hides the poll button.
-  final VoidCallback? onCreatePoll;
-
-  /// Opens the photo picker and posts the shot the same way.
-  final VoidCallback? onAttachPhoto;
-
-  /// Usernames matching the @prefix being typed, for tag-a-person chips.
-  final List<String> Function(String prefix)? mentionCandidates;
-
-  const _Composer({
-    required this.controller,
-    required this.onPost,
-    this.onPostGif,
-    this.onCreatePoll,
-    this.onAttachPhoto,
-    this.mentionCandidates,
-  });
-
-  Future<void> _pick(BuildContext context) async {
-    final picked = await showEmojiGifSheet(context);
-    if (picked == null) return;
-    final gif = picked.gif;
-    if (gif != null) {
-      onPostGif?.call(gif.url);
-      return;
-    }
-    final emoji = picked.emoji;
-    if (emoji == null) return;
-    final sel = controller.selection;
-    final text = controller.text;
-    if (sel.start < 0) {
-      controller.text = text + emoji;
-      return;
-    }
-    controller.value = controller.value.copyWith(
-      text: text.replaceRange(sel.start, sel.end, emoji),
-      selection: TextSelection.collapsed(offset: sel.start + emoji.length),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        // Tag-a-person chips while an @mention is being typed.
-        if (mentionCandidates != null)
-          ValueListenableBuilder<TextEditingValue>(
-            valueListenable: controller,
-            builder: (context, value, _) {
-              final prefix = activeMentionPrefix(value.text);
-              final matches =
-                  prefix == null ? const <String>[] : mentionCandidates!(prefix);
-              if (matches.isEmpty) return const SizedBox.shrink();
-              return Padding(
-                padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: Wrap(
-                    spacing: 6,
-                    children: [
-                      for (final u in matches)
-                        ActionChip(
-                          avatar: const Icon(Icons.alternate_email,
-                              size: 14),
-                          label: Text(u),
-                          visualDensity: VisualDensity.compact,
-                          onPressed: () {
-                            final text = value.text.replaceFirst(
-                                RegExp(r'@[A-Za-z0-9_]*$'), '@$u ');
-                            controller.value = TextEditingValue(
-                              text: text,
-                              selection: TextSelection.collapsed(
-                                  offset: text.length),
-                            );
-                          },
-                        ),
-                    ],
-                  ),
-                ),
-              );
-            },
-          ),
-        Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const _FeedAvatar(name: 'You', username: 'you'),
-          const SizedBox(width: 12),
-          Expanded(
-            child: TextField(
-              controller: controller,
-              minLines: 1,
-              maxLines: 4,
-              maxLength: 280,
-              textCapitalization: TextCapitalization.sentences,
-              buildCounter: (context,
-                      {required currentLength,
-                      required isFocused,
-                      maxLength}) =>
-                  currentLength > 200
-                      ? Text('$currentLength/$maxLength',
-                          style: TextStyle(
-                              fontSize: 11, color: Theme.of(context).colorScheme.onSurfaceVariant))
-                      : null,
-              decoration: InputDecoration(
-                hintText: "What's happening?",
-                filled: true,
-                isDense: true,
-                contentPadding:
-                    const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(22),
-                  borderSide: BorderSide.none,
-                ),
-              ),
-            ),
-          ),
-          IconButton(
-            icon: const Icon(Icons.emoji_emotions_outlined, size: 21),
-            color: Colors.grey,
-            tooltip: 'Emoji & GIFs',
-            visualDensity: VisualDensity.compact,
-            constraints:
-                const BoxConstraints(minWidth: 36, minHeight: 36),
-            padding: EdgeInsets.zero,
-            onPressed: () => _pick(context),
-          ),
-          if (onCreatePoll != null)
-            IconButton(
-              icon: const Icon(Icons.poll_outlined, size: 21),
-              color: Colors.grey,
-              tooltip: 'Create poll',
-              visualDensity: VisualDensity.compact,
-              constraints:
-                  const BoxConstraints(minWidth: 36, minHeight: 36),
-              padding: EdgeInsets.zero,
-              onPressed: onCreatePoll,
-            ),
-          if (onAttachPhoto != null)
-            IconButton(
-              icon: const Icon(Icons.photo_outlined, size: 21),
-              color: Colors.grey,
-              tooltip: 'Attach photo',
-              visualDensity: VisualDensity.compact,
-              constraints:
-                  const BoxConstraints(minWidth: 36, minHeight: 36),
-              padding: EdgeInsets.zero,
-              onPressed: onAttachPhoto,
-            ),
-          // Live-enabled only once there's something to say.
-          ValueListenableBuilder<TextEditingValue>(
-            valueListenable: controller,
-            builder: (context, value, _) => FilledButton(
-              onPressed: value.text.trim().isEmpty ? null : onPost,
-              child: const Text('Post'),
-            ),
-          ),
-        ],
-      ),
-        ),
-      ],
     );
   }
 }
@@ -1464,5 +1285,302 @@ class _FeedRichTextState extends State<_FeedRichText> {
         children: spans.isEmpty
             ? [TextSpan(text: widget.text, style: widget.base)]
             : spans));
+  }
+}
+
+/// Writing a post, on its own screen.
+///
+/// This used to be a bottom sheet: one line of text field wedged between an
+/// avatar and four icon buttons and a Post button, which left the field so
+/// narrow that "What's happening?" wrapped onto two lines before anything was
+/// typed. Composing is the only thing happening here, so it gets the screen —
+/// Cancel and Post in the bar, the text at a size worth reading back, and the
+/// attachments on a row of their own above the keyboard.
+class FeedComposerScreen extends StatefulWidget {
+  final TextEditingController controller;
+  final VoidCallback onPost;
+
+  /// Posts a GIF straight to the feed, with whatever has been typed as its
+  /// caption.
+  final ValueChanged<String>? onPostGif;
+
+  /// Opens the poll composer; null hides the poll button.
+  final VoidCallback? onCreatePoll;
+
+  /// Opens the photo picker and posts the shot the same way.
+  final VoidCallback? onAttachPhoto;
+
+  /// Usernames matching the @prefix being typed, for tag-a-person chips.
+  final List<String> Function(String prefix)? mentionCandidates;
+
+  /// The longest a post may be.
+  static const int maxLength = 280;
+
+  const FeedComposerScreen({
+    super.key,
+    required this.controller,
+    required this.onPost,
+    this.onPostGif,
+    this.onCreatePoll,
+    this.onAttachPhoto,
+    this.mentionCandidates,
+  });
+
+  @override
+  State<FeedComposerScreen> createState() => _FeedComposerScreenState();
+}
+
+class _FeedComposerScreenState extends State<FeedComposerScreen> {
+  Future<void> _pick() async {
+    final picked = await showEmojiGifSheet(context);
+    if (picked == null) return;
+    final gif = picked.gif;
+    if (gif != null) {
+      widget.onPostGif?.call(gif.url);
+      return;
+    }
+    final emoji = picked.emoji;
+    if (emoji == null) return;
+    final controller = widget.controller;
+    final sel = controller.selection;
+    final text = controller.text;
+    if (sel.start < 0) {
+      controller.text = text + emoji;
+      return;
+    }
+    controller.value = controller.value.copyWith(
+      text: text.replaceRange(sel.start, sel.end, emoji),
+      selection: TextSelection.collapsed(offset: sel.start + emoji.length),
+    );
+  }
+
+  /// Closing throws the draft away. Asked first when there is one — losing
+  /// something you wrote to a mis-tap is the worst thing a composer can do.
+  Future<void> _close() async {
+    if (widget.controller.text.trim().isEmpty) {
+      Navigator.of(context).pop();
+      return;
+    }
+    final discard = await showAppConfirmDialog(
+      context,
+      icon: Icons.delete_outline,
+      title: 'Discard post?',
+      message: 'What you have written will be lost.',
+      confirmLabel: 'Discard',
+      destructive: true,
+    );
+    if (!mounted || !discard) return;
+    widget.controller.clear();
+    if (mounted) Navigator.of(context).pop();
+  }
+
+  Widget _tool(IconData icon, String tip, VoidCallback? onTap) => IconButton(
+        icon: Icon(icon, size: 22),
+        tooltip: tip,
+        color: Theme.of(context).colorScheme.primary,
+        onPressed: onTap,
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return PopScope(
+      // The system back gesture has to ask about the draft too, not just the
+      // Cancel button.
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _close();
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          leadingWidth: 92,
+          leading: Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton(
+              onPressed: _close,
+              child: const Text('Cancel'),
+            ),
+          ),
+          actions: [
+            ValueListenableBuilder<TextEditingValue>(
+              valueListenable: widget.controller,
+              builder: (context, value, _) {
+                final length = value.text.characters.length;
+                return Padding(
+                  padding: const EdgeInsets.only(right: 12),
+                  child: FilledButton(
+                    onPressed: value.text.trim().isEmpty ||
+                            length > FeedComposerScreen.maxLength
+                        ? null
+                        : widget.onPost,
+                    style: FilledButton.styleFrom(
+                      shape: const StadiumBorder(),
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                    ),
+                    child: const Text('Post'),
+                  ),
+                );
+              },
+            ),
+          ],
+        ),
+        body: SafeArea(
+          child: Column(
+            children: [
+              Expanded(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const _FeedAvatar(name: 'You', username: 'you'),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: TextField(
+                          controller: widget.controller,
+                          autofocus: true,
+                          // No cap on lines: the field grows with the post and
+                          // the scroll view carries it, rather than the text
+                          // scrolling inside four fixed lines.
+                          maxLines: null,
+                          minLines: 4,
+                          textCapitalization: TextCapitalization.sentences,
+                          keyboardType: TextInputType.multiline,
+                          style: const TextStyle(fontSize: 19, height: 1.35),
+                          decoration: InputDecoration.collapsed(
+                            hintText: "What's happening?",
+                            hintStyle: TextStyle(
+                              fontSize: 19,
+                              color: scheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              // Tag-a-person chips while an @mention is being typed. They sit
+              // against the toolbar, where a suggestion belongs — next to the
+              // keyboard, not at the far end of the post.
+              if (widget.mentionCandidates != null)
+                ValueListenableBuilder<TextEditingValue>(
+                  valueListenable: widget.controller,
+                  builder: (context, value, _) {
+                    final prefix = activeMentionPrefix(value.text);
+                    final matches = prefix == null
+                        ? const <String>[]
+                        : widget.mentionCandidates!(prefix);
+                    if (matches.isEmpty) return const SizedBox.shrink();
+                    return SizedBox(
+                      height: 46,
+                      child: ListView(
+                        scrollDirection: Axis.horizontal,
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        children: [
+                          for (final u in matches)
+                            Padding(
+                              padding: const EdgeInsets.only(right: 6),
+                              child: ActionChip(
+                                avatar: const Icon(Icons.alternate_email,
+                                    size: 14),
+                                label: Text(u),
+                                visualDensity: VisualDensity.compact,
+                                onPressed: () {
+                                  final text = value.text.replaceFirst(
+                                      RegExp(r'@[A-Za-z0-9_]*$'), '@$u ');
+                                  widget.controller.value = TextEditingValue(
+                                    text: text,
+                                    selection: TextSelection.collapsed(
+                                        offset: text.length),
+                                  );
+                                },
+                              ),
+                            ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              const Divider(height: 1),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(4, 4, 12, 4),
+                child: Row(
+                  children: [
+                    if (widget.onAttachPhoto != null)
+                      _tool(Icons.image_outlined, 'Attach photo',
+                          widget.onAttachPhoto),
+                    _tool(Icons.gif_box_outlined, 'Emoji & GIFs', _pick),
+                    if (widget.onCreatePoll != null)
+                      _tool(Icons.poll_outlined, 'Create poll',
+                          widget.onCreatePoll),
+                    const Spacer(),
+                    ValueListenableBuilder<TextEditingValue>(
+                      valueListenable: widget.controller,
+                      builder: (context, value, _) => _CountRing(
+                        length: value.text.characters.length,
+                        max: FeedComposerScreen.maxLength,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// How much of the post's length is used, as a ring that fills up.
+///
+/// A running "12/280" is noise for the first two hundred characters; a ring
+/// says the same thing without asking to be read. It only turns into a number
+/// near the limit, which is the only point at which the exact count matters.
+class _CountRing extends StatelessWidget {
+  final int length;
+  final int max;
+  const _CountRing({required this.length, required this.max});
+
+  @override
+  Widget build(BuildContext context) {
+    if (length == 0) return const SizedBox(width: 26, height: 26);
+    final scheme = Theme.of(context).colorScheme;
+    final remaining = max - length;
+    final over = remaining < 0;
+    final colour = over
+        ? scheme.error
+        : remaining <= 20
+            ? const Color(0xFFE0A000)
+            : scheme.primary;
+    return SizedBox(
+      width: 30,
+      height: 30,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          SizedBox(
+            width: 24,
+            height: 24,
+            child: CircularProgressIndicator(
+              value: (length / max).clamp(0.0, 1.0),
+              strokeWidth: 2.4,
+              backgroundColor: scheme.onSurface.withValues(alpha: 0.12),
+              valueColor: AlwaysStoppedAnimation<Color>(colour),
+            ),
+          ),
+          if (remaining <= 20)
+            Text(
+              '$remaining',
+              style: TextStyle(
+                fontSize: over ? 10 : 9.5,
+                fontWeight: FontWeight.w600,
+                color: colour,
+              ),
+            ),
+        ],
+      ),
+    );
   }
 }

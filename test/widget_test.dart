@@ -5198,6 +5198,83 @@ void main() {
       expect(feedAge(now.subtract(const Duration(days: 2)), now: now), '2d');
     });
 
+    testWidgets('the composer gets the whole screen, not one squeezed line',
+        (tester) async {
+      // In a bottom sheet the field shared one row with an avatar, three icon
+      // buttons and Post, which squeezed it until the placeholder wrapped onto
+      // two lines with nothing typed.
+      await tester.pumpWidget(const MaterialApp(
+        home: FeedScreen(communityId: 'c1', communityName: 'Okay HQ'),
+      ));
+      await tester.pump();
+      await tester.tap(find.byTooltip('New post'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(FeedComposerScreen), findsOneWidget);
+      final field = find.widgetWithText(TextField, "What's happening?");
+      final screen = tester.getSize(find.byType(FeedComposerScreen));
+      final box = tester.getSize(field);
+      // Room to write in, and the field runs the width of the screen rather
+      // than what four buttons leave over.
+      expect(box.height, greaterThan(80));
+      expect(box.width, greaterThan(screen.width * 0.7));
+
+      // Focused on open — the point of the screen is typing.
+      expect(tester.widget<TextField>(field).autofocus, isTrue);
+    });
+
+    testWidgets('a draft is not thrown away by a mis-tap', (tester) async {
+      await tester.pumpWidget(const MaterialApp(
+        home: FeedScreen(communityId: 'c1', communityName: 'Okay HQ'),
+      ));
+      await tester.pump();
+      await tester.tap(find.byTooltip('New post'));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextField).first, 'half a thought');
+      await tester.pump();
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+
+      // Still there, behind a question.
+      expect(find.text('Discard post?'), findsOneWidget);
+      await tester.tap(find.text('Cancel').last);
+      await tester.pumpAndSettle();
+      expect(find.byType(FeedComposerScreen), findsOneWidget);
+      expect(find.text('half a thought'), findsOneWidget);
+    });
+
+    testWidgets('the length ring only speaks up when it matters',
+        (tester) async {
+      await tester.pumpWidget(const MaterialApp(
+        home: FeedScreen(communityId: 'c1', communityName: 'Okay HQ'),
+      ));
+      await tester.pump();
+      await tester.tap(find.byTooltip('New post'));
+      await tester.pumpAndSettle();
+
+      final field = find.byType(TextField).first;
+      // A running count is noise for the first two hundred characters.
+      await tester.enterText(field, 'x' * 100);
+      await tester.pump();
+      expect(find.text('180'), findsNothing);
+
+      // Near the limit the exact number is the only thing worth knowing.
+      await tester.enterText(field, 'x' * 265);
+      await tester.pump();
+      expect(find.text('15'), findsOneWidget);
+
+      // Over it, Post has to be off — a post that cannot be sent must not
+      // look sendable.
+      await tester.enterText(field, 'x' * 281);
+      await tester.pump();
+      expect(find.text('-1'), findsOneWidget);
+      expect(
+          tester.widget<FilledButton>(find.widgetWithText(FilledButton, 'Post'))
+              .onPressed,
+          isNull);
+    });
+
     testWidgets('the server feed starts empty, posts, likes, and threads',
         (tester) async {
       await tester.pumpWidget(const MaterialApp(
