@@ -81,17 +81,33 @@
   // ---------------------------------------------------------------------
   var pending = {};
   var nextId = 1;
+  var initialSecret = '';
+  var initialUsed = false;
+  var hostAnswers = false;
 
   function requestSecret() {
+    // The secret the host handed over at start-up was minted seconds ago, so
+    // the first authentication uses it. That also keeps this page working
+    // against app versions that predate the message channel below — a page is
+    // deployed the moment it is pushed, while a build reaches a phone days
+    // later, so the two must never require each other.
+    if (initialSecret && !initialUsed) {
+      initialUsed = true;
+      return Promise.resolve(initialSecret);
+    }
     return new Promise(function (resolve, reject) {
       var id = String(nextId++);
       var timer = setTimeout(function () {
         if (!pending[id]) return;
         delete pending[id];
-        reject(new Error('The app took too long to start a Stripe session.'));
-      }, 20000);
+        reject(new Error(hostAnswers
+          ? 'The app took too long to start a new Stripe session.'
+          : 'This version of the app cannot refresh the Stripe session. '
+            + 'Update the app and try again.'));
+      }, 15000);
       pending[id] = function (secret) {
         clearTimeout(timer);
+        hostAnswers = true;
         if (secret) resolve(secret);
         else reject(new Error('The app could not start a Stripe session.'));
       };
@@ -164,13 +180,12 @@
     }
   }
 
-  // Called by the host once the page has loaded. clientSecret is unused here —
-  // the host serves the first fetchClientSecret request with it — but the
-  // signature is shared with identity.html, which does need it.
+  // Called by the host once the page has loaded, so no secret is ever in a URL.
   var started = false;
   window.okayStart = function (clientSecret, publishableKey, dark, accent) {
     if (started) return;
     started = true;
+    initialSecret = clientSecret || '';
     if (window.StripeConnect.init) {
       mount(publishableKey, dark, accent);
       return;

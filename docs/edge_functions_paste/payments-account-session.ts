@@ -162,6 +162,22 @@ Deno.serve(async (req) => {
       },
     });
 
+    // A session minted by a test secret key cannot be authenticated with a
+    // live publishable key, or the other way round. Stripe's only symptom is
+    // "An error occurred while authenticating your account", which reads like
+    // a problem with the account rather than with the keys, so say it here —
+    // where every version of the app shows the message, rather than only the
+    // ones built after the client-side check was added.
+    const pk = Deno.env.get("STRIPE_PUBLISHABLE_KEY") ?? "";
+    if (pk && pk.startsWith("pk_live_") !== session.livemode) {
+      const server = session.livemode ? "live" : "test";
+      const key = pk.startsWith("pk_live_") ? "live" : "test";
+      return json({
+        error: `stripe_key_mode_mismatch: STRIPE_SECRET_KEY is a ${server} ` +
+          `key but STRIPE_PUBLISHABLE_KEY is a ${key} key. Both must match.`,
+      }, 400);
+    }
+
     return json({
       clientSecret: session.client_secret,
       accountId,

@@ -11046,6 +11046,32 @@ void main() {
       // And one page load must not init twice: the second would authenticate
       // a session Stripe has already consumed.
       expect(html.contains('if (started) return;'), isTrue);
+
+      // The first authentication still uses the secret the host handed over
+      // at start-up — it was minted seconds earlier, and depending on the
+      // channel for it would break every app version older than the channel.
+      // A page ships the moment it is pushed; a build reaches a phone days
+      // later, so neither may require the other.
+      expect(html.contains('initialSecret = clientSecret'), isTrue);
+      expect(html.contains('initialUsed'), isTrue,
+          reason: 'the start-up secret must be used once, not reused forever');
+    });
+
+    test('a key-mode mismatch is caught server-side too', () {
+      // The client-side check only helps someone running a build made after
+      // it was added. The server answers every version, so the message
+      // reaches the phone that is already installed.
+      final fn = File('supabase/functions/payments-account-session/index.ts')
+          .readAsStringSync();
+      expect(fn.contains('stripe_key_mode_mismatch'), isTrue);
+      expect(fn.contains('session.livemode'), isTrue);
+      // And the paste copy the dashboard gets must carry it as well.
+      expect(
+          File('docs/edge_functions_paste/payments-account-session.ts')
+              .readAsStringSync()
+              .contains('stripe_key_mode_mismatch'),
+          isTrue,
+          reason: 'run: dart tool/paste_functions.dart');
     });
 
     test('Stripe\'s reason for a failure reaches the app', () {
