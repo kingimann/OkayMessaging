@@ -5,9 +5,39 @@ import 'package:latlong2/latlong.dart';
 
 import '../app_state.dart';
 
-/// Identifies the app to the OpenStreetMap tile servers (required by their
-/// usage policy).
+/// Identifies the app to the tile servers (required by OSM's usage policy,
+/// and good manners everywhere else).
 const String kOsmUserAgent = 'com.okay.messaging';
+
+/// Mapbox public access token, e.g. `pk.eyJ1...`.
+///
+/// Set with `--dart-define=MAPBOX_TOKEN=pk...`. Public tokens are designed to
+/// ship in a client and should be URL-restricted in the Mapbox dashboard.
+///
+/// Leaving it unset is a supported state, not a broken one: every style falls
+/// back to the free servers the app used before. That keeps CI, the web build
+/// and anyone without a token on a working map rather than a grey rectangle,
+/// and it means a blown Mapbox quota degrades instead of failing.
+const String kMapboxToken =
+    String.fromEnvironment('MAPBOX_TOKEN', defaultValue: '');
+
+bool get mapboxEnabled => kMapboxToken.isNotEmpty;
+
+/// The Mapbox style each layer maps to. Their dark style is designed to be
+/// read at night, which is why [darkMapLift] is not applied over it.
+String mapboxStyleFor(MapLayer layer) => switch (layer) {
+      MapLayer.standard => 'mapbox/streets-v12',
+      MapLayer.dark => 'mapbox/dark-v11',
+      MapLayer.satellite => 'mapbox/satellite-streets-v12',
+      MapLayer.terrain => 'mapbox/outdoors-v12',
+    };
+
+/// Mapbox raster tiles for [layer]. 256px tiles so this drops straight into
+/// the same slippy-map arithmetic the free servers use; `{r}` becomes `@2x`
+/// for retina.
+String mapboxUrlFor(MapLayer layer) =>
+    'https://api.mapbox.com/styles/v1/${mapboxStyleFor(layer)}'
+    '/tiles/256/{z}/{x}/{y}{r}?access_token=$kMapboxToken';
 
 /// The selectable base map styles. All use free, CORS-enabled tile servers.
 enum MapLayer {
@@ -67,6 +97,26 @@ TileLayer tileLayerFor(MapLayer layer, {bool lowData = false}) {
   // (framing a 20 m route zooms right past every server's deepest tiles and
   // the screen goes grey). maxNativeZoom marks the deepest tiles the server
   // actually has; beyond that, flutter_map scales those tiles up instead.
+  // One vendor for every style when a token is set: consistent cartography,
+  // consistent labelling, and a dark style built to be legible rather than
+  // one corrected after the fact.
+  //
+  // fallbackUrl is the safety net, and it matters more than it looks. A
+  // revoked token, an exhausted quota or a style id Mapbox has retired would
+  // otherwise leave a grey rectangle where the map should be; instead each
+  // failed tile quietly comes from the free server the app used before.
+  if (mapboxEnabled) {
+    return TileLayer(
+      urlTemplate: mapboxUrlFor(layer),
+      fallbackUrl: freeUrlFor(layer),
+      userAgentPackageName: kOsmUserAgent,
+      tileProvider: provider,
+      retinaMode: retina,
+      maxNativeZoom: layer == MapLayer.satellite ? 22 : 20,
+      maxZoom: 22,
+    );
+  }
+
   switch (layer) {
     case MapLayer.satellite:
       return TileLayer(
@@ -118,13 +168,31 @@ TileLayer tileLayerFor(MapLayer layer, {bool lowData = false}) {
   }
 }
 
-/// The credit line a given [layer]'s tiles require.
-String attributionFor(MapLayer layer) => switch (layer) {
-      MapLayer.satellite => '© Esri, Maxar',
-      MapLayer.terrain => '© OpenTopoMap (CC-BY-SA)',
-      MapLayer.dark => '© OpenStreetMap · © CARTO',
-      MapLayer.standard => '© OpenStreetMap · © CARTO',
+/// The free tile server each style used before Mapbox, kept as the fallback.
+/// No `{s}` subdomain placeholder — a fallback URL is fetched directly, so it
+/// has to be a complete address.
+String freeUrlFor(MapLayer layer) => switch (layer) {
+      MapLayer.satellite => 'https://server.arcgisonline.com/ArcGIS/rest/'
+          'services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+      MapLayer.terrain => 'https://a.tile.opentopomap.org/{z}/{x}/{y}.png',
+      MapLayer.dark =>
+        'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+      MapLayer.standard => 'https://a.basemaps.cartocdn.com/rastertiles/'
+          'voyager/{z}/{x}/{y}{r}.png',
     };
+
+/// The credit line a given [layer]'s tiles require.
+String attributionFor(MapLayer layer) {
+  // Mapbox's terms require crediting both them and OpenStreetMap, whichever
+  // style is showing.
+  if (mapboxEnabled) return '© Mapbox · © OpenStreetMap';
+  return switch (layer) {
+    MapLayer.satellite => '© Esri, Maxar',
+    MapLayer.terrain => '© OpenTopoMap (CC-BY-SA)',
+    MapLayer.dark => '© OpenStreetMap · © CARTO',
+    MapLayer.standard => '© OpenStreetMap · © CARTO',
+  };
+}
 
 /// The OpenStreetMap raster tile layer used across the app. Free to use with
 /// attribution — see [OsmAttribution].

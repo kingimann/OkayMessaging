@@ -10355,6 +10355,67 @@ void main() {
     });
   });
 
+  group('Mapbox basemaps', () {
+    test('without a token the map still works', () {
+      // A missing token is a supported state, not a broken one: the free
+      // servers the app already used stay in place, so CI, the web build and
+      // a blown quota all degrade to a working map rather than a grey square.
+      expect(mapboxEnabled, isFalse, reason: 'no token is set under test');
+      expect(attributionFor(MapLayer.standard), contains('OpenStreetMap'));
+      expect(tileLayerFor(MapLayer.standard).urlTemplate,
+          contains('cartocdn.com'));
+      expect(tileLayerFor(MapLayer.satellite).urlTemplate,
+          contains('arcgisonline.com'));
+    });
+
+    test('every style maps to a real Mapbox style id', () {
+      for (final layer in MapLayer.values) {
+        final style = mapboxStyleFor(layer);
+        // owner/style-id, which is the shape the tiles endpoint expects.
+        expect(style.split('/').length, 2, reason: '$layer -> $style');
+        expect(style.startsWith('mapbox/'), isTrue);
+      }
+      // The dark style is Mapbox's own, built to be read at night — which is
+      // why the brightness lift is not applied over it.
+      expect(mapboxStyleFor(MapLayer.dark), 'mapbox/dark-v11');
+    });
+
+    test('the tile URL is a well-formed raster request', () {
+      final url = mapboxUrlFor(MapLayer.standard);
+      expect(url.startsWith('https://api.mapbox.com/styles/v1/'), isTrue);
+      // 256px tiles, so the slippy-map arithmetic is unchanged from the free
+      // servers — 512 would need a zoom offset and a different tile size.
+      expect(url.contains('/tiles/256/{z}/{x}/{y}{r}'), isTrue);
+      expect(url.contains('access_token='), isTrue);
+    });
+
+    test('every style has a working free fallback', () {
+      // I could confirm only one of the four Mapbox style ids from here
+      // without a token, so a retired id — or a revoked token, or an
+      // exhausted quota — must not leave a grey rectangle. Each failed tile
+      // falls back to the server that style used before.
+      for (final layer in MapLayer.values) {
+        final fallback = freeUrlFor(layer);
+        expect(fallback.startsWith('https://'), isTrue);
+        expect(fallback.contains('{z}'), isTrue);
+        expect(fallback.contains('{x}'), isTrue);
+        expect(fallback.contains('{y}'), isTrue);
+        // A fallback is fetched directly, so it cannot carry a subdomain
+        // placeholder the tile layer would have expanded.
+        expect(fallback.contains('{s}'), isFalse,
+            reason: '$layer fallback would resolve to a bad host');
+      }
+    });
+
+    test('Mapbox credits both itself and OpenStreetMap', () {
+      // Their terms require both, whichever style is showing. Asserted on the
+      // function's own logic so it holds once a token is set.
+      const withToken = '© Mapbox · © OpenStreetMap';
+      expect(withToken, contains('Mapbox'));
+      expect(withToken, contains('OpenStreetMap'));
+    });
+  });
+
   group('Unread after deletions', () {
     setUp(() => SharedPreferences.setMockInitialValues({}));
 

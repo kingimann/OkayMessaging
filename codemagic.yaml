@@ -66,6 +66,7 @@ workflows:
             --dart-define=SUPABASE_URL=https://trbdqucphtsstnrwwfnw.supabase.co \
             --dart-define=SUPABASE_ANON_KEY=sb_publishable_PrY-Aru0AryWyhHgfD2Tow_uXca1owt \
             --dart-define=STRIPE_PUBLISHABLE_KEY=pk_live_7XicY3iffHhInOt6LERz8uR9003yCOMM3P \
+            --dart-define=MAPBOX_TOKEN=$MAPBOX_TOKEN \
             --dart-define=REQUIRE_OTP=true
     artifacts:
       - build/**/outputs/**/*.apk
@@ -155,6 +156,7 @@ workflows:
             --dart-define=SUPABASE_URL=https://trbdqucphtsstnrwwfnw.supabase.co \
             --dart-define=SUPABASE_ANON_KEY=sb_publishable_PrY-Aru0AryWyhHgfD2Tow_uXca1owt \
             --dart-define=STRIPE_PUBLISHABLE_KEY=pk_live_7XicY3iffHhInOt6LERz8uR9003yCOMM3P \
+            --dart-define=MAPBOX_TOKEN=$MAPBOX_TOKEN \
             --dart-define=REQUIRE_OTP=true \
             --export-options-plist=/Users/builder/export_options.plist
     artifacts:
@@ -202,6 +204,7 @@ workflows:
             --dart-define=SUPABASE_URL=https://trbdqucphtsstnrwwfnw.supabase.co \
             --dart-define=SUPABASE_ANON_KEY=sb_publishable_PrY-Aru0AryWyhHgfD2Tow_uXca1owt \
             --dart-define=STRIPE_PUBLISHABLE_KEY=pk_live_7XicY3iffHhInOt6LERz8uR9003yCOMM3P \
+            --dart-define=MAPBOX_TOKEN=$MAPBOX_TOKEN \
             --dart-define=REQUIRE_OTP=true
       - name: Zip the .app for download
         script: |
