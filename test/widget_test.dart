@@ -6002,6 +6002,115 @@ void main() {
       expect(find.text('Green lamp'), findsNothing);
     });
 
+    test('extra photos ride as child posts and die with the listing', () {
+      FeedStore.instance.resetForTest();
+      addTearDown(FeedStore.instance.resetForTest);
+
+      final listing = FeedStore.instance.addListing('c1',
+          title: 'Bike',
+          priceCents: 2000,
+          category: 'Sports',
+          photoUrl: 'data:image/jpeg;base64,AAA',
+          extraPhotos: ['data:image/jpeg;base64,BBB', 'data:image/jpeg;base64,CCC']);
+
+      // Cover first, parts in order — and each part is its own post, because
+      // the relay caps one envelope near a single photo's budget.
+      expect(FeedStore.instance.listingPhotos(listing.id), [
+        'data:image/jpeg;base64,AAA',
+        'data:image/jpeg;base64,BBB',
+        'data:image/jpeg;base64,CCC',
+      ]);
+      final parts = FeedStore.instance
+          .reviewsFor(listing.id); // parts must NOT read as reviews
+      expect(parts, isEmpty);
+
+      // A part survives the relay JSON round trip with its index.
+      final wirePart = FeedPost.fromJson(FeedPost(
+        id: 'part_wire',
+        communityId: 'c1',
+        authorName: 'You',
+        authorUsername: 'you',
+        time: DateTime.now(),
+        text: '',
+        parentId: listing.id,
+        gifUrl: 'data:image/jpeg;base64,BBB',
+        mediaPart: 2,
+      ).toJson());
+      expect(wirePart.mediaPart, 2);
+      expect(wirePart.isMediaPart, isTrue);
+
+      // Editing with a new set replaces the parts; a replay of a removed
+      // part's copy stays dead (tombstoned), so devices converge.
+      final removedPartCopy = FeedPost(
+        id: 'probe_part',
+        communityId: 'c1',
+        authorName: 'You',
+        authorUsername: 'you',
+        time: DateTime.now(),
+        text: '',
+        parentId: listing.id,
+        gifUrl: 'data:image/jpeg;base64,BBB',
+        mediaPart: 1,
+      );
+      FeedStore.instance.updateListing(listing.id,
+          title: 'Bike',
+          priceCents: 2000,
+          category: 'Sports',
+          photoUrl: 'data:image/jpeg;base64,AAA',
+          extraPhotos: ['data:image/jpeg;base64,DDD']);
+      expect(FeedStore.instance.listingPhotos(listing.id), [
+        'data:image/jpeg;base64,AAA',
+        'data:image/jpeg;base64,DDD',
+      ]);
+
+      // Deleting the listing takes its photo parts down in the cascade.
+      FeedStore.instance.deletePost(listing.id);
+      expect(FeedStore.instance.listingPhotos(listing.id), isEmpty);
+      FeedStore.instance.addRemote(removedPartCopy);
+      expect(FeedStore.instance.listingPhotos(listing.id), isEmpty,
+          reason: 'a replayed part of a deleted listing must stay dead');
+    });
+
+    testWidgets('the gallery pages through a listing\'s photos',
+        (tester) async {
+      FeedStore.instance.resetForTest();
+      addTearDown(FeedStore.instance.resetForTest);
+      FeedStore.instance.addRemote(FeedPost(
+        id: 'lst_gal',
+        communityId: 'c1',
+        authorName: 'Grace',
+        authorUsername: 'grace',
+        time: DateTime.now(),
+        text: 'Bike',
+        priceCents: 2000,
+        listingCategory: 'Sports',
+        gifUrl: 'data:image/jpeg;base64,AAA',
+      ));
+      for (var i = 1; i <= 2; i++) {
+        FeedStore.instance.addRemote(FeedPost(
+          id: 'lst_gal_p$i',
+          communityId: 'c1',
+          authorName: 'Grace',
+          authorUsername: 'grace',
+          time: DateTime.now(),
+          text: '',
+          parentId: 'lst_gal',
+          gifUrl: 'data:image/jpeg;base64,P$i',
+          mediaPart: i,
+        ));
+      }
+
+      await tester.pumpWidget(
+          const MaterialApp(home: ListingScreen(listingId: 'lst_gal')));
+      await tester.pump();
+
+      expect(find.text('1/3'), findsOneWidget);
+      await tester.fling(
+          find.byType(PageView), const Offset(-400, 0), 1200);
+      await tester.pumpAndSettle();
+      expect(find.text('2/3'), findsOneWidget);
+    });
+
     testWidgets('an open listing follows the relay: sold updates, removal '
         'says so', (tester) async {
       FeedStore.instance.resetForTest();

@@ -61,6 +61,16 @@ class FeedPost {
 
   bool get isReview => rating > 0;
 
+  /// Photo-part index (1-based) when this post is one extra photo of a
+  /// listing; 0 everywhere else. Each part rides as its OWN post because the
+  /// relay caps a payload around a quarter-megabyte and one photo already
+  /// budgets most of it — several photos in one envelope would push past the
+  /// cap and fail silently. As children of the listing they inherit its
+  /// persistence and die with it in the tombstone cascade.
+  final int mediaPart;
+
+  bool get isMediaPart => mediaPart > 0;
+
   /// Poll fields. [pollOptions] empty means this isn't a poll; [pollVotes]
   /// is the tally per option and [pollMyVote] this device's choice (-1 none).
   final String pollQuestion;
@@ -100,6 +110,7 @@ class FeedPost {
     this.listingSold = false,
     this.listingRev = 0,
     this.rating = 0,
+    this.mediaPart = 0,
     this.pollQuestion = '',
     this.pollOptions = const [],
     this.pollVotes = const [],
@@ -142,6 +153,7 @@ class FeedPost {
         listingSold: listingSold ?? this.listingSold,
         listingRev: listingRev ?? this.listingRev,
         rating: rating,
+        mediaPart: mediaPart,
         pollQuestion: pollQuestion,
         pollOptions: pollOptions,
         pollVotes: pollVotes ?? this.pollVotes,
@@ -172,6 +184,7 @@ class FeedPost {
           'listingRev': listingRev,
         },
         if (rating > 0) 'rating': rating,
+        if (mediaPart > 0) 'mediaPart': mediaPart,
         if (isPoll) ...{
           'pollQuestion': pollQuestion,
           'pollOptions': pollOptions,
@@ -202,6 +215,7 @@ class FeedPost {
         listingSold: j['listingSold'] as bool? ?? false,
         listingRev: (j['listingRev'] as num?)?.toInt() ?? 0,
         rating: (j['rating'] as num?)?.toInt() ?? 0,
+        mediaPart: (j['mediaPart'] as num?)?.toInt() ?? 0,
         pollQuestion: j['pollQuestion'] as String? ?? '',
         pollOptions:
             (j['pollOptions'] as List? ?? const []).whereType<String>().toList(),
@@ -676,6 +690,7 @@ class FeedStore extends ChangeNotifier {
     required String category,
     String description = '',
     String? photoUrl,
+    List<String> extraPhotos = const [],
   }) {
     final me = AppState.profile.value;
     final post = FeedPost(
@@ -694,10 +709,47 @@ class FeedStore extends ChangeNotifier {
       listingCategory: category,
     );
     _posts.add(post);
+    _addPhotoParts(post, extraPhotos);
     _save();
     notifyListeners();
     if (RelayConfig.isEnabled) RelayService.instance.sendFeedPost(post);
     return post;
+  }
+
+  /// Extra photos ride as child posts, one broadcast each — see
+  /// [FeedPost.mediaPart] for why they cannot share the listing's envelope.
+  void _addPhotoParts(FeedPost listing, List<String> photos) {
+    var index = 0;
+    for (final url in photos) {
+      if (url.isEmpty) continue;
+      final part = FeedPost(
+        id: 'post_${DateTime.now().microsecondsSinceEpoch}_${_nextId++}',
+        communityId: listing.communityId,
+        authorName: listing.authorName,
+        authorUsername: listing.authorUsername,
+        time: listing.time,
+        text: '',
+        parentId: listing.id,
+        gifUrl: url,
+        mediaPart: ++index,
+      );
+      _posts.add(part);
+      if (RelayConfig.isEnabled) RelayService.instance.sendFeedPost(part);
+    }
+  }
+
+  /// Every photo of a listing: the cover first, then the parts in order.
+  List<String> listingPhotos(String listingId) {
+    final i = _posts.indexWhere((p) => p.id == listingId);
+    final parts = _posts
+        .where((p) =>
+            p.parentId == listingId && p.isMediaPart && p.gifUrl != null)
+        .toList()
+      ..sort((a, b) => a.mediaPart.compareTo(b.mediaPart));
+    return [
+      if (i != -1 && _posts[i].gifUrl != null) _posts[i].gifUrl!,
+      for (final p in parts) p.gifUrl!,
+    ];
   }
 
   /// Listings, newest first — one server's or every server's (null).
@@ -808,6 +860,7 @@ class FeedStore extends ChangeNotifier {
     required String category,
     String description = '',
     String? photoUrl,
+    List<String>? extraPhotos,
   }) {
     final i = _posts.indexWhere((p) => p.id == postId);
     if (i == -1 || !_posts[i].isListing || title.trim().isEmpty) return false;
@@ -816,6 +869,18 @@ class FeedStore extends ChangeNotifier {
     final mine = post.authorUsername == 'you' ||
         (me.isNotEmpty && post.authorUsername == me);
     if (!mine) return false;
+    if (extraPhotos != null) {
+      // Wholesale replacement, not a diff: the old parts tombstone (which
+      // every device honours) and fresh ids post in their place. A diff
+      // would save a little bandwidth and buy replay-ordering headaches.
+      final oldParts = _posts
+          .where((p) => p.parentId == postId && p.isMediaPart)
+          .map((p) => p.id)
+          .toList();
+      for (final id in oldParts) {
+        deletePost(id);
+      }
+    }
     final updated = FeedPost(
       id: post.id,
       communityId: post.communityId,
@@ -832,7 +897,10 @@ class FeedStore extends ChangeNotifier {
       listingRev: post.listingRev + 1,
       edited: true,
     );
-    _posts[i] = updated;
+    // deletePost above may have shifted indices; find the listing again.
+    final j = _posts.indexWhere((p) => p.id == postId);
+    _posts[j] = updated;
+    if (extraPhotos != null) _addPhotoParts(updated, extraPhotos);
     _save();
     notifyListeners();
     if (RelayConfig.isEnabled) RelayService.instance.sendFeedPost(updated);
@@ -867,6 +935,13 @@ class FeedStore extends ChangeNotifier {
       if (post.repostOfId == null) return;
       _deletedIds.remove(post.id);
     }
+    // A child of a deleted parent is deleted content too, even under an id
+    // the tombstones never saw: the cascade removes the subtree that existed
+    // at delete time, and a reply / review / photo part still in flight when
+    // the delete landed would otherwise arrive afterwards and resurrect a
+    // piece of it, orphaned under a parent that no longer exists.
+    final parent = post.parentId;
+    if (parent != null && _deletedIds.contains(parent)) return;
     final existing = _posts.indexWhere((p) => p.id == post.id);
     if (existing != -1) {
       // A listing update (sold, edited price) arrives as the same post with

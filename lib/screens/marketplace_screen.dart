@@ -13,6 +13,11 @@ import '../widgets/chat_photo.dart';
 import 'chat_screen.dart';
 import 'feed_screen.dart' show showPersonSheet, feedSpans;
 
+/// The most photos one listing may carry. Each photo is its own relay
+/// message near the payload cap, and each is a mailbox row for every offline
+/// member — four is generous without turning one listing into a burst.
+const int kMaxListingPhotos = 4;
+
 /// The categories a listing can file under. A fixed list, because filters
 /// only work when sellers and buyers pick from the same words.
 const List<String> kMarketplaceCategories = [
@@ -545,6 +550,36 @@ class _ListingCard extends StatelessWidget {
                 ),
                 if (listing.listingSold)
                   const Positioned(left: 8, top: 8, child: _SoldBadge()),
+                Builder(builder: (context) {
+                  final n =
+                      FeedStore.instance.listingPhotos(listing.id).length;
+                  if (n < 2) return const SizedBox.shrink();
+                  return Positioned(
+                    right: 8,
+                    top: 8,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.6),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.photo_library_outlined,
+                              size: 12, color: Colors.white),
+                          const SizedBox(width: 3),
+                          Text('$n',
+                              style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700)),
+                        ],
+                      ),
+                    ),
+                  );
+                }),
               ],
             ),
           ),
@@ -696,38 +731,15 @@ class ListingScreen extends StatelessWidget {
           body: ListView(
             padding: EdgeInsets.zero,
             children: [
-              if (listing.gifUrl != null)
-                Stack(
-                  children: [
-                    // Tapping the photo fills the screen with it — the photo
-                    // is the listing, and cover-fit crops it here.
-                    GestureDetector(
-                      onTap: () => Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => _ListingPhotoScreen(
-                              url: listing.gifUrl!, title: title),
-                        ),
-                      ),
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(maxHeight: 380),
-                        child: SizedBox(
-                          width: double.infinity,
-                          child: ChatPhoto(
-                            url: listing.gifUrl!,
-                            fit: BoxFit.cover,
-                            errorBuilder: (_) => const SizedBox.shrink(),
-                          ),
-                        ),
-                      ),
-                    ),
-                    if (listing.listingSold)
-                      const Positioned(
-                        left: 14,
-                        top: 14,
-                        child: _SoldBadge(large: true),
-                      ),
-                  ],
-                ),
+              Builder(builder: (context) {
+                final photos = FeedStore.instance.listingPhotos(listing.id);
+                if (photos.isEmpty) return const SizedBox.shrink();
+                return _ListingGallery(
+                  photos: photos,
+                  sold: listing.listingSold,
+                  title: title,
+                );
+              }),
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 14, 16, 4),
                 child: Column(
@@ -1062,6 +1074,98 @@ class _ReviewSheetState extends State<_ReviewSheet> {
       );
 }
 
+/// The listing's photos as a swipeable gallery with a page pill; any page
+/// opens full screen. One photo renders exactly as the single-photo layout
+/// did — the pill and dots only appear once there is something to swipe to.
+class _ListingGallery extends StatefulWidget {
+  final List<String> photos;
+  final bool sold;
+  final String title;
+  const _ListingGallery(
+      {required this.photos, required this.sold, required this.title});
+
+  @override
+  State<_ListingGallery> createState() => _ListingGalleryState();
+}
+
+class _ListingGalleryState extends State<_ListingGallery> {
+  int _page = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    final many = widget.photos.length > 1;
+    return Stack(
+      children: [
+        SizedBox(
+          height: 320,
+          child: PageView(
+            onPageChanged: (i) => setState(() => _page = i),
+            children: [
+              for (final url in widget.photos)
+                GestureDetector(
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => _ListingPhotoScreen(
+                          url: url, title: widget.title),
+                    ),
+                  ),
+                  child: ChatPhoto(
+                    url: url,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_) => const SizedBox.shrink(),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        if (widget.sold)
+          const Positioned(left: 14, top: 14, child: _SoldBadge(large: true)),
+        if (many)
+          Positioned(
+            right: 12,
+            top: 12,
+            child: Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.6),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text('${_page + 1}/${widget.photos.length}',
+                  style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700)),
+            ),
+          ),
+        if (many)
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 10,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                for (var i = 0; i < widget.photos.length; i++)
+                  Container(
+                    width: 7,
+                    height: 7,
+                    margin: const EdgeInsets.symmetric(horizontal: 3),
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: i == _page
+                          ? Colors.white
+                          : Colors.white.withValues(alpha: 0.45),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+}
+
 /// A listing's photo, uncropped and pinch-zoomable on its own screen.
 class _ListingPhotoScreen extends StatelessWidget {
   final String url;
@@ -1139,7 +1243,11 @@ class _SellScreenState extends State<SellScreen> {
   late String _category = widget.existing?.listingCategory.isNotEmpty == true
       ? widget.existing!.listingCategory
       : kMarketplaceCategories.first;
-  late String? _photo = widget.existing?.gifUrl;
+  /// Up to [kMaxListingPhotos], cover first. Prefilled from the existing
+  /// listing and its photo parts when editing.
+  late final List<String> _photos = widget.existing == null
+      ? []
+      : FeedStore.instance.listingPhotos(widget.existing!.id);
   late String _communityId = widget.existing?.communityId ??
       (CommunityStore.instance.communities.isEmpty
           ? ''
@@ -1155,9 +1263,10 @@ class _SellScreenState extends State<SellScreen> {
   }
 
   Future<void> _pickPhoto() async {
+    if (_photos.length >= kMaxListingPhotos) return;
     try {
       final uri = await PhotoPrep.pickPhoto();
-      if (uri != null && mounted) setState(() => _photo = uri);
+      if (uri != null && mounted) setState(() => _photos.add(uri));
     } on FileRejected catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context)
@@ -1198,7 +1307,8 @@ class _SellScreenState extends State<SellScreen> {
         priceCents: cents,
         category: _category,
         description: _description.text,
-        photoUrl: _photo,
+        photoUrl: _photos.firstOrNull,
+        extraPhotos: _photos.skip(1).toList(),
       );
     } else {
       FeedStore.instance.addListing(
@@ -1207,7 +1317,8 @@ class _SellScreenState extends State<SellScreen> {
         priceCents: cents,
         category: _category,
         description: _description.text,
-        photoUrl: _photo,
+        photoUrl: _photos.firstOrNull,
+        extraPhotos: _photos.skip(1).toList(),
       );
     }
     Navigator.of(context).pop(true);
@@ -1238,31 +1349,101 @@ class _SellScreenState extends State<SellScreen> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          InkWell(
-            onTap: _pickPhoto,
-            borderRadius: BorderRadius.circular(14),
-            child: Container(
-              height: 180,
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                borderRadius: BorderRadius.circular(14),
-              ),
-              clipBehavior: Clip.antiAlias,
-              child: _photo != null
-                  ? ChatPhoto(
-                      url: _photo!,
-                      fit: BoxFit.cover,
-                      errorBuilder: (_) => const SizedBox.shrink())
-                  : Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
+          // Up to four photos, cover first. Each rides the relay as its own
+          // message, which is why the cap exists at all — see mediaPart.
+          SizedBox(
+            height: 110,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              children: [
+                for (var i = 0; i < _photos.length; i++)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: Stack(
                       children: [
-                        Icon(Icons.add_a_photo_outlined,
-                            size: 34, color: Colors.grey.shade500),
-                        const SizedBox(height: 6),
-                        Text('Add a photo',
-                            style: TextStyle(color: Colors.grey.shade600)),
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(12),
+                          child: SizedBox(
+                            width: 110,
+                            height: 110,
+                            child: ChatPhoto(
+                                url: _photos[i],
+                                fit: BoxFit.cover,
+                                errorBuilder: (_) =>
+                                    const SizedBox.shrink()),
+                          ),
+                        ),
+                        if (i == 0)
+                          Positioned(
+                            left: 6,
+                            bottom: 6,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color:
+                                    Colors.black.withValues(alpha: 0.6),
+                                borderRadius: BorderRadius.circular(5),
+                              ),
+                              child: const Text('Cover',
+                                  style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 10.5,
+                                      fontWeight: FontWeight.w700)),
+                            ),
+                          ),
+                        Positioned(
+                          right: 4,
+                          top: 4,
+                          child: InkWell(
+                            onTap: () =>
+                                setState(() => _photos.removeAt(i)),
+                            child: Container(
+                              padding: const EdgeInsets.all(3),
+                              decoration: BoxDecoration(
+                                color:
+                                    Colors.black.withValues(alpha: 0.6),
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(Icons.close,
+                                  size: 14, color: Colors.white),
+                            ),
+                          ),
+                        ),
                       ],
                     ),
+                  ),
+                if (_photos.length < kMaxListingPhotos)
+                  InkWell(
+                    onTap: _pickPhoto,
+                    borderRadius: BorderRadius.circular(12),
+                    child: Container(
+                      width: 110,
+                      height: 110,
+                      decoration: BoxDecoration(
+                        color: Theme.of(context)
+                            .colorScheme
+                            .surfaceContainerHighest,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.add_a_photo_outlined,
+                              size: 26, color: Colors.grey.shade500),
+                          const SizedBox(height: 4),
+                          Text(
+                              _photos.isEmpty
+                                  ? 'Add photos'
+                                  : '${_photos.length}/$kMaxListingPhotos',
+                              style: TextStyle(
+                                  fontSize: 11.5,
+                                  color: Colors.grey.shade600)),
+                        ],
+                      ),
+                    ),
+                  ),
+              ],
             ),
           ),
           const SizedBox(height: 16),
