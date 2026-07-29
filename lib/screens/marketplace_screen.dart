@@ -494,12 +494,62 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
                           listing: listings[i],
                           serverName: _serverName(listings[i].communityId),
                           onTap: () => _open(listings[i]),
+                          onOptions: _mine(listings[i])
+                              ? null
+                              : () => _listingOptions(listings[i]),
                         ),
                       ),
               ),
             ],
           );
         },
+      ),
+    );
+  }
+
+  /// Long-press on someone else's listing: the same shield the feed gives —
+  /// hide this one, or mute the seller everywhere. A marketplace without
+  /// them makes "just don't look at it" the only moderation tool.
+  void _listingOptions(FeedPost listing) {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.visibility_off_outlined),
+              title: const Text('Hide this listing'),
+              onTap: () {
+                FeedStore.instance.hidePost(listing.id);
+                Navigator.of(sheetContext).pop();
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.person_off_outlined),
+              title: Text('Mute ${listing.authorName}'),
+              subtitle: const Text(
+                  'Hides their listings and posts on this device'),
+              onTap: () {
+                FeedStore.instance.toggleMute(listing.authorUsername);
+                Navigator.of(sheetContext).pop();
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.flag_outlined),
+              title: const Text('Report'),
+              subtitle: const Text('Hides it here and flags it to you only — '
+                  'servers have no central moderator'),
+              onTap: () {
+                FeedStore.instance.hidePost(listing.id);
+                Navigator.of(sheetContext).pop();
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                    content: Text('Hidden. You can also mute the seller.')));
+              },
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -537,14 +587,19 @@ class _ListingCard extends StatelessWidget {
   final FeedPost listing;
   final String serverName;
   final VoidCallback onTap;
+  final VoidCallback? onOptions;
   const _ListingCard(
-      {required this.listing, required this.serverName, required this.onTap});
+      {required this.listing,
+      required this.serverName,
+      required this.onTap,
+      this.onOptions});
 
   @override
   Widget build(BuildContext context) {
     final title = listing.text.split('\n').first;
     return InkWell(
       onTap: onTap,
+      onLongPress: onOptions,
       borderRadius: BorderRadius.circular(14),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -618,9 +673,23 @@ class _ListingCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 6),
-          Text(formatListingPrice(listing.priceCents ?? 0),
-              style:
-                  const TextStyle(fontSize: 15, fontWeight: FontWeight.w800)),
+          Row(
+            children: [
+              Text(formatListingPrice(listing.priceCents ?? 0),
+                  style: const TextStyle(
+                      fontSize: 15, fontWeight: FontWeight.w800)),
+              // Only a DROP earns the strikethrough — "was \$10, now \$50"
+              // is not a selling point.
+              if (listing.prevPriceCents > (listing.priceCents ?? 0)) ...[
+                const SizedBox(width: 6),
+                Text(formatListingPrice(listing.prevPriceCents),
+                    style: TextStyle(
+                        fontSize: 12.5,
+                        color: Colors.grey.shade600,
+                        decoration: TextDecoration.lineThrough)),
+              ],
+            ],
+          ),
           Text(title,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,

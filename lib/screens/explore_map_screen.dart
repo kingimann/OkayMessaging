@@ -495,31 +495,51 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
           builder: (context, _) {
             final places = SavedPlacesStore.instance.places;
             if (places.isEmpty) {
+              // The save control on the place card is a bookmark, so the
+              // hint says bookmark — this used to say "star", pointing at a
+              // control that doesn't exist.
               return const Padding(
                 padding: EdgeInsets.fromLTRB(20, 8, 20, 28),
-                child: Text('No saved places yet. Tap the star on a place to '
-                    'save it here.'),
+                child: Text('No saved places yet. Tap the bookmark on a '
+                    'place to save it here.'),
               );
             }
-            return Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                for (final p in places)
-                  ListTile(
-                    leading: const Icon(Icons.bookmark, color: Color(0xFFEB4B3F)),
-                    title: Text(p.name, maxLines: 1,
-                        overflow: TextOverflow.ellipsis),
-                    trailing: IconButton(
-                      icon: const Icon(Icons.close),
-                      onPressed: () => SavedPlacesStore.instance.remove(p),
+            // Scrollable and capped: enough saved places used to overflow
+            // the sheet instead of scrolling inside it.
+            return ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(context).size.height * 0.6,
+              ),
+              child: ListView(
+                shrinkWrap: true,
+                children: [
+                  for (final p in places)
+                    ListTile(
+                      leading: const Icon(Icons.bookmark,
+                          color: Color(0xFFEB4B3F)),
+                      title: Text(p.name,
+                          maxLines: 1, overflow: TextOverflow.ellipsis),
+                      // Where it is relative to me — a list of bare names
+                      // makes picking between two "Tim's" a coin flip.
+                      subtitle: _me == null
+                          ? null
+                          : Text(
+                              '${formatDistance(const Distance().distance(_me!, LatLng(p.lat, p.lng)))} away',
+                              style: const TextStyle(fontSize: 12.5)),
+                      trailing: IconButton(
+                        icon: const Icon(Icons.close),
+                        tooltip: 'Remove',
+                        onPressed: () => SavedPlacesStore.instance.remove(p),
+                      ),
+                      onTap: () {
+                        Navigator.of(sheetContext).pop();
+                        _select(
+                            GeoResult(name: p.name, lat: p.lat, lng: p.lng));
+                      },
                     ),
-                    onTap: () {
-                      Navigator.of(sheetContext).pop();
-                      _select(GeoResult(name: p.name, lat: p.lat, lng: p.lng));
-                    },
-                  ),
-                const SizedBox(height: 8),
-              ],
+                  const SizedBox(height: 8),
+                ],
+              ),
             );
           },
         ),

@@ -61,6 +61,11 @@ class FeedPost {
 
   bool get isReview => rating > 0;
 
+  /// What the listing asked before its last price change (0 = never
+  /// changed). Only ever set by updateListing when the price moved, so a
+  /// tile can say "was \$40" — the one edit buyers genuinely care about.
+  final int prevPriceCents;
+
   /// Bucket path of the listing's sealed video ('' = none). The bytes live
   /// in Storage — see MarketMedia — because a video cannot ride the relay;
   /// only this address rides in the envelope.
@@ -117,6 +122,7 @@ class FeedPost {
     this.rating = 0,
     this.mediaPart = 0,
     this.listingVideo = '',
+    this.prevPriceCents = 0,
     this.pollQuestion = '',
     this.pollOptions = const [],
     this.pollVotes = const [],
@@ -161,6 +167,7 @@ class FeedPost {
         rating: rating,
         mediaPart: mediaPart,
         listingVideo: listingVideo,
+        prevPriceCents: prevPriceCents,
         pollQuestion: pollQuestion,
         pollOptions: pollOptions,
         pollVotes: pollVotes ?? this.pollVotes,
@@ -193,6 +200,7 @@ class FeedPost {
         if (rating > 0) 'rating': rating,
         if (mediaPart > 0) 'mediaPart': mediaPart,
         if (listingVideo.isNotEmpty) 'listingVideo': listingVideo,
+        if (prevPriceCents > 0) 'prevPriceCents': prevPriceCents,
         if (isPoll) ...{
           'pollQuestion': pollQuestion,
           'pollOptions': pollOptions,
@@ -225,6 +233,7 @@ class FeedPost {
         rating: (j['rating'] as num?)?.toInt() ?? 0,
         mediaPart: (j['mediaPart'] as num?)?.toInt() ?? 0,
         listingVideo: j['listingVideo'] as String? ?? '',
+        prevPriceCents: (j['prevPriceCents'] as num?)?.toInt() ?? 0,
         pollQuestion: j['pollQuestion'] as String? ?? '',
         pollOptions:
             (j['pollOptions'] as List? ?? const []).whereType<String>().toList(),
@@ -908,6 +917,11 @@ class FeedStore extends ChangeNotifier {
       listingSold: post.listingSold,
       listingRev: post.listingRev + 1,
       listingVideo: videoPath ?? post.listingVideo,
+      // Remember the old ask across ONE change, so a drop can be shown.
+      // An unchanged price keeps whatever history it had.
+      prevPriceCents: priceCents != (post.priceCents ?? 0)
+          ? (post.priceCents ?? 0)
+          : post.prevPriceCents,
       edited: true,
     );
     // deletePost above may have shifted indices; find the listing again.

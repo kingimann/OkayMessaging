@@ -6280,6 +6280,88 @@ void main() {
       expect(ChatStore.instance.draftFor(chat!.id), isEmpty);
     });
 
+    test('a price drop is remembered; a raise is not advertised', () {
+      FeedStore.instance.resetForTest();
+      addTearDown(FeedStore.instance.resetForTest);
+      final listing = FeedStore.instance
+          .addListing('c1', title: 'Desk', priceCents: 4000, category: 'Other');
+
+      // Dropping the price records the old ask, and it rides the wire.
+      FeedStore.instance.updateListing(listing.id,
+          title: 'Desk', priceCents: 3000, category: 'Other');
+      var current = FeedStore.instance.listings().single;
+      expect(current.prevPriceCents, 4000);
+      expect(FeedPost.fromJson(current.toJson()).prevPriceCents, 4000);
+
+      // An edit that leaves the price alone keeps the history.
+      FeedStore.instance.updateListing(listing.id,
+          title: 'Desk, oak', priceCents: 3000, category: 'Other');
+      current = FeedStore.instance.listings().single;
+      expect(current.prevPriceCents, 4000);
+
+      // A raise overwrites it — and the tile only shows a strikethrough when
+      // the old price is HIGHER, so "was \$30, now \$50" never renders as a
+      // deal.
+      FeedStore.instance.updateListing(listing.id,
+          title: 'Desk, oak', priceCents: 5000, category: 'Other');
+      current = FeedStore.instance.listings().single;
+      expect(current.prevPriceCents, 3000);
+      expect(current.prevPriceCents > (current.priceCents ?? 0), isFalse);
+    });
+
+    testWidgets('long-pressing someone else\'s listing offers the shield',
+        (tester) async {
+      FeedStore.instance.resetForTest();
+      addTearDown(FeedStore.instance.resetForTest);
+      FeedStore.instance.addRemote(FeedPost(
+        id: 'lst_mod',
+        communityId: 'c1',
+        authorName: 'Grace',
+        authorUsername: 'grace',
+        time: DateTime.now(),
+        text: 'Spam item',
+        priceCents: 100,
+        listingCategory: 'Other',
+      ));
+
+      await tester.pumpWidget(const MaterialApp(home: MarketplaceScreen()));
+      await tester.pump();
+      await tester.longPress(find.text('Spam item'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Hide this listing'), findsOneWidget);
+      expect(find.text('Mute Grace'), findsOneWidget);
+
+      await tester.tap(find.text('Mute Grace'));
+      await tester.pumpAndSettle();
+      // Muted everywhere: gone from the grid, like their posts from the feed.
+      expect(find.text('Spam item'), findsNothing);
+      expect(FeedStore.instance.listings(), isEmpty);
+    });
+
+    testWidgets('many saved places scroll instead of overflowing the sheet',
+        (tester) async {
+      SavedPlacesStore.instance.resetForTest();
+      addTearDown(SavedPlacesStore.instance.resetForTest);
+      for (var i = 0; i < 20; i++) {
+        SavedPlacesStore.instance
+            .toggle(SavedPlace('Place $i', 43.0 + i * 0.01, -79.0));
+      }
+
+      await tester.pumpWidget(const MaterialApp(
+        home: ExploreMapScreen(debugMyLocation: LatLng(43.6, -79.3)),
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.tap(find.byTooltip('Saved places'));
+      await tester.pumpAndSettle();
+
+      // Twenty rows in a half-screen sheet: no overflow error arriving here
+      // means the list scrolls. And each row says how far away it is.
+      expect(tester.takeException(), isNull);
+      expect(find.textContaining('away'), findsWidgets);
+    });
+
     testWidgets('an open listing follows the relay: sold updates, removal '
         'says so', (tester) async {
       FeedStore.instance.resetForTest();
