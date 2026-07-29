@@ -45,6 +45,19 @@ token (`sk.`) authenticates from a server and returns 401 to a client, so every
 tile would fail and quietly fall back — a map that looks identical to having no
 token at all.
 
+**Paste the token and nothing else.** No label, no description, no surrounding
+sentence. A value with a space in it isn't just a broken token: pasted into a
+shell variable it splits the build command, and the iOS build failed with
+
+```
+Target file "Who" not found.
+```
+
+— because `flutter build` read the second word as `--target`. The build flags
+are quoted now so a bad value can't do that again, and the `Basemap` step in
+each workflow fails the build early with the word count instead. The app also
+refuses a token containing whitespace and says so in the map style sheet.
+
 ## Checking which one a build shipped
 
 Both basemaps draw a working map, so nothing on screen distinguishes them at a

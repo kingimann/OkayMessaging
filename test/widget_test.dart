@@ -10661,6 +10661,17 @@ void main() {
       expect(mapboxOffReason(''), contains('no MAPBOX_TOKEN'));
       expect(mapboxOffReason('not-a-token'), contains('not a Mapbox token'));
 
+      // A real token is one unbroken word. A value with a space in it is a
+      // description that got pasted along with the token — and pasted into an
+      // unquoted shell variable it split the build command, so `flutter build`
+      // read the second word as a --target and the iOS build died with
+      // 'Target file "Who" not found'.
+      expect(isPublicMapboxToken('pk.eyJ1IjoieCJ9.abc Who can see it'), isFalse);
+      expect(mapboxOffReason('pk.eyJ1IjoieCJ9.abc Who can see it'),
+          contains('spaces in it'));
+      // Trailing whitespace from a pasted secret is still fine.
+      expect(isPublicMapboxToken('  pk.eyJ1IjoieCJ9.abc\n'), isTrue);
+
       // And the style sheet says which one is drawing.
       expect(basemapSource(), 'OpenStreetMap',
           reason: 'no token is set under test');
@@ -10748,6 +10759,22 @@ void main() {
       }
       expect(checked, greaterThan(0),
           reason: 'no workflow passes the token at all');
+    });
+
+    test('build flags that expand a variable are quoted', () {
+      // An unquoted $VAR whose value has a space in it splits into extra
+      // arguments. `flutter build` reads the stray word as --target, and the
+      // iOS build died with 'Target file "Who" not found' — a message that
+      // says nothing about the environment variable that caused it.
+      for (final file in ['codemagic.yaml', '.github/workflows/deploy-web.yml']) {
+        for (final line in File(file).readAsLinesSync()) {
+          final flag = line.trim();
+          if (!flag.startsWith('--')) continue;
+          if (!flag.contains(r'$')) continue;
+          expect(flag.contains('"'), isTrue,
+              reason: '$file: unquoted expansion splits on whitespace\n  $flag');
+        }
+      }
     });
 
     test('every style maps to a real Mapbox style id', () {

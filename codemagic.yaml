@@ -69,19 +69,27 @@ workflows:
           flutter test
       - name: Basemap
         script: |
-          case "$MAPBOX_TOKEN" in
-            pk.*) echo "Basemap: Mapbox" ;;
-            "")   echo "Basemap: OpenStreetMap - MAPBOX_TOKEN is empty (is it in the 'test' variable group?)" ;;
-            sk.*) echo "Basemap: OpenStreetMap - MAPBOX_TOKEN is a secret token; Mapbox needs the public pk. one" ;;
-            *)    echo "Basemap: OpenStreetMap - MAPBOX_TOKEN is not a Mapbox token" ;;
-          esac
+          words=$(printf '%s' "$MAPBOX_TOKEN" | wc -w | tr -d ' ')
+          if [ -z "$MAPBOX_TOKEN" ]; then
+            echo "Basemap: OpenStreetMap - MAPBOX_TOKEN is empty (is it in the 'test' variable group?)"
+          elif [ "$words" -gt 1 ]; then
+            echo "Basemap: OpenStreetMap - MAPBOX_TOKEN is $words words, ${#MAPBOX_TOKEN} chars."
+            echo "  Paste ONLY the pk. token. Anything around it splits the build command."
+            exit 1
+          else
+            case "$MAPBOX_TOKEN" in
+              pk.*) echo "Basemap: Mapbox (${#MAPBOX_TOKEN} chars)" ;;
+              sk.*) echo "Basemap: OpenStreetMap - MAPBOX_TOKEN is a secret token; Mapbox needs the public pk. one" ;;
+              *)    echo "Basemap: OpenStreetMap - MAPBOX_TOKEN is not a Mapbox token" ;;
+            esac
+          fi
       - name: Build APK
         script: |
           flutter build apk --debug \
             --dart-define=SUPABASE_URL=https://trbdqucphtsstnrwwfnw.supabase.co \
             --dart-define=SUPABASE_ANON_KEY=sb_publishable_PrY-Aru0AryWyhHgfD2Tow_uXca1owt \
             --dart-define=STRIPE_PUBLISHABLE_KEY=pk_live_7XicY3iffHhInOt6LERz8uR9003yCOMM3P \
-            --dart-define=MAPBOX_TOKEN=$MAPBOX_TOKEN \
+            --dart-define="MAPBOX_TOKEN=$MAPBOX_TOKEN" \
             --dart-define=REQUIRE_OTP=true
     artifacts:
       - build/**/outputs/**/*.apk
@@ -131,12 +139,20 @@ workflows:
           find . -name "Podfile" -execdir pod install \;
       - name: Basemap
         script: |
-          case "$MAPBOX_TOKEN" in
-            pk.*) echo "Basemap: Mapbox" ;;
-            "")   echo "Basemap: OpenStreetMap - MAPBOX_TOKEN is empty (is it in the 'test' variable group?)" ;;
-            sk.*) echo "Basemap: OpenStreetMap - MAPBOX_TOKEN is a secret token; Mapbox needs the public pk. one" ;;
-            *)    echo "Basemap: OpenStreetMap - MAPBOX_TOKEN is not a Mapbox token" ;;
-          esac
+          words=$(printf '%s' "$MAPBOX_TOKEN" | wc -w | tr -d ' ')
+          if [ -z "$MAPBOX_TOKEN" ]; then
+            echo "Basemap: OpenStreetMap - MAPBOX_TOKEN is empty (is it in the 'test' variable group?)"
+          elif [ "$words" -gt 1 ]; then
+            echo "Basemap: OpenStreetMap - MAPBOX_TOKEN is $words words, ${#MAPBOX_TOKEN} chars."
+            echo "  Paste ONLY the pk. token. Anything around it splits the build command."
+            exit 1
+          else
+            case "$MAPBOX_TOKEN" in
+              pk.*) echo "Basemap: Mapbox (${#MAPBOX_TOKEN} chars)" ;;
+              sk.*) echo "Basemap: OpenStreetMap - MAPBOX_TOKEN is a secret token; Mapbox needs the public pk. one" ;;
+              *)    echo "Basemap: OpenStreetMap - MAPBOX_TOKEN is not a Mapbox token" ;;
+            esac
+          fi
       - name: Initialise the keychain
         script: keychain initialize
       # THE FIX. A brand-new app has no App Store provisioning profile, and
@@ -174,12 +190,12 @@ workflows:
         script: |
           flutter build ipa --release \
             --build-name=1.1.2 \
-            --build-number=$BUILD_NUMBER \
-            --dart-define=BUILD_STAMP=$CM_COMMIT \
+            --build-number="$BUILD_NUMBER" \
+            --dart-define="BUILD_STAMP=$CM_COMMIT" \
             --dart-define=SUPABASE_URL=https://trbdqucphtsstnrwwfnw.supabase.co \
             --dart-define=SUPABASE_ANON_KEY=sb_publishable_PrY-Aru0AryWyhHgfD2Tow_uXca1owt \
             --dart-define=STRIPE_PUBLISHABLE_KEY=pk_live_7XicY3iffHhInOt6LERz8uR9003yCOMM3P \
-            --dart-define=MAPBOX_TOKEN=$MAPBOX_TOKEN \
+            --dart-define="MAPBOX_TOKEN=$MAPBOX_TOKEN" \
             --dart-define=REQUIRE_OTP=true \
             --export-options-plist=/Users/builder/export_options.plist
     artifacts:
@@ -227,19 +243,27 @@ workflows:
           find . -name "Podfile" -execdir pod install \;
       - name: Basemap
         script: |
-          case "$MAPBOX_TOKEN" in
-            pk.*) echo "Basemap: Mapbox" ;;
-            "")   echo "Basemap: OpenStreetMap - MAPBOX_TOKEN is empty (is it in the 'test' variable group?)" ;;
-            sk.*) echo "Basemap: OpenStreetMap - MAPBOX_TOKEN is a secret token; Mapbox needs the public pk. one" ;;
-            *)    echo "Basemap: OpenStreetMap - MAPBOX_TOKEN is not a Mapbox token" ;;
-          esac
+          words=$(printf '%s' "$MAPBOX_TOKEN" | wc -w | tr -d ' ')
+          if [ -z "$MAPBOX_TOKEN" ]; then
+            echo "Basemap: OpenStreetMap - MAPBOX_TOKEN is empty (is it in the 'test' variable group?)"
+          elif [ "$words" -gt 1 ]; then
+            echo "Basemap: OpenStreetMap - MAPBOX_TOKEN is $words words, ${#MAPBOX_TOKEN} chars."
+            echo "  Paste ONLY the pk. token. Anything around it splits the build command."
+            exit 1
+          else
+            case "$MAPBOX_TOKEN" in
+              pk.*) echo "Basemap: Mapbox (${#MAPBOX_TOKEN} chars)" ;;
+              sk.*) echo "Basemap: OpenStreetMap - MAPBOX_TOKEN is a secret token; Mapbox needs the public pk. one" ;;
+              *)    echo "Basemap: OpenStreetMap - MAPBOX_TOKEN is not a Mapbox token" ;;
+            esac
+          fi
       - name: Build for the simulator (unsigned)
         script: |
           flutter build ios --simulator --debug \
             --dart-define=SUPABASE_URL=https://trbdqucphtsstnrwwfnw.supabase.co \
             --dart-define=SUPABASE_ANON_KEY=sb_publishable_PrY-Aru0AryWyhHgfD2Tow_uXca1owt \
             --dart-define=STRIPE_PUBLISHABLE_KEY=pk_live_7XicY3iffHhInOt6LERz8uR9003yCOMM3P \
-            --dart-define=MAPBOX_TOKEN=$MAPBOX_TOKEN \
+            --dart-define="MAPBOX_TOKEN=$MAPBOX_TOKEN" \
             --dart-define=REQUIRE_OTP=true
       - name: Zip the .app for download
         script: |

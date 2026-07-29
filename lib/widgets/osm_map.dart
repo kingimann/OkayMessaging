@@ -30,7 +30,16 @@ final String kMapboxToken =
 /// The tiles then fail, [freeUrlFor] quietly serves them instead, and the map
 /// looks exactly like a build with no token at all — so this refuses anything
 /// that isn't `pk.` rather than shipping a basemap that can only fail.
-bool isPublicMapboxToken(String token) => token.startsWith('pk.');
+///
+/// Whitespace inside it is refused too. A real token is one unbroken word; a
+/// value with a space in it is a description or a sentence that got pasted
+/// along with the token, and it would build a tile URL that 401s on every
+/// request. One did worse than that — pasted into an unquoted shell variable,
+/// it split the build command and failed the whole iOS build.
+bool isPublicMapboxToken(String token) {
+  final t = token.trim();
+  return t.startsWith('pk.') && !RegExp(r'\s').hasMatch(t);
+}
 
 /// Test hook. The token is compiled in and `flutter test` takes no
 /// `--dart-define`, so without this the entire Mapbox path — the one the app
@@ -49,8 +58,12 @@ bool get mapboxEnabled =>
 /// from a wrong one is to read the build command.
 String mapboxOffReason(String token) {
   if (isPublicMapboxToken(token)) return '';
-  if (token.isEmpty) return 'no MAPBOX_TOKEN was set for this build';
-  if (token.startsWith('sk.')) {
+  final t = token.trim();
+  if (t.isEmpty) return 'no MAPBOX_TOKEN was set for this build';
+  if (RegExp(r'\s').hasMatch(t)) {
+    return 'MAPBOX_TOKEN has spaces in it; paste only the token';
+  }
+  if (t.startsWith('sk.')) {
     return 'MAPBOX_TOKEN is a secret token; Mapbox needs the public pk. one';
   }
   return 'MAPBOX_TOKEN is not a Mapbox token';
