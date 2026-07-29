@@ -217,6 +217,13 @@ workflows:
         # a real App Store review submission.
         submit_to_testflight: true
         submit_to_app_store: false
+        # A red build here can still be a successful upload: after uploading,
+        # Codemagic polls Apple for the build's buildBetaDetail, and a build
+        # uploaded seconds earlier sometimes 404s that endpoint before
+        # Apple's side has created the record. If the log shows "Found
+        # uploaded build on App Store Connect" above the 404, the IPA is up,
+        # Apple finishes processing on its own, and the build appears in the
+        # TestFlight tab — no rebuild needed.
       email:
         recipients:
           - ifakhargomi@gmail.com
