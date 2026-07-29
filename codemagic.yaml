@@ -137,22 +137,31 @@ workflows:
       - name: Install CocoaPods
         script: |
           find . -name "Podfile" -execdir pod install \;
-      - name: Basemap
+      # 'Target file "Who" not found' is what a build reports when one of the
+      # variables below expands to something with a space in it: the shell
+      # splits it into extra arguments and flutter reads a stray word as
+      # --target. The message names a file nobody wrote and never mentions the
+      # variable, so this prints the shape of each one first — length, word
+      # count, and the opening characters, never the whole secret.
+      - name: Check build inputs
         script: |
-          words=$(printf '%s' "$MAPBOX_TOKEN" | wc -w | tr -d ' ')
-          if [ -z "$MAPBOX_TOKEN" ]; then
-            echo "Basemap: OpenStreetMap - MAPBOX_TOKEN is empty (is it in the 'test' variable group?)"
-          elif [ "$words" -gt 1 ]; then
-            echo "Basemap: OpenStreetMap - MAPBOX_TOKEN is $words words, ${#MAPBOX_TOKEN} chars."
-            echo "  Paste ONLY the pk. token. Anything around it splits the build command."
-            exit 1
-          else
-            case "$MAPBOX_TOKEN" in
-              pk.*) echo "Basemap: Mapbox (${#MAPBOX_TOKEN} chars)" ;;
-              sk.*) echo "Basemap: OpenStreetMap - MAPBOX_TOKEN is a secret token; Mapbox needs the public pk. one" ;;
-              *)    echo "Basemap: OpenStreetMap - MAPBOX_TOKEN is not a Mapbox token" ;;
-            esac
-          fi
+          bad=""
+          for name in BUILD_NUMBER CM_COMMIT MAPBOX_TOKEN; do
+            eval "val=\${$name:-}"
+            words=$(printf '%s' "$val" | wc -w | tr -d ' ')
+            echo "$name: ${#val} chars, $words words, starts '$(printf '%.6s' "$val")'"
+            if [ "$words" -gt 1 ]; then
+              echo "  ^^ this one has whitespace in it, and that is what breaks the build"
+              bad=1
+            fi
+          done
+          [ -z "$bad" ] || exit 1
+          case "$MAPBOX_TOKEN" in
+            "")   echo "Basemap: OpenStreetMap - MAPBOX_TOKEN is empty (is it in the 'test' variable group?)" ;;
+            pk.*) echo "Basemap: Mapbox" ;;
+            sk.*) echo "Basemap: OpenStreetMap - MAPBOX_TOKEN is a secret token; Mapbox needs the public pk. one" ;;
+            *)    echo "Basemap: OpenStreetMap - MAPBOX_TOKEN is not a Mapbox token" ;;
+          esac
       - name: Initialise the keychain
         script: keychain initialize
       # THE FIX. A brand-new app has no App Store provisioning profile, and
