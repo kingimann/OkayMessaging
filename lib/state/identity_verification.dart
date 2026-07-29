@@ -116,6 +116,16 @@ class IdentityVerification extends ChangeNotifier {
     defaultValue: 'https://kingimann.github.io/OkayMessaging/identity.html',
   );
 
+  /// Where Stripe's own hosted flow navigates when it is done — the
+  /// `return_url` the identity-start function sets (APP_RETURN_URL, which
+  /// defaults to the site root). Hosting that flow in the app's WebView means
+  /// watching for this navigation, because a hosted flow reports completion by
+  /// going somewhere rather than by posting a message.
+  static const String returnUrl = String.fromEnvironment(
+    'APP_RETURN_URL',
+    defaultValue: 'https://kingimann.github.io/OkayMessaging/',
+  );
+
   void _apply(IdentityStatus next) {
     if (_status == next) return;
     _status = next;

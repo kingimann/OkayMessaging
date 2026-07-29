@@ -4,7 +4,6 @@ import 'package:url_launcher/url_launcher.dart';
 import '../app_state.dart';
 import '../models/chat.dart';
 import '../state/chat_store.dart';
-import '../payments/connect_webview.dart';
 import '../state/identity_verification.dart';
 import 'identity_check_screen.dart';
 import '../state/score_store.dart';
@@ -375,8 +374,10 @@ class _VerifiedRow extends StatelessWidget {
     if (!context.mounted) return;
 
     // In the app, on a screen of our own. Stripe still runs the check and
-    // still holds the documents; it just isn't a browser any more.
-    if (ConnectWebView.isSupported && session.clientSecret.isNotEmpty) {
+    // still holds the documents; it just isn't a browser any more. This holds
+    // for a hosted-URL-only session too — that used to hand the user to
+    // Safari, which is the one thing the flow shouldn't do.
+    if (IdentityCheckScreen.canHost(session)) {
       await Navigator.of(context).push<bool>(MaterialPageRoute(
         builder: (_) => IdentityCheckScreen(session: session),
       ));

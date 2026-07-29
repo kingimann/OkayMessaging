@@ -15,6 +15,13 @@ const String _kSecretRequest = 'secret:';
 class ConnectWebView {
   static bool get isSupported => true;
 
+  /// Whether [url] is the return URL a Stripe-hosted flow ends on. Pure, and
+  /// only ever true when a prefix was given — our own pages report completion
+  /// by message, and one of them is served from the same origin as the return
+  /// URL, so an empty prefix must never match anything.
+  static bool isCompletion(String url, String prefix) =>
+      prefix.isNotEmpty && url.startsWith(prefix);
+
   /// [needsCamera] is for the ID check, which captures a document photo and a
   /// selfie in the page. Without inline playback and a granted permission the
   /// capture silently fails to start.
@@ -22,6 +29,12 @@ class ConnectWebView {
   /// [onSecretRequest] answers the page's requests for a client secret. Stripe
   /// asks again whenever the session expires and wants a *new* one each time,
   /// so the page holds none and the app mints them.
+  ///
+  /// [completionUrlPrefix] is for flows hosted by Stripe rather than by one of
+  /// our own pages: those end by *navigating* to a return URL instead of
+  /// posting a message, so a navigation starting with this prefix is reported
+  /// as 'submitted' and blocked — the app's screen is where the user lands,
+  /// not whatever that URL happens to serve.
   static Widget build({
     required String url,
     required String clientSecret,
@@ -31,6 +44,7 @@ class ConnectWebView {
     required void Function(String event) onEvent,
     bool needsCamera = false,
     Future<String> Function()? onSecretRequest,
+    String completionUrlPrefix = '',
   }) =>
       _ConnectWebView(
         url: url,
@@ -41,6 +55,7 @@ class ConnectWebView {
         onEvent: onEvent,
         needsCamera: needsCamera,
         onSecretRequest: onSecretRequest,
+        completionUrlPrefix: completionUrlPrefix,
       );
 }
 
@@ -53,6 +68,7 @@ class _ConnectWebView extends StatefulWidget {
   final void Function(String event) onEvent;
   final bool needsCamera;
   final Future<String> Function()? onSecretRequest;
+  final String completionUrlPrefix;
 
   const _ConnectWebView({
     required this.url,
@@ -63,6 +79,7 @@ class _ConnectWebView extends StatefulWidget {
     required this.onEvent,
     required this.needsCamera,
     required this.onSecretRequest,
+    required this.completionUrlPrefix,
   });
 
   @override
@@ -95,9 +112,31 @@ class _ConnectWebViewState extends State<_ConnectWebView> {
       ..addJavaScriptChannel('OkayConnect',
           onMessageReceived: (m) => _onMessage(m.message))
       ..setNavigationDelegate(
-        NavigationDelegate(onPageFinished: (_) => _start()),
+        NavigationDelegate(
+          onPageFinished: (_) => _start(),
+          onNavigationRequest: _onNavigation,
+        ),
       )
       ..loadRequest(Uri.parse(widget.url));
+  }
+
+  /// The end of a Stripe-hosted flow is a navigation, not a message. Catch it,
+  /// tell the screen, and refuse the navigation — the user belongs back in the
+  /// app, not on whatever the return URL serves. (It serves the web build of
+  /// this very app, so without this the WebView would show the app inside the
+  /// app.)
+  ///
+  /// Only once the first page has loaded: our own identity page is served from
+  /// the same origin as the return URL, so its own initial load looks exactly
+  /// like a completion.
+  NavigationDecision _onNavigation(NavigationRequest request) {
+    if (_started &&
+        ConnectWebView.isCompletion(
+            request.url, widget.completionUrlPrefix)) {
+      widget.onEvent('submitted');
+      return NavigationDecision.prevent;
+    }
+    return NavigationDecision.navigate;
   }
 
   /// A message from the page: either a request for a client secret, or an

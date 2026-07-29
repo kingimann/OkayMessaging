@@ -34,6 +34,7 @@ import 'package:okay_messaging/screens/chats_settings_screen.dart';
 import 'package:okay_messaging/screens/okay_pro_screen.dart';
 import 'package:okay_messaging/screens/community_settings_screen.dart';
 import 'package:okay_messaging/screens/create_server_screen.dart';
+import 'package:okay_messaging/screens/identity_check_screen.dart';
 import 'package:okay_messaging/screens/forum_screen.dart';
 import 'package:okay_messaging/screens/location_picker_screen.dart';
 import 'package:okay_messaging/screens/marketplace_screen.dart';
@@ -13140,6 +13141,64 @@ void main() {
       expect(await identity.start(), isNull);
       expect(await identity.refresh(), IdentityStatus.none);
       expect(identity.isVerified, isFalse);
+    });
+
+    test('the ID check stays in the app, hosted URL or not', () {
+      // A modern session: Stripe.js on our own themed page.
+      expect(
+          IdentityCheckScreen.canHost(const IdentitySession(
+              clientSecret: 'vs_1_secret',
+              hostedUrl: 'https://verify.stripe.com/x',
+              publishableKey: 'pk_live_x')),
+          isTrue);
+      // The regression this fixes: a deployed identity-start old enough to
+      // return only a URL used to send the user to an external browser. It
+      // is hostable, so it now opens on the app's own screen.
+      expect(
+          IdentityCheckScreen.canHost(const IdentitySession(
+              clientSecret: '',
+              hostedUrl: 'https://verify.stripe.com/x',
+              publishableKey: '')),
+          isTrue);
+      // Nothing to show is still nothing to show.
+      expect(
+          IdentityCheckScreen.canHost(const IdentitySession(
+              clientSecret: '', hostedUrl: '', publishableKey: '')),
+          isFalse);
+      expect(
+          IdentityCheckScreen.canHost(const IdentitySession.alreadyVerified()),
+          isFalse);
+    });
+
+    test('a hosted flow ends by navigating home, and only then', () {
+      // A hosted check reports completion by going to the return URL, so that
+      // navigation is what the WebView watches for. Stripe's own pages are
+      // not it.
+      expect(
+          ConnectWebView.isCompletion('${IdentityVerification.returnUrl}?x=1',
+              IdentityVerification.returnUrl),
+          isTrue);
+      expect(
+          ConnectWebView.isCompletion(
+              'https://verify.stripe.com/start', IdentityVerification.returnUrl),
+          isFalse);
+      expect(ConnectWebView.isCompletion('', IdentityVerification.returnUrl),
+          isFalse);
+      // No prefix, no matching — a caller that doesn't opt in never has a
+      // navigation taken away from it.
+      expect(ConnectWebView.isCompletion(IdentityVerification.pageUrl, ''),
+          isFalse);
+
+      // Why the WebView also waits for the first load before believing a
+      // completion: our own identity page is served from the same origin as
+      // the return URL, so its *own* initial load matches this rule. That
+      // ordering guard lives in the WebView (no WebView in a unit test), and
+      // this is the collision that makes it necessary.
+      expect(
+          ConnectWebView.isCompletion(
+              IdentityVerification.pageUrl, IdentityVerification.returnUrl),
+          isTrue,
+          reason: 'same origin: the load-order guard is doing real work');
     });
   });
 

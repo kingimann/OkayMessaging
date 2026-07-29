@@ -6,6 +6,10 @@ import 'package:flutter/material.dart';
 class ConnectWebView {
   static bool get isSupported => false;
 
+  /// Same pure rule as the native side, so the contract is one thing.
+  static bool isCompletion(String url, String prefix) =>
+      prefix.isNotEmpty && url.startsWith(prefix);
+
   static Widget build({
     required String url,
     required String clientSecret,
@@ -15,6 +19,7 @@ class ConnectWebView {
     required void Function(String event) onEvent,
     bool needsCamera = false,
     Future<String> Function()? onSecretRequest,
+    String completionUrlPrefix = '',
   }) =>
       const SizedBox.shrink();
 }
