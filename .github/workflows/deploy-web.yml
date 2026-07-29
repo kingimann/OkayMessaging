@@ -35,6 +35,20 @@ jobs:
       - name: Run tests
         run: flutter test
 
+      # An unset MAPBOX_TOKEN builds a working map from the free servers, so
+      # the deploy succeeds and nothing anywhere says the basemap is not the
+      # one that was asked for. Say it in the log.
+      - name: Basemap
+        env:
+          MAPBOX_TOKEN: ${{ secrets.MAPBOX_TOKEN }}
+        run: |
+          case "$MAPBOX_TOKEN" in
+            pk.*) echo "Basemap: Mapbox" ;;
+            "")   echo "Basemap: OpenStreetMap — no MAPBOX_TOKEN secret (Settings -> Secrets and variables -> Actions)" ;;
+            sk.*) echo "Basemap: OpenStreetMap — MAPBOX_TOKEN is a secret token; Mapbox needs the public pk. one" ;;
+            *)    echo "Basemap: OpenStreetMap — MAPBOX_TOKEN is not a Mapbox token" ;;
+          esac
+
       # base-href must match the project-site path: https://<user>.github.io/OkayMessaging/
       # The Supabase values enable the store-nothing message relay (Realtime
       # broadcast only — no database, no tables). SUPABASE_ANON_KEY is a

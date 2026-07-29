@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kReleaseMode;
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_map_cancellable_tile_provider/flutter_map_cancellable_tile_provider.dart';
@@ -18,10 +19,45 @@ const String kOsmUserAgent = 'com.okay.messaging';
 /// back to the free servers the app used before. That keeps CI, the web build
 /// and anyone without a token on a working map rather than a grey rectangle,
 /// and it means a blown Mapbox quota degrades instead of failing.
-const String kMapboxToken =
-    String.fromEnvironment('MAPBOX_TOKEN', defaultValue: '');
+/// Trimmed, because a token pasted into a CI secret usually arrives with a
+/// trailing newline and Mapbox rejects the request without saying why.
+final String kMapboxToken =
+    const String.fromEnvironment('MAPBOX_TOKEN', defaultValue: '').trim();
 
-bool get mapboxEnabled => kMapboxToken.isNotEmpty;
+/// Whether [token] is a Mapbox *public* token.
+///
+/// A secret token (`sk.`) authenticates from a server and 401s from a client.
+/// The tiles then fail, [freeUrlFor] quietly serves them instead, and the map
+/// looks exactly like a build with no token at all — so this refuses anything
+/// that isn't `pk.` rather than shipping a basemap that can only fail.
+bool isPublicMapboxToken(String token) => token.startsWith('pk.');
+
+/// Test hook. The token is compiled in and `flutter test` takes no
+/// `--dart-define`, so without this the entire Mapbox path — the one the app
+/// ships with a token — could never be run by the suite.
+@visibleForTesting
+bool? debugMapboxEnabledOverride;
+
+bool get mapboxEnabled =>
+    debugMapboxEnabledOverride ?? isPublicMapboxToken(kMapboxToken);
+
+/// Why the map is drawing free tiles when Mapbox was expected, or empty when
+/// Mapbox is what's drawing.
+///
+/// Every one of these states looks identical on screen — a working map from
+/// the free servers — so without this the only way to tell a missing token
+/// from a wrong one is to read the build command.
+String mapboxOffReason(String token) {
+  if (isPublicMapboxToken(token)) return '';
+  if (token.isEmpty) return 'no MAPBOX_TOKEN was set for this build';
+  if (token.startsWith('sk.')) {
+    return 'MAPBOX_TOKEN is a secret token; Mapbox needs the public pk. one';
+  }
+  return 'MAPBOX_TOKEN is not a Mapbox token';
+}
+
+/// Who is drawing the basemap, for the map style sheet.
+String basemapSource() => mapboxEnabled ? 'Mapbox' : 'OpenStreetMap';
 
 /// The Mapbox style each layer maps to. Their dark style is designed to be
 /// read at night, which is why [darkMapLift] is not applied over it.
@@ -401,34 +437,39 @@ class MapControls extends StatelessWidget {
       context: context,
       showDragHandle: true,
       builder: (sheetContext) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            for (final l in MapLayer.values)
-              ValueListenableBuilder<String>(
-                valueListenable: AppState.mapLayer,
-                builder: (context, name, _) => ListTile(
-                  leading: Icon(l.icon),
-                  title: Text(l.label),
-                  trailing: MapLayer.fromName(name) == l
-                      ? Icon(Icons.check,
-                          color: Theme.of(sheetContext).colorScheme.primary)
-                      : null,
-                  onTap: () => Navigator.of(sheetContext).pop(l),
+        // Four styles, a switch and a credit line don't fit a short screen —
+        // a phone in landscape overflowed the sheet rather than scrolling it.
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (final l in MapLayer.values)
+                ValueListenableBuilder<String>(
+                  valueListenable: AppState.mapLayer,
+                  builder: (context, name, _) => ListTile(
+                    leading: Icon(l.icon),
+                    title: Text(l.label),
+                    trailing: MapLayer.fromName(name) == l
+                        ? Icon(Icons.check,
+                            color: Theme.of(sheetContext).colorScheme.primary)
+                        : null,
+                    onTap: () => Navigator.of(sheetContext).pop(l),
+                  ),
+                ),
+              const Divider(height: 1),
+              ValueListenableBuilder<bool>(
+                valueListenable: AppState.mapLowData,
+                builder: (context, lowData, _) => SwitchListTile.adaptive(
+                  secondary: const Icon(Icons.data_saver_on_outlined),
+                  title: const Text('Low data mode'),
+                  subtitle: const Text('Lighter tiles for slow connections'),
+                  value: lowData,
+                  onChanged: (v) => AppState.mapLowData.value = v,
                 ),
               ),
-            const Divider(height: 1),
-            ValueListenableBuilder<bool>(
-              valueListenable: AppState.mapLowData,
-              builder: (context, lowData, _) => SwitchListTile.adaptive(
-                secondary: const Icon(Icons.data_saver_on_outlined),
-                title: const Text('Low data mode'),
-                subtitle: const Text('Lighter tiles for slow connections'),
-                value: lowData,
-                onChanged: (v) => AppState.mapLowData.value = v,
-              ),
-            ),
-          ],
+              const _BasemapSourceLine(),
+            ],
+          ),
         ),
       ),
     );
@@ -523,6 +564,43 @@ class MapControls extends StatelessWidget {
             ]),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Names who is drawing the map, at the foot of the style sheet.
+///
+/// Mapbox and the free servers produce a working map either way, so the only
+/// previous way to know which one a build had was to read the build command.
+/// Outside release the reason a token didn't take is shown too — the failure
+/// modes (missing, secret instead of public, mangled) are indistinguishable on
+/// screen, and all three end up looking like "it's still OpenStreetMap".
+class _BasemapSourceLine extends StatelessWidget {
+  const _BasemapSourceLine();
+
+  @override
+  Widget build(BuildContext context) {
+    final reason = mapboxEnabled ? '' : mapboxOffReason(kMapboxToken);
+    final detail = kReleaseMode || reason.isEmpty ? '' : ' — $reason';
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 2, 20, 14),
+      child: Row(
+        children: [
+          Icon(Icons.public,
+              size: 14,
+              color: Theme.of(context).colorScheme.onSurfaceVariant),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'Maps by ${basemapSource()}$detail',
+              style: TextStyle(
+                fontSize: 11.5,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

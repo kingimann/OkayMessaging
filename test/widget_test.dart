@@ -10619,6 +10619,84 @@ void main() {
           contains('arcgisonline.com'));
     });
 
+    test('only a public token counts, and the reason is nameable', () {
+      // Every one of these ends up drawing the same free basemap, so on
+      // screen they are indistinguishable — which is exactly why a build with
+      // a bad token reads as "it's still using OpenStreetMap".
+      expect(isPublicMapboxToken('pk.eyJ1IjoieCJ9.abc'), isTrue);
+      expect(mapboxOffReason('pk.eyJ1IjoieCJ9.abc'), isEmpty);
+
+      // A secret token authenticates from a server and 401s from a client, so
+      // it would fail every tile and fall back — silently.
+      expect(isPublicMapboxToken('sk.eyJ1IjoieCJ9.abc'), isFalse);
+      expect(mapboxOffReason('sk.eyJ1IjoieCJ9.abc'), contains('secret token'));
+
+      expect(mapboxOffReason(''), contains('no MAPBOX_TOKEN'));
+      expect(mapboxOffReason('not-a-token'), contains('not a Mapbox token'));
+
+      // And the style sheet says which one is drawing.
+      expect(basemapSource(), 'OpenStreetMap',
+          reason: 'no token is set under test');
+    });
+
+    testWidgets('the style sheet names who is drawing the map',
+        (tester) async {
+      // Mapbox and the free servers both produce a working map, so without
+      // this the only way to tell which a build shipped was to read the build
+      // command — and the answer to "why is it still OpenStreetMap" lived
+      // nowhere the person asking could see.
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Stack(children: [MapControls(controller: MapController())]),
+        ),
+      ));
+      await tester.tap(find.byTooltip('Map style'));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('Maps by OpenStreetMap'), findsOneWidget);
+      // Outside release the reason is spelled out too.
+      expect(find.textContaining('no MAPBOX_TOKEN'), findsOneWidget);
+    });
+
+    test('with a token every style is drawn by Mapbox, fallback intact', () {
+      // The token is compiled in and `flutter test` takes no --dart-define,
+      // so this half of the code shipped untested: nothing had ever run the
+      // branch the app uses once a token is set.
+      debugMapboxEnabledOverride = true;
+      addTearDown(() => debugMapboxEnabledOverride = null);
+
+      expect(basemapSource(), 'Mapbox');
+      for (final layer in MapLayer.values) {
+        final tiles = tileLayerFor(layer);
+        expect(tiles.urlTemplate, contains('api.mapbox.com'),
+            reason: '$layer should come from Mapbox');
+        expect(tiles.urlTemplate, contains(mapboxStyleFor(layer)));
+        // A revoked token or an exhausted quota degrades to the free server
+        // rather than to a grey rectangle.
+        expect(tiles.fallbackUrl, freeUrlFor(layer));
+        // Mapbox's terms require crediting both.
+        expect(attributionFor(layer), contains('Mapbox'));
+        expect(attributionFor(layer), contains('OpenStreetMap'));
+      }
+    });
+
+    testWidgets('with a token the style sheet says Mapbox and no reason',
+        (tester) async {
+      debugMapboxEnabledOverride = true;
+      addTearDown(() => debugMapboxEnabledOverride = null);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Stack(children: [MapControls(controller: MapController())]),
+        ),
+      ));
+      await tester.tap(find.byTooltip('Map style'));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('Maps by Mapbox'), findsOneWidget);
+      // Nothing is wrong, so nothing explains what's wrong.
+      expect(find.textContaining('MAPBOX_TOKEN'), findsNothing);
+    });
+
     test('every style maps to a real Mapbox style id', () {
       for (final layer in MapLayer.values) {
         final style = mapboxStyleFor(layer);

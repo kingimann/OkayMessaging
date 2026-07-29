@@ -23,6 +23,25 @@ Both paths work; the token only changes which one draws.
 Unset is fine — the app falls back to CARTO, OpenTopoMap and Esri, exactly as
 before.
 
+**It has to be the public token.** Only a `pk.` token is accepted. A secret
+token (`sk.`) authenticates from a server and returns 401 to a client, so every
+tile would fail and quietly fall back — a map that looks identical to having no
+token at all.
+
+## Checking which one a build shipped
+
+Both basemaps draw a working map, so nothing on screen distinguishes them at a
+glance. Two places say it outright:
+
+- **In the app** — Map style sheet (the layers button), bottom line: *"Maps by
+  Mapbox"* or *"Maps by OpenStreetMap"*. Outside release builds it also names
+  why a token didn't take.
+- **In the deploy log** — the *Basemap* step in `.github/workflows/deploy-web.yml`
+  prints `Basemap: Mapbox` or the reason it isn't.
+
+If it says OpenStreetMap after you set the secret, re-run the workflow: the
+token is compiled in at build time, so an existing deploy doesn't pick it up.
+
 ## What changes with a token on
 
 | Layer | Mapbox style | Free fallback |
