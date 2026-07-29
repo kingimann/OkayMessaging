@@ -25,6 +25,9 @@ class MapsSettingsScreen extends StatelessWidget {
                     dense: true,
                     leading: Icon(l.icon),
                     title: Text(l.label),
+                    subtitle: l == MapLayer.auto
+                        ? const Text('Light or dark, following the app')
+                        : null,
                     trailing: MapLayer.fromName(name) == l
                         ? Icon(Icons.check,
                             color: Theme.of(context).colorScheme.primary)

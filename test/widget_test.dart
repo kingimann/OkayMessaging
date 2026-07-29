@@ -5011,14 +5011,20 @@ void main() {
           const MaterialApp(home: MapsSettingsScreen()));
       await tester.pump();
 
+      // The screen is a scrolling list and the style section grew, so each
+      // control has to be brought on screen before it can be tapped —
+      // tapping an off-screen widget silently does nothing.
+      await tester.ensureVisible(find.text('Miles'));
       await tester.tap(find.text('Miles'));
       await tester.pump();
       expect(AppState.mapUnits.value, 'imperial');
 
+      await tester.ensureVisible(find.text('Voice guidance'));
       await tester.tap(find.text('Voice guidance'));
       await tester.pump();
       expect(AppState.navVoice.value, isFalse);
 
+      await tester.ensureVisible(find.text('Walk'));
       await tester.tap(find.text('Walk'));
       await tester.pump();
       expect(AppState.defaultTravelMode.value, 'foot');
@@ -5260,6 +5266,19 @@ void main() {
 
       // Focused on open — the point of the screen is typing.
       expect(tester.widget<TextField>(field).autofocus, isTrue);
+
+      // And no box drawn round it. InputDecoration.collapsed only nulls
+      // `border`, so the app theme's focusedBorder still applied — and an
+      // autofocused field meant that box appeared the instant it opened.
+      final decoration = tester.widget<TextField>(field).decoration!;
+      for (final border in [
+        decoration.border,
+        decoration.enabledBorder,
+        decoration.focusedBorder,
+      ]) {
+        expect(border, InputBorder.none);
+      }
+      expect(decoration.filled, isFalse);
     });
 
     testWidgets('a draft is not thrown away by a mis-tap', (tester) async {
@@ -6940,6 +6959,34 @@ void main() {
       expect(find.textContaining('will show up here'), findsOneWidget);
     });
 
+    testWidgets('the map controls sit low, within reach of a thumb',
+        (tester) async {
+      // They were pinned just under the status bar: six controls parked at
+      // the far corner of a big phone, over the part of the map someone is
+      // usually looking at.
+      await tester.pumpWidget(const MaterialApp(
+        home: ExploreMapScreen(debugMyLocation: LatLng(43.6, -79.3)),
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      final screen = tester.getSize(find.byType(ExploreMapScreen));
+      final layers = tester.getCenter(find.byTooltip('Map style')).dy;
+      expect(layers, greaterThan(screen.height * 0.5),
+          reason: 'the style button is at $layers of ${screen.height}');
+
+      // And still clear of the sheet rather than buried behind it.
+      final sheetTop = tester
+          .getTopLeft(find
+              .descendant(
+                  of: find.byType(DraggableScrollableSheet),
+                  matching: find.byType(Material))
+              .first)
+          .dy;
+      expect(tester.getBottomLeft(find.byTooltip('Zoom out')).dy,
+          lessThanOrEqualTo(sheetTop));
+    });
+
     testWidgets('the tile credit is not buried under the search sheet',
         (tester) async {
       // Mapbox's terms — and OpenStreetMap's — require the credit to be
@@ -7074,11 +7121,18 @@ void main() {
       expect(iconForPlaceCategory('Sculpture'), Icons.place_outlined);
     });
 
-    test('effectiveLayer follows the app theme for the Standard style', () {
+    test('only Automatic follows the theme; every other pick is literal', () {
+      // Following the theme used to be hidden inside Standard, so picking
+      // Standard in dark mode drew the Dark map: the check mark sat beside a
+      // style the map was not using, and choosing it looked like it did
+      // nothing at all.
+      expect(effectiveLayer('auto', Brightness.light), MapLayer.standard);
+      expect(effectiveLayer('auto', Brightness.dark), MapLayer.dark);
+
+      // Standard now means standard, whatever the app theme is doing.
       expect(effectiveLayer('standard', Brightness.light), MapLayer.standard);
-      // Standard auto-switches to the Dark map in dark mode…
-      expect(effectiveLayer('standard', Brightness.dark), MapLayer.dark);
-      // …but explicit picks are always respected.
+      expect(effectiveLayer('standard', Brightness.dark), MapLayer.standard);
+
       expect(effectiveLayer('satellite', Brightness.dark), MapLayer.satellite);
       expect(effectiveLayer('terrain', Brightness.dark), MapLayer.terrain);
       expect(effectiveLayer('dark', Brightness.light), MapLayer.dark);
@@ -8132,13 +8186,16 @@ void main() {
   });
 
   group('Map layers', () {
-    test('MapLayer.fromName maps names and defaults to standard', () {
+    test('MapLayer.fromName maps names and defaults to Automatic', () {
       expect(MapLayer.fromName('satellite'), MapLayer.satellite);
       expect(MapLayer.fromName('terrain'), MapLayer.terrain);
       expect(MapLayer.fromName('dark'), MapLayer.dark);
       expect(MapLayer.fromName('standard'), MapLayer.standard);
-      expect(MapLayer.fromName('bogus'), MapLayer.standard);
-      expect(MapLayer.fromName(null), MapLayer.standard);
+      expect(MapLayer.fromName('auto'), MapLayer.auto);
+      // Unknown and unset fall back to following the app, which is what a
+      // map with no preference expressed should do.
+      expect(MapLayer.fromName('bogus'), MapLayer.auto);
+      expect(MapLayer.fromName(null), MapLayer.auto);
     });
 
     test('each layer has a distinct tile URL and credit', () {

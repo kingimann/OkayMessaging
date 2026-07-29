@@ -75,7 +75,9 @@ String basemapSource() => mapboxEnabled ? 'Mapbox' : 'OpenStreetMap';
 /// The Mapbox style each layer maps to. Their dark style is designed to be
 /// read at night, which is why [darkMapLift] is not applied over it.
 String mapboxStyleFor(MapLayer layer) => switch (layer) {
-      MapLayer.standard => 'mapbox/streets-v12',
+      // auto never reaches here — effectiveLayer resolves it first — but the
+      // switch has to be total, and standard is what it resolves to by day.
+      MapLayer.auto || MapLayer.standard => 'mapbox/streets-v12',
       MapLayer.dark => 'mapbox/dark-v11',
       MapLayer.satellite => 'mapbox/satellite-streets-v12',
       MapLayer.terrain => 'mapbox/outdoors-v12',
@@ -88,8 +90,15 @@ String mapboxUrlFor(MapLayer layer) =>
     'https://api.mapbox.com/styles/v1/${mapboxStyleFor(layer)}'
     '/tiles/256/{z}/{x}/{y}{r}?access_token=$kMapboxToken';
 
-/// The selectable base map styles. All use free, CORS-enabled tile servers.
+/// The selectable base map styles.
 enum MapLayer {
+  /// Light or dark, whichever the app theme is on.
+  ///
+  /// This behaviour used to be hidden inside "Standard": picking Standard in
+  /// dark mode drew the Dark map, so the check mark sat next to a style the
+  /// map was not using and choosing it appeared to do nothing at all. It is
+  /// its own choice now, and Standard means standard.
+  auto('Automatic', Icons.brightness_auto_outlined),
   standard('Standard', Icons.map_outlined),
   dark('Dark', Icons.dark_mode_outlined),
   satellite('Satellite', Icons.satellite_alt_outlined),
@@ -100,7 +109,7 @@ enum MapLayer {
   final IconData icon;
 
   static MapLayer fromName(String? name) =>
-      values.firstWhere((l) => l.name == name, orElse: () => MapLayer.standard);
+      values.firstWhere((l) => l.name == name, orElse: () => MapLayer.auto);
 }
 
 /// Brightness lift applied to the Dark basemap's tiles.
@@ -203,6 +212,7 @@ TileLayer tileLayerFor(MapLayer layer, {bool lowData = false}) {
           child: tileWidget,
         ),
       );
+    case MapLayer.auto:
     case MapLayer.standard:
       return TileLayer(
         urlTemplate: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/'
@@ -226,8 +236,9 @@ String freeUrlFor(MapLayer layer) => switch (layer) {
       MapLayer.terrain => 'https://a.tile.opentopomap.org/{z}/{x}/{y}.png',
       MapLayer.dark =>
         'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-      MapLayer.standard => 'https://a.basemaps.cartocdn.com/rastertiles/'
-          'voyager/{z}/{x}/{y}{r}.png',
+      MapLayer.auto || MapLayer.standard =>
+        'https://a.basemaps.cartocdn.com/rastertiles/'
+            'voyager/{z}/{x}/{y}{r}.png',
     };
 
 /// The credit line a given [layer]'s tiles require.
@@ -239,7 +250,7 @@ String attributionFor(MapLayer layer) {
     MapLayer.satellite => '© Esri, Maxar',
     MapLayer.terrain => '© OpenTopoMap (CC-BY-SA)',
     MapLayer.dark => '© OpenStreetMap · © CARTO',
-    MapLayer.standard => '© OpenStreetMap · © CARTO',
+    MapLayer.auto || MapLayer.standard => '© OpenStreetMap · © CARTO',
   };
 }
 
@@ -371,10 +382,8 @@ class OsmAttribution extends StatelessWidget {
 /// switches to the Dark style in dark mode so the map matches the app.
 MapLayer effectiveLayer(String name, Brightness brightness) {
   final chosen = MapLayer.fromName(name);
-  if (chosen == MapLayer.standard && brightness == Brightness.dark) {
-    return MapLayer.dark;
-  }
-  return chosen;
+  if (chosen != MapLayer.auto) return chosen;
+  return brightness == Brightness.dark ? MapLayer.dark : MapLayer.standard;
 }
 
 /// The base tile layer bound to the user's chosen [MapLayer]; rebuilds when
@@ -462,6 +471,11 @@ class MapControls extends StatelessWidget {
                   builder: (context, name, _) => ListTile(
                     leading: Icon(l.icon),
                     title: Text(l.label),
+                    // Only Automatic needs explaining; the rest are the name
+                    // of the map you get.
+                    subtitle: l == MapLayer.auto
+                        ? const Text('Light or dark, following the app')
+                        : null,
                     trailing: MapLayer.fromName(name) == l
                         ? Icon(Icons.check,
                             color: Theme.of(sheetContext).colorScheme.primary)

@@ -43,10 +43,10 @@ class AppState {
   /// verified badge.
   static final ValueNotifier<Color?> bubbleColor = ValueNotifier<Color?>(null);
 
-  /// The chosen base map style (a [MapLayer] name: standard / satellite /
-  /// terrain), applied across every interactive map.
+  /// The chosen base map style (a [MapLayer] name), applied across every
+  /// interactive map. Defaults to 'auto': light or dark to match the app.
   static final ValueNotifier<String> mapLayer =
-      ValueNotifier<String>('standard');
+      ValueNotifier<String>('auto');
 
   /// Low data mode: maps load lighter (non-retina) tiles — a quarter of the
   /// pixels per tile — so they stay usable on slow cellular connections.
@@ -193,7 +193,7 @@ class AppState {
     profile.value = MockData.me;
     chatWallpaper.value = null;
     bubbleColor.value = null;
-    mapLayer.value = 'standard';
+    mapLayer.value = 'auto';
     mapLowData.value = false;
     mapUnits.value = 'metric';
     blockLinksFromStrangers.value = false;

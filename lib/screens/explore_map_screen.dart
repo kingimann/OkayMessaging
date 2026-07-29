@@ -645,16 +645,21 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
               ),
             ],
           ),
-          // Controls ride the top right, Apple-Maps style, clear of the
-          // bottom sheet; the my-location button joins them.
-          MapControls(
-            controller: _map,
-            top: MediaQuery.of(context).padding.top + 64,
-            onMyLocation:
-                selected == null && !_showResultsSheet ? _goToMe : null,
-            onSaved: _showSaved,
-            onFriends: () => Navigator.of(context)
-                .push(MaterialPageRoute(builder: (_) => const MapScreen())),
+          // Anchored to the sheet rather than the status bar. Up by the top
+          // edge they were a stretch on a big phone — six controls parked
+          // where a thumb has to leave the phone to reach them — and they
+          // covered the part of the map someone is usually looking at.
+          AnimatedBuilder(
+            animation: _sheet,
+            builder: (context, _) => MapControls(
+              controller: _map,
+              bottom: _aboveSheet(context) + 16,
+              onMyLocation:
+                  selected == null && !_showResultsSheet ? _goToMe : null,
+              onSaved: _showSaved,
+              onFriends: () => Navigator.of(context)
+                  .push(MaterialPageRoute(builder: (_) => const MapScreen())),
+            ),
           ),
           Positioned(
             top: MediaQuery.of(context).padding.top + 8,

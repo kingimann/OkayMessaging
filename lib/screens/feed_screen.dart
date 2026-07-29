@@ -1506,12 +1506,26 @@ class _FeedComposerScreenState extends State<FeedComposerScreen> {
                           textCapitalization: TextCapitalization.sentences,
                           keyboardType: TextInputType.multiline,
                           style: const TextStyle(fontSize: 19, height: 1.35),
-                          decoration: InputDecoration.collapsed(
+                          // Every border spelled out. InputDecoration.collapsed
+                          // only nulls `border`, so the app theme's
+                          // focusedBorder still applied — and this field is
+                          // autofocused, which drew a rounded box around an
+                          // empty composer the moment it opened.
+                          decoration: InputDecoration(
                             hintText: "What's happening?",
                             hintStyle: TextStyle(
                               fontSize: 19,
                               color: scheme.onSurfaceVariant,
                             ),
+                            filled: false,
+                            isDense: true,
+                            contentPadding: EdgeInsets.zero,
+                            border: InputBorder.none,
+                            enabledBorder: InputBorder.none,
+                            focusedBorder: InputBorder.none,
+                            disabledBorder: InputBorder.none,
+                            errorBorder: InputBorder.none,
+                            focusedErrorBorder: InputBorder.none,
                           ),
                         ),
                       ),
