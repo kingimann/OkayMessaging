@@ -150,9 +150,13 @@ class _ConnectWebViewState extends State<_ConnectWebView> {
     var secret = '';
     try {
       secret = await widget.onSecretRequest?.call() ?? '';
-    } catch (_) {
-      // The page turns an empty answer into a message the user can read; an
-      // exception thrown here would just be swallowed by the channel.
+    } catch (e) {
+      // An exception thrown here would be swallowed by the channel, and the
+      // page can only report "the app could not start a session" — which
+      // Stripe then replaces with its own "error occurred while
+      // authenticating your account". So the reason is reported to the screen
+      // directly, or the one thing that knows what went wrong stays silent.
+      widget.onEvent('error:$e');
     }
     if (!mounted) return;
     await _controller.runJavaScript(

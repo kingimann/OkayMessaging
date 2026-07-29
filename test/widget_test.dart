@@ -13094,6 +13094,63 @@ void main() {
     });
   });
 
+  group('Connect onboarding secrets', () {
+    test('a client secret is never handed out twice', () async {
+      // The bug this pins: an Account Session authenticates ONCE. The screen
+      // used to answer the page's first request with the session it made at
+      // start-up — the very secret the page had already spent on its first
+      // authentication — and Stripe rejected the reuse with "An error occurred
+      // while authenticating your account", a message about the account for a
+      // problem with the secret.
+      var n = 0;
+      final d = SecretDispenser(() async => 'accs_secret_${++n}');
+      expect(await d.next(), 'accs_secret_1');
+      expect(await d.next(), 'accs_secret_2');
+      expect(await d.next(), 'accs_secret_3');
+      expect(d.issued, 3, reason: 'each request mints, none replays');
+    });
+
+    test('a repeated or empty secret fails by name, not silently', () async {
+      // A mint that keeps answering the same thing cannot authenticate, so it
+      // is named rather than passed on for Stripe to blame the user for.
+      final stuck = SecretDispenser(() async => 'accs_secret_same');
+      expect(await stuck.next(), 'accs_secret_same');
+      await expectLater(
+        stuck.next(),
+        throwsA(predicate((e) => '$e'.contains('stale_client_secret'))),
+      );
+
+      final empty = SecretDispenser(() async => '');
+      await expectLater(
+        empty.next(),
+        throwsA(predicate((e) => '$e'.contains('no_client_secret'))),
+      );
+
+      // A mint that throws is not swallowed either — the screen turns these
+      // into words, and only a thrown error gets there.
+      final broken =
+          SecretDispenser(() async => throw PaymentException('unauthorized'));
+      await expectLater(broken.next(), throwsA(isA<PaymentException>()));
+    });
+
+    test('the page reports a refused secret instead of letting Stripe guess',
+        () {
+      // connect.js discards fetchClientSecret's rejection reason and paints
+      // its own authentication error, so the page has to say the real cause
+      // out loud (to itself and to the host) before rejecting.
+      final page = File('web/connect.html').readAsStringSync();
+      expect(page.contains('function refuse('), isTrue);
+      expect(page.contains('refuse(hostAnswers'), isTrue,
+          reason: 'the host-timeout path must report, not just reject');
+      expect(page.contains("refuse('The app could not start a Stripe "
+          "session.')"), isTrue);
+      // And the host reports a throw rather than swallowing it into ''.
+      final bridge = File('lib/payments/connect_webview_native.dart')
+          .readAsStringSync();
+      expect(bridge.contains("widget.onEvent('error:\$e')"), isTrue);
+    });
+  });
+
   group('Who may send money', () {
     test('both gates are enforced on the server, not the client', () {
       // A rule the app enforces is a rule an app can be modified to skip, so

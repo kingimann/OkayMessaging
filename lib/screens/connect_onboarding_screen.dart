@@ -32,9 +32,8 @@ class _ConnectOnboardingScreenState extends State<ConnectOnboardingScreen> {
   /// second attempt would show the first attempt's dead page.
   int _attempt = 0;
 
-  /// The first session is already in hand when the page asks for one; only
-  /// later requests need a fresh trip to Stripe.
-  bool _servedFirst = false;
+  late SecretDispenser _dispenser = SecretDispenser(
+      () async => (await PaymentService.instance.connectSession()).clientSecret);
 
   /// Stripe's own hosted onboarding, once someone asks for it.
   ///
@@ -73,18 +72,17 @@ class _ConnectOnboardingScreenState extends State<ConnectOnboardingScreen> {
     _session = PaymentService.instance.connectSession();
   }
 
-  /// Answers the page's request for an Account Session client secret.
+  /// Answers the page's request for an Account Session client secret, minting
+  /// a fresh one every time.
   ///
-  /// Stripe calls this again when a session expires and requires a *new* one
-  /// each time; handing back the same secret authenticates once at best.
-  Future<String> _secret() async {
-    if (!_servedFirst) {
-      _servedFirst = true;
-      final first = await _session;
-      if (first != null) return first.clientSecret;
-    }
-    return (await PaymentService.instance.connectSession()).clientSecret;
-  }
+  /// Never re-serves the session created in initState, even on the first
+  /// request. That looks like a free optimisation and is the bug it used to
+  /// be: the page receives that secret up front as `clientSecret` and spends
+  /// it on the first authentication, so by the time it asks the host it needs
+  /// the *second* one. Handing the same secret back made Stripe reject it and
+  /// paint "An error occurred while authenticating your account" over a
+  /// component that had already rendered.
+  Future<String> _secret() => _dispenser.next();
 
   void _onEvent(String event) {
     if (!mounted) return;
@@ -103,8 +101,11 @@ class _ConnectOnboardingScreenState extends State<ConnectOnboardingScreen> {
   void _retry() => setState(() {
         _attempt++;
         _pageError = null;
-        _servedFirst = false;
         _session = PaymentService.instance.connectSession();
+        // A fresh page, so a fresh dispenser — but the old secrets stay spent
+        // either way, because each `next()` mints rather than replays.
+        _dispenser = SecretDispenser(() async =>
+            (await PaymentService.instance.connectSession()).clientSecret);
       });
 
   @override
@@ -204,6 +205,14 @@ class _ConnectOnboardingScreenState extends State<ConnectOnboardingScreen> {
       return 'This build has no Stripe key.\n\n'
           '(set the STRIPE_PUBLISHABLE_KEY Edge Function secret)';
     }
+    if (text.contains('stale_client_secret')) {
+      return 'Stripe returned a session that had already been used, so it '
+          'could not be authenticated. Try again.';
+    }
+    if (text.contains('no_client_secret')) {
+      return 'The server did not return a Stripe session.\n\n'
+          '(payments-account-session answered without a clientSecret)';
+    }
     if (text.contains('TimeoutException')) {
       return 'Stripe did not answer. Check your connection and try again.';
     }
@@ -239,4 +248,38 @@ class _ConnectOnboardingScreenState extends State<ConnectOnboardingScreen> {
           ),
         ),
       );
+}
+
+/// Hands Stripe a fresh Account Session client secret every time it asks.
+///
+/// A separate object because the rule it enforces is the whole reason
+/// onboarding used to fail: an Account Session authenticates **once**, so a
+/// secret that has already been given out is worthless, and re-serving one
+/// makes Stripe report "An error occurred while authenticating your account" —
+/// a message about the account, for a problem with the secret. The screen used
+/// to hand back the session it created at start-up on the first request, not
+/// realising the page had already spent that exact secret on its first
+/// authentication.
+///
+/// Minting is delegated, so this is testable without Stripe or a WebView.
+@visibleForTesting
+class SecretDispenser {
+  SecretDispenser(this._mint);
+
+  final Future<String> Function() _mint;
+  final Set<String> _spent = <String>{};
+
+  /// How many secrets have been handed out.
+  int get issued => _spent.length;
+
+  /// A secret nobody has seen before. Throws [PaymentException] with
+  /// 'no_client_secret' when the mint comes back empty, and
+  /// 'stale_client_secret' when it repeats itself — better a named failure the
+  /// screen can explain than a silent one Stripe blames on the user.
+  Future<String> next() async {
+    final secret = await _mint();
+    if (secret.isEmpty) throw PaymentException('no_client_secret');
+    if (!_spent.add(secret)) throw PaymentException('stale_client_secret');
+    return secret;
+  }
 }

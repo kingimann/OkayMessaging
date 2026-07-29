@@ -97,19 +97,27 @@
     }
     return new Promise(function (resolve, reject) {
       var id = String(nextId++);
+      // Whatever goes wrong here, say it on the page AND to the host before
+      // rejecting: connect.js discards the rejection reason and paints its own
+      // "An error occurred while authenticating your account", which points at
+      // the account when the truth is that no new session arrived.
+      function refuse(message) {
+        fail(message);
+        reject(new Error(message));
+      }
       var timer = setTimeout(function () {
         if (!pending[id]) return;
         delete pending[id];
-        reject(new Error(hostAnswers
+        refuse(hostAnswers
           ? 'The app took too long to start a new Stripe session.'
           : 'This version of the app cannot refresh the Stripe session. '
-            + 'Update the app and try again.'));
+            + 'Update the app and try again.');
       }, 15000);
       pending[id] = function (secret) {
         clearTimeout(timer);
         hostAnswers = true;
         if (secret) resolve(secret);
-        else reject(new Error('The app could not start a Stripe session.'));
+        else refuse('The app could not start a Stripe session.');
       };
       notify('secret:' + id);
     });
