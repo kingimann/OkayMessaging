@@ -28,6 +28,9 @@ const pasteFunctions = [
   'iap-status',
   'identity-start',
   'identity-status',
+  'moderation-status',
+  'moderation-act',
+  'moderation-queue',
 ];
 
 /// Whatever the paste copy's own header should say for [name].

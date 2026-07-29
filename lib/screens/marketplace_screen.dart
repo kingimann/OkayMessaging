@@ -17,6 +17,7 @@ import '../util/photo_prep.dart';
 import '../widgets/app_dialogs.dart';
 import '../widgets/chat_photo.dart';
 import '../widgets/listing_video.dart';
+import '../widgets/sanction_notice.dart';
 import '../widgets/verified_badge.dart';
 import 'chat_screen.dart';
 import 'feed_screen.dart' show showPersonSheet, feedSpans;
@@ -564,13 +565,16 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
             ListTile(
               leading: const Icon(Icons.flag_outlined),
               title: const Text('Report'),
-              subtitle: const Text('Hides it here and flags it to you only — '
-                  'servers have no central moderator'),
+              subtitle: const Text('Hides it here and sends it to the app\'s '
+                  'moderators'),
               onTap: () {
                 FeedStore.instance.hidePost(listing.id);
                 Navigator.of(sheetContext).pop();
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                    content: Text('Hidden. You can also mute the seller.')));
+                showReportSheet(
+                  context,
+                  context_: 'listing: ${listing.text}',
+                  targetHandle: listing.authorUsername,
+                );
               },
             ),
           ],

@@ -14,6 +14,7 @@ import '../theme/app_theme.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/pull_to_refresh.dart';
 import '../widgets/chat_list_tile.dart';
+import '../widgets/sanction_notice.dart';
 
 /// Quick filters shown as chips above the chat list, mirroring the familiar
 /// All / Unread / Favourites / Groups controls.
@@ -127,10 +128,13 @@ class _ChatsTabState extends State<ChatsTab> {
       listenable: Listenable.merge([store, OnboardingStore.instance]),
       builder: (context, _) {
         final content = _content(context, store);
-        if (OnboardingStore.instance.done) return content;
+        // A sanction has to be *said*. Silently losing the directory, push,
+        // and the ability to send reads as a broken app, not a decision.
         return Column(
           children: [
-            _GetStartedCard(onDismiss: OnboardingStore.instance.complete),
+            const SanctionNotice(),
+            if (!OnboardingStore.instance.done)
+              _GetStartedCard(onDismiss: OnboardingStore.instance.complete),
             Expanded(child: content),
           ],
         );

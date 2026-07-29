@@ -2,16 +2,19 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../app_state.dart';
+import '../models/platform_role.dart';
 import '../state/account_email.dart';
 import '../state/backup_service.dart';
 import '../util/build_info.dart';
 import '../state/chat_store.dart';
+import '../state/platform_moderation.dart';
 import '../state/session.dart';
 import '../state/storage_store.dart';
 import '../widgets/app_dialogs.dart';
 import '../widgets/info_section.dart';
 import '../widgets/user_avatar.dart';
 import 'account_email_screen.dart';
+import 'admin_screen.dart';
 import 'backup_screen.dart';
 import 'chats_settings_screen.dart';
 import 'cloud_sync_screen.dart';
@@ -92,6 +95,33 @@ class SettingsView extends StatelessWidget {
               ),
             ),
           ],
+        ),
+
+        // Only for accounts the server says hold a platform role, and only
+        // once it has said so — a moderation console must never appear on a
+        // hunch about who is using the phone.
+        ListenableBuilder(
+          listenable: PlatformModeration.instance,
+          builder: (context, _) {
+            final store = PlatformModeration.instance;
+            if (!store.canModerate) return const SizedBox.shrink();
+            return Column(
+              children: [
+                settingsSectionLabel(context, 'Moderation'),
+                InfoSection(children: [
+                  InfoTile(
+                    leading: const Icon(Icons.shield_outlined),
+                    title: 'Moderation console',
+                    subtitle: 'Reports, sanctions · '
+                        '${platformRoleName(store.role)}',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => const AdminScreen()),
+                    ),
+                  ),
+                ]),
+              ],
+            );
+          },
         ),
 
         settingsSectionLabel(context, 'Notifications & calls'),

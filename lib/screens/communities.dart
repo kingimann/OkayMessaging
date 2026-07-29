@@ -7,10 +7,12 @@ import 'package:flutter/services.dart';
 
 import '../app_state.dart';
 import '../models/community.dart';
+import '../models/platform_role.dart';
 import '../models/message.dart';
 import '../relay/relay_config.dart';
 import '../relay/relay_service.dart';
 import '../state/community_store.dart';
+import '../state/platform_moderation.dart';
 import '../state/channel_typing_store.dart';
 import '../state/voice_presence_store.dart';
 import '../util/file_moderation.dart';
@@ -1494,12 +1496,24 @@ class _ChannelScreenState extends State<ChannelScreen> {
     super.dispose();
   }
 
-  /// The moderation gate every send goes through: the server's word filter
-  /// (when [text] is given) and slow mode. Explains itself in a snackbar.
+  /// The moderation gate every send goes through: an app-wide sanction, the
+  /// server's word filter (when [text] is given), and slow mode. Explains
+  /// itself in a snackbar.
   bool _sendAllowed({String? text}) {
     final store = CommunityStore.instance;
     final community = store.byId(widget.communityId);
     if (community == null) return false;
+    // An app-wide sanction outranks any one server's rules.
+    if (PlatformModeration.instance.isSilenced) {
+      final s = PlatformModeration.instance.sanction!;
+      final left = sanctionRemaining(s.until, DateTime.now().toUtc());
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(left.isEmpty
+              ? '${sanctionKindLabel(s.kind)} — you can\'t send right now'
+              : '${sanctionKindLabel(s.kind)} — you can send again in '
+                  '$left')));
+      return false;
+    }
     if (text != null) {
       final hit = store.filterHit(widget.communityId, text);
       if (hit != null) {

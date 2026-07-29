@@ -45,6 +45,7 @@ import 'state/status_store.dart';
 import 'state/streak_store.dart';
 import 'state/channel_typing_store.dart';
 import 'state/identity_verification.dart';
+import 'state/platform_moderation.dart';
 import 'state/voice_presence_store.dart';
 import 'state/two_step.dart';
 import 'theme/app_theme.dart';
@@ -112,6 +113,10 @@ Future<void> main() async {
     }
   });
   unawaited(IdentityVerification.instance.refresh());
+  // App-wide role and sanction. Fire-and-forget: a device that can't reach the
+  // server shows no moderation tools and enforces no sanction locally — the
+  // database is what actually holds a lock-out.
+  unawaited(PlatformModeration.instance.refresh());
   ChannelTypingStore.instance.onTyping = (communityId, channelId) =>
       RelayService.instance.sendChannelTyping(communityId, channelId);
   VoicePresenceStore.instance.onPresence = (communityId, channelId,

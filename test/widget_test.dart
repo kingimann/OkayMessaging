@@ -34,7 +34,12 @@ import 'package:okay_messaging/screens/chats_settings_screen.dart';
 import 'package:okay_messaging/screens/okay_pro_screen.dart';
 import 'package:okay_messaging/screens/community_settings_screen.dart';
 import 'package:okay_messaging/screens/create_server_screen.dart';
+import 'package:okay_messaging/models/platform_role.dart';
+import 'package:okay_messaging/screens/admin_screen.dart';
+import 'package:okay_messaging/screens/settings_screen.dart';
 import 'package:okay_messaging/screens/identity_check_screen.dart';
+import 'package:okay_messaging/state/platform_moderation.dart';
+import 'package:okay_messaging/widgets/sanction_notice.dart';
 import 'package:okay_messaging/screens/forum_screen.dart';
 import 'package:okay_messaging/screens/location_picker_screen.dart';
 import 'package:okay_messaging/screens/marketplace_screen.dart';
@@ -13199,6 +13204,390 @@ void main() {
               IdentityVerification.pageUrl, IdentityVerification.returnUrl),
           isTrue,
           reason: 'same origin: the load-order guard is doing real work');
+    });
+  });
+
+  group('App-wide moderation', () {
+    setUp(PlatformModeration.instance.resetForTest);
+    tearDown(PlatformModeration.instance.resetForTest);
+
+    test('roles rank, and only the right ranks hold the right tools', () {
+      expect(platformRoleRank(PlatformRole.owner),
+          greaterThan(platformRoleRank(PlatformRole.admin)));
+      expect(platformRoleRank(PlatformRole.admin),
+          greaterThan(platformRoleRank(PlatformRole.moderator)));
+      expect(platformRoleRank(PlatformRole.moderator),
+          greaterThan(platformRoleRank(PlatformRole.member)));
+
+      // A moderator times out. Bans and suspensions need an admin.
+      expect(roleCanApply(PlatformRole.moderator, SanctionKind.timeout),
+          isTrue);
+      expect(roleCanApply(PlatformRole.moderator, SanctionKind.ban), isFalse);
+      expect(
+          roleCanApply(PlatformRole.moderator, SanctionKind.suspend), isFalse);
+      expect(roleCanApply(PlatformRole.admin, SanctionKind.ban), isTrue);
+      // Members hold nothing, and "none" is lifted, never applied.
+      expect(roleCanApply(PlatformRole.member, SanctionKind.timeout), isFalse);
+      expect(roleCanApply(PlatformRole.owner, SanctionKind.none), isFalse);
+      // Granting roles is the owner's alone — and even then it is SQL.
+      expect(roleCanGrantRoles(PlatformRole.owner), isTrue);
+      expect(roleCanGrantRoles(PlatformRole.admin), isFalse);
+
+      // Strictly outranking only, so a moderation team can't turn on itself.
+      expect(canActOnRole(PlatformRole.admin, PlatformRole.member), isTrue);
+      expect(canActOnRole(PlatformRole.admin, PlatformRole.admin), isFalse,
+          reason: 'an admin must not be able to ban a peer');
+      expect(canActOnRole(PlatformRole.admin, PlatformRole.owner), isFalse);
+      expect(canActOnRole(PlatformRole.owner, PlatformRole.admin), isTrue);
+      expect(canActOnRole(PlatformRole.member, PlatformRole.member), isFalse);
+      // Nobody, at any rank, can act on the owner.
+      for (final actor in PlatformRole.values) {
+        expect(canActOnRole(actor, PlatformRole.owner), isFalse,
+            reason: '${actor.name} must not be able to act on the owner');
+      }
+    });
+
+    test('a sanction expires on its own, and each kind bites differently', () {
+      final now = DateTime.utc(2026, 7, 1, 12);
+      AccountSanction at(SanctionKind kind, {DateTime? until}) =>
+          AccountSanction(kind: kind, until: until, createdAt: now);
+
+      // A lapsed sanction is history, not a punishment — even before any
+      // sweep removes the row.
+      final lapsed =
+          at(SanctionKind.ban, until: now.subtract(const Duration(minutes: 1)));
+      expect(lapsed.isActiveAt(now), isFalse);
+      expect(lapsed.blocksAccessAt(now), isFalse);
+      expect(lapsed.blocksSendingAt(now), isFalse);
+
+      // A ban with no end never lapses.
+      expect(at(SanctionKind.ban).isActiveAt(now), isTrue);
+      expect(at(SanctionKind.ban).blocksAccessAt(now), isTrue);
+
+      // A timeout silences without disappearing anyone: still in the
+      // directory, still reading.
+      final timeout =
+          at(SanctionKind.timeout, until: now.add(const Duration(hours: 1)));
+      expect(timeout.blocksSendingAt(now), isTrue);
+      expect(timeout.blocksAccessAt(now), isFalse);
+      expect(timeout.hidesFromDirectoryAt(now), isFalse);
+
+      // A suspension locks out and hides.
+      final suspend =
+          at(SanctionKind.suspend, until: now.add(const Duration(days: 2)));
+      expect(suspend.blocksAccessAt(now), isTrue);
+      expect(suspend.hidesFromDirectoryAt(now), isTrue);
+
+      // None is nothing at all.
+      expect(at(SanctionKind.none).isActiveAt(now), isFalse);
+
+      // Round-trips through JSON, expiry and all.
+      final revived = AccountSanction.fromJson(suspend.toJson());
+      expect(revived.kind, SanctionKind.suspend);
+      expect(revived.until, suspend.until);
+      expect(revived.blocksAccessAt(now), isTrue);
+    });
+
+    test('time remaining reads like a person would say it', () {
+      final now = DateTime.utc(2026, 7, 1, 12);
+      expect(sanctionRemaining(null, now), '', reason: 'permanent has no end');
+      expect(sanctionRemaining(now.subtract(const Duration(hours: 1)), now),
+          '');
+      // Under a minute is "moments" — "0 minutes" reads as already over.
+      expect(sanctionRemaining(now.add(const Duration(seconds: 30)), now),
+          'moments');
+      expect(
+          sanctionRemaining(now.add(const Duration(minutes: 1)), now),
+          '1 minute');
+      expect(
+          sanctionRemaining(now.add(const Duration(minutes: 8)), now),
+          '8 minutes');
+      expect(sanctionRemaining(now.add(const Duration(hours: 1)), now),
+          '1 hour');
+      expect(sanctionRemaining(now.add(const Duration(hours: 5)), now),
+          '5 hours');
+      expect(sanctionRemaining(now.add(const Duration(days: 1)), now),
+          '1 day');
+      expect(sanctionRemaining(now.add(const Duration(days: 7)), now),
+          '7 days');
+      // Rounds up rather than under-promising: a sanction with 2 days and 23
+      // hours left must not be described as "2 days".
+      expect(
+          sanctionRemaining(
+              now.add(const Duration(days: 2, hours: 23)), now),
+          '3 days');
+      // …and promotes as it rounds, so nobody is told "60 minutes".
+      expect(
+          sanctionRemaining(
+              now.add(const Duration(minutes: 59, seconds: 30)), now),
+          '1 hour');
+    });
+
+    test('the store shows nothing until the server has spoken', () async {
+      final store = PlatformModeration.instance;
+      // A device that can't reach the server is a member with no sanction —
+      // never a moderator on a hunch.
+      expect(store.loaded, isFalse);
+      expect(store.role, PlatformRole.member);
+      expect(store.canModerate, isFalse);
+      expect(store.isLockedOut, isFalse);
+      expect(store.sanction, isNull);
+
+      // Offline: refresh changes nothing rather than failing open.
+      await store.refresh();
+      expect(store.role, PlatformRole.member);
+
+      PlatformModeration.debugStatusOverride = () async => (
+            PlatformRole.moderator,
+            AccountSanction(
+                kind: SanctionKind.timeout,
+                reason: 'Spam',
+                until: DateTime.now().toUtc().add(const Duration(hours: 2)),
+                createdAt: DateTime.now().toUtc()),
+          );
+      await store.refresh();
+      expect(store.loaded, isTrue);
+      expect(store.canModerate, isTrue);
+      expect(store.canAdminister, isFalse);
+      // A timeout silences without locking out.
+      expect(store.isSilenced, isTrue);
+      expect(store.isLockedOut, isFalse);
+
+      // An already-lapsed sanction is not reported as one.
+      PlatformModeration.debugStatusOverride = () async => (
+            PlatformRole.member,
+            AccountSanction(
+                kind: SanctionKind.ban,
+                until: DateTime.now()
+                    .toUtc()
+                    .subtract(const Duration(minutes: 5)),
+                createdAt: DateTime.utc(2026)),
+          );
+      await store.refresh();
+      expect(store.sanction, isNull);
+      expect(store.isLockedOut, isFalse);
+    });
+
+    test('acting sends the server a request, never a decision', () async {
+      final store = PlatformModeration.instance;
+      final calls = <String>[];
+      PlatformModeration.debugActOverride =
+          (target, action, reason, minutes) async {
+        calls.add('$target/$action/$reason/$minutes');
+        return true;
+      };
+
+      // A ban carries no duration; the others do.
+      await store.apply(
+          targetPhone: '+1 (555) 010-2222',
+          kind: SanctionKind.ban,
+          reason: 'Scam');
+      expect(calls.single, '15550102222/ban/Scam/0');
+
+      calls.clear();
+      await store.apply(
+          targetPhone: '15550103333',
+          kind: SanctionKind.timeout,
+          reason: 'Spam',
+          minutes: 60);
+      expect(calls.single, '15550103333/timeout/Spam/60');
+
+      calls.clear();
+      await store.lift('15550103333');
+      expect(calls.single, '15550103333/lift//0');
+
+      // Nothing is sent for an empty target.
+      calls.clear();
+      expect(await store.apply(targetPhone: '  ', kind: SanctionKind.ban),
+          isFalse);
+      expect(calls, isEmpty);
+
+      // A refusal is reported as one — the server is the authority, and the
+      // console has to be able to say "that didn't happen".
+      PlatformModeration.debugActOverride = (_, __, ___, ____) async => false;
+      expect(
+          await store.apply(
+              targetPhone: '15550104444', kind: SanctionKind.ban),
+          isFalse);
+    });
+
+    test('a report carries the complaint and never the conversation',
+        () async {
+      final store = PlatformModeration.instance;
+      Map<String, dynamic>? filed;
+      PlatformModeration.debugFileOverride = (row) async {
+        filed = row;
+        return true;
+      };
+      expect(
+          await store.report(
+            reason: 'Harassment',
+            targetPhone: '+1 555 010-5555',
+            targetHandle: 'ada',
+            detail: 'Kept messaging after I asked them to stop',
+            context: 'listing: Bike',
+            reporterPhone: '+1 555 010-1111',
+          ),
+          isTrue);
+      expect(filed!['reason'], 'Harassment');
+      expect(filed!['target_phone'], '15550105555');
+      expect(filed!['reporter_phone'], '15550101111');
+      expect(filed!['target_handle'], 'ada');
+
+      // Over-long detail is trimmed to what the column accepts rather than
+      // failing the insert.
+      PlatformModeration.debugFileOverride = (row) async {
+        filed = row;
+        return true;
+      };
+      await store.report(reason: 'Spam', detail: 'x' * 4000);
+      expect((filed!['detail'] as String).length, 1000);
+    });
+
+    test('sanctions and roles are the database\'s to decide, not the app\'s',
+        () {
+      // Roles: a table with RLS on and no client policy. If the app could read
+      // or write this, a modified build would simply make itself an owner.
+      final sql = File('docs/platform_moderation.sql').readAsStringSync();
+      expect(sql.contains('create table if not exists public.platform_roles'),
+          isTrue);
+      expect(sql.contains('alter table public.platform_roles enable row level'),
+          isTrue);
+      expect(sql.contains('create policy platform_roles'), isFalse,
+          reason: 'no client may read or write who holds power');
+
+      // The enforcement that survives a modified client: Postgres hides
+      // locked-out accounts from the directory and refuses their writes.
+      expect(sql.contains('function public.is_locked_out'), isTrue);
+      expect(sql.contains('security definer'), isTrue);
+      expect(sql.contains('not public.is_locked_out(phone)'), isTrue);
+      // Time-awareness, so a lapsed sanction stops applying by itself.
+      expect(sql.contains('s.until is null or s.until > now()'), isTrue);
+      // Only bans and suspensions hide someone; a timeout silences.
+      expect(sql.contains("s.kind in ('ban', 'suspend')"), isTrue);
+
+      // Every authority check lives in the function, against the caller's
+      // JWT-proven phone — the app's own role checks only draw buttons.
+      final act =
+          File('supabase/functions/moderation-act/index.ts').readAsStringSync();
+      expect(act.contains('callerPhone(req)'), isTrue);
+      expect(act.contains('platform_roles'), isTrue);
+      expect(act.contains('RANK[actorRole] <= RANK[targetRole]'), isTrue,
+          reason: 'outranking has to be checked server-side');
+      expect(act.contains('needs_admin'), isTrue,
+          reason: 'a moderator asking for a ban must be refused');
+      expect(act.contains('cannot_sanction_self'), isTrue);
+      expect(act.contains('moderation_log'), isTrue,
+          reason: 'moderation without a record is just power');
+
+      // Reports are readable only through a role-gated function.
+      final queue = File('supabase/functions/moderation-queue/index.ts')
+          .readAsStringSync();
+      expect(queue.contains('RANK[role] < RANK.moderator'), isTrue);
+      expect(sql.contains('create policy moderation_reports_insert'), isTrue);
+      expect(sql.contains('for select'), isTrue);
+      expect(
+          sql.contains('create policy moderation_reports_select'), isFalse,
+          reason: 'one person\'s report is nobody else\'s business');
+    });
+
+    test('moderation never claims a power over messages that nobody has', () {
+      // The honesty that matters: message bodies are E2E encrypted with no
+      // server copy, so no role can read or delete them. Anything that
+      // implied otherwise would be a lie in a moderation console.
+      final sql = File('docs/platform_moderation.sql').readAsStringSync();
+      expect(sql.contains('end-to-end encrypted'), isTrue);
+      // No moderation surface may reach into the mailbox, which holds the
+      // sealed envelopes.
+      for (final f in [
+        'supabase/functions/moderation-act/index.ts',
+        'supabase/functions/moderation-queue/index.ts',
+        'supabase/functions/moderation-status/index.ts',
+      ]) {
+        expect(File(f).readAsStringSync().contains('mailbox'), isFalse,
+            reason: '$f must not touch sealed message envelopes');
+      }
+    });
+
+    testWidgets('a sanctioned account is told, not just quietly broken',
+        (tester) async {
+      final store = PlatformModeration.instance;
+      // Nothing to say when there's no sanction.
+      await tester.pumpWidget(
+          const MaterialApp(home: Scaffold(body: SanctionNotice())));
+      expect(find.byType(Card), findsNothing);
+      expect(find.textContaining('banned'), findsNothing);
+
+      store.debugSet(
+        role: PlatformRole.member,
+        sanction: AccountSanction(
+            kind: SanctionKind.suspend,
+            reason: 'Scam listings',
+            until: DateTime.now().toUtc().add(const Duration(days: 3)),
+            createdAt: DateTime.now().toUtc()),
+        loaded: true,
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Your account is suspended'), findsOneWidget);
+      // The reason, the clock, and what still works — a lock-out with no
+      // explanation is indistinguishable from a bug.
+      expect(find.textContaining('Scam listings'), findsOneWidget);
+      expect(find.textContaining('3 days'), findsOneWidget);
+      expect(find.textContaining('stay readable'), findsOneWidget);
+
+      // A ban says it doesn't expire rather than showing an empty clock.
+      store.debugSet(
+        sanction: AccountSanction(
+            kind: SanctionKind.ban,
+            reason: 'Fraud',
+            createdAt: DateTime.now().toUtc()),
+        loaded: true,
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Your account has been banned'), findsOneWidget);
+      expect(find.textContaining('does not expire'), findsOneWidget);
+    });
+
+    testWidgets('the console only exists for accounts the server vouched for',
+        (tester) async {
+      final store = PlatformModeration.instance;
+      await tester.pumpWidget(const MaterialApp(home: Scaffold(
+          body: SettingsView())));
+      await tester.pumpAndSettle();
+      expect(find.text('Moderation console'), findsNothing,
+          reason: 'a member must never see moderation tools');
+
+      store.debugSet(role: PlatformRole.moderator, loaded: true);
+      await tester.pumpAndSettle();
+      final console = find.text('Moderation console');
+      await tester.scrollUntilVisible(console, 200);
+      expect(console, findsOneWidget);
+      expect(find.textContaining('Moderator'), findsWidgets);
+    });
+
+    testWidgets('the console offers a moderator only what they may do',
+        (tester) async {
+      final store = PlatformModeration.instance;
+      PlatformModeration.debugReportsOverride = () async => const [];
+      // A moderator: timeouts only, and the console says so.
+      store.debugSet(role: PlatformRole.moderator, loaded: true);
+      tester.view.physicalSize = const Size(500, 1600);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(const MaterialApp(home: AdminScreen()));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Bans and suspensions need an admin'),
+          findsOneWidget);
+      // The limit on the whole feature is stated, not buried.
+      expect(find.textContaining('no server copy'), findsOneWidget);
+
+      await tester.tap(find.text('Act on account'));
+      await tester.pumpAndSettle();
+      expect(find.widgetWithText(ChoiceChip, 'Timed out'), findsOneWidget);
+      expect(find.widgetWithText(ChoiceChip, 'Banned'), findsNothing,
+          reason: 'a moderator is not offered a ban');
+      expect(find.widgetWithText(ChoiceChip, 'Suspended'), findsNothing);
     });
   });
 
