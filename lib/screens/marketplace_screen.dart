@@ -66,6 +66,7 @@ class MarketplaceScreen extends StatefulWidget {
 class _MarketplaceScreenState extends State<MarketplaceScreen> {
   String _category = '';
   String _query = '';
+  bool _mineOnly = false;
   final TextEditingController _search = TextEditingController();
 
   @override
@@ -103,19 +104,11 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
   }
 
   void _open(FeedPost listing) {
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (sheetContext) => _ListingSheet(
-        listing: listing,
-        serverName: _serverName(listing.communityId),
-        mine: _mine(listing),
-        onChanged: () {
-          if (mounted) setState(() {});
-        },
-      ),
-    );
+    // A full screen, not a sheet: a listing is mostly photo, and a sheet
+    // gives a photo whatever height is left under the drag handle.
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => ListingScreen(listingId: listing.id),
+    ));
   }
 
   @override
@@ -131,6 +124,12 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
         listenable: FeedStore.instance,
         builder: (context, _) {
           var listings = FeedStore.instance.listings();
+          if (_mineOnly) {
+            listings = [
+              for (final l in listings)
+                if (_mine(l)) l
+            ];
+          }
           if (_category.isNotEmpty) {
             listings = [
               for (final l in listings)
@@ -144,6 +143,14 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
                 if (l.text.toLowerCase().contains(q)) l
             ];
           }
+          // What's still for sale first; sold sinks to the end rather than
+          // being hidden — a buyer mid-conversation can still find it.
+          listings = [
+            for (final l in listings)
+              if (!l.listingSold) l,
+            for (final l in listings)
+              if (l.listingSold) l,
+          ];
           return Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -175,6 +182,16 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
                   scrollDirection: Axis.horizontal,
                   padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
                   children: [
+                    Padding(
+                      padding: const EdgeInsets.only(right: 6),
+                      child: FilterChip(
+                        avatar: const Icon(Icons.sell_outlined, size: 15),
+                        label: const Text('Your listings'),
+                        selected: _mineOnly,
+                        visualDensity: VisualDensity.compact,
+                        onSelected: (v) => setState(() => _mineOnly = v),
+                      ),
+                    ),
                     for (final c in kMarketplaceCategories)
                       Padding(
                         padding: const EdgeInsets.only(right: 6),
@@ -267,33 +284,21 @@ class _ListingCard extends StatelessWidget {
               children: [
                 ClipRRect(
                   borderRadius: BorderRadius.circular(14),
-                  child: listing.gifUrl != null
-                      ? ChatPhoto(
-                          url: listing.gifUrl!,
-                          fit: BoxFit.cover,
-                          errorBuilder: (_) => _placeholder(context),
-                        )
-                      : _placeholder(context),
+                  // A sold photo fades back so what's still for sale carries
+                  // the colour in the grid.
+                  child: Opacity(
+                    opacity: listing.listingSold ? 0.55 : 1,
+                    child: listing.gifUrl != null
+                        ? ChatPhoto(
+                            url: listing.gifUrl!,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_) => _placeholder(context),
+                          )
+                        : _placeholder(context),
+                  ),
                 ),
                 if (listing.listingSold)
-                  Positioned(
-                    left: 8,
-                    top: 8,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 3),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.72),
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: const Text('SOLD',
-                          style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w800,
-                              letterSpacing: 0.5)),
-                    ),
-                  ),
+                  const Positioned(left: 8, top: 8, child: _SoldBadge()),
               ],
             ),
           ),
@@ -323,143 +328,261 @@ class _ListingCard extends StatelessWidget {
       );
 }
 
-/// The listing opened full: photo, price, description, and what to do next —
-/// message the seller, or for your own, mark sold / remove.
-class _ListingSheet extends StatelessWidget {
-  final FeedPost listing;
-  final String serverName;
-  final bool mine;
-  final VoidCallback onChanged;
-  const _ListingSheet({
-    required this.listing,
-    required this.serverName,
-    required this.mine,
-    required this.onChanged,
-  });
+/// One listing, full screen — mostly photo, like the thing it is.
+///
+/// Looked up by id on every rebuild so a sold flag arriving over the relay
+/// updates the open screen, and a listing deleted under the viewer says so
+/// instead of showing a ghost.
+class ListingScreen extends StatelessWidget {
+  final String listingId;
+  const ListingScreen({super.key, required this.listingId});
+
+  bool _mine(FeedPost p) {
+    final me = AppState.profile.value.username;
+    return p.authorUsername == 'you' ||
+        (me.isNotEmpty && p.authorUsername == me);
+  }
+
+  String _serverName(String id) {
+    for (final c in CommunityStore.instance.communities) {
+      if (c.id == id) return c.name;
+    }
+    return '';
+  }
 
   @override
   Widget build(BuildContext context) {
-    final lines = listing.text.split('\n');
-    final title = lines.first;
-    final description = lines.skip(1).join('\n').trim();
-    final base = TextStyle(
-        fontSize: 14.5,
-        height: 1.4,
-        color: Theme.of(context).colorScheme.onSurface);
-    return SafeArea(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (listing.gifUrl != null)
-              ClipRRect(
-                borderRadius: BorderRadius.circular(14),
-                child: ChatPhoto(
-                  url: listing.gifUrl!,
-                  fit: BoxFit.cover,
-                  errorBuilder: (_) => const SizedBox.shrink(),
+    return ListenableBuilder(
+      listenable: FeedStore.instance,
+      builder: (context, _) {
+        final listing = FeedStore.instance
+            .listings()
+            .where((l) => l.id == listingId)
+            .firstOrNull;
+        if (listing == null) {
+          return Scaffold(
+            appBar: AppBar(),
+            body: Center(
+              child: Text('This listing was removed.',
+                  style: TextStyle(color: Colors.grey.shade600)),
+            ),
+          );
+        }
+        final lines = listing.text.split('\n');
+        final title = lines.first;
+        final description = lines.skip(1).join('\n').trim();
+        final mine = _mine(listing);
+        final serverName = _serverName(listing.communityId);
+        final scheme = Theme.of(context).colorScheme;
+        final base =
+            TextStyle(fontSize: 15, height: 1.45, color: scheme.onSurface);
+        return Scaffold(
+          appBar: AppBar(title: Text(title, maxLines: 1)),
+          // The next step lives in a bar pinned above the keyboard-safe area,
+          // reachable without scrolling past the description.
+          bottomNavigationBar: SafeArea(
+            minimum: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+            child: mine
+                ? Row(
+                    children: [
+                      Expanded(
+                        child: FilledButton.icon(
+                          onPressed: () => FeedStore.instance
+                              .setListingSold(listing.id, !listing.listingSold),
+                          icon: Icon(
+                              listing.listingSold
+                                  ? Icons.undo
+                                  : Icons.check_circle_outline,
+                              size: 18),
+                          label: Text(listing.listingSold
+                              ? 'Mark as available'
+                              : 'Mark as sold'),
+                          style: FilledButton.styleFrom(
+                              minimumSize: const Size.fromHeight(48)),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      OutlinedButton(
+                        onPressed: () {
+                          FeedStore.instance.deletePost(listing.id);
+                          Navigator.of(context).pop();
+                        },
+                        style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.red.shade400,
+                            minimumSize: const Size(52, 48),
+                            padding: EdgeInsets.zero),
+                        child: const Icon(Icons.delete_outline, size: 20),
+                      ),
+                    ],
+                  )
+                : FilledButton.icon(
+                    onPressed: () => showPersonSheet(context,
+                        username: listing.authorUsername,
+                        name: listing.authorName),
+                    icon: const Icon(Icons.chat_bubble_outline, size: 18),
+                    label: Text('Message ${listing.authorName}'),
+                    style: FilledButton.styleFrom(
+                        minimumSize: const Size.fromHeight(48)),
+                  ),
+          ),
+          body: ListView(
+            padding: EdgeInsets.zero,
+            children: [
+              if (listing.gifUrl != null)
+                Stack(
+                  children: [
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxHeight: 380),
+                      child: SizedBox(
+                        width: double.infinity,
+                        child: ChatPhoto(
+                          url: listing.gifUrl!,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_) => const SizedBox.shrink(),
+                        ),
+                      ),
+                    ),
+                    if (listing.listingSold)
+                      const Positioned(
+                        left: 14,
+                        top: 14,
+                        child: _SoldBadge(large: true),
+                      ),
+                  ],
+                ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 14, 16, 4),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title,
+                        style: const TextStyle(
+                            fontSize: 21, fontWeight: FontWeight.w800)),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Text(formatListingPrice(listing.priceCents ?? 0),
+                            style: const TextStyle(
+                                fontSize: 18, fontWeight: FontWeight.w700)),
+                        if (listing.listingSold &&
+                            listing.gifUrl == null) ...[
+                          const SizedBox(width: 8),
+                          const _SoldBadge(),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      [
+                        if (listing.listingCategory.isNotEmpty)
+                          listing.listingCategory,
+                        if (serverName.isNotEmpty) serverName,
+                        feedAge(listing.time),
+                      ].join(' · '),
+                      style: TextStyle(
+                          fontSize: 13, color: Colors.grey.shade600),
+                    ),
+                  ],
                 ),
               ),
-            const SizedBox(height: 12),
-            Text(title,
-                style: const TextStyle(
-                    fontSize: 19, fontWeight: FontWeight.w800)),
-            const SizedBox(height: 2),
-            Row(
-              children: [
-                Text(formatListingPrice(listing.priceCents ?? 0),
-                    style: const TextStyle(
-                        fontSize: 17, fontWeight: FontWeight.w700)),
-                if (listing.listingSold) ...[
-                  const SizedBox(width: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 7, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade700,
-                      borderRadius: BorderRadius.circular(5),
-                    ),
-                    child: const Text('SOLD',
-                        style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 10.5,
-                            fontWeight: FontWeight.w800)),
+              const Divider(height: 24, indent: 16, endIndent: 16),
+              // The seller, as a row a buyer can act on.
+              InkWell(
+                onTap: mine
+                    ? null
+                    : () => showPersonSheet(context,
+                        username: listing.authorUsername,
+                        name: listing.authorName),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 16, vertical: 4),
+                  child: Row(
+                    children: [
+                      CircleAvatar(
+                        radius: 18,
+                        child: Text(listing.authorName.isEmpty
+                            ? '?'
+                            : listing.authorName[0].toUpperCase()),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(mine ? 'Your listing' : listing.authorName,
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 14.5)),
+                            if (!mine &&
+                                listing.authorUsername.isNotEmpty &&
+                                listing.authorUsername != 'you')
+                              Text('@${listing.authorUsername}',
+                                  style: TextStyle(
+                                      fontSize: 12.5,
+                                      color: Colors.grey.shade600)),
+                          ],
+                        ),
+                      ),
+                      if (!mine)
+                        Icon(Icons.chevron_right,
+                            size: 20, color: Colors.grey.shade500),
+                    ],
                   ),
-                ],
+                ),
+              ),
+              if (description.isNotEmpty) ...[
+                const Divider(height: 24, indent: 16, endIndent: 16),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Details',
+                          style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.grey.shade600)),
+                      const SizedBox(height: 6),
+                      Text.rich(TextSpan(
+                          children: feedSpans(
+                              description,
+                              base,
+                              base.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                  color: scheme.primary)))),
+                    ],
+                  ),
+                ),
               ],
-            ),
-            const SizedBox(height: 4),
-            Text(
-              [
-                if (listing.listingCategory.isNotEmpty) listing.listingCategory,
-                if (serverName.isNotEmpty) serverName,
-                feedAge(listing.time),
-              ].join(' · '),
-              style: TextStyle(fontSize: 12.5, color: Colors.grey.shade600),
-            ),
-            if (description.isNotEmpty) ...[
-              const SizedBox(height: 12),
-              Text.rich(TextSpan(
-                  children: feedSpans(
-                      description,
-                      base,
-                      base.copyWith(
-                          fontWeight: FontWeight.w600,
-                          color: Theme.of(context).colorScheme.primary)))),
+              const SizedBox(height: 24),
             ],
-            const SizedBox(height: 18),
-            if (!mine)
-              FilledButton.icon(
-                onPressed: () {
-                  Navigator.of(context).pop();
-                  showPersonSheet(context,
-                      username: listing.authorUsername,
-                      name: listing.authorName);
-                },
-                icon: const Icon(Icons.chat_bubble_outline, size: 18),
-                label: Text('Message ${listing.authorName}'),
-                style: FilledButton.styleFrom(
-                    minimumSize: const Size.fromHeight(48)),
-              )
-            else ...[
-              FilledButton.icon(
-                onPressed: () {
-                  FeedStore.instance
-                      .setListingSold(listing.id, !listing.listingSold);
-                  onChanged();
-                  Navigator.of(context).pop();
-                },
-                icon: Icon(
-                    listing.listingSold
-                        ? Icons.undo
-                        : Icons.check_circle_outline,
-                    size: 18),
-                label: Text(listing.listingSold
-                    ? 'Mark as available'
-                    : 'Mark as sold'),
-                style: FilledButton.styleFrom(
-                    minimumSize: const Size.fromHeight(48)),
-              ),
-              const SizedBox(height: 8),
-              OutlinedButton.icon(
-                onPressed: () {
-                  FeedStore.instance.deletePost(listing.id);
-                  onChanged();
-                  Navigator.of(context).pop();
-                },
-                icon: const Icon(Icons.delete_outline, size: 18),
-                label: const Text('Remove listing'),
-                style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.red.shade400,
-                    minimumSize: const Size.fromHeight(46)),
-              ),
-            ],
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
+}
+
+/// The black SOLD tag, shared by the grid tiles and the listing screen.
+class _SoldBadge extends StatelessWidget {
+  final bool large;
+  const _SoldBadge({this.large = false});
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: EdgeInsets.symmetric(
+            horizontal: large ? 10 : 8, vertical: large ? 4 : 3),
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.72),
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: Text('SOLD',
+            style: TextStyle(
+                color: Colors.white,
+                fontSize: large ? 12.5 : 11,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 0.5)),
+      );
 }
 
 /// Creating a listing: photo, title, price, category, description, and which

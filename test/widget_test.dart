@@ -5585,8 +5585,13 @@ void main() {
 
       // The category chip narrows the grid. The chip row scrolls, so bring
       // the chip on screen first — tapping an off-screen widget is a no-op.
-      await tester.drag(find.text('Furniture'), const Offset(-560, 0));
-      await tester.pumpAndSettle();
+      // The chip row is lazy: keep scrolling until the chip is built and
+      // fully on screen, rather than guessing a pixel distance.
+      final chipRow = find.byType(ListView).first;
+      for (var i = 0; i < 8 && find.text('Sports').evaluate().isEmpty; i++) {
+        await tester.drag(chipRow, const Offset(-200, 0));
+        await tester.pumpAndSettle();
+      }
       await tester.ensureVisible(find.text('Sports'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Sports'));
@@ -5613,6 +5618,35 @@ void main() {
       await tester.tap(find.text('Mark as sold'));
       await tester.pumpAndSettle();
       expect(find.text('SOLD'), findsOneWidget);
+    });
+
+    testWidgets('an open listing follows the relay: sold updates, removal '
+        'says so', (tester) async {
+      FeedStore.instance.resetForTest();
+      addTearDown(FeedStore.instance.resetForTest);
+      final listing = FeedStore.instance.addListing('c1',
+          title: 'Desk', priceCents: 3000, category: 'Furniture');
+
+      await tester.pumpWidget(
+          MaterialApp(home: ListingScreen(listingId: listing.id)));
+      await tester.pump();
+      expect(find.text('Mark as sold'), findsOneWidget);
+      expect(find.text('Your listing'), findsOneWidget);
+
+      // A sold flag arriving over the relay updates the OPEN screen — the
+      // viewer must not act on a listing that just changed under them.
+      final soldRemotely = FeedPost.fromJson(listing.toJson())
+          .copyWith(listingSold: true, listingRev: 1);
+      FeedStore.instance.addRemote(soldRemotely);
+      await tester.pump();
+      expect(find.text('Mark as available'), findsOneWidget);
+      expect(find.text('SOLD'), findsOneWidget);
+
+      // Deleted under the viewer: say so, never show a ghost to message.
+      FeedStore.instance.deletePost(listing.id);
+      await tester.pump();
+      expect(find.text('This listing was removed.'), findsOneWidget);
+      expect(find.text('Mark as available'), findsNothing);
     });
 
     testWidgets('the server feed starts empty, posts, likes, and threads',
