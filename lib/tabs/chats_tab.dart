@@ -10,6 +10,7 @@ import '../screens/find_people_screen.dart';
 import '../state/chat_store.dart';
 import '../state/contacts_sync.dart';
 import '../state/onboarding_store.dart';
+import '../state/streak_store.dart';
 import '../theme/app_theme.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/pull_to_refresh.dart';
@@ -125,7 +126,11 @@ class _ChatsTabState extends State<ChatsTab> {
   Widget build(BuildContext context) {
     final store = ChatStore.instance;
     return ListenableBuilder(
-      listenable: Listenable.merge([store, OnboardingStore.instance]),
+      // The streak store is in here because each row wears a streak flame:
+      // a streak reconciled off the relay changes no chat, so nothing else
+      // would redraw the list.
+      listenable: Listenable.merge(
+          [store, OnboardingStore.instance, StreakStore.instance]),
       builder: (context, _) {
         final content = _content(context, store);
         // A sanction has to be *said*. Silently losing the directory, push,

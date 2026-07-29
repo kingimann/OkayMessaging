@@ -13,12 +13,17 @@ class StreakData {
   bool sentToday;
   bool recvToday;
 
+  /// The highest this streak ever reached. Kept when the streak lapses, so a
+  /// 40-day run that broke is still something you did.
+  int best;
+
   StreakData({
     this.count = 0,
     this.lastDay,
     this.today,
     this.sentToday = false,
     this.recvToday = false,
+    this.best = 0,
   });
 
   Map<String, dynamic> toJson() => {
@@ -27,15 +32,22 @@ class StreakData {
         'today': today,
         'sent': sentToday,
         'recv': recvToday,
+        'best': best,
       };
 
-  factory StreakData.fromJson(Map<String, dynamic> j) => StreakData(
-        count: (j['count'] as num?)?.toInt() ?? 0,
-        lastDay: j['lastDay'] as String?,
-        today: j['today'] as String?,
-        sentToday: j['sent'] as bool? ?? false,
-        recvToday: j['recv'] as bool? ?? false,
-      );
+  factory StreakData.fromJson(Map<String, dynamic> j) {
+    final count = (j['count'] as num?)?.toInt() ?? 0;
+    return StreakData(
+      count: count,
+      lastDay: j['lastDay'] as String?,
+      today: j['today'] as String?,
+      sentToday: j['sent'] as bool? ?? false,
+      recvToday: j['recv'] as bool? ?? false,
+      // Records written before bests were kept still know one thing: the
+      // streak got at least as high as it is now.
+      best: (j['best'] as num?)?.toInt() ?? count,
+    );
+  }
 }
 
 /// Tracks Snapchat-style conversation streaks, persisted on-device. Nothing is
@@ -76,6 +88,7 @@ class StreakStore extends ChangeNotifier {
       final yesterday = dayKey(at.subtract(const Duration(days: 1)));
       d.count = (d.lastDay == yesterday) ? d.count + 1 : 1;
       d.lastDay = day;
+      if (d.count > d.best) d.best = d.count;
     }
     _persist();
     notifyListeners();
@@ -105,6 +118,10 @@ class StreakStore extends ChangeNotifier {
       d.count = count;
       changed = true;
     }
+    if (d.count > d.best) {
+      d.best = d.count;
+      changed = true;
+    }
     if (d.lastDay == null || day.compareTo(d.lastDay!) > 0) {
       d.lastDay = day;
       changed = true;
@@ -129,12 +146,57 @@ class StreakStore extends ChangeNotifier {
   /// Directly sets a chat's streak (used to seed demo data / tests).
   void seed(String chatId, int count, {DateTime? lastDay}) {
     final day = dayKey(lastDay ?? DateTime.now());
-    _data[chatId] = StreakData(count: count, lastDay: day, today: day);
+    _data[chatId] =
+        StreakData(count: count, lastDay: day, today: day, best: count);
     _persist();
     notifyListeners();
   }
 
   bool get isEmpty => _data.isEmpty;
+
+  /// The longest streak this chat ever reached, live or lapsed.
+  int bestFor(String chatId) => _data[chatId]?.best ?? 0;
+
+  /// The longest streak ever reached with anybody. Survives a lapse — the run
+  /// happened even if it ended.
+  int get bestEver {
+    var best = 0;
+    for (final d in _data.values) {
+      if (d.best > best) best = d.best;
+    }
+    return best;
+  }
+
+  /// How many chats have a live streak right now.
+  int activeCount({DateTime? now}) {
+    final n = now ?? DateTime.now();
+    var count = 0;
+    for (final id in _data.keys) {
+      if (streakFor(id, now: n) > 0) count++;
+    }
+    return count;
+  }
+
+  /// Live streak days added together — the "you keep this many going" number.
+  int totalActiveDays({DateTime? now}) {
+    final n = now ?? DateTime.now();
+    var total = 0;
+    for (final id in _data.keys) {
+      total += streakFor(id, now: n);
+    }
+    return total;
+  }
+
+  /// What today still needs on [chatId] for the streak to advance: whether
+  /// you've written and whether they have. Drives telling somebody *why* a
+  /// streak isn't moving instead of leaving them to guess.
+  (bool sent, bool received) todayProgress(String chatId, {DateTime? now}) {
+    final d = _data[chatId];
+    if (d == null) return (false, false);
+    // Yesterday's bits say nothing about today.
+    if (d.today != dayKey(now ?? DateTime.now())) return (false, false);
+    return (d.sentToday, d.recvToday);
+  }
 
   /// Loads saved streaks at startup.
   Future<void> load() async {

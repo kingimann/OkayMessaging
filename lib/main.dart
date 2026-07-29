@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show kReleaseMode;
+
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -131,9 +133,11 @@ Future<void> main() async {
   await _boot('favourites', FavouritesStore.instance.load);
   await _boot('onboarding', OnboardingStore.instance.load);
   LiveLocationBroadcaster.instance.start();
-  if (StreakStore.instance.isEmpty) {
-    // Seed a couple of demo streaks so the feature is visible on first run;
-    // real streaks then build (and lapse) from actual conversation activity.
+  // Demo streaks make the feature visible against the sample chats — but only
+  // ever in a debug build. In release the chats are somebody's real
+  // conversations, and a fabricated "12 day streak" on one of them is invented
+  // activity about a real person. Real streaks build from real exchanges.
+  if (!kReleaseMode && StreakStore.instance.isEmpty) {
     final oneToOne =
         ChatStore.instance.chats.where((c) => !c.contact.isGroup).toList();
     if (oneToOne.isNotEmpty) StreakStore.instance.seed(oneToOne[0].id, 12);

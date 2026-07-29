@@ -142,6 +142,20 @@ class ScoreStore extends ChangeNotifier {
         threshold: 500),
   ];
 
+  /// One way points are earned, for showing people how the number moves.
+  /// The score was previously a figure that went up for unexplained reasons;
+  /// this is the same constants above, written down where they can be read.
+  static const List<(String, int)> earningRules = [
+    ('Open the app on a new day', pointsPerDailyCheckIn),
+    ('Place a voice or video call', pointsPerCall),
+    ('Post in a forum', pointsPerForumPost),
+    ('Comment on a forum post', pointsPerForumComment),
+    ('Send a message', pointsPerSend),
+    ('Receive a message', pointsPerReceive),
+    ('React to a message', pointsPerReaction),
+    ('Vote in a poll', pointsPerPollVote),
+  ];
+
   static Badge? badgeById(String id) {
     for (final b in catalog) {
       if (b.id == id) return b;
@@ -204,6 +218,39 @@ class ScoreStore extends ChangeNotifier {
       catalog.where((b) => isEarned(b.id)).toList(growable: false);
 
   int get earnedCount => earnedBadges.length;
+
+  /// How far along an unearned points badge is, in [0, 1]. 1.0 for anything
+  /// already earned, and 0.0 for a badge that isn't about points at all —
+  /// a one-off achievement has no partial credit to show.
+  double progressToward(String badgeId) {
+    final b = badgeById(badgeId);
+    if (b == null) return 0;
+    if (isEarned(b.id)) return 1;
+    final target = b.threshold;
+    if (target == null || target <= 0) return 0;
+    return (_points / target).clamp(0.0, 1.0);
+  }
+
+  /// The next points badge within reach — the nearest unearned threshold. Null
+  /// when every points badge is already earned, so the UI can drop the card
+  /// rather than invent a goal.
+  Badge? get nextBadge {
+    Badge? closest;
+    for (final b in catalog) {
+      final target = b.threshold;
+      if (target == null || isEarned(b.id)) continue;
+      if (closest == null || target < closest.threshold!) closest = b;
+    }
+    return closest;
+  }
+
+  /// Points still needed for [nextBadge], or null when there is none.
+  int? get pointsToNextBadge {
+    final b = nextBadge;
+    if (b == null) return null;
+    final left = b.threshold! - _points;
+    return left < 0 ? 0 : left;
+  }
 
   /// Loads the saved score at startup.
   Future<void> load() async {

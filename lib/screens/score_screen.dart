@@ -38,22 +38,31 @@ class ScoreScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(title: const Text('Okay Score')),
       body: AnimatedBuilder(
-        animation: ScoreStore.instance,
+        animation: Listenable.merge(
+            [ScoreStore.instance, StreakStore.instance]),
         builder: (context, _) {
           final store = ScoreStore.instance;
+          final earnedFirst = [
+            ...ScoreStore.catalog.where((b) => store.isEarned(b.id)),
+            ...ScoreStore.catalog.where((b) => !store.isEarned(b.id)),
+          ];
           return PullToRefresh(
             child: ListView(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
               children: [
                 _ScoreCard(points: store.points, earned: store.earnedCount),
-                const SizedBox(height: 16),
+                const SizedBox(height: 12),
+                const _StatsRow(),
+                const SizedBox(height: 12),
+                const _NextBadgeCard(),
                 const _VerifiedRow(),
                 const SizedBox(height: 20),
                 const _StreaksSection(),
                 _sectionHeader(context, 'BADGES'),
                 const SizedBox(height: 4),
                 Text(
-                  'Tap an earned badge to feature it on your profile.',
+                  'Tap an earned badge to feature it on your profile, or any '
+                  'badge to see what it takes.',
                   style: TextStyle(color: Colors.grey.shade600, fontSize: 12.5),
                 ),
                 const SizedBox(height: 12),
@@ -61,22 +70,35 @@ class ScoreScreen extends StatelessWidget {
                   crossAxisCount: 2,
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
-                  childAspectRatio: 1.55,
+                  childAspectRatio: 1.45,
                   mainAxisSpacing: 12,
                   crossAxisSpacing: 12,
                   children: [
-                    for (final badge in ScoreStore.catalog)
+                    // Earned first: what you have is more interesting than
+                    // the long tail of what you don't.
+                    for (final badge in earnedFirst)
                       _BadgeCard(
                         badge: badge,
                         earned: store.isEarned(badge.id),
                         featured: store.featuredBadge == badge.id,
-                        onTap: store.isEarned(badge.id)
-                            ? () => store.setFeatured(
-                                store.featuredBadge == badge.id ? null : badge.id)
-                            : null,
+                        progress: store.progressToward(badge.id),
+                        points: store.points,
+                        // Every badge is tappable now: an earned one features
+                        // (or unfeatures), a locked one explains itself
+                        // instead of being a dead square.
+                        onTap: () => store.isEarned(badge.id)
+                            ? store.setFeatured(
+                                store.featuredBadge == badge.id
+                                    ? null
+                                    : badge.id)
+                            : _explainBadge(context, badge, store),
                       ),
                   ],
                 ),
+                const SizedBox(height: 24),
+                _sectionHeader(context, 'HOW POINTS WORK'),
+                const SizedBox(height: 8),
+                const _EarningRules(),
               ],
             ),
           );
@@ -109,7 +131,12 @@ class _StreaksSection extends StatelessWidget {
           children: [
             _sectionHeader(context, 'STREAKS'),
             const SizedBox(height: 4),
-            Text('Message someone every day to grow a streak.',
+            // The old line said "message someone every day", which is only
+            // half the rule and left people wondering why a streak wasn't
+            // moving. It takes *both* of you, on the same day.
+            Text(
+                'A streak grows on each day you and someone both send at '
+                'least one message. Miss a day and it lapses.',
                 style: TextStyle(color: Colors.grey.shade600, fontSize: 12.5)),
             const SizedBox(height: 6),
             if (top.isEmpty)
@@ -121,7 +148,15 @@ class _StreaksSection extends StatelessWidget {
                         color: Colors.grey.shade400),
                     const SizedBox(width: 8),
                     Expanded(
-                      child: Text('No streaks yet — keep a daily chat going.',
+                      child: Text(
+                          StreakStore.instance.bestEver > 0
+                              ? 'No live streaks — your best was '
+                                  '${StreakStore.instance.bestEver} days. '
+                                  'Swap a message with someone today to '
+                                  'start again.'
+                              : 'No streaks yet. Once you and someone else '
+                                  'both message on the same day, a flame '
+                                  'appears here and in the chat.',
                           style: TextStyle(color: Colors.grey.shade500)),
                     ),
                   ],
@@ -156,6 +191,17 @@ class _StreakRow extends StatelessWidget {
     required this.expiring,
   });
 
+  static const _hint =
+      TextStyle(fontSize: 11.5, color: Color(0xFFEF8A3C));
+
+  /// Whose turn it is for today to count. Both sides have to send.
+  String _todayNeeds() {
+    final (sent, received) = StreakStore.instance.todayProgress(chat.id);
+    if (!sent && !received) return 'Nobody has written today';
+    if (sent) return 'Waiting on their reply today';
+    return 'They wrote — reply today to keep it';
+  }
+
   @override
   Widget build(BuildContext context) {
     return ListTile(
@@ -177,6 +223,9 @@ class _StreakRow extends StatelessWidget {
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: const TextStyle(fontWeight: FontWeight.w600)),
+      // What today is still waiting on, so a streak at risk names the thing
+      // that would save it instead of just glowing orange.
+      subtitle: expiring ? Text(_todayNeeds(), style: _hint) : null,
       trailing: StreakChip(count: streak, expiring: expiring, size: 18),
       onTap: () => Navigator.of(context).push(
         MaterialPageRoute(builder: (_) => ChatScreen(chat: chat)),
@@ -192,90 +241,310 @@ class _ScoreCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final store = ScoreStore.instance;
+    final next = store.nextLevelAt;
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(vertical: 26, horizontal: 20),
+      padding: const EdgeInsets.fromLTRB(20, 22, 20, 20),
       decoration: BoxDecoration(
         gradient: const LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [Color(0xFF7A5CFF), Color(0xFF5B3CE0)],
         ),
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(22),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF5B3CE0).withValues(alpha: 0.32),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+          ),
+        ],
       ),
       child: Column(
         children: [
-          const Icon(Icons.local_fire_department, color: Colors.white, size: 34),
-          const SizedBox(height: 6),
-          Text(
-            '$points',
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 46,
-              fontWeight: FontWeight.w800,
-              height: 1.0,
+          // The score sits inside its own progress ring, so "how far to the
+          // next level" is the same object as the number itself rather than a
+          // bar underneath it.
+          SizedBox(
+            width: 132,
+            height: 132,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                SizedBox.expand(
+                  child: TweenAnimationBuilder<double>(
+                    tween: Tween(begin: 0, end: store.levelProgress),
+                    duration: const Duration(milliseconds: 650),
+                    curve: Curves.easeOutCubic,
+                    builder: (context, value, _) => CircularProgressIndicator(
+                      value: value,
+                      strokeWidth: 9,
+                      strokeCap: StrokeCap.round,
+                      backgroundColor: Colors.white.withValues(alpha: 0.22),
+                      valueColor: const AlwaysStoppedAnimation(Colors.white),
+                    ),
+                  ),
+                ),
+                Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.local_fire_department,
+                        color: Colors.white, size: 22),
+                    Text(
+                      '$points',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 40,
+                        fontWeight: FontWeight.w800,
+                        height: 1.05,
+                      ),
+                    ),
+                    const Text('Okay Score',
+                        style: TextStyle(
+                            color: Colors.white70,
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w600)),
+                  ],
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: 2),
-          const Text('Okay Score',
-              style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 15,
-                  fontWeight: FontWeight.w600)),
-          const SizedBox(height: 8),
-          Text('$earned ${earned == 1 ? 'badge' : 'badges'} earned',
-              style: const TextStyle(color: Colors.white70, fontSize: 12.5)),
           const SizedBox(height: 14),
-          _LevelBar(),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.22),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Text('Level ${store.level} · ${store.levelTitle}',
+                style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13)),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            next == null
+                ? 'Top level — nothing left to climb'
+                : '${next - points} points to '
+                    '${ScoreStore.levelTitles[store.level]}',
+            style: const TextStyle(color: Colors.white70, fontSize: 12.5),
+          ),
         ],
       ),
     );
   }
 }
 
-/// The level pill + progress-to-next-level bar shown inside the score card.
-class _LevelBar extends StatelessWidget {
+/// Three at-a-glance numbers under the score card: level, badges, streaks.
+class _StatsRow extends StatelessWidget {
+  const _StatsRow();
+
   @override
   Widget build(BuildContext context) {
-    final store = ScoreStore.instance;
-    final next = store.nextLevelAt;
-    return Column(
+    final score = ScoreStore.instance;
+    final streaks = StreakStore.instance;
+    final best = streaks.bestEver;
+    return Row(
       children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.22),
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Text('Level ${store.level} · ${store.levelTitle}',
-                  style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w700,
-                      fontSize: 12.5)),
-            ),
-            Text(
-              next == null ? 'Max level' : '${next - store.points} to level up',
-              style: const TextStyle(color: Colors.white70, fontSize: 11.5),
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(8),
-          child: LinearProgressIndicator(
-            value: store.levelProgress,
-            minHeight: 7,
-            backgroundColor: Colors.white.withValues(alpha: 0.22),
-            valueColor: const AlwaysStoppedAnimation(Colors.white),
-          ),
-        ),
+        _stat(context, Icons.military_tech_outlined, '${score.earnedCount}',
+            'of ${ScoreStore.catalog.length} badges'),
+        const SizedBox(width: 10),
+        _stat(context, Icons.local_fire_department_outlined,
+            '${streaks.activeCount()}',
+            streaks.activeCount() == 1 ? 'live streak' : 'live streaks'),
+        const SizedBox(width: 10),
+        // A best that already lapsed is still something that happened, so it
+        // is shown as a record rather than quietly dropped.
+        _stat(context, Icons.emoji_events_outlined, best == 0 ? '—' : '$best',
+            'best streak'),
       ],
     );
   }
+
+  Widget _stat(BuildContext context, IconData icon, String value,
+          String label) =>
+      Expanded(
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+          decoration: BoxDecoration(
+            color: Theme.of(context)
+                .colorScheme
+                .surfaceContainerHighest
+                .withValues(alpha: 0.45),
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Column(
+            children: [
+              Icon(icon, size: 18, color: Colors.grey.shade600),
+              const SizedBox(height: 4),
+              Text(value,
+                  style: const TextStyle(
+                      fontSize: 18, fontWeight: FontWeight.w800)),
+              const SizedBox(height: 1),
+              Text(label,
+                  textAlign: TextAlign.center,
+                  maxLines: 2,
+                  style:
+                      TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+            ],
+          ),
+        ),
+      );
+}
+
+/// The nearest points badge and how far off it is. Disappears when every
+/// points badge is earned rather than inventing a goal.
+class _NextBadgeCard extends StatelessWidget {
+  const _NextBadgeCard();
+
+  @override
+  Widget build(BuildContext context) {
+    final store = ScoreStore.instance;
+    final badge = store.nextBadge;
+    if (badge == null) return const SizedBox.shrink();
+    final left = store.pointsToNextBadge ?? 0;
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: scheme.primary.withValues(alpha: 0.09),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Row(
+          children: [
+            Text(badge.emoji, style: const TextStyle(fontSize: 28)),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Next up: ${badge.label}',
+                      style: const TextStyle(fontWeight: FontWeight.w700)),
+                  const SizedBox(height: 2),
+                  Text(
+                      left == 0
+                          ? 'Earned — it will appear below'
+                          : '$left more ${left == 1 ? 'point' : 'points'} '
+                              '(${badge.description.toLowerCase()})',
+                      style: TextStyle(
+                          fontSize: 12.5, color: Colors.grey.shade600)),
+                  const SizedBox(height: 8),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: LinearProgressIndicator(
+                      value: store.progressToward(badge.id),
+                      minHeight: 6,
+                      backgroundColor:
+                          scheme.primary.withValues(alpha: 0.18),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// What earns points, in plain numbers. The score used to be a figure that
+/// went up for reasons nobody could see.
+class _EarningRules extends StatelessWidget {
+  const _EarningRules();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Theme.of(context)
+            .colorScheme
+            .surfaceContainerHighest
+            .withValues(alpha: 0.45),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Column(
+        children: [
+          for (final (label, points) in ScoreStore.earningRules)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 7),
+              child: Row(
+                children: [
+                  Expanded(
+                      child: Text(label,
+                          style: const TextStyle(fontSize: 13.5))),
+                  Text('+$points',
+                      style: TextStyle(
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w700,
+                          color: Theme.of(context).colorScheme.primary)),
+                ],
+              ),
+            ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 10),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                  'Your score is kept on this device and only travels to '
+                  'people you message, the same way your name does.',
+                  style:
+                      TextStyle(fontSize: 11.5, color: Colors.grey.shade600)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Explains an unearned badge instead of leaving a locked square that does
+/// nothing when tapped.
+void _explainBadge(BuildContext context, Badge badge, ScoreStore store) {
+  final target = badge.threshold;
+  final left = target == null ? null : target - store.points;
+  showModalBottomSheet<void>(
+    context: context,
+    showDragHandle: true,
+    builder: (_) => SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(badge.emoji, style: const TextStyle(fontSize: 46)),
+            const SizedBox(height: 10),
+            Text(badge.label,
+                style: const TextStyle(
+                    fontSize: 18, fontWeight: FontWeight.w800)),
+            const SizedBox(height: 6),
+            Text(badge.description,
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.grey.shade600)),
+            if (left != null && left > 0) ...[
+              const SizedBox(height: 14),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: LinearProgressIndicator(
+                  value: store.progressToward(badge.id),
+                  minHeight: 7,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text('${store.points} / $target points',
+                  style: TextStyle(
+                      fontSize: 12.5, color: Colors.grey.shade600)),
+            ],
+          ],
+        ),
+      ),
+    ),
+  );
 }
 
 /// Shows verified status, or a call to action to get the blue check via Pro.
@@ -430,10 +699,18 @@ class _BadgeCard extends StatelessWidget {
   final bool featured;
   final VoidCallback? onTap;
 
+  /// How close an unearned points badge is, in [0, 1].
+  final double progress;
+
+  /// The current score, for the "38 / 50" line under a locked points badge.
+  final int points;
+
   const _BadgeCard({
     required this.badge,
     required this.earned,
     required this.featured,
+    this.progress = 0,
+    this.points = 0,
     this.onTap,
   });
 
@@ -500,6 +777,23 @@ class _BadgeCard extends StatelessWidget {
                       style: TextStyle(
                           fontSize: 11.5, color: Colors.grey.shade500),
                     ),
+                    // A points badge shows how close it is. A locked square
+                    // that only says "reach 250 points" gives no sense of
+                    // whether that's near or hopeless.
+                    if (!earned && badge.threshold != null) ...[
+                      const SizedBox(height: 6),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(6),
+                        child: LinearProgressIndicator(
+                          value: progress,
+                          minHeight: 4,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text('$points / ${badge.threshold}',
+                          style: TextStyle(
+                              fontSize: 10.5, color: Colors.grey.shade500)),
+                    ],
                   ],
                 ),
               ),

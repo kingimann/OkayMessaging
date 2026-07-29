@@ -1957,8 +1957,17 @@ class _ChatScreenState extends State<ChatScreen> {
       // Rebuild on wallpaper and the Okay Pro custom bubble color, and on
       // the chat store — so mute / disappearing / pin toggled from the
       // contact-info screen refresh the header the moment you return.
-      listenable: Listenable.merge(
-          [AppState.chatWallpaper, AppState.bubbleColor, _store]),
+      //
+      // The streak store too: a streak advances, lapses, or gets agreed with
+      // the peer (reconcile, straight off the relay) without the chat store
+      // changing at all, and the header's flame has to follow it rather than
+      // waiting for the next unrelated redraw.
+      listenable: Listenable.merge([
+        AppState.chatWallpaper,
+        AppState.bubbleColor,
+        _store,
+        StreakStore.instance,
+      ]),
       builder: (context, _) {
         final globalWallpaper = AppState.chatWallpaper.value;
         return Scaffold(

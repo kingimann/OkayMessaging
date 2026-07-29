@@ -39,6 +39,7 @@ import 'package:okay_messaging/screens/admin_screen.dart';
 import 'package:okay_messaging/screens/settings_screen.dart';
 import 'package:okay_messaging/screens/identity_check_screen.dart';
 import 'package:okay_messaging/state/platform_moderation.dart';
+import 'package:okay_messaging/widgets/streak_chip.dart';
 import 'package:okay_messaging/widgets/sanction_notice.dart';
 import 'package:okay_messaging/screens/forum_screen.dart';
 import 'package:okay_messaging/screens/location_picker_screen.dart';
@@ -3718,19 +3719,244 @@ void main() {
           ChatStore.instance.chats.where((c) => !c.contact.isGroup).toList();
       StreakStore.instance.seed(chats[0].id, 4);
       StreakStore.instance.seed(chats[1].id, 19);
+      // The screen carries a score ring, stats, and a goal above the streak
+      // list now, so give it a phone-shaped column tall enough to lay the
+      // whole thing out rather than asserting against the fold.
+      tester.view.physicalSize = const Size(500, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
 
       await tester.pumpWidget(const MaterialApp(home: ScoreScreen()));
       await tester.pumpAndSettle();
 
       expect(find.text('STREAKS'), findsOneWidget);
-      // Both streak counts are shown (as the chip labels).
-      expect(find.text('19'), findsOneWidget);
-      expect(find.text('4'), findsOneWidget);
-      // The longer streak (rank 1) appears above the shorter one.
-      final top =
-          tester.getTopLeft(find.text('19')).dy;
-      final bottom = tester.getTopLeft(find.text('4')).dy;
-      expect(top, lessThan(bottom));
+      // Both streaks are listed, as chips. Matched through StreakChip rather
+      // than raw text: the stats row above also prints a best-ever of 19, and
+      // that is the right number in the wrong place to assert on.
+      final chips = find.descendant(
+          of: find.byType(ListTile), matching: find.byType(StreakChip));
+      expect(chips, findsNWidgets(2));
+      final counts = tester
+          .widgetList<StreakChip>(chips)
+          .map((c) => c.count)
+          .toList();
+      expect(counts, [19, 4], reason: 'longest streak ranks first');
+      // …and that ranking is the on-screen order, not just list order.
+      expect(tester.getTopLeft(chips.first).dy,
+          lessThan(tester.getTopLeft(chips.last).dy));
+    });
+
+    testWidgets('a streak that ticks up shows in the chat you earned it in',
+        (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      ChatStore.instance.reset();
+      StreakStore.instance.resetForTest();
+      final chat = ChatStore.instance.chats
+          .firstWhere((c) => !c.contact.isGroup);
+      final today = DateTime.now();
+
+      // I've written to them today; the streak needs their reply to advance.
+      ChatStore.instance.addMessage(chat.id,
+          Message(id: 'sk1', text: 'morning', time: today, isMe: true));
+      await tester.pumpWidget(MaterialApp(
+          home: ChatScreen(chat: ChatStore.instance.chatById(chat.id)!)));
+      await tester.pumpAndSettle();
+      expect(find.byType(StreakChip), findsNothing);
+
+      // Their reply lands while the chat is open — the moment the streak
+      // becomes a streak, and exactly when it should appear.
+      ChatStore.instance.addMessage(chat.id,
+          Message(id: 'sk2', text: 'morning!', time: today, isMe: false));
+      expect(StreakStore.instance.streakFor(chat.id), 1,
+          reason: 'a mutual exchange today is a one-day streak');
+      await tester.pumpAndSettle();
+
+      expect(find.byType(StreakChip), findsOneWidget,
+          reason: 'the header must follow the streak store, not only the '
+              'chat store — the store that changed is the streak one');
+      expect(find.text('1'), findsWidgets);
+
+      // A peer's broadcast reconciles the count without touching the chat
+      // store at all (this is the relay path). Nothing else will redraw the
+      // header, so it has to be listening to the streak store itself.
+      StreakStore.instance.reconcile(chat.id, 9, at: today);
+      await tester.pumpAndSettle();
+      expect(find.text('9'), findsWidgets,
+          reason: 'a streak agreed with the peer must appear without '
+              'leaving and re-entering the chat');
+    });
+
+    test('a best streak outlives the streak that set it', () {
+      StreakStore.instance.resetForTest();
+      final d1 = DateTime(2026, 5, 1);
+      // Three days of mutual messages.
+      for (var i = 0; i < 3; i++) {
+        final day = d1.add(Duration(days: i));
+        StreakStore.instance.record('c', isMe: true, at: day);
+        StreakStore.instance.record('c', isMe: false, at: day);
+      }
+      final third = d1.add(const Duration(days: 2));
+      expect(StreakStore.instance.streakFor('c', now: third), 3);
+      expect(StreakStore.instance.bestFor('c'), 3);
+
+      // Weeks later the live streak is gone, but the record stands — the run
+      // happened even though it ended.
+      final later = d1.add(const Duration(days: 30));
+      expect(StreakStore.instance.streakFor('c', now: later), 0);
+      expect(StreakStore.instance.bestFor('c'), 3);
+      expect(StreakStore.instance.bestEver, 3);
+
+      // A peer's higher count raises the record too.
+      StreakStore.instance.reconcile('c', 11, at: later);
+      expect(StreakStore.instance.bestEver, 11);
+
+      // Records written before bests existed still know the streak got at
+      // least as high as its current count.
+      final old = StreakData.fromJson(
+          {'count': 7, 'lastDay': '2026-05-01', 'today': '2026-05-01'});
+      expect(old.best, 7);
+    });
+
+    test('live streak totals count only what is still alive', () {
+      StreakStore.instance.resetForTest();
+      final today = DateTime.now();
+      StreakStore.instance.seed('a', 4);
+      StreakStore.instance.seed('b', 6);
+      // Lapsed: last advanced well before yesterday.
+      StreakStore.instance
+          .seed('c', 20, lastDay: today.subtract(const Duration(days: 9)));
+      expect(StreakStore.instance.activeCount(now: today), 2);
+      expect(StreakStore.instance.totalActiveDays(now: today), 10);
+      // The lapsed one still holds the best-ever record.
+      expect(StreakStore.instance.bestEver, 20);
+    });
+
+    test('today\'s progress says which side the streak is waiting on', () {
+      StreakStore.instance.resetForTest();
+      final today = DateTime(2026, 6, 10, 9);
+      expect(StreakStore.instance.todayProgress('c', now: today),
+          (false, false));
+
+      StreakStore.instance.record('c', isMe: true, at: today);
+      expect(StreakStore.instance.todayProgress('c', now: today),
+          (true, false),
+          reason: 'I have written; it is their turn');
+
+      StreakStore.instance.record('c', isMe: false, at: today);
+      expect(
+          StreakStore.instance.todayProgress('c', now: today), (true, true));
+
+      // Yesterday's exchange says nothing about today.
+      final tomorrow = today.add(const Duration(days: 1));
+      expect(StreakStore.instance.todayProgress('c', now: tomorrow),
+          (false, false));
+    });
+
+    test('the next badge is the nearest one still out of reach', () {
+      ScoreStore.instance.resetForTest();
+      // From zero, the cheapest points badge is the goal.
+      expect(ScoreStore.instance.nextBadge?.id, 'starter');
+      expect(ScoreStore.instance.pointsToNextBadge, 2);
+
+      ScoreStore.instance.award(60); // past 'starter' (2) and 'chatty' (50)
+      expect(ScoreStore.instance.nextBadge?.id, 'century');
+      expect(ScoreStore.instance.pointsToNextBadge, 40);
+      // Progress is a fraction of the target, and earned badges are complete.
+      expect(ScoreStore.instance.progressToward('century'), closeTo(0.6, 0.001));
+      expect(ScoreStore.instance.progressToward('chatty'), 1.0);
+      // A one-off achievement has no partial credit to show.
+      expect(ScoreStore.instance.progressToward('caller'), 0.0);
+      expect(ScoreStore.instance.progressToward('nonexistent'), 0.0);
+
+      // Every points badge earned: no invented goal.
+      ScoreStore.instance.award(1000);
+      expect(ScoreStore.instance.nextBadge, isNull);
+      expect(ScoreStore.instance.pointsToNextBadge, isNull);
+      // …and progress never overshoots.
+      expect(ScoreStore.instance.progressToward('legend'), 1.0);
+    });
+
+    test('every earning rule names a real, positive award', () {
+      expect(ScoreStore.earningRules, isNotEmpty);
+      for (final (label, points) in ScoreStore.earningRules) {
+        expect(label.trim(), isNotEmpty);
+        expect(points, greaterThan(0),
+            reason: '"$label" would be a rule that earns nothing');
+      }
+      // The listed numbers are the constants the app actually awards, not a
+      // second copy that can drift out of step.
+      final awards = {
+        for (final (label, points) in ScoreStore.earningRules) label: points
+      };
+      expect(awards['Send a message'], ScoreStore.pointsPerSend);
+      expect(awards['Open the app on a new day'],
+          ScoreStore.pointsPerDailyCheckIn);
+      expect(awards['Place a voice or video call'], ScoreStore.pointsPerCall);
+      // Biggest award first, so the list reads as advice.
+      final values = [
+        for (final (_, points) in ScoreStore.earningRules) points
+      ];
+      final sorted = [...values]..sort((a, b) => b.compareTo(a));
+      expect(values, sorted);
+    });
+
+    testWidgets('the Score screen shows the level, the goal, and the rules',
+        (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      ScoreStore.instance.resetForTest();
+      StreakStore.instance.resetForTest();
+      ChatStore.instance.reset();
+      ScoreStore.instance.award(60);
+      tester.view.physicalSize = const Size(500, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(const MaterialApp(home: ScoreScreen()));
+      await tester.pumpAndSettle();
+
+      // The score and its level, which the card never used to name together.
+      expect(find.text('60'), findsWidgets);
+      expect(find.textContaining('Level 2'), findsOneWidget);
+      expect(find.textContaining('Regular'), findsOneWidget,
+          reason: '60 points is level 2, and level 3 is the next title');
+
+      // The nearest badge, with what it costs.
+      expect(find.textContaining('Next up:'), findsOneWidget);
+      expect(find.textContaining('40 more points'), findsOneWidget);
+
+      // How the number moves — previously nowhere in the app.
+      expect(find.text('HOW POINTS WORK'), findsOneWidget);
+      expect(find.text('+${ScoreStore.pointsPerDailyCheckIn}'),
+          findsOneWidget);
+
+      // Streaks explain that it takes both people, not just daily messaging.
+      expect(find.textContaining('you and someone both send'), findsOneWidget);
+    });
+
+    testWidgets('a locked badge explains itself instead of doing nothing',
+        (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      ScoreStore.instance.resetForTest();
+      StreakStore.instance.resetForTest();
+      ChatStore.instance.reset();
+      ScoreStore.instance.award(60);
+      tester.view.physicalSize = const Size(500, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(const MaterialApp(home: ScoreScreen()));
+      await tester.pumpAndSettle();
+
+      // 'Legend' needs 500 points; the card carries its own progress.
+      final locked = find.text('Legend');
+      await tester.ensureVisible(locked);
+      await tester.pumpAndSettle();
+      expect(find.text('60 / 500'), findsOneWidget);
+
+      await tester.tap(locked);
+      await tester.pumpAndSettle();
+      expect(find.text('Reach 500 points'), findsWidgets);
+      expect(find.text('60 / 500 points'), findsOneWidget);
     });
 
     test('sending a message grows the score', () {
