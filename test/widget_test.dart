@@ -5631,7 +5631,10 @@ void main() {
       // sheet, picking a category applies it and shows a removable chip.
       await tester.tap(find.byTooltip('Filter'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Sports'));
+      // Chips carry counts now ("Sports · 1") and sit below the sort list.
+      await tester.ensureVisible(find.textContaining('Sports'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.textContaining('Sports'));
       await tester.pumpAndSettle();
       expect(find.text('Blue bike'), findsOneWidget);
       expect(find.text('Green lamp'), findsNothing);
@@ -5914,6 +5917,89 @@ void main() {
       expect(chat, isNotNull);
       expect(ChatStore.instance.draftFor(chat!.id),
           'Is this still available? — "Blue bike" (\$20)');
+    });
+
+    test('listing sort: price orders, ties stay stable, sold always sinks',
+        () {
+      FeedPost l(String id, int price, {bool sold = false, int minute = 0}) =>
+          FeedPost(
+            id: id,
+            communityId: 'c1',
+            authorName: 'G',
+            authorUsername: 'g',
+            time: DateTime(2026, 1, 1, 12, minute),
+            text: id,
+            priceCents: price,
+            listingCategory: 'Other',
+            listingSold: sold,
+          );
+      final items = [
+        l('cheap', 500, minute: 1),
+        l('free', 0, minute: 2),
+        l('dear', 9000, minute: 3),
+        l('cheap2', 500, minute: 4),
+        l('soldfree', 0, sold: true, minute: 5),
+      ];
+
+      ids(List<FeedPost> x) => [for (final p in x) p.id];
+
+      // Low to high: free first, equal prices newest-first, sold dead last
+      // even though it is the cheapest thing on the list.
+      expect(ids(sortListings(items, ListingSort.priceLow)),
+          ['free', 'cheap2', 'cheap', 'dear', 'soldfree']);
+      expect(ids(sortListings(items, ListingSort.priceHigh)),
+          ['dear', 'cheap2', 'cheap', 'free', 'soldfree']);
+      expect(ids(sortListings(items, ListingSort.newest)),
+          ['cheap2', 'dear', 'free', 'cheap', 'soldfree']);
+    });
+
+    testWidgets('saving a listing and shopping the saved shelf',
+        (tester) async {
+      FeedStore.instance.resetForTest();
+      addTearDown(FeedStore.instance.resetForTest);
+      FeedStore.instance.addRemote(FeedPost(
+        id: 'lst_savea',
+        communityId: 'c1',
+        authorName: 'Grace',
+        authorUsername: 'grace',
+        time: DateTime.now(),
+        text: 'Blue bike',
+        priceCents: 2000,
+        listingCategory: 'Sports',
+      ));
+      FeedStore.instance.addRemote(FeedPost(
+        id: 'lst_saveb',
+        communityId: 'c1',
+        authorName: 'Grace',
+        authorUsername: 'grace',
+        time: DateTime.now(),
+        text: 'Green lamp',
+        priceCents: 500,
+        listingCategory: 'Home & Garden',
+      ));
+
+      // Save from the listing's own screen.
+      await tester.pumpWidget(
+          const MaterialApp(home: ListingScreen(listingId: 'lst_savea')));
+      await tester.pump();
+      await tester.tap(find.byTooltip('Save'));
+      await tester.pump();
+      expect(find.byTooltip('Unsave'), findsOneWidget);
+      expect(FeedStore.instance.isSaved('lst_savea'), isTrue);
+
+      // The Saved switch in the browse filters narrows to it.
+      await tester.pumpWidget(const MaterialApp(home: MarketplaceScreen()));
+      await tester.pump();
+      await tester.tap(find.byTooltip('Filter'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(SwitchListTile, 'Saved'));
+      await tester.pumpAndSettle();
+      // Sheet stays open for stacking filters; close it by hand.
+      Navigator.of(tester.element(find.text('SORT'))).pop();
+      await tester.pumpAndSettle();
+
+      expect(find.text('Blue bike'), findsOneWidget);
+      expect(find.text('Green lamp'), findsNothing);
     });
 
     testWidgets('an open listing follows the relay: sold updates, removal '

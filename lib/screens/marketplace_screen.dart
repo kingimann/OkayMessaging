@@ -53,6 +53,42 @@ int? parseListingPrice(String raw) {
   return dollars * 100 + cents;
 }
 
+/// How the browse grid orders what it shows.
+enum ListingSort {
+  newest('Newest first'),
+  priceLow('Price: low to high'),
+  priceHigh('Price: high to low');
+
+  const ListingSort(this.label);
+  final String label;
+}
+
+/// [listings] in [sort] order, with sold items sunk to the end whatever the
+/// order — visible, but never ahead of something that can still be bought.
+/// Pure, so the tie-breaking is testable: equal prices keep their newest-
+/// first order instead of shuffling on every rebuild.
+List<FeedPost> sortListings(List<FeedPost> listings, ListingSort sort) {
+  final list = List<FeedPost>.of(listings)
+    ..sort((a, b) => b.time.compareTo(a.time));
+  if (sort != ListingSort.newest) {
+    // Stable merge sort via mergeSort semantics: List.sort is not stable, so
+    // sort by price on an already newest-first list using a comparator that
+    // never returns 0 ties away — compare price, then time.
+    list.sort((a, b) {
+      final pa = a.priceCents ?? 0, pb = b.priceCents ?? 0;
+      final byPrice =
+          sort == ListingSort.priceLow ? pa.compareTo(pb) : pb.compareTo(pa);
+      return byPrice != 0 ? byPrice : b.time.compareTo(a.time);
+    });
+  }
+  return [
+    for (final l in list)
+      if (!l.listingSold) l,
+    for (final l in list)
+      if (l.listingSold) l,
+  ];
+}
+
 /// Test hook: replaces the directory lookup that turns a seller's username
 /// into a messageable contact.
 @visibleForTesting
@@ -136,6 +172,8 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
   String _category = '';
   String _query = '';
   bool _mineOnly = false;
+  bool _savedOnly = false;
+  ListingSort _sort = ListingSort.newest;
   bool _searching = false;
   final TextEditingController _search = TextEditingController();
 
@@ -176,6 +214,38 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
                     setSheet(() {});
                   },
                 ),
+                SwitchListTile.adaptive(
+                  secondary: const Icon(Icons.bookmark_outline),
+                  title: const Text('Saved'),
+                  value: _savedOnly,
+                  onChanged: (v) {
+                    setState(() => _savedOnly = v);
+                    setSheet(() {});
+                  },
+                ),
+                const Divider(height: 1),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                  child: Text('SORT',
+                      style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.6,
+                          color: Colors.grey.shade600)),
+                ),
+                for (final sort in ListingSort.values)
+                  RadioListTile<ListingSort>(
+                    dense: true,
+                    title: Text(sort.label),
+                    value: sort,
+                    // ignore: deprecated_member_use
+                    groupValue: _sort,
+                    // ignore: deprecated_member_use
+                    onChanged: (v) {
+                      setState(() => _sort = v ?? _sort);
+                      setSheet(() {});
+                    },
+                  ),
                 const Divider(height: 1),
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
@@ -193,15 +263,23 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
                     runSpacing: 8,
                     children: [
                       for (final c in kMarketplaceCategories)
-                        ChoiceChip(
-                          label: Text(c),
-                          selected: _category == c,
-                          onSelected: (_) {
-                            setState(() =>
-                                _category = _category == c ? '' : c);
-                            Navigator.of(sheetContext).pop();
-                          },
-                        ),
+                        Builder(builder: (context) {
+                          // How much is behind each door, so nobody opens an
+                          // empty one to find out.
+                          final n = FeedStore.instance
+                              .listings()
+                              .where((l) => l.listingCategory == c)
+                              .length;
+                          return ChoiceChip(
+                            label: Text(n > 0 ? '$c · $n' : c),
+                            selected: _category == c,
+                            onSelected: (_) {
+                              setState(() =>
+                                  _category = _category == c ? '' : c);
+                              Navigator.of(sheetContext).pop();
+                            },
+                          );
+                        }),
                     ],
                   ),
                 ),
@@ -251,7 +329,10 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final hasFilter = _category.isNotEmpty || _mineOnly;
+    final hasFilter = _category.isNotEmpty ||
+        _mineOnly ||
+        _savedOnly ||
+        _sort != ListingSort.newest;
     return Scaffold(
       // Search and filters live in the top-right corner; the body is the
       // goods.
@@ -310,6 +391,12 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
                 if (l.listingCategory == _category) l
             ];
           }
+          if (_savedOnly) {
+            listings = [
+              for (final l in listings)
+                if (FeedStore.instance.isSaved(l.id)) l
+            ];
+          }
           final q = _query.trim().toLowerCase();
           if (q.isNotEmpty) {
             listings = [
@@ -317,14 +404,9 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
                 if (l.text.toLowerCase().contains(q)) l
             ];
           }
-          // What's still for sale first; sold sinks to the end rather than
-          // being hidden — a buyer mid-conversation can still find it.
-          listings = [
-            for (final l in listings)
-              if (!l.listingSold) l,
-            for (final l in listings)
-              if (l.listingSold) l,
-          ];
+          // Sorted, with sold sunk to the end rather than hidden — a buyer
+          // mid-conversation can still find one.
+          listings = sortListings(listings, _sort);
           return Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -344,12 +426,28 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
                           onDeleted: () =>
                               setState(() => _mineOnly = false),
                         ),
+                      if (_savedOnly)
+                        InputChip(
+                          avatar: const Icon(Icons.bookmark_outline, size: 15),
+                          label: const Text('Saved'),
+                          visualDensity: VisualDensity.compact,
+                          onDeleted: () =>
+                              setState(() => _savedOnly = false),
+                        ),
                       if (_category.isNotEmpty)
                         InputChip(
                           label: Text(_category),
                           visualDensity: VisualDensity.compact,
                           onDeleted: () =>
                               setState(() => _category = ''),
+                        ),
+                      if (_sort != ListingSort.newest)
+                        InputChip(
+                          avatar: const Icon(Icons.swap_vert, size: 15),
+                          label: Text(_sort.label),
+                          visualDensity: VisualDensity.compact,
+                          onDeleted: () =>
+                              setState(() => _sort = ListingSort.newest),
                         ),
                     ],
                   ),
@@ -528,6 +626,15 @@ class ListingScreen extends StatelessWidget {
           appBar: AppBar(
             title: Text(title, maxLines: 1),
             actions: [
+              IconButton(
+                icon: Icon(FeedStore.instance.isSaved(listing.id)
+                    ? Icons.bookmark
+                    : Icons.bookmark_outline),
+                tooltip: FeedStore.instance.isSaved(listing.id)
+                    ? 'Unsave'
+                    : 'Save',
+                onPressed: () => FeedStore.instance.toggleSaved(listing.id),
+              ),
               if (mine)
                 IconButton(
                   icon: const Icon(Icons.edit_outlined),
