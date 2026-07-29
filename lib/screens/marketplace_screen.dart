@@ -456,7 +456,22 @@ class ListingScreen extends StatelessWidget {
         final base =
             TextStyle(fontSize: 15, height: 1.45, color: scheme.onSurface);
         return Scaffold(
-          appBar: AppBar(title: Text(title, maxLines: 1)),
+          appBar: AppBar(
+            title: Text(title, maxLines: 1),
+            actions: [
+              if (mine)
+                IconButton(
+                  icon: const Icon(Icons.edit_outlined),
+                  tooltip: 'Edit listing',
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      fullscreenDialog: true,
+                      builder: (_) => SellScreen(existing: listing),
+                    ),
+                  ),
+                ),
+            ],
+          ),
           // The next step lives in a bar pinned above the keyboard-safe area,
           // reachable without scrolling past the description.
           bottomNavigationBar: SafeArea(
@@ -510,14 +525,24 @@ class ListingScreen extends StatelessWidget {
               if (listing.gifUrl != null)
                 Stack(
                   children: [
-                    ConstrainedBox(
-                      constraints: const BoxConstraints(maxHeight: 380),
-                      child: SizedBox(
-                        width: double.infinity,
-                        child: ChatPhoto(
-                          url: listing.gifUrl!,
-                          fit: BoxFit.cover,
-                          errorBuilder: (_) => const SizedBox.shrink(),
+                    // Tapping the photo fills the screen with it — the photo
+                    // is the listing, and cover-fit crops it here.
+                    GestureDetector(
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => _ListingPhotoScreen(
+                              url: listing.gifUrl!, title: title),
+                        ),
+                      ),
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxHeight: 380),
+                        child: SizedBox(
+                          width: double.infinity,
+                          child: ChatPhoto(
+                            url: listing.gifUrl!,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_) => const SizedBox.shrink(),
+                          ),
                         ),
                       ),
                     ),
@@ -642,6 +667,34 @@ class ListingScreen extends StatelessWidget {
   }
 }
 
+/// A listing's photo, uncropped and pinch-zoomable on its own screen.
+class _ListingPhotoScreen extends StatelessWidget {
+  final String url;
+  final String title;
+  const _ListingPhotoScreen({required this.url, required this.title});
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        backgroundColor: Colors.black,
+        appBar: AppBar(
+          backgroundColor: Colors.black,
+          foregroundColor: Colors.white,
+          title: Text(title, maxLines: 1),
+        ),
+        body: Center(
+          child: InteractiveViewer(
+            maxScale: 5,
+            child: ChatPhoto(
+              url: url,
+              fit: BoxFit.contain,
+              errorBuilder: (_) => const Icon(Icons.broken_image_outlined,
+                  color: Colors.white38, size: 48),
+            ),
+          ),
+        ),
+      );
+}
+
 /// The black SOLD tag, shared by the grid tiles and the listing screen.
 class _SoldBadge extends StatelessWidget {
   final bool large;
@@ -667,21 +720,35 @@ class _SoldBadge extends StatelessWidget {
 /// Creating a listing: photo, title, price, category, description, and which
 /// server sees it.
 class SellScreen extends StatefulWidget {
-  const SellScreen({super.key});
+  /// When set, the form edits this listing instead of creating one.
+  final FeedPost? existing;
+
+  const SellScreen({super.key, this.existing});
 
   @override
   State<SellScreen> createState() => _SellScreenState();
 }
 
 class _SellScreenState extends State<SellScreen> {
-  final TextEditingController _title = TextEditingController();
-  final TextEditingController _price = TextEditingController();
-  final TextEditingController _description = TextEditingController();
-  String _category = kMarketplaceCategories.first;
-  String? _photo;
-  late String _communityId = CommunityStore.instance.communities.isEmpty
-      ? ''
-      : CommunityStore.instance.communities.first.id;
+  late final TextEditingController _title = TextEditingController(
+      text: widget.existing?.text.split('\n').first ?? '');
+  late final TextEditingController _price = TextEditingController(
+      text: switch (widget.existing?.priceCents) {
+    null || 0 => '',
+    final cents => formatListingPrice(cents).replaceFirst('\$', ''),
+  });
+  late final TextEditingController _description = TextEditingController(
+      text: widget.existing == null
+          ? ''
+          : widget.existing!.text.split('\n').skip(1).join('\n'));
+  late String _category = widget.existing?.listingCategory.isNotEmpty == true
+      ? widget.existing!.listingCategory
+      : kMarketplaceCategories.first;
+  late String? _photo = widget.existing?.gifUrl;
+  late String _communityId = widget.existing?.communityId ??
+      (CommunityStore.instance.communities.isEmpty
+          ? ''
+          : CommunityStore.instance.communities.first.id);
   String? _error;
 
   @override
@@ -719,14 +786,35 @@ class _SellScreenState extends State<SellScreen> {
       setState(() => _error = 'Pick a server to list it in.');
       return;
     }
-    FeedStore.instance.addListing(
-      _communityId,
-      title: title,
-      priceCents: cents,
-      category: _category,
-      description: _description.text,
-      photoUrl: _photo,
-    );
+    // The server's word filter guards its marketplace like its feed and its
+    // channels — a rule that applies to posts but not price tags isn't one.
+    final hit = CommunityStore.instance
+        .filterHit(_communityId, '$title\n${_description.text}');
+    if (hit != null) {
+      setState(() =>
+          _error = '"$hit" is blocked by this server\'s word filter.');
+      return;
+    }
+    final existing = widget.existing;
+    if (existing != null) {
+      FeedStore.instance.updateListing(
+        existing.id,
+        title: title,
+        priceCents: cents,
+        category: _category,
+        description: _description.text,
+        photoUrl: _photo,
+      );
+    } else {
+      FeedStore.instance.addListing(
+        _communityId,
+        title: title,
+        priceCents: cents,
+        category: _category,
+        description: _description.text,
+        photoUrl: _photo,
+      );
+    }
     Navigator.of(context).pop(true);
   }
 
@@ -735,7 +823,7 @@ class _SellScreenState extends State<SellScreen> {
     final servers = CommunityStore.instance.communities;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('New listing'),
+        title: Text(widget.existing == null ? 'New listing' : 'Edit listing'),
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 12),
@@ -746,7 +834,7 @@ class _SellScreenState extends State<SellScreen> {
               builder: (context, value, _) => FilledButton(
                 onPressed: value.text.trim().isEmpty ? null : _post,
                 style: FilledButton.styleFrom(shape: const StadiumBorder()),
-                child: const Text('Post'),
+                child: Text(widget.existing == null ? 'Post' : 'Save'),
               ),
             ),
           ),
@@ -825,7 +913,7 @@ class _SellScreenState extends State<SellScreen> {
             ],
           ),
           const SizedBox(height: 12),
-          if (servers.length > 1) ...[
+          if (servers.length > 1 && widget.existing == null) ...[
             DropdownButtonFormField<String>(
               isExpanded: true,
               initialValue: _communityId,

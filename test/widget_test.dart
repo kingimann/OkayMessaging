@@ -5628,6 +5628,87 @@ void main() {
       expect(find.text('SOLD'), findsOneWidget);
     });
 
+    test('a listing can be edited, and the edit outruns stale replays', () {
+      FeedStore.instance.resetForTest();
+      addTearDown(FeedStore.instance.resetForTest);
+
+      final listing = FeedStore.instance.addListing('c1',
+          title: 'Desk', priceCents: 3000, category: 'Furniture');
+      final preEditCopy = FeedPost.fromJson(listing.toJson());
+
+      expect(
+          FeedStore.instance.updateListing(listing.id,
+              title: 'Standing desk',
+              priceCents: 4500,
+              category: 'Furniture',
+              description: 'Now with the crank handle found'),
+          isTrue);
+      var current = FeedStore.instance.listings().single;
+      expect(current.text, 'Standing desk\nNow with the crank handle found');
+      expect(current.priceCents, 4500);
+      expect(current.edited, isTrue);
+      expect(current.listingRev, 1);
+
+      // The mailbox replaying the pre-edit copy must not undo the edit.
+      FeedStore.instance.addRemote(preEditCopy);
+      current = FeedStore.instance.listings().single;
+      expect(current.priceCents, 4500);
+
+      // Someone else's listing cannot be rewritten from this device.
+      final theirs = FeedPost(
+        id: 'post_theirs',
+        communityId: 'c1',
+        authorName: 'Grace',
+        authorUsername: 'grace',
+        time: DateTime.now(),
+        text: 'Lamp',
+        priceCents: 500,
+        listingCategory: 'Home & Garden',
+      );
+      FeedStore.instance.addRemote(theirs);
+      expect(
+          FeedStore.instance.updateListing('post_theirs',
+              title: 'Hacked', priceCents: 1, category: 'Other'),
+          isFalse);
+    });
+
+    testWidgets('the server word filter applies to listings too',
+        (tester) async {
+      FeedStore.instance.resetForTest();
+      addTearDown(FeedStore.instance.resetForTest);
+      addTearDown(CommunityStore.instance.resetForTest);
+      CommunityStore.instance.resetForTest();
+      // Joined as a plain member — owners moderate and the filter exempts
+      // moderators, so a server the tester created could never trip it.
+      final joined = CommunityStore.instance.joinFromInvite(
+          {'id': 'srv_filtered', 'name': 'Filtered', 'members': []},
+          myDigits: '15550000000',
+          myName: 'Me')!;
+      for (final c in List.of(CommunityStore.instance.communities)) {
+        if (c.id != joined.id) {
+          CommunityStore.instance.deleteCommunity(c.id);
+        }
+      }
+      // The owner's filter, as structure sync would deliver it.
+      CommunityStore.instance.addBannedWord(joined.id, 'crypto');
+      expect(CommunityStore.instance.filterHit(joined.id, 'free crypto'),
+          'crypto');
+
+      await tester.pumpWidget(const MaterialApp(home: SellScreen()));
+      await tester.pump();
+      await tester.enterText(
+          find.widgetWithText(TextField, 'What are you selling?'),
+          'Free crypto advice');
+      await tester.pump();
+      await tester.tap(find.text('Post'));
+      await tester.pump();
+
+      // Refused with the reason, and nothing was posted or broadcast — a
+      // rule that applies to posts but not price tags isn't a rule.
+      expect(find.textContaining('word filter'), findsOneWidget);
+      expect(FeedStore.instance.listings(), isEmpty);
+    });
+
     testWidgets('an open listing follows the relay: sold updates, removal '
         'says so', (tester) async {
       FeedStore.instance.resetForTest();

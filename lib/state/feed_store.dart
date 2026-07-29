@@ -706,6 +706,48 @@ class FeedStore extends ChangeNotifier {
     return list;
   }
 
+  /// Rewrites one of the local user's own listings — title, price, category,
+  /// description, photo — and tells the server. The revision bump is what
+  /// lets the update land on other devices: addRemote replaces a listing
+  /// only when the incoming revision is higher.
+  bool updateListing(
+    String postId, {
+    required String title,
+    required int priceCents,
+    required String category,
+    String description = '',
+    String? photoUrl,
+  }) {
+    final i = _posts.indexWhere((p) => p.id == postId);
+    if (i == -1 || !_posts[i].isListing || title.trim().isEmpty) return false;
+    final post = _posts[i];
+    final me = AppState.profile.value.username;
+    final mine = post.authorUsername == 'you' ||
+        (me.isNotEmpty && post.authorUsername == me);
+    if (!mine) return false;
+    final updated = FeedPost(
+      id: post.id,
+      communityId: post.communityId,
+      authorName: post.authorName,
+      authorUsername: post.authorUsername,
+      time: post.time,
+      text: description.trim().isEmpty
+          ? title.trim()
+          : '${title.trim()}\n${description.trim()}',
+      gifUrl: photoUrl,
+      priceCents: priceCents,
+      listingCategory: category,
+      listingSold: post.listingSold,
+      listingRev: post.listingRev + 1,
+      edited: true,
+    );
+    _posts[i] = updated;
+    _save();
+    notifyListeners();
+    if (RelayConfig.isEnabled) RelayService.instance.sendFeedPost(updated);
+    return true;
+  }
+
   /// Flips a listing's sold flag (own listings only) and tells the server.
   bool setListingSold(String postId, bool sold) {
     final i = _posts.indexWhere((p) => p.id == postId);
