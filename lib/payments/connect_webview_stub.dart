@@ -14,6 +14,7 @@ class ConnectWebView {
     required Color accent,
     required void Function(String event) onEvent,
     bool needsCamera = false,
+    Future<String> Function()? onSecretRequest,
   }) =>
       const SizedBox.shrink();
 }

@@ -155,6 +155,19 @@ Two Edge Function secrets matter here:
 | `STRIPE_PUBLISHABLE_KEY` | the embedded component needs it to initialise; the app falls back to its own compiled-in key if unset |
 | `CONNECT_COUNTRY` | optional, defaults to `CA` |
 
+**Both Stripe keys must be in the same mode.** A live publishable key cannot
+authenticate an Account Session minted by a test secret key, and Stripe's only
+symptom is *"An error occurred while authenticating your account. Please try
+again."* — which reads like a problem with the account rather than with the
+keys. `payments-account-session` now returns `livemode`, and the app refuses to
+open the page with a message naming which half is wrong.
+
+The page holds no client secret of its own: `fetchClientSecret` asks the app,
+which calls `payments-account-session` again. Stripe re-invokes that callback
+when a session expires and requires a **new** session each time, so a cached
+secret authenticates once and then fails with the same message, leaving the
+component spinning.
+
 `payments-onboard` stays deployed as the fallback for the web build, which has
 no WebView.
 

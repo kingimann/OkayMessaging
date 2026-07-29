@@ -7,8 +7,9 @@
   forms render here, which is what keeps identity and banking details going
   straight to Stripe and never through this app.
 
-  The client secret is NOT in the URL — the host calls startConnect() once the
-  page is up, so the secret stays out of history and logs.
+  No client secret is in the URL. The host calls okayStart() once the page is
+  up, and every Account Session after that is fetched over the message
+  channel, so no secret ever reaches history or a log.
 -->
 <html lang="en">
 <head>
@@ -25,6 +26,7 @@
   #container { padding: 8px 12px 24px; }
   #status {
     padding: 40px 20px; text-align: center; font-size: 15px; color: #8b8f98;
+    white-space: pre-wrap;
   }
   .spinner {
     width: 26px; height: 26px; margin: 0 auto 14px;
@@ -47,10 +49,63 @@
     } catch (e) {}
   }
 
+  var settled = false;
+
   function fail(message) {
-    document.getElementById('status').textContent = message;
-    notify('error');
+    settled = true;
+    var s = document.getElementById('status');
+    s.style.display = '';
+    s.textContent = message;
+    // The host shows the same words on its own screen, with a Try again
+    // button. A message only the WebView knows is a message nobody can act on.
+    notify('error:' + message);
   }
+
+  function showedUi() {
+    settled = true;
+    document.getElementById('status').style.display = 'none';
+  }
+
+  // ---------------------------------------------------------------------
+  // Client secrets
+  //
+  // connect.js calls fetchClientSecret again whenever the Account Session
+  // expires, and Stripe's contract is that each call creates a NEW session.
+  // This page used to hand back the same memoized secret every time, which
+  // authenticates at most once and then fails with "An error occurred while
+  // authenticating your account" — with the component left spinning, because
+  // nothing else ever resolves.
+  //
+  // So the page owns no secret at all: it asks the host, which mints one from
+  // payments-account-session and answers on okaySecret().
+  // ---------------------------------------------------------------------
+  var pending = {};
+  var nextId = 1;
+
+  function requestSecret() {
+    return new Promise(function (resolve, reject) {
+      var id = String(nextId++);
+      var timer = setTimeout(function () {
+        if (!pending[id]) return;
+        delete pending[id];
+        reject(new Error('The app took too long to start a Stripe session.'));
+      }, 20000);
+      pending[id] = function (secret) {
+        clearTimeout(timer);
+        if (secret) resolve(secret);
+        else reject(new Error('The app could not start a Stripe session.'));
+      };
+      notify('secret:' + id);
+    });
+  }
+
+  // Answered by the host, one call per 'secret:<id>' it hears.
+  window.okaySecret = function (id, secret) {
+    var done = pending[String(id)];
+    if (!done) return;
+    delete pending[String(id)];
+    done(secret);
+  };
 
   // The loader exposes StripeConnect.init — NOT .initialize, which is the npm
   // package's name. Checking for the wrong one made the page give up before
@@ -62,11 +117,11 @@
   // between the host calling in and the CDN script arriving.
   window.StripeConnect = window.StripeConnect || {};
 
-  function mount(clientSecret, publishableKey, dark, accent) {
+  function mount(publishableKey, dark, accent) {
     try {
       var instance = window.StripeConnect.init({
         publishableKey: publishableKey,
-        fetchClientSecret: function () { return Promise.resolve(clientSecret); },
+        fetchClientSecret: requestSecret,
         appearance: {
           overlays: 'dialog',
           variables: {
@@ -81,33 +136,54 @@
       });
       var onboarding = instance.create('account-onboarding');
       onboarding.setOnExit(function () { notify('exit'); });
-      document.getElementById('status').style.display = 'none';
+      // Stripe's own reason for a failure, instead of the red box inside the
+      // component that says only "please try again". Guarded because these
+      // two setters are newer than setOnExit.
+      if (onboarding.setOnLoadError) {
+        onboarding.setOnLoadError(function (e) {
+          var err = (e && e.error) || {};
+          fail(err.message || 'Stripe could not load the setup form. (' +
+            (err.type || 'unknown') + ')');
+        });
+      }
+      // Hide the spinner when the component actually paints, not when it is
+      // appended — appending is instant and told the user everything was fine
+      // while the frame behind it was failing to authenticate.
+      if (onboarding.setOnLoaderStart) {
+        onboarding.setOnLoaderStart(showedUi);
+      } else {
+        showedUi();
+      }
       document.getElementById('container').appendChild(onboarding);
       notify('ready');
+      setTimeout(function () {
+        if (!settled) fail('Stripe did not finish loading. Close this and try again.');
+      }, 30000);
     } catch (e) {
       fail('Could not start setup: ' + (e && e.message ? e.message : e));
     }
   }
 
-  // Called by the host once the page has loaded, so the client secret never
-  // appears in a URL.
+  // Called by the host once the page has loaded. clientSecret is unused here —
+  // the host serves the first fetchClientSecret request with it — but the
+  // signature is shared with identity.html, which does need it.
+  var started = false;
   window.okayStart = function (clientSecret, publishableKey, dark, accent) {
+    if (started) return;
+    started = true;
     if (window.StripeConnect.init) {
-      mount(clientSecret, publishableKey, dark, accent);
+      mount(publishableKey, dark, accent);
       return;
     }
     // Script still in flight — hand Stripe the callback instead of failing.
     window.StripeConnect.onLoad = function () {
-      mount(clientSecret, publishableKey, dark, accent);
+      mount(publishableKey, dark, accent);
     };
   };
 
   // If the host never calls in, say so rather than spinning forever.
   setTimeout(function () {
-    var s = document.getElementById('status');
-    if (s && s.style.display !== 'none' && s.textContent.indexOf('Loading') === 0) {
-      fail('Setup did not start. Close this and try again.');
-    }
+    if (!started) fail('Setup did not start. Close this and try again.');
   }, 20000);
 </script>
 </body>

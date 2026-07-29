@@ -10869,6 +10869,63 @@ void main() {
       expect(PaymentService.connectPageUrl.startsWith('https://'), isTrue);
     });
 
+    test('a client secret is fetched fresh, never reused', () {
+      // Stripe calls fetchClientSecret again when a session expires and its
+      // contract is a NEW Account Session each time. The page used to close
+      // over one secret and hand back the same string forever, which
+      // authenticates once at best — after that Stripe shows "an error
+      // occurred while authenticating your account" and the component sits
+      // there loading, because nothing else ever resolves.
+      final html = File('web/connect.html').readAsStringSync();
+
+      expect(html.contains('Promise.resolve(clientSecret)'), isFalse,
+          reason: 'that is the memoized secret Stripe rejects on refresh');
+      // Instead the page asks the host, which mints one per request.
+      expect(html.contains("notify('secret:'"), isTrue);
+      expect(html.contains('window.okaySecret'), isTrue);
+      expect(html.contains('fetchClientSecret: requestSecret'), isTrue);
+
+      // And one page load must not init twice: the second would authenticate
+      // a session Stripe has already consumed.
+      expect(html.contains('if (started) return;'), isTrue);
+    });
+
+    test('Stripe\'s reason for a failure reaches the app', () {
+      // The component renders its own red "please try again" inside the
+      // frame, which says nothing anyone can act on and leaves the screen
+      // looking loaded. setOnLoadError carries the real message out.
+      final html = File('web/connect.html').readAsStringSync();
+      expect(html.contains('setOnLoadError'), isTrue);
+      expect(html.contains("notify('error:' + message)"), isTrue);
+      // The spinner hides when the component paints, not when it is appended.
+      expect(html.contains('setOnLoaderStart'), isTrue);
+    });
+
+    test('a key in the wrong mode is named, not left to Stripe', () {
+      // A live publishable key cannot authenticate a session minted by a test
+      // secret key. Stripe's only symptom is an account authentication error,
+      // which sends people to look at their Stripe account instead of at the
+      // two keys.
+      expect(
+          () => PaymentService.checkKeyMode(
+              key: 'pk_live_abc', livemode: false),
+          throwsA(predicate(
+              (e) => '$e'.contains('key_mode_live_app_test_server'))));
+      expect(
+          () => PaymentService.checkKeyMode(
+              key: 'pk_test_abc', livemode: true),
+          throwsA(predicate(
+              (e) => '$e'.contains('key_mode_test_app_live_server'))));
+      expect(() => PaymentService.checkKeyMode(key: '', livemode: true),
+          throwsA(predicate((e) => '$e'.contains('no_publishable_key'))));
+
+      // Matching pairs pass, and so does a deployment too old to report the
+      // mode — a missing field must not block onboarding.
+      PaymentService.checkKeyMode(key: 'pk_live_abc', livemode: true);
+      PaymentService.checkKeyMode(key: 'pk_test_abc', livemode: false);
+      PaymentService.checkKeyMode(key: 'pk_live_abc', livemode: null);
+    });
+
     test('the ID check page ships too, and keeps documents with Stripe', () {
       final page = File('web/identity.html');
       expect(page.existsSync(), isTrue);

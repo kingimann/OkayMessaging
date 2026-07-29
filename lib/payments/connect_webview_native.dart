@@ -2,6 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
 
+/// What the page prefixes a client-secret request with, followed by an id the
+/// answer is tagged with. Matches `notify('secret:' + id)` in web/connect.html.
+const String _kSecretRequest = 'secret:';
+
 /// The WebView that hosts Stripe's Connect embedded components.
 ///
 /// Onboarding renders inside the app's own screen rather than in a browser or
@@ -14,6 +18,10 @@ class ConnectWebView {
   /// [needsCamera] is for the ID check, which captures a document photo and a
   /// selfie in the page. Without inline playback and a granted permission the
   /// capture silently fails to start.
+  ///
+  /// [onSecretRequest] answers the page's requests for a client secret. Stripe
+  /// asks again whenever the session expires and wants a *new* one each time,
+  /// so the page holds none and the app mints them.
   static Widget build({
     required String url,
     required String clientSecret,
@@ -22,6 +30,7 @@ class ConnectWebView {
     required Color accent,
     required void Function(String event) onEvent,
     bool needsCamera = false,
+    Future<String> Function()? onSecretRequest,
   }) =>
       _ConnectWebView(
         url: url,
@@ -31,6 +40,7 @@ class ConnectWebView {
         accent: accent,
         onEvent: onEvent,
         needsCamera: needsCamera,
+        onSecretRequest: onSecretRequest,
       );
 }
 
@@ -42,6 +52,7 @@ class _ConnectWebView extends StatefulWidget {
   final Color accent;
   final void Function(String event) onEvent;
   final bool needsCamera;
+  final Future<String> Function()? onSecretRequest;
 
   const _ConnectWebView({
     required this.url,
@@ -51,6 +62,7 @@ class _ConnectWebView extends StatefulWidget {
     required this.accent,
     required this.onEvent,
     required this.needsCamera,
+    required this.onSecretRequest,
   });
 
   @override
@@ -81,16 +93,44 @@ class _ConnectWebViewState extends State<_ConnectWebView> {
       // rather than flashing white on a dark screen.
       ..setBackgroundColor(Colors.transparent)
       ..addJavaScriptChannel('OkayConnect',
-          onMessageReceived: (m) => widget.onEvent(m.message))
+          onMessageReceived: (m) => _onMessage(m.message))
       ..setNavigationDelegate(
         NavigationDelegate(onPageFinished: (_) => _start()),
       )
       ..loadRequest(Uri.parse(widget.url));
   }
 
+  /// A message from the page: either a request for a client secret, or an
+  /// event for the screen.
+  Future<void> _onMessage(String message) async {
+    if (!message.startsWith(_kSecretRequest)) {
+      widget.onEvent(message);
+      return;
+    }
+    final id = message.substring(_kSecretRequest.length);
+    var secret = '';
+    try {
+      secret = await widget.onSecretRequest?.call() ?? '';
+    } catch (_) {
+      // The page turns an empty answer into a message the user can read; an
+      // exception thrown here would just be swallowed by the channel.
+    }
+    if (!mounted) return;
+    await _controller.runJavaScript(
+      'window.okaySecret && window.okaySecret(${_js(id)}, ${_js(secret)});',
+    );
+  }
+
+  bool _started = false;
+
   /// Hands the client secret over *after* the page loads, so it never appears
   /// in a URL, in history, or in any log of one.
+  ///
+  /// Once only: onPageFinished can fire more than once for the same page, and
+  /// a second init would authenticate a session Stripe has already consumed.
   void _start() {
+    if (_started) return;
+    _started = true;
     final hex =
         '#${(widget.accent.toARGB32() & 0xFFFFFF).toRadixString(16).padLeft(6, '0')}';
     _controller.runJavaScript(

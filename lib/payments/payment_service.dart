@@ -276,18 +276,41 @@ class PaymentService {
   /// An Account Session for Stripe's Connect embedded components — the
   /// in-app onboarding path, with no browser and no handoff.
   Future<ConnectSession> connectSession() async {
-    final r = await _invoke('payments-account-session');
+    // Bounded: the onboarding screen shows a spinner until this settles, and
+    // a hung call left it spinning with nothing but the close button.
+    final r = await _invoke('payments-account-session')
+        .timeout(const Duration(seconds: 25));
     final secret = r['clientSecret'] as String? ?? '';
     if (secret.isEmpty) throw PaymentException('no_client_secret');
+    // The function knows its own publishable key; fall back to the one
+    // compiled in, so a missing secret there isn't fatal.
+    final key = (r['publishableKey'] as String?)?.isNotEmpty == true
+        ? r['publishableKey'] as String
+        : _publishableKey;
+    checkKeyMode(key: key, livemode: r['livemode']);
     return ConnectSession(
       clientSecret: secret,
-      // The function knows its own publishable key; fall back to the one
-      // compiled in, so a missing secret there isn't fatal.
-      publishableKey: (r['publishableKey'] as String?)?.isNotEmpty == true
-          ? r['publishableKey'] as String
-          : _publishableKey,
+      publishableKey: key,
       pageUrl: connectPageUrl,
     );
+  }
+
+  /// Throws when the publishable key the page will use can't authenticate a
+  /// session minted by the server's secret key.
+  ///
+  /// Stripe reports that as "an error occurred while authenticating your
+  /// account", which points at the user's account and not at the two keys
+  /// being in different modes. Named codes here mean the screen can say which.
+  @visibleForTesting
+  static void checkKeyMode({required String key, required Object? livemode}) {
+    if (key.isEmpty) throw PaymentException('no_publishable_key');
+    if (livemode is! bool) return; // older deployment; nothing to compare
+    if (key.startsWith('pk_live_') && !livemode) {
+      throw PaymentException('key_mode_live_app_test_server');
+    }
+    if (key.startsWith('pk_test_') && livemode) {
+      throw PaymentException('key_mode_test_app_live_server');
+    }
   }
 
   /// The caller's current wallet + payout status.

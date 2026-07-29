@@ -60,6 +60,12 @@ Deno.serve(async (req) => {
       // Client-safe by design, and the embedded component needs it to
       // initialise. Sent from here so the page has one source of truth.
       publishableKey: Deno.env.get("STRIPE_PUBLISHABLE_KEY") ?? "",
+      // Which mode STRIPE_SECRET_KEY is in. A session minted by a test key
+      // cannot be authenticated with a live publishable key (or the other way
+      // round) and Stripe's only symptom is "an error occurred while
+      // authenticating your account" — so the client compares the two and
+      // says which half is wrong.
+      livemode: session.livemode,
     });
   } catch (e) {
     return json({ error: String((e as Error).message ?? e) }, 400);
