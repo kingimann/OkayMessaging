@@ -40,7 +40,7 @@ async function callerPhone(req: Request): Promise<string | null> {
   return phone ? phone.replace(/\D/g, "") : null;
 }
 
-import Stripe from "https://esm.sh/stripe@16.12.0?target=deno";
+import Stripe from "https://esm.sh/stripe@16.12.0?target=denonext";
 
 // The generic request plumbing lives in http.ts; re-exported so existing
 // imports from this file keep working unchanged.

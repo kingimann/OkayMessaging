@@ -8,7 +8,14 @@
 //   APP_RETURN_URL           deep link back into the app after onboarding
 // SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY are injected automatically.
 
-import Stripe from "https://esm.sh/stripe@16.12.0?target=deno";
+// `target=denonext`, NOT `target=deno`. The `deno` build imports
+// deno.land/std@0.177.1/node/process.ts to polyfill Node's `process`, and that
+// shim calls `Deno.core.runMicrotasks()`, which the Supabase edge runtime does
+// not support — every request dies with "event loop error:
+// Deno.core.runMicrotasks() is not supported in this environment" before the
+// handler is reached. The `denonext` build targets modern Deno and pulls in no
+// std/node shims at all.
+import Stripe from "https://esm.sh/stripe@16.12.0?target=denonext";
 
 // The generic request plumbing lives in http.ts; re-exported so existing
 // imports from this file keep working unchanged.

@@ -30,6 +30,17 @@ fi
 
 echo "deno $(deno --version | head -1 | cut -d' ' -f2)"
 
+# A type-check cannot see this one. esm.sh's `?target=deno` build polyfills
+# Node's `process` with deno.land/std@0.177.1, whose shim calls
+# `Deno.core.runMicrotasks()` — unsupported in the Supabase edge runtime, so
+# every request dies before reaching the handler. `?target=denonext` pulls in
+# no std/node shims. Compiles identically either way, which is why only a
+# deployed request ever told us.
+if grep -rn 'target=deno"' supabase/functions docs/edge_functions_paste 2>/dev/null; then
+  echo "--- FAIL: use ?target=denonext (the deno build breaks at runtime on Supabase)"
+  exit 1
+fi
+
 failed=0
 checked=0
 for f in supabase/functions/*/index.ts docs/edge_functions_paste/*.ts; do
