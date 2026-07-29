@@ -8,6 +8,7 @@ import '../state/account_service.dart';
 import '../state/call_service.dart' show CallService;
 import '../state/chat_store.dart';
 import '../widgets/user_avatar.dart';
+import '../widgets/verified_badge.dart';
 import 'chat_screen.dart';
 
 /// Find other people on OkayMessenger by their @username and start a chat or
@@ -148,8 +149,21 @@ class _FindPeopleScreenState extends State<FindPeopleScreen> {
         final user = _results[i];
         return ListTile(
           leading: UserAvatar(user: user, radius: 24),
-          title: Text(user.name,
-              style: const TextStyle(fontWeight: FontWeight.w600)),
+          title: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Flexible(
+                child: Text(user.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontWeight: FontWeight.w600)),
+              ),
+              if (user.verified) ...[
+                const SizedBox(width: 4),
+                const VerifiedBadge(size: 15),
+              ],
+            ],
+          ),
           subtitle: user.username.isEmpty ? null : Text('@${user.username}'),
           trailing: Row(
             mainAxisSize: MainAxisSize.min,

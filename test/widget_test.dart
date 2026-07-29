@@ -4300,6 +4300,61 @@ void main() {
           reason: 'an invite without a link invites nobody');
     });
 
+    test('the directory badge is the server\'s verdict, not the client\'s',
+        () {
+      // A directory row with the migrated column carries the badge; a row
+      // from a directory that hasn't run the migration simply doesn't — the
+      // missing column costs the badge, never the lookup.
+      final verified = AccountService.debugRowToUser(
+          {'phone': '15550001111', 'username': 'grace', 'name': 'Grace',
+           'verified': true});
+      expect(verified!.verified, isTrue);
+      final unmigrated = AccountService.debugRowToUser(
+          {'phone': '15550002222', 'username': 'ada', 'name': 'Ada'});
+      expect(unmigrated!.verified, isFalse);
+
+      // And the webhook is what writes it: granted on a pass, withdrawn on
+      // an explicit cancel, untouched otherwise.
+      final hook = File('supabase/functions/payments-webhook/index.ts')
+          .readAsStringSync();
+      expect(hook.contains('.from("usernames")'), isTrue);
+      expect(hook.contains('verified: session.status === "verified"'), isTrue);
+      // The paste copy the dashboard actually runs must carry it too.
+      expect(
+          File('docs/edge_functions_paste/payments-webhook.ts')
+              .readAsStringSync()
+              .contains('.from("usernames")'),
+          isTrue,
+          reason: 'run: dart tool/paste_functions.dart');
+    });
+
+    testWidgets('directory-verified contacts wear the badge in the list',
+        (tester) async {
+      addTearDown(() {
+        ContactsSync.debugNumbersOverride = null;
+        ContactsSync.debugLookupOverride = null;
+        ContactsSync.debugAccessLimitedOverride = null;
+      });
+      ContactsSync.debugAccessLimitedOverride = () async => false;
+      ContactsSync.debugNumbersOverride = () async => ['555-012-3456'];
+      ContactsSync.debugLookupOverride = (_) async => const [
+            AppUser(
+                id: 'u1',
+                name: 'Grace',
+                avatarColor: '#123456',
+                verified: true),
+            AppUser(id: 'u2', name: 'Ada', avatarColor: '#654321'),
+          ];
+
+      await tester
+          .pumpWidget(const MaterialApp(home: ContactsOnAppScreen()));
+      await tester.tap(find.text('Find contacts'));
+      await tester.pumpAndSettle();
+
+      // One badge: Grace's. Ada must not inherit it from the row above.
+      expect(find.byType(VerifiedBadge), findsOneWidget);
+    });
+
     test('sync matches hashed numbers against the directory', () async {
       addTearDown(() {
         ContactsSync.debugNumbersOverride = null;

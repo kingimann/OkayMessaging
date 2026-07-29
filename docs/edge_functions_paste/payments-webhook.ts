@@ -360,6 +360,23 @@ Deno.serve(async (req) => {
             ...(verifiedName ? { verified_name: verifiedName } : {}),
             updated_at: new Date().toISOString(),
           });
+          // The public half of the badge: a flag on the directory row, so
+          // search results and contact sync can show the blue check without
+          // trusting the badge-holder's own client. Granted on a pass,
+          // withdrawn on an explicit cancel; a session merely needing more
+          // input changes nothing. Best-effort — the column exists only
+          // after docs/identity_directory_badge.sql has run, and the
+          // webhook must not fail over a cosmetic write.
+          if (session.status === "verified" || session.status === "canceled") {
+            try {
+              await admin
+                .from("usernames")
+                .update({ verified: session.status === "verified" })
+                .eq("phone", phone);
+            } catch (_) {
+              // Directory not migrated yet: the badge just stays client-side.
+            }
+          }
         }
         break;
       }

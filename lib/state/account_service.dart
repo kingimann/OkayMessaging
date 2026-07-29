@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
+
 import 'package:crypto/crypto.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide Session;
 
@@ -135,6 +137,20 @@ class AccountService {
     }
   }
 
+  /// Directory rows for a select+filter, asking for the verified column and
+  /// falling back without it — the column exists only after
+  /// docs/identity_directory_badge.sql has run, and a missing column must
+  /// cost the badge, never the search.
+  Future<List<Map<String, dynamic>>> _directoryRows(
+      Future<List<Map<String, dynamic>>> Function(String columns)
+          run) async {
+    try {
+      return await run('phone, username, name, verified');
+    } catch (_) {
+      return run('phone, username, name');
+    }
+  }
+
   /// Finds people whose username starts with [query] (case-insensitive) in the
   /// server directory. Returns an empty list when the backend is unavailable
   /// or nothing matches. Never throws.
@@ -143,11 +159,11 @@ class AccountService {
     if (q.length < 2) return const [];
     final me = Session.instance.user.value?.phone;
     try {
-      final rows = await _client
+      final rows = await _directoryRows((columns) => _client
           .from(_table)
-          .select('phone, username, name')
+          .select(columns)
           .ilike('username', '$q%')
-          .limit(25);
+          .limit(25));
       final out = <AppUser>[];
       for (final row in rows) {
         final user = _rowToUser(Map<String, dynamic>.from(row));
@@ -169,11 +185,11 @@ class AccountService {
     if (hashes.isEmpty) return const [];
     final me = Session.instance.user.value?.phone;
     try {
-      final rows = await _client
+      final rows = await _directoryRows((columns) => _client
           .from(_table)
-          .select('phone, username, name')
+          .select(columns)
           .inFilter('phone_hash', hashes)
-          .limit(500);
+          .limit(500));
       final out = <AppUser>[];
       for (final row in rows) {
         final user = _rowToUser(Map<String, dynamic>.from(row));
@@ -201,8 +217,15 @@ class AccountService {
       avatarColor: Session.colorForPhone(phone),
       phone: phone,
       username: username,
+      // The server's own verdict, written only by the identity webhook —
+      // stronger than the self-attested badge on relay traffic.
+      verified: row['verified'] as bool? ?? false,
     );
   }
+
+  /// [_rowToUser], reachable from tests.
+  @visibleForTesting
+  static AppUser? debugRowToUser(Map<String, dynamic> row) => _rowToUser(row);
 
   /// Looks up the username currently linked to [phone] (null if none).
   Future<String?> usernameForPhone(String phone) async {
