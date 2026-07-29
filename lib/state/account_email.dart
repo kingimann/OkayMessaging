@@ -121,12 +121,37 @@ class AccountEmail extends ChangeNotifier {
   Future<bool> resendVerification() =>
       _email.isEmpty ? Future.value(false) : _requestVerification(_email);
 
+  /// Where the confirmation link lands.
+  ///
+  /// Passed explicitly because Supabase otherwise falls back to the project's
+  /// Site URL, which is `http://localhost:3000` until somebody changes it —
+  /// so the link in the email opened a dead page on the reader's own phone.
+  ///
+  /// It still has to be on the project's Redirect URLs allow-list; Supabase
+  /// silently uses the Site URL for anything that isn't.
+  static const String emailRedirectUrl = String.fromEnvironment(
+    'EMAIL_REDIRECT_URL',
+    defaultValue:
+        'https://kingimann.github.io/OkayMessaging/email-confirmed.html',
+  );
+
   /// Re-reads the signed-in user to see whether the address has since been
   /// confirmed. Safe to call on launch and on pull-to-refresh.
   Future<void> refreshVerification() async {
     if (_email.isEmpty || !RelayConfig.isEnabled) return;
     try {
-      final user = Supabase.instance.client.auth.currentUser;
+      final auth = Supabase.instance.client.auth;
+      if (auth.currentUser == null) return;
+      // Ask the server rather than reading the cached session. The link is
+      // clicked in a browser, often on another device, so the copy of the
+      // user this app is holding has no idea it happened — which left the
+      // address reading "unverified" forever after a successful confirm.
+      User? user;
+      try {
+        user = (await auth.getUser()).user;
+      } catch (_) {
+        user = auth.currentUser; // offline: fall back to what we have
+      }
       if (user == null) return;
       final confirmed = user.emailConfirmedAt != null &&
           (user.email ?? '').toLowerCase() == _email.toLowerCase();
@@ -145,7 +170,10 @@ class AccountEmail extends ChangeNotifier {
     try {
       final auth = Supabase.instance.client.auth;
       if (auth.currentUser == null) return false;
-      await auth.updateUser(UserAttributes(email: email));
+      await auth.updateUser(
+        UserAttributes(email: email),
+        emailRedirectTo: emailRedirectUrl,
+      );
       return true;
     } catch (_) {
       return false;

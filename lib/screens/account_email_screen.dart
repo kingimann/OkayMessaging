@@ -22,6 +22,15 @@ class _AccountEmailScreenState extends State<AccountEmailScreen> {
   String? _error;
 
   @override
+  void initState() {
+    super.initState();
+    // The link is clicked in a browser, so nothing tells the app it happened.
+    // Opening this screen is the moment someone is asking, which makes it the
+    // moment to go and find out.
+    AccountEmail.instance.refreshVerification();
+  }
+
+  @override
   void dispose() {
     _controller.dispose();
     super.dispose();

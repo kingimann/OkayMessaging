@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<!--
+  Where Supabase sends someone after they click the confirmation link in an
+  email-change message.
+
+  Without an explicit redirect Supabase uses the project's Site URL, which is
+  http://localhost:3000 until someone changes it — so the link opened a dead
+  page on the reader's own phone. This is a plain static page rather than the
+  app: the confirmation already happened on Supabase's side by the time the
+  browser lands here, and loading a five-megabyte Flutter bundle to say one
+  sentence would be slower and would show a sign-in screen to someone who is
+  already signed in on their phone.
+
+  The app notices the change on its own the next time it re-reads the account.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Email confirmed</title>
+<style>
+  :root { color-scheme: light dark; --fg: #1a1c1e; --dim: #5f6368; --bg: #ffffff; }
+  @media (prefers-color-scheme: dark) {
+    :root { --fg: #e8eaed; --dim: #9aa0a6; --bg: #121417; }
+  }
+  html, body { margin: 0; height: 100%; background: var(--bg); }
+  body {
+    display: flex; align-items: center; justify-content: center;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    color: var(--fg); padding: 24px; box-sizing: border-box;
+  }
+  .card { max-width: 360px; text-align: center; }
+  .mark {
+    width: 56px; height: 56px; margin: 0 auto 18px; border-radius: 50%;
+    background: #12b76a; display: flex; align-items: center;
+    justify-content: center; color: #fff; font-size: 30px; line-height: 1;
+  }
+  .mark.bad { background: #d92d20; }
+  h1 { font-size: 19px; margin: 0 0 8px; font-weight: 600; }
+  p { font-size: 14px; line-height: 1.5; color: var(--dim); margin: 0; }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="mark" id="mark">✓</div>
+  <h1 id="title">Email confirmed</h1>
+  <p id="detail">You can close this page and go back to OkayMessenger.</p>
+</div>
+<script>
+  // Supabase reports a failure — an expired or already-used link — in the URL
+  // fragment. Saying "confirmed" over the top of that would be a lie the
+  // reader only discovers later, in the app, with no idea why.
+  (function () {
+    var hash = window.location.hash.replace(/^#/, '');
+    var query = window.location.search.replace(/^\?/, '');
+    var params = new URLSearchParams(hash || query);
+    var error = params.get('error_description') || params.get('error');
+    if (!error) return;
+    document.getElementById('mark').className = 'mark bad';
+    document.getElementById('mark').textContent = '!';
+    document.getElementById('title').textContent = 'Link didn’t work';
+    document.getElementById('detail').textContent =
+      error.replace(/\+/g, ' ') +
+      '. Open OkayMessenger and send yourself a new confirmation email.';
+  })();
+</script>
+</body>
+</html>

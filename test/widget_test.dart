@@ -8495,6 +8495,33 @@ void main() {
   group('Account email', () {
     setUp(AccountEmail.instance.resetForTest);
 
+    test('the confirmation link lands somewhere real, not on localhost', () {
+      // With no emailRedirectTo, Supabase falls back to the project's Site
+      // URL — `http://localhost:3000` until someone changes it — so the link
+      // in the email opened a dead page on the reader's own phone.
+      const url = AccountEmail.emailRedirectUrl;
+      expect(url.startsWith('https://'), isTrue);
+      expect(url.contains('localhost'), isFalse);
+      expect(url.contains('127.0.0.1'), isFalse);
+
+      // And it has to be a page that actually ships with the web build.
+      final path = Uri.parse(url).pathSegments.last;
+      expect(File('web/$path').existsSync(), isTrue,
+          reason: 'the confirmation link points at a page that does not exist');
+    });
+
+    test('the confirmation page tells the truth about a failed link', () {
+      // Supabase reports an expired or already-used link in the URL fragment.
+      // A page hardcoded to say "confirmed" would send someone back to the
+      // app believing something that didn't happen.
+      final html = File('web/email-confirmed.html').readAsStringSync();
+      expect(html.contains('error_description'), isTrue);
+      expect(html.contains('Link didn’t work'), isTrue);
+      // Static by design: the confirmation already happened server-side, so
+      // there is nothing here to load the app for.
+      expect(html.contains('main.dart.js'), isFalse);
+    });
+
     test('validation accepts real addresses and rejects the rest', () {
       expect(AccountEmail.isValid('ada@example.com'), isTrue);
       expect(AccountEmail.isValid('ada.lovelace+okay@mail.co.uk'), isTrue);
