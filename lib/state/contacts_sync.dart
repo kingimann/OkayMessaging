@@ -19,6 +19,15 @@ enum ContactSyncStatus {
   /// Permission granted but the device address book has no phone numbers.
   empty,
 
+  /// iOS 18+ limited access, and the shared subset came back empty.
+  ///
+  /// Its own status because the fix is different: the address book is NOT
+  /// empty — the user picked "Select Contacts" and shared none (or dismissed
+  /// the picker), so the app is only allowed to see an empty slice. Reporting
+  /// it as [empty] told people with full address books that they had no
+  /// contacts, which reads as a broken app blaming its user.
+  limitedEmpty,
+
   /// Something went wrong reading contacts or reaching the directory.
   error,
 }
@@ -32,8 +41,12 @@ class ContactSyncResult {
   /// How many device contact numbers were scanned (for the summary line).
   final int scanned;
 
+  /// True when the OS only let the app see a user-picked subset (iOS 18+),
+  /// so [matches] can be honest about being incomplete.
+  final bool limited;
+
   const ContactSyncResult(this.status,
-      {this.matches = const [], this.scanned = 0});
+      {this.matches = const [], this.scanned = 0, this.limited = false});
 }
 
 /// Finds which of the user's phone contacts already use OkayMessenger, without
@@ -59,6 +72,14 @@ class ContactsSync {
   /// with a canned list of raw phone numbers (null = permission declined).
   @visibleForTesting
   static Future<List<String>?> Function()? debugNumbersOverride;
+
+  /// Test hook: whether the canned numbers came through limited access.
+  @visibleForTesting
+  static bool debugLimited = false;
+
+  /// Test hook: replaces the jump to the OS settings page.
+  @visibleForTesting
+  static void Function()? debugOpenSettingsOverride;
 
   /// Test hook: replaces the server directory lookup.
   @visibleForTesting
@@ -102,23 +123,41 @@ class ContactsSync {
     return set.toList();
   }
 
-  /// Reads every phone number in the device address book, or null when the
-  /// user declines. Nothing touches the plugin until the user actually taps
-  /// "sync"; the permission prompt is the OS one, raised here.
-  Future<List<String>?> _deviceNumbers() async {
+  /// Reads every phone number the device will let the app see, or null when
+  /// the user declines. Nothing touches the plugin until the user actually
+  /// taps "sync"; the permission prompt is the OS one, raised here.
+  ///
+  /// The bool is whether access is *limited* (iOS 18+ "Select Contacts") —
+  /// the list is then the shared subset, not the address book, and an empty
+  /// one means "nothing shared", never "no contacts".
+  Future<(List<String>?, bool)> _deviceNumbers() async {
     final status =
         await FlutterContacts.permissions.request(PermissionType.read);
-    if (status != PermissionStatus.granted &&
-        status != PermissionStatus.limited) {
-      return null;
+    final limited = status == PermissionStatus.limited;
+    if (status != PermissionStatus.granted && !limited) {
+      return (null, false);
     }
     final contacts =
         await FlutterContacts.getAll(properties: {ContactProperty.phone});
-    return [
-      for (final c in contacts)
-        for (final p in c.phones)
-          if (p.number.trim().isNotEmpty) p.number
-    ];
+    return (
+      <String>[
+        for (final c in contacts)
+          for (final p in c.phones)
+            if (p.number.trim().isNotEmpty) p.number
+      ],
+      limited,
+    );
+  }
+
+  /// The OS settings page for this app — where limited contact access is
+  /// widened and a denied permission is granted.
+  Future<void> openSettings() async {
+    final debug = debugOpenSettingsOverride;
+    if (debug != null) {
+      debug();
+      return;
+    }
+    await FlutterContacts.permissions.openSettings();
   }
 
   Future<ContactSyncResult> sync() async {
@@ -127,20 +166,26 @@ class ContactsSync {
       return const ContactSyncResult(ContactSyncStatus.unsupported);
     }
     try {
-      final numbers =
-          numbersSource != null ? await numbersSource() : await _deviceNumbers();
+      final (numbers, limited) = numbersSource != null
+          ? (await numbersSource(), debugLimited)
+          : await _deviceNumbers();
       if (numbers == null) {
         return const ContactSyncResult(ContactSyncStatus.permissionDenied);
       }
       if (numbers.isEmpty) {
-        return const ContactSyncResult(ContactSyncStatus.empty);
+        // Limited access seeing nothing is not an empty address book — it is
+        // an empty *selection*, fixed in Settings, and saying otherwise sends
+        // someone with a full address book hunting a bug in their contacts.
+        return ContactSyncResult(limited
+            ? ContactSyncStatus.limitedEmpty
+            : ContactSyncStatus.empty);
       }
       final hashes = hashesFor(numbers, countryCode: defaultCountryCode());
       final matches = debugLookupOverride != null
           ? await debugLookupOverride!(hashes)
           : await AccountService.instance.lookupByPhoneHashes(hashes);
       return ContactSyncResult(ContactSyncStatus.ok,
-          matches: matches, scanned: numbers.length);
+          matches: matches, scanned: numbers.length, limited: limited);
     } catch (_) {
       return const ContactSyncResult(ContactSyncStatus.error);
     }

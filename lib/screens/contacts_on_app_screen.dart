@@ -121,9 +121,16 @@ class _ContactsOnAppScreenState extends State<ContactsOnAppScreen> {
           return _message_(
             Icons.person_off_outlined,
             'No contacts yet',
-            'None of your contacts are on OkayMessenger yet. Invite them and '
-                'they\'ll show up here.',
+            result.limited
+                // Only a shared subset was checked, so "none of your
+                // contacts are here" would be a claim about contacts the
+                // app never saw.
+                ? 'None of the contacts you shared are on OkayMessenger yet. '
+                    'You can share more in Settings, or invite them.'
+                : 'None of your contacts are on OkayMessenger yet. Invite '
+                    'them and they\'ll show up here.',
             retry: true,
+            settings: result.limited,
           );
         }
         return Column(
@@ -141,6 +148,22 @@ class _ContactsOnAppScreenState extends State<ContactsOnAppScreen> {
                 ),
               ),
             ),
+            if (result.limited)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: InkWell(
+                    onTap: ContactsSync.instance.openSettings,
+                    child: Text(
+                      'Only the contacts you shared were checked — '
+                      'share more in Settings.',
+                      style: TextStyle(
+                          fontSize: 12.5, color: Colors.grey.shade600),
+                    ),
+                  ),
+                ),
+              ),
             Expanded(
               child: PullToRefresh(
                 child: ListView.builder(
@@ -183,6 +206,7 @@ class _ContactsOnAppScreenState extends State<ContactsOnAppScreen> {
           'To find your contacts, allow OkayMessenger to access your contacts '
               'in Settings, then try again.',
           retry: true,
+          settings: true,
         );
       case ContactSyncStatus.unsupported:
         return _message_(
@@ -198,6 +222,19 @@ class _ContactsOnAppScreenState extends State<ContactsOnAppScreen> {
           'Your address book doesn\'t have any phone numbers to check.',
           retry: true,
         );
+      case ContactSyncStatus.limitedEmpty:
+        // The address book is fine — the app was only shown a hand-picked
+        // slice of it, and the slice is empty. Blaming "your address book"
+        // here (which this used to do) reads as the app being broken.
+        return _message_(
+          Icons.playlist_add_check_circle_outlined,
+          'No contacts shared yet',
+          'OkayMessenger only has access to contacts you select, and none '
+              'are selected. Choose some in Settings — or allow full access '
+              '— then try again.',
+          retry: true,
+          settings: true,
+        );
       case ContactSyncStatus.error:
         return _message_(
           Icons.error_outline,
@@ -209,7 +246,7 @@ class _ContactsOnAppScreenState extends State<ContactsOnAppScreen> {
   }
 
   Widget _message_(IconData icon, String title, String body,
-      {bool retry = false}) {
+      {bool retry = false, bool settings = false}) {
     return Center(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 40),
@@ -226,8 +263,18 @@ class _ContactsOnAppScreenState extends State<ContactsOnAppScreen> {
             Text(body,
                 textAlign: TextAlign.center,
                 style: TextStyle(color: Colors.grey.shade600, fontSize: 14)),
-            if (retry) ...[
+            // "Fix it in Settings" needs a button that goes there. The text
+            // alone left people to find the right settings page themselves,
+            // which most reasonably read as a dead end.
+            if (settings) ...[
               const SizedBox(height: 20),
+              FilledButton(
+                onPressed: ContactsSync.instance.openSettings,
+                child: const Text('Open Settings'),
+              ),
+            ],
+            if (retry) ...[
+              SizedBox(height: settings ? 8 : 20),
               OutlinedButton(onPressed: _run, child: const Text('Try again')),
             ],
           ],

@@ -28,6 +28,7 @@ import 'package:okay_messaging/screens/blocked_contacts_screen.dart';
 import 'package:okay_messaging/screens/call_screen.dart';
 import 'package:okay_messaging/screens/communities.dart';
 import 'package:okay_messaging/screens/connect_onboarding_screen.dart';
+import 'package:okay_messaging/screens/contacts_on_app_screen.dart';
 import 'package:okay_messaging/screens/contact_info_screen.dart';
 import 'package:okay_messaging/screens/chats_settings_screen.dart';
 import 'package:okay_messaging/screens/okay_pro_screen.dart';
@@ -4093,6 +4094,65 @@ void main() {
       // a bare number identity for strangers.
       expect(contactForPhone('+15550123456').id, '+15550123456');
       expect(contactForPhone('+19998887777').phone, '+19998887777');
+    });
+
+    test('limited access seeing nothing is not an empty address book',
+        () async {
+      addTearDown(() {
+        ContactsSync.debugNumbersOverride = null;
+        ContactsSync.debugLookupOverride = null;
+        ContactsSync.debugLimited = false;
+      });
+
+      // iOS 18 "Select Contacts" with none shared: the app is shown an empty
+      // slice of a full address book. Reporting that as `empty` told people
+      // their contacts had no phone numbers — the screenshotted bug.
+      ContactsSync.debugNumbersOverride = () async => [];
+      ContactsSync.debugLimited = true;
+      expect((await ContactsSync.instance.sync()).status,
+          ContactSyncStatus.limitedEmpty);
+
+      // Full access and genuinely nothing there stays `empty`.
+      ContactsSync.debugLimited = false;
+      expect((await ContactsSync.instance.sync()).status,
+          ContactSyncStatus.empty);
+
+      // A limited scan that does find people is still marked partial, so the
+      // list can say it only covers what was shared.
+      ContactsSync.debugNumbersOverride = () async => ['555-012-3456'];
+      ContactsSync.debugLimited = true;
+      ContactsSync.debugLookupOverride = (_) async =>
+          const [AppUser(id: 'u1', name: 'Grace', avatarColor: '#123456')];
+      final result = await ContactsSync.instance.sync();
+      expect(result.status, ContactSyncStatus.ok);
+      expect(result.limited, isTrue);
+    });
+
+    testWidgets('the fix-it-in-Settings screens have a Settings button',
+        (tester) async {
+      addTearDown(() {
+        ContactsSync.debugNumbersOverride = null;
+        ContactsSync.debugLimited = false;
+        ContactsSync.debugOpenSettingsOverride = null;
+      });
+      ContactsSync.debugNumbersOverride = () async => [];
+      ContactsSync.debugLimited = true;
+      var opened = 0;
+      ContactsSync.debugOpenSettingsOverride = () => opened++;
+
+      await tester
+          .pumpWidget(const MaterialApp(home: ContactsOnAppScreen()));
+      await tester.tap(find.text('Find contacts'));
+      await tester.pumpAndSettle();
+
+      // The truthful message, not the address-book blame.
+      expect(find.text('No contacts shared yet'), findsOneWidget);
+      expect(find.text('No contacts found'), findsNothing);
+
+      // "Fix it in Settings" with no way to get there is a dead end.
+      await tester.tap(find.text('Open Settings'));
+      await tester.pump();
+      expect(opened, 1);
     });
 
     test('sync matches hashed numbers against the directory', () async {
