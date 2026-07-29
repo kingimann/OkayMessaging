@@ -60,8 +60,16 @@ export function nameMatches(cardName: string, verifiedName: string): boolean {
   );
 }
 
+/// The `reason?: undefined` on the passing arm is deliberate. Without it,
+/// reading `verdict.reason` requires TypeScript to have narrowed the union
+/// first, and the Supabase dashboard editor's type worker does not narrow
+/// across the try/catch these verdicts are produced in — it reports
+/// "Property 'reason' does not exist on type '{ ok: true }'" over code that
+/// both `deno check` and strict `tsc` accept. Declaring the property as
+/// always-present-but-undefined makes the access legal unnarrowed while
+/// still refusing `{ ok: true, reason: … }`, so nothing is given up.
 export type CardVerdict =
-  | { ok: true }
+  | { ok: true; reason?: undefined }
   | { ok: false; reason: "prepaid" | "name_mismatch" | "unknown_card" };
 
 /// The full decision for one authorised card.

@@ -239,10 +239,19 @@ const hashFor = (sigAlgOid: string): string => {
   throw new JwsError(`unsupported signature algorithm ${sigAlgOid}`);
 };
 
+/// Widens a byte array to the `BufferSource` WebCrypto's types ask for.
+///
+/// TypeScript 5.7 made `Uint8Array` generic over its backing buffer, so
+/// `Uint8Array<ArrayBufferLike>` — what `Uint8Array.from` and friends produce —
+/// no longer satisfies `BufferSource`, which wants `ArrayBufferView<ArrayBuffer>`.
+/// The bytes are identical; only the type parameter differs. Named so the
+/// reason is written down once instead of a bare cast at each call.
+const bufferOf = (bytes: Uint8Array): BufferSource => bytes as BufferSource;
+
 const importSpki = (cert: ParsedCert): Promise<CryptoKey> =>
   crypto.subtle.importKey(
     "spki",
-    cert.spki,
+    bufferOf(cert.spki),
     { name: "ECDSA", namedCurve: curveName(cert.curveOid) },
     false,
     ["verify"],
@@ -256,8 +265,8 @@ async function signedBy(child: ParsedCert, parent: ParsedCert): Promise<boolean>
   return crypto.subtle.verify(
     { name: "ECDSA", hash },
     key,
-    derSigToRaw(child.signature, size),
-    child.tbs,
+    bufferOf(derSigToRaw(child.signature, size)),
+    bufferOf(child.tbs),
   );
 }
 
@@ -312,8 +321,8 @@ async function verifyAppleJws(
   const ok = await crypto.subtle.verify(
     { name: "ECDSA", hash: "SHA-256" },
     signingKey,
-    b64urlToBytes(signatureB64),
-    new TextEncoder().encode(`${headerB64}.${payloadB64}`),
+    bufferOf(b64urlToBytes(signatureB64)),
+    bufferOf(new TextEncoder().encode(`${headerB64}.${payloadB64}`)),
   );
   if (!ok) throw new JwsError("signature does not verify");
 

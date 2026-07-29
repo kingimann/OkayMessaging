@@ -38,6 +38,21 @@ than blocking. **Never judge a gate through a pipe**: `flutter test | tail`
 exits with tail's status, so a failing suite still reads as success — use
 `set -o pipefail` (or read the actual "All tests passed!" line) before
 treating a gate as green. This has caused a red push once already.
+
+**After touching anything under `supabase/functions/`, type-check it:**
+
+```bash
+dart tool/paste_functions.dart   # regenerate docs/edge_functions_paste/
+sh tool/check_functions.sh       # must end "0 failing"
+```
+
+Neither Flutter gate looks at TypeScript, so for a long time the Supabase
+dashboard was the first thing that ever compiled these — and three breakages
+reached it: Stripe rate constants used but never declared, `grossUp` used
+without its import, and byte arrays that stopped satisfying `BufferSource`.
+The script installs Deno to `/tmp` on first run and checks both the sources
+and the generated paste copies. Always regenerate the paste copies first, or
+the thing being checked isn't what gets deployed.
 When touching web-visible code or dependencies, also confirm
 the web build compiles:
 
