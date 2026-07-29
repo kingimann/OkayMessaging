@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../app_state.dart';
+import '../state/account_service.dart';
 import '../state/app_lock.dart';
 import '../state/two_step.dart';
 import '../widgets/app_dialogs.dart';
@@ -30,6 +31,9 @@ class PrivacySettingsScreen extends StatelessWidget {
       appBar: AppBar(title: const Text('Privacy & security')),
       body: ListView(
         children: [
+          const SizedBox(height: 6),
+          settingsSectionLabel(context, 'How people can reach you'),
+          const InfoSection(children: [_ReachabilityTiles()]),
           const SizedBox(height: 6),
           settingsSectionLabel(context, 'Who can see my info'),
           InfoSection(children: [
@@ -421,6 +425,110 @@ class _BlockedCountBadge extends StatelessWidget {
           ],
         );
       },
+    );
+  }
+}
+
+
+/// The two doors to this account — profile search and contact sync — as
+/// switches backed by the directory row itself, so the choice applies on
+/// every other phone's searches, not just this one's screen.
+class _ReachabilityTiles extends StatefulWidget {
+  const _ReachabilityTiles();
+
+  @override
+  State<_ReachabilityTiles> createState() => _ReachabilityTilesState();
+}
+
+class _ReachabilityTilesState extends State<_ReachabilityTiles> {
+  bool? _byUsername;
+  bool? _byPhone;
+  bool _saving = false;
+  String? _note;
+
+  @override
+  void initState() {
+    super.initState();
+    AccountService.instance.getReachability().then((r) {
+      if (!mounted) return;
+      setState(() {
+        _byUsername = r.$1;
+        _byPhone = r.$2;
+      });
+    });
+  }
+
+  Future<void> _apply({bool? byUsername, bool? byPhone}) async {
+    final u = byUsername ?? _byUsername ?? true;
+    final p = byPhone ?? _byPhone ?? true;
+    setState(() {
+      _byUsername = u;
+      _byPhone = p;
+      _saving = true;
+      _note = null;
+    });
+    final ok = await AccountService.instance
+        .setReachability(byUsername: u, byPhone: p);
+    if (!mounted) return;
+    setState(() {
+      _saving = false;
+      // An unsaved choice must not look chosen — say it, and re-read what
+      // the directory actually holds.
+      _note = ok ? null : 'Couldn\'t save — check your connection.';
+    });
+    if (!ok) {
+      final r = await AccountService.instance.getReachability();
+      if (mounted) {
+        setState(() {
+          _byUsername = r.$1;
+          _byPhone = r.$2;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final loading = _byUsername == null;
+    return Column(
+      children: [
+        SwitchListTile.adaptive(
+          secondary: const Icon(Icons.alternate_email),
+          title: const Text('By profile'),
+          subtitle: const Text(
+              'Appear in username search, so people can message your '
+              'profile without knowing your number'),
+          value: _byUsername ?? true,
+          onChanged: loading || _saving
+              ? null
+              : (v) => _apply(byUsername: v),
+        ),
+        SwitchListTile.adaptive(
+          secondary: const Icon(Icons.dialpad),
+          title: const Text('By phone number'),
+          subtitle: const Text(
+              'Appear when someone who has your number syncs their '
+              'contacts'),
+          value: _byPhone ?? true,
+          onChanged: loading || _saving ? null : (v) => _apply(byPhone: v),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              _note ??
+                  'Controls being found. People you already chat with keep '
+                  'the conversation either way.',
+              style: TextStyle(
+                  fontSize: 12,
+                  color: _note == null
+                      ? Theme.of(context).colorScheme.onSurfaceVariant
+                      : Theme.of(context).colorScheme.error),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

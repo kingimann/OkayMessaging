@@ -152,8 +152,8 @@ class AccountService {
   }
 
   /// Finds people whose username starts with [query] (case-insensitive) in the
-  /// server directory. Returns an empty list when the backend is unavailable
-  /// or nothing matches. Never throws.
+  /// server directory — those who allow it. Returns an empty list when the
+  /// backend is unavailable or nothing matches. Never throws.
   Future<List<AppUser>> searchByUsername(String query) async {
     final q = normalizeUsername(query);
     if (q.length < 2) return const [];
@@ -163,6 +163,9 @@ class AccountService {
           .from(_table)
           .select(columns)
           .ilike('username', '$q%')
+          // Reachability choice: rows that closed the username door stay
+          // out of results. neq keeps unmigrated rows (null) visible.
+          .neq('find_by_username', false)
           .limit(25));
       final out = <AppUser>[];
       for (final row in rows) {
@@ -189,6 +192,7 @@ class AccountService {
           .from(_table)
           .select(columns)
           .inFilter('phone_hash', hashes)
+          .neq('find_by_phone', false)
           .limit(500));
       final out = <AppUser>[];
       for (final row in rows) {
@@ -226,6 +230,56 @@ class AccountService {
   /// [_rowToUser], reachable from tests.
   @visibleForTesting
   static AppUser? debugRowToUser(Map<String, dynamic> row) => _rowToUser(row);
+
+  /// Test hook: replaces the reachability round trip.
+  @visibleForTesting
+  static Future<(bool, bool)> Function()? debugGetReachabilityOverride;
+  @visibleForTesting
+  static Future<bool> Function(bool byUsername, bool byPhone)?
+      debugSetReachabilityOverride;
+
+  /// Which doors this account keeps open: (byUsername, byPhone). Defaults to
+  /// both when the row or the migrated columns don't exist yet.
+  Future<(bool, bool)> getReachability() async {
+    final debug = debugGetReachabilityOverride;
+    if (debug != null) return debug();
+    final phone = Session.instance.user.value?.phone;
+    if (phone == null) return (true, true);
+    try {
+      final rows = await _client
+          .from(_table)
+          .select('find_by_username, find_by_phone')
+          .eq('phone', e164(phone))
+          .limit(1);
+      if (rows.isEmpty) return (true, true);
+      return (
+        rows.first['find_by_username'] as bool? ?? true,
+        rows.first['find_by_phone'] as bool? ?? true,
+      );
+    } catch (_) {
+      return (true, true); // unmigrated directory: both doors open, as ever
+    }
+  }
+
+  /// Stores which doors stay open. False when it could not be saved (offline,
+  /// unmigrated directory, or no signed-in row to save onto).
+  Future<bool> setReachability(
+      {required bool byUsername, required bool byPhone}) async {
+    final debug = debugSetReachabilityOverride;
+    if (debug != null) return debug(byUsername, byPhone);
+    final phone = Session.instance.user.value?.phone;
+    if (phone == null) return false;
+    try {
+      await _client.from(_table).update({
+        'find_by_username': byUsername,
+        'find_by_phone': byPhone,
+        'updated_at': DateTime.now().toUtc().toIso8601String(),
+      }).eq('phone', e164(phone));
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
 
   /// Looks up the username currently linked to [phone] (null if none).
   Future<String?> usernameForPhone(String phone) async {

@@ -48,6 +48,7 @@ import 'package:okay_messaging/screens/chat_places_screen.dart';
 import 'package:okay_messaging/screens/explore_map_screen.dart';
 import 'package:okay_messaging/screens/feed_screen.dart';
 import 'package:okay_messaging/screens/people_screen.dart';
+import 'package:okay_messaging/screens/privacy_settings_screen.dart';
 import 'package:okay_messaging/screens/forward_screen.dart';
 import 'package:okay_messaging/screens/route_map_screen.dart';
 import 'package:latlong2/latlong.dart';
@@ -4353,6 +4354,49 @@ void main() {
 
       // One badge: Grace's. Ada must not inherit it from the row above.
       expect(find.byType(VerifiedBadge), findsOneWidget);
+    });
+
+    testWidgets('reachability switches speak for the directory, honestly',
+        (tester) async {
+      addTearDown(() {
+        AccountService.debugGetReachabilityOverride = null;
+        AccountService.debugSetReachabilityOverride = null;
+      });
+      // The directory says: findable by profile, hidden from contact sync.
+      AccountService.debugGetReachabilityOverride = () async => (true, false);
+      (bool, bool)? saved;
+      var saveOk = true;
+      AccountService.debugSetReachabilityOverride = (u, p) async {
+        saved = (u, p);
+        return saveOk;
+      };
+
+      await tester.pumpWidget(
+          const MaterialApp(home: PrivacySettingsScreen()));
+      await tester.pumpAndSettle();
+
+      final byProfile = find.widgetWithText(SwitchListTile, 'By profile');
+      final byPhone =
+          find.widgetWithText(SwitchListTile, 'By phone number');
+      await tester.ensureVisible(byPhone);
+      expect(tester.widget<SwitchListTile>(byProfile).value, isTrue);
+      expect(tester.widget<SwitchListTile>(byPhone).value, isFalse);
+
+      // Toggling writes BOTH doors to the directory row.
+      await tester.tap(byProfile);
+      await tester.pumpAndSettle();
+      expect(saved, (false, false));
+
+      // A failed save must not leave the switch lying: it reverts to what
+      // the directory actually holds and says why.
+      saveOk = false;
+      AccountService.debugGetReachabilityOverride = () async =>
+          (false, false);
+      await tester.tap(byPhone);
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Couldn\'t save'), findsOneWidget);
+      expect(tester.widget<SwitchListTile>(byPhone).value, isFalse,
+          reason: 'the unsaved choice must not look chosen');
     });
 
     test('sync matches hashed numbers against the directory', () async {
