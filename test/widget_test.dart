@@ -113,6 +113,7 @@ import 'package:okay_messaging/screens/group_info_screen.dart';
 import 'package:okay_messaging/state/live_location_store.dart';
 import 'package:okay_messaging/state/saved_places_store.dart';
 import 'package:okay_messaging/state/feed_store.dart';
+import 'package:okay_messaging/state/market_media.dart';
 import 'package:okay_messaging/state/follow_store.dart';
 import 'package:okay_messaging/state/recent_searches.dart';
 import 'package:okay_messaging/state/scheduler.dart';
@@ -6109,6 +6110,116 @@ void main() {
           find.byType(PageView), const Offset(-400, 0), 1200);
       await tester.pumpAndSettle();
       expect(find.text('2/3'), findsOneWidget);
+    });
+
+    test('listing videos: sealed round trip, caps, and honest sniffing',
+        () async {
+      CommunityStore.instance.resetForTest();
+      addTearDown(() {
+        CommunityStore.instance.resetForTest();
+        MarketMedia.debugBucketOverride = null;
+      });
+      final server = CommunityStore.instance.createCommunity('Video HQ');
+      expect(server.secret, isNotEmpty,
+          reason: 'a minted server carries the key its media is sealed with');
+      final bucket = <String, String>{};
+      MarketMedia.debugBucketOverride = bucket;
+
+      // A plausible tiny MP4: size box + ftyp brand.
+      final mp4 = Uint8List.fromList([
+        0, 0, 0, 24, 0x66, 0x74, 0x79, 0x70, // ftyp
+        ...List.filled(64, 7),
+      ]);
+      expect(MarketMedia.looksLikeVideo(mp4), isTrue);
+      expect(
+          MarketMedia.looksLikeVideo(
+              Uint8List.fromList([0x1A, 0x45, 0xDF, 0xA3, ...List.filled(16, 0)])),
+          isTrue,
+          reason: 'WebM is a video too');
+      expect(
+          MarketMedia.looksLikeVideo(
+              Uint8List.fromList(List.filled(64, 0x41))),
+          isFalse,
+          reason: 'a text file with a video extension is not a video');
+
+      {
+        final path = await MarketMedia.instance.uploadVideo(
+            communityId: server.id, listingId: 'lst_v', bytes: mp4);
+        expect(path, MarketMedia.pathFor(server.id, 'lst_v'));
+
+        // What sits in the bucket is ciphertext, not the video.
+        expect(bucket[path], isNotNull);
+        expect(bucket[path]!.contains('ftyp'), isFalse);
+
+        // Members round-trip it back to the exact bytes.
+        final back = await MarketMedia.instance.downloadVideo(server.id, path);
+        expect(back, mp4);
+
+        // A non-member (no key for that server) gets nothing readable.
+        final other = CommunityStore.instance.createCommunity('Other');
+        expect(await MarketMedia.instance.downloadVideo(other.id, path),
+            isNull);
+
+        // Deleting a listing's video empties its slot.
+        await MarketMedia.instance.deleteVideo(path);
+        expect(bucket[path], isNull);
+
+        // Oversize and non-video are refused with reasons, not uploaded.
+        await expectLater(
+            MarketMedia.instance.uploadVideo(
+                communityId: server.id,
+                listingId: 'lst_big',
+                bytes: Uint8List(MarketMedia.maxVideoBytes + 1)),
+            throwsA(isA<MarketMediaError>()));
+        await expectLater(
+            MarketMedia.instance.uploadVideo(
+                communityId: server.id,
+                listingId: 'lst_txt',
+                bytes: Uint8List.fromList(List.filled(64, 0x41))),
+            throwsA(isA<MarketMediaError>()));
+        expect(bucket, isEmpty);
+      }
+    });
+
+    test('the video path rides the listing envelope, not the bytes', () {
+      final listing = FeedPost(
+        id: 'lst_vp',
+        communityId: 'c1',
+        authorName: 'You',
+        authorUsername: 'you',
+        time: DateTime.now(),
+        text: 'Bike',
+        priceCents: 2000,
+        listingCategory: 'Sports',
+        listingVideo: 'c1/lst_vp.sealed',
+      );
+      final wire = FeedPost.fromJson(listing.toJson());
+      expect(wire.listingVideo, 'c1/lst_vp.sealed');
+      // And the sell form's tile promise matches the enforced cap.
+      expect(MarketMedia.maxVideoBytes, 12 * 1024 * 1024,
+          reason: 'the "up to 12 MB" label hardcodes this number');
+    });
+
+    testWidgets('video upload is part of the storage subscription',
+        (tester) async {
+      FeedStore.instance.resetForTest();
+      addTearDown(() {
+        FeedStore.instance.resetForTest();
+        StorageStore.instance.debugSubscribe(0);
+      });
+
+      // Without the subscription the slot explains itself instead of hiding.
+      await tester.pumpWidget(const MaterialApp(home: SellScreen()));
+      await tester.pump();
+      expect(find.textContaining('Add a video with cloud storage'),
+          findsOneWidget);
+      expect(find.text('Add a video (up to 12 MB, ~30s)'), findsNothing);
+
+      // With it, the picker button appears.
+      StorageStore.instance.debugSubscribe(50);
+      await tester.pumpWidget(const MaterialApp(home: SellScreen()));
+      await tester.pump();
+      expect(find.text('Add a video (up to 12 MB, ~30s)'), findsOneWidget);
     });
 
     testWidgets('an open listing follows the relay: sold updates, removal '

@@ -1,3 +1,5 @@
+import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../app_state.dart';
@@ -7,9 +9,12 @@ import '../state/account_service.dart';
 import '../state/chat_store.dart';
 import '../state/community_store.dart';
 import '../state/feed_store.dart';
+import '../state/market_media.dart';
+import '../state/storage_store.dart';
 import '../util/file_moderation.dart';
 import '../util/photo_prep.dart';
 import '../widgets/chat_photo.dart';
+import '../widgets/listing_video.dart';
 import 'chat_screen.dart';
 import 'feed_screen.dart' show showPersonSheet, feedSpans;
 
@@ -709,6 +714,10 @@ class ListingScreen extends StatelessWidget {
                       const SizedBox(width: 10),
                       OutlinedButton(
                         onPressed: () {
+                          if (listing.listingVideo.isNotEmpty) {
+                            MarketMedia.instance
+                                .deleteVideo(listing.listingVideo);
+                          }
                           FeedStore.instance.deletePost(listing.id);
                           Navigator.of(context).pop();
                         },
@@ -740,6 +749,28 @@ class ListingScreen extends StatelessWidget {
                   title: title,
                 );
               }),
+              if (listing.listingVideo.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(0, 8, 0, 0),
+                  child: ListingVideoPlayer.isSupported
+                      ? ListingVideoPlayer.build(
+                          communityId: listing.communityId,
+                          path: listing.listingVideo,
+                        )
+                      : Container(
+                          padding: const EdgeInsets.all(14),
+                          alignment: Alignment.center,
+                          color: Theme.of(context)
+                              .colorScheme
+                              .surfaceContainerHighest,
+                          child: Text(
+                            'This listing has a video — watch it in the '
+                            'mobile app.',
+                            style: TextStyle(
+                                fontSize: 13, color: Colors.grey.shade600),
+                          ),
+                        ),
+                ),
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 14, 16, 4),
                 child: Column(
@@ -1252,7 +1283,44 @@ class _SellScreenState extends State<SellScreen> {
       (CommunityStore.instance.communities.isEmpty
           ? ''
           : CommunityStore.instance.communities.first.id);
+
+  /// The listing's current video: a bucket path when editing one that has a
+  /// video, and freshly picked bytes waiting to upload on Post.
+  late String _videoPath = widget.existing?.listingVideo ?? '';
+  Uint8List? _videoBytes;
+  bool _uploadingVideo = false;
   String? _error;
+
+  bool get _hasVideo => _videoBytes != null || _videoPath.isNotEmpty;
+
+  Future<void> _pickVideo() async {
+    try {
+      final result = await FilePicker.pickFiles(
+        type: FileType.video,
+        withData: true,
+      );
+      final bytes = result?.files.firstOrNull?.bytes;
+      if (bytes == null || bytes.isEmpty || !mounted) return;
+      if (!MarketMedia.looksLikeVideo(bytes)) {
+        setState(() => _error = 'That file doesn\'t look like a video.');
+        return;
+      }
+      if (bytes.length > MarketMedia.maxVideoBytes) {
+        setState(() => _error =
+            'Videos can be up to ${MarketMedia.maxVideoBytes ~/ (1024 * 1024)}'
+            ' MB — about 30 seconds.');
+        return;
+      }
+      setState(() {
+        _videoBytes = bytes;
+        _error = null;
+      });
+    } catch (_) {
+      if (mounted) {
+        setState(() => _error = 'Couldn\'t read that video.');
+      }
+    }
+  }
 
   @override
   void dispose() {
@@ -1299,7 +1367,20 @@ class _SellScreenState extends State<SellScreen> {
           _error = '"$hit" is blocked by this server\'s word filter.');
       return;
     }
+    _finish(title, cents);
+  }
+
+  Future<void> _finish(String title, int cents) async {
     final existing = widget.existing;
+    final bytes = _videoBytes;
+    var videoPath = _videoPath;
+    final removedVideo =
+        existing != null && existing.listingVideo.isNotEmpty && !_hasVideo;
+
+    // The listing's id names its video object, so the listing exists first
+    // and the upload follows; a failed upload leaves a listing without a
+    // video and says so, never a video without a listing.
+    FeedPost listing;
     if (existing != null) {
       FeedStore.instance.updateListing(
         existing.id,
@@ -1309,9 +1390,11 @@ class _SellScreenState extends State<SellScreen> {
         description: _description.text,
         photoUrl: _photos.firstOrNull,
         extraPhotos: _photos.skip(1).toList(),
+        videoPath: removedVideo ? '' : videoPath,
       );
+      listing = existing;
     } else {
-      FeedStore.instance.addListing(
+      listing = FeedStore.instance.addListing(
         _communityId,
         title: title,
         priceCents: cents,
@@ -1321,7 +1404,104 @@ class _SellScreenState extends State<SellScreen> {
         extraPhotos: _photos.skip(1).toList(),
       );
     }
-    Navigator.of(context).pop(true);
+    if (removedVideo) {
+      MarketMedia.instance.deleteVideo(existing.listingVideo);
+    }
+    if (bytes != null) {
+      setState(() => _uploadingVideo = true);
+      try {
+        videoPath = await MarketMedia.instance.uploadVideo(
+          communityId: listing.communityId,
+          listingId: listing.id,
+          bytes: bytes,
+        );
+        FeedStore.instance.updateListing(
+          listing.id,
+          title: title,
+          priceCents: cents,
+          category: _category,
+          description: _description.text,
+          photoUrl: _photos.firstOrNull,
+          videoPath: videoPath,
+        );
+      } on MarketMediaError catch (e) {
+        if (mounted) {
+          setState(() {
+            _uploadingVideo = false;
+            _error = '${e.reason} The listing posted without its video — '
+                'edit it to try again.';
+          });
+        }
+        return;
+      }
+    }
+    if (mounted) Navigator.of(context).pop(true);
+  }
+
+  /// The video slot. Hosting a video costs real money (storage + egress per
+  /// view), so uploading is part of the cloud storage subscription — the one
+  /// paid thing this app sells, with unit economics the suite proves. The
+  /// locked tile says exactly that instead of hiding the feature.
+  Widget _videoTile(BuildContext context) {
+    final subscribed = StorageStore.instance.isPaid;
+    if (_uploadingVideo) {
+      return Row(
+        children: [
+          const SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(strokeWidth: 2)),
+          const SizedBox(width: 10),
+          Text('Uploading video…',
+              style: TextStyle(color: Colors.grey.shade600)),
+        ],
+      );
+    }
+    if (_hasVideo) {
+      return Row(
+        children: [
+          const Icon(Icons.videocam_outlined, size: 20),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              _videoBytes != null
+                  ? 'Video attached '
+                      '(${(_videoBytes!.length / (1024 * 1024)).toStringAsFixed(1)} MB)'
+                  : 'This listing has a video',
+              style: const TextStyle(fontSize: 13.5),
+            ),
+          ),
+          TextButton(
+            onPressed: () => setState(() {
+              _videoBytes = null;
+              _videoPath = '';
+            }),
+            child: const Text('Remove'),
+          ),
+        ],
+      );
+    }
+    if (!subscribed) {
+      return Row(
+        children: [
+          Icon(Icons.videocam_off_outlined,
+              size: 20, color: Colors.grey.shade500),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'Add a video with cloud storage — hosting video costs real '
+              'storage, and the subscription is what pays for it.',
+              style: TextStyle(fontSize: 12.5, color: Colors.grey.shade600),
+            ),
+          ),
+        ],
+      );
+    }
+    return OutlinedButton.icon(
+      onPressed: _pickVideo,
+      icon: const Icon(Icons.videocam_outlined, size: 18),
+      label: const Text('Add a video (up to 12 MB, ~30s)'),
+    );
   }
 
   @override
@@ -1446,7 +1626,9 @@ class _SellScreenState extends State<SellScreen> {
               ],
             ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 10),
+          _videoTile(context),
+          const SizedBox(height: 12),
           TextField(
             controller: _title,
             textCapitalization: TextCapitalization.sentences,

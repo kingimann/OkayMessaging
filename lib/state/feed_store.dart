@@ -61,6 +61,11 @@ class FeedPost {
 
   bool get isReview => rating > 0;
 
+  /// Bucket path of the listing's sealed video ('' = none). The bytes live
+  /// in Storage — see MarketMedia — because a video cannot ride the relay;
+  /// only this address rides in the envelope.
+  final String listingVideo;
+
   /// Photo-part index (1-based) when this post is one extra photo of a
   /// listing; 0 everywhere else. Each part rides as its OWN post because the
   /// relay caps a payload around a quarter-megabyte and one photo already
@@ -111,6 +116,7 @@ class FeedPost {
     this.listingRev = 0,
     this.rating = 0,
     this.mediaPart = 0,
+    this.listingVideo = '',
     this.pollQuestion = '',
     this.pollOptions = const [],
     this.pollVotes = const [],
@@ -154,6 +160,7 @@ class FeedPost {
         listingRev: listingRev ?? this.listingRev,
         rating: rating,
         mediaPart: mediaPart,
+        listingVideo: listingVideo,
         pollQuestion: pollQuestion,
         pollOptions: pollOptions,
         pollVotes: pollVotes ?? this.pollVotes,
@@ -185,6 +192,7 @@ class FeedPost {
         },
         if (rating > 0) 'rating': rating,
         if (mediaPart > 0) 'mediaPart': mediaPart,
+        if (listingVideo.isNotEmpty) 'listingVideo': listingVideo,
         if (isPoll) ...{
           'pollQuestion': pollQuestion,
           'pollOptions': pollOptions,
@@ -216,6 +224,7 @@ class FeedPost {
         listingRev: (j['listingRev'] as num?)?.toInt() ?? 0,
         rating: (j['rating'] as num?)?.toInt() ?? 0,
         mediaPart: (j['mediaPart'] as num?)?.toInt() ?? 0,
+        listingVideo: j['listingVideo'] as String? ?? '',
         pollQuestion: j['pollQuestion'] as String? ?? '',
         pollOptions:
             (j['pollOptions'] as List? ?? const []).whereType<String>().toList(),
@@ -691,6 +700,7 @@ class FeedStore extends ChangeNotifier {
     String description = '',
     String? photoUrl,
     List<String> extraPhotos = const [],
+    String videoPath = '',
   }) {
     final me = AppState.profile.value;
     final post = FeedPost(
@@ -707,6 +717,7 @@ class FeedStore extends ChangeNotifier {
       gifUrl: photoUrl,
       priceCents: priceCents,
       listingCategory: category,
+      listingVideo: videoPath,
     );
     _posts.add(post);
     _addPhotoParts(post, extraPhotos);
@@ -861,6 +872,7 @@ class FeedStore extends ChangeNotifier {
     String description = '',
     String? photoUrl,
     List<String>? extraPhotos,
+    String? videoPath,
   }) {
     final i = _posts.indexWhere((p) => p.id == postId);
     if (i == -1 || !_posts[i].isListing || title.trim().isEmpty) return false;
@@ -895,6 +907,7 @@ class FeedStore extends ChangeNotifier {
       listingCategory: category,
       listingSold: post.listingSold,
       listingRev: post.listingRev + 1,
+      listingVideo: videoPath ?? post.listingVideo,
       edited: true,
     );
     // deletePost above may have shifted indices; find the listing again.
