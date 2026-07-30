@@ -306,6 +306,18 @@ class _NativeOnboardingScreenState extends State<NativeOnboardingScreen> {
             'device and never through this app\'s server.',
             style: TextStyle(color: Colors.grey.shade600, fontSize: 13.5),
           ),
+          // An empty half-made account was thrown away to get here. Said once,
+          // because a payment account quietly changing underneath somebody is
+          // the kind of thing they should hear from us and not notice later.
+          if (req.replacedStaleAccount) ...[
+            const SizedBox(height: 10),
+            Text(
+              'An unfinished payment account from an earlier attempt was '
+              'discarded — it had nothing in it — so this can be completed '
+              'here instead of on Stripe\'s website.',
+              style: TextStyle(fontSize: 12.5, color: Colors.grey.shade600),
+            ),
+          ],
           const SizedBox(height: 18),
           if (needs.contains(ConnectField.name)) ...[
             _section('Your name'),

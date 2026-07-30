@@ -86,6 +86,11 @@ class ConnectRequirements {
   final String country;
   final String currency;
 
+  /// True when an unused Express account was replaced by one this app can
+  /// collect for. Not an error — but worth saying, rather than appearing to
+  /// have lost somebody's account.
+  final bool replacedStaleAccount;
+
   const ConnectRequirements({
     required this.accountId,
     required this.collection,
@@ -99,6 +104,7 @@ class ConnectRequirements {
     required this.disabledReason,
     required this.country,
     required this.currency,
+    this.replacedStaleAccount = false,
   });
 
   factory ConnectRequirements.fromJson(Map<String, dynamic> j) {
@@ -123,6 +129,7 @@ class ConnectRequirements {
       disabledReason: status['disabledReason'] as String?,
       country: j['country'] as String? ?? '',
       currency: j['currency'] as String? ?? '',
+      replacedStaleAccount: j['replacedStaleAccount'] == true,
     );
   }
 

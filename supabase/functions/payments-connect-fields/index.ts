@@ -61,6 +61,31 @@ const HANDLED = new Set([
   "business_type",
 ]);
 
+/// Whether a connected account is an Express leftover worth throwing away.
+///
+/// An Express account can only be onboarded on Stripe's own pages, so keeping
+/// one means the app has to send somebody out to a web form — the exact seam
+/// this function exists to remove. But an Express account that has been *used*
+/// is somebody's real payment account, with a history and possibly a balance,
+/// and abandoning it would be destroying something.
+///
+/// So: replace it only when it holds nothing. Nothing submitted, no charges, no
+/// payouts — an account that was created, never finished, and is worth exactly
+/// zero. Anything else is kept and the hosted flow is offered for it honestly.
+export function isDiscardableExpressAccount(account: {
+  controller?: { requirement_collection?: string } | null;
+  details_submitted?: boolean | null;
+  charges_enabled?: boolean | null;
+  payouts_enabled?: boolean | null;
+}): boolean {
+  const collectedByStripe =
+    (account.controller?.requirement_collection ?? "stripe") !== "application";
+  return collectedByStripe &&
+    !account.details_submitted &&
+    !account.charges_enabled &&
+    !account.payouts_enabled;
+}
+
 type Submission = {
   firstName?: string;
   lastName?: string;
@@ -145,9 +170,19 @@ Deno.serve(async (req) => {
     // Stripe answers "No such account". Forget it and make one that belongs
     // here. Only on resource_missing — a network blip must not discard an
     // account somebody has already put their details into.
+    // An unused Express account is the last thing standing between somebody
+    // and setting payments up without leaving the app, so it goes.
+    let replacedStaleAccount = false;
     if (accountId) {
       try {
-        await stripe.accounts.retrieve(accountId);
+        const stored = await stripe.accounts.retrieve(accountId);
+        if (isDiscardableExpressAccount(
+          stored as unknown as Parameters<typeof isDiscardableExpressAccount>[0],
+        )) {
+          await admin.from("payment_accounts").delete().eq("phone", phone);
+          accountId = undefined;
+          replacedStaleAccount = true;
+        }
       } catch (e) {
         const err = e as { code?: string; statusCode?: number };
         if (err?.code === "resource_missing" || err?.statusCode === 404) {
@@ -280,7 +315,12 @@ Deno.serve(async (req) => {
     }
 
     const account = await stripe.accounts.retrieve(accountId);
-    const out = describe(account as unknown as Record<string, unknown>);
+    const out = {
+      ...describe(account as unknown as Record<string, unknown>),
+      // True when an unused Express account was thrown away for this one. Not
+      // an error — but the app should not pretend nothing happened either.
+      replacedStaleAccount,
+    };
     await admin.from("payment_accounts").update({
       charges_enabled: account.charges_enabled,
       payouts_enabled: account.payouts_enabled,

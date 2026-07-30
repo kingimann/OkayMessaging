@@ -14398,6 +14398,54 @@ void main() {
           reason: 'run: dart tool/paste_functions.dart');
     });
 
+    test('an unused Express account is replaced, a used one never is', () {
+      // An Express account can only be onboarded on Stripe's own pages, so
+      // keeping one means sending somebody out to a web form — the seam this
+      // whole thing exists to remove. But a *used* Express account is somebody's
+      // real payment account, with history and possibly a balance, and throwing
+      // it away would be destroying something. So the guard is that it holds
+      // nothing at all.
+      final fn = File('supabase/functions/payments-connect-fields/index.ts')
+          .readAsStringSync();
+      expect(fn.contains('isDiscardableExpressAccount'), isTrue);
+      // All three emptiness conditions, not just one of them.
+      for (final guard in [
+        '!account.details_submitted',
+        '!account.charges_enabled',
+        '!account.payouts_enabled',
+      ]) {
+        expect(fn.contains(guard), isTrue,
+            reason: 'without $guard a real account could be discarded');
+      }
+      // And it only applies to accounts Stripe collects for.
+      expect(fn.contains('!== "application"'), isTrue);
+
+      // The replacement is reported rather than silent: a payment account
+      // changing underneath somebody is something they should hear from us.
+      expect(fn.contains('replacedStaleAccount'), isTrue);
+      final req = ConnectRequirements.fromJson({
+        'collection': 'application',
+        'replacedStaleAccount': true,
+        'status': <String, dynamic>{},
+      });
+      expect(req.replacedStaleAccount, isTrue);
+      expect(
+          ConnectRequirements.fromJson({'status': <String, dynamic>{}})
+              .replacedStaleAccount,
+          isFalse,
+          reason: 'absent means it did not happen');
+      final screen =
+          File('lib/screens/native_onboarding_screen.dart').readAsStringSync();
+      expect(screen.contains('req.replacedStaleAccount'), isTrue,
+          reason: 'and the screen says so');
+
+      final paste =
+          File('docs/edge_functions_paste/payments-connect-fields.ts')
+              .readAsStringSync();
+      expect(paste.contains('isDiscardableExpressAccount'), isTrue,
+          reason: 'run: dart tool/paste_functions.dart');
+    });
+
     test('sensitive numbers are tokenised on the device, never posted to us',
         () async {
       addTearDown(() {
