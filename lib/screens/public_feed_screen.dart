@@ -8,6 +8,7 @@ import '../models/user.dart';
 import '../state/chat_store.dart';
 import '../state/follow_store.dart';
 import '../state/platform_moderation.dart';
+import '../state/bookmark_store.dart';
 import '../state/public_feed_store.dart';
 import '../util/file_moderation.dart';
 import '../util/photo_prep.dart';
@@ -155,6 +156,18 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
             },
           ),
           if (!_searching)
+            ListenableBuilder(
+              listenable: BookmarkStore.instance,
+              builder: (context, _) => IconButton(
+                icon: Icon(BookmarkStore.instance.count == 0
+                    ? Icons.bookmark_border
+                    : Icons.bookmark),
+                tooltip: 'Bookmarks',
+                onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => const BookmarksScreen())),
+              ),
+            ),
+          if (!_searching)
             IconButton(
               icon: const Icon(Icons.refresh),
               tooltip: 'Refresh',
@@ -258,6 +271,157 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
                   textAlign: TextAlign.center,
                   style: TextStyle(color: Colors.grey.shade600)),
             ],
+          ),
+        ),
+      );
+}
+
+/// Posts saved on this device.
+///
+/// The ids are local; the posts are re-read from the public feed, which is
+/// public anyway. So a bookmark is a note to yourself that no server holds —
+/// and the honest cost is that it does not follow you to a new device.
+class BookmarksScreen extends StatefulWidget {
+  const BookmarksScreen({super.key});
+
+  @override
+  State<BookmarksScreen> createState() => _BookmarksScreenState();
+}
+
+class _BookmarksScreenState extends State<BookmarksScreen> {
+  List<PublicPost>? _posts;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() => _error = null);
+    final ids = BookmarkStore.instance.ids;
+    if (ids.isEmpty) {
+      setState(() => _posts = const []);
+      return;
+    }
+    try {
+      final (posts, missing) =
+          await PublicFeedStore.instance.postsByIds(ids);
+      // A saved post that has been deleted should leave the list rather than
+      // sit in it forever pointing at nothing.
+      await BookmarkStore.instance.forget(missing);
+      if (!mounted) return;
+      setState(() => _posts = posts);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() =>
+          _error = e is PublicFeedError ? e.reason : 'Couldn\'t load these.');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final posts = _posts;
+    return Scaffold(
+      appBar: AppBar(title: const Text('Bookmarks')),
+      body: _error != null
+          ? Center(
+              child: Padding(
+                padding: const EdgeInsets.all(32),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(_error!, textAlign: TextAlign.center),
+                    const SizedBox(height: 14),
+                    OutlinedButton(
+                        onPressed: _load, child: const Text('Try again')),
+                  ],
+                ),
+              ),
+            )
+          : posts == null
+              ? const Center(child: CircularProgressIndicator())
+              : posts.isEmpty
+                  ? Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(36),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.bookmark_border,
+                                size: 46, color: Colors.grey.shade400),
+                            const SizedBox(height: 14),
+                            Text(
+                              'Nothing saved yet. Use the ··· on a post to '
+                              'bookmark it — bookmarks stay on this device.',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(color: Colors.grey.shade600),
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
+                  : ListenableBuilder(
+                      listenable: BookmarkStore.instance,
+                      builder: (context, _) {
+                        // Unsaving one from in here removes the row, rather
+                        // than leaving it on a screen it no longer belongs to.
+                        final shown = [
+                          for (final p in posts)
+                            if (BookmarkStore.instance.contains(p.id)) p
+                        ];
+                        return ListView.separated(
+                          itemCount: shown.length,
+                          separatorBuilder: (_, __) => const Divider(height: 1),
+                          itemBuilder: (context, i) => _PostTile(
+                            post: shown[i],
+                            onReply: () => Navigator.of(context).push(
+                                MaterialPageRoute(
+                                    builder: (_) =>
+                                        _ThreadScreen(postId: shown[i].id))),
+                            onOpen: () => Navigator.of(context).push(
+                                MaterialPageRoute(
+                                    builder: (_) =>
+                                        _ThreadScreen(postId: shown[i].id))),
+                          ),
+                        );
+                      },
+                    ),
+    );
+  }
+}
+
+/// A post's photo, filling the screen.
+///
+/// Pinch to zoom, and the app bar keeps a way back — a photo that opens with no
+/// way out is the reason people learn to distrust tapping them.
+class _PhotoScreen extends StatelessWidget {
+  final String url;
+  final String by;
+  const _PhotoScreen({required this.url, required this.by});
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        backgroundColor: Colors.black,
+        appBar: AppBar(
+          backgroundColor: Colors.black,
+          foregroundColor: Colors.white,
+          title: Text(by, style: const TextStyle(fontSize: 15)),
+        ),
+        body: Center(
+          child: InteractiveViewer(
+            maxScale: 5,
+            child: Image.network(
+              url,
+              fit: BoxFit.contain,
+              errorBuilder: (_, __, ___) => const Text(
+                  'That photo could not be loaded.',
+                  style: TextStyle(color: Colors.white70)),
+              loadingBuilder: (context, child, progress) => progress == null
+                  ? child
+                  : const CircularProgressIndicator(color: Colors.white),
+            ),
           ),
         ),
       );
@@ -787,7 +951,7 @@ class _PostTile extends StatelessWidget {
                             ],
                             const SizedBox(width: 6),
                             Text(
-                                '· ${DateFormatter.chatListLabel(post.createdAt)}',
+                                '· ${DateFormatter.postAge(post.createdAt)}',
                                 style: TextStyle(
                                     fontSize: 12, color: Colors.grey.shade500)),
                           ],
@@ -812,22 +976,31 @@ class _PostTile extends StatelessWidget {
                   ],
                   if (post.hasImage) ...[
                     const SizedBox(height: 8),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(12),
-                      child: Image.network(
-                        PublicFeedStore.imageUrlFor(post) ?? '',
-                        fit: BoxFit.cover,
-                        // A broken image should be absent, not a grey box with
-                        // an icon in the middle of somebody's post.
-                        errorBuilder: (_, __, ___) => const SizedBox.shrink(),
-                        loadingBuilder: (context, child, progress) =>
-                            progress == null
-                                ? child
-                                : const SizedBox(
-                                    height: 160,
-                                    child: Center(
-                                        child: CircularProgressIndicator(
-                                            strokeWidth: 2))),
+GestureDetector(
+                      onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                        builder: (_) => _PhotoScreen(
+                            url: PublicFeedStore.imageUrlFor(post) ?? '',
+                            by: post.authorName.isEmpty
+                                ? '@${post.authorUsername}'
+                                : post.authorName),
+                      )),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(12),
+                        child: Image.network(
+                          PublicFeedStore.imageUrlFor(post) ?? '',
+                          fit: BoxFit.cover,
+                          // A broken image should be absent, not a grey box
+                          // with an icon in the middle of somebody's post.
+                          errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                          loadingBuilder: (context, child, progress) =>
+                              progress == null
+                                  ? child
+                                  : const SizedBox(
+                                      height: 160,
+                                      child: Center(
+                                          child: CircularProgressIndicator(
+                                              strokeWidth: 2))),
+                        ),
                       ),
                     ),
                   ],
@@ -855,17 +1028,10 @@ class _PostTile extends StatelessWidget {
                             PublicFeedStore.instance.myRepostOf(post.id) != null
                                 ? Colors.green
                                 : null,
-                        onTap: () async {
-                          try {
-                            await PublicFeedStore.instance
-                                .toggleRepost(post.id);
-                          } catch (e) {
-                            if (context.mounted) {
-                              ScaffoldMessenger.of(context)
-                                  .showSnackBar(SnackBar(content: Text('$e')));
-                            }
-                          }
-                        },
+                        // A repeat is two different intentions — pass it on
+                        // as it is, or pass it on with something to say — so it
+                        // asks which rather than picking one.
+                        onTap: () => _repostMenu(context),
                       ),
                       _action(
                         context,
@@ -918,6 +1084,51 @@ class _PostTile extends StatelessWidget {
     );
   }
 
+  /// Repost, or quote it with something of your own.
+  void _repostMenu(BuildContext context) {
+    final mine = PublicFeedStore.instance.myRepostOf(post.id) != null;
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: Icon(mine ? Icons.close : Icons.repeat),
+              title: Text(mine ? 'Undo repost' : 'Repost'),
+              onTap: () async {
+                Navigator.of(sheetContext).pop();
+                try {
+                  await PublicFeedStore.instance.toggleRepost(post.id);
+                } catch (e) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context)
+                        .showSnackBar(SnackBar(content: Text('$e')));
+                  }
+                }
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.format_quote),
+              title: const Text('Quote post'),
+              subtitle: const Text('Add your own words above it'),
+              onTap: () {
+                Navigator.of(sheetContext).pop();
+                showModalBottomSheet<void>(
+                  context: context,
+                  isScrollControlled: true,
+                  showDragHandle: true,
+                  builder: (_) => _Composer(quoteOf: post.id),
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   void _more(BuildContext context) {
     showModalBottomSheet<void>(
       context: context,
@@ -926,6 +1137,26 @@ class _PostTile extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            ListenableBuilder(
+              listenable: BookmarkStore.instance,
+              builder: (context, _) {
+                final saved = BookmarkStore.instance.contains(post.id);
+                return ListTile(
+                  leading: Icon(
+                      saved ? Icons.bookmark : Icons.bookmark_border),
+                  title: Text(saved ? 'Remove bookmark' : 'Bookmark'),
+                  subtitle: const Text('Kept on this device only'),
+                  onTap: () async {
+                    Navigator.of(sheetContext).pop();
+                    final now = await BookmarkStore.instance.toggle(post.id);
+                    if (!context.mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                        content:
+                            Text(now ? 'Bookmarked.' : 'Bookmark removed.')));
+                  },
+                );
+              },
+            ),
             ListTile(
               leading: const Icon(Icons.copy),
               title: const Text('Copy text'),
@@ -1041,7 +1272,13 @@ class _ThreadScreen extends StatelessWidget {
 class _Composer extends StatefulWidget {
   final String? replyTo;
   final String? replyingToName;
-  const _Composer({this.replyTo, this.replyingToName});
+
+  /// The post being quoted, when this is a quote post rather than a new one.
+  /// A quote carries the original below whatever gets typed, so empty text is
+  /// allowed — that is a plain repost, and the table says so too.
+  final String? quoteOf;
+
+  const _Composer({this.replyTo, this.replyingToName, this.quoteOf});
 
   @override
   State<_Composer> createState() => _ComposerState();
@@ -1082,8 +1319,8 @@ class _ComposerState extends State<_Composer> {
   Future<void> _send() async {
     setState(() => _sending = true);
     try {
-      await PublicFeedStore.instance
-          .post(_text.text, replyTo: widget.replyTo, image: _image);
+      await PublicFeedStore.instance.post(_text.text,
+          replyTo: widget.replyTo, repostOf: widget.quoteOf, image: _image);
       if (mounted) Navigator.of(context).pop();
     } catch (e) {
       if (!mounted) return;
@@ -1107,9 +1344,11 @@ class _ComposerState extends State<_Composer> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-                widget.replyTo == null
-                    ? 'New post'
-                    : 'Reply to ${widget.replyingToName ?? 'post'}',
+                widget.quoteOf != null
+                    ? 'Quote post'
+                    : widget.replyTo == null
+                        ? 'New post'
+                        : 'Reply to ${widget.replyingToName ?? 'post'}',
                 style:
                     const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
             const SizedBox(height: 4),
@@ -1135,6 +1374,10 @@ class _ComposerState extends State<_Composer> {
               ),
               onChanged: (_) => setState(() {}),
             ),
+            if (widget.quoteOf != null) ...[
+              const SizedBox(height: 10),
+              _Quoted(postId: widget.quoteOf!),
+            ],
             if (_image != null) ...[
               const SizedBox(height: 10),
               Stack(
@@ -1174,7 +1417,9 @@ class _ComposerState extends State<_Composer> {
                   // A photo on its own is a post; text is not required when
                   // something else is attached.
                   onPressed: _sending ||
-                          (_text.text.trim().isEmpty && _image == null) ||
+                          (_text.text.trim().isEmpty &&
+                              _image == null &&
+                              widget.quoteOf == null) ||
                           left < 0
                       ? null
                       : _send,

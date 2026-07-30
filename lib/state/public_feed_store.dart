@@ -506,6 +506,44 @@ class PublicFeedStore extends ChangeNotifier {
     return _hydrate(rows);
   }
 
+  /// Test hook: stands in for a by-id fetch.
+  @visibleForTesting
+  static Future<List<PublicPost>> Function(List<String> ids)? debugByIdsOverride;
+
+  /// Specific posts by id, newest first. For bookmarks, which are ids on a
+  /// device and nothing on the server.
+  ///
+  /// Ids that come back missing are reported, not silently dropped: a saved post
+  /// that has been deleted should leave the list rather than sit in it.
+  Future<(List<PublicPost>, List<String> missing)> postsByIds(
+      List<String> ids) async {
+    if (ids.isEmpty) return (const <PublicPost>[], const <String>[]);
+    final override = debugByIdsOverride;
+    final List<PublicPost> found;
+    if (override != null) {
+      found = await override(ids);
+    } else {
+      final client = _client;
+      if (client == null) throw PublicFeedError('No server configured.');
+      try {
+        final rows = await client
+            .from('public_feed')
+            .select(_legacyView ? _legacyColumns : _columns)
+            .inFilter('id', ids)
+            .order('created_at', ascending: false);
+        found = await _hydrate(rows);
+      } on PostgrestException catch (e) {
+        if (isMissingColumn(e.code) && !_legacyView) {
+          _legacyView = true;
+          return postsByIds(ids);
+        }
+        throw PublicFeedError(_explain(e));
+      }
+    }
+    final present = {for (final p in found) p.id};
+    return (found, [for (final id in ids) if (!present.contains(id)) id]);
+  }
+
   /// A profile's three tabs, from one list of that person's posts. Pure, so
   /// what each tab contains is a rule rather than a query somebody can drift.
   static List<PublicPost> profileTab(List<PublicPost> all, ProfileTab tab) =>
@@ -823,6 +861,7 @@ class PublicFeedStore extends ChangeNotifier {
     debugLikeOverride = null;
     debugUploadOverride = null;
     debugProfileOverride = null;
+    debugByIdsOverride = null;
     _filter = FeedFilter.latest;
     _query = '';
     _tag = '';

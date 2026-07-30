@@ -9,6 +9,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../tool/paste_functions.dart';
 import 'package:okay_messaging/payments/iap_entitlement.dart';
+import 'package:okay_messaging/utils/date_formatter.dart';
+import 'package:okay_messaging/state/bookmark_store.dart';
 import 'package:okay_messaging/state/voice_presence_store.dart';
 import 'package:okay_messaging/state/channel_typing_store.dart';
 import 'package:okay_messaging/state/identity_verification.dart';
@@ -13758,6 +13760,144 @@ void main() {
       expect(find.byIcon(Icons.favorite), findsOneWidget);
       final heart = t.widget<Icon>(find.byIcon(Icons.favorite));
       expect(heart.color, const Color(0xFFF91880));
+    });
+
+    test('a post age is a couple of characters, not a sentence', () {
+      // A chat row has a whole line for one conversation and can spend it on
+      // "Yesterday". A post's age sits beside a name and a handle with a few
+      // characters to spare, so the unit is one letter — and the switch to a
+      // date happens at a week, not at seven days of weekday names.
+      final now = DateTime(2026, 7, 30, 12, 0);
+      String age(Duration ago) =>
+          DateFormatter.postAge(now.subtract(ago), now: now);
+
+      expect(age(const Duration(seconds: 5)), 'now');
+      expect(age(const Duration(seconds: 59)), 'now');
+      expect(age(const Duration(minutes: 1)), '1m');
+      expect(age(const Duration(minutes: 59)), '59m');
+      expect(age(const Duration(hours: 1)), '1h');
+      expect(age(const Duration(hours: 23)), '23h');
+      expect(age(const Duration(days: 1)), '1d');
+      expect(age(const Duration(days: 6)), '6d');
+      // A week out, a date — and the year only when it is not this one.
+      expect(age(const Duration(days: 7)), '23 Jul');
+      expect(DateFormatter.postAge(DateTime(2025, 7, 23), now: now), '23 Jul 25');
+
+      // A clock that is ahead produces a post from the future. "now" is the
+      // least wrong thing to say; "-3m" is a bug on display.
+      expect(DateFormatter.postAge(now.add(const Duration(minutes: 3)), now: now),
+          'now');
+    });
+
+    testWidgets('a repeat asks whether to add anything', (t) async {
+      t.view.physicalSize = const Size(500, 1400);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.resetPhysicalSize);
+      final store = PublicFeedStore.instance;
+      addTearDown(store.resetForTest);
+
+      PublicFeedStore.debugLoadOverride = () async => [
+            PublicPost(
+                id: 'a',
+                authorUsername: 'sam',
+                authorName: 'Sam',
+                body: 'the original',
+                createdAt: DateTime.now()),
+          ];
+      await t.pumpWidget(const MaterialApp(home: PublicFeedScreen()));
+      await t.pumpAndSettle();
+
+      // Passing something on unchanged and passing it on with something to say
+      // are two intentions, so the button asks rather than picking one.
+      await t.tap(find.byIcon(Icons.repeat));
+      await t.pumpAndSettle();
+      expect(find.text('Repost'), findsOneWidget);
+      expect(find.text('Quote post'), findsOneWidget);
+
+      await t.tap(find.text('Quote post'));
+      await t.pumpAndSettle();
+      // The composer says what it is, and shows what is being quoted.
+      expect(find.text('Quote post'), findsOneWidget);
+      expect(find.text('the original'), findsWidgets,
+          reason: 'the quoted post is visible while typing it');
+      // A quote with nothing typed is a plain repost, which the table allows —
+      // so the button is live before anything is entered.
+      final send = t.widget<FilledButton>(
+          find.widgetWithText(FilledButton, 'Post').first);
+      expect(send.onPressed, isNotNull);
+    });
+
+    testWidgets('bookmarks are kept on the device and nowhere else', (t) async {
+      SharedPreferences.setMockInitialValues({});
+      final marks = BookmarkStore.instance;
+      addTearDown(marks.resetForTest);
+      await marks.load();
+
+      expect(marks.contains('a'), isFalse);
+      expect(await marks.toggle('a'), isTrue, reason: 'now saved');
+      expect(await marks.toggle('b'), isTrue);
+      // Newest first, which is the order somebody expects to find them in.
+      expect(marks.ids, ['b', 'a']);
+      expect(await marks.toggle('a'), isFalse, reason: 'now unsaved');
+      expect(marks.ids, ['b']);
+
+      // A saved post that has been deleted leaves the list rather than sitting
+      // in it forever pointing at nothing.
+      await marks.toggle('gone');
+      expect(marks.ids, ['gone', 'b']);
+      await marks.forget(['gone']);
+      expect(marks.ids, ['b']);
+      // Forgetting something that was never there changes nothing.
+      await marks.forget(['never']);
+      expect(marks.ids, ['b']);
+
+      // It survives a restart, because a note to yourself that evaporates is
+      // worse than no note at all.
+      marks.resetForTest();
+      await marks.load();
+      expect(marks.ids, ['b']);
+
+      // And no server holds it: there is no table, no column, no id sent
+      // anywhere. A record of what somebody reads is exactly the thing this app
+      // does not keep.
+      final store = File('lib/state/bookmark_store.dart').readAsStringSync();
+      expect(store.contains('Supabase'), isFalse);
+      expect(store.contains('from('), isFalse,
+          reason: 'no table access of any kind');
+      final sql = File('docs/public_feed.sql').readAsStringSync();
+      expect(sql.toLowerCase().contains('bookmark'), isFalse);
+    });
+
+    testWidgets('bookmarked posts are re-read from the public feed', (t) async {
+      SharedPreferences.setMockInitialValues({});
+      final marks = BookmarkStore.instance;
+      final store = PublicFeedStore.instance;
+      addTearDown(marks.resetForTest);
+      addTearDown(store.resetForTest);
+      await marks.load();
+      await marks.toggle('a');
+      await marks.toggle('deleted');
+
+      var asked = <String>[];
+      PublicFeedStore.debugByIdsOverride = (ids) async {
+        asked = ids;
+        return [
+          PublicPost(
+              id: 'a',
+              authorUsername: 'sam',
+              authorName: 'Sam',
+              body: 'saved for later',
+              createdAt: DateTime.now()),
+        ];
+      };
+
+      await t.pumpWidget(const MaterialApp(home: BookmarksScreen()));
+      await t.pumpAndSettle();
+
+      expect(asked, containsAll(['a', 'deleted']));
+      expect(find.text('saved for later'), findsOneWidget);
+      // The one the server did not return is dropped, not left dangling.
+      expect(marks.ids, ['a']);
     });
 
     testWidgets('the composer states that everyone will see it',
