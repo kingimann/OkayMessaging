@@ -95,18 +95,39 @@ void main() {
     LegalConsent.instance.resetForTest();
     await t.pumpWidget(const OkayMessagingApp());
     await t.pumpAndSettle();
-    await t.tap(find.text('Bob Carter'));
-    await t.pumpAndSettle();
-    await expectLater(
-        find.byType(MaterialApp), matchesGoldenFile('shots/chat.png'));
 
-    // With the keyboard up — the state the bug report showed, where the
-    // composer had jumped to the top of the screen.
-    t.view.viewInsets = const FakeViewPadding(bottom: 336);
-    addTearDown(t.view.resetViewInsets);
-    await t.tap(find.byType(TextField).first);
+    Future<void> shot(String name) async {
+      await t.pumpAndSettle();
+      await expectLater(
+          find.byType(MaterialApp), matchesGoldenFile('shots/$name.png'));
+    }
+
+    // Every bottom-bar destination.
+    await shot('tab_chats');
+    for (final (i, name) in [
+      (1, 'tab_servers'),
+      (2, 'tab_calls'),
+      (3, 'tab_alerts'),
+      (4, 'tab_you'),
+    ]) {
+      await t.tap(find.byIcon([
+        Icons.chat_bubble_outline,
+        Icons.groups_outlined,
+        Icons.call_outlined,
+        Icons.notifications_none,
+        Icons.person_outline,
+      ][i]));
+      await shot(name);
+    }
+
+    // Back to Chats, then the drawer.
+    await t.tap(find.byIcon(Icons.chat_bubble_outline));
     await t.pumpAndSettle();
-    await expectLater(find.byType(MaterialApp),
-        matchesGoldenFile('shots/chat_keyboard.png'));
+    await t.tap(find.byTooltip('Open navigation menu'));
+    await shot('drawer');
+
+    // A screen reached from the drawer — does it have a way back?
+    await t.tap(find.text('Settings'));
+    await shot('pushed_settings');
   });
 }

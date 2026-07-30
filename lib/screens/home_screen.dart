@@ -130,7 +130,7 @@ class _HomeScreenState extends State<HomeScreen>
           ] else if (_index == 1)
             IconButton(
               icon: const Icon(Icons.add),
-              tooltip: 'New community',
+              tooltip: 'New server',
               onPressed: () => createCommunityFlow(context),
             )
           else if (_index == 2)
@@ -191,7 +191,7 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   String get _titleForIndex => switch (_index) {
-        1 => 'Communities',
+        1 => 'Servers',
         2 => 'Calls',
         3 => 'Notifications',
         4 => 'You',
@@ -264,34 +264,34 @@ class _ModernNavBar extends StatelessWidget {
       ),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          // Each pill may give ground rather than the row overflowing. Only
-          // the selected one carries a label, so it is the only one with
-          // anything to give, and it gives it before the bar breaks.
-          children: [
-            Flexible(
-              child: _NavPill(
+        // FIVE PILLS DO NOT FIT EVERY PHONE. At 390 — an iPhone 15 — the row
+        // ran nine points over; at 320 it is worse. Handing each pill an equal
+        // fifth was tried and was worse than the overflow: only the selected
+        // pill carries a label, so an equal share squeezed "Chats" down to
+        // "C". Scaling the whole row down keeps every pill in proportion and
+        // the label readable, and does nothing at all on a screen wide enough.
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              _NavPill(
                 icon: Icons.chat_bubble_outline,
                 activeIcon: Icons.chat_bubble,
                 label: 'Chats',
                 selected: index == 0,
                 onTap: () => onSelect(0),
               ),
-            ),
-            const SizedBox(width: 6),
-            Flexible(
-              child: _NavPill(
+              const SizedBox(width: 6),
+              _NavPill(
                 icon: Icons.groups_outlined,
                 activeIcon: Icons.groups,
                 label: 'Servers',
                 selected: index == 1,
                 onTap: () => onSelect(1),
               ),
-            ),
-            const SizedBox(width: 6),
-            Flexible(
-              child: _NavPill(
+              const SizedBox(width: 6),
+              _NavPill(
                 icon: Icons.call_outlined,
                 activeIcon: Icons.call,
                 label: 'Calls',
@@ -299,10 +299,8 @@ class _ModernNavBar extends StatelessWidget {
                 badgeCount: missedCalls,
                 onTap: () => onSelect(2),
               ),
-            ),
-            const SizedBox(width: 6),
-            Flexible(
-              child: _NavPill(
+              const SizedBox(width: 6),
+              _NavPill(
                 icon: Icons.notifications_none,
                 activeIcon: Icons.notifications,
                 label: 'Alerts',
@@ -310,18 +308,16 @@ class _ModernNavBar extends StatelessWidget {
                 badgeCount: activityCount,
                 onTap: () => onSelect(3),
               ),
-            ),
-            const SizedBox(width: 6),
-            Flexible(
-              child: _NavPill(
+              const SizedBox(width: 6),
+              _NavPill(
                 icon: Icons.person_outline,
                 activeIcon: Icons.person,
                 label: 'You',
                 selected: index == 4,
                 onTap: () => onSelect(4),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -517,31 +513,25 @@ class _NavPill extends StatelessWidget {
               color: selected ? ink : idle,
               badgeCount: badgeCount,
             ),
-            // Flexible on the OUTSIDE bounds the pill; this one lets the
-            // label give ground inside that bound. Without it the label keeps
-            // its natural width and the pill overflows its own allowance
-            // instead of the row overflowing the screen — same bug, moved.
-            Flexible(
-              child: AnimatedSize(
-                duration: const Duration(milliseconds: 240),
-                curve: Curves.easeOut,
-                child: selected
-                    ? Padding(
-                        padding: const EdgeInsets.only(left: 8),
-                        child: Text(
-                          label,
-                          maxLines: 1,
-                          overflow: TextOverflow.fade,
-                          softWrap: false,
-                          style: TextStyle(
-                            color: ink,
-                            fontSize: 14,
-                            fontWeight: FontWeight.w700,
-                          ),
+            AnimatedSize(
+              duration: const Duration(milliseconds: 240),
+              curve: Curves.easeOut,
+              child: selected
+                  ? Padding(
+                      padding: const EdgeInsets.only(left: 8),
+                      child: Text(
+                        label,
+                        maxLines: 1,
+                        overflow: TextOverflow.fade,
+                        softWrap: false,
+                        style: TextStyle(
+                          color: ink,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
                         ),
-                      )
-                    : const SizedBox.shrink(),
-              ),
+                      ),
+                    )
+                  : const SizedBox.shrink(),
             ),
           ],
         ),

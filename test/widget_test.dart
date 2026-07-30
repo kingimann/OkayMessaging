@@ -8570,7 +8570,10 @@ void main() {
       // stacking a second copy on top of the home screen.
       await tester.tap(find.text('Servers'));
       await tester.pumpAndSettle();
-      expect(find.text('Communities'), findsOneWidget,
+      // The bar titles it with the same word the tile and the pill use. It
+      // used to say "Communities" while both of those said "Servers" — one
+      // place with two names, which is a thing you notice when you tap.
+      expect(find.text('Servers'), findsWidgets,
           reason: 'the home app bar should now title the Servers tab');
       expect(find.byTooltip('Open navigation menu'), findsOneWidget,
           reason: 'still on the home screen, not a pushed copy');
@@ -16997,8 +17000,75 @@ void main() {
         await t.pumpAndSettle();
         final failure = t.takeException();
         expect(failure, isNull, reason: 'the bar overflows at $width: $failure');
+        // NOT OVERFLOWING IS NOT ENOUGH. The first fix for the overflow gave
+        // every pill an equal fifth of the row, which stopped the overflow and
+        // squeezed the selected pill's label down to a single letter — "C" for
+        // Chats. A bar that fits and cannot be read is not fixed.
+        final label = t.renderObject<RenderBox>(find.text('Chats'));
+        expect(label.size.width, greaterThan(30),
+            reason: 'the selected label is squeezed at $width');
       }
       addTearDown(t.view.resetPhysicalSize);
+    });
+
+    testWidgets('every tab lays out on every phone', (t) async {
+      // The suite runs at 800x600. Every layout bug that reached a real phone
+      // — the bar overflowing, the composer at the top — was invisible here
+      // for exactly that reason. This walks the five destinations at the four
+      // widths iPhones actually come in.
+      for (final width in [320.0, 375.0, 390.0, 430.0]) {
+        t.view.physicalSize = Size(width, 844);
+        t.view.devicePixelRatio = 1.0;
+        await t.pumpWidget(const OkayMessagingApp());
+        await t.pumpAndSettle();
+        for (final (i, icon) in const [
+          (0, Icons.chat_bubble_outline),
+          (1, Icons.groups_outlined),
+          (2, Icons.call_outlined),
+          (3, Icons.notifications_none),
+          (4, Icons.person_outline),
+        ]) {
+          final pill = find.byIcon(icon);
+          if (pill.evaluate().isEmpty) continue; // already the selected one
+          await t.tap(pill);
+          await t.pumpAndSettle();
+          final failure = t.takeException();
+          expect(failure, isNull,
+              reason: 'tab $i does not lay out at $width: $failure');
+        }
+      }
+      addTearDown(t.view.resetPhysicalSize);
+    });
+
+    testWidgets('the drawer destinations lay out, and can be left', (t) async {
+      // Everything the sidebar can reach, at the narrowest phone. Each one is
+      // opened, checked for a way back, and left again — a screen you can
+      // reach and not leave is the bug the whole shell detour was chasing.
+      t.view.physicalSize = const Size(320, 844);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.resetPhysicalSize);
+
+      for (final tile in ['Newsfeed', 'Maps', 'Marketplace', 'Wallet', 'Settings']) {
+        await t.pumpWidget(const OkayMessagingApp());
+        await t.pumpAndSettle();
+        await t.tap(find.byTooltip('Open navigation menu'));
+        await t.pumpAndSettle();
+        await t.tap(find.text(tile));
+        await t.pumpAndSettle();
+
+        final failure = t.takeException();
+        expect(failure, isNull, reason: '$tile does not lay out at 320: $failure');
+
+        // pageBack() looks for anything tooltipped "Back", so using it IS the
+        // assertion that there is a way out — and it is the right check
+        // rather than looking for a BackButton widget, because a full-bleed
+        // screen like Maps puts a floating circle over the map instead of an
+        // app bar, exactly as every map app does.
+        await t.pageBack();
+        await t.pumpAndSettle();
+        expect(find.byTooltip('Open navigation menu'), findsOneWidget,
+            reason: 'leaving $tile lands back on the home screen');
+      }
     });
 
     testWidgets('it has a back arrow and no tab bar', (t) async {

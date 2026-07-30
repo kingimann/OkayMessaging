@@ -328,35 +328,48 @@ class _CommunityCard extends StatelessWidget {
                         ],
                       ),
                       const SizedBox(height: 5),
-                      Row(
+                      // A Wrap, not a Row: channels, members, online and in
+                      // voice all at once ran 28 points past a 320-point
+                      // phone. Metadata is exactly what wrapping is for — the
+                      // fourth item drops to a second line instead of off the
+                      // card.
+                      Wrap(
+                        spacing: 14,
+                        runSpacing: 4,
+                        crossAxisAlignment: WrapCrossAlignment.center,
                         children: [
                           _meta(Icons.tag, '$channels'),
-                          const SizedBox(width: 14),
                           _meta(Icons.people_alt_outlined, '$members'),
-                          if (online > 0) ...[
-                            const SizedBox(width: 14),
-                            const Icon(Icons.circle,
-                                size: 8, color: Color(0xFF43B581)),
-                            const SizedBox(width: 4),
-                            Text('$online online',
-                                style: const TextStyle(
-                                    fontSize: 12.5,
-                                    color: Color(0xFF43B581),
-                                    fontWeight: FontWeight.w600)),
-                          ],
+                          if (online > 0)
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(Icons.circle,
+                                    size: 8, color: Color(0xFF43B581)),
+                                const SizedBox(width: 4),
+                                Text('$online online',
+                                    style: const TextStyle(
+                                        fontSize: 12.5,
+                                        color: Color(0xFF43B581),
+                                        fontWeight: FontWeight.w600)),
+                              ],
+                            ),
                           // Live off the community bus, so this is the one
                           // number on the card that reflects real activity.
-                          if (inVoice > 0) ...[
-                            const SizedBox(width: 14),
-                            Icon(Icons.volume_up_rounded,
-                                size: 14, color: Colors.green.shade600),
-                            const SizedBox(width: 4),
-                            Text('$inVoice in voice',
-                                style: TextStyle(
-                                    fontSize: 12.5,
-                                    color: Colors.green.shade600,
-                                    fontWeight: FontWeight.w600)),
-                          ],
+                          if (inVoice > 0)
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.volume_up_rounded,
+                                    size: 14, color: Colors.green.shade600),
+                                const SizedBox(width: 4),
+                                Text('$inVoice in voice',
+                                    style: TextStyle(
+                                        fontSize: 12.5,
+                                        color: Colors.green.shade600,
+                                        fontWeight: FontWeight.w600)),
+                              ],
+                            ),
                         ],
                       ),
                       if (community.description.isNotEmpty) ...[
@@ -3098,9 +3111,9 @@ class _Empty extends StatelessWidget {
   Widget build(BuildContext context) {
     return const EmptyState(
       icon: Icons.groups_outlined,
-      title: 'No communities yet',
+      title: 'No servers yet',
       caption:
-          'Create a community to organise channels with friends or a team.',
+          'Create a server to organise channels with friends or a team.',
     );
   }
 }
