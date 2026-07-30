@@ -1,3 +1,4 @@
+import '../state/smart_replies.dart';
 import 'dart:async';
 import 'dart:convert';
 
@@ -127,6 +128,8 @@ class _ChatScreenState extends State<ChatScreen> {
     _store.upsert(widget.chat);
     _captureUnreadAnchor();
     _scrollController.addListener(_onScroll);
+    _store.addListener(_refreshSuggestions);
+    _refreshSuggestions();
     // When opened from search, jump to the matched message once it's laid out.
     if (widget.initialMessageId != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -262,6 +265,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   void dispose() {
+    _store.removeListener(_refreshSuggestions);
     if (RelayConfig.isEnabled) {
       RelayService.instance.typingPing.removeListener(_onTypingPing);
       RelayService.instance.presencePing.removeListener(_onPresencePing);
@@ -312,6 +316,44 @@ class _ChatScreenState extends State<ChatScreen> {
       duration: const Duration(milliseconds: 250),
       curve: Curves.easeOut,
     );
+  }
+
+  /// Replies the device suggested for the last message received.
+  List<String> _suggested = const [];
+
+  /// The message the current suggestions were generated for, so a rebuild
+  /// that changes nothing does not ask the model again.
+  String? _suggestedFor;
+
+  /// Asks the on-device model for replies to whatever just arrived.
+  ///
+  /// Cheap to call: it returns immediately on the phones that cannot do this
+  /// (most of them), when the last word was yours, and when the answer for
+  /// this message is already on screen.
+  Future<void> _refreshSuggestions() async {
+    final chat = _store.chatById(_chatId);
+    final messages = chat?.messages ?? const <Message>[];
+    if (!SmartReplies.worthSuggesting(messages)) {
+      if (_suggested.isNotEmpty && mounted) {
+        setState(() {
+          _suggested = const [];
+          _suggestedFor = null;
+        });
+      }
+      return;
+    }
+    final latest = messages.last.id;
+    if (latest == _suggestedFor) return;
+    _suggestedFor = latest;
+    final replies = await SmartReplies.instance.suggest(
+      messages: messages,
+      contactName: widget.chat.contact.name,
+    );
+    if (!mounted) return;
+    // Another message may have landed while the model was thinking; that
+    // request's answer is the one to show.
+    if (_suggestedFor != latest) return;
+    setState(() => _suggested = replies);
   }
 
   /// First names that can be @mentioned in this chat — the group's members
@@ -2323,6 +2365,7 @@ class _ChatScreenState extends State<ChatScreen> {
                       onChanged: (t) => _store.setDraft(_chatId, t),
                       confirmSend: _confirmRecipient,
                       mentionNames: _mentionNames(),
+                      suggestedReplies: _suggested,
                     );
                   },
                 ),

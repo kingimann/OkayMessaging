@@ -77,6 +77,12 @@ import UserNotifications
         result(FlutterMethodNotImplemented)
       }
     }
+    // On-device suggested replies. Apple's model, running in this process —
+    // the conversation is never uploaded, which is the only way a feature can
+    // read a chat here at all.
+    let replyMessenger = engineBridge.pluginRegistry
+      .registrar(forPlugin: "OkaySmartReplies")!.messenger()
+    SmartReplies.register(with: replyMessenger)
     // Minimal push bridge (no third-party plugin): Dart calls "register",
     // we ask iOS for permission + an APNs token and send it back as hex.
     let messenger = engineBridge.pluginRegistry.registrar(forPlugin: "OkayPush")!.messenger()

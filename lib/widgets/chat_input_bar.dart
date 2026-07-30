@@ -63,6 +63,12 @@ class ChatInputBar extends StatefulWidget {
   /// Called with the chosen GIF's URL when one is picked from the picker.
   final ValueChanged<String>? onSendGif;
 
+  /// Short replies the device suggested for the last incoming message.
+  ///
+  /// Empty is the normal case — most phones cannot generate these at all, and
+  /// nothing is shown when none came back.
+  final List<String> suggestedReplies;
+
   const ChatInputBar({
     super.key,
     required this.onSend,
@@ -78,6 +84,7 @@ class ChatInputBar extends StatefulWidget {
     this.confirmSend,
     this.mentionNames = const [],
     this.onSendGif,
+    this.suggestedReplies = const [],
   });
 
   @override
@@ -225,6 +232,18 @@ class _ChatInputBarState extends State<ChatInputBar> {
     }
   }
 
+  /// A tapped suggestion becomes the draft — it is NOT sent.
+  ///
+  /// The model guessed at what somebody meant to say. Sending that on one tap
+  /// puts words in their mouth and into somebody else's chat, and there is no
+  /// unsending. Filling the field costs one more tap and keeps the decision
+  /// where it belongs.
+  void _applySuggestion(String reply) {
+    _controller.text = reply;
+    _controller.selection =
+        TextSelection.collapsed(offset: _controller.text.length);
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -250,6 +269,15 @@ class _ChatInputBarState extends State<ChatInputBar> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            // Only with an empty composer: once somebody starts typing
+            // they have said what they want to say, and a row of alternatives
+            // under their own words is just something else to dismiss.
+            if (widget.suggestedReplies.isNotEmpty && !_hasText && !_recording)
+              _SuggestedReplies(
+                replies: widget.suggestedReplies,
+                isDark: isDark,
+                onPick: _applySuggestion,
+              ),
             if (_mentionMatches.isNotEmpty && !_recording)
               _MentionSuggestions(
                 names: _mentionMatches,
@@ -434,6 +462,52 @@ class _ChatInputBarState extends State<ChatInputBar> {
 }
 
 /// A dropdown of @mention candidates shown above the composer while typing.
+/// A row of tappable suggested replies above the composer.
+class _SuggestedReplies extends StatelessWidget {
+  final List<String> replies;
+  final bool isDark;
+  final ValueChanged<String> onPick;
+
+  const _SuggestedReplies({
+    required this.replies,
+    required this.isDark,
+    required this.onPick,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return SizedBox(
+      height: 44,
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.fromLTRB(10, 4, 10, 4),
+        children: [
+          for (final reply in replies)
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: ActionChip(
+                label: Text(reply,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 13.5)),
+                // Tinted rather than filled: a suggestion is an offer, and it
+                // should not compete with the send button next to it.
+                backgroundColor: isDark
+                    ? scheme.surfaceContainerHighest.withValues(alpha: 0.5)
+                    : scheme.primary.withValues(alpha: 0.08),
+                side: BorderSide(
+                    color: scheme.primary.withValues(alpha: 0.25), width: 0.8),
+                labelStyle: TextStyle(color: scheme.onSurface),
+                onPressed: () => onPick(reply),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
 class _MentionSuggestions extends StatelessWidget {
   final List<String> names;
   final bool isDark;

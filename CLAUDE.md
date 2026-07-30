@@ -109,7 +109,16 @@ iOS builds run on **Codemagic** (`codemagic.yaml`, workflow
 - **No fake data in release builds.** Sample contacts, seeded servers, and
   demo chats are gated behind `kReleaseMode`. Never show invented people,
   follower counts, or activity to a real user.
-- **No AI features.** The user has been explicit about this.
+- **AI only on the device.** The blanket "no AI" rule was lifted for
+  on-device work only. A model may read a chat *in the app's own process* —
+  Apple's `FoundationModels` via `okay/smartreplies` is the only one wired up.
+  Sending message content to any hosted model is still out: bodies are
+  encrypted before they leave the device, so a cloud call means decrypting
+  somebody's conversation somewhere it can be read. The public newsfeed is
+  the one exception — those posts are world-readable by design, so a hosted
+  model over *that* content breaks nothing. Anything that cannot generate
+  (most iPhones, the whole web build) shows nothing rather than a canned
+  stand-in; see the no-fake-data rule above.
 - **No readable messages on the server.** Message bodies are end-to-end
   encrypted before they leave the device, delivered by Supabase Realtime
   broadcast to `inbox_<digits>` channels, and — since the user approved

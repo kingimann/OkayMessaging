@@ -48,6 +48,7 @@ import 'package:okay_messaging/payments/stripe_tokens.dart';
 import 'package:okay_messaging/screens/payment_diagnostics_screen.dart';
 import 'package:okay_messaging/screens/public_feed_screen.dart';
 import 'package:okay_messaging/state/public_feed_store.dart';
+import 'package:okay_messaging/state/smart_replies.dart';
 import 'package:okay_messaging/widgets/app_shell.dart';
 import 'package:okay_messaging/widgets/streak_chip.dart';
 import 'package:okay_messaging/widgets/sanction_notice.dart';
@@ -16895,6 +16896,130 @@ void main() {
       expect(CommunityStore.instance.communities, isNotEmpty);
       CommunityStore.instance.clearAll();
       expect(CommunityStore.instance.communities, isEmpty);
+    });
+  });
+
+  group('Suggested replies', () {
+    setUp(() => SmartReplies.instance.resetForTest());
+    tearDown(() => SmartReplies.instance.resetForTest());
+
+    test('nothing is suggested until the other person has spoken', () {
+      DateTime t(int m) => DateTime.now().subtract(Duration(minutes: m));
+      Message msg(String id, String text, bool mine) =>
+          Message(id: id, text: text, time: t(1), isMe: mine);
+
+      // Answering yourself, or starting the conversation for somebody.
+      expect(SmartReplies.worthSuggesting(const []), isFalse);
+      expect(SmartReplies.worthSuggesting([msg('a', 'hi', true)]), isFalse);
+      expect(SmartReplies.worthSuggesting([msg('a', 'hi', false)]), isTrue);
+      expect(
+          SmartReplies.worthSuggesting(
+              [msg('a', 'hi', false), msg('b', 'hello', true)]),
+          isFalse,
+          reason: 'you spoke last');
+    });
+
+    test('the transcript stays inside the model\'s context window', () {
+      // The on-device model has about 4,000 tokens for the prompt AND the
+      // answer together. A long conversation must not be able to overrun it —
+      // this is the check that the cap is real rather than aspirational.
+      final many = [
+        for (var i = 0; i < 500; i++)
+          Message(
+              id: 'm$i',
+              text: 'A message of some length, number $i, with words in it.',
+              time: DateTime.now().subtract(Duration(minutes: 500 - i)),
+              isMe: i.isEven),
+      ];
+      final transcript = SmartReplies.transcriptFor(many, 'Bob');
+      expect(transcript.length, lessThanOrEqualTo(4000));
+      expect(transcript.split('\n').length, lessThanOrEqualTo(20));
+      // And it keeps the RECENT end — the old end is what may be dropped.
+      expect(transcript, contains('number 499'));
+      expect(transcript, isNot(contains('number 0,')));
+    });
+
+    test('one long message cannot eat the whole budget', () {
+      final wall = Message(
+          id: 'w',
+          text: 'x' * 20000,
+          time: DateTime.now(),
+          isMe: false);
+      final transcript = SmartReplies.transcriptFor([wall], 'Bob');
+      expect(transcript.length, lessThan(600),
+          reason: 'a pasted wall of text is trimmed, not passed whole');
+    });
+
+    test('the transcript says who wrote each line', () {
+      final messages = [
+        Message(
+            id: 'a',
+            text: 'are you free tomorrow',
+            time: DateTime.now(),
+            isMe: false),
+      ];
+      expect(SmartReplies.transcriptFor(messages, 'Bob'),
+          'Bob: are you free tomorrow');
+      expect(SmartReplies.transcriptFor(messages, ''), 'Them: are you free tomorrow',
+          reason: 'a nameless contact still needs a label');
+    });
+
+    testWidgets('a device that cannot generate suggests nothing at all',
+        (t) async {
+      // THE RULE THIS PROTECTS. Most iPhones have no Apple Intelligence, and
+      // the web build has no channel. On those, the honest answer is silence —
+      // a canned suggestion would be invented words attributed to nobody.
+      SmartReplies.debugAvailableOverride = false;
+      final replies = await SmartReplies.instance.suggest(
+        messages: [
+          Message(id: 'a', text: 'hi', time: DateTime.now(), isMe: false),
+        ],
+        contactName: 'Bob',
+      );
+      expect(replies, isEmpty);
+    });
+
+    testWidgets('blank and duplicate suggestions are dropped', (t) async {
+      SmartReplies.debugAvailableOverride = true;
+      SmartReplies.debugSuggestOverride = (_, __) async => [
+            'Sounds good',
+            '   ',
+            'sounds good',
+            'Can we do Friday?',
+          ];
+      final replies = await SmartReplies.instance.suggest(
+        messages: [
+          Message(id: 'a', text: 'hi', time: DateTime.now(), isMe: false),
+        ],
+        contactName: 'Bob',
+      );
+      expect(replies, ['Sounds good', 'Can we do Friday?'],
+          reason: 'the model is asked for three, not promised three distinct');
+    });
+
+    testWidgets('a suggestion fills the composer and is not sent', (tester) async {
+      // Tapping a guess must never put it in somebody else's chat on its own.
+      final sent = <String>[];
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Column(children: [
+            const Spacer(),
+            ChatInputBar(
+              onSend: sent.add,
+              suggestedReplies: const ['Sounds good', 'Can we do Friday?'],
+            ),
+          ]),
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Sounds good'));
+      await tester.pumpAndSettle();
+
+      expect(sent, isEmpty, reason: 'a tapped suggestion is a draft, not a send');
+      expect(find.widgetWithText(TextField, 'Sounds good'), findsOneWidget);
+      // And once there is text, the alternatives get out of the way.
+      expect(find.text('Can we do Friday?'), findsNothing);
     });
   });
 
