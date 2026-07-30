@@ -732,11 +732,17 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
                     child: ProfileVerificationRow(),
                   ),
                 ),
-              SliverToBoxAdapter(
-                child: _TabStrip(
-                  labels: [for (final t in _tabs) t.label],
-                  active: _tabs.indexOf(_tab),
-                  onPick: (i) => setState(() => _tab = _tabs[i]),
+              // Pinned, so scrolling a long profile does not take the tabs
+              // away with it. Switching from Posts to Media otherwise means
+              // scrolling back to the top to find the control you just used.
+              SliverPersistentHeader(
+                pinned: true,
+                delegate: _PinnedTabs(
+                  child: _TabStrip(
+                    labels: [for (final t in _tabs) t.label],
+                    active: _tabs.indexOf(_tab),
+                    onPick: (i) => setState(() => _tab = _tabs[i]),
+                  ),
                 ),
               ),
               if (_error != null)
@@ -906,21 +912,30 @@ class _BannerAndAvatar extends StatelessWidget {
           Positioned(
             left: 16,
             top: _bannerHeight - _avatarRadius,
-            child: Container(
-              padding: const EdgeInsets.all(3),
-              decoration: BoxDecoration(
-                  color: Theme.of(context).scaffoldBackgroundColor,
-                  shape: BoxShape.circle),
-              child: known != null
-                  ? UserAvatar(user: known, radius: _avatarRadius)
-                  : CircleAvatar(
-                      radius: _avatarRadius,
-                      backgroundColor: profileAccentFor(username, scheme)
-                          .withValues(alpha: 0.25),
-                      child: Text(initial,
-                          style: const TextStyle(
-                              fontSize: 28, fontWeight: FontWeight.w700)),
-                    ),
+            // Tapping your own face to change it is where people look first,
+            // and it costs nothing to put the door there as well as on the
+            // button. Somebody else's avatar is not a control.
+            child: GestureDetector(
+              onTap: isMe
+                  ? () => Navigator.of(context).push(MaterialPageRoute(
+                      builder: (_) => const EditProfileScreen()))
+                  : null,
+              child: Container(
+                padding: const EdgeInsets.all(3),
+                decoration: BoxDecoration(
+                    color: Theme.of(context).scaffoldBackgroundColor,
+                    shape: BoxShape.circle),
+                child: known != null
+                    ? UserAvatar(user: known, radius: _avatarRadius)
+                    : CircleAvatar(
+                        radius: _avatarRadius,
+                        backgroundColor: profileAccentFor(username, scheme)
+                            .withValues(alpha: 0.25),
+                        child: Text(initial,
+                            style: const TextStyle(
+                                fontSize: 28, fontWeight: FontWeight.w700)),
+                      ),
+              ),
             ),
           ),
           Positioned(
@@ -1113,6 +1128,40 @@ class _ProfileActions extends StatelessWidget {
       },
     );
   }
+}
+
+/// Holds the tab strip at the top of a profile while the posts scroll under it.
+///
+/// The strip is a fixed height, so min and max are the same and there is no
+/// collapsing behaviour to get wrong. It paints the scaffold's own background:
+/// without that, posts would show through it as they passed underneath.
+class _PinnedTabs extends SliverPersistentHeaderDelegate {
+  final Widget child;
+  const _PinnedTabs({required this.child});
+
+  // The strip's own height: 12 padding, the label, 8, the 3-pixel underline,
+  // 12 padding, and the hairline divider. Guessed at 49, then 53; both clipped
+  // it. A pinned header cannot measure its child, so this is a number that has
+  // to be right — the test asserts nothing overflows, and it reports by how
+  // much when it does.
+  static const double _height = 56;
+
+  @override
+  double get minExtent => _height;
+
+  @override
+  double get maxExtent => _height;
+
+  @override
+  Widget build(
+          BuildContext context, double shrinkOffset, bool overlapsContent) =>
+      Material(
+        color: Theme.of(context).scaffoldBackgroundColor,
+        child: SizedBox(height: _height, child: child),
+      );
+
+  @override
+  bool shouldRebuild(_PinnedTabs old) => old.child != child;
 }
 
 /// The tab row used by both the timeline and a profile: even columns, bold

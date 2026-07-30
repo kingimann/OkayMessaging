@@ -168,14 +168,6 @@ Future<void> tapInSettings(WidgetTester tester, Finder finder) async {
 }
 
 
-/// Whether the framework recorded a layout overflow during this test.
-///
-/// Flutter reports a RenderFlex overflow as a test error, so this is belt and
-/// braces — but the profile's stats row overflowed by 30 pixels at a width
-/// narrower than a phone, and that is worth an explicit assertion.
-bool anythingOverflowed(WidgetTester tester) =>
-    tester.takeException() != null;
-
 void main() {
   // Singletons persist across tests; reset them so each starts clean. Most
   // tests assume a signed-in user so they land on the home screen; the
@@ -14101,10 +14093,63 @@ void main() {
       expect(tabs.bottom, lessThan(520.0),
           reason: 'a post is visible without scrolling');
 
-      // Nothing overflows at a real phone width. A RenderFlex overflow is
-      // reported as a test failure by the framework, so reaching here is the
-      // assertion — but check the one row that did overflow before.
-      expect(anythingOverflowed(t), isFalse);
+      // Nothing overflows at a real phone width. takeException() CONSUMES the
+      // error, so asserting on a bool threw away the one thing that says what
+      // broke — the reason carries it now.
+      final failure = t.takeException();
+      expect(failure, isNull, reason: 'layout error: $failure');
+    });
+
+    testWidgets('the profile tabs stay put while the posts scroll', (t) async {
+      t.view.physicalSize = const Size(430, 800);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.resetPhysicalSize);
+      final store = PublicFeedStore.instance;
+      addTearDown(store.resetForTest);
+      final prevProfile = AppState.profile.value;
+      addTearDown(() => AppState.profile.value = prevProfile);
+      AppState.profile.value = const AppUser(
+          id: 'me', name: 'Iman', avatarColor: '#000000', username: 'iman');
+
+      final now = DateTime.now();
+      PublicFeedStore.debugProfileOverride = (username) async => [
+            for (var i = 0; i < 20; i++)
+              PublicPost(
+                  id: 'p$i',
+                  authorUsername: 'iman',
+                  authorName: 'Iman',
+                  body: 'post number $i',
+                  createdAt: now.subtract(Duration(minutes: i))),
+          ];
+      await t.pumpWidget(const MaterialApp(
+          home: Scaffold(
+              body: PublicProfileScreen(username: 'iman', embedded: true))));
+      await t.pumpAndSettle();
+
+      final before = t.getRect(find.text('Media'));
+      expect(before.top, greaterThan(200.0),
+          reason: 'the tabs start below the header');
+
+      // Far enough that an unpinned strip would be gone: more than the whole
+      // header above it.
+      await t.drag(find.byType(CustomScrollView), const Offset(0, -700));
+      await t.pumpAndSettle();
+
+      // Switching from Posts to Media otherwise means scrolling back to the
+      // top to find the control you just used.
+      expect(find.text('Media'), findsOneWidget,
+          reason: 'the tabs are still on screen after scrolling');
+      final after = t.getRect(find.text('Media'));
+      expect(after.top, lessThan(60.0),
+          reason: 'pinned at the top, not carried down the page');
+      expect(after.top, greaterThanOrEqualTo(0.0));
+      expect(after.top, lessThan(before.top - 100),
+          reason: 'and it really did scroll');
+
+      // Still usable where it stopped.
+      await t.tap(find.text('Media'));
+      await t.pumpAndSettle();
+      expect(find.text('No photos yet.'), findsOneWidget);
     });
 
     testWidgets('a person has one face everywhere in the app', (t) async {
@@ -14291,6 +14336,13 @@ void main() {
           reason: 'a server feed is encrypted per server; there is nothing to '
               'show and pretending otherwise would be a lie');
       expect(find.text('Follow'), findsOneWidget);
+
+      // Your own avatar is a way into changing it. Somebody else's is a
+      // picture, not a control — tapping it must not open your editor.
+      await t.tap(find.byType(CircleAvatar).first);
+      await t.pumpAndSettle();
+      expect(find.text('Edit profile'), findsNothing,
+          reason: 'a stranger\'s avatar is not a door to your own settings');
     });
 
     testWidgets('the composer states that everyone will see it',
