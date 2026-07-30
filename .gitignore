@@ -90,3 +90,6 @@ lib/preview.dart
 # iOS signing private key (must never be committed)
 cert_key
 cert_key.pub
+
+# Screenshots from test/screenshot_tool.dart — generated on demand.
+test/shots/

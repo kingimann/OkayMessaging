@@ -14381,12 +14381,37 @@ void main() {
 
       final scheme = Theme.of(t.element(find.byType(PublicProfileScreen)))
           .colorScheme;
-      final accent = profileAccentFor('sam', scheme);
+      final (bannerTop, bannerBottom) =
+          profileBannerColours(profileAccentFor('sam', scheme));
       final bar = t.widget<SliverAppBar>(find.byType(SliverAppBar));
       // A default grey bar above a coloured banner drew a seam across the top
-      // of every profile. The bar and the banner are one block of colour.
-      expect(bar.backgroundColor, accent);
-      expect(bar.foregroundColor, onProfileAccent(accent));
+      // of every profile. The bar continues the banner: same colour, exactly
+      // where the banner starts.
+      expect(bar.backgroundColor, bannerTop);
+      expect(bar.foregroundColor, onProfileAccent(bannerTop));
+      expect(bannerTop, isNot(bannerBottom), reason: 'it is a gradient');
+    });
+
+    test('an avatar is never the colour of the banner behind it', () {
+      // The banner used to be painted in the account's accent — which is also
+      // the colour of its avatar. A green disc on a green field with a
+      // three-pixel ring between them is not a portrait.
+      for (final accent in [
+        const Color(0xFF2E7D32),
+        const Color(0xFFFFF176),
+        const Color(0xFF075E54),
+        const Color(0xFF11161C),
+      ]) {
+        final (top, bottom) = profileBannerColours(accent);
+        for (final banner in [top, bottom]) {
+          // Either way round — a near-black accent gets a banner lighter than
+          // itself, because there is nothing darker to give it.
+          final ratio = (accent.computeLuminance() + 0.05) /
+              (banner.computeLuminance() + 0.05);
+          expect(ratio < 1 ? 1 / ratio : ratio, greaterThan(1.35),
+              reason: 'the face disappears into the banner behind it');
+        }
+      }
     });
 
     test('the app bar text is readable on any accent it can be given', () {

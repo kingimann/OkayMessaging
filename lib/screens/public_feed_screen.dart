@@ -80,6 +80,26 @@ Color profileAccentFor(String username, ColorScheme scheme) {
   return publicProfileBannerSeed(username, scheme);
 }
 
+/// The banner's two colours, from the account's accent.
+///
+/// DARKER THAN THE ACCENT, and that is the whole point. An account's accent is
+/// the colour of its avatar, so a banner painted in it put a green disc on a
+/// green field with a three-pixel ring between them and called that a portrait.
+/// Sunk a couple of stops, the banner is a backdrop and the face is on it.
+(Color, Color) profileBannerColours(Color accent) {
+  final hsl = HSLColor.fromColor(accent);
+  final l = hsl.lightness;
+  // Sunk below the accent — except where there is no room below it. An accent
+  // that is already nearly black cannot be darkened into anything, so there the
+  // banner rises instead and the face is the dark thing on it.
+  final (top, bottom) = l < 0.30
+      ? (l + 0.20, l + 0.34)
+      : ((l * 0.66).clamp(0.10, 0.44), (l * 0.44).clamp(0.06, 0.30));
+  Color at(double lightness) =>
+      hsl.withLightness(lightness.clamp(0.0, 1.0)).toColor();
+  return (at(top), at(bottom));
+}
+
 /// Black or white, whichever can be read on [accent].
 ///
 /// The generated banner colours all sit at the same lightness and would take
@@ -682,8 +702,8 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
     final tabPosts = posts == null
         ? const <PublicPost>[]
         : PublicFeedStore.profileTab(posts, _tab);
-    final accent =
-        profileAccentFor(widget.username, Theme.of(context).colorScheme);
+    final (bannerTop, _) = profileBannerColours(
+        profileAccentFor(widget.username, Theme.of(context).colorScheme));
     return Scaffold(
       body: ListenableBuilder(
         listenable: PublicFeedStore.instance,
@@ -705,8 +725,8 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
                   // screen is one block of it running down into the banner.
                   // A default grey bar above a coloured banner drew a seam
                   // across the top of every profile.
-                  backgroundColor: accent,
-                  foregroundColor: onProfileAccent(accent),
+                  backgroundColor: bannerTop,
+                  foregroundColor: onProfileAccent(bannerTop),
                   elevation: 0,
                   scrolledUnderElevation: 0,
                   title: Text(_displayName,
@@ -784,8 +804,7 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
                       mainAxisSpacing: 2,
                     ),
                     itemCount: tabPosts.length,
-                    itemBuilder: (context, i) =>
-                        _MediaCell(post: tabPosts[i]),
+                    itemBuilder: (context, i) => _MediaCell(post: tabPosts[i]),
                   ),
                 )
               else
@@ -884,7 +903,8 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
           Icon(icon, size: 34, color: Colors.grey.shade400),
           const SizedBox(height: 12),
           Text(title,
-              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+              style:
+                  const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
           const SizedBox(height: 6),
           Text(subtitle,
               textAlign: TextAlign.center,
@@ -919,13 +939,17 @@ class _Banner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final seed = profileAccentFor(username, Theme.of(context).colorScheme);
+    final (top, bottom) = profileBannerColours(
+        profileAccentFor(username, Theme.of(context).colorScheme));
     return DecoratedBox(
       decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [seed, seed.withValues(alpha: 0.55)],
+          // Opaque, not the accent at 55% alpha: an alpha stop takes its second
+          // colour from whatever is behind it, so the same account's banner was
+          // a different gradient in light mode and in dark.
+          colors: [top, bottom],
         ),
       ),
     );
@@ -1499,52 +1523,59 @@ class _PostTile extends StatelessWidget {
                   // Four actions, evenly spread across the post's own width
                   // rather than bunched at the left. That is the shape a
                   // timeline like this one has, and it puts every target under
-                  // a thumb instead of crowding them into one corner.
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      _action(
-                        context,
-                        icon: Icons.chat_bubble_outline,
-                        label: post.replyCount == 0 ? '' : '${post.replyCount}',
-                        onTap: onReply,
-                      ),
-                      _action(
-                        context,
-                        icon: Icons.repeat,
-                        label:
-                            post.repostCount == 0 ? '' : '${post.repostCount}',
-                        color:
-                            PublicFeedStore.instance.myRepostOf(post.id) != null
-                                ? Colors.green
-                                : null,
-                        // A repeat is two different intentions — pass it on
-                        // as it is, or pass it on with something to say — so it
-                        // asks which rather than picking one.
-                        onTap: () => _repostMenu(context),
-                      ),
-                      _action(
-                        context,
-                        icon:
-                            post.liked ? Icons.favorite : Icons.favorite_border,
-                        label: post.likeCount == 0 ? '' : '${post.likeCount}',
-                        // The pink a liked heart is everywhere else, so the
-                        // gesture reads without being learned.
-                        color: post.liked ? const Color(0xFFF91880) : null,
-                        onTap: () =>
-                            PublicFeedStore.instance.toggleLike(post.id),
-                      ),
-                      _action(
-                        context,
-                        icon: Icons.ios_share,
-                        label: '',
-                        onTap: () {
-                          Clipboard.setData(ClipboardData(text: post.body));
-                          ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('Post copied.')));
-                        },
-                      ),
-                    ],
+                  // a thumb instead of crowding them into one corner. The last
+                  // one stops short of the edge rather than touching it.
+                  Padding(
+                    padding: const EdgeInsets.only(right: 4),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        _action(
+                          context,
+                          icon: Icons.chat_bubble_outline,
+                          label:
+                              post.replyCount == 0 ? '' : '${post.replyCount}',
+                          onTap: onReply,
+                        ),
+                        _action(
+                          context,
+                          icon: Icons.repeat,
+                          label: post.repostCount == 0
+                              ? ''
+                              : '${post.repostCount}',
+                          color: PublicFeedStore.instance.myRepostOf(post.id) !=
+                                  null
+                              ? Colors.green
+                              : null,
+                          // A repeat is two different intentions — pass it on
+                          // as it is, or pass it on with something to say — so it
+                          // asks which rather than picking one.
+                          onTap: () => _repostMenu(context),
+                        ),
+                        _action(
+                          context,
+                          icon: post.liked
+                              ? Icons.favorite
+                              : Icons.favorite_border,
+                          label: post.likeCount == 0 ? '' : '${post.likeCount}',
+                          // The pink a liked heart is everywhere else, so the
+                          // gesture reads without being learned.
+                          color: post.liked ? const Color(0xFFF91880) : null,
+                          onTap: () =>
+                              PublicFeedStore.instance.toggleLike(post.id),
+                        ),
+                        _action(
+                          context,
+                          icon: Icons.ios_share,
+                          label: '',
+                          onTap: () {
+                            Clipboard.setData(ClipboardData(text: post.body));
+                            ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('Post copied.')));
+                          },
+                        ),
+                      ],
+                    ),
                   ),
                 ],
               ),
