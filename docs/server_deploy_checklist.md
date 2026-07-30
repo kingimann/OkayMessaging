@@ -119,34 +119,37 @@ now. Re-pasting it is a cosmetic upgrade, not a fix.
 
 Dashboard → Edge Functions → **Secrets**.
 
-### What is actually broken, as of the last round of testing
+### The embedded-component failure: settled, and no longer relevant
 
-Payments **work in the web build** and fail in the app. That difference is not
-the platform: the web build has no WebView, so it has always used Stripe's
-*hosted* onboarding, while the app used the *embedded* component. So the
-embedded path is the broken one, and only two things can break it — both
-invisible from a phone:
+For a long time setting up payments failed with Stripe's "an error occurred
+while authenticating your account". Two things can cause that, and both were
+chased here: the two Stripe keys being in different modes or belonging to
+different accounts, or WKWebView refusing the cross-site iframe the embedded
+component runs in.
 
-1. the app's publishable key and the server's `STRIPE_SECRET_KEY` belonging to
-   different Stripe accounts (only the embedded flow uses the publishable key);
-2. WKWebView refusing the cross-site iframe the component runs in.
+**It was the WebView.** The keys are in the same mode and from the same Stripe
+account — confirmed by the account's owner, who has no other Stripe account. So
+there is nothing to fix about the keys, and nothing to go and check.
 
-**Wallet → Check payments setup** settles which. It reports both keys' modes and
-Stripe accounts and names the mismatch, or says the keys are fine — in which
-case it is (2). The **Server key** line needs the updated
-`payments-account-session` pasted; without it that half is unknown.
+It stopped mattering anyway: onboarding no longer uses the embedded component,
+or any web page. It is the app's own form, submitting over the API
+(`payments-connect-fields`). Neither the publishable key nor an Account Session
+is involved, so neither can break it.
 
-Meanwhile the app goes straight to the hosted flow, which is the one observed
-working. It still runs inside the app's own WebView — no browser, no popup.
-Switch back with `--dart-define=PREFER_EMBEDDED_CONNECT=true` once the cause is
-known and fixed.
+Two things that follow, so nobody does pointless work:
 
-### ⚠️ `STRIPE_SECRET_KEY` must match the key the app is built with
+* **Re-pasting `payments-account-session` is optional.** Its only remaining job
+  is reporting the server key's Stripe account to the self-test. Nothing in the
+  app depends on it.
+* `--dart-define=PREFER_EMBEDDED_CONNECT=true` still exists, but there is no
+  reason to use it. The embedded component is the path that did not work.
 
-This is the one to check if setting up payments says **"An error occurred while
-authenticating your account."** That is Stripe's wording for *the publishable
-key cannot authenticate this session*, and it points at your Stripe account
-when the problem is the pair of keys. Two ways they fail to pair:
+### `STRIPE_SECRET_KEY` and the app's key have to be a pair
+
+Already true here — same account, same mode — so this is written down for
+whoever sets the project up next rather than as something outstanding.
+
+Two ways a pair can fail:
 
 1. **Different modes.** The app is built with `pk_live_…`, so
    `STRIPE_SECRET_KEY` has to be an `sk_live_…` key. A test secret key mints a
@@ -155,19 +158,12 @@ when the problem is the pair of keys. Two ways they fail to pair:
    fail the same way.
 
 The app's publishable key belongs to Stripe account
-**`acct_1EXa8MFoLcXnRrCb`** (checked against Stripe, not assumed). So:
+**`acct_1EXa8MFoLcXnRrCb`** — checked against Stripe, not assumed — and
+`STRIPE_SECRET_KEY` is a live key from that same account. Both halves match.
 
-> Dashboard → Edge Functions → Secrets → `STRIPE_SECRET_KEY` must be an
-> `sk_live_…` key from `acct_1EXa8MFoLcXnRrCb`.
-
-Get it from Stripe → Developers → API keys, with **Test mode off**, while
-signed into that account. Nothing else needs changing for this.
-
-The setup screen now says which of the two it is: it asks Stripe which account
-the app's own key belongs to, and prints that under the failure. Once
-`payments-account-session` is re-pasted it also reports the account the *secret*
-key belongs to, and the screen names the mismatch outright instead of asking
-you to compare them.
+**Wallet → Check payments setup** re-checks this on demand, and also reports the
+thing that now decides whether setup is a form or a web page: whether the
+connected account is one this app may collect for.
 
 | Secret | Needed for | Without it |
 |---|---|---|

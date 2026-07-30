@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import '../relay/relay_config.dart';
+import 'connect_fields.dart';
 import '../state/session.dart';
 import 'payment_service.dart';
 
@@ -76,14 +77,20 @@ class PaymentsSelfTest {
   @visibleForTesting
   static String? debugAppKey;
 
+  /// Stands in for payments-connect-fields.
+  @visibleForTesting
+  static Future<ConnectRequirements> Function()? debugSetupProbe;
+
   static Future<PaymentDiagnostics> run() async {
     final steps = <DiagnosticStep>[];
 
     steps.add(RelayConfig.isEnabled
         ? const DiagnosticStep(
             'Server', 'A Supabase project is configured.', CheckState.pass)
-        : const DiagnosticStep('Server',
-            'No Supabase project is configured in this build.', CheckState.fail));
+        : const DiagnosticStep(
+            'Server',
+            'No Supabase project is configured in this build.',
+            CheckState.fail));
 
     final signedIn = Session.instance.user.value != null;
     steps.add(signedIn
@@ -122,8 +129,8 @@ class PaymentsSelfTest {
       sessionError = '$e';
     }
     if (sessionError != null) {
-      steps.add(DiagnosticStep('Server session',
-          _shortenError(sessionError), CheckState.fail));
+      steps.add(DiagnosticStep(
+          'Server session', _shortenError(sessionError), CheckState.fail));
     } else {
       final secret = (session?['clientSecret'] as String?) ?? '';
       steps.add(secret.isEmpty
@@ -147,6 +154,44 @@ class PaymentsSelfTest {
               CheckState.pass));
     }
 
+    // --- can setup happen in the app? --------------------------------------
+    //
+    // This is the question that decides whether "Set up payments" is a form or
+    // a web page, and it is the one worth asking now. The key comparison above
+    // mattered when onboarding ran through Stripe's embedded component, which
+    // needs the publishable key to authenticate a session minted by the secret
+    // key. Native onboarding uses neither, so a key problem cannot stop it.
+    ConnectRequirements? setup;
+    String? setupError;
+    try {
+      setup = await (debugSetupProbe ??
+          () => PaymentService.instance.connectRequirements())();
+    } catch (e) {
+      setupError = '$e';
+    }
+    if (setupError != null) {
+      steps.add(DiagnosticStep(
+          'In-app setup',
+          '${_shortenError(setupError)}\n\n'
+              '(paste payments-connect-fields in Edge Functions)',
+          CheckState.fail));
+    } else if (setup!.collectableInApp) {
+      steps.add(DiagnosticStep(
+          'In-app setup',
+          setup.complete
+              ? 'Ready — Stripe has everything it needs.'
+              : 'The app asks for it: ${setup.fieldsNeeded.length} '
+                  'section(s) still due.',
+          CheckState.pass));
+    } else {
+      steps.add(const DiagnosticStep(
+          'In-app setup',
+          'This account predates in-app setup, so Stripe will only accept its '
+              'details on its own page. An unused one is replaced '
+              'automatically; a used one is kept.',
+          CheckState.unknown));
+    }
+
     final verdict = verdictFor(
       appKeyMode: appMode,
       appKeyAccount: keyFacts?.account ?? '',
@@ -156,6 +201,8 @@ class PaymentsSelfTest {
       serverAccount: (session?['platformAccount'] as String?) ?? '',
       serverError: sessionError,
       signedIn: signedIn,
+      setupIsNative: setup?.collectableInApp,
+      setupError: setupError,
     );
     return PaymentDiagnostics(
         steps: steps, verdict: verdict.$1, faulty: verdict.$2);
@@ -176,58 +223,112 @@ class PaymentsSelfTest {
     required String serverAccount,
     required String? serverError,
     required bool signedIn,
+    bool? setupIsNative,
+    String? setupError,
   }) {
     if (!signedIn) {
-      return ('Sign in first — the server cannot start a Stripe session for '
-          'an unknown device.', true);
+      return (
+        'Sign in first — the server cannot start a Stripe session for '
+            'an unknown device.',
+        true
+      );
+    }
+    if (setupError != null) {
+      return (
+        'Setting up payments cannot start: '
+            '${_shortenError(setupError)}\n\nPaste payments-connect-fields in '
+            'Edge Functions and run this again.',
+        true
+      );
     }
     if (!appKeyPresent) {
-      return ('This build has no Stripe publishable key. Set the '
-          'STRIPE_PUBLISHABLE_KEY Edge Function secret to the pk_live_ key '
-          'from the same Stripe account as STRIPE_SECRET_KEY, and the app '
-          'will use that.', true);
+      return (
+        'This build has no Stripe publishable key. Set the '
+            'STRIPE_PUBLISHABLE_KEY Edge Function secret to the pk_live_ key '
+            'from the same Stripe account as STRIPE_SECRET_KEY, and the app '
+            'will use that.',
+        true
+      );
     }
     if (!appKeyRecognised) {
-      return ('Stripe does not recognise the publishable key this app uses. '
-          'It has been rolled or deleted, so nothing can authenticate '
-          'against it.', true);
+      return (
+        'Stripe does not recognise the publishable key this app uses. '
+            'It has been rolled or deleted, so nothing can authenticate '
+            'against it.',
+        true
+      );
     }
     if (serverError != null) {
-      return ('The server could not start a Stripe session: '
-          '${_shortenError(serverError)}', true);
+      return (
+        'The server could not start a Stripe session: '
+            '${_shortenError(serverError)}',
+        true
+      );
     }
-    if (serverMode != null && appKeyMode.isNotEmpty && serverMode != appKeyMode) {
-      return ('The keys are in different modes. This app uses a $appKeyMode '
-          'key; STRIPE_SECRET_KEY on the server is a $serverMode key. Set '
-          'STRIPE_SECRET_KEY to an sk_${appKeyMode}_ key.', true);
+    if (serverMode != null &&
+        appKeyMode.isNotEmpty &&
+        serverMode != appKeyMode) {
+      return (
+        'The keys are in different modes. This app uses a $appKeyMode '
+            'key; STRIPE_SECRET_KEY on the server is a $serverMode key. Set '
+            'STRIPE_SECRET_KEY to an sk_${appKeyMode}_ key.',
+        true
+      );
     }
     if (appKeyAccount.isNotEmpty &&
         serverAccount.isNotEmpty &&
         appKeyAccount != serverAccount) {
-      return ('The keys belong to different Stripe accounts. This app\'s key '
-          'is from $appKeyAccount; STRIPE_SECRET_KEY belongs to '
-          '$serverAccount. Set STRIPE_SECRET_KEY to an sk_${appKeyMode}_ key '
-          'from $appKeyAccount — or set the STRIPE_PUBLISHABLE_KEY secret to '
-          'the pk_${appKeyMode}_ key from $serverAccount.', true);
+      return (
+        'The keys belong to different Stripe accounts. This app\'s key '
+            'is from $appKeyAccount; STRIPE_SECRET_KEY belongs to '
+            '$serverAccount. Set STRIPE_SECRET_KEY to an sk_${appKeyMode}_ key '
+            'from $appKeyAccount — or set the STRIPE_PUBLISHABLE_KEY secret to '
+            'the pk_${appKeyMode}_ key from $serverAccount.',
+        true
+      );
     }
     if (serverMode == null) {
-      return ('Everything this app can see is in order. It cannot check the '
-          'server\'s key, because that deployment is an older version — '
-          're-paste payments-account-session and run this again.', false);
+      return (
+        'Everything this app can see is in order. It cannot check the '
+            'server\'s key, because that deployment is an older version — '
+            're-paste payments-account-session and run this again.',
+        false
+      );
     }
     if (serverAccount.isEmpty || appKeyAccount.isEmpty) {
-      return ('Both keys are in $appKeyMode mode. Whether they belong to the '
-          'same Stripe account could not be established from here.', false);
+      // Worth saying it changes nothing when setup is native: this comparison
+      // only ever mattered for Stripe's embedded component, which needs the
+      // publishable key to authenticate a session the secret key minted.
+      final consequence = setupIsNative == true
+          ? ' Setting up payments does not use either key, so this does not '
+              'block anything.'
+          : '';
+      return (
+        'Both keys are in $appKeyMode mode. Whether they belong to the '
+            'same Stripe account could not be established from here.'
+            '$consequence',
+        false
+      );
     }
-    return ('Both keys are $appKeyMode keys from $appKeyAccount. Nothing is '
-        'wrong with the keys.', false);
+    if (setupIsNative == true) {
+      return (
+        'Everything checks out. Both keys are $appKeyMode keys from '
+            '$appKeyAccount, and setting up payments happens in the app — no '
+            'Stripe web page involved.',
+        false
+      );
+    }
+    return (
+      'Both keys are $appKeyMode keys from $appKeyAccount. Nothing is '
+          'wrong with the keys.',
+      false
+    );
   }
 
   /// 'live', 'test', or '' when it is not a publishable key at all.
-  static String modeOfPublishableKey(String key) =>
-      key.startsWith('pk_live_')
-          ? 'live'
-          : (key.startsWith('pk_test_') ? 'test' : '');
+  static String modeOfPublishableKey(String key) => key.startsWith('pk_live_')
+      ? 'live'
+      : (key.startsWith('pk_test_') ? 'test' : '');
 
   /// Last four characters only. A publishable key is client-safe, but a report
   /// meant to be pasted into a message should not carry a whole key.
@@ -261,8 +362,7 @@ class PaymentsSelfTest {
       }
       final match =
           RegExp(r'acct_[A-Za-z0-9]+').firstMatch('${err?['request_log_url']}');
-      return StripeKeyFacts(
-          recognised: true, account: match?.group(0) ?? '');
+      return StripeKeyFacts(recognised: true, account: match?.group(0) ?? '');
     } catch (_) {
       // Unreachable is not the same as unrecognised.
       return const StripeKeyFacts(recognised: true, account: '');

@@ -14285,6 +14285,58 @@ void main() {
       expect(verdict(appKeyRecognised: false),
           contains('does not recognise'));
 
+      // The step that now decides whether setup is a form or a web page. It
+      // outranks everything about the keys, because it is what somebody is
+      // actually trying to do — and native setup uses neither key, so a key
+      // problem cannot be what is blocking them.
+      expect(
+          PaymentsSelfTest.verdictFor(
+            appKeyMode: 'live',
+            appKeyAccount: 'acct_APP',
+            appKeyRecognised: true,
+            appKeyPresent: true,
+            serverMode: 'test',
+            serverAccount: 'acct_OTHER',
+            serverError: null,
+            signedIn: true,
+            setupError: 'PaymentException: NOT_FOUND',
+          ).$1,
+          allOf(contains('cannot start'),
+              contains('payments-connect-fields'),
+              isNot(contains('different modes'))),
+          reason: 'setup being unavailable beats any key complaint');
+
+      // All clear, and it says the part that matters: no web page.
+      expect(
+          PaymentsSelfTest.verdictFor(
+            appKeyMode: 'live',
+            appKeyAccount: 'acct_APP',
+            appKeyRecognised: true,
+            appKeyPresent: true,
+            serverMode: 'live',
+            serverAccount: 'acct_APP',
+            serverError: null,
+            signedIn: true,
+            setupIsNative: true,
+          ).$1,
+          allOf(contains('in the app'), contains('no'), contains('web page')));
+
+      // An unknown account comparison must not read as a blocker once setup is
+      // native — the comparison only ever mattered for the embedded component.
+      final unknownButNative = PaymentsSelfTest.verdictFor(
+        appKeyMode: 'live',
+        appKeyAccount: 'acct_APP',
+        appKeyRecognised: true,
+        appKeyPresent: true,
+        serverMode: 'live',
+        serverAccount: '',
+        serverError: null,
+        signedIn: true,
+        setupIsNative: true,
+      );
+      expect(unknownButNative.$1, contains('does not block anything'));
+      expect(unknownButNative.$2, isFalse);
+
       // What it must NOT do: claim the accounts match when it never learned
       // one of them. Silence is the honest answer there.
       expect(verdict(serverAccount: ''),
@@ -14309,6 +14361,7 @@ void main() {
         PaymentsSelfTest.debugSessionProbe = null;
         PaymentsSelfTest.debugKeyProbe = null;
         PaymentsSelfTest.debugAppKey = null;
+        PaymentsSelfTest.debugSetupProbe = null;
       });
       PaymentsSelfTest.debugAppKey = 'pk_live_abcdefghMM3P';
       PaymentsSelfTest.debugKeyProbe = (key) async =>
@@ -14318,6 +14371,12 @@ void main() {
             'mode': 'live',
             'platformAccount': 'acct_SERVERSIDE',
           };
+      PaymentsSelfTest.debugSetupProbe = () async =>
+          ConnectRequirements.fromJson({
+            'collection': 'application',
+            'currentlyDue': ['individual.first_name', 'external_account'],
+            'status': <String, dynamic>{},
+          });
 
       await t.pumpWidget(
           const MaterialApp(home: PaymentDiagnosticsScreen()));
@@ -14328,6 +14387,9 @@ void main() {
       expect(find.textContaining('acct_SERVERSIDE'), findsWidgets);
       expect(find.text('What to change'), findsOneWidget);
       expect(find.textContaining('different Stripe accounts'), findsOneWidget);
+      // And the step that says where setup will happen.
+      expect(find.text('In-app setup'), findsOneWidget);
+      expect(find.textContaining('The app asks for it'), findsOneWidget);
     });
 
     test('a key in the wrong mode is named, not left to Stripe', () {
