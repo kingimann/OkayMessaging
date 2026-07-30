@@ -4,6 +4,30 @@ import '../payments/connect_webview.dart';
 import '../payments/payment_service.dart';
 import '../theme/app_theme.dart';
 
+/// Whether to go straight to Stripe's hosted onboarding instead of trying the
+/// embedded component first.
+///
+/// MEASURED, NOT GUESSED. Setting up payments works in the web build and fails
+/// in the app, and the difference between those two is not the platform: the
+/// web build has no WebView, so it has always used the hosted flow, while the
+/// app uses the embedded component. So what is broken is the embedded path,
+/// and the two candidates are both invisible from here — the app's publishable
+/// key and the server's secret key belonging to different Stripe accounts, or
+/// WKWebView refusing the cross-site iframe the component runs in. Wallet →
+/// Check payments setup settles which.
+///
+/// Either way, leading with a path that has never once worked costs a spinner,
+/// a failure and a wait before landing where this goes anyway. The hosted flow
+/// still runs inside the app's own WebView — no browser, no popup — and Stripe
+/// still collects the identity and banking details directly.
+///
+/// Flip this off with --dart-define=PREFER_EMBEDDED_CONNECT=true to try the
+/// embedded component again once the self-test says which cause it was.
+const bool preferHostedOnboarding = !bool.fromEnvironment(
+  'PREFER_EMBEDDED_CONNECT',
+  defaultValue: false,
+);
+
 /// Whether a failure from the embedded page should quietly become Stripe's
 /// hosted flow instead of an error screen.
 ///
@@ -77,6 +101,14 @@ class _ConnectOnboardingScreenState extends State<ConnectOnboardingScreen> {
 
   Future<void> _useHosted() async {
     setState(() => _loadingHosted = true);
+    await _fetchHosted();
+  }
+
+  /// The fetch itself, without the leading setState — initState cannot call
+  /// setState, because that would mark this element dirty during its parent's
+  /// build. The flag is set directly there instead, so the first frame is
+  /// already the spinner.
+  Future<void> _fetchHosted() async {
     try {
       final url = await PaymentService.instance.onboardingUrl();
       if (!mounted) return;
@@ -104,6 +136,14 @@ class _ConnectOnboardingScreenState extends State<ConnectOnboardingScreen> {
   @override
   void initState() {
     super.initState();
+    if (preferHostedOnboarding) {
+      // Straight to the flow that works. No session is minted at all, so the
+      // publishable key and the Account Session — the two things the embedded
+      // component needs and the hosted flow does not — never come into it.
+      _loadingHosted = true;
+      _fetchHosted();
+      return;
+    }
     _session = PaymentService.instance.connectSession();
   }
 
@@ -165,7 +205,16 @@ class _ConnectOnboardingScreenState extends State<ConnectOnboardingScreen> {
   /// too — on its own it is not a problem the user has to hear about.
   String? _fallbackReason;
 
-  void _retry() => setState(() {
+  void _retry() {
+    if (preferHostedOnboarding && _hostedUrl == null) {
+      setState(() {
+        _attempt++;
+        _pageError = null;
+      });
+      _useHosted();
+      return;
+    }
+    setState(() {
         _attempt++;
         _pageError = null;
         _session = PaymentService.instance.connectSession();
@@ -173,7 +222,8 @@ class _ConnectOnboardingScreenState extends State<ConnectOnboardingScreen> {
         // either way, because each `next()` mints rather than replays.
         _dispenser = SecretDispenser(() async =>
             (await PaymentService.instance.connectSession()).clientSecret);
-      });
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -191,7 +241,10 @@ class _ConnectOnboardingScreenState extends State<ConnectOnboardingScreen> {
           onPressed: () => Navigator.of(context).pop(_hostedUrl != null),
         ),
         actions: [
-          if (_hostedUrl == null)
+          // Only worth offering when the embedded component is what is on
+          // screen. When this build goes to the hosted flow first, this button
+          // would just re-fetch what is already loading.
+          if (_hostedUrl == null && !preferHostedOnboarding)
             TextButton(
               onPressed: _loadingHosted ? null : _useHosted,
               child: const Text('Trouble?'),

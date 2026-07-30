@@ -14041,10 +14041,19 @@ void main() {
       await tester.tap(find.text('open'));
       await tester.pumpAndSettle();
 
-      // Reachable before anything has gone wrong, because the failure this
-      // exists for renders inside Stripe's iframe where nothing here can see
-      // it and turn on a button.
-      expect(find.text('Trouble?'), findsOneWidget);
+      // This used to assert a "Trouble?" button, reachable before anything had
+      // gone wrong because the failure it existed for renders inside Stripe's
+      // iframe where nothing out here can see it. The guarantee is stronger
+      // now and the button is gone: the screen never shows the component that
+      // wouldn't authenticate, so there is nothing to get past. What must hold
+      // is that it goes somewhere on its own.
+      expect(find.text('Trouble?'), findsNothing,
+          reason: 'nothing to escape from when the failing path is not taken');
+      // With no server configured the hosted link cannot be fetched, so what
+      // this settles on is the reason and a way to retry — never a blank
+      // screen, and never the embedded component.
+      expect(find.text('Try again'), findsOneWidget);
+      expect(find.byType(ConnectWebView), findsNothing);
 
       // Backing out without setting anything up must not tell the wallet to
       // re-read — that would claim a change nobody made.
@@ -14218,6 +14227,34 @@ void main() {
       PaymentService.checkKeyMode(key: 'pk_live_abc', livemode: true);
       PaymentService.checkKeyMode(key: 'pk_test_abc', livemode: false);
       PaymentService.checkKeyMode(key: 'pk_live_abc', livemode: null);
+    });
+
+    test('the app leads with the flow that actually works', () {
+      // Payments work in the web build and fail in the app. The difference is
+      // not the platform: the web build has no WebView, so it has always used
+      // Stripe's hosted flow, while the app used the embedded component. So it
+      // is the embedded path that is broken, and leading with it costs a
+      // spinner, a failure and a wait before landing where it goes anyway.
+      expect(preferHostedOnboarding, isTrue,
+          reason: 'the hosted flow is the one that has been observed working');
+
+      // The hosted flow still runs inside the app's own WebView, so this is not
+      // a browser or a popup — which was an explicit requirement.
+      final screen =
+          File('lib/screens/connect_onboarding_screen.dart').readAsStringSync();
+      expect(screen.contains('completionUrlPrefix: PaymentService.returnUrl'),
+          isTrue,
+          reason: 'Stripe ends the hosted flow by navigating; the app catches '
+              'it rather than rendering its own website in the WebView');
+      // initState cannot call setState — that marks this element dirty during
+      // its parent's build — so the flag is set directly and the fetch runs
+      // without it.
+      expect(screen.contains('_loadingHosted = true;\n      _fetchHosted();'),
+          isTrue);
+
+      // And the embedded path is still there to switch back to, once the
+      // self-test says which of the two causes it was.
+      expect(screen.contains('PREFER_EMBEDDED_CONNECT'), isTrue);
     });
 
     test('a form that never authenticates becomes the hosted one by itself',

@@ -90,6 +90,28 @@ now. Re-pasting it is a cosmetic upgrade, not a fix.
 
 Dashboard → Edge Functions → **Secrets**.
 
+### What is actually broken, as of the last round of testing
+
+Payments **work in the web build** and fail in the app. That difference is not
+the platform: the web build has no WebView, so it has always used Stripe's
+*hosted* onboarding, while the app used the *embedded* component. So the
+embedded path is the broken one, and only two things can break it — both
+invisible from a phone:
+
+1. the app's publishable key and the server's `STRIPE_SECRET_KEY` belonging to
+   different Stripe accounts (only the embedded flow uses the publishable key);
+2. WKWebView refusing the cross-site iframe the component runs in.
+
+**Wallet → Check payments setup** settles which. It reports both keys' modes and
+Stripe accounts and names the mismatch, or says the keys are fine — in which
+case it is (2). The **Server key** line needs the updated
+`payments-account-session` pasted; without it that half is unknown.
+
+Meanwhile the app goes straight to the hosted flow, which is the one observed
+working. It still runs inside the app's own WebView — no browser, no popup.
+Switch back with `--dart-define=PREFER_EMBEDDED_CONNECT=true` once the cause is
+known and fixed.
+
 ### ⚠️ `STRIPE_SECRET_KEY` must match the key the app is built with
 
 This is the one to check if setting up payments says **"An error occurred while
