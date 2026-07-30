@@ -20,6 +20,7 @@ const pasteFunctions = [
   'payments-status',
   'payments-webhook',
   'payments-account-session',
+  'payments-connect-fields',
   'payments-intent-status',
   'payments-history',
   'payments-settings',

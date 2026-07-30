@@ -39,7 +39,9 @@ import 'package:okay_messaging/screens/admin_screen.dart';
 import 'package:okay_messaging/screens/settings_screen.dart';
 import 'package:okay_messaging/screens/identity_check_screen.dart';
 import 'package:okay_messaging/state/platform_moderation.dart';
+import 'package:okay_messaging/payments/connect_fields.dart';
 import 'package:okay_messaging/payments/payment_diagnostics.dart';
+import 'package:okay_messaging/payments/stripe_tokens.dart';
 import 'package:okay_messaging/screens/payment_diagnostics_screen.dart';
 import 'package:okay_messaging/screens/public_feed_screen.dart';
 import 'package:okay_messaging/state/public_feed_store.dart';
@@ -13740,18 +13742,30 @@ void main() {
         'lib/screens/payment_history_screen.dart',
         'lib/payments/payment_service.dart',
         'lib/payments/connect_webview_native.dart',
+        'lib/screens/native_onboarding_screen.dart',
+        'lib/payments/stripe_tokens.dart',
+        'lib/payments/connect_fields.dart',
       ]) {
         final src = File(path).readAsStringSync();
         expect(src.contains('launchUrl'), isFalse,
             reason: '$path can take the user out of the app');
       }
       final wallet = File('lib/screens/wallet_screen.dart').readAsStringSync();
-      // Mobile: the app's own screen. Web: the in-app helper, which is the
-      // only thing allowed to fall back to a tab.
-      expect(wallet.contains('ConnectOnboardingScreen()'), isTrue);
-      expect(wallet.contains('InAppWebScreen.open('), isTrue);
-      // The "Trouble?" fallback loads Stripe's hosted page into the SAME
-      // WebView rather than handing it anywhere.
+      // This used to assert the wallet reached ConnectOnboardingScreen (a
+      // WebView hosting Stripe's own form) and InAppWebScreen (a tab, on web
+      // only). Both are gone from here and the guarantee is stronger for it:
+      // setting up payments is now the app's own form, on every platform, with
+      // no web page in the happy path at all.
+      expect(wallet.contains('NativeOnboardingScreen()'), isTrue);
+      expect(wallet.contains('InAppWebScreen'), isFalse,
+          reason: 'no tab, not even on web');
+
+      // Stripe's own page is still reachable for one case — an account created
+      // before native collection existed, which Stripe will not let this app
+      // collect — and it loads into this app's own WebView, not anywhere else.
+      final native =
+          File('lib/screens/native_onboarding_screen.dart').readAsStringSync();
+      expect(native.contains('ConnectOnboardingScreen()'), isTrue);
       final screen =
           File('lib/screens/connect_onboarding_screen.dart').readAsStringSync();
       expect(screen.contains('url: _hostedUrl!'), isTrue);
@@ -14227,6 +14241,208 @@ void main() {
       PaymentService.checkKeyMode(key: 'pk_live_abc', livemode: true);
       PaymentService.checkKeyMode(key: 'pk_test_abc', livemode: false);
       PaymentService.checkKeyMode(key: 'pk_live_abc', livemode: null);
+    });
+
+    test('the account type is what decides whether setup can be native', () {
+      // THE ROOT CAUSE, recorded so it is not rediscovered. Accounts used to be
+      // created as `express`, and Stripe does not let a platform collect an
+      // Express account's KYC over the API — Stripe's own hosted page or
+      // embedded component is the only way. That is the account type, not a
+      // limitation anybody can code around, and it is why setting up payments
+      // could never look like the rest of this app.
+      final fn = File('supabase/functions/payments-connect-fields/index.ts')
+          .readAsStringSync();
+      expect(fn.contains('requirement_collection: "application"'), isTrue,
+          reason: 'this application collects the requirements, which is what '
+              'makes a native form usable at all');
+      expect(fn.contains('stripe_dashboard: { type: "none" }'), isTrue);
+
+      // The trade is real and must stay written down: collecting requirements
+      // means the platform also carries losses.
+      expect(fn.contains('losses: { payments: "application" }'), isTrue);
+      expect(fn.contains('WHAT THAT COSTS, PLAINLY'), isTrue,
+          reason: 'the cost of native onboarding is stated, not buried');
+
+      // Raw bank and ID numbers must never reach the server, and the function
+      // refuses them rather than trusting a future client.
+      expect(fn.contains('bank_details_must_be_tokenised'), isTrue);
+      expect(fn.contains('id_number_must_be_tokenised'), isTrue);
+      expect(fn.contains('startsWith("btok_")'), isTrue);
+      expect(fn.contains('startsWith("piitok_")'), isTrue);
+
+      // Terms acceptance is evidence, so the IP comes from the request rather
+      // than from whatever the client claims.
+      expect(fn.contains('x-forwarded-for'), isTrue);
+
+      // And the paste copy the dashboard gets has to carry all of it.
+      final paste =
+          File('docs/edge_functions_paste/payments-connect-fields.ts')
+              .readAsStringSync();
+      expect(paste.contains('requirement_collection: "application"'), isTrue,
+          reason: 'run: dart tool/paste_functions.dart');
+    });
+
+    test('sensitive numbers are tokenised on the device, never posted to us',
+        () async {
+      addTearDown(() {
+        StripeTokens.debugPost = null;
+        StripeTokens.debugPublishableKey = null;
+      });
+      StripeTokens.debugPublishableKey = 'pk_live_test';
+      final sent = <String, Map<String, String>>{};
+      StripeTokens.debugPost = (path, form) async {
+        sent[path] = form;
+        return {'id': form.containsKey('pii[id_number]') ? 'piitok_1' : 'btok_1'};
+      };
+
+      final bank = await StripeTokens.bankAccount(
+        country: 'CA',
+        currency: 'cad',
+        accountHolderName: 'Sam Sample',
+        routingNumber: '11000000',
+        accountNumber: '000123456789',
+      );
+      expect(bank, 'btok_1');
+      // Straight to Stripe with the publishable key — that is what the key is
+      // for — so the one server in this system never holds an account number.
+      expect(sent['tokens']!['key'], 'pk_live_test');
+      expect(sent['tokens']!['bank_account[account_number]'], '000123456789');
+      expect(sent['tokens']!['bank_account[account_holder_type]'], 'individual');
+
+      final pii = await StripeTokens.idNumber('046454286');
+      expect(pii, 'piitok_1');
+      expect(sent['tokens']!['pii[id_number]'], '046454286');
+
+      // A token of the WRONG KIND must be refused too, not just a missing one.
+      // The server checks the prefix as well, and a card token reaching the
+      // bank-account path would fail there instead — after the value had
+      // already left the device as if it were the right thing.
+      StripeTokens.debugPost = (path, form) async => {'id': 'tok_visa'};
+      await expectLater(
+          StripeTokens.bankAccount(
+            country: 'CA',
+            currency: 'cad',
+            accountHolderName: 'Sam',
+            routingNumber: '11000000',
+            accountNumber: '000123456789',
+          ),
+          throwsA(isA<StripeTokenException>()),
+          reason: 'tok_ is not btok_');
+
+      // A refusal has to be a refusal: returning something that isn't a token
+      // would send a raw value onward as if it were one.
+      StripeTokens.debugPost = (path, form) async =>
+          {'error': {'message': 'Invalid account number.'}};
+      await expectLater(
+          StripeTokens.bankAccount(
+            country: 'CA',
+            currency: 'cad',
+            accountHolderName: 'Sam',
+            routingNumber: '11000000',
+            accountNumber: '1',
+          ),
+          throwsA(predicate((e) => '$e'.contains('Invalid account number'))));
+    });
+
+    test('the form asks only for what Stripe says is missing', () {
+      final req = ConnectRequirements.fromJson({
+        'accountId': 'acct_1',
+        'collection': 'application',
+        'currentlyDue': [
+          'individual.first_name',
+          'individual.last_name',
+          'individual.dob.day',
+          'external_account',
+          'tos_acceptance.date',
+        ],
+        'pastDue': <String>[],
+        'unhandled': <String>[],
+        'errors': <dynamic>[],
+        'country': 'CA',
+        'currency': 'cad',
+        'status': {'chargesEnabled': false, 'payoutsEnabled': false},
+      });
+      expect(req.collectableInApp, isTrue);
+      expect(req.complete, isFalse);
+      // One section per requirement, deduplicated, in a fixed order — first and
+      // last name are one part of the form, not two.
+      expect(req.fieldsNeeded, [
+        ConnectField.name,
+        ConnectField.dob,
+        ConnectField.bank,
+        ConnectField.tos,
+      ]);
+      // Nothing it wasn't asked for.
+      expect(req.fieldsNeeded.contains(ConnectField.idNumber), isFalse);
+
+      // An older Express account cannot be collected in the app, and saying so
+      // beats showing a form that cannot finish.
+      final express = ConnectRequirements.fromJson({
+        'collection': 'stripe',
+        'currentlyDue': ['individual.first_name'],
+        'status': <String, dynamic>{},
+      });
+      expect(express.collectableInApp, isFalse);
+
+      // A missing field with no form is reported, never dropped.
+      final odd = ConnectRequirements.fromJson({
+        'collection': 'application',
+        'currentlyDue': ['individual.verification.document'],
+        'unhandled': ['individual.verification.document'],
+        'status': <String, dynamic>{},
+      });
+      expect(odd.unhandled, ['individual.verification.document']);
+      expect(odd.fieldsNeeded, isEmpty,
+          reason: 'no form claims to collect it');
+    });
+
+    test('bank and identity details are checked before Stripe sees them', () {
+      // Every rule here spares somebody a rejection that arrives days later as
+      // a requirement error against a field name.
+      const now = null;
+      expect(now, isNull); // keeps the linter happy about the doc comment above
+
+      // Canada: Stripe wants transit+institution joined, which is not how a
+      // cheque prints them.
+      expect(ConnectValidation.routingNumber('11000-000', 'CA'), isNull);
+      expect(ConnectValidation.routingNumber('1100000', 'CA'), isNotNull,
+          reason: '7 digits is a transit number missing its institution');
+      expect(ConnectValidation.routingNumber('123456789', 'US'), isNull);
+      expect(ConnectValidation.routingNumber('12345678', 'US'), isNotNull);
+
+      expect(ConnectValidation.accountNumber('000 123 456', 'CA'), isNull);
+      expect(ConnectValidation.accountNumber('12', 'CA'), isNotNull);
+
+      // A SIN carries a check digit, so a transposed pair — the commonest typo
+      // there is — can be caught on the device.
+      expect(ConnectValidation.idNumber('046 454 286', 'CA'), isNull);
+      expect(ConnectValidation.idNumber('046 454 826', 'CA'), isNotNull,
+          reason: 'two digits swapped must not pass');
+      expect(ConnectValidation.idNumber('12345678', 'CA'), isNotNull);
+      // The US has no check digit to lean on, so length is all that is honest.
+      expect(ConnectValidation.idNumber('123456789', 'US'), isNull);
+
+      expect(ConnectValidation.postalCode('K1A 0B1', 'CA'), isNull);
+      expect(ConnectValidation.postalCode('k1a0b1', 'CA'), isNull);
+      expect(ConnectValidation.postalCode('90210', 'CA'), isNotNull);
+      expect(ConnectValidation.postalCode('90210', 'US'), isNull);
+
+      final today = DateTime(2026, 7, 30);
+      expect(ConnectValidation.dob(30, 7, 2008, now: today), isNull,
+          reason: '18 today counts as 18');
+      expect(ConnectValidation.dob(31, 7, 2008, now: today), isNotNull,
+          reason: 'one day short of 18 is not 18');
+      // An impossible date rolls over in DateTime, so it has to be compared
+      // back rather than trusted.
+      expect(ConnectValidation.dob(31, 2, 1990, now: today), isNotNull);
+      expect(ConnectValidation.dob(29, 2, 1988, now: today), isNull,
+          reason: '1988 was a leap year');
+      expect(ConnectValidation.dob(1, 1, 2030, now: today), isNotNull);
+      expect(ConnectValidation.dob(null, 1, 1990, now: today), isNotNull);
+
+      expect(ConnectValidation.email('sam@example.com'), isNull);
+      expect(ConnectValidation.email('sam@example'), isNotNull);
+      expect(ConnectValidation.email(''), isNotNull);
     });
 
     test('the app leads with the flow that actually works', () {

@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart' hide Session;
 
 import '../relay/relay_config.dart';
 import '../state/account_email.dart';
+import 'connect_fields.dart';
 import 'stripe_sheet.dart';
 
 /// Raised when a payment Edge Function returns an error.
@@ -319,6 +320,16 @@ class PaymentService {
       pageUrl: connectPageUrl,
       platformAccount: r['platformAccount'] as String? ?? '',
     );
+  }
+
+  /// What Stripe still needs from this account, and whether the app may ask
+  /// for it in its own forms.
+  Future<ConnectRequirements> connectRequirements(
+      {Map<String, dynamic>? submit}) async {
+    final r = await _invoke('payments-connect-fields',
+            submit == null ? null : {'submit': submit})
+        .timeout(const Duration(seconds: 40));
+    return ConnectRequirements.fromJson(r);
   }
 
   /// The raw answer from payments-account-session, for the self-test.

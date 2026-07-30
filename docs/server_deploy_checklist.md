@@ -59,6 +59,28 @@ Dashboard → **Edge Functions** → Deploy a new function → **Via Editor**. N
 each one **exactly** as listed. Paste-ready, self-contained copies (the
 `_shared/` code is already inlined) live in `docs/edge_functions_paste/`.
 
+### New — in-app payment setup won't work without this
+
+| Function | Does |
+|---|---|
+| `payments-connect-fields` | Native onboarding: what Stripe still needs, and taking it from the app's own form |
+
+This is the one that makes "Set up payments" stop being a web page. Accounts it
+creates use `controller.requirement_collection: "application"`, which is what
+lets a platform collect the details over the API — Express accounts (what the
+old `payments-onboard` made) can only ever be onboarded on Stripe's own pages.
+
+**What that costs:** with requirement collection on the application, the
+platform also takes `losses.payments: "application"` — disputes and negative
+balances land on the platform rather than on Stripe. That is the trade for
+native onboarding, and it is a business decision. Existing Express accounts
+cannot be converted; anyone who already has one is offered Stripe's page for
+that account, and a fresh account is native.
+
+No new secrets. Bank account numbers and SIN/SSN never reach it: the app
+tokenises them against Stripe with the publishable key and sends only
+`btok_…` / `piitok_…`, and the function refuses anything else.
+
 ### New — moderation won't work without these
 
 | Function | Does |

@@ -1,12 +1,10 @@
 import 'package:flutter/material.dart';
 
 import '../payments/payment_service.dart';
-import '../payments/connect_webview.dart';
 import 'payment_controls_screen.dart';
+import 'native_onboarding_screen.dart';
 import 'payment_diagnostics_screen.dart';
 import 'payment_history_screen.dart';
-import 'in_app_web_screen.dart';
-import 'connect_onboarding_screen.dart';
 import '../widgets/app_dialogs.dart';
 import '../theme/app_theme.dart';
 import '../widgets/pull_to_refresh.dart';
@@ -47,7 +45,6 @@ class WalletScreen extends StatefulWidget {
 
 class _WalletScreenState extends State<WalletScreen> {
   Future<WalletStatus>? _future;
-  bool _busy = false;
 
   @override
   void initState() {
@@ -76,32 +73,15 @@ class _WalletScreenState extends State<WalletScreen> {
     final understood = await showRecipientLiabilityNotice(context);
     if (!understood || !mounted) return;
 
-    // Embedded, in a screen of our own: Stripe's forms render inside the app
-    // rather than in a browser or a popup. The hosted link stays as the
-    // fallback for anywhere a WebView doesn't exist (the web build).
-    if (ConnectWebView.isSupported) {
-      final done = await Navigator.of(context).push<bool>(
-        MaterialPageRoute(builder: (_) => const ConnectOnboardingScreen()),
-      );
-      if (done == true && mounted) _refresh();
-      return;
-    }
-
-    setState(() => _busy = true);
-    final messenger = ScaffoldMessenger.of(context);
-    try {
-      final url = await PaymentService.instance.onboardingUrl();
-      // Only reachable on the web build, where there is no WebView to host it
-      // and "a tab" means a tab in the browser this already is. On mobile the
-      // branch above keeps everything on the app's own screen — no browser,
-      // in-app or otherwise.
-      if (mounted) await InAppWebScreen.open(context, url, title: 'Stripe');
-    } catch (e) {
-      messenger.showSnackBar(
-          SnackBar(content: Text('Could not start setup: $e')));
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
+    // The app's own forms, on every platform that can show a form — which is
+    // all of them. Stripe still holds the details and the sensitive numbers go
+    // straight to it from the device, but nothing here is a web page and
+    // nothing pops up. The screen falls back to Stripe's own page by itself for
+    // an account too old for native collection.
+    final done = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(builder: (_) => const NativeOnboardingScreen()),
+    );
+    if (done == true && mounted) _refresh();
   }
 
   @override
@@ -119,7 +99,7 @@ class _WalletScreenState extends State<WalletScreen> {
             ),
             IconButton(
                 icon: const Icon(Icons.refresh),
-                onPressed: _busy ? null : _refresh),
+                onPressed: _refresh),
           ],
           // Outside the isConfigured guard on purpose: "payments aren't set up"
           // is one of the things the self-test exists to explain.
@@ -160,7 +140,7 @@ class _WalletScreenState extends State<WalletScreen> {
                       _BalanceCard(status: s),
                       const SizedBox(height: 16),
                       if (!s.canReceive)
-                        _OnboardCard(busy: _busy, onStart: _startOnboarding)
+                        _OnboardCard(onStart: _startOnboarding)
                       else
                         _PayoutCard(status: s),
                       const SizedBox(height: 16),
@@ -242,9 +222,9 @@ class _BalanceCard extends StatelessWidget {
 }
 
 class _OnboardCard extends StatelessWidget {
-  final bool busy;
+
   final VoidCallback onStart;
-  const _OnboardCard({required this.busy, required this.onStart});
+  const _OnboardCard({required this.onStart});
 
   @override
   Widget build(BuildContext context) {
@@ -283,14 +263,11 @@ class _OnboardCard extends StatelessWidget {
                   backgroundColor: const Color(0xFF12B76A),
                   padding: const EdgeInsets.symmetric(vertical: 14),
                 ),
-                onPressed: busy ? null : onStart,
-                child: busy
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(
-                            strokeWidth: 2, color: Colors.white))
-                    : const Text('Set up with Stripe'),
+                // No spinner here any more: tapping opens the form, which owns
+                // its own progress. A button that spun while a screen was
+                // pushed on top of it was showing the same wait twice.
+                onPressed: onStart,
+                child: const Text('Set up with Stripe'),
               ),
             ),
           ],
