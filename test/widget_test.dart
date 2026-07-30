@@ -13233,16 +13233,33 @@ void main() {
 
     test('a phone number is never readable from the feed', () {
       final sql = File('docs/public_feed.sql').readAsStringSync();
-      // Column-level, so Postgres refuses the request rather than trusting a
-      // client not to make it.
+      // Table-wide grant away first, then the readable columns handed back.
+      // `revoke select (col)` alone is a no-op when the role holds a table-wide
+      // grant — which Supabase gives every new table in public — so the phone
+      // stayed readable while looking protected. tool/check_sql.sh proves the
+      // working version against a real Postgres.
       expect(
-          sql.contains('revoke select (author_phone) on public.public_posts '
+          sql.contains(
+              'revoke select on table public.public_posts from anon, authenticated'),
+          isTrue);
+      expect(sql.contains('grant select (id, author_username'), isTrue);
+      expect(
+          sql.contains('revoke select on table public.public_post_likes '
               'from anon, authenticated'),
           isTrue);
-      expect(
-          sql.contains('revoke select (liker_phone) on '
-              'public.public_post_likes from anon, authenticated'),
-          isTrue);
+      // The broken form must not appear as a *statement*. It is still named in
+      // a comment on purpose — it looks like protection, so the file says why
+      // it isn't — and that prose must not trip this.
+      final statements = sql
+          .split('\n')
+          .where((l) => !l.trimLeft().startsWith('--'))
+          .join('\n');
+      expect(statements.contains('revoke select (author_phone)'), isFalse,
+          reason: 'that form does nothing when a table-wide grant exists');
+      expect(statements.contains('revoke select (liker_phone)'), isFalse);
+      // Editing is refused by privilege, not only by an absent policy: an
+      // UPDATE matching no policy affects zero rows without raising.
+      expect(sql.contains('revoke update on public.public_posts'), isTrue);
       // The view clients read has no phone column at all.
       final view = sql.substring(sql.indexOf('create or replace view'));
       expect(view.contains('author_phone'), isFalse);
@@ -13271,8 +13288,12 @@ void main() {
       // No update policy: a public post that can be silently rewritten is a
       // way to bait people.
       expect(sql.contains('for update'), isFalse);
-      // is_silenced must exist before the policies that call it, or the whole
-      // script fails on a fresh project.
+      // Ordering, in both directions, each of which broke a fresh run once:
+      // a SQL function's body is parsed at creation, so its tables must exist
+      // first; a policy resolves its functions at creation, so those must exist
+      // before the policies.
+      expect(sql.indexOf('create table if not exists public.public_post_likes'),
+          lessThan(sql.indexOf('function public.public_post_like_count')));
       expect(sql.indexOf('create or replace function public.is_silenced'),
           lessThan(sql.indexOf('not public.is_silenced(author_phone)')));
     });

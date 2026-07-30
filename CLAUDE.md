@@ -46,6 +46,21 @@ dart tool/paste_functions.dart   # regenerate docs/edge_functions_paste/
 sh tool/check_functions.sh       # must end "0 failing"
 ```
 
+**After touching anything in `docs/*.sql` or `supabase/schema.sql`:**
+
+```bash
+sh tool/check_sql.sh   # must end "SQL checks passed"
+```
+
+The dashboard used to be the first thing that ever ran these, and two bugs
+shipped that way in one file: functions placed above the tables they read
+("relation does not exist" — a SQL body is parsed at creation), and
+`revoke select (col)` which looks like column protection and does nothing when
+the role holds a table-wide grant, as Supabase gives every new table in
+`public`. Every poster's phone number was readable. The script spins up a
+throwaway Postgres, applies the migrations in order, and asserts what they
+enforce — impersonation, phone columns, sanctions, ban-hiding.
+
 Neither Flutter gate looks at TypeScript, so for a long time the Supabase
 dashboard was the first thing that ever compiled these — and three breakages
 reached it: Stripe rate constants used but never declared, `grossUp` used

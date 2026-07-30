@@ -1,8 +1,7 @@
 -- The public newsfeed: posts anyone can read, anyone signed in can write.
 -- ============================================================================
--- Run ONCE in the Supabase SQL editor. Requires docs/platform_moderation.sql
--- first — this leans on public.is_locked_out() to keep banned accounts out of
--- the feed.
+-- Run ONCE in the Supabase SQL editor, AFTER docs/platform_moderation.sql —
+-- this leans on public.is_locked_out() to keep banned accounts out of the feed.
 --
 -- WHAT IS DIFFERENT ABOUT THIS TABLE, SAID PLAINLY.
 --
@@ -20,15 +19,60 @@
 --
 -- What is still protected: the author's phone number. A public feed that
 -- printed a phone number next to every post would make harvesting them
--- trivial, so the column exists for ownership checks and is revoked from every
--- client role. Posts are attributed by username, which is already public in
--- the directory.
+-- trivial, so clients are granted the other columns and never that one. Posts
+-- are attributed by username, which is already public in the directory.
+--
+-- ORDER MATTERS HERE, in both directions:
+--   * a SQL function's body is parsed when it is created, so the tables it
+--     reads must exist first;
+--   * a policy resolves the functions it calls when it is created, so those
+--     must exist before the policies.
+-- Hence: tables, then functions, then privileges and policies, then the view.
 
 -- ---------------------------------------------------------------------------
--- Whether an account may post right now
+-- 1. Tables
 -- ---------------------------------------------------------------------------
--- A time-out silences without hiding: the posts stay up, no new ones land.
--- A ban or suspension does both, via is_locked_out in the read policy above.
+create table if not exists public.public_posts (
+  -- Client-generated, so a device recognises its own post coming back.
+  id            text primary key,
+  -- E.164 digits. Ownership only — never granted to a client role below.
+  author_phone  text not null,
+  author_username text not null default '',
+  author_name   text not null default '',
+  -- Self-attested, exactly like the badge on a chat message. The directory's
+  -- server-written `verified` column is the stronger claim; this is for
+  -- rendering without a join.
+  author_verified boolean not null default false,
+  body          text not null check (char_length(body) between 1 and 500),
+  -- A reply points at its parent; deleting a post takes its replies with it.
+  reply_to      text references public.public_posts(id) on delete cascade,
+  created_at    timestamptz not null default now()
+);
+
+create table if not exists public.public_post_likes (
+  post_id     text not null references public.public_posts(id) on delete cascade,
+  liker_phone text not null,
+  created_at  timestamptz not null default now(),
+  primary key (post_id, liker_phone)
+);
+
+create index if not exists public_posts_recent_idx
+  on public.public_posts (created_at desc);
+create index if not exists public_posts_replies_idx
+  on public.public_posts (reply_to, created_at);
+create index if not exists public_posts_author_idx
+  on public.public_posts (author_phone);
+
+alter table public.public_posts enable row level security;
+alter table public.public_post_likes enable row level security;
+
+-- ---------------------------------------------------------------------------
+-- 2. Functions (the tables above have to exist first)
+-- ---------------------------------------------------------------------------
+
+-- Whether an account may write right now. A time-out silences without hiding:
+-- existing posts stay up, no new ones land. A ban or suspension does both, via
+-- is_locked_out in the read policy further down.
 create or replace function public.is_silenced(p text)
 returns boolean
 language sql
@@ -43,9 +87,10 @@ as $$
   );
 $$;
 
--- ---------------------------------------------------------------------------
--- Counters that see past the like policy
--- ---------------------------------------------------------------------------
+-- Counters that see past the like policy. Likes are readable only by the
+-- person who made them, so a plain count() as the caller would return "1" for
+-- your own like and 0 for everyone else's. These run as the owner precisely so
+-- the totals are true without exposing who liked what.
 create or replace function public.public_post_like_count(p text)
 returns bigint
 language sql
@@ -67,37 +112,42 @@ as $$
 $$;
 
 -- ---------------------------------------------------------------------------
--- Posts
+-- 3. Column privileges
 -- ---------------------------------------------------------------------------
-create table if not exists public.public_posts (
-  -- Client-generated, so a device recognises its own post coming back.
-  id            text primary key,
-  -- E.164 digits. Ownership only: SELECT on this column is revoked below.
-  author_phone  text not null,
-  author_username text not null default '',
-  author_name   text not null default '',
-  -- Self-attested, exactly like the badge on a chat message. The directory's
-  -- server-written `verified` column is the stronger claim; this is for
-  -- rendering without a join.
-  author_verified boolean not null default false,
-  body          text not null check (char_length(body) between 1 and 500),
-  -- A reply points at its parent; deleting a post takes its replies with it.
-  reply_to      text references public.public_posts(id) on delete cascade,
-  created_at    timestamptz not null default now()
-);
+-- THE PHONE COLUMNS, PROPERLY.
+--
+-- `revoke select (author_phone) ...` on its own does nothing here, and that is
+-- worth spelling out because it looks like it should work: Supabase grants
+-- these roles table-wide SELECT on every new table in public, and Postgres
+-- cannot carve a column out of a table-wide grant. The revoke succeeds, changes
+-- nothing, and leaves every poster's phone number readable by anyone with the
+-- app.
+--
+-- So the table-wide grant goes first, and the readable columns are handed back
+-- one by one. Anything asking for `*` is refused outright.
+revoke select on table public.public_posts from anon, authenticated;
+grant select (id, author_username, author_name, author_verified, body,
+              reply_to, created_at)
+  on public.public_posts to anon, authenticated;
 
-create index if not exists public_posts_recent_idx
-  on public.public_posts (created_at desc);
-create index if not exists public_posts_replies_idx
-  on public.public_posts (reply_to, created_at);
-create index if not exists public_posts_author_idx
-  on public.public_posts (author_phone);
+revoke select on table public.public_post_likes from anon, authenticated;
+grant select (post_id, created_at)
+  on public.public_post_likes to anon, authenticated;
 
-alter table public.public_posts enable row level security;
+-- Writing is by whole row; the policies below decide whose row it may be.
+grant insert, delete on public.public_posts to authenticated;
+grant insert, delete on public.public_post_likes to authenticated;
 
--- The phone is for ownership, never for reading. Postgres enforces this per
--- column, so a client asking for it is refused rather than trusted not to ask.
-revoke select (author_phone) on public.public_posts from anon, authenticated;
+-- No UPDATE for anyone. There is no update policy either, but relying on that
+-- alone makes an edit fail *silently* — an UPDATE matching no policy affects
+-- zero rows without raising, which reads like success. Taking the privilege
+-- away makes the refusal explicit.
+revoke update on public.public_posts from anon, authenticated;
+revoke update on public.public_post_likes from anon, authenticated;
+
+-- ---------------------------------------------------------------------------
+-- 4. Policies (the functions above have to exist first)
+-- ---------------------------------------------------------------------------
 
 -- Readable by anyone with the app — except posts by an account that is banned
 -- or suspended, which leave the feed the moment the sanction lands.
@@ -124,22 +174,8 @@ create policy public_posts_delete_own on public.public_posts
   for delete to authenticated
   using (author_phone = (auth.jwt() ->> 'phone'));
 
--- ---------------------------------------------------------------------------
--- Likes
--- ---------------------------------------------------------------------------
-create table if not exists public.public_post_likes (
-  post_id     text not null references public.public_posts(id) on delete cascade,
-  liker_phone text not null,
-  created_at  timestamptz not null default now(),
-  primary key (post_id, liker_phone)
-);
-
-alter table public.public_post_likes enable row level security;
-revoke select (liker_phone) on public.public_post_likes from anon, authenticated;
-
--- You can see which posts YOU liked, and nobody else's likes. Who liked what
--- is nobody's business; the totals come from the counter below, which runs
--- above RLS precisely so it can count rows this policy hides.
+-- You can see which posts YOU liked, and nobody else's. Who liked what is
+-- nobody's business; the totals come from the counters above.
 drop policy if exists public_post_likes_read_own on public.public_post_likes;
 create policy public_post_likes_read_own on public.public_post_likes
   for select to authenticated
@@ -159,7 +195,7 @@ create policy public_post_likes_delete_own on public.public_post_likes
   using (liker_phone = (auth.jwt() ->> 'phone'));
 
 -- ---------------------------------------------------------------------------
--- What clients actually read
+-- 5. What clients actually read
 -- ---------------------------------------------------------------------------
 -- A view with no phone column in it at all, so the ordinary path cannot leak
 -- one even by accident. security_invoker keeps the caller's RLS in force, which
