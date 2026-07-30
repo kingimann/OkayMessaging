@@ -185,6 +185,26 @@ are client-safe and already inlined in the build configs on purpose.)
 
 ---
 
+## 3b. ⚠️ GitHub Pages is deploying twice, and they overwrite each other
+
+The site alternates between the Flutter app and the repository README. Proven,
+not guessed: `main.dart.js` answered 404 with the README's Jekyll tags served at
+the root, and answered 200 with the app a few minutes later once
+`deploy-web.yml` finished.
+
+The cause is the Pages **source** setting. With "Deploy from a branch", GitHub
+runs its own implicit Jekyll build of the repo root — which renders README.md —
+*and* `deploy-web.yml` publishes the Flutter build. Whichever finishes last is
+what the site serves, so every push flips it.
+
+**Fix (one setting, yours to change):** repository **Settings → Pages → Build
+and deployment → Source**: change *Deploy from a branch* to **GitHub Actions**.
+The implicit Jekyll build then stops running and only the Flutter build
+publishes.
+
+Until that is changed, the app and `connect.html` will keep disappearing for
+minutes at a time after each push, with no error anywhere to explain it.
+
 ## 4. Not SQL or functions, but still pending
 
 - **Supabase → Authentication → URL Configuration**: set Site URL and add

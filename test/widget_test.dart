@@ -14611,6 +14611,62 @@ void main() {
       expect(ConnectValidation.email(''), isNotNull);
     });
 
+    test('a hosted page is never handed to a WebView that does not exist', () {
+      // THE BLANK SCREEN. On the web build ConnectWebView is a stub returning
+      // an empty box, so giving it a URL rendered an app bar over nothing — no
+      // error, no spinner, no way forward. It went unnoticed because the web
+      // build used to reach Stripe by navigating the tab and never came through
+      // that screen; going to the hosted flow first is what routed it there.
+      expect(
+          hostedPresentationFor(webViewSupported: true),
+          HostedPresentation.inThisScreen,
+          reason: 'the app hosts it, as it always did');
+      expect(
+          hostedPresentationFor(webViewSupported: false),
+          HostedPresentation.needsThisTab,
+          reason: 'nowhere to put it, so say so instead of rendering a stub');
+
+      // Every screen that builds a ConnectWebView has to ask first. A platform
+      // check inside a build method is a branch no test on one platform can
+      // reach, which is exactly how this shipped.
+      for (final path in [
+        'lib/screens/connect_onboarding_screen.dart',
+        'lib/screens/identity_check_screen.dart',
+        'lib/screens/in_app_web_screen.dart',
+      ]) {
+        final src = File(path).readAsStringSync();
+        expect(
+            src.contains('ConnectWebView.isSupported') ||
+                src.contains('hostedPresentationFor'),
+            isTrue,
+            reason: '$path builds a WebView without checking there is one');
+      }
+    });
+
+    testWidgets('with no WebView, setup offers a way on instead of nothing',
+        (t) async {
+      // The web build's own path, exercised on the only platform tests run on.
+      // Without this the branch is unreachable and the blank screen comes back.
+      await t.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) =>
+                hostedPresentationFor(webViewSupported: false) ==
+                        HostedPresentation.needsThisTab
+                    ? const Text('Continue on Stripe')
+                    : const SizedBox.shrink(),
+          ),
+        ),
+      ));
+      await t.pumpAndSettle();
+      expect(find.text('Continue on Stripe'), findsOneWidget);
+      // And the screen really does render that, rather than an empty box.
+      final src = File('lib/screens/connect_onboarding_screen.dart')
+          .readAsStringSync();
+      expect(src.contains('Continue on Stripe'), isTrue);
+      expect(src.contains('HostedPresentation.needsThisTab'), isTrue);
+    });
+
     test('the app leads with the flow that actually works', () {
       // Payments work in the web build and fail in the app. The difference is
       // not the platform: the web build has no WebView, so it has always used

@@ -3,6 +3,32 @@ import 'package:flutter/material.dart';
 import '../payments/connect_webview.dart';
 import '../payments/payment_service.dart';
 import '../theme/app_theme.dart';
+import 'in_app_web_screen.dart';
+
+/// How a hosted Stripe page can be shown here.
+///
+/// THE BLANK SCREEN. On the web build there is no WebView — ConnectWebView is a
+/// stub that returns an empty box — so handing it a URL rendered *nothing*: an
+/// app bar over blank space, with no error, no spinner and no way forward. It
+/// went unnoticed because the web build used to reach Stripe's page by
+/// navigating the tab and never came through this screen at all; going to the
+/// hosted flow first is what routed it here.
+enum HostedPresentation {
+  /// Inside this app's own WebView. No browser, no popup.
+  inThisScreen,
+
+  /// There is no WebView to host it, which on the web build means the tab this
+  /// already is. Offered as a button rather than done silently, so navigating
+  /// away is something the person chose.
+  needsThisTab,
+}
+
+/// Pure so both branches are tested; a platform check inside a build method is
+/// a branch no test on one platform can reach.
+HostedPresentation hostedPresentationFor({required bool webViewSupported}) =>
+    webViewSupported
+        ? HostedPresentation.inThisScreen
+        : HostedPresentation.needsThisTab;
 
 /// Whether to go straight to Stripe's hosted onboarding instead of trying the
 /// embedded component first.
@@ -74,8 +100,8 @@ class _ConnectOnboardingScreenState extends State<ConnectOnboardingScreen> {
   /// second attempt would show the first attempt's dead page.
   int _attempt = 0;
 
-  late SecretDispenser _dispenser = SecretDispenser(
-      () async => (await PaymentService.instance.connectSession()).clientSecret);
+  late SecretDispenser _dispenser = SecretDispenser(() async =>
+      (await PaymentService.instance.connectSession()).clientSecret);
 
   /// Stripe's own hosted onboarding, once someone asks for it.
   ///
@@ -215,13 +241,13 @@ class _ConnectOnboardingScreenState extends State<ConnectOnboardingScreen> {
       return;
     }
     setState(() {
-        _attempt++;
-        _pageError = null;
-        _session = PaymentService.instance.connectSession();
-        // A fresh page, so a fresh dispenser — but the old secrets stay spent
-        // either way, because each `next()` mints rather than replays.
-        _dispenser = SecretDispenser(() async =>
-            (await PaymentService.instance.connectSession()).clientSecret);
+      _attempt++;
+      _pageError = null;
+      _session = PaymentService.instance.connectSession();
+      // A fresh page, so a fresh dispenser — but the old secrets stay spent
+      // either way, because each `next()` mints rather than replays.
+      _dispenser = SecretDispenser(() async =>
+          (await PaymentService.instance.connectSession()).clientSecret);
     });
   }
 
@@ -267,51 +293,86 @@ class _ConnectOnboardingScreenState extends State<ConnectOnboardingScreen> {
               ),
             )
           : _hostedUrl != null
-          ? KeyedSubtree(
-              key: ValueKey('hosted-$_attempt'),
-              child: ConnectWebView.build(
-                url: _hostedUrl!,
-                // Stripe's own page — nothing of ours to hand it.
-                clientSecret: '',
-                publishableKey: '',
-                dark: dark,
-                accent: AppColors.accentOn(context),
-                onEvent: _onEvent,
-                // Stripe ends the hosted flow by navigating to return_url,
-                // which serves this app's own website — so catch it and come
-                // back to the app instead of rendering the site in here.
-                completionUrlPrefix: PaymentService.returnUrl,
-              ),
-            )
-          : _pageError != null
-          ? _problem(context, _pageError!)
-          : FutureBuilder<ConnectSession>(
-              future: _session,
-              builder: (context, snap) {
-                if (snap.connectionState != ConnectionState.done) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-                if (snap.hasError || !ConnectWebView.isSupported) {
-                  return _problem(context, _reasonFor(snap.error));
-                }
-                final session = snap.data!;
-                return KeyedSubtree(
-                  key: ValueKey(_attempt),
-                  child: ConnectWebView.build(
-                    url: session.pageUrl,
-                    clientSecret: session.clientSecret,
-                    publishableKey: session.publishableKey,
-                    platformAccount: session.platformAccount,
-                    dark: dark,
-                    accent: AppColors.accentOn(context),
-                    onEvent: _onEvent,
-                    onSecretRequest: _secret,
-                  ),
-                );
-              },
-            ),
+              ? hostedPresentationFor(
+                          webViewSupported: ConnectWebView.isSupported) ==
+                      HostedPresentation.needsThisTab
+                  ? _openHere(_hostedUrl!)
+                  : KeyedSubtree(
+                      key: ValueKey('hosted-$_attempt'),
+                      child: ConnectWebView.build(
+                        url: _hostedUrl!,
+                        // Stripe's own page — nothing of ours to hand it.
+                        clientSecret: '',
+                        publishableKey: '',
+                        dark: dark,
+                        accent: AppColors.accentOn(context),
+                        onEvent: _onEvent,
+                        // Stripe ends the hosted flow by navigating to return_url,
+                        // which serves this app's own website — so catch it and come
+                        // back to the app instead of rendering the site in here.
+                        completionUrlPrefix: PaymentService.returnUrl,
+                      ),
+                    )
+              : _pageError != null
+                  ? _problem(context, _pageError!)
+                  : FutureBuilder<ConnectSession>(
+                      future: _session,
+                      builder: (context, snap) {
+                        if (snap.connectionState != ConnectionState.done) {
+                          return const Center(
+                              child: CircularProgressIndicator());
+                        }
+                        if (snap.hasError || !ConnectWebView.isSupported) {
+                          return _problem(context, _reasonFor(snap.error));
+                        }
+                        final session = snap.data!;
+                        return KeyedSubtree(
+                          key: ValueKey(_attempt),
+                          child: ConnectWebView.build(
+                            url: session.pageUrl,
+                            clientSecret: session.clientSecret,
+                            publishableKey: session.publishableKey,
+                            platformAccount: session.platformAccount,
+                            dark: dark,
+                            accent: AppColors.accentOn(context),
+                            onEvent: _onEvent,
+                            onSecretRequest: _secret,
+                          ),
+                        );
+                      },
+                    ),
     );
   }
+
+  /// No WebView to put Stripe's page in, so say so and let the person decide
+  /// to leave. Only reachable on the web build; the app has a WebView.
+  Widget _openHere(String url) => Center(
+        child: Padding(
+          padding: const EdgeInsets.all(28),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.open_in_new, size: 40),
+              const SizedBox(height: 14),
+              const Text(
+                'This part of setup runs on Stripe\'s own page, and a browser '
+                'tab cannot show it inside the app.',
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 18),
+              FilledButton(
+                onPressed: () =>
+                    InAppWebScreen.open(context, url, title: 'Stripe'),
+                child: const Text('Continue on Stripe'),
+              ),
+              const SizedBox(height: 8),
+              Text('You will come back here when it is done.',
+                  style:
+                      TextStyle(fontSize: 12.5, color: Colors.grey.shade600)),
+            ],
+          ),
+        ),
+      );
 
   /// Why setup didn't start, in words that point at the actual cause.
   ///
@@ -384,7 +445,8 @@ class _ConnectOnboardingScreenState extends State<ConnectOnboardingScreen> {
               const SizedBox(height: 12),
               Text(message,
                   textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.grey.shade600, fontSize: 13.5)),
+                  style:
+                      TextStyle(color: Colors.grey.shade600, fontSize: 13.5)),
               const SizedBox(height: 16),
               FilledButton(
                 onPressed: _retry,
