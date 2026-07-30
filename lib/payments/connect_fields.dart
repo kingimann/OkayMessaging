@@ -81,8 +81,6 @@ class ConnectRequirements {
   final List<String> currentlyDue;
   final List<String> pastDue;
 
-  /// Requirements with no form in this app. Named rather than hidden.
-  final List<String> unhandled;
 
   final List<RequirementError> errors;
   final bool chargesEnabled;
@@ -102,7 +100,6 @@ class ConnectRequirements {
     required this.collection,
     required this.currentlyDue,
     required this.pastDue,
-    required this.unhandled,
     required this.errors,
     required this.chargesEnabled,
     required this.payoutsEnabled,
@@ -122,7 +119,6 @@ class ConnectRequirements {
       collection: j['collection'] as String? ?? 'stripe',
       currentlyDue: strings(j['currentlyDue']),
       pastDue: strings(j['pastDue']),
-      unhandled: strings(j['unhandled']),
       errors: [
         for (final e in (j['errors'] as List? ?? const []))
           if (e is Map)
@@ -138,6 +134,23 @@ class ConnectRequirements {
       replacedStaleAccount: j['replacedStaleAccount'] == true,
     );
   }
+
+  /// Requirements this app has no form for, worked out from the same map the
+  /// form is built from.
+  ///
+  /// DERIVED HERE, NOT SENT BY THE SERVER. It used to be a list the Edge
+  /// Function computed from its own copy of "what the app can collect", and the
+  /// two drifted the moment one was deployed without the other: the form grew a
+  /// field for individual.relationship.title and the server, still running the
+  /// older copy, kept reporting it as missing. Somebody filled the field in and
+  /// was told to go and finish on Stripe's website anyway.
+  ///
+  /// There is one copy of that knowledge now, and it is the one the form is
+  /// actually built from, so it cannot be wrong about itself.
+  List<String> get unhandled => [
+        for (final r in {...pastDue, ...currentlyDue})
+          if (!stripeRequirementFields.containsKey(r)) r
+      ];
 
   /// Whether the app's own form can be used at all.
   bool get collectableInApp => collection == 'application';

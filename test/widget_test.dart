@@ -14963,8 +14963,20 @@ void main() {
           .readAsStringSync();
       expect(fn.contains('individual.relationship = { title: submit.title }'),
           isTrue);
-      expect(fn.contains('"individual.relationship.title"'), isTrue,
-          reason: 'and counts it as handled');
+      // The server no longer keeps its own list of what the app can collect:
+      // two copies drifted the moment one was deployed without the other, and
+      // the form was told to send somebody to Stripe's website for a field it
+      // had just grown. The app works it out from the map its own form is
+      // built from.
+      expect(fn.contains('const HANDLED'), isFalse,
+          reason: 'one source of truth, and it is the form\'s');
+      final req2 = ConnectRequirements.fromJson({
+        'collection': 'application',
+        'currentlyDue': ['individual.relationship.title', 'company.tax_id'],
+        'status': <String, dynamic>{},
+      });
+      expect(req2.unhandled, ['company.tax_id'],
+          reason: 'derived from what the form actually collects');
     });
 
     test('a phone number is checked without being fussy about punctuation', () {

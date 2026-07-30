@@ -155,38 +155,6 @@ function grossUp(targetCents: number): number {
 //                                 collect for. Asked for explicitly.
 
 
-/// Requirements this app has a form for. Anything else is reported to the
-/// client as unhandled rather than silently dropped — a requirement nobody
-/// collects is an account that never activates, and the user deserves to be
-/// told which.
-const HANDLED = new Set([
-  "individual.first_name",
-  "individual.last_name",
-  "individual.dob.day",
-  "individual.dob.month",
-  "individual.dob.year",
-  "individual.address.line1",
-  "individual.address.line2",
-  "individual.address.city",
-  "individual.address.state",
-  "individual.address.postal_code",
-  "individual.address.country",
-  "individual.email",
-  "individual.phone",
-  "individual.relationship.title",
-  "individual.id_number",
-  "individual.ssn_last_4",
-  "external_account",
-  "individual.verification.document",
-  "individual.verification.additional_document",
-  "tos_acceptance.date",
-  "tos_acceptance.ip",
-  "business_profile.mcc",
-  "business_profile.product_description",
-  "business_profile.url",
-  "business_type",
-]);
-
 /// Whether a connected account is an Express leftover worth throwing away.
 ///
 /// An Express account can only be onboarded on Stripe's own pages, so keeping
@@ -242,6 +210,10 @@ type Submission = {
   acceptedTos?: boolean;
 };
 
+// NOTE: this deliberately does NOT report which requirements the app can
+// collect. That knowledge belongs to the app's form, and keeping a second copy
+// here meant the two drifted the moment one was deployed without the other —
+// the form grew a field and this kept calling it missing.
 function describe(account: Record<string, unknown>) {
   const req = (account.requirements ?? {}) as Record<string, unknown>;
   const currentlyDue = (req.currently_due ?? []) as string[];
@@ -258,7 +230,6 @@ function describe(account: Record<string, unknown>) {
     collection: controller.requirement_collection ?? "stripe",
     currentlyDue,
     pastDue,
-    unhandled: currentlyDue.filter((r) => !HANDLED.has(r)),
     errors,
     country: account.country,
     currency: (account.default_currency ?? "").toString(),
