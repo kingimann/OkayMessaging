@@ -8,6 +8,7 @@ import '../state/community_store.dart';
 import '../state/feed_store.dart';
 import '../state/follow_store.dart';
 import '../state/identity_verification.dart';
+import '../state/public_feed_store.dart';
 import '../state/session.dart';
 import '../utils/date_formatter.dart';
 import '../widgets/pull_to_refresh.dart';
@@ -18,6 +19,7 @@ import 'edit_profile_screen.dart';
 import 'feed_screen.dart';
 import 'my_qr_screen.dart';
 import 'people_screen.dart';
+import 'public_feed_screen.dart';
 import 'score_screen.dart';
 
 /// The "You" tab: a social-media-style profile — big avatar, handle, bio,
@@ -41,8 +43,7 @@ class ProfileView extends StatelessWidget {
               .recentPosts(limit: 100)
               .where((p) =>
                   p.authorUsername == 'you' ||
-                  (me.username.isNotEmpty &&
-                      p.authorUsername == me.username))
+                  (me.username.isNotEmpty && p.authorUsername == me.username))
               .take(20)
               .toList();
           return PullToRefresh(
@@ -93,7 +94,8 @@ class ProfileView extends StatelessWidget {
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Icon(Icons.link,
-                            size: 15, color: Theme.of(context).colorScheme.primary),
+                            size: 15,
+                            color: Theme.of(context).colorScheme.primary),
                         const SizedBox(width: 4),
                         Text(me.link.trim(),
                             style: TextStyle(
@@ -111,34 +113,42 @@ class ProfileView extends StatelessWidget {
                 const _VerificationRow(),
                 const SizedBox(height: 14),
                 // Stats row — tap through to the relevant screens.
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    _Stat(
-                        value: '${myPosts.length}',
-                        label: 'Posts',
-                        onTap: null),
-                    _statDivider(context),
-                    _Stat(
-                        value:
-                            '${CommunityStore.instance.communities.length}',
-                        label: 'Servers',
-                        onTap: null),
-                    _statDivider(context),
-                    _Stat(
-                        value: '${FollowStore.instance.followingCount}',
-                        label: 'Following',
-                        onTap: () => Navigator.of(context).push(
-                            MaterialPageRoute(
-                                builder: (_) => const PeopleScreen()))),
-                    _statDivider(context),
-                    _Stat(
-                        value: '${me.score}',
-                        label: 'Okay Score',
-                        onTap: () => Navigator.of(context).push(
-                            MaterialPageRoute(
-                                builder: (_) => const ScoreScreen()))),
-                  ],
+                //
+                // Scaled down to fit rather than left to overflow: four stats
+                // and three fixed-width dividers are wider than a phone, and
+                // "Okay Score" is a long label. This overflowed by 30 pixels at
+                // a width narrower than most phones.
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      _Stat(
+                          value: '${myPosts.length}',
+                          label: 'Posts',
+                          onTap: null),
+                      _statDivider(context),
+                      _Stat(
+                          value:
+                              '${CommunityStore.instance.communities.length}',
+                          label: 'Servers',
+                          onTap: null),
+                      _statDivider(context),
+                      _Stat(
+                          value: '${FollowStore.instance.followingCount}',
+                          label: 'Following',
+                          onTap: () => Navigator.of(context).push(
+                              MaterialPageRoute(
+                                  builder: (_) => const PeopleScreen()))),
+                      _statDivider(context),
+                      _Stat(
+                          value: '${me.score}',
+                          label: 'Okay Score',
+                          onTap: () => Navigator.of(context).push(
+                              MaterialPageRoute(
+                                  builder: (_) => const ScoreScreen()))),
+                    ],
+                  ),
                 ),
                 const SizedBox(height: 18),
                 Padding(
@@ -185,8 +195,8 @@ class ProfileView extends StatelessWidget {
                       'Nothing posted yet. Share something in a server\'s feed '
                       'and it shows up here.',
                       textAlign: TextAlign.center,
-                      style:
-                          TextStyle(color: Colors.grey.shade500, fontSize: 13.5),
+                      style: TextStyle(
+                          color: Colors.grey.shade500, fontSize: 13.5),
                     ),
                   )
                 else
@@ -203,6 +213,10 @@ class ProfileView extends StatelessWidget {
                       onTap: () => Navigator.of(context).push(MaterialPageRoute(
                           builder: (_) => FeedPostScreen(postId: p.id))),
                     ),
+                // The public newsfeed is the other place this person posts, and
+                // this is now the only profile they have — leaving it out would
+                // hide half of what they have said.
+                const _MyNewsfeedPosts(),
               ],
             ),
           );
@@ -217,6 +231,85 @@ class ProfileView extends StatelessWidget {
         margin: const EdgeInsets.symmetric(horizontal: 22),
         color: Theme.of(context).dividerColor,
       );
+}
+
+/// This account's posts on the public newsfeed.
+///
+/// Fetched here rather than read from the timeline: the timeline holds whatever
+/// was last scrolled, which is not the same as what this person has posted.
+class _MyNewsfeedPosts extends StatefulWidget {
+  const _MyNewsfeedPosts();
+
+  @override
+  State<_MyNewsfeedPosts> createState() => _MyNewsfeedPostsState();
+}
+
+class _MyNewsfeedPostsState extends State<_MyNewsfeedPosts> {
+  List<PublicPost>? _posts;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final me = AppState.profile.value.username;
+    if (me.isEmpty || !PublicFeedStore.instance.isConfigured) {
+      setState(() => _posts = const []);
+      return;
+    }
+    try {
+      final posts = await PublicFeedStore.instance.postsBy(me);
+      if (!mounted) return;
+      setState(() => _posts = posts);
+    } catch (_) {
+      // A profile is worth showing without this section; failing to reach the
+      // feed is not a reason to show an error where somebody's own details are.
+      if (mounted) setState(() => _posts = const []);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final posts = _posts;
+    if (posts == null || posts.isEmpty) return const SizedBox.shrink();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Divider(height: 28, indent: 24, endIndent: 24),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
+          child: Text('NEWSFEED',
+              style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.6,
+                  color: Colors.grey.shade500)),
+        ),
+        for (final p in posts.take(20))
+          ListTile(
+            leading: Icon(p.replyTo != null
+                ? Icons.reply
+                : p.repostOf != null
+                    ? Icons.repeat
+                    : Icons.public),
+            title: Text(
+                p.body.isEmpty && p.repostOf != null
+                    ? 'Reposted a post'
+                    : p.body,
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis),
+            subtitle: Text(
+                '${DateFormatter.postAge(p.createdAt)} · ${p.likeCount} likes '
+                '· ${p.replyCount} replies',
+                style: TextStyle(fontSize: 12.5, color: Colors.grey.shade500)),
+            onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                builder: (_) => PublicThreadScreen(postId: p.id))),
+          ),
+      ],
+    );
+  }
 }
 
 class _Stat extends StatelessWidget {
@@ -243,7 +336,6 @@ class _Stat extends StatelessWidget {
     );
   }
 }
-
 
 /// Three chips saying what this account has proven: phone, email, identity.
 class _VerificationRow extends StatelessWidget {
@@ -294,8 +386,8 @@ class _VerificationRow extends StatelessWidget {
                       ? 'ID check pending'
                       : 'Get the blue check',
               done: identity.isVerified,
-              onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const ScoreScreen())),
+              onTap: () => Navigator.of(context)
+                  .push(MaterialPageRoute(builder: (_) => const ScoreScreen())),
             ),
           ],
         );

@@ -14013,6 +14013,110 @@ void main() {
       expect(find.text('Replying to @sam'), findsOneWidget);
     });
 
+    testWidgets('the newsfeed can always be left, and has one profile',
+        (t) async {
+      t.view.physicalSize = const Size(500, 1400);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.resetPhysicalSize);
+      SharedPreferences.setMockInitialValues({});
+      final store = PublicFeedStore.instance;
+      addTearDown(store.resetForTest);
+      await FeedMuteStore.instance.load();
+      addTearDown(FeedMuteStore.instance.resetForTest);
+      PublicFeedStore.debugLoadOverride = () async => [];
+
+      // THE BUG. The avatar was the app bar's `leading`, and `leading` REPLACES
+      // the back arrow. On a tab there is nothing to go back to, so it looked
+      // right; pushed as a route it left somebody on a screen with no way out.
+      await t.pumpWidget(MaterialApp(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: ElevatedButton(
+              onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => const PublicFeedScreen())),
+              child: const Text('open feed'),
+            ),
+          ),
+        ),
+      ));
+      await t.tap(find.text('open feed'));
+      await t.pumpAndSettle();
+      expect(find.text('Newsfeed'), findsOneWidget);
+      expect(find.byType(BackButton), findsOneWidget,
+          reason: 'pushed, so there has to be a way back');
+      await t.tap(find.byType(BackButton));
+      await t.pumpAndSettle();
+      expect(find.text('open feed'), findsOneWidget, reason: 'and it works');
+
+      // Where the avatar cannot go, the route to your own profile is still
+      // there — it is never the only way in.
+      final src = File('lib/screens/public_feed_screen.dart').readAsStringSync();
+      expect(src.contains("value: 'profile', child: Text('Your profile')"),
+          isTrue);
+      expect(src.contains('Navigator.of(context).canPop()'), isTrue);
+    });
+
+    test('one person has one profile', () {
+      // The rule itself, rather than the shape of the code around it.
+      expect(profileRouteFor('iman', me: 'iman'), ProfileRoute.mine);
+      expect(profileRouteFor('IMAN', me: 'iman'), ProfileRoute.mine,
+          reason: 'a handle is a handle whatever its capitalisation');
+      expect(profileRouteFor(' iman ', me: 'iman'), ProfileRoute.mine);
+      expect(profileRouteFor('someone', me: 'iman'), ProfileRoute.other);
+      // Signed out, nothing is yours — and claiming a stranger's profile is
+      // yours would be worse than showing theirs.
+      expect(profileRouteFor('iman', me: ''), ProfileRoute.other);
+
+      // Tapping your own avatar on the newsfeed opened a second self-profile:
+      // two screens showing one person with different facts on each — a score
+      // and a QR code on one, posts and tabs on the other. Whichever somebody
+      // found first became "their profile" and the other looked like a
+      // stranger's.
+      final src = File('lib/screens/public_feed_screen.dart').readAsStringSync();
+      final helper = src.substring(src.indexOf('void openPublicProfile'));
+      final self = helper.indexOf('ProfileView()');
+      final other = helper.indexOf('PublicProfileScreen(username:');
+      expect(self, greaterThanOrEqualTo(0),
+          reason: 'yours is the profile the app already had');
+      expect(other, greaterThanOrEqualTo(0), reason: 'others still have one');
+      expect(self, lessThan(other),
+          reason: 'the self check comes first, or it never runs');
+
+    });
+
+    testWidgets('the one profile shows the newsfeed posts too', (t) async {
+      t.view.physicalSize = const Size(500, 2200);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.resetPhysicalSize);
+      final store = PublicFeedStore.instance;
+      addTearDown(store.resetForTest);
+      final prevProfile = AppState.profile.value;
+      addTearDown(() => AppState.profile.value = prevProfile);
+      AppState.profile.value = const AppUser(
+          id: 'me',
+          name: 'Iman',
+          avatarColor: '#000000',
+          username: 'iman');
+
+      PublicFeedStore.debugProfileOverride = (username) async => [
+            PublicPost(
+                id: 'p1',
+                authorUsername: 'iman',
+                authorName: 'Iman',
+                body: 'posted on the newsfeed',
+                likeCount: 2,
+                createdAt: DateTime.now()),
+          ];
+
+      await t.pumpWidget(const MaterialApp(home: Scaffold(body: ProfileView())));
+      await t.pumpAndSettle();
+
+      // Without this the only profile somebody has hides half of what they
+      // have said: server posts on it, newsfeed posts nowhere.
+      expect(find.text('NEWSFEED'), findsOneWidget);
+      expect(find.text('posted on the newsfeed'), findsOneWidget);
+    });
+
     testWidgets('the composer states that everyone will see it',
         (tester) async {
       PublicFeedStore.debugLoadOverride = () async => [];

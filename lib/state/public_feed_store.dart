@@ -252,7 +252,10 @@ class PublicFeedStore extends ChangeNotifier {
 
   /// Whether a feed exists to talk to at all. The debug hook counts, so a test
   /// exercises the same screen path a phone does rather than the no-server one.
-  bool get isConfigured => RelayConfig.isEnabled || debugLoadOverride != null;
+  bool get isConfigured =>
+      RelayConfig.isEnabled ||
+      debugLoadOverride != null ||
+      debugProfileOverride != null;
 
   SupabaseClient? get _client {
     if (!RelayConfig.isEnabled) return null;

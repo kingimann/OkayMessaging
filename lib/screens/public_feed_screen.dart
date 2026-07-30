@@ -17,6 +17,7 @@ import '../utils/date_formatter.dart';
 import '../widgets/sanction_notice.dart';
 import '../widgets/verified_badge.dart';
 import 'edit_profile_screen.dart';
+import 'profile_screen.dart';
 import 'in_app_web_screen.dart';
 
 /// The colour behind somebody's avatar, derived from their handle.
@@ -36,8 +37,39 @@ Color publicProfileBannerSeed(String username, ColorScheme scheme) {
 
 /// Opens somebody's profile. One helper, so a tap on an avatar, a name, an
 /// @mention and the "more" sheet all land in the same place.
+/// Which profile screen a handle belongs to.
+enum ProfileRoute {
+  /// Yours — the profile the app already had, with your score, QR code and
+  /// settings on it.
+  mine,
+
+  /// Somebody else's, which only the public feed knows anything about.
+  other,
+}
+
+/// Pure, so "one person, one profile" is a rule with a test rather than a
+/// branch buried in a navigation call.
+ProfileRoute profileRouteFor(String username, {required String me}) =>
+    me.isNotEmpty && me.toLowerCase() == username.trim().toLowerCase()
+        ? ProfileRoute.mine
+        : ProfileRoute.other;
+
 void openPublicProfile(BuildContext context, String username, {String? name}) {
   if (username.isEmpty) return;
+  // YOURS IS THE ONE THE APP ALREADY HAD. Opening a second self-profile here
+  // meant two screens showing one person with different facts on each — a score
+  // and a QR code on one, posts and tabs on the other. Whichever somebody found
+  // first became "their profile", and the other one looked like somebody else's.
+  if (profileRouteFor(username, me: AppState.profile.value.username) ==
+      ProfileRoute.mine) {
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => Scaffold(
+        appBar: AppBar(title: const Text('Your profile')),
+        body: const ProfileView(),
+      ),
+    ));
+    return;
+  }
   Navigator.of(context).push(MaterialPageRoute(
     builder: (_) => PublicProfileScreen(username: username, name: name),
   ));
@@ -109,9 +141,12 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
     return Scaffold(
       appBar: AppBar(
         titleSpacing: 8,
-        // Your own avatar, top left, going to your own profile — the same
-        // gesture the feeds people arrive from use.
-        leading: _searching
+        // Your own avatar, top left — the same gesture the feeds people arrive
+        // from use. But ONLY when there is nothing to go back to: `leading`
+        // replaces the back arrow, and this screen used to be reachable with no
+        // way out at all. Where the avatar cannot go, "Your profile" is in the
+        // overflow instead, so it is never the only route.
+        leading: _searching || Navigator.of(context).canPop()
             ? null
             : ValueListenableBuilder<AppUser>(
                 valueListenable: AppState.profile,
@@ -172,6 +207,10 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
             PopupMenuButton<String>(
               tooltip: 'More',
               onSelected: (choice) {
+                if (choice == 'profile') {
+                  openPublicProfile(context, AppState.profile.value.username,
+                      name: AppState.profile.value.name);
+                }
                 if (choice == 'refresh') _refresh();
                 if (choice == 'muted') {
                   Navigator.of(context).push(MaterialPageRoute(
@@ -179,6 +218,8 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
                 }
               },
               itemBuilder: (context) => [
+                const PopupMenuItem(
+                    value: 'profile', child: Text('Your profile')),
                 const PopupMenuItem(value: 'refresh', child: Text('Refresh')),
                 PopupMenuItem(
                   value: 'muted',
@@ -261,7 +302,7 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
                                         onOpen: () =>
                                             Navigator.of(context).push(
                                           MaterialPageRoute(
-                                            builder: (_) => _ThreadScreen(
+                                            builder: (_) => PublicThreadScreen(
                                                 postId: posts[i].id),
                                           ),
                                         ),
@@ -476,11 +517,11 @@ class _BookmarksScreenState extends State<BookmarksScreen> {
                             onReply: () => Navigator.of(context).push(
                                 MaterialPageRoute(
                                     builder: (_) =>
-                                        _ThreadScreen(postId: shown[i].id))),
+                                        PublicThreadScreen(postId: shown[i].id))),
                             onOpen: () => Navigator.of(context).push(
                                 MaterialPageRoute(
                                     builder: (_) =>
-                                        _ThreadScreen(postId: shown[i].id))),
+                                        PublicThreadScreen(postId: shown[i].id))),
                           ),
                         );
                       },
@@ -672,9 +713,9 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
                 itemBuilder: (context, i) => _PostTile(
                   post: tabPosts[i],
                   onReply: () => Navigator.of(context).push(MaterialPageRoute(
-                      builder: (_) => _ThreadScreen(postId: tabPosts[i].id))),
+                      builder: (_) => PublicThreadScreen(postId: tabPosts[i].id))),
                   onOpen: () => Navigator.of(context).push(MaterialPageRoute(
-                      builder: (_) => _ThreadScreen(postId: tabPosts[i].id))),
+                      builder: (_) => PublicThreadScreen(postId: tabPosts[i].id))),
                 ),
               ),
             const SliverToBoxAdapter(child: SizedBox(height: 40)),
@@ -1354,9 +1395,13 @@ GestureDetector(
 }
 
 /// A post and its replies.
-class _ThreadScreen extends StatelessWidget {
+/// One post and its replies.
+///
+/// Public because a profile links to it: your own posts are listed on the
+/// profile the app already had, and tapping one has to land somewhere.
+class PublicThreadScreen extends StatelessWidget {
   final String postId;
-  const _ThreadScreen({required this.postId});
+  const PublicThreadScreen({super.key, required this.postId});
 
   @override
   Widget build(BuildContext context) {
