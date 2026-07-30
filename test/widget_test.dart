@@ -16899,6 +16899,93 @@ void main() {
     });
   });
 
+  group('Screening a public post', () {
+    setUp(() {
+      SharedPreferences.setMockInitialValues({});
+      PublicFeedStore.instance.resetForTest();
+    });
+    tearDown(() {
+      PublicFeedStore.debugScreenOverride = null;
+      PublicFeedStore.debugPostOverride = null;
+    });
+
+    test('a blocked post never reaches the server, and says why', () async {
+      PublicFeedStore.debugScreenOverride = (_) async => {
+            'verdict': 'block',
+            'category': 'harassment',
+            'reason': 'That names a private individual.',
+          };
+      var inserted = false;
+      PublicFeedStore.debugPostOverride = (_) async => inserted = true;
+
+      await expectLater(
+        PublicFeedStore.instance.post('...'),
+        throwsA(isA<PublicFeedError>().having((e) => e.reason, 'reason',
+            'That names a private individual.')),
+      );
+      expect(inserted, isFalse,
+          reason: 'the screen runs before anything is written');
+    });
+
+    test('screening that fails lets the post through', () async {
+      // FAILS OPEN ON PURPOSE. No API key, no network, function not deployed —
+      // none of those are somebody's fault, and none of them should cost them
+      // their post. The override returning null is what every one of those
+      // paths produces.
+      PublicFeedStore.debugScreenOverride = (_) async => null;
+      var inserted = false;
+      PublicFeedStore.debugPostOverride = (_) async => inserted = true;
+
+      await PublicFeedStore.instance.post('an ordinary post');
+      expect(inserted, isTrue);
+    });
+
+    test('a block with no explanation still gets one', () async {
+      // The reason is shown to the person whose post was stopped. A blank one
+      // is a door with no sign on it.
+      PublicFeedStore.debugScreenOverride =
+          (_) async => {'verdict': 'block', 'reason': '  '};
+      PublicFeedStore.debugPostOverride = (_) async {};
+      await expectLater(
+        PublicFeedStore.instance.post('...'),
+        throwsA(isA<PublicFeedError>()
+            .having((e) => e.reason, 'reason', isNotEmpty)),
+      );
+    });
+
+    test('a flag is not a block — the post goes up', () async {
+      // Only "block" stops anything. A flag means a moderator should look,
+      // which happens in their queue, not in the poster's face.
+      PublicFeedStore.debugScreenOverride =
+          (_) async => {'verdict': 'flag', 'reason': 'Might be spam.'};
+      var inserted = false;
+      PublicFeedStore.debugPostOverride = (_) async => inserted = true;
+      await PublicFeedStore.instance.post('borderline');
+      expect(inserted, isTrue);
+    });
+
+    test('the screen sees the post before the image is uploaded', () async {
+      // A blocked post must leave nothing behind in the bucket.
+      var uploaded = false;
+      PublicFeedStore.debugUploadOverride = (id, bytes) async {
+        uploaded = true;
+        return 'x/$id.jpg';
+      };
+      addTearDown(() => PublicFeedStore.debugUploadOverride = null);
+      PublicFeedStore.debugScreenOverride =
+          (_) async => {'verdict': 'block', 'reason': 'No.'};
+      PublicFeedStore.debugPostOverride = (_) async {};
+
+      await expectLater(
+        PublicFeedStore.instance
+            .post('...', image: Uint8List.fromList([1, 2, 3])),
+        throwsA(isA<PublicFeedError>()),
+      );
+      expect(uploaded, isFalse,
+          reason: 'no orphaned object in the bucket for a post that never ran');
+    });
+  });
+
   group('Suggested replies', () {
     setUp(() => SmartReplies.instance.resetForTest());
     tearDown(() => SmartReplies.instance.resetForTest());

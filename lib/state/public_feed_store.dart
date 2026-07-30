@@ -639,6 +639,61 @@ class PublicFeedStore extends ChangeNotifier {
   /// Writes a post. Throws [PublicFeedError] with something worth reading when
   /// it can't — the server's rules are the real gate, and a refusal there has
   /// to reach the person who typed.
+  /// Asks the server to screen [text] before it goes up, and returns the
+  /// reason it must not when there is one.
+  ///
+  /// The feed is public, so unlike everything else people write here this can
+  /// go to a hosted model without breaking the encryption promise — see
+  /// supabase/functions/moderation-screen. It is a speed bump, not a gate: the
+  /// client makes this call, so a modified client skips it. Enforcement is
+  /// still reports and sanctions.
+  ///
+  /// FAILS OPEN, ALWAYS. No key configured, no network, function not
+  /// deployed, server having a bad day — all of them return null and the post
+  /// goes up. Somebody's post must never be lost to our own outage.
+  Future<String?> screen(String text, {bool hasImage = false}) async {
+    Map<dynamic, dynamic>? answer;
+    try {
+      // The override stands in for the CALL, not for this method — so the
+      // fail-open handling below is the same code in a test as on a phone.
+      // An override that replaced the whole method would leave every one of
+      // these branches covered by nothing, which is exactly the code that
+      // must not be wrong.
+      final override = debugScreenOverride;
+      if (override != null) {
+        answer = await override(text);
+      } else {
+        final client = _client;
+        if (client == null) return null;
+        final me = AppState.profile.value;
+        final res = await client.functions.invoke('moderation-screen', body: {
+          'text': text.trim(),
+          'handle': me.username,
+          'hasImage': hasImage,
+        });
+        if (res.status >= 400) return null;
+        final data = res.data;
+        answer = data is Map ? data : null;
+      }
+    } catch (_) {
+      // Offline, not deployed, a gateway having a bad day.
+      return null;
+    }
+    if (answer == null) return null;
+    if (answer['verdict'] != 'block') return null;
+    final reason = (answer['reason'] as String?)?.trim() ?? '';
+    // A block with no explanation would be a door with no sign on it.
+    return reason.isEmpty
+        ? 'That post looks like it breaks the rules for the public feed.'
+        : reason;
+  }
+
+  /// Stands in for the screening call's raw answer — null for every way it
+  /// can fail, or the function's own JSON body.
+  @visibleForTesting
+  static Future<Map<dynamic, dynamic>?> Function(String text)?
+      debugScreenOverride;
+
   Future<void> post(String text,
       {String? replyTo, String? repostOf, Uint8List? image}) async {
     final problem = validate(text,
@@ -653,6 +708,11 @@ class PublicFeedStore extends ChangeNotifier {
     if (phone.trim().isEmpty) {
       throw PublicFeedError('Sign in to post.');
     }
+    // Before the image upload, so a blocked post leaves nothing behind in
+    // the bucket to sweep up later.
+    final blocked = await screen(text, hasImage: image != null);
+    if (blocked != null) throw PublicFeedError(blocked);
+
     final id = newId();
     // The image goes up first: a post pointing at an object that failed to
     // upload would render a broken box for everyone, forever.

@@ -32,6 +32,7 @@ const pasteFunctions = [
   'moderation-status',
   'moderation-act',
   'moderation-queue',
+  'moderation-screen',
 ];
 
 /// Whatever the paste copy's own header should say for [name].
