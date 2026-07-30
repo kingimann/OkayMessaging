@@ -14508,6 +14508,50 @@ void main() {
           reason: 'run: dart tool/paste_functions.dart');
     });
 
+    testWidgets('an old account is a choice to convert, not a dead end',
+        (t) async {
+      // The screen used to say "Stripe only lets its details be collected on
+      // Stripe's own form" with one button, going to the web page somebody had
+      // already said they did not want. That is a dead end wearing an
+      // explanation.
+      final store = PaymentService.instance;
+      expect(store, isNotNull);
+      final src =
+          File('lib/screens/native_onboarding_screen.dart').readAsStringSync();
+      // The offer comes first, the web page second. Both indices are checked
+      // for existence before they are compared: a missing string gives -1,
+      // which is trivially "less than" and would pass with the button gone.
+      final offer = src.indexOf('Set up in the app');
+      final fallback = src.indexOf('Continue on Stripe instead');
+      expect(offer, greaterThanOrEqualTo(0), reason: 'the offer exists');
+      expect(fallback, greaterThanOrEqualTo(0));
+      expect(offer, lessThan(fallback),
+          reason: 'the in-app route is the primary action');
+      expect(src.contains('_switchToInApp'), isTrue);
+      expect(src.contains('replaceAccount: true'), isTrue);
+
+      // And it is explicit, from a button — not something that happens to
+      // somebody's payment account while they are looking elsewhere.
+      final service = File('lib/payments/payment_service.dart').readAsStringSync();
+      expect(service.contains('bool replaceAccount = false'), isTrue,
+          reason: 'off unless asked for');
+
+      final fn = File('supabase/functions/payments-connect-fields/index.ts')
+          .readAsStringSync();
+      expect(fn.contains('body.replaceAccount'), isTrue);
+      // Refused for an account that can actually move money: swapping that out
+      // could strand a payout in flight.
+      expect(fn.contains('account_in_use'), isTrue);
+      expect(fn.contains('current.payouts_enabled'), isTrue);
+      // And never for an account that is already collectable here.
+      expect(fn.contains('Already collectable here'), isTrue);
+
+      final paste = File('docs/edge_functions_paste/payments-connect-fields.ts')
+          .readAsStringSync();
+      expect(paste.contains('body.replaceAccount'), isTrue,
+          reason: 'run: dart tool/paste_functions.dart');
+    });
+
     test('sensitive numbers are tokenised on the device, never posted to us',
         () async {
       addTearDown(() {

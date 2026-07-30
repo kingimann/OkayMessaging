@@ -23,9 +23,12 @@
 // this system never sees them, which is the same rule the rest of the app
 // follows.
 //
-// POST {}                  -> { accountId, collection, currentlyDue, pastDue,
-//                               errors, status, country, currency }
-// POST { submit: {...} }    -> the same, after applying the submission
+// POST {}                    -> { accountId, collection, currentlyDue, pastDue,
+//                                 errors, status, country, currency }
+// POST { submit: {...} }      -> the same, after applying the submission
+// POST { replaceAccount: true } -> abandons an account Stripe will only onboard
+//                                 on its own pages, and makes one this app can
+//                                 collect for. Asked for explicitly.
 
 import { admin, callerPhone, corsHeaders, json } from "../_shared/http.ts";
 import { stripe } from "../_shared/stripe.ts";
@@ -150,7 +153,7 @@ Deno.serve(async (req) => {
   const phone = await callerPhone(req);
   if (!phone) return json({ error: "unauthorized" }, 401);
 
-  let body: { submit?: Submission } = {};
+  let body: { submit?: Submission; replaceAccount?: boolean } = {};
   try {
     body = await req.json();
   } catch (_) {
@@ -173,6 +176,34 @@ Deno.serve(async (req) => {
     // An unused Express account is the last thing standing between somebody
     // and setting payments up without leaving the app, so it goes.
     let replacedStaleAccount = false;
+
+    // Asked for by name, from the screen that would otherwise be a dead end:
+    // an account Stripe will only onboard on its own pages, and somebody who
+    // wants it done in the app. The account is abandoned, not deleted — it stays
+    // in the Stripe dashboard — and a fresh one takes its place.
+    //
+    // Refused for an account that can actually move money. Payouts enabled means
+    // a real, working payment account, and swapping that out from under somebody
+    // could strand a payout in flight. Everything short of that is a half-made
+    // account worth nothing.
+    if (body.replaceAccount && accountId) {
+      const current = await stripe.accounts.retrieve(accountId);
+      if ((current.controller?.requirement_collection ?? "stripe") ===
+          "application") {
+        // Already collectable here; nothing to replace.
+      } else if (current.payouts_enabled) {
+        return json({
+          error: "account_in_use: this payment account can already receive " +
+            "payouts, so it is not replaced. Finish on Stripe's page, or " +
+            "remove the account in the Stripe dashboard first.",
+        }, 400);
+      } else {
+        await admin.from("payment_accounts").delete().eq("phone", phone);
+        accountId = undefined;
+        replacedStaleAccount = true;
+      }
+    }
+
     if (accountId) {
       try {
         const stored = await stripe.accounts.retrieve(accountId);

@@ -77,6 +77,28 @@ class _NativeOnboardingScreenState extends State<NativeOnboardingScreen> {
     super.dispose();
   }
 
+  /// Abandons an account Stripe will only onboard on its own pages and makes
+  /// one this app can collect for.
+  ///
+  /// Explicit, from a button, because it is not reversible: the old account
+  /// stays in the Stripe dashboard but this app stops using it. Nobody should
+  /// discover that happened — they should have asked for it.
+  Future<void> _switchToInApp() async {
+    setState(() {
+      _req = null;
+      _loadError = null;
+    });
+    try {
+      final req = await PaymentService.instance
+          .connectRequirements(replaceAccount: true);
+      if (!mounted) return;
+      setState(() => _req = req);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _loadError = '$e'.replaceFirst('PaymentException: ', ''));
+    }
+  }
+
   Future<void> _load() async {
     setState(() => _loadError = null);
     try {
@@ -262,12 +284,28 @@ class _NativeOnboardingScreenState extends State<NativeOnboardingScreen> {
                 'form.',
                 textAlign: TextAlign.center,
               ),
+              const SizedBox(height: 8),
+              Text(
+                'It can be swapped for one that works in the app. The old '
+                'account has nothing in it — no details submitted, no payouts '
+                'enabled — and it stays visible in the Stripe dashboard.',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 12.5, color: Colors.grey.shade600),
+              ),
               const SizedBox(height: 18),
+              // The offer, first: this screen used to be a dead end whose only
+              // way on was the web page somebody had already said they did not
+              // want.
               FilledButton(
+                onPressed: _switchToInApp,
+                child: const Text('Set up in the app'),
+              ),
+              const SizedBox(height: 6),
+              TextButton(
                 onPressed: () => Navigator.of(context).pushReplacement(
                     MaterialPageRoute(
                         builder: (_) => const ConnectOnboardingScreen())),
-                child: const Text('Continue on Stripe'),
+                child: const Text('Continue on Stripe instead'),
               ),
             ],
           ),

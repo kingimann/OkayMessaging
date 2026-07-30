@@ -324,11 +324,14 @@ class PaymentService {
 
   /// What Stripe still needs from this account, and whether the app may ask
   /// for it in its own forms.
-  Future<ConnectRequirements> connectRequirements(
-      {Map<String, dynamic>? submit}) async {
-    final r = await _invoke('payments-connect-fields',
-            submit == null ? null : {'submit': submit})
-        .timeout(const Duration(seconds: 40));
+  Future<ConnectRequirements> connectRequirements({
+    Map<String, dynamic>? submit,
+    bool replaceAccount = false,
+  }) async {
+    final r = await _invoke('payments-connect-fields', {
+      if (submit != null) 'submit': submit,
+      if (replaceAccount) 'replaceAccount': true,
+    }).timeout(const Duration(seconds: 40));
     return ConnectRequirements.fromJson(r);
   }
 

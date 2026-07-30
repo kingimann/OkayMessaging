@@ -65,6 +65,12 @@ each one **exactly** as listed. Paste-ready, self-contained copies (the
 |---|---|
 | `payments-connect-fields` | Native onboarding: what Stripe still needs, and taking it from the app's own form |
 
+**Paste it again if you pasted it before 2026-07-30.** The first copy had no way
+to get past an Express account, so "Set up payments" showed "Stripe only lets its
+details be collected on Stripe's own form" and stopped there. The current copy
+replaces an unused Express account by itself, and offers a **Set up in the app**
+button for one it will not replace silently.
+
 This is the one that makes "Set up payments" stop being a web page. Accounts it
 creates use `controller.requirement_collection: "application"`, which is what
 lets a platform collect the details over the API — Express accounts (what the
