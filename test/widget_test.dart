@@ -14083,6 +14083,24 @@ void main() {
       expect(find.text('post'), findsNothing);
       expect(find.text('Okay Score'), findsOneWidget);
 
+      // Everything down the left edge starts at the same margin. The
+      // verification chips were centred while the name, bio and counts were
+      // left-aligned, which reads as a stray block rather than a row.
+      final name = t.getRect(find.text('Iman').first);
+      // The chip itself, not its label — the label sits inside the chip's own
+      // padding and behind its icon, about 30 pixels in.
+      final chips = t.getRect(find.ancestor(
+          of: find.text('Phone unverified'), matching: find.byType(InkWell)));
+      expect(chips.left, closeTo(name.left, 1.0),
+          reason: 'the chips share the margin everything else uses');
+
+      // The header has to leave room for the thing the profile is for. At a
+      // banner of 118 the tabs sat far enough down that a post needed a scroll
+      // on a normal phone.
+      final tabs = t.getRect(find.text('Replies'));
+      expect(tabs.bottom, lessThan(520.0),
+          reason: 'a post is visible without scrolling');
+
       // Nothing overflows at a real phone width. A RenderFlex overflow is
       // reported as a test failure by the framework, so reaching here is the
       // assertion — but check the one row that did overflow before.

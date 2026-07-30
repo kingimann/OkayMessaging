@@ -689,7 +689,8 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
               if (_isMe)
                 const SliverToBoxAdapter(
                   child: Padding(
-                    padding: EdgeInsets.fromLTRB(12, 4, 12, 10),
+                    // The same 16 the name, bio and counts use.
+                    padding: EdgeInsets.fromLTRB(16, 2, 16, 10),
                     child: ProfileVerificationRow(),
                   ),
                 ),
@@ -838,7 +839,10 @@ class _BannerAndAvatar extends StatelessWidget {
   const _BannerAndAvatar(
       {required this.username, required this.displayName, required this.isMe});
 
-  static const double _bannerHeight = 118;
+  // Tall enough to read as a banner, short enough not to be the biggest thing
+  // on the screen. At 118 it was a slab of flat colour with nothing in it,
+  // above a profile that then had to scroll to show a single post.
+  static const double _bannerHeight = 92;
   static const double _avatarRadius = 36;
 
   @override

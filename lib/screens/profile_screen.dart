@@ -59,7 +59,10 @@ class ProfileVerificationRow extends StatelessWidget {
         final email = AccountEmail.instance;
         final identity = IdentityVerification.instance;
         return Wrap(
-          alignment: WrapAlignment.center,
+          // Left, like the name, the handle, the bio and the counts above it.
+          // Centred, these three chips were the only thing on the profile that
+          // did not start at the same margin, which reads as a stray block.
+          alignment: WrapAlignment.start,
           spacing: 8,
           runSpacing: 8,
           children: [
