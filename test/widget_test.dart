@@ -14805,6 +14805,75 @@ void main() {
           reason: 'run: dart tool/paste_functions.dart');
     });
 
+    testWidgets('every requirement the app maps has a form to collect it',
+        (t) async {
+      t.view.physicalSize = const Size(500, 2600);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.resetPhysicalSize);
+
+      // THE BUG THIS EXISTS FOR. `individual.phone` was mapped to
+      // ConnectField.phone and no section rendered it, so the form quietly could
+      // not satisfy it — and it was not reported as unhandled either, because it
+      // *was* mapped. Stripe asked, the form did not, and nothing said so.
+      //
+      // The sections come from an exhaustive switch now, so a field with nothing
+      // to collect it is a compile error rather than a silent gap.
+      final screen =
+          File('lib/screens/native_onboarding_screen.dart').readAsStringSync();
+      expect(screen.contains('switch (field)'), isTrue);
+      expect(screen.contains('_sectionFor'), isTrue);
+      expect(screen.contains('default:'), isFalse,
+          reason: 'a default arm would put the silent gap back');
+
+      // individual.relationship.title is what Stripe asked for on a real
+      // account, reported as unhandled in orange at the bottom of the form.
+      expect(stripeRequirementFields['individual.relationship.title'],
+          ConnectField.title);
+      expect(stripeRequirementFields['individual.phone'], ConnectField.phone);
+
+      // Feed every requirement the app claims to handle and nothing may come
+      // back unhandled — that list is generated from the same map.
+      final all = stripeRequirementFields.keys.toList();
+      final req = ConnectRequirements.fromJson({
+        'collection': 'application',
+        'currentlyDue': all,
+        'country': 'CA',
+        'status': <String, dynamic>{},
+      });
+      expect(req.fieldsNeeded.length, ConnectField.values.length,
+          reason: 'every field is reachable from some requirement');
+
+      PaymentService.instance.testMode.value = false;
+      PublicFeedStore.debugLoadOverride = null;
+      // The two new sections render, with the wording somebody has to act on.
+      expect(screen.contains("_section('Phone')"), isTrue);
+      expect(screen.contains("_section('Your role')"), isTrue);
+      expect(screen.contains('"Owner" is the answer'), isTrue);
+      // Prefilled, because the app already knows the number and retyping it is
+      // a chore with a typo in it.
+      expect(screen.contains("_title.text = 'Owner'"), isTrue);
+      expect(screen.contains('local.Session.instance.user.value?.phone'), isTrue);
+
+      // And the server puts the title where Stripe looks for it.
+      final fn = File('supabase/functions/payments-connect-fields/index.ts')
+          .readAsStringSync();
+      expect(fn.contains('individual.relationship = { title: submit.title }'),
+          isTrue);
+      expect(fn.contains('"individual.relationship.title"'), isTrue,
+          reason: 'and counts it as handled');
+    });
+
+    test('a phone number is checked without being fussy about punctuation', () {
+      // People write their own number with spaces, brackets and dashes.
+      // Rejecting that teaches somebody the form is fussy, not that they are
+      // wrong, so only the digit count is a real constraint.
+      expect(ConnectValidation.phone('+1 (604) 555-0132'), isNull);
+      expect(ConnectValidation.phone('6045550132'), isNull);
+      expect(ConnectValidation.phone(''), isNotNull);
+      expect(ConnectValidation.phone('604555'), isNotNull);
+      expect(ConnectValidation.phone('1234567890123456'), isNotNull);
+    });
+
     test('sensitive numbers are tokenised on the device, never posted to us',
         () async {
       addTearDown(() {

@@ -173,6 +173,7 @@ const HANDLED = new Set([
   "individual.address.country",
   "individual.email",
   "individual.phone",
+  "individual.relationship.title",
   "individual.id_number",
   "individual.ssn_last_4",
   "external_account",
@@ -229,6 +230,8 @@ type Submission = {
   // never appear here; the checks below refuse them if they do.
   idNumberToken?: string;
   ssnLast4?: string;
+  /// What this person is to the account — Stripe's individual.relationship.title.
+  title?: string;
   bankToken?: string;
   // Ids of files already uploaded to Stripe FROM THE DEVICE. The photo of
   // somebody's licence never passes through here either.
@@ -408,6 +411,7 @@ Deno.serve(async (req) => {
       if (submit.email) individual.email = submit.email;
       if (submit.phone) individual.phone = submit.phone;
       if (submit.dob) individual.dob = submit.dob;
+      if (submit.title) individual.relationship = { title: submit.title };
       if (submit.idNumberToken) individual.id_number = submit.idNumberToken;
       if (submit.ssnLast4) individual.ssn_last_4 = submit.ssnLast4;
       if (submit.address) {

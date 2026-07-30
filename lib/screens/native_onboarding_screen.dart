@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../payments/connect_fields.dart';
 import '../payments/payment_service.dart';
 import '../payments/stripe_tokens.dart';
+import '../state/session.dart' as local;
 import '../util/photo_prep.dart';
 import 'connect_onboarding_screen.dart';
 
@@ -52,6 +53,8 @@ class _NativeOnboardingScreenState extends State<NativeOnboardingScreen> {
   final _routing = TextEditingController();
   final _account = TextEditingController();
   final _work = TextEditingController();
+  final _phone = TextEditingController();
+  final _title = TextEditingController();
   bool _tos = false;
 
   /// The document photos, held as bytes until submission so nothing is uploaded
@@ -62,15 +65,38 @@ class _NativeOnboardingScreenState extends State<NativeOnboardingScreen> {
   @override
   void initState() {
     super.initState();
+    final known = local.Session.instance.user.value?.phone ?? '';
+    if (known.isNotEmpty) _phone.text = known;
+    // Almost always the answer for somebody receiving their own money, and a
+    // prefilled field is still a field somebody can change.
+    _title.text = 'Owner';
     _load();
   }
 
   @override
   void dispose() {
     for (final c in [
-      _first, _last, _email, _line1, _line2, _city, _state, _postal,
-      _day, _month, _year, _idNumber, _ssnLast4, _holder, _transit,
-      _institution, _routing, _account, _work,
+      _first,
+      _last,
+      _email,
+      _line1,
+      _line2,
+      _city,
+      _state,
+      _postal,
+      _day,
+      _month,
+      _year,
+      _idNumber,
+      _ssnLast4,
+      _holder,
+      _transit,
+      _institution,
+      _routing,
+      _account,
+      _work,
+      _phone,
+      _title,
     ]) {
       c.dispose();
     }
@@ -107,8 +133,7 @@ class _NativeOnboardingScreenState extends State<NativeOnboardingScreen> {
       setState(() => _req = req);
     } catch (e) {
       if (!mounted) return;
-      setState(() =>
-          _loadError = '$e'.replaceFirst('PaymentException: ', ''));
+      setState(() => _loadError = '$e'.replaceFirst('PaymentException: ', ''));
     }
   }
 
@@ -210,6 +235,8 @@ class _NativeOnboardingScreenState extends State<NativeOnboardingScreen> {
           'productDescription': _work.text.trim().isEmpty
               ? 'Peer-to-peer transfers between people who know each other'
               : _work.text.trim(),
+        if (needs.contains(ConnectField.phone)) 'phone': _phone.text.trim(),
+        if (needs.contains(ConnectField.title)) 'title': _title.text.trim(),
         if (needs.contains(ConnectField.tos)) 'acceptedTos': true,
       };
 
@@ -357,163 +384,7 @@ class _NativeOnboardingScreenState extends State<NativeOnboardingScreen> {
             ),
           ],
           const SizedBox(height: 18),
-          if (needs.contains(ConnectField.name)) ...[
-            _section('Your name'),
-            _text(_first, 'First name',
-                validator: (v) => ConnectValidation.name(v, 'first name')),
-            _text(_last, 'Last name',
-                validator: (v) => ConnectValidation.name(v, 'last name')),
-          ],
-          if (needs.contains(ConnectField.email)) ...[
-            _section('Email'),
-            _text(_email, 'Email',
-                keyboard: TextInputType.emailAddress,
-                validator: ConnectValidation.email),
-          ],
-          if (needs.contains(ConnectField.dob)) ...[
-            _section('Date of birth'),
-            Row(
-              children: [
-                Expanded(child: _text(_day, 'Day', digitsOnly: true, max: 2)),
-                const SizedBox(width: 10),
-                Expanded(
-                    child: _text(_month, 'Month', digitsOnly: true, max: 2)),
-                const SizedBox(width: 10),
-                Expanded(child: _text(_year, 'Year', digitsOnly: true, max: 4)),
-              ],
-            ),
-            // One message under the row rather than three identical ones in it.
-            Builder(builder: (context) {
-              final problem = ConnectValidation.dob(
-                int.tryParse(ConnectValidation.digitsOf(_day.text)),
-                int.tryParse(ConnectValidation.digitsOf(_month.text)),
-                int.tryParse(ConnectValidation.digitsOf(_year.text)),
-                now: DateTime.now(),
-              );
-              return problem == null || _day.text.isEmpty
-                  ? const SizedBox(height: 8)
-                  : Padding(
-                      padding: const EdgeInsets.only(top: 6, bottom: 8),
-                      child: Text(problem,
-                          style: TextStyle(
-                              color: Theme.of(context).colorScheme.error,
-                              fontSize: 12.5)),
-                    );
-            }),
-          ],
-          if (needs.contains(ConnectField.address)) ...[
-            _section('Your address'),
-            _text(_line1, 'Street address',
-                validator: (v) => ConnectValidation.name(v, 'address')),
-            _text(_line2, 'Apartment, suite (optional)'),
-            _text(_city, 'City',
-                validator: (v) => ConnectValidation.name(v, 'city')),
-            _text(_state, _country == 'CA' ? 'Province' : 'State',
-                validator: (v) => ConnectValidation.name(
-                    v, _country == 'CA' ? 'province' : 'state')),
-            _text(_postal, _country == 'CA' ? 'Postal code' : 'ZIP code',
-                validator: (v) =>
-                    ConnectValidation.postalCode(v, _country)),
-          ],
-          if (needs.contains(ConnectField.idNumber)) ...[
-            _section(_country == 'CA'
-                ? 'Social Insurance Number'
-                : 'Social Security Number'),
-            _text(_idNumber, _country == 'CA' ? 'SIN' : 'SSN',
-                digitsOnly: true,
-                max: 11,
-                validator: (v) => ConnectValidation.idNumber(v, _country)),
-            Text(
-              'Sent straight to Stripe from this device. This app\'s server '
-              'never receives it.',
-              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-            ),
-          ],
-          if (needs.contains(ConnectField.ssnLast4)) ...[
-            _section('Last 4 of your SSN'),
-            _text(_ssnLast4, 'Last 4 digits',
-                digitsOnly: true,
-                max: 4,
-                validator: ConnectValidation.ssnLast4),
-          ],
-          if (needs.contains(ConnectField.bank)) ...[
-            _section('Where to pay you'),
-            _text(_holder, 'Name on the account'),
-            if (_country == 'CA') ...[
-              Row(
-                children: [
-                  Expanded(
-                    child: _text(_transit, 'Transit no. (5)',
-                        digitsOnly: true,
-                        max: 5,
-                        validator: (v) =>
-                            ConnectValidation.digitsOf(v ?? '').length == 5
-                                ? null
-                                : '5 digits'),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: _text(_institution, 'Institution (3)',
-                        digitsOnly: true,
-                        max: 3,
-                        validator: (v) =>
-                            ConnectValidation.digitsOf(v ?? '').length == 3
-                                ? null
-                                : '3 digits'),
-                  ),
-                ],
-              ),
-            ] else
-              _text(_routing, 'Routing number',
-                  digitsOnly: true,
-                  max: 9,
-                  validator: (v) =>
-                      ConnectValidation.routingNumber(v, _country)),
-            _text(_account, 'Account number',
-                digitsOnly: true,
-                max: 17,
-                validator: (v) =>
-                    ConnectValidation.accountNumber(v, _country)),
-          ],
-          if (needs.contains(ConnectField.document)) ...[
-            _section('Photo ID'),
-            Text(
-              'A driving licence or passport. Sent from this device straight to '
-              'Stripe — this app\'s server never receives the image.',
-              style: TextStyle(fontSize: 12.5, color: Colors.grey.shade600),
-            ),
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                Expanded(
-                  child: _docButton('Front', _docFront,
-                      (b) => setState(() => _docFront = b)),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: _docButton('Back (if it has one)', _docBack,
-                      (b) => setState(() => _docBack = b)),
-                ),
-              ],
-            ),
-          ],
-          if (needs.contains(ConnectField.business)) ...[
-            _section('What the money is for'),
-            _text(_work, 'e.g. paying friends back'),
-          ],
-          if (needs.contains(ConnectField.tos)) ...[
-            const SizedBox(height: 8),
-            CheckboxListTile(
-              value: _tos,
-              onChanged: (v) => setState(() => _tos = v ?? false),
-              controlAffinity: ListTileControlAffinity.leading,
-              contentPadding: EdgeInsets.zero,
-              title: const Text(
-                'I accept Stripe\'s Connected Account Agreement.',
-                style: TextStyle(fontSize: 13.5),
-              ),
-            ),
-          ],
+          for (final field in needs) ..._sectionFor(field),
           // Named, not hidden. A requirement with no form here means the account
           // cannot finish activating through this screen, and pretending
           // otherwise wastes somebody's afternoon.
@@ -586,6 +457,203 @@ class _NativeOnboardingScreenState extends State<NativeOnboardingScreen> {
               ),
       );
 
+  /// The widgets that collect one requirement.
+  ///
+  /// AN EXHAUSTIVE SWITCH, and that is the point. `individual.phone` was mapped
+  /// to ConnectField.phone and no section rendered it — so the form quietly could
+  /// not satisfy it, and it was not reported as unhandled either, because it *was*
+  /// mapped. A collection-if per section hides that; a switch with no default
+  /// makes it a compile error the moment a field exists with nothing to collect
+  /// it.
+  List<Widget> _sectionFor(ConnectField field) {
+    switch (field) {
+      case ConnectField.name:
+        return [
+          _section('Your name'),
+          _text(_first, 'First name',
+              validator: (v) => ConnectValidation.name(v, 'first name')),
+          _text(_last, 'Last name',
+              validator: (v) => ConnectValidation.name(v, 'last name')),
+        ];
+      case ConnectField.email:
+        return [
+          _section('Email'),
+          _text(_email, 'Email',
+              keyboard: TextInputType.emailAddress,
+              validator: ConnectValidation.email),
+        ];
+      case ConnectField.dob:
+        return [
+          _section('Date of birth'),
+          Row(
+            children: [
+              Expanded(child: _text(_day, 'Day', digitsOnly: true, max: 2)),
+              const SizedBox(width: 10),
+              Expanded(child: _text(_month, 'Month', digitsOnly: true, max: 2)),
+              const SizedBox(width: 10),
+              Expanded(child: _text(_year, 'Year', digitsOnly: true, max: 4)),
+            ],
+          ),
+          // One message under the row rather than three identical ones in it.
+          Builder(builder: (context) {
+            final problem = ConnectValidation.dob(
+              int.tryParse(ConnectValidation.digitsOf(_day.text)),
+              int.tryParse(ConnectValidation.digitsOf(_month.text)),
+              int.tryParse(ConnectValidation.digitsOf(_year.text)),
+              now: DateTime.now(),
+            );
+            return problem == null || _day.text.isEmpty
+                ? const SizedBox(height: 8)
+                : Padding(
+                    padding: const EdgeInsets.only(top: 6, bottom: 8),
+                    child: Text(problem,
+                        style: TextStyle(
+                            color: Theme.of(context).colorScheme.error,
+                            fontSize: 12.5)),
+                  );
+          }),
+        ];
+      case ConnectField.address:
+        return [
+          _section('Your address'),
+          _text(_line1, 'Street address',
+              validator: (v) => ConnectValidation.name(v, 'address')),
+          _text(_line2, 'Apartment, suite (optional)'),
+          _text(_city, 'City',
+              validator: (v) => ConnectValidation.name(v, 'city')),
+          _text(_state, _country == 'CA' ? 'Province' : 'State',
+              validator: (v) => ConnectValidation.name(
+                  v, _country == 'CA' ? 'province' : 'state')),
+          _text(_postal, _country == 'CA' ? 'Postal code' : 'ZIP code',
+              validator: (v) => ConnectValidation.postalCode(v, _country)),
+        ];
+      case ConnectField.idNumber:
+        return [
+          _section(_country == 'CA'
+              ? 'Social Insurance Number'
+              : 'Social Security Number'),
+          _text(_idNumber, _country == 'CA' ? 'SIN' : 'SSN',
+              digitsOnly: true,
+              max: 11,
+              validator: (v) => ConnectValidation.idNumber(v, _country)),
+          Text(
+            'Sent straight to Stripe from this device. This app\'s server '
+            'never receives it.',
+            style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+          ),
+        ];
+      case ConnectField.ssnLast4:
+        return [
+          _section('Last 4 of your SSN'),
+          _text(_ssnLast4, 'Last 4 digits',
+              digitsOnly: true, max: 4, validator: ConnectValidation.ssnLast4),
+        ];
+      case ConnectField.bank:
+        return [
+          _section('Where to pay you'),
+          _text(_holder, 'Name on the account'),
+          if (_country == 'CA') ...[
+            Row(
+              children: [
+                Expanded(
+                  child: _text(_transit, 'Transit no. (5)',
+                      digitsOnly: true,
+                      max: 5,
+                      validator: (v) =>
+                          ConnectValidation.digitsOf(v ?? '').length == 5
+                              ? null
+                              : '5 digits'),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: _text(_institution, 'Institution (3)',
+                      digitsOnly: true,
+                      max: 3,
+                      validator: (v) =>
+                          ConnectValidation.digitsOf(v ?? '').length == 3
+                              ? null
+                              : '3 digits'),
+                ),
+              ],
+            ),
+          ] else
+            _text(_routing, 'Routing number',
+                digitsOnly: true,
+                max: 9,
+                validator: (v) => ConnectValidation.routingNumber(v, _country)),
+          _text(_account, 'Account number',
+              digitsOnly: true,
+              max: 17,
+              validator: (v) => ConnectValidation.accountNumber(v, _country)),
+        ];
+      case ConnectField.document:
+        return [
+          _section('Photo ID'),
+          Text(
+            'A driving licence or passport. Sent from this device straight to '
+            'Stripe — this app\'s server never receives the image.',
+            style: TextStyle(fontSize: 12.5, color: Colors.grey.shade600),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: _docButton(
+                    'Front', _docFront, (b) => setState(() => _docFront = b)),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _docButton('Back (if it has one)', _docBack,
+                    (b) => setState(() => _docBack = b)),
+              ),
+            ],
+          ),
+        ];
+      case ConnectField.business:
+        return [
+          _section('What the money is for'),
+          _text(_work, 'e.g. paying friends back'),
+        ];
+      case ConnectField.tos:
+        return [
+          const SizedBox(height: 8),
+          CheckboxListTile(
+            value: _tos,
+            onChanged: (v) => setState(() => _tos = v ?? false),
+            controlAffinity: ListTileControlAffinity.leading,
+            contentPadding: EdgeInsets.zero,
+            title: const Text(
+              'I accept Stripe\'s Connected Account Agreement.',
+              style: TextStyle(fontSize: 13.5),
+            ),
+          ),
+        ];
+      case ConnectField.phone:
+        return [
+          _section('Phone'),
+          _text(_phone, 'Phone number',
+              keyboard: TextInputType.phone,
+              validator: ConnectValidation.phone),
+          Text(
+            'Stripe asks for this to verify the account. It is the number this '
+            'app already knows you by.',
+            style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+          ),
+        ];
+      case ConnectField.title:
+        return [
+          _section('Your role'),
+          _text(_title, 'e.g. Owner',
+              validator: (v) => ConnectValidation.name(v, 'role')),
+          Text(
+            'Stripe asks what your role is in relation to the account. For '
+            'somebody receiving their own money, "Owner" is the answer.',
+            style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+          ),
+        ];
+    }
+  }
+
   Widget _section(String title) => Padding(
         padding: const EdgeInsets.only(top: 16, bottom: 6),
         child: Text(title.toUpperCase(),
@@ -608,8 +676,9 @@ class _NativeOnboardingScreenState extends State<NativeOnboardingScreen> {
         child: TextFormField(
           controller: controller,
           validator: validator,
-          keyboardType:
-              digitsOnly ? TextInputType.number : (keyboard ?? TextInputType.text),
+          keyboardType: digitsOnly
+              ? TextInputType.number
+              : (keyboard ?? TextInputType.text),
           inputFormatters: [
             if (digitsOnly) FilteringTextInputFormatter.digitsOnly,
             if (max != null) LengthLimitingTextInputFormatter(max),

@@ -21,6 +21,11 @@ enum ConnectField {
   document,
   tos,
   business,
+
+  /// What this person is in relation to the account. Stripe asks for it as
+  /// `individual.relationship.title`, and for somebody receiving their own money
+  /// the answer is "Owner".
+  title,
 }
 
 /// Stripe's requirement strings, mapped to the form section that collects them.
@@ -42,6 +47,7 @@ const Map<String, ConnectField> stripeRequirementFields = {
   'individual.address.country': ConnectField.address,
   'individual.email': ConnectField.email,
   'individual.phone': ConnectField.phone,
+  'individual.relationship.title': ConnectField.title,
   'individual.id_number': ConnectField.idNumber,
   'individual.ssn_last_4': ConnectField.ssnLast4,
   'external_account': ConnectField.bank,
@@ -146,7 +152,10 @@ class ConnectRequirements {
       final field = stripeRequirementFields[r];
       if (field != null) wanted.add(field);
     }
-    return [for (final f in ConnectField.values) if (wanted.contains(f)) f];
+    return [
+      for (final f in ConnectField.values)
+        if (wanted.contains(f)) f
+    ];
   }
 }
 
@@ -201,6 +210,18 @@ class ConnectValidation {
     if (now.month < month || (now.month == month && now.day < day)) age--;
     if (age < 18) return 'You have to be 18 to receive payments.';
     if (age > 120) return 'Check the year.';
+    return null;
+  }
+
+  /// A phone number Stripe will take. Deliberately loose about punctuation —
+  /// people write their own number with spaces, brackets and dashes, and
+  /// rejecting that teaches them the form is fussy rather than that they are
+  /// wrong. Only the digit count is a real constraint.
+  static String? phone(String? value) {
+    final d = digitsOf(value ?? '');
+    if (d.isEmpty) return 'Enter your phone number.';
+    if (d.length < 10) return 'That number looks too short.';
+    if (d.length > 15) return 'That number looks too long.';
     return null;
   }
 
