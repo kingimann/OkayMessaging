@@ -9,7 +9,6 @@ import '../state/call_service.dart' show CallService;
 import '../state/contacts_sync.dart';
 import '../state/incoming_links.dart';
 import '../theme/app_theme.dart';
-import '../widgets/app_shell.dart';
 
 /// A phone-style dial pad: type any number and call it. Numbers on
 /// OkayMessenger get the encrypted in-app call; everyone else is handed to
@@ -27,18 +26,10 @@ class _DialerScreenState extends State<DialerScreen> {
   bool _placing = false;
 
   static const _keys = [
-    ('1', ''),
-    ('2', 'ABC'),
-    ('3', 'DEF'),
-    ('4', 'GHI'),
-    ('5', 'JKL'),
-    ('6', 'MNO'),
-    ('7', 'PQRS'),
-    ('8', 'TUV'),
-    ('9', 'WXYZ'),
-    ('*', ''),
-    ('0', '+'),
-    ('#', ''),
+    ('1', ''), ('2', 'ABC'), ('3', 'DEF'),
+    ('4', 'GHI'), ('5', 'JKL'), ('6', 'MNO'),
+    ('7', 'PQRS'), ('8', 'TUV'), ('9', 'WXYZ'),
+    ('*', ''), ('0', '+'), ('#', ''),
   ];
 
   void _tap(String d) {
@@ -93,10 +84,7 @@ class _DialerScreenState extends State<DialerScreen> {
     final canCall =
         _number.replaceAll(RegExp(r'\D'), '').length >= 3 && !_placing;
     return Scaffold(
-      appBar: AppBar(
-          automaticallyImplyLeading: false,
-          leading: const SidebarButton(),
-          title: const Text('Dial a number')),
+      appBar: AppBar(title: const Text('Dial a number')),
       body: SafeArea(
         child: Column(
           children: [
@@ -229,8 +217,7 @@ class _DialKey extends StatelessWidget {
   final String digit;
   final String letters;
   final ValueChanged<String> onTap;
-  const _DialKey(
-      {required this.digit, required this.letters, required this.onTap});
+  const _DialKey({required this.digit, required this.letters, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -295,7 +282,8 @@ class _CallButton extends StatelessWidget {
         child: SizedBox(
           width: size,
           height: size,
-          child: Icon(icon, color: Colors.white, size: big ? 30 : 24),
+          child:
+              Icon(icon, color: Colors.white, size: big ? 30 : 24),
         ),
       ),
     );

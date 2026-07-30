@@ -4,7 +4,6 @@ import '../models/message.dart';
 import '../state/chat_store.dart';
 import '../theme/app_theme.dart';
 import '../utils/date_formatter.dart';
-import '../widgets/app_shell.dart';
 import '../widgets/chat_photo.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/linkable_text.dart';
@@ -39,8 +38,6 @@ class MediaGalleryScreen extends StatelessWidget {
       length: 2,
       child: Scaffold(
         appBar: AppBar(
-          automaticallyImplyLeading: false,
-          leading: const SidebarButton(),
           title: const Text('Media, links, and docs'),
           bottom: const TabBar(
             tabs: [Tab(text: 'Media'), Tab(text: 'Links')],
@@ -95,8 +92,8 @@ class _MediaGrid extends StatelessWidget {
         itemCount: media.length,
         itemBuilder: (context, i) {
           final message = media[i];
-          final colors = MediaGalleryScreen._gradients[
-              message.imageSeed % MediaGalleryScreen._gradients.length];
+          final colors = MediaGalleryScreen
+              ._gradients[message.imageSeed % MediaGalleryScreen._gradients.length];
           return GestureDetector(
             onTap: () => Navigator.of(context).push(
               MaterialPageRoute(
@@ -162,8 +159,7 @@ class _LinksList extends StatelessWidget {
               backgroundColor: AppColors.tealGreenDark.withValues(alpha: 0.15),
               child: const Icon(Icons.link, color: AppColors.tealGreenDark),
             ),
-            title: Text(links[i].text,
-                maxLines: 2, overflow: TextOverflow.ellipsis),
+            title: Text(links[i].text, maxLines: 2, overflow: TextOverflow.ellipsis),
             subtitle: Text(
               DateFormatter.callLabel(links[i].time),
               style: TextStyle(

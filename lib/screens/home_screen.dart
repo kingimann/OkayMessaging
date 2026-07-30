@@ -6,13 +6,13 @@ import 'package:flutter/material.dart';
 import '../models/user.dart';
 
 import '../state/call_log.dart';
+import '../state/chat_store.dart';
 import '../state/feed_store.dart';
 import '../state/follow_store.dart';
 import '../tabs/activity_tab.dart';
 import '../tabs/calls_tab.dart';
 import '../tabs/chats_tab.dart';
 import '../theme/app_theme.dart';
-import '../widgets/app_shell.dart';
 import 'archived_chats_screen.dart';
 import 'chat_search_delegate.dart';
 import 'communities.dart';
@@ -52,29 +52,7 @@ class _HomeScreenState extends State<HomeScreen>
       .drive(Tween(begin: 0.35, end: 1.0));
 
   @override
-  void initState() {
-    super.initState();
-    // The bottom bar lives in the shell above every route, so the tab it
-    // chooses arrives from there rather than from a callback here.
-    ShellTabs.index.addListener(_followShell);
-    ShellTabs.onSelected = _onSelectTab;
-    // The shell's bar outlives any one home screen, so a fresh one starts on
-    // the tab this screen is actually showing rather than whichever was last
-    // chosen before signing out. After the frame, because the bar is an
-    // ancestor and notifying it mid-build is not allowed.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) ShellTabs.index.value = _index;
-    });
-  }
-
-  void _followShell() {
-    if (ShellTabs.index.value != _index) _onSelectTab(ShellTabs.index.value);
-  }
-
-  @override
   void dispose() {
-    ShellTabs.index.removeListener(_followShell);
-    if (ShellTabs.onSelected == _onSelectTab) ShellTabs.onSelected = null;
     _tabFadeController.dispose();
     super.dispose();
   }
@@ -108,8 +86,6 @@ class _HomeScreenState extends State<HomeScreen>
     final onChats = _index == 0;
     return Scaffold(
       appBar: AppBar(
-        automaticallyImplyLeading: false,
-        leading: const SidebarButton(),
         titleSpacing: 20,
         title: _index == 0
             ? Text(
@@ -169,10 +145,9 @@ class _HomeScreenState extends State<HomeScreen>
             ),
         ],
       ),
-      // The sidebar and the bottom bar are the shell's now — they sit above
-      // every route rather than only above these tabs, so a pushed screen
-      // keeps them instead of covering them.
-      //
+      // Let the content flow behind the floating glass bar so it blurs through.
+      extendBody: true,
+      drawer: _AppSideBar(onSelectTab: _onSelectTab),
       // Tabs keep their state in an IndexedStack; switching softly fades the
       // incoming tab in rather than hard-cutting.
       body: FadeTransition(
@@ -190,11 +165,23 @@ class _HomeScreenState extends State<HomeScreen>
           ],
         ),
       ),
+      bottomNavigationBar: ListenableBuilder(
+        listenable: Listenable.merge(
+            [CallLog.instance, ChatStore.instance, FeedStore.instance]),
+        builder: (context, _) => _ModernNavBar(
+          index: _index,
+          missedCalls: CallLog.instance.newMissedCount,
+          activityCount: CallLog.instance.newMissedCount +
+              FeedStore.instance.unseenNotificationCount +
+              ChatStore.instance.chats
+                  .fold(0, (n, c) => n + (c.unreadCount > 0 ? 1 : 0)),
+          onSelect: _onSelectTab,
+        ),
+      ),
     );
   }
 
   void _onSelectTab(int i) {
-    if (!mounted) return;
     if (i != _index) _tabFadeController.forward(from: 0);
     setState(() => _index = i);
     // Opening the Calls tab clears the missed-call badge.
@@ -231,15 +218,13 @@ class _YouTab extends StatelessWidget {
       );
 }
 
-/// The bottom bar. Public for the same reason as the sidebar.
-class ModernNavBar extends StatelessWidget {
+class _ModernNavBar extends StatelessWidget {
   final int index;
   final int missedCalls;
   final int activityCount;
   final ValueChanged<int> onSelect;
 
-  const ModernNavBar({
-    super.key,
+  const _ModernNavBar({
     required this.index,
     required this.onSelect,
     this.missedCalls = 0,
@@ -281,47 +266,60 @@ class ModernNavBar extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
+          // Each pill may give ground rather than the row overflowing. Only
+          // the selected one carries a label, so it is the only one with
+          // anything to give, and it gives it before the bar breaks.
           children: [
-            _NavPill(
-              icon: Icons.chat_bubble_outline,
-              activeIcon: Icons.chat_bubble,
-              label: 'Chats',
-              selected: index == 0,
-              onTap: () => onSelect(0),
+            Flexible(
+              child: _NavPill(
+                icon: Icons.chat_bubble_outline,
+                activeIcon: Icons.chat_bubble,
+                label: 'Chats',
+                selected: index == 0,
+                onTap: () => onSelect(0),
+              ),
             ),
             const SizedBox(width: 6),
-            _NavPill(
-              icon: Icons.groups_outlined,
-              activeIcon: Icons.groups,
-              label: 'Servers',
-              selected: index == 1,
-              onTap: () => onSelect(1),
+            Flexible(
+              child: _NavPill(
+                icon: Icons.groups_outlined,
+                activeIcon: Icons.groups,
+                label: 'Servers',
+                selected: index == 1,
+                onTap: () => onSelect(1),
+              ),
             ),
             const SizedBox(width: 6),
-            _NavPill(
-              icon: Icons.call_outlined,
-              activeIcon: Icons.call,
-              label: 'Calls',
-              selected: index == 2,
-              badgeCount: missedCalls,
-              onTap: () => onSelect(2),
+            Flexible(
+              child: _NavPill(
+                icon: Icons.call_outlined,
+                activeIcon: Icons.call,
+                label: 'Calls',
+                selected: index == 2,
+                badgeCount: missedCalls,
+                onTap: () => onSelect(2),
+              ),
             ),
             const SizedBox(width: 6),
-            _NavPill(
-              icon: Icons.notifications_none,
-              activeIcon: Icons.notifications,
-              label: 'Alerts',
-              selected: index == 3,
-              badgeCount: activityCount,
-              onTap: () => onSelect(3),
+            Flexible(
+              child: _NavPill(
+                icon: Icons.notifications_none,
+                activeIcon: Icons.notifications,
+                label: 'Alerts',
+                selected: index == 3,
+                badgeCount: activityCount,
+                onTap: () => onSelect(3),
+              ),
             ),
             const SizedBox(width: 6),
-            _NavPill(
-              icon: Icons.person_outline,
-              activeIcon: Icons.person,
-              label: 'You',
-              selected: index == 4,
-              onTap: () => onSelect(4),
+            Flexible(
+              child: _NavPill(
+                icon: Icons.person_outline,
+                activeIcon: Icons.person,
+                label: 'You',
+                selected: index == 4,
+                onTap: () => onSelect(4),
+              ),
             ),
           ],
         ),
@@ -346,22 +344,16 @@ class ModernNavBar extends StatelessWidget {
 
 /// The left sidebar: profile up top, then one-tap shortcuts to the places
 /// that otherwise live several taps deep.
-/// The app's sidebar. Public because the shell above every route owns it now
-/// rather than the home screen.
-class AppSideBar extends StatelessWidget {
+class _AppSideBar extends StatelessWidget {
   /// Switches the home screen's bottom tab — for destinations that ARE a tab,
   /// where pushing a second copy on top would stack two of the same screen.
   final ValueChanged<int> onSelectTab;
 
-  const AppSideBar({super.key, required this.onSelectTab});
+  const _AppSideBar({required this.onSelectTab});
 
-  /// The sidebar hangs off the shell's Scaffold, which is a *parent* of the
-  /// app's navigator — so `Navigator.of(context)` from a tile finds nothing.
-  /// The drawer closes through its own scaffold and pushes through the key.
   void _go(BuildContext context, Widget screen) {
-    AppShell.closeSidebar();
-    rootNavigatorKey.currentState
-        ?.push(MaterialPageRoute(builder: (_) => screen));
+    Navigator.of(context).pop(); // close the drawer first
+    Navigator.of(context).push(MaterialPageRoute(builder: (_) => screen));
   }
 
   @override
@@ -443,7 +435,7 @@ class AppSideBar extends StatelessWidget {
                 leading: const Icon(Icons.groups_outlined),
                 title: const Text('Servers'),
                 onTap: () {
-                  AppShell.closeSidebar();
+                  Navigator.of(context).pop();
                   onSelectTab(1); // the Servers tab, without stacking a copy
                 },
               ),
@@ -505,7 +497,10 @@ class _NavPill extends StatelessWidget {
         duration: const Duration(milliseconds: 240),
         curve: Curves.easeOut,
         padding: EdgeInsets.symmetric(
-          horizontal: selected ? 16 : 13,
+          // Narrower side padding on the selected pill than it looks: the
+          // label already sets it apart, and 16 a side across five pills is
+          // what pushed a 390-point phone over the edge.
+          horizontal: selected ? 12 : 11,
           vertical: 11,
         ),
         decoration: BoxDecoration(
@@ -522,22 +517,31 @@ class _NavPill extends StatelessWidget {
               color: selected ? ink : idle,
               badgeCount: badgeCount,
             ),
-            AnimatedSize(
-              duration: const Duration(milliseconds: 240),
-              curve: Curves.easeOut,
-              child: selected
-                  ? Padding(
-                      padding: const EdgeInsets.only(left: 8),
-                      child: Text(
-                        label,
-                        style: TextStyle(
-                          color: ink,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w700,
+            // Flexible on the OUTSIDE bounds the pill; this one lets the
+            // label give ground inside that bound. Without it the label keeps
+            // its natural width and the pill overflows its own allowance
+            // instead of the row overflowing the screen — same bug, moved.
+            Flexible(
+              child: AnimatedSize(
+                duration: const Duration(milliseconds: 240),
+                curve: Curves.easeOut,
+                child: selected
+                    ? Padding(
+                        padding: const EdgeInsets.only(left: 8),
+                        child: Text(
+                          label,
+                          maxLines: 1,
+                          overflow: TextOverflow.fade,
+                          softWrap: false,
+                          style: TextStyle(
+                            color: ink,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                          ),
                         ),
-                      ),
-                    )
-                  : const SizedBox.shrink(),
+                      )
+                    : const SizedBox.shrink(),
+              ),
             ),
           ],
         ),

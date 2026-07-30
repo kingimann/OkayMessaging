@@ -16,7 +16,6 @@ import '../state/public_feed_store.dart';
 import '../util/file_moderation.dart';
 import '../util/photo_prep.dart';
 import '../utils/date_formatter.dart';
-import '../widgets/app_shell.dart';
 import '../widgets/sanction_notice.dart';
 import '../widgets/user_avatar.dart';
 import '../widgets/verified_badge.dart';
@@ -187,14 +186,33 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        automaticallyImplyLeading: false,
         titleSpacing: 8,
-        // The sidebar, like every other screen. Your own avatar used to sit
-        // here as a shortcut to your profile, and because `leading` replaces
-        // the back arrow it left this screen with no way out when it was
-        // pushed. "Your profile" is in the overflow menu instead, where it
-        // cannot be the only route to anything.
-        leading: _searching ? null : const SidebarButton(),
+        // Your own avatar, top left — the same gesture the feeds people arrive
+        // from use. But ONLY when there is nothing to go back to: `leading`
+        // replaces the back arrow, and this screen used to be reachable with no
+        // way out at all. Where the avatar cannot go, "Your profile" is in the
+        // overflow instead, so it is never the only route.
+        leading: _searching || Navigator.of(context).canPop()
+            ? null
+            : ValueListenableBuilder<AppUser>(
+                valueListenable: AppState.profile,
+                builder: (context, me, _) => Center(
+                  child: GestureDetector(
+                    onTap: () =>
+                        openPublicProfile(context, me.username, name: me.name),
+                    child: CircleAvatar(
+                      radius: 16,
+                      backgroundColor: publicProfileBannerSeed(
+                              me.username, Theme.of(context).colorScheme)
+                          .withValues(alpha: 0.25),
+                      child: Text(
+                          (me.name.isEmpty ? '?' : me.name[0]).toUpperCase(),
+                          style: const TextStyle(
+                              fontSize: 13, fontWeight: FontWeight.w700)),
+                    ),
+                  ),
+                ),
+              ),
         title: _searching
             ? TextField(
                 controller: _search,
@@ -374,10 +392,7 @@ class MutedAccountsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(
-            automaticallyImplyLeading: false,
-            leading: const SidebarButton(),
-            title: const Text('Muted accounts')),
+        appBar: AppBar(title: const Text('Muted accounts')),
         body: ListenableBuilder(
           listenable: FeedMuteStore.instance,
           builder: (context, _) {
@@ -491,10 +506,7 @@ class _BookmarksScreenState extends State<BookmarksScreen> {
   Widget build(BuildContext context) {
     final posts = _posts;
     return Scaffold(
-      appBar: AppBar(
-          automaticallyImplyLeading: false,
-          leading: const SidebarButton(),
-          title: const Text('Bookmarks')),
+      appBar: AppBar(title: const Text('Bookmarks')),
       body: _error != null
           ? Center(
               child: Padding(
@@ -575,8 +587,6 @@ class _PhotoScreen extends StatelessWidget {
   Widget build(BuildContext context) => Scaffold(
         backgroundColor: Colors.black,
         appBar: AppBar(
-          automaticallyImplyLeading: false,
-          leading: const SidebarButton(),
           backgroundColor: Colors.black,
           foregroundColor: Colors.white,
           title: Text(by, style: const TextStyle(fontSize: 15)),
@@ -719,8 +729,6 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
               if (!widget.embedded)
                 SliverAppBar(
                   pinned: true,
-                  automaticallyImplyLeading: false,
-                  leading: const SidebarButton(),
                   // The bar wears the account's own colour, so the top of the
                   // screen is one block of it running down into the banner.
                   // A default grey bar above a coloured banner drew a seam
@@ -1775,10 +1783,7 @@ class PublicThreadScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-          automaticallyImplyLeading: false,
-          leading: const SidebarButton(),
-          title: const Text('Post')),
+      appBar: AppBar(title: const Text('Post')),
       body: ListenableBuilder(
         listenable: PublicFeedStore.instance,
         builder: (context, _) {

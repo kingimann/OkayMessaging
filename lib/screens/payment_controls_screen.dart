@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 
 import '../payments/payment_service.dart';
 import '../util/phone_format.dart';
-import '../widgets/app_shell.dart';
 
 /// Who may pay you, and how much you can send in a day.
 ///
@@ -46,10 +45,7 @@ class _PaymentControlsScreenState extends State<PaymentControlsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-          automaticallyImplyLeading: false,
-          leading: const SidebarButton(),
-          title: const Text('Payment controls')),
+      appBar: AppBar(title: const Text('Payment controls')),
       body: FutureBuilder<PaymentControls>(
         future: _future,
         builder: (context, snap) {
@@ -64,7 +60,8 @@ class _PaymentControlsScreenState extends State<PaymentControlsScreen> {
                 value: c.acceptsAnyone,
                 onChanged: _busy
                     ? null
-                    : (v) => _update(acceptsFrom: v ? 'anyone' : 'nobody'),
+                    : (v) =>
+                        _update(acceptsFrom: v ? 'anyone' : 'nobody'),
                 title: const Text('Let people send me money'),
                 subtitle: Text(c.acceptsAnyone
                     ? 'Anyone who knows your number can pay you'
@@ -77,7 +74,8 @@ class _PaymentControlsScreenState extends State<PaymentControlsScreen> {
                     leading: const Icon(Icons.block, size: 20),
                     title: Text(formatPhoneForDisplay(phone)),
                     trailing: TextButton(
-                      onPressed: _busy ? null : () => _update(unblock: phone),
+                      onPressed:
+                          _busy ? null : () => _update(unblock: phone),
                       child: const Text('Unblock'),
                     ),
                   ),
@@ -99,7 +97,8 @@ class _PaymentControlsScreenState extends State<PaymentControlsScreen> {
                   'can move, and what one bad afternoon can cost. It is '
                   'checked on the server, so it holds even if the app is '
                   'not the one asking.',
-                  style: TextStyle(fontSize: 12.5, color: Colors.grey.shade600),
+                  style:
+                      TextStyle(fontSize: 12.5, color: Colors.grey.shade600),
                 ),
               ),
             ],
@@ -131,7 +130,8 @@ class _PaymentControlsScreenState extends State<PaymentControlsScreen> {
             const Padding(
               padding: EdgeInsets.fromLTRB(20, 4, 20, 12),
               child: Text('Daily send limit',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+                  style:
+                      TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
             ),
             for (final cents in options)
               ListTile(

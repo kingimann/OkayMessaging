@@ -5,7 +5,6 @@ import '../models/user.dart';
 import '../state/score_store.dart';
 import '../state/session.dart';
 import '../theme/app_theme.dart';
-import '../widgets/app_shell.dart';
 import '../widgets/user_avatar.dart';
 
 /// Lets the current user customize their profile: display name, username,
@@ -28,30 +27,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
 
   /// A small set of emojis offered for the avatar.
   static const _emojiChoices = [
-    '😀',
-    '😎',
-    '🥳',
-    '🤖',
-    '👾',
-    '🐶',
-    '🐱',
-    '🦊',
-    '🐼',
-    '🦁',
-    '🐸',
-    '🦄',
-    '🌸',
-    '🔥',
-    '⚡',
-    '🌈',
-    '⭐',
-    '🎧',
-    '🎮',
-    '⚽',
-    '🍕',
-    '☕',
-    '🚀',
-    '💜',
+    '😀', '😎', '🥳', '🤖', '👾', '🐶', '🐱', '🦊',
+    '🐼', '🦁', '🐸', '🦄', '🌸', '🔥', '⚡', '🌈',
+    '⭐', '🎧', '🎮', '⚽', '🍕', '☕', '🚀', '💜',
   ];
 
   /// Common status presets offered as one-tap chips.
@@ -195,12 +173,12 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        automaticallyImplyLeading: false,
-        leading: const SidebarButton(),
         title: const Text('Edit profile'),
         actions: [
           IconButton(
-              icon: const Icon(Icons.check), tooltip: 'Save', onPressed: _save),
+              icon: const Icon(Icons.check),
+              tooltip: 'Save',
+              onPressed: _save),
         ],
       ),
       body: ListView(
@@ -267,10 +245,11 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                   Padding(
                     padding: const EdgeInsets.only(right: 8),
                     child: ActionChip(
-                      label:
-                          Text(preset, style: const TextStyle(fontSize: 12.5)),
+                      label: Text(preset,
+                          style: const TextStyle(fontSize: 12.5)),
                       visualDensity: VisualDensity.compact,
-                      onPressed: () => setState(() => _about.text = preset),
+                      onPressed: () =>
+                          setState(() => _about.text = preset),
                     ),
                   ),
               ],
@@ -383,10 +362,7 @@ class _EmojiPicker extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final primary = Theme.of(context).colorScheme.primary;
-    Widget cell(
-            {required Widget child,
-            required bool active,
-            required VoidCallback onTap}) =>
+    Widget cell({required Widget child, required bool active, required VoidCallback onTap}) =>
         GestureDetector(
           onTap: onTap,
           child: Container(

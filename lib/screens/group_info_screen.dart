@@ -9,7 +9,6 @@ import '../state/call_service.dart';
 import '../state/chat_store.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_dialogs.dart';
-import '../widgets/app_shell.dart';
 import '../widgets/info_section.dart';
 import '../widgets/user_avatar.dart';
 import 'edit_group_screen.dart';
@@ -56,8 +55,6 @@ class GroupInfoScreen extends StatelessWidget {
             slivers: [
               SliverAppBar(
                 pinned: true,
-                automaticallyImplyLeading: false,
-                leading: const SidebarButton(),
                 expandedHeight: 260,
                 backgroundColor: base,
                 foregroundColor: Colors.white,

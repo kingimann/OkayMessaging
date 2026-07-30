@@ -14,7 +14,6 @@ import '../state/live_location_store.dart';
 import '../util/geolocation.dart';
 import '../utils/friend_locations.dart';
 import '../utils/maps_link.dart';
-import '../widgets/app_shell.dart';
 import '../widgets/osm_map.dart';
 import '../widgets/user_avatar.dart';
 import 'chat_screen.dart';
@@ -74,7 +73,8 @@ class _MapScreenState extends State<MapScreen> {
       return;
     }
     for (final f in _friends) {
-      RelayService.instance.sendLocation(f.phone, _me.latitude, _me.longitude);
+      RelayService.instance
+          .sendLocation(f.phone, _me.latitude, _me.longitude);
     }
   }
 
@@ -128,8 +128,8 @@ class _MapScreenState extends State<MapScreen> {
                 },
                 icon: const Icon(Icons.chat_bubble_outline),
                 label: const Text('Message'),
-                style: FilledButton.styleFrom(
-                    minimumSize: const Size.fromHeight(46)),
+                style:
+                    FilledButton.styleFrom(minimumSize: const Size.fromHeight(46)),
               ),
               const SizedBox(height: 10),
               Row(
@@ -209,8 +209,6 @@ class _MapScreenState extends State<MapScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        automaticallyImplyLeading: false,
-        leading: const SidebarButton(),
         title: const Text('Map'),
         actions: [
           ValueListenableBuilder<bool>(
@@ -219,8 +217,9 @@ class _MapScreenState extends State<MapScreen> {
               tooltip: sharing
                   ? 'Sharing your live location'
                   : 'Share your live location',
-              icon: Icon(
-                  sharing ? Icons.share_location : Icons.location_off_outlined),
+              icon: Icon(sharing
+                  ? Icons.share_location
+                  : Icons.location_off_outlined),
               onPressed: () {
                 AppState.shareLiveLocation.value = !sharing;
                 if (!sharing) _broadcast(); // just turned on
@@ -231,8 +230,9 @@ class _MapScreenState extends State<MapScreen> {
             valueListenable: AppState.ghostMode,
             builder: (context, ghost, _) => IconButton(
               tooltip: ghost ? 'Ghost Mode on' : 'Ghost Mode off',
-              icon: Icon(
-                  ghost ? Icons.visibility_off : Icons.visibility_outlined),
+              icon: Icon(ghost
+                  ? Icons.visibility_off
+                  : Icons.visibility_outlined),
               onPressed: () => AppState.ghostMode.value = !ghost,
             ),
           ),
@@ -246,8 +246,8 @@ class _MapScreenState extends State<MapScreen> {
       ),
       body: ListenableBuilder(
         // Rebuild when the contact list or any friend's live location changes.
-        listenable:
-            Listenable.merge([ChatStore.instance, LiveLocationStore.instance]),
+        listenable: Listenable.merge(
+            [ChatStore.instance, LiveLocationStore.instance]),
         builder: (context, _) {
           // Only real, live-shared positions — no simulated friend pins.
           final places = <FriendPlace>[
@@ -276,7 +276,8 @@ class _MapScreenState extends State<MapScreen> {
                     const LiveTileLayer(),
                     MarkerLayer(
                       markers: [
-                        for (final p in places) _friendMarker(p),
+                        for (final p in places)
+                          _friendMarker(p),
                         if (!ghost)
                           Marker(
                             point: _me,
@@ -311,7 +312,8 @@ class _MapScreenState extends State<MapScreen> {
                             'No friends on the map yet. Friends appear here '
                             'when they turn on live location sharing.',
                             style: TextStyle(
-                                fontSize: 13.5, color: Colors.grey.shade600),
+                                fontSize: 13.5,
+                                color: Colors.grey.shade600),
                           ),
                         ),
                       ),

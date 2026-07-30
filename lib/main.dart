@@ -21,9 +21,7 @@ import 'state/account_email.dart';
 import 'state/account_service.dart';
 import 'state/app_lock.dart';
 import 'state/backup_service.dart';
-import 'screens/home_screen.dart' show AppSideBar, ModernNavBar;
 import 'state/call_log.dart';
-import 'widgets/app_shell.dart';
 import 'state/call_service.dart';
 import 'state/callkit_bridge.dart';
 import 'state/community_store.dart';
@@ -128,7 +126,10 @@ Future<void> main() async {
   ChannelTypingStore.instance.onTyping = (communityId, channelId) =>
       RelayService.instance.sendChannelTyping(communityId, channelId);
   VoicePresenceStore.instance.onPresence = (communityId, channelId,
-          {required joined, required muted, required video, required screen}) =>
+          {required joined,
+          required muted,
+          required video,
+          required screen}) =>
       RelayService.instance.sendVoicePresence(communityId, channelId,
           joined: joined, muted: muted, video: video, screen: screen);
   await _boot('cloud sync', CloudSync.instance.load);
@@ -222,8 +223,7 @@ class KeyboardDismissObserver extends NavigatorObserver {
   void _unfocus() => FocusManager.instance.primaryFocus?.unfocus();
 
   @override
-  void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) =>
-      _unfocus();
+  void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) => _unfocus();
 
   @override
   void didRemove(Route<dynamic> route, Route<dynamic>? previousRoute) =>
@@ -237,6 +237,8 @@ class OkayMessagingApp extends StatefulWidget {
   State<OkayMessagingApp> createState() => _OkayMessagingAppState();
 }
 
+/// Lets non-widget code (incoming default-messenger links) navigate.
+final GlobalKey<NavigatorState> rootNavigatorKey = GlobalKey<NavigatorState>();
 
 /// Opens the 1:1 chat for [phone] — where a message tap lands when
 /// OkayMessenger is the user's default messaging app. A number with no
@@ -335,11 +337,6 @@ class _OkayMessagingAppState extends State<OkayMessagingApp>
     }
   }
 
-  /// One per app instance, never static: a widget test tears its navigator
-  /// down without popping, so a shared counter would carry a phantom sheet
-  /// into the next one and leave it with no bar.
-  final ShellModals _modals = ShellModals();
-
   @override
   Widget build(BuildContext context) {
     return ValueListenableBuilder<ThemeMode>(
@@ -352,47 +349,13 @@ class _OkayMessagingAppState extends State<OkayMessagingApp>
           theme: AppTheme.light,
           darkTheme: AppTheme.dark,
           themeMode: mode,
-          navigatorObservers: [KeyboardDismissObserver(), _modals],
+          navigatorObservers: [KeyboardDismissObserver()],
           home: const AuthGate(),
-          // The shell goes INSIDE the overlays and OUTSIDE the navigator, so
-          // the sidebar and the bottom bar sit above every route rather than
-          // only above the tabs. A pushed screen used to cover them and leave
-          // one way out — the arrow in the corner — which is what this is for.
           builder: (context, child) => _LockOverlay(
             child: _CallOverlay(
               child: Stack(
                 children: [
-                  AppShell(
-                    modalDepth: _modals.depth,
-                    drawer: const AppSideBar(onSelectTab: ShellTabs.select),
-                    bottomBar: (context) => ListenableBuilder(
-                      listenable: Listenable.merge([
-                        CallLog.instance,
-                        ChatStore.instance,
-                        FeedStore.instance,
-                      ]),
-                      builder: (context, _) => ValueListenableBuilder<int>(
-                        valueListenable: ShellTabs.index,
-                        builder: (context, index, _) => ModernNavBar(
-                          index: index,
-                          missedCalls: CallLog.instance.newMissedCount,
-                          activityCount: CallLog.instance.newMissedCount +
-                              FeedStore.instance.unseenNotificationCount +
-                              ChatStore.instance.chats.fold(
-                                  0, (n, c) => n + (c.unreadCount > 0 ? 1 : 0)),
-                          onSelect: (i) {
-                            // A destination is a destination: whatever is
-                            // stacked on top of the tabs goes, and the tab
-                            // changes underneath it.
-                            rootNavigatorKey.currentState
-                                ?.popUntil((r) => r.isFirst);
-                            ShellTabs.select(i);
-                          },
-                        ),
-                      ),
-                    ),
-                    child: child ?? const SizedBox.shrink(),
-                  ),
+                  child ?? const SizedBox.shrink(),
                   const FileTransferBanner(),
                 ],
               ),

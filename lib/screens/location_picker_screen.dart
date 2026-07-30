@@ -4,7 +4,6 @@ import 'package:latlong2/latlong.dart';
 
 import '../util/geocoding.dart';
 import '../util/geolocation.dart';
-import '../widgets/app_shell.dart';
 import '../widgets/osm_map.dart';
 
 /// Lets the user pick a point on an OpenStreetMap to share. The map pans under
@@ -107,10 +106,7 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-          automaticallyImplyLeading: false,
-          leading: const SidebarButton(),
-          title: const Text('Choose location')),
+      appBar: AppBar(title: const Text('Choose location')),
       // Keep the map steady when the search keyboard opens.
       resizeToAvoidBottomInset: false,
       body: Stack(
@@ -180,8 +176,8 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 6),
                     decoration: BoxDecoration(
                       color: Colors.white.withValues(alpha: 0.9),
                       borderRadius: BorderRadius.circular(8),

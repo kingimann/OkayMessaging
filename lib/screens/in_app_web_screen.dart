@@ -3,7 +3,6 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../payments/connect_webview.dart';
 import '../theme/app_theme.dart';
-import '../widgets/app_shell.dart';
 
 /// Any web page, on one of the app's own screens.
 ///
@@ -58,8 +57,6 @@ class _InAppWebScreenState extends State<InAppWebScreen> {
     final host = Uri.tryParse(widget.url)?.host ?? '';
     return Scaffold(
       appBar: AppBar(
-        automaticallyImplyLeading: false,
-        leading: const SidebarButton(),
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -77,13 +74,11 @@ class _InAppWebScreenState extends State<InAppWebScreen> {
                       fontSize: 11.5, color: Colors.grey.shade400)),
           ],
         ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.close),
-            tooltip: 'Close',
-            onPressed: () => Navigator.of(context).pop(),
-          ),
-        ],
+        leading: IconButton(
+          icon: const Icon(Icons.close),
+          tooltip: 'Close',
+          onPressed: () => Navigator.of(context).pop(),
+        ),
       ),
       body: !ConnectWebView.isSupported
           ? Center(

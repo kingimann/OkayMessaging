@@ -11,7 +11,6 @@ import '../relay/relay_service.dart';
 import '../state/chat_store.dart';
 import '../state/status_store.dart';
 import '../utils/date_formatter.dart';
-import '../widgets/app_shell.dart';
 import '../widgets/pull_to_refresh.dart';
 
 Color _hex(String s) {
@@ -34,10 +33,7 @@ class StatusScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-          automaticallyImplyLeading: false,
-          leading: const SidebarButton(),
-          title: const Text('Status')),
+      appBar: AppBar(title: const Text('Status')),
       body: AnimatedBuilder(
         animation: StatusStore.instance,
         builder: (context, _) {
@@ -122,12 +118,12 @@ class StatusScreen extends StatelessWidget {
     );
   }
 
-  void _compose(BuildContext context) => Navigator.of(context)
-      .push(MaterialPageRoute(builder: (_) => const StatusComposerScreen()));
+  void _compose(BuildContext context) => Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const StatusComposerScreen()));
 
   void _view(BuildContext context, StatusThread thread) =>
-      Navigator.of(context).push(MaterialPageRoute(
-          builder: (_) => StatusViewerScreen(thread: thread)));
+      Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => StatusViewerScreen(thread: thread)));
 }
 
 /// An avatar with a colored ring (Snapchat/WhatsApp-style unseen indicator).
@@ -175,7 +171,8 @@ class _RingAvatar extends StatelessWidget {
                 color: Theme.of(context).colorScheme.primary,
                 shape: BoxShape.circle,
                 border: Border.all(
-                    color: Theme.of(context).scaffoldBackgroundColor, width: 2),
+                    color: Theme.of(context).scaffoldBackgroundColor,
+                    width: 2),
               ),
               child: const Icon(Icons.add, size: 15, color: Colors.white),
             ),
@@ -222,8 +219,6 @@ class _StatusComposerScreenState extends State<StatusComposerScreen> {
     return Scaffold(
       backgroundColor: _hex(_bg),
       appBar: AppBar(
-        automaticallyImplyLeading: false,
-        leading: const SidebarButton(),
         backgroundColor: Colors.transparent,
         iconTheme: const IconThemeData(color: Colors.white),
         actions: [
@@ -341,8 +336,7 @@ class _StatusViewerScreenState extends State<StatusViewerScreen> {
           name: widget.thread.authorName,
           avatarColor: widget.thread.avatarColor,
         );
-    chat ??=
-        Chat(id: 'chat_${contact.id}', contact: contact, messages: const []);
+    chat ??= Chat(id: 'chat_${contact.id}', contact: contact, messages: const []);
     store.upsert(chat);
     final msg = Message(
       id: 'streply_${DateTime.now().microsecondsSinceEpoch}',

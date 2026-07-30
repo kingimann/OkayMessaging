@@ -3,7 +3,6 @@ import 'package:qr_flutter/qr_flutter.dart';
 
 import '../app_state.dart';
 import '../models/user.dart';
-import '../widgets/app_shell.dart';
 import '../widgets/user_avatar.dart';
 
 /// Shows a scannable QR code for the signed-in user, so someone can add them
@@ -28,10 +27,7 @@ class MyQrScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-          automaticallyImplyLeading: false,
-          leading: const SidebarButton(),
-          title: const Text('My QR code')),
+      appBar: AppBar(title: const Text('My QR code')),
       body: ValueListenableBuilder<AppUser>(
         valueListenable: AppState.profile,
         builder: (context, me, _) => Center(

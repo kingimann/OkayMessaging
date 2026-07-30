@@ -11,7 +11,6 @@ import '../state/platform_moderation.dart';
 import '../state/session.dart';
 import '../state/storage_store.dart';
 import '../widgets/app_dialogs.dart';
-import '../widgets/app_shell.dart';
 import '../widgets/info_section.dart';
 import '../widgets/user_avatar.dart';
 import 'account_email_screen.dart';
@@ -38,10 +37,7 @@ class SettingsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(
-            automaticallyImplyLeading: false,
-            leading: const SidebarButton(),
-            title: const Text('Settings')),
+        appBar: AppBar(title: const Text('Settings')),
         body: const SettingsView(),
       );
 }
@@ -336,8 +332,8 @@ class SettingsView extends StatelessWidget {
                   tooltip: 'Copy',
                   onPressed: () {
                     Clipboard.setData(ClipboardData(text: value));
-                    ScaffoldMessenger.of(context)
-                        .showSnackBar(SnackBar(content: Text('$label copied')));
+                    ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('$label copied')));
                   },
                 ),
         );
@@ -354,19 +350,18 @@ class SettingsView extends StatelessWidget {
             UserAvatar(user: me, radius: 34),
             const SizedBox(height: 10),
             Text(me.name,
-                style:
-                    const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+                style: const TextStyle(
+                    fontSize: 18, fontWeight: FontWeight.w700)),
             if (me.pronouns.trim().isNotEmpty)
               Text(me.pronouns.trim(),
-                  style: TextStyle(fontSize: 13, color: Colors.grey.shade500)),
+                  style:
+                      TextStyle(fontSize: 13, color: Colors.grey.shade500)),
             const SizedBox(height: 8),
             row(Icons.phone_outlined, 'Phone number',
                 me.phone.isEmpty ? 'Not set' : me.phone),
             row(Icons.alternate_email, 'Username',
                 me.handle.isNotEmpty ? me.handle : 'Not set'),
-            row(
-                Icons.email_outlined,
-                'Email',
+            row(Icons.email_outlined, 'Email',
                 AccountEmail.instance.isSet
                     ? AccountEmail.instance.email
                     : 'Not set'),
@@ -514,8 +509,8 @@ class _ProfileCard extends StatelessWidget {
             title: AnimatedBuilder(
               animation: ScoreStore.instance,
               builder: (context, _) {
-                final featured = ScoreStore.badgeById(
-                    ScoreStore.instance.featuredBadge ?? '');
+                final featured =
+                    ScoreStore.badgeById(ScoreStore.instance.featuredBadge ?? '');
                 return NameWithBadge(
                   name: me.name,
                   verified: me.verified,
@@ -544,7 +539,8 @@ class _ProfileCard extends StatelessWidget {
                   icon: const Icon(Icons.ios_share, color: Colors.grey),
                   tooltip: 'Share profile',
                   onPressed: () {
-                    final who = me.handle.isNotEmpty ? me.handle : me.name;
+                    final who =
+                        me.handle.isNotEmpty ? me.handle : me.name;
                     Clipboard.setData(ClipboardData(
                         text: 'Chat with me ($who) on OkayMessenger: '
                             'https://kingimann.github.io/OkayMessaging/'));

@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../app_state.dart';
-import '../widgets/app_shell.dart';
 import '../widgets/osm_map.dart';
 
 /// Every Maps preference in one place: base style, units, low data mode,
@@ -12,10 +11,7 @@ class MapsSettingsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-          automaticallyImplyLeading: false,
-          leading: const SidebarButton(),
-          title: const Text('Maps settings')),
+      appBar: AppBar(title: const Text('Maps settings')),
       body: ListView(
         padding: const EdgeInsets.symmetric(vertical: 8),
         children: [
@@ -49,12 +45,14 @@ class MapsSettingsScreen extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: SegmentedButton<String>(
                 segments: const [
-                  ButtonSegment(value: 'metric', label: Text('Kilometres')),
+                  ButtonSegment(
+                      value: 'metric', label: Text('Kilometres')),
                   ButtonSegment(value: 'imperial', label: Text('Miles')),
                 ],
                 selected: {units},
                 showSelectedIcon: false,
-                onSelectionChanged: (s) => AppState.mapUnits.value = s.first,
+                onSelectionChanged: (s) =>
+                    AppState.mapUnits.value = s.first,
               ),
             ),
           ),
@@ -80,9 +78,7 @@ class MapsSettingsScreen extends StatelessWidget {
                 children: [
                   Text('Directions open with',
                       style: TextStyle(
-                          fontSize: 13,
-                          color:
-                              Theme.of(context).colorScheme.onSurfaceVariant)),
+                          fontSize: 13, color: Theme.of(context).colorScheme.onSurfaceVariant)),
                   const SizedBox(height: 6),
                   SegmentedButton<String>(
                     segments: const [

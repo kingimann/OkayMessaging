@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 
 import '../models/community.dart';
 import '../state/community_store.dart';
-import '../widgets/app_shell.dart';
 import 'communities.dart';
 import 'community_settings_screen.dart';
 
@@ -60,10 +59,7 @@ class _CreateServerScreenState extends State<CreateServerScreen> {
     final scheme = Theme.of(context).colorScheme;
     final canCreate = _name.text.trim().isNotEmpty;
     return Scaffold(
-      appBar: AppBar(
-          automaticallyImplyLeading: false,
-          leading: const SidebarButton(),
-          title: const Text('Create a server')),
+      appBar: AppBar(title: const Text('Create a server')),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
         children: [
@@ -149,7 +145,8 @@ class _CreateServerScreenState extends State<CreateServerScreen> {
                           : null,
                     ),
                     child: _color == c
-                        ? const Icon(Icons.check, color: Colors.white, size: 20)
+                        ? const Icon(Icons.check,
+                            color: Colors.white, size: 20)
                         : null,
                   ),
                 ),
@@ -163,18 +160,12 @@ class _CreateServerScreenState extends State<CreateServerScreen> {
                   style: TextStyle(fontWeight: FontWeight.w600)),
             ),
             for (final (policy, label, detail) in const [
-              (
-                invitePolicyEveryone,
-                'Everyone',
-                'Any member can share the '
-                    'invite'
-              ),
-              (
-                invitePolicyModerators,
-                'Moderators',
-                'Moderators, admins, and the owner'
-              ),
-              (invitePolicyAdmins, 'Admins only', 'Only admins and the owner'),
+              (invitePolicyEveryone, 'Everyone', 'Any member can share the '
+                  'invite'),
+              (invitePolicyModerators, 'Moderators',
+                  'Moderators, admins, and the owner'),
+              (invitePolicyAdmins, 'Admins only',
+                  'Only admins and the owner'),
             ])
               RadioListTile<String>(
                 value: policy,
@@ -200,7 +191,8 @@ class _CreateServerScreenState extends State<CreateServerScreen> {
             ),
             SwitchListTile(
               value: _membersCanCreateChannels,
-              onChanged: (v) => setState(() => _membersCanCreateChannels = v),
+              onChanged: (v) =>
+                  setState(() => _membersCanCreateChannels = v),
               title: const Text('Members can create channels'),
             ),
             SwitchListTile(
@@ -226,7 +218,8 @@ class _CreateServerScreenState extends State<CreateServerScreen> {
             child: Text(
                 'Limits how often members can send messages. '
                 'Moderators are exempt.',
-                style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                style:
+                    TextStyle(fontSize: 12, color: Colors.grey.shade600)),
           ),
           const SizedBox(height: 20),
           Container(
@@ -237,15 +230,16 @@ class _CreateServerScreenState extends State<CreateServerScreen> {
             ),
             child: Row(
               children: [
-                Icon(Icons.lock_outline, size: 20, color: Colors.grey.shade600),
+                Icon(Icons.lock_outline,
+                    size: 20, color: Colors.grey.shade600),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(
                     'Everything in a server is end-to-end encrypted with its '
                     'own key, shared only through invites. People who join '
                     'later never receive earlier messages.',
-                    style:
-                        TextStyle(color: Colors.grey.shade600, fontSize: 12.5),
+                    style: TextStyle(
+                        color: Colors.grey.shade600, fontSize: 12.5),
                   ),
                 ),
               ],
@@ -282,7 +276,8 @@ class _CreateServerScreenState extends State<CreateServerScreen> {
             .withValues(alpha: 0.4),
         borderRadius: BorderRadius.circular(14),
         clipBehavior: Clip.antiAlias,
-        child: Column(mainAxisSize: MainAxisSize.min, children: children),
+        child:
+            Column(mainAxisSize: MainAxisSize.min, children: children),
       );
 
   Widget _iconChoice(
@@ -301,7 +296,8 @@ class _CreateServerScreenState extends State<CreateServerScreen> {
               ? scheme.primary.withValues(alpha: 0.15)
               : Colors.grey.withValues(alpha: 0.1),
           borderRadius: BorderRadius.circular(12),
-          border: selected ? Border.all(color: scheme.primary, width: 2) : null,
+          border:
+              selected ? Border.all(color: scheme.primary, width: 2) : null,
         ),
         alignment: Alignment.center,
         child: child,

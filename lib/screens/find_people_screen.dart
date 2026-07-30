@@ -7,7 +7,6 @@ import '../models/user.dart';
 import '../state/account_service.dart';
 import '../state/call_service.dart' show CallService;
 import '../state/chat_store.dart';
-import '../widgets/app_shell.dart';
 import '../widgets/user_avatar.dart';
 import '../widgets/verified_badge.dart';
 import 'chat_screen.dart';
@@ -84,8 +83,6 @@ class _FindPeopleScreenState extends State<FindPeopleScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        automaticallyImplyLeading: false,
-        leading: const SidebarButton(),
         title: const Text('Find people'),
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(62),
@@ -200,8 +197,8 @@ class _FindPeopleScreenState extends State<FindPeopleScreen> {
             const SizedBox(height: 16),
             Text(title,
                 textAlign: TextAlign.center,
-                style:
-                    const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+                style: const TextStyle(
+                    fontSize: 17, fontWeight: FontWeight.w700)),
             const SizedBox(height: 8),
             Text(body,
                 textAlign: TextAlign.center,

@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import '../payments/payment_service.dart';
 import '../payments/store_purchases.dart';
 import '../widgets/app_dialogs.dart';
-import '../widgets/app_shell.dart';
 
 /// A place for people to support the developer with an optional tip. There are
 /// no paid tiers — OkayMessenger is free, private, and has no ads, tracking, or
@@ -43,8 +42,8 @@ class _OkayProScreenState extends State<OkayProScreen> {
     } catch (_) {
       if (!mounted) return;
       setState(() => _sending = false);
-      messenger.showSnackBar(
-          const SnackBar(content: Text('Payment couldn\'t be completed.')));
+      messenger.showSnackBar(const SnackBar(
+          content: Text('Payment couldn\'t be completed.')));
     }
   }
 
@@ -64,10 +63,7 @@ class _OkayProScreenState extends State<OkayProScreen> {
   Widget build(BuildContext context) {
     final testMode = PaymentService.instance.testMode.value;
     return Scaffold(
-      appBar: AppBar(
-          automaticallyImplyLeading: false,
-          leading: const SidebarButton(),
-          title: const Text('Support the developer')),
+      appBar: AppBar(title: const Text('Support the developer')),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
         children: [
@@ -205,8 +201,8 @@ class _AmountTile extends StatelessWidget {
                       style: const TextStyle(
                           fontSize: 17, fontWeight: FontWeight.w800)),
                   Text(label,
-                      style:
-                          TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                      style: TextStyle(
+                          fontSize: 12, color: Colors.grey.shade600)),
                 ],
               ),
             ),

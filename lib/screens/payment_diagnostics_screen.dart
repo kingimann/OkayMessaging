@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../payments/payment_diagnostics.dart';
-import '../widgets/app_shell.dart';
 
 /// "Check payments setup": runs the payments chain and says which link is
 /// broken.
@@ -45,8 +44,6 @@ class _PaymentDiagnosticsScreenState extends State<PaymentDiagnosticsScreen> {
     final result = _result;
     return Scaffold(
       appBar: AppBar(
-        automaticallyImplyLeading: false,
-        leading: const SidebarButton(),
         title: const Text('Check payments setup'),
         actions: [
           if (result != null)

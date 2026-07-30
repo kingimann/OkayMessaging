@@ -6,7 +6,6 @@ import '../payments/payment_service.dart';
 import '../payments/stripe_tokens.dart';
 import '../state/session.dart' as local;
 import '../util/photo_prep.dart';
-import '../widgets/app_shell.dart';
 import 'connect_onboarding_screen.dart';
 
 /// Setting up payments in the app's own forms.
@@ -270,10 +269,7 @@ class _NativeOnboardingScreenState extends State<NativeOnboardingScreen> {
   Widget build(BuildContext context) {
     final req = _req;
     return Scaffold(
-      appBar: AppBar(
-          automaticallyImplyLeading: false,
-          leading: const SidebarButton(),
-          title: const Text('Set up payments')),
+      appBar: AppBar(title: const Text('Set up payments')),
       body: _loadError != null
           ? _problem(_loadError!)
           : req == null

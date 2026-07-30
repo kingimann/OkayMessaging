@@ -249,7 +249,8 @@ class _ChatInputBarState extends State<ChatInputBar> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     // The input pill needs to stand out from the (white) chat background, so
     // it uses a soft grey in light mode rather than blending into white.
-    final fieldColor = isDark ? AppColors.darkAppBar : const Color(0xFFEFF1F3);
+    final fieldColor =
+        isDark ? AppColors.darkAppBar : const Color(0xFFEFF1F3);
 
     return DecoratedBox(
       // A hairline separates the composer from the conversation above it.
@@ -638,19 +639,12 @@ class _AttachmentPanel extends StatelessWidget {
     return Container(
       color: isDark ? AppColors.chatBgDark : const Color(0xFFF0F0F0),
       padding: const EdgeInsets.fromLTRB(12, 14, 12, 14),
-      // A fixed row height, not an aspect ratio. A ratio ties the tile to the
-      // screen's width, so the same eight shortcuts that are 100 points tall
-      // on a phone become 200 on a tablet and shove the composer off the
-      // bottom of the screen. The tile holds a 50-point circle and one line of
-      // text; that is the same height everywhere.
-      child: GridView(
+      child: GridView.count(
+        crossAxisCount: 4,
         shrinkWrap: true,
         physics: const NeverScrollableScrollPhysics(),
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 4,
-          mainAxisSpacing: 12,
-          mainAxisExtent: 88,
-        ),
+        mainAxisSpacing: 12,
+        childAspectRatio: 0.95,
         children: [
           for (final option in options)
             InkWell(

@@ -2,8 +2,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 
-import '../widgets/app_shell.dart';
-
 /// A settings screen that explains the permissions OkayMessenger uses and lets
 /// the user manage them. The app never assumes a permission is granted — each
 /// feature requests it at the point of use (calls → camera/mic, maps →
@@ -73,10 +71,7 @@ class _PermissionsScreenState extends State<PermissionsScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-          automaticallyImplyLeading: false,
-          leading: const SidebarButton(),
-          title: const Text('Permissions')),
+      appBar: AppBar(title: const Text('Permissions')),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : ListView(
@@ -121,26 +116,14 @@ class _PermissionsScreenState extends State<PermissionsScreen>
                 ),
                 // The rest are requested at point of use; managed in Settings.
                 for (final p in const [
-                  (
-                    Icons.videocam_outlined,
-                    'Camera',
-                    'For video calls and taking photos to send.'
-                  ),
-                  (
-                    Icons.mic_none,
-                    'Microphone',
-                    'For voice and video calls and voice messages.'
-                  ),
-                  (
-                    Icons.photo_library_outlined,
-                    'Photos',
-                    'To send pictures and set your profile photo.'
-                  ),
-                  (
-                    Icons.notifications_none,
-                    'Notifications',
-                    'To alert you about new messages and calls.'
-                  ),
+                  (Icons.videocam_outlined, 'Camera',
+                      'For video calls and taking photos to send.'),
+                  (Icons.mic_none, 'Microphone',
+                      'For voice and video calls and voice messages.'),
+                  (Icons.photo_library_outlined, 'Photos',
+                      'To send pictures and set your profile photo.'),
+                  (Icons.notifications_none, 'Notifications',
+                      'To alert you about new messages and calls.'),
                 ])
                   ListTile(
                     leading: Icon(p.$1),

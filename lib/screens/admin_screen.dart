@@ -4,7 +4,6 @@ import '../models/platform_role.dart';
 import '../state/account_service.dart';
 import '../state/platform_moderation.dart';
 import '../widgets/app_dialogs.dart';
-import '../widgets/app_shell.dart';
 import '../widgets/info_section.dart';
 
 /// The moderation console.
@@ -51,8 +50,6 @@ class _AdminScreenState extends State<AdminScreen> {
     final store = PlatformModeration.instance;
     return Scaffold(
       appBar: AppBar(
-        automaticallyImplyLeading: false,
-        leading: const SidebarButton(),
         title: const Text('Moderation'),
         actions: [
           IconButton(
@@ -130,8 +127,8 @@ class _AdminScreenState extends State<AdminScreen> {
                         ? 'You can time out, suspend, and ban accounts.'
                         : 'You can time out accounts. Bans and suspensions '
                             'need an admin.',
-                    style:
-                        TextStyle(fontSize: 12.5, color: Colors.grey.shade600),
+                    style: TextStyle(
+                        fontSize: 12.5, color: Colors.grey.shade600),
                   ),
                   const SizedBox(height: 6),
                   // The limit that matters most, said up front rather than
@@ -141,7 +138,8 @@ class _AdminScreenState extends State<AdminScreen> {
                     'push, payments. Messages are end-to-end encrypted and '
                     'have no server copy, so nobody here can read or delete '
                     'them.',
-                    style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                    style: TextStyle(
+                        fontSize: 12, color: Colors.grey.shade600),
                   ),
                 ],
               ),
@@ -178,8 +176,8 @@ class _AdminScreenState extends State<AdminScreen> {
                     r.targetPhone.isEmpty
                         ? 'No account attached'
                         : AccountService.maskPhone(r.targetPhone),
-                    style:
-                        TextStyle(fontSize: 12.5, color: Colors.grey.shade600),
+                    style: TextStyle(
+                        fontSize: 12.5, color: Colors.grey.shade600),
                   ),
                 ),
                 if (r.targetPhone.isNotEmpty)
@@ -313,8 +311,9 @@ class _SanctionSheetState extends State<_SanctionSheet> {
       kind: _kind,
       reason: _reason.text.trim(),
       // A ban is permanent; the others need a clock.
-      minutes:
-          _kind == SanctionKind.ban ? 0 : (sanctionDurations[_duration] ?? 60),
+      minutes: _kind == SanctionKind.ban
+          ? 0
+          : (sanctionDurations[_duration] ?? 60),
     );
     if (!mounted) return;
     setState(() => _sending = false);
@@ -354,7 +353,8 @@ class _SanctionSheetState extends State<_SanctionSheet> {
             Text(
                 'Removes access to the app. It does not touch conversations — '
                 'those are encrypted and have no server copy.',
-                style: TextStyle(fontSize: 12.5, color: Colors.grey.shade600)),
+                style:
+                    TextStyle(fontSize: 12.5, color: Colors.grey.shade600)),
             const SizedBox(height: 14),
             TextField(
               controller: _phone,
@@ -396,8 +396,8 @@ class _SanctionSheetState extends State<_SanctionSheet> {
               Padding(
                 padding: const EdgeInsets.only(top: 10),
                 child: Text('A ban is permanent until an admin lifts it.',
-                    style:
-                        TextStyle(fontSize: 12.5, color: Colors.grey.shade600)),
+                    style: TextStyle(
+                        fontSize: 12.5, color: Colors.grey.shade600)),
               ),
             const SizedBox(height: 12),
             TextField(

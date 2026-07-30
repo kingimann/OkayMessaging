@@ -13,7 +13,6 @@ import '../theme/app_theme.dart';
 import '../util/file_saver.dart';
 import '../utils/chat_transcript.dart';
 import '../widgets/app_dialogs.dart';
-import '../widgets/app_shell.dart';
 import '../widgets/info_section.dart';
 import '../widgets/user_avatar.dart';
 import '../widgets/verified_badge.dart';
@@ -36,8 +35,6 @@ class ContactInfoScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        automaticallyImplyLeading: false,
-        leading: const SidebarButton(),
         backgroundColor: Colors.transparent,
         actions: [
           PopupMenuButton<String>(
@@ -139,7 +136,8 @@ class ContactInfoScreen extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Icon(Icons.link,
-                      size: 15, color: Theme.of(context).colorScheme.primary),
+                      size: 15,
+                      color: Theme.of(context).colorScheme.primary),
                   const SizedBox(width: 4),
                   Text(
                     user.link.trim(),
@@ -172,8 +170,8 @@ class ContactInfoScreen extends StatelessWidget {
                           : FilledButton.icon(
                               onPressed: () =>
                                   FollowStore.instance.toggle(user.username),
-                              icon:
-                                  const Icon(Icons.person_add_alt_1, size: 18),
+                              icon: const Icon(Icons.person_add_alt_1,
+                                  size: 18),
                               label: const Text('Follow'),
                             ),
                     ],
@@ -216,10 +214,13 @@ class ContactInfoScreen extends StatelessWidget {
                   InfoTile(
                     leading: Icon(fav ? Icons.star : Icons.star_outline,
                         color: fav ? const Color(0xFFF1C40F) : null),
-                    title: fav ? 'Favourite' : 'Add to call favourites',
+                    title: fav
+                        ? 'Favourite'
+                        : 'Add to call favourites',
                     trailing: Switch(
                       value: fav,
-                      onChanged: (_) => FavouritesStore.instance.toggle(user),
+                      onChanged: (_) =>
+                          FavouritesStore.instance.toggle(user),
                     ),
                   ),
                 ]);
@@ -269,8 +270,7 @@ class ContactInfoScreen extends StatelessWidget {
               return InfoSection(
                 children: [
                   InfoTile(
-                    leading: Icon(
-                        blocked ? Icons.check_circle_outline : Icons.block,
+                    leading: Icon(blocked ? Icons.check_circle_outline : Icons.block,
                         color: blocked ? null : Colors.red),
                     title:
                         blocked ? 'Unblock ${user.name}' : 'Block ${user.name}',
@@ -586,11 +586,12 @@ class _ChatSettingsSection extends StatelessWidget {
     if (chat == null) return;
     final messenger = ScaffoldMessenger.of(context);
     if (chat.messages.isEmpty) {
-      messenger
-          .showSnackBar(const SnackBar(content: Text('Nothing to export yet')));
+      messenger.showSnackBar(
+          const SnackBar(content: Text('Nothing to export yet')));
       return;
     }
-    final transcript = buildChatTranscript(chat, AppState.profile.value.name);
+    final transcript =
+        buildChatTranscript(chat, AppState.profile.value.name);
     final result = await saveIncomingFile(
       transcriptFileName(user.name),
       Uint8List.fromList(utf8.encode(transcript)),
@@ -680,8 +681,8 @@ class _ChatDangerSection extends StatelessWidget {
     return InfoSection(
       children: [
         InfoTile(
-          leading:
-              const Icon(Icons.cleaning_services_outlined, color: Colors.red),
+          leading: const Icon(Icons.cleaning_services_outlined,
+              color: Colors.red),
           title: 'Clear chat',
           titleColor: Colors.red,
           onTap: () async {

@@ -9,7 +9,6 @@ import '../relay/relay_config.dart';
 import '../relay/relay_service.dart';
 import '../state/chat_store.dart';
 import '../theme/app_theme.dart';
-import '../widgets/app_shell.dart';
 import '../widgets/user_avatar.dart';
 import 'chat_screen.dart';
 
@@ -94,8 +93,6 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
     final contacts = groupCandidates();
     return Scaffold(
       appBar: AppBar(
-        automaticallyImplyLeading: false,
-        leading: const SidebarButton(),
         title: Text(_naming ? 'New group' : 'Add participants'),
         actions: [
           if (!_naming)
@@ -173,8 +170,7 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
                         onChanged: (_) => _toggle(c),
                         secondary: UserAvatar(user: c, radius: 22),
                         title: Text(c.name,
-                            style:
-                                const TextStyle(fontWeight: FontWeight.w600)),
+                            style: const TextStyle(fontWeight: FontWeight.w600)),
                         subtitle: Text(c.about,
                             maxLines: 1, overflow: TextOverflow.ellipsis),
                         activeColor: AppColors.tealGreenDark,
@@ -216,8 +212,7 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
         const SizedBox(height: 20),
         Text(
           'Participants: ${_selected.length + 1}',
-          style:
-              const TextStyle(fontWeight: FontWeight.w600, color: Colors.grey),
+          style: const TextStyle(fontWeight: FontWeight.w600, color: Colors.grey),
         ),
         const SizedBox(height: 8),
         Wrap(

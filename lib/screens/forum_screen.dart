@@ -5,7 +5,6 @@ import '../models/community.dart';
 import '../state/community_store.dart';
 import '../utils/date_formatter.dart';
 import '../widgets/app_dialogs.dart';
-import '../widgets/app_shell.dart';
 import '../widgets/pull_to_refresh.dart';
 import '../widgets/rich_message_text.dart';
 
@@ -32,7 +31,8 @@ List<ForumPost> sortPosts(List<ForumPost> posts, ForumSort sort,
       list.sort((a, b) => b.score.compareTo(a.score));
     case ForumSort.hot:
       final n = now ?? DateTime.now();
-      double hot(ForumPost p) => p.score - n.difference(p.time).inHours / 12.0;
+      double hot(ForumPost p) =>
+          p.score - n.difference(p.time).inHours / 12.0;
       list.sort((a, b) => hot(b).compareTo(hot(a)));
   }
   // Stable partition: pinned posts first, keeping the sorted order within each.
@@ -157,8 +157,6 @@ class _ForumChannelScreenState extends State<ForumChannelScreen> {
             _sort);
         return Scaffold(
           appBar: AppBar(
-            automaticallyImplyLeading: false,
-            leading: const SidebarButton(),
             title: _searching
                 ? TextField(
                     controller: _query,
@@ -262,7 +260,7 @@ class _ForumChannelScreenState extends State<ForumChannelScreen> {
                         ),
                       )
                     : PullToRefresh(
-                        child: ListView.builder(
+                      child: ListView.builder(
                           padding: const EdgeInsets.only(bottom: 88),
                           itemCount: posts.length,
                           itemBuilder: (context, i) => _PostCard(
@@ -271,7 +269,7 @@ class _ForumChannelScreenState extends State<ForumChannelScreen> {
                             post: posts[i],
                           ),
                         ),
-                      ),
+                    ),
               ),
             ],
           ),
@@ -288,7 +286,9 @@ class _PostCard extends StatelessWidget {
   final String channelId;
   final ForumPost post;
   const _PostCard(
-      {required this.communityId, required this.channelId, required this.post});
+      {required this.communityId,
+      required this.channelId,
+      required this.post});
 
   @override
   Widget build(BuildContext context) {
@@ -298,7 +298,9 @@ class _PostCard extends StatelessWidget {
       child: InkWell(
         onTap: () => Navigator.of(context).push(MaterialPageRoute(
           builder: (_) => ForumPostScreen(
-              communityId: communityId, channelId: channelId, postId: post.id),
+              communityId: communityId,
+              channelId: channelId,
+              postId: post.id),
         )),
         child: Padding(
           padding: const EdgeInsets.fromLTRB(6, 8, 14, 10),
@@ -342,7 +344,8 @@ class _PostCard extends StatelessWidget {
                                     color: Colors.grey.shade600)),
                             const SizedBox(width: 8),
                           ],
-                          if (post.tag.isNotEmpty) _TagChip(tag: post.tag),
+                          if (post.tag.isNotEmpty)
+                            _TagChip(tag: post.tag),
                         ],
                       ),
                       const SizedBox(height: 3),
@@ -459,7 +462,9 @@ class _PostMenu extends StatelessWidget {
         } else if (v == 'edit') {
           Navigator.of(context).push(MaterialPageRoute(
             builder: (_) => CreateForumPostScreen(
-                communityId: communityId, channelId: channelId, existing: post),
+                communityId: communityId,
+                channelId: channelId,
+                existing: post),
           ));
         } else if (v == 'delete') {
           if (await _confirmDelete(context, 'post')) {
@@ -509,7 +514,9 @@ class _VoteControl extends StatelessWidget {
         Text('$score',
             style: TextStyle(
                 fontWeight: FontWeight.w700,
-                color: myVote == 1 ? up : (myVote == -1 ? down : null))),
+                color: myVote == 1
+                    ? up
+                    : (myVote == -1 ? down : null))),
         IconButton(
           visualDensity: VisualDensity.compact,
           iconSize: 22,
@@ -616,15 +623,14 @@ class _ForumPostScreenState extends State<ForumPostScreen> {
         }
         // Muted members' comments are hidden along with their posts.
         final muted = community!.mutedIds.toSet();
-        final visibleComments =
-            post.comments.where((c) => !muted.contains(c.authorId)).toList();
+        final visibleComments = post.comments
+            .where((c) => !muted.contains(c.authorId))
+            .toList();
         final comments = threadComments(visibleComments, _commentSort);
         final canManagePost = isMineAuthor(post.authorId) ||
             CommunityStore.instance.canModerate(widget.communityId);
         return Scaffold(
           appBar: AppBar(
-            automaticallyImplyLeading: false,
-            leading: const SidebarButton(),
             title: const Text('Post'),
             actions: [
               if (canManagePost)
@@ -678,8 +684,9 @@ class _ForumPostScreenState extends State<ForumPostScreen> {
                                 // Links in the body open like they do in chat.
                                 RichMessageText(
                                   text: post.body,
-                                  textColor:
-                                      Theme.of(context).colorScheme.onSurface,
+                                  textColor: Theme.of(context)
+                                      .colorScheme
+                                      .onSurface,
                                   linkColor:
                                       Theme.of(context).colorScheme.primary,
                                 ),
@@ -692,8 +699,7 @@ class _ForumPostScreenState extends State<ForumPostScreen> {
                     const Divider(height: 28),
                     Row(
                       children: [
-                        Text(
-                            '${visibleComments.length} '
+                        Text('${visibleComments.length} '
                             '${visibleComments.length == 1 ? 'comment' : 'comments'}',
                             style:
                                 const TextStyle(fontWeight: FontWeight.w700)),
@@ -742,11 +748,9 @@ class _ForumPostScreenState extends State<ForumPostScreen> {
                               ? () async {
                                   if (await _confirmDelete(
                                       context, 'comment')) {
-                                    CommunityStore.instance.deleteForumComment(
-                                        widget.communityId,
-                                        widget.channelId,
-                                        post.id,
-                                        c.id);
+                                    CommunityStore.instance
+                                        .deleteForumComment(widget.communityId,
+                                            widget.channelId, post.id, c.id);
                                   }
                                 }
                               : null,
@@ -780,70 +784,70 @@ class _ForumPostScreenState extends State<ForumPostScreen> {
                 )
               else
                 SafeArea(
-                  top: false,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (_replyingTo != null)
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(12, 2, 8, 0),
-                          child: Row(
-                            children: [
-                              Icon(Icons.subdirectory_arrow_right,
-                                  size: 16,
-                                  color: Theme.of(context).colorScheme.primary),
-                              const SizedBox(width: 6),
-                              Expanded(
-                                child: Text(
-                                  'Replying to ${_replyingTo!.authorName}',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                      fontSize: 12.5,
-                                      fontWeight: FontWeight.w600),
-                                ),
-                              ),
-                              IconButton(
-                                icon: const Icon(Icons.close, size: 16),
-                                tooltip: 'Cancel reply',
-                                visualDensity: VisualDensity.compact,
-                                onPressed: () =>
-                                    setState(() => _replyingTo = null),
-                              ),
-                            ],
-                          ),
-                        ),
+                top: false,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (_replyingTo != null)
                       Padding(
-                        padding: const EdgeInsets.fromLTRB(12, 4, 8, 8),
+                        padding: const EdgeInsets.fromLTRB(12, 2, 8, 0),
                         child: Row(
                           children: [
+                            Icon(Icons.subdirectory_arrow_right,
+                                size: 16,
+                                color: Theme.of(context).colorScheme.primary),
+                            const SizedBox(width: 6),
                             Expanded(
-                              child: TextField(
-                                controller: _comment,
-                                minLines: 1,
-                                maxLines: 4,
-                                textCapitalization:
-                                    TextCapitalization.sentences,
-                                decoration: InputDecoration(
-                                  hintText: _replyingTo == null
-                                      ? 'Add a comment…'
-                                      : 'Reply to ${_replyingTo!.authorName}…',
-                                  border: const OutlineInputBorder(),
-                                  isDense: true,
-                                ),
+                              child: Text(
+                                'Replying to ${_replyingTo!.authorName}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                    fontSize: 12.5,
+                                    fontWeight: FontWeight.w600),
                               ),
                             ),
                             IconButton(
-                              icon: const Icon(Icons.send_rounded),
-                              color: Theme.of(context).colorScheme.primary,
-                              onPressed: _addComment,
+                              icon: const Icon(Icons.close, size: 16),
+                              tooltip: 'Cancel reply',
+                              visualDensity: VisualDensity.compact,
+                              onPressed: () =>
+                                  setState(() => _replyingTo = null),
                             ),
                           ],
                         ),
                       ),
-                    ],
-                  ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 4, 8, 8),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: _comment,
+                              minLines: 1,
+                              maxLines: 4,
+                              textCapitalization:
+                                  TextCapitalization.sentences,
+                              decoration: InputDecoration(
+                                hintText: _replyingTo == null
+                                    ? 'Add a comment…'
+                                    : 'Reply to ${_replyingTo!.authorName}…',
+                                border: const OutlineInputBorder(),
+                                isDense: true,
+                              ),
+                            ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.send_rounded),
+                            color: Theme.of(context).colorScheme.primary,
+                            onPressed: _addComment,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
+              ),
             ],
           ),
         );
@@ -990,8 +994,9 @@ class _CreateForumPostScreenState extends State<CreateForumPostScreen> {
       return;
     }
     if (_isEdit) {
-      CommunityStore.instance.editForumPost(widget.communityId,
-          widget.channelId, widget.existing!.id, title, _body.text.trim(),
+      CommunityStore.instance.editForumPost(
+          widget.communityId, widget.channelId, widget.existing!.id, title,
+          _body.text.trim(),
           tag: _tag);
     } else {
       final me = AppState.profile.value;
@@ -1018,8 +1023,6 @@ class _CreateForumPostScreenState extends State<CreateForumPostScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        automaticallyImplyLeading: false,
-        leading: const SidebarButton(),
         title: Text(_isEdit ? 'Edit post' : 'New post'),
         actions: [
           TextButton(
@@ -1071,7 +1074,8 @@ class _CreateForumPostScreenState extends State<CreateForumPostScreen> {
                   selected: _tag == t,
                   selectedColor: forumTagColor(t).withValues(alpha: 0.2),
                   checkmarkColor: forumTagColor(t),
-                  onSelected: (_) => setState(() => _tag = _tag == t ? '' : t),
+                  onSelected: (_) =>
+                      setState(() => _tag = _tag == t ? '' : t),
                 ),
             ],
           ),

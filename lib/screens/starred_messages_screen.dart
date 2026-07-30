@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import '../state/chat_store.dart';
 import '../theme/app_theme.dart';
 import '../utils/date_formatter.dart';
-import '../widgets/app_shell.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/pull_to_refresh.dart';
 import '../widgets/user_avatar.dart';
@@ -16,10 +15,7 @@ class StarredMessagesScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final store = ChatStore.instance;
     return Scaffold(
-      appBar: AppBar(
-          automaticallyImplyLeading: false,
-          leading: const SidebarButton(),
-          title: const Text('Starred messages')),
+      appBar: AppBar(title: const Text('Starred messages')),
       body: ListenableBuilder(
         listenable: store,
         builder: (context, _) {
@@ -46,8 +42,7 @@ class StarredMessagesScreen extends StatelessWidget {
                       ),
                       Text(
                         DateFormatter.chatListLabel(entry.message.time),
-                        style:
-                            const TextStyle(fontSize: 12, color: Colors.grey),
+                        style: const TextStyle(fontSize: 12, color: Colors.grey),
                       ),
                     ],
                   ),

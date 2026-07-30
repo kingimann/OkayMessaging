@@ -21,9 +21,11 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:okay_messaging/app_state.dart';
 import 'package:okay_messaging/models/user.dart';
-import 'package:okay_messaging/screens/public_feed_screen.dart';
+import 'package:okay_messaging/main.dart';
+import 'package:okay_messaging/state/chat_store.dart';
+import 'package:okay_messaging/state/legal_consent.dart';
+import 'package:okay_messaging/state/session.dart';
 import 'package:okay_messaging/state/public_feed_store.dart';
-import 'package:okay_messaging/theme/app_theme.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Real type instead of the test font's filled boxes.
@@ -87,18 +89,24 @@ void main() {
                 createdAt: now.subtract(Duration(hours: i))),
         ];
 
-    for (final (name, theme) in [
-      ('profile_light', AppTheme.light),
-      ('profile_dark', AppTheme.dark),
-    ]) {
-      await t.pumpWidget(MaterialApp(
-        theme: theme,
-        debugShowCheckedModeBanner: false,
-        home: const PublicProfileScreen(username: 'iman', name: 'Iman Fakhar'),
-      ));
-      await t.pumpAndSettle();
-      await expectLater(
-          find.byType(MaterialApp), matchesGoldenFile('shots/$name.png'));
-    }
+    ChatStore.instance.reset();
+    AppState.resetForTest();
+    Session.instance.signInForTest();
+    LegalConsent.instance.resetForTest();
+    await t.pumpWidget(const OkayMessagingApp());
+    await t.pumpAndSettle();
+    await t.tap(find.text('Bob Carter'));
+    await t.pumpAndSettle();
+    await expectLater(
+        find.byType(MaterialApp), matchesGoldenFile('shots/chat.png'));
+
+    // With the keyboard up — the state the bug report showed, where the
+    // composer had jumped to the top of the screen.
+    t.view.viewInsets = const FakeViewPadding(bottom: 336);
+    addTearDown(t.view.resetViewInsets);
+    await t.tap(find.byType(TextField).first);
+    await t.pumpAndSettle();
+    await expectLater(find.byType(MaterialApp),
+        matchesGoldenFile('shots/chat_keyboard.png'));
   });
 }

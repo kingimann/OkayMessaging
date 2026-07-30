@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../legal/legal_content.dart';
-import '../widgets/app_shell.dart';
 
 /// Renders a set of [LegalSection]s (Privacy Policy or Terms) as a readable,
 /// selectable document.
@@ -20,10 +19,7 @@ class LegalScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-          automaticallyImplyLeading: false,
-          leading: const SidebarButton(),
-          title: Text(title)),
+      appBar: AppBar(title: Text(title)),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
         children: [
@@ -32,8 +28,8 @@ class LegalScreen extends StatelessWidget {
           const SizedBox(height: 16),
           for (final s in sections) ...[
             Text(s.title,
-                style:
-                    const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+                style: const TextStyle(
+                    fontSize: 17, fontWeight: FontWeight.w700)),
             const SizedBox(height: 6),
             SelectableText(
               s.body,

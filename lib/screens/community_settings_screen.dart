@@ -4,40 +4,19 @@ import 'package:flutter/services.dart';
 import '../models/community.dart';
 import '../state/community_store.dart';
 import '../widgets/app_dialogs.dart';
-import '../widgets/app_shell.dart';
 import '../widgets/info_section.dart';
 
 Color _hex(String s) => Color(int.parse(s.replaceFirst('#', 'ff'), radix: 16));
 
 const serverPalette = [
-  '#7A5CFF',
-  '#12B76A',
-  '#F1C40F',
-  '#EF5DA8',
-  '#009DE2',
-  '#F97052',
-  '#8B5CF6',
-  '#0F1419',
+  '#7A5CFF', '#12B76A', '#F1C40F', '#EF5DA8', '#009DE2',
+  '#F97052', '#8B5CF6', '#0F1419',
 ];
 
 /// Emoji a server can wear instead of its first letter.
 const serverEmojis = [
-  '🎮',
-  '🎨',
-  '🎵',
-  '📚',
-  '💼',
-  '⚽',
-  '🍕',
-  '🚀',
-  '🌟',
-  '🔥',
-  '💬',
-  '🛠️',
-  '🏠',
-  '🎬',
-  '📷',
-  '🌈',
+  '🎮', '🎨', '🎵', '📚', '💼', '⚽', '🍕', '🚀',
+  '🌟', '🔥', '💬', '🛠️', '🏠', '🎬', '📷', '🌈',
 ];
 
 /// The slow-mode choices offered, in seconds (0 = off).
@@ -79,10 +58,7 @@ class CommunitySettingsScreen extends StatelessWidget {
           return _memberView(context, community);
         }
         return Scaffold(
-          appBar: AppBar(
-              automaticallyImplyLeading: false,
-              leading: const SidebarButton(),
-              title: const Text('Server settings')),
+          appBar: AppBar(title: const Text('Server settings')),
           body: ListView(
             children: [
               const SizedBox(height: 8),
@@ -287,10 +263,7 @@ class CommunitySettingsScreen extends StatelessWidget {
   Widget _memberView(BuildContext context, Community community) {
     final store = CommunityStore.instance;
     return Scaffold(
-      appBar: AppBar(
-          automaticallyImplyLeading: false,
-          leading: const SidebarButton(),
-          title: const Text('About this server')),
+      appBar: AppBar(title: const Text('About this server')),
       body: ListView(
         children: [
           const SizedBox(height: 8),
@@ -313,8 +286,8 @@ class CommunitySettingsScreen extends StatelessWidget {
           const SizedBox(height: 10),
           Center(
             child: Text(community.name,
-                style:
-                    const TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
+                style: const TextStyle(
+                    fontSize: 20, fontWeight: FontWeight.w800)),
           ),
           if (community.description.isNotEmpty)
             Padding(
@@ -433,8 +406,8 @@ class CommunitySettingsScreen extends StatelessWidget {
                 child: Text(
                     'Limits how often members can send channel messages. '
                     'Admins are exempt.',
-                    style:
-                        TextStyle(fontSize: 12.5, color: Colors.grey.shade600)),
+                    style: TextStyle(
+                        fontSize: 12.5, color: Colors.grey.shade600)),
               ),
             ),
             for (final s in slowModeChoices)
@@ -446,8 +419,9 @@ class CommunitySettingsScreen extends StatelessWidget {
                     color: community.slowModeSeconds == s
                         ? Theme.of(sheetContext).colorScheme.primary
                         : Colors.grey),
-                title: Text(
-                    s == 0 ? 'Off' : 'One message every ${slowModeLabel(s)}'),
+                title: Text(s == 0
+                    ? 'Off'
+                    : 'One message every ${slowModeLabel(s)}'),
                 onTap: () => Navigator.pop(sheetContext, s),
               ),
           ],
@@ -484,22 +458,17 @@ class CommunitySettingsScreen extends StatelessWidget {
                 child: Text(
                     'Controls who may share this server\'s invite. People '
                     'already here stay either way.',
-                    style:
-                        TextStyle(fontSize: 12.5, color: Colors.grey.shade600)),
+                    style: TextStyle(
+                        fontSize: 12.5, color: Colors.grey.shade600)),
               ),
             ),
             for (final (policy, label, detail) in const [
-              (
-                invitePolicyEveryone,
-                'Everyone',
-                'Any member can share the invite'
-              ),
-              (
-                invitePolicyModerators,
-                'Moderators',
-                'Moderators, admins, and the owner'
-              ),
-              (invitePolicyAdmins, 'Admins only', 'Only admins and the owner'),
+              (invitePolicyEveryone, 'Everyone',
+                  'Any member can share the invite'),
+              (invitePolicyModerators, 'Moderators',
+                  'Moderators, admins, and the owner'),
+              (invitePolicyAdmins, 'Admins only',
+                  'Only admins and the owner'),
             ])
               ListTile(
                 leading: Icon(
@@ -564,8 +533,8 @@ class CommunitySettingsScreen extends StatelessWidget {
                 const Padding(
                   padding: EdgeInsets.fromLTRB(20, 0, 20, 8),
                   child: Text('Banned members',
-                      style:
-                          TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+                      style: TextStyle(
+                          fontSize: 17, fontWeight: FontWeight.w700)),
                 ),
                 if (banned.isEmpty)
                   Padding(
@@ -673,8 +642,8 @@ class _WordFilterSheetState extends State<_WordFilterSheet> {
     return SafeArea(
       child: Padding(
         // Keep the field above the keyboard.
-        padding:
-            EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+        padding: EdgeInsets.only(
+            bottom: MediaQuery.of(context).viewInsets.bottom),
         child: ListenableBuilder(
           listenable: CommunityStore.instance,
           builder: (context, _) {
@@ -688,8 +657,8 @@ class _WordFilterSheetState extends State<_WordFilterSheet> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text('Word filter',
-                      style:
-                          TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+                      style: TextStyle(
+                          fontSize: 17, fontWeight: FontWeight.w700)),
                   const SizedBox(height: 4),
                   Text(
                       'Messages and posts containing a filtered word are '
