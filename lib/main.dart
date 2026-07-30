@@ -33,6 +33,7 @@ import 'state/feed_store.dart';
 import 'state/favourites_store.dart';
 import 'state/incoming_links.dart';
 import 'state/bookmark_store.dart';
+import 'state/feed_mute_store.dart';
 import 'state/follow_store.dart';
 import 'state/legal_consent.dart';
 import 'state/live_location_broadcaster.dart';
@@ -96,6 +97,7 @@ Future<void> main() async {
   await _boot('places', SavedPlacesStore.instance.load);
   await _boot('follows', FollowStore.instance.load);
   await _boot('bookmarks', BookmarkStore.instance.load);
+  await _boot('feed mutes', FeedMuteStore.instance.load);
   await _boot('feed', FeedStore.instance.load);
   await _boot('storage', StorageStore.instance.load);
   // StoreKit replays renewals that happened while the app was closed, so this

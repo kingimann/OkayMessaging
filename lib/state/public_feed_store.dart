@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../app_state.dart';
 import '../relay/relay_config.dart';
 import 'account_service.dart';
+import 'feed_mute_store.dart';
 import 'follow_store.dart';
 import 'session.dart' as local;
 
@@ -220,10 +221,18 @@ class PublicFeedStore extends ChangeNotifier {
   bool get reachedEnd => _reachedEnd;
 
   /// The timeline: top-level posts (never replies), ordered by the active
-  /// filter. Top sorts by likes, then reposts, then recency, so a tie doesn't
-  /// reshuffle on every rebuild.
+  /// filter, with muted authors left out. Top sorts by likes, then reposts,
+  /// then recency, so a tie doesn't reshuffle on every rebuild.
+  ///
+  /// Muting is applied here rather than in the query because it lives on the
+  /// device — there is no column for it to filter on. The consequence is that a
+  /// page can arrive shorter than it was fetched, which is the right trade: a
+  /// mute nobody can see is worth more than a page that is exactly forty long.
   List<PublicPost> get posts {
-    final list = _posts.where((p) => p.replyTo == null).toList();
+    final list = _posts
+        .where((p) =>
+            p.replyTo == null && !FeedMuteStore.instance.isMuted(p.authorUsername))
+        .toList();
     if (_filter == FeedFilter.top) {
       list.sort((a, b) {
         final byLikes = b.likeCount.compareTo(a.likeCount);
@@ -736,6 +745,16 @@ class PublicFeedStore extends ChangeNotifier {
       }
       throw PublicFeedError('Couldn\'t upload that image.');
     }
+  }
+
+  /// The handle a reply is replying to, or null when the parent isn't loaded.
+  /// Never guessed: a wrong "Replying to @somebody" is worse than no line.
+  String? replyingTo(PublicPost post) {
+    final parent = post.replyTo;
+    if (parent == null) return null;
+    final found = byId(parent);
+    final username = found?.authorUsername ?? '';
+    return username.isEmpty ? null : username;
   }
 
   /// This account's repost of [postId], or null. Matched on username, since the

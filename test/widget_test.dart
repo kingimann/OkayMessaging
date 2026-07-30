@@ -11,6 +11,7 @@ import '../tool/paste_functions.dart';
 import 'package:okay_messaging/payments/iap_entitlement.dart';
 import 'package:okay_messaging/utils/date_formatter.dart';
 import 'package:okay_messaging/state/bookmark_store.dart';
+import 'package:okay_messaging/state/feed_mute_store.dart';
 import 'package:okay_messaging/state/voice_presence_store.dart';
 import 'package:okay_messaging/state/channel_typing_store.dart';
 import 'package:okay_messaging/state/identity_verification.dart';
@@ -13898,6 +13899,118 @@ void main() {
       expect(find.text('saved for later'), findsOneWidget);
       // The one the server did not return is dropped, not left dangling.
       expect(marks.ids, ['a']);
+    });
+
+    testWidgets('muting someone hides them, and can be undone', (t) async {
+      t.view.physicalSize = const Size(500, 1600);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.resetPhysicalSize);
+      SharedPreferences.setMockInitialValues({});
+      final store = PublicFeedStore.instance;
+      final mutes = FeedMuteStore.instance;
+      addTearDown(store.resetForTest);
+      addTearDown(mutes.resetForTest);
+      await mutes.load();
+
+      final now = DateTime.now();
+      PublicFeedStore.debugLoadOverride = () async => [
+            PublicPost(
+                id: 'a',
+                authorUsername: 'loud',
+                authorName: 'Loud',
+                body: 'from the loud one',
+                createdAt: now),
+            PublicPost(
+                id: 'b',
+                authorUsername: 'quiet',
+                authorName: 'Quiet',
+                body: 'from the quiet one',
+                createdAt: now.subtract(const Duration(minutes: 1))),
+          ];
+      await t.pumpWidget(const MaterialApp(home: PublicFeedScreen()));
+      await t.pumpAndSettle();
+      expect(find.text('from the loud one'), findsOneWidget);
+
+      // A shared timeline has no membership to leave, so without this the only
+      // options left to somebody being pestered are to report and wait, or to
+      // stop opening the feed.
+      await mutes.toggle('loud');
+      await t.pumpAndSettle();
+      expect(find.text('from the loud one'), findsNothing);
+      expect(find.text('from the quiet one'), findsOneWidget,
+          reason: 'only the muted author goes');
+
+      // Capitalisation must not defeat it.
+      expect(mutes.isMuted('LOUD'), isTrue);
+      expect(mutes.isMuted('@loud'), isTrue);
+
+      // AND IT HAS TO BE UNDOABLE. Muting hides the posts, which is what makes
+      // the mute unreachable afterwards — there is no post left to open a menu
+      // on — so a list is not a nicety.
+      await t.pumpWidget(const MaterialApp(home: MutedAccountsScreen()));
+      await t.pumpAndSettle();
+      expect(find.text('@loud'), findsOneWidget);
+      await t.tap(find.text('Unmute'));
+      await t.pumpAndSettle();
+      expect(mutes.isMuted('loud'), isFalse);
+      expect(find.text('@loud'), findsNothing);
+
+      // Nothing about a mute leaves the device: it is a decision about
+      // yourself, and the muted person least of all should be able to see it.
+      final src = File('lib/state/feed_mute_store.dart').readAsStringSync();
+      expect(src.contains('Supabase'), isFalse);
+      expect(src.contains('from('), isFalse);
+      final sql = File('docs/public_feed.sql').readAsStringSync();
+      expect(sql.toLowerCase().contains('mute'), isFalse);
+    });
+
+    testWidgets('a reply says what it is replying to', (t) async {
+      t.view.physicalSize = const Size(500, 1600);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.resetPhysicalSize);
+      SharedPreferences.setMockInitialValues({});
+      final store = PublicFeedStore.instance;
+      addTearDown(store.resetForTest);
+      await FeedMuteStore.instance.load();
+      addTearDown(FeedMuteStore.instance.resetForTest);
+
+      final now = DateTime.now();
+      final parent = PublicPost(
+          id: 'p',
+          authorUsername: 'sam',
+          authorName: 'Sam',
+          body: 'the question',
+          createdAt: now);
+      final reply = PublicPost(
+          id: 'r',
+          authorUsername: 'kim',
+          authorName: 'Kim',
+          body: 'the answer',
+          replyTo: 'p',
+          createdAt: now.subtract(const Duration(seconds: 30)));
+      PublicFeedStore.debugLoadOverride = () async => [parent, reply];
+      await store.load();
+
+      expect(store.replyingTo(reply), 'sam');
+      // Never guessed: a wrong "Replying to @somebody" is worse than no line,
+      // so an unloaded parent produces nothing.
+      final orphan = PublicPost(
+          id: 'o',
+          authorUsername: 'kim',
+          authorName: 'Kim',
+          body: 'reply to something not here',
+          replyTo: 'nowhere',
+          createdAt: now);
+      expect(store.replyingTo(orphan), isNull);
+      // And a top-level post is not a reply to anything.
+      expect(store.replyingTo(parent), isNull);
+
+      // On screen, in the thread where a reply is actually shown.
+      await t.pumpWidget(const MaterialApp(home: PublicFeedScreen()));
+      await t.pumpAndSettle();
+      await t.tap(find.text('the question'));
+      await t.pumpAndSettle();
+      expect(find.text('Replying to @sam'), findsOneWidget);
     });
 
     testWidgets('the composer states that everyone will see it',

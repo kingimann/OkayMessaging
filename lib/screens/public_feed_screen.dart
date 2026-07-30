@@ -9,6 +9,7 @@ import '../state/chat_store.dart';
 import '../state/follow_store.dart';
 import '../state/platform_moderation.dart';
 import '../state/bookmark_store.dart';
+import '../state/feed_mute_store.dart';
 import '../state/public_feed_store.dart';
 import '../util/file_moderation.dart';
 import '../util/photo_prep.dart';
@@ -168,10 +169,24 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
               ),
             ),
           if (!_searching)
-            IconButton(
-              icon: const Icon(Icons.refresh),
-              tooltip: 'Refresh',
-              onPressed: _refresh,
+            PopupMenuButton<String>(
+              tooltip: 'More',
+              onSelected: (choice) {
+                if (choice == 'refresh') _refresh();
+                if (choice == 'muted') {
+                  Navigator.of(context).push(MaterialPageRoute(
+                      builder: (_) => const MutedAccountsScreen()));
+                }
+              },
+              itemBuilder: (context) => [
+                const PopupMenuItem(value: 'refresh', child: Text('Refresh')),
+                PopupMenuItem(
+                  value: 'muted',
+                  child: Text(FeedMuteStore.instance.count == 0
+                      ? 'Muted accounts'
+                      : 'Muted accounts (${FeedMuteStore.instance.count})'),
+                ),
+              ],
             ),
         ],
       ),
@@ -183,7 +198,11 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
         child: const Icon(Icons.edit_outlined),
       ),
       body: ListenableBuilder(
-        listenable: Listenable.merge([_store, PlatformModeration.instance]),
+        // FeedMuteStore is in here because the timeline is filtered by it:
+        // without it a mute would not remove the post until something else
+        // happened to rebuild the list.
+        listenable: Listenable.merge(
+            [_store, PlatformModeration.instance, FeedMuteStore.instance]),
         builder: (context, _) {
           final posts = _store.posts;
           return Column(
@@ -272,6 +291,84 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
                   style: TextStyle(color: Colors.grey.shade600)),
             ],
           ),
+        ),
+      );
+}
+
+/// Who this device is not showing, and how to undo it.
+///
+/// THIS SCREEN IS NOT OPTIONAL. Muting somebody hides their posts, which is
+/// exactly what makes the mute unreachable afterwards: there is no post left to
+/// open a menu on. Without a list, a mute would be permanent by accident.
+class MutedAccountsScreen extends StatelessWidget {
+  const MutedAccountsScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(title: const Text('Muted accounts')),
+        body: ListenableBuilder(
+          listenable: FeedMuteStore.instance,
+          builder: (context, _) {
+            final muted = FeedMuteStore.instance.muted.toList()..sort();
+            if (muted.isEmpty) {
+              return Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(36),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.volume_off_outlined,
+                          size: 46, color: Colors.grey.shade400),
+                      const SizedBox(height: 14),
+                      Text(
+                        'Nobody is muted. Use the ··· on a post to hide '
+                        'somebody from your timeline — they are not told, and '
+                        'it only applies on this device.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: Colors.grey.shade600),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }
+            return ListView.separated(
+              itemCount: muted.length + 1,
+              separatorBuilder: (_, __) => const Divider(height: 1),
+              itemBuilder: (context, i) {
+                if (i == muted.length) {
+                  return Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Text(
+                      'Muting is kept on this device, so it does not follow you '
+                      'to a new one — and nobody, including them, can see it.',
+                      style: TextStyle(
+                          fontSize: 12.5, color: Colors.grey.shade600),
+                    ),
+                  );
+                }
+                final username = muted[i];
+                return ListTile(
+                  leading: CircleAvatar(
+                    backgroundColor: publicProfileBannerSeed(
+                            username, Theme.of(context).colorScheme)
+                        .withValues(alpha: 0.25),
+                    child: Text(username.isEmpty
+                        ? '?'
+                        : username[0].toUpperCase()),
+                  ),
+                  title: Text('@$username'),
+                  // Their profile is still reachable: muting hides a timeline,
+                  // it does not pretend somebody stopped existing.
+                  onTap: () => openPublicProfile(context, username),
+                  trailing: TextButton(
+                    onPressed: () => FeedMuteStore.instance.toggle(username),
+                    child: const Text('Unmute'),
+                  ),
+                );
+              },
+            );
+          },
         ),
       );
 }
@@ -968,6 +1065,19 @@ class _PostTile extends StatelessWidget {
                       ),
                     ],
                   ),
+                  // What this is a reply to. Only when the parent is loaded —
+                  // a wrong handle here would be worse than no line at all.
+                  if (PublicFeedStore.instance.replyingTo(post)
+                      case final String parent) ...[
+                    const SizedBox(height: 2),
+                    GestureDetector(
+                      onTap: () => openPublicProfile(context, parent),
+                      child: Text('Replying to @$parent',
+                          style: TextStyle(
+                              fontSize: 12.5,
+                              color: Theme.of(context).colorScheme.primary)),
+                    ),
+                  ],
                   // A plain repost has nothing of its own to show; the quoted
                   // post below carries the content.
                   if (post.body.isNotEmpty) ...[
@@ -1173,6 +1283,36 @@ GestureDetector(
                   Navigator.of(sheetContext).pop();
                   openPublicProfile(context, post.authorUsername,
                       name: post.authorName);
+                },
+              ),
+            if (!post.mine && post.authorUsername.isNotEmpty)
+              ListenableBuilder(
+                listenable: FeedMuteStore.instance,
+                builder: (context, _) {
+                  final muted =
+                      FeedMuteStore.instance.isMuted(post.authorUsername);
+                  return ListTile(
+                    leading: Icon(muted
+                        ? Icons.volume_up_outlined
+                        : Icons.volume_off_outlined),
+                    title: Text(muted
+                        ? 'Unmute @${post.authorUsername}'
+                        : 'Mute @${post.authorUsername}'),
+                    subtitle: Text(muted
+                        ? 'Their posts come back to your timeline'
+                        : 'Hides their posts from your timeline, on this '
+                            'device. They are not told.'),
+                    onTap: () async {
+                      Navigator.of(sheetContext).pop();
+                      final now = await FeedMuteStore.instance
+                          .toggle(post.authorUsername);
+                      if (!context.mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                          content: Text(now
+                              ? 'Muted @${post.authorUsername}.'
+                              : 'Unmuted @${post.authorUsername}.')));
+                    },
+                  );
                 },
               ),
             if (post.mine)
