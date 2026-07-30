@@ -87,8 +87,9 @@ class _ConnectOnboardingScreenState extends State<ConnectOnboardingScreen> {
   void _onEvent(String event) {
     if (!mounted) return;
     // 'exit' is Stripe telling us the user finished or backed out of the
-    // embedded flow. Either way the wallet should re-read its status.
-    if (event == 'exit') {
+    // embedded flow; 'submitted' is the hosted flow reaching its return URL.
+    // Either way the wallet should re-read its status.
+    if (event == 'exit' || event == 'submitted') {
       Navigator.of(context).pop(true);
       return;
     }
@@ -131,7 +132,22 @@ class _ConnectOnboardingScreenState extends State<ConnectOnboardingScreen> {
             ),
         ],
       ),
-      body: _hostedUrl != null
+      // Fetching the hosted URL used to leave the failed embedded component on
+      // screen with no spinner, because _loadingHosted only greyed out the
+      // button. Tapping "Trouble?" therefore looked like it did nothing, or
+      // like the same broken screen was loading forever.
+      body: _loadingHosted
+          ? const Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircularProgressIndicator(),
+                  SizedBox(height: 16),
+                  Text('Opening Stripe\'s own setup page…'),
+                ],
+              ),
+            )
+          : _hostedUrl != null
           ? KeyedSubtree(
               key: ValueKey('hosted-$_attempt'),
               child: ConnectWebView.build(
@@ -142,6 +158,10 @@ class _ConnectOnboardingScreenState extends State<ConnectOnboardingScreen> {
                 dark: dark,
                 accent: AppColors.accentOn(context),
                 onEvent: _onEvent,
+                // Stripe ends the hosted flow by navigating to return_url,
+                // which serves this app's own website — so catch it and come
+                // back to the app instead of rendering the site in here.
+                completionUrlPrefix: PaymentService.returnUrl,
               ),
             )
           : _pageError != null
@@ -212,6 +232,11 @@ class _ConnectOnboardingScreenState extends State<ConnectOnboardingScreen> {
     if (text.contains('no_client_secret')) {
       return 'The server did not return a Stripe session.\n\n'
           '(payments-account-session answered without a clientSecret)';
+    }
+    if (text.contains('no_onboarding_url')) {
+      return 'Stripe did not return a setup link.\n\n'
+          '(payments-onboard answered without a url — check '
+          'STRIPE_SECRET_KEY and that Connect is enabled)';
     }
     if (text.contains('TimeoutException')) {
       return 'Stripe did not answer. Check your connection and try again.';

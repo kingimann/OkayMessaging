@@ -13133,6 +13133,45 @@ void main() {
       await expectLater(broken.next(), throwsA(isA<PaymentException>()));
     });
 
+    test('the hosted fallback is bounded, announced, and comes back', () {
+      final svc = File('lib/payments/payment_service.dart').readAsStringSync();
+      // The fallback is reached *because* something already failed, so it must
+      // not be the thing that hangs. It had no timeout while connectSession
+      // did.
+      final onboarding = svc.substring(svc.indexOf('Future<String> onboardingUrl'));
+      expect(onboarding.contains('.timeout('), isTrue,
+          reason: 'a hung fallback leaves the screen loading forever');
+      // A null url used to reach the screen as a TypeError about 'Null'.
+      expect(onboarding.contains("PaymentException('no_onboarding_url')"),
+          isTrue);
+
+      final screen =
+          File('lib/screens/connect_onboarding_screen.dart').readAsStringSync();
+      // _loadingHosted only greyed out the button, so tapping "Trouble?" left
+      // the broken component on screen and read as doing nothing.
+      expect(screen.contains('body: _loadingHosted'), isTrue,
+          reason: 'the wait for the hosted URL needs to be visible');
+      // Stripe's hosted flow ends by navigating to return_url, which serves
+      // this app's own website — catch it rather than render the site inside
+      // the app.
+      expect(
+          screen.contains('completionUrlPrefix: PaymentService.returnUrl'),
+          isTrue);
+      expect(screen.contains("event == 'exit' || event == 'submitted'"), isTrue);
+      // And every named failure has words to go with it.
+      for (final code in [
+        'no_onboarding_url',
+        'no_client_secret',
+        'stale_client_secret',
+        'key_mode_live_app_test_server',
+        'key_mode_test_app_live_server',
+        'no_publishable_key',
+      ]) {
+        expect(screen.contains("text.contains('$code')"), isTrue,
+            reason: '$code would surface as raw text nobody can act on');
+      }
+    });
+
     test('the page reports a refused secret instead of letting Stripe guess',
         () {
       // connect.js discards fetchClientSecret's rejection reason and paints

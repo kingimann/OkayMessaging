@@ -205,8 +205,17 @@ class PaymentService {
   /// Kept as the fallback for anywhere the embedded flow can't run (the web
   /// build has no WebView). Prefer [connectSession].
   Future<String> onboardingUrl() async {
-    final r = await _invoke('payments-onboard');
-    return r['url'] as String;
+    // Bounded like connectSession: this is the fallback people reach *because*
+    // something already went wrong, so it must not be the thing that hangs.
+    final r = await _invoke('payments-onboard')
+        .timeout(const Duration(seconds: 25));
+    final url = r['url'] as String?;
+    // A cast on a null here threw a TypeError, which reached the screen as
+    // "Could not start setup: type 'Null' is not a subtype of 'String'" —
+    // true, and useless. The function answering without a url means it
+    // couldn't make one.
+    if (url == null || url.isEmpty) throw PaymentException('no_onboarding_url');
+    return url;
   }
 
   /// Where the embedded onboarding page lives. It ships with the web build,
@@ -214,6 +223,16 @@ class PaymentService {
   static const String connectPageUrl = String.fromEnvironment(
     'CONNECT_PAGE_URL',
     defaultValue: 'https://kingimann.github.io/OkayMessaging/connect.html',
+  );
+
+  /// Where Stripe's hosted onboarding navigates when it finishes — the
+  /// `return_url` payments-onboard sets (APP_RETURN_URL, defaulting to the site
+  /// root). Worth knowing client-side: that URL serves this app's own website,
+  /// so a WebView hosting the flow has to catch the navigation and come back to
+  /// the app rather than render the marketing page inside itself.
+  static const String returnUrl = String.fromEnvironment(
+    'APP_RETURN_URL',
+    defaultValue: 'https://kingimann.github.io/OkayMessaging/',
   );
 
   /// The caller's transfers, newest first, both directions.
