@@ -13228,6 +13228,64 @@ void main() {
       expect(store.byId('b'), isNotNull);
     });
 
+    test('a view that predates reposts still gives a timeline', () {
+      // The app and the web page deploy the moment they are pushed. The SQL is
+      // pasted into a dashboard by hand, whenever somebody gets to it. So there
+      // is always a window where the client asks for columns the view has not
+      // got — and PostgREST fails the whole request over one missing column, so
+      // the feed goes blank with nothing said about why. That happened.
+      expect(PublicFeedStore.isMissingColumn('42703'), isTrue);
+      expect(PublicFeedStore.isMissingColumn('42501'), isFalse,
+          reason: 'a permission refusal is not a stale schema');
+      expect(PublicFeedStore.isMissingColumn(null), isFalse);
+
+      // The fallback only works if a row without the new keys still parses.
+      final old = PublicPost.fromRow({
+        'id': 'p1',
+        'author_username': 'sam',
+        'author_name': 'Sam',
+        'author_verified': false,
+        'body': 'hello',
+        'reply_to': null,
+        'created_at': DateTime.now().toIso8601String(),
+        'like_count': 2,
+        'reply_count': 0,
+      });
+      expect(old.body, 'hello');
+      expect(old.repostOf, isNull);
+      expect(old.imagePath, '');
+      expect(old.repostCount, 0);
+      expect(old.hasImage, isFalse);
+      expect(old.likeCount, 2, reason: 'what the old view does have still reads');
+    });
+
+    test('the feed view is dropped before it is recreated', () {
+      // `create or replace view` may only APPEND columns. repost_of and
+      // image_path belong beside the other post columns, not tacked on after
+      // the counters, so replacing in place is read as renaming everything
+      // that moved and Postgres refuses:
+      //
+      //   42P16: cannot change name of view column "created_at" to "repost_of"
+      //
+      // A fresh database cannot catch this — there is no previous view to
+      // collide with — which is why it reached the dashboard. tool/check_sql.sh
+      // now rolls back to the previous shape and re-applies; this is the cheap
+      // guard that runs on every push.
+      final sql = File('docs/public_feed.sql').readAsStringSync();
+      final drop = sql.indexOf('drop view if exists public.public_feed;');
+      final create = sql.indexOf('create or replace view public.public_feed');
+      expect(drop, greaterThanOrEqualTo(0),
+          reason: 'the view has to be dropped first');
+      expect(drop, lessThan(create), reason: 'and dropped BEFORE it is made');
+
+      // The upgrade path is what a project that ran v1 actually takes.
+      final gate = File('tool/check_sql.sh').readAsStringSync();
+      expect(gate.contains('v1shape.sql'), isTrue,
+          reason: 'the gate migrates from the previous shape, not just a '
+              'fresh database');
+      expect(gate.contains('is not safe to run twice'), isTrue);
+    });
+
     test('the feed is public by design, and says so where it matters', () {
       final sql = File('docs/public_feed.sql').readAsStringSync();
       // This is the one table holding plaintext, so the file has to be explicit
@@ -13940,6 +13998,46 @@ void main() {
       PaymentService.checkKeyMode(key: 'pk_live_abc', livemode: true);
       PaymentService.checkKeyMode(key: 'pk_test_abc', livemode: false);
       PaymentService.checkKeyMode(key: 'pk_live_abc', livemode: null);
+    });
+
+    test('a form that never authenticates becomes the hosted one by itself',
+        () {
+      // Everything that stops the embedded component from authenticating lives
+      // on the server — the two Stripe keys in different modes or from
+      // different accounts, embedded components switched off — and none of it
+      // is anything the person holding the phone can fix. The hosted flow uses
+      // no publishable key and no Account Session, so none of it touches it,
+      // and it runs in the same WebView: no browser, no popup.
+      //
+      // So it happens by itself instead of behind a "Trouble?" button.
+      expect(
+          shouldFallBackToHosted(
+              rendered: false, alreadyFellBack: false, onHosted: false),
+          isTrue);
+
+      // Not after the component painted: Stripe authenticated, the user may be
+      // part-way through its forms, and swapping the page out loses what they
+      // typed.
+      expect(
+          shouldFallBackToHosted(
+              rendered: true, alreadyFellBack: false, onHosted: false),
+          isFalse,
+          reason: 'a failure after rendering is not a failure to start');
+
+      // Once per screen, or a failing hosted page restarts the cycle forever.
+      expect(
+          shouldFallBackToHosted(
+              rendered: false, alreadyFellBack: true, onHosted: false),
+          isFalse);
+      expect(
+          shouldFallBackToHosted(
+              rendered: false, alreadyFellBack: false, onHosted: true),
+          isFalse);
+
+      // 'ready' is what tells the host the component painted, so the page has
+      // to keep sending it.
+      final html = File('web/connect.html').readAsStringSync();
+      expect(html.contains("notify('ready')"), isTrue);
     });
 
     test('which Stripe account each key belongs to is carried end to end', () {

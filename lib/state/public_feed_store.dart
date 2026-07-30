@@ -158,6 +158,34 @@ class PublicFeedStore extends ChangeNotifier {
       'repost_of, image_path, created_at, like_count, reply_count, '
       'repost_count';
 
+  /// The columns the first version of the view had.
+  ///
+  /// The app and the page deploy the moment they are pushed; the SQL is pasted
+  /// into a dashboard by hand, whenever somebody gets to it. So there is always
+  /// a window where the client asks for columns the view hasn't got, and asking
+  /// for one missing column fails the whole request — the feed goes blank, with
+  /// nothing said about why.
+  ///
+  /// A timeline without reposts or images is worth far more than no timeline,
+  /// so fall back to this and keep going.
+  static const String _legacyColumns =
+      'id, author_username, author_name, author_verified, body, reply_to, '
+      'created_at, like_count, reply_count';
+
+  /// Set once the view has been found to predate reposts and images. Sticky for
+  /// the session: retrying the wide query on every page would double the
+  /// requests for a schema that isn't going to change under us.
+  bool _legacyView = false;
+
+  /// Whether the server's feed is too old for reposts and images.
+  bool get legacyView => _legacyView;
+
+  /// Whether a Postgres error code means "you asked for a column I haven't
+  /// got". Named so the retry above reads as a decision rather than a magic
+  /// number, and so it can be tested without a database.
+  @visibleForTesting
+  static bool isMissingColumn(String? code) => code == '42703';
+
   List<PublicPost> _posts = [];
   bool _loading = false;
   bool _loadingMore = false;
@@ -361,7 +389,9 @@ class PublicFeedStore extends ChangeNotifier {
     }
     final client = _client;
     if (client == null) throw PublicFeedError('No server configured.');
-    var q = client.from('public_feed').select(_columns);
+    var q = client
+        .from('public_feed')
+        .select(_legacyView ? _legacyColumns : _columns);
     if (_query.isNotEmpty) {
       q = q.ilike('body', '%${_escapeLike(_query)}%');
     }
@@ -381,8 +411,19 @@ class PublicFeedStore extends ChangeNotifier {
     if (before != null) {
       q = q.lt('created_at', before.toUtc().toIso8601String());
     }
-    final rows =
-        await q.order('created_at', ascending: false).limit(limit);
+    final List<dynamic> rows;
+    try {
+      rows = await q.order('created_at', ascending: false).limit(limit);
+    } on PostgrestException catch (e) {
+      // 42703 is "column does not exist". The view is behind the app, so ask
+      // for what it does have and try again — once, from the top, because the
+      // builder above has already been spent.
+      if (isMissingColumn(e.code) && !_legacyView) {
+        _legacyView = true;
+        return _fetch(limit: limit, before: before);
+      }
+      rethrow;
+    }
     final mineUsername = AppState.profile.value.username;
     final liked = await _myLikes();
     return [
@@ -676,6 +717,11 @@ class PublicFeedStore extends ChangeNotifier {
   /// actually happen are the feed not being migrated yet and a sanction.
   String _explain(Object e) {
     final text = '$e';
+    if (text.contains('42703') ||
+        (text.contains('column') && text.contains('does not exist'))) {
+      return 'The server\'s feed is missing something this app expects.\n\n'
+          '(re-run docs/public_feed.sql)';
+    }
     if (text.contains('public_posts') && text.contains('does not exist')) {
       return 'The public feed isn\'t set up on the server yet.\n\n'
           '(run docs/public_feed.sql)';
@@ -705,6 +751,7 @@ class PublicFeedStore extends ChangeNotifier {
     _tag = '';
     _reachedEnd = false;
     _loadingMore = false;
+    _legacyView = false;
     notifyListeners();
   }
 }

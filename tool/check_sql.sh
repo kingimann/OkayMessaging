@@ -302,6 +302,53 @@ for f in "$WORK/harness.sql" supabase/schema.sql docs/platform_moderation.sql do
   fi
 done
 
+# UPGRADING A PROJECT THAT ALREADY RAN AN EARLIER VERSION
+#
+# Every file here claims to be safe to run twice, and a fresh database cannot
+# check that claim: it never holds the *older* shape there is to migrate from.
+# A bug reached the dashboard for exactly this reason —
+#
+#   42P16: cannot change name of view column "created_at" to "repost_of"
+#
+# — because `create or replace view` may only append columns to the end, and a
+# first run has no previous view to collide with. Nothing here could see it.
+#
+# So put the old shape back: v1's table columns, v1's body CHECK, v1's view with
+# its own column order. Then run the file again and require it to succeed. The
+# assertions below then run against the *migrated* database, so the upgrade path
+# has to arrive at the same guarantees the fresh one does.
+cat >"$WORK/v1shape.sql" <<'SQL'
+drop view if exists public.public_feed;
+alter table public.public_posts drop column if exists repost_of cascade;
+alter table public.public_posts drop column if exists image_path cascade;
+alter table public.public_posts drop constraint if exists public_posts_not_empty;
+alter table public.public_posts drop constraint if exists public_posts_reply_xor_repost;
+alter table public.public_posts drop constraint if exists public_posts_body_check;
+alter table public.public_posts
+  add constraint public_posts_body_check check (char_length(body) between 1 and 500);
+create view public.public_feed with (security_invoker = on) as
+select p.id, p.author_username, p.author_name, p.author_verified, p.body,
+       p.reply_to, p.created_at,
+       public.public_post_like_count(p.id)  as like_count,
+       public.public_post_reply_count(p.id) as reply_count
+from public.public_posts p;
+grant select on public.public_feed to anon, authenticated;
+SQL
+
+if apply "$WORK/v1shape.sql"; then
+  echo "  rolled back to the previous shape"
+else
+  echo "  FAILED  could not rebuild the previous shape"; exit 1
+fi
+
+for f in supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql; do
+  if apply "$f"; then
+    echo "  re-applied $(basename "$f")"
+  else
+    echo "  FAILED  $(basename "$f") is not safe to run twice"; exit 1
+  fi
+done
+
 # Status first, output second: piping psql into grep hands the pipeline grep's
 # exit code, and this script would print "passed" over a failed assertion.
 set +e

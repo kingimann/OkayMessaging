@@ -4,6 +4,24 @@ import '../payments/connect_webview.dart';
 import '../payments/payment_service.dart';
 import '../theme/app_theme.dart';
 
+/// Whether a failure from the embedded page should quietly become Stripe's
+/// hosted flow instead of an error screen.
+///
+/// Three conditions, and each one is there for a reason worth keeping:
+///
+/// * [rendered] — once the component has painted, Stripe authenticated and the
+///   user may be part-way through its forms. Swapping the page out then would
+///   throw away what they typed.
+/// * [alreadyFellBack] — once per screen. A hosted page that fails must not
+///   restart the cycle.
+/// * [onHosted] — the hosted page's own failures are its own.
+bool shouldFallBackToHosted({
+  required bool rendered,
+  required bool alreadyFellBack,
+  required bool onHosted,
+}) =>
+    !rendered && !alreadyFellBack && !onHosted;
+
 /// Setting up payments, inside the app.
 ///
 /// Stripe's Connect onboarding is hosted by Stripe — it has to be, because
@@ -46,6 +64,17 @@ class _ConnectOnboardingScreenState extends State<ConnectOnboardingScreen> {
   String? _hostedUrl;
   bool _loadingHosted = false;
 
+  /// Whether the embedded flow has already been given up on once. The fallback
+  /// happens by itself, but only once per screen — a hosted page that fails
+  /// must not restart the cycle.
+  bool _fellBack = false;
+
+  /// Whether the embedded component ever authenticated. A failure before it
+  /// paints is worth stepping around; one after it painted means the user was
+  /// part-way through Stripe's forms, and yanking the page out from under
+  /// them would lose what they typed.
+  bool _pageRendered = false;
+
   Future<void> _useHosted() async {
     setState(() => _loadingHosted = true);
     try {
@@ -61,7 +90,13 @@ class _ConnectOnboardingScreenState extends State<ConnectOnboardingScreen> {
       if (!mounted) return;
       setState(() {
         _loadingHosted = false;
-        _pageError = _reasonFor(e);
+        // Both routes are gone, so the embedded flow's reason matters now:
+        // it is the one that names which Stripe key is wrong, and dropping it
+        // would leave only "Stripe did not return a setup link".
+        final first = _fallbackReason;
+        _pageError = first == null
+            ? _reasonFor(e)
+            : '${_reasonFor(e)}\n\nThe in-app form failed first: $first';
       });
     }
   }
@@ -93,11 +128,42 @@ class _ConnectOnboardingScreenState extends State<ConnectOnboardingScreen> {
       Navigator.of(context).pop(true);
       return;
     }
+    // The component painted, so Stripe authenticated the session.
+    if (event == 'ready') {
+      _pageRendered = true;
+      return;
+    }
     const prefix = 'error:';
     if (event.startsWith(prefix)) {
-      setState(() => _pageError = event.substring(prefix.length));
+      final message = event.substring(prefix.length);
+      // The embedded component failed before it ever rendered.
+      //
+      // Everything that causes that lives on the server — the two Stripe keys
+      // being in different modes or belonging to different accounts, embedded
+      // components switched off — and none of it is anything the person
+      // holding the phone can do. The hosted flow needs no publishable key
+      // and no Account Session, so it is untouched by all of it, and it runs
+      // in this same WebView: no browser, no popup.
+      //
+      // So take it, rather than showing an error with a button that does this
+      // anyway. The diagnosis still reaches the screen if the fallback
+      // itself fails, which is when somebody actually needs it.
+      if (shouldFallBackToHosted(
+          rendered: _pageRendered,
+          alreadyFellBack: _fellBack,
+          onHosted: _hostedUrl != null)) {
+        _fellBack = true;
+        _fallbackReason = message;
+        _useHosted();
+        return;
+      }
+      setState(() => _pageError = message);
     }
   }
+
+  /// Why the embedded flow was abandoned. Shown only if the hosted flow fails
+  /// too — on its own it is not a problem the user has to hear about.
+  String? _fallbackReason;
 
   void _retry() => setState(() {
         _attempt++;

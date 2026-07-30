@@ -255,6 +255,18 @@ create policy public_post_likes_delete_own on public.public_post_likes
 -- A view with no phone column in it at all, so the ordinary path cannot leak
 -- one even by accident. security_invoker keeps the caller's RLS in force, which
 -- is what hides a banned author's posts.
+--
+-- DROPPED FIRST, and it has to be. `create or replace view` may only append
+-- columns to the end of an existing view; anything else is read as renaming
+-- the columns that moved, and Postgres refuses:
+--
+--   42P16: cannot change name of view column "created_at" to "repost_of"
+--
+-- Which is exactly what happened to this file, because repost_of and
+-- image_path belong next to the other post columns rather than tacked on after
+-- the counters. Dropping is safe: no app reads this view through a stored
+-- object, and the grant is re-issued below.
+drop view if exists public.public_feed;
 create or replace view public.public_feed
 with (security_invoker = on) as
 select
