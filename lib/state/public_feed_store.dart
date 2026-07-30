@@ -113,6 +113,19 @@ class PublicFeedError implements Exception {
   String toString() => reason;
 }
 
+/// The tabs on somebody's profile.
+enum ProfileTab {
+  posts,
+  replies,
+  media;
+
+  String get label => switch (this) {
+        ProfileTab.posts => 'Posts',
+        ProfileTab.replies => 'Replies',
+        ProfileTab.media => 'Media',
+      };
+}
+
 /// How the timeline is narrowed.
 enum FeedFilter {
   /// Everything, newest first.
@@ -424,6 +437,13 @@ class PublicFeedStore extends ChangeNotifier {
       }
       rethrow;
     }
+    return _hydrate(rows);
+  }
+
+  /// Rows to posts, with this account's own likes and authorship filled in.
+  /// Shared with the profile query so the two cannot disagree about what
+  /// "mine" or "liked" means.
+  Future<List<PublicPost>> _hydrate(List<dynamic> rows) async {
     final mineUsername = AppState.profile.value.username;
     final liked = await _myLikes();
     return [
@@ -440,6 +460,62 @@ class PublicFeedStore extends ChangeNotifier {
         }(),
     ];
   }
+
+  /// Test hook: stands in for one person's posts.
+  @visibleForTesting
+  static Future<List<PublicPost>> Function(String username)?
+      debugProfileOverride;
+
+  /// Everything [username] has posted, newest first — replies included, since
+  /// a profile shows those on their own tab.
+  ///
+  /// Deliberately does not touch the loaded timeline: opening a profile must
+  /// not throw away the feed somebody scrolled through to get there.
+  Future<List<PublicPost>> postsBy(String username,
+      {int limit = pageSize, DateTime? before}) async {
+    final override = debugProfileOverride;
+    if (override != null) {
+      final all = await override(username);
+      final list = [
+        for (final p in all)
+          if (p.authorUsername == username &&
+              (before == null || p.createdAt.isBefore(before)))
+            p
+      ]..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      return list.take(limit).toList();
+    }
+    final client = _client;
+    if (client == null) throw PublicFeedError('No server configured.');
+    var q = client
+        .from('public_feed')
+        .select(_legacyView ? _legacyColumns : _columns)
+        .eq('author_username', username);
+    if (before != null) {
+      q = q.lt('created_at', before.toUtc().toIso8601String());
+    }
+    final List<dynamic> rows;
+    try {
+      rows = await q.order('created_at', ascending: false).limit(limit);
+    } on PostgrestException catch (e) {
+      if (isMissingColumn(e.code) && !_legacyView) {
+        _legacyView = true;
+        return postsBy(username, limit: limit, before: before);
+      }
+      throw PublicFeedError(_explain(e));
+    }
+    return _hydrate(rows);
+  }
+
+  /// A profile's three tabs, from one list of that person's posts. Pure, so
+  /// what each tab contains is a rule rather than a query somebody can drift.
+  static List<PublicPost> profileTab(List<PublicPost> all, ProfileTab tab) =>
+      switch (tab) {
+        // Reposts belong on Posts: on a profile they are things this person
+        // put in front of their followers, which is what the tab is for.
+        ProfileTab.posts => [for (final p in all) if (p.replyTo == null) p],
+        ProfileTab.replies => [for (final p in all) if (p.replyTo != null) p],
+        ProfileTab.media => [for (final p in all) if (p.hasImage) p],
+      };
 
   /// The same narrowing the query does, for the test hook. Kept beside it so
   /// the two cannot drift apart unnoticed.
@@ -746,6 +822,7 @@ class PublicFeedStore extends ChangeNotifier {
     debugPostOverride = null;
     debugLikeOverride = null;
     debugUploadOverride = null;
+    debugProfileOverride = null;
     _filter = FeedFilter.latest;
     _query = '';
     _tag = '';

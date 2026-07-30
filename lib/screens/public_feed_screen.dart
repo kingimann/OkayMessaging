@@ -4,6 +4,9 @@ import 'package:flutter/services.dart';
 
 import '../app_state.dart';
 import '../models/platform_role.dart';
+import '../models/user.dart';
+import '../state/chat_store.dart';
+import '../state/follow_store.dart';
 import '../state/platform_moderation.dart';
 import '../state/public_feed_store.dart';
 import '../util/file_moderation.dart';
@@ -11,7 +14,32 @@ import '../util/photo_prep.dart';
 import '../utils/date_formatter.dart';
 import '../widgets/sanction_notice.dart';
 import '../widgets/verified_badge.dart';
-import 'feed_screen.dart' show showPersonSheet;
+import 'edit_profile_screen.dart';
+import 'in_app_web_screen.dart';
+
+/// The colour behind somebody's avatar, derived from their handle.
+///
+/// Deterministic on purpose: a profile that looked different every time it
+/// opened would read as a different profile. Generated rather than uploaded
+/// because there is nowhere to put a banner image, and a flat grey bar looks
+/// like something failed to load.
+Color publicProfileBannerSeed(String username, ColorScheme scheme) {
+  if (username.isEmpty) return scheme.primary;
+  var hash = 0;
+  for (final unit in username.codeUnits) {
+    hash = (hash * 31 + unit) & 0x7fffffff;
+  }
+  return HSLColor.fromAHSL(1, (hash % 360).toDouble(), 0.45, 0.42).toColor();
+}
+
+/// Opens somebody's profile. One helper, so a tap on an avatar, a name, an
+/// @mention and the "more" sheet all land in the same place.
+void openPublicProfile(BuildContext context, String username, {String? name}) {
+  if (username.isEmpty) return;
+  Navigator.of(context).push(MaterialPageRoute(
+    builder: (_) => PublicProfileScreen(username: username, name: name),
+  ));
+}
 
 /// The public newsfeed: one timeline everybody shares, outside any server.
 ///
@@ -207,6 +235,448 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
       );
 }
 
+/// Somebody's profile: who they are, and everything they have posted.
+///
+/// Laid out like the profiles people already know — a banner, an avatar
+/// overlapping it, the name and handle, then tabs — because a public feed is
+/// the one part of this app that works like the public feeds people arrive
+/// from, and inventing a new shape for it would only cost them.
+///
+/// WHAT IS NOT HERE, ON PURPOSE: a follower count. This app knows who *you*
+/// follow, on your own device. It does not know who follows anybody, and there
+/// is no table that would tell it — so a number here would have to be made up,
+/// and a made-up follower count is the sort of thing this app does not do. Post
+/// count is real: it comes from the server.
+class PublicProfileScreen extends StatefulWidget {
+  final String username;
+
+  /// The display name if the caller already knows it, so the header doesn't
+  /// flash the handle before the first post arrives.
+  final String? name;
+
+  const PublicProfileScreen({super.key, required this.username, this.name});
+
+  @override
+  State<PublicProfileScreen> createState() => _PublicProfileScreenState();
+}
+
+class _PublicProfileScreenState extends State<PublicProfileScreen> {
+  List<PublicPost>? _posts;
+  String? _error;
+  ProfileTab _tab = ProfileTab.posts;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() => _error = null);
+    try {
+      final posts = await PublicFeedStore.instance.postsBy(widget.username);
+      if (!mounted) return;
+      setState(() => _posts = posts);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error =
+          e is PublicFeedError ? e.reason : 'Couldn\'t load this profile.');
+    }
+  }
+
+  /// Whose profile this is, when we happen to know them: a contact, or you.
+  AppUser? get _known {
+    final me = AppState.profile.value;
+    if (me.username.isNotEmpty &&
+        me.username.toLowerCase() == widget.username.toLowerCase()) {
+      return me;
+    }
+    for (final chat in ChatStore.instance.chats) {
+      if (chat.contact.username.toLowerCase() ==
+          widget.username.toLowerCase()) {
+        return chat.contact;
+      }
+    }
+    return null;
+  }
+
+  bool get _isMe {
+    final me = AppState.profile.value.username;
+    return me.isNotEmpty && me.toLowerCase() == widget.username.toLowerCase();
+  }
+
+  /// The best display name available, in order of how much it is worth.
+  String get _displayName {
+    final fromPosts = _posts?.isNotEmpty == true ? _posts!.first.authorName : '';
+    if (fromPosts.isNotEmpty) return fromPosts;
+    if (widget.name?.isNotEmpty == true) return widget.name!;
+    final known = _known?.name ?? '';
+    return known.isNotEmpty ? known : '@${widget.username}';
+  }
+
+  bool get _verified {
+    if (_posts?.isNotEmpty == true) return _posts!.first.authorVerified;
+    return _known?.verified ?? false;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final posts = _posts;
+    final tabPosts =
+        posts == null ? const <PublicPost>[] : PublicFeedStore.profileTab(posts, _tab);
+    return Scaffold(
+      body: ListenableBuilder(
+        listenable: PublicFeedStore.instance,
+        builder: (context, _) => CustomScrollView(
+          slivers: [
+            SliverAppBar(
+              pinned: true,
+              expandedHeight: 132,
+              title: Text(_displayName,
+                  style: const TextStyle(fontWeight: FontWeight.w700)),
+              flexibleSpace: FlexibleSpaceBar(
+                background: _Banner(username: widget.username),
+              ),
+            ),
+            SliverToBoxAdapter(
+              child: _Header(
+                username: widget.username,
+                displayName: _displayName,
+                verified: _verified,
+                known: _known,
+                isMe: _isMe,
+                postCount: posts?.length,
+              ),
+            ),
+            SliverToBoxAdapter(
+              child: _ProfileTabs(
+                active: _tab,
+                onPick: (t) => setState(() => _tab = t),
+              ),
+            ),
+            if (_error != null)
+              SliverToBoxAdapter(child: _profileMessage(_error!, retry: true))
+            else if (posts == null)
+              const SliverToBoxAdapter(
+                child: Padding(
+                  padding: EdgeInsets.symmetric(vertical: 48),
+                  child: Center(child: CircularProgressIndicator()),
+                ),
+              )
+            else if (tabPosts.isEmpty)
+              SliverToBoxAdapter(
+                child: _profileMessage(switch (_tab) {
+                  ProfileTab.posts => _isMe
+                      ? 'You haven\'t posted anything yet.'
+                      : 'No posts yet.',
+                  ProfileTab.replies => 'No replies yet.',
+                  ProfileTab.media => 'No photos yet.',
+                }),
+              )
+            else
+              SliverList.separated(
+                itemCount: tabPosts.length,
+                separatorBuilder: (_, __) => const Divider(height: 1),
+                itemBuilder: (context, i) => _PostTile(
+                  post: tabPosts[i],
+                  onReply: () => Navigator.of(context).push(MaterialPageRoute(
+                      builder: (_) => _ThreadScreen(postId: tabPosts[i].id))),
+                  onOpen: () => Navigator.of(context).push(MaterialPageRoute(
+                      builder: (_) => _ThreadScreen(postId: tabPosts[i].id))),
+                ),
+              ),
+            const SliverToBoxAdapter(child: SizedBox(height: 40)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _profileMessage(String text, {bool retry = false}) => Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 40),
+        child: Column(
+          children: [
+            Text(text,
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.grey.shade600)),
+            if (retry) ...[
+              const SizedBox(height: 14),
+              OutlinedButton(onPressed: _load, child: const Text('Try again')),
+            ],
+          ],
+        ),
+      );
+}
+
+/// The banner behind the avatar. Generated from the handle rather than
+/// uploaded: there is nowhere to put a banner image, and a flat grey bar looks
+/// like something failed to load.
+class _Banner extends StatelessWidget {
+  final String username;
+  const _Banner({required this.username});
+
+  @override
+  Widget build(BuildContext context) {
+    final seed =
+        publicProfileBannerSeed(username, Theme.of(context).colorScheme);
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [seed, seed.withValues(alpha: 0.55)],
+        ),
+      ),
+    );
+  }
+}
+
+class _Header extends StatelessWidget {
+  final String username;
+  final String displayName;
+  final bool verified;
+  final AppUser? known;
+  final bool isMe;
+  final int? postCount;
+
+  const _Header({
+    required this.username,
+    required this.displayName,
+    required this.verified,
+    required this.known,
+    required this.isMe,
+    required this.postCount,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final initial =
+        (displayName.isEmpty ? '?' : displayName.replaceFirst('@', ''))
+            .substring(0, 1)
+            .toUpperCase();
+    final about = known?.about ?? '';
+    final pronouns = known?.pronouns ?? '';
+    final link = known?.link ?? '';
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // The avatar rides up over the banner, as it does everywhere else.
+          Transform.translate(
+            offset: const Offset(0, -30),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(3),
+                  decoration: BoxDecoration(
+                      color: Theme.of(context).scaffoldBackgroundColor,
+                      shape: BoxShape.circle),
+                  child: CircleAvatar(
+                    radius: 34,
+                    backgroundColor: publicProfileBannerSeed(username, scheme)
+                        .withValues(alpha: 0.25),
+                    child: Text(initial,
+                        style: const TextStyle(
+                            fontSize: 26, fontWeight: FontWeight.w700)),
+                  ),
+                ),
+                const Spacer(),
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: _ProfileActions(username: username, isMe: isMe),
+                ),
+              ],
+            ),
+          ),
+          Transform.translate(
+            offset: const Offset(0, -18),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Flexible(
+                      child: Text(displayName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                              fontSize: 20, fontWeight: FontWeight.w800)),
+                    ),
+                    if (verified) ...[
+                      const SizedBox(width: 5),
+                      const VerifiedBadge(size: 16),
+                    ],
+                  ],
+                ),
+                Row(
+                  children: [
+                    Text('@$username',
+                        style: TextStyle(color: Colors.grey.shade500)),
+                    if (pronouns.isNotEmpty) ...[
+                      const SizedBox(width: 8),
+                      Text(pronouns,
+                          style: TextStyle(
+                              fontSize: 12.5, color: Colors.grey.shade500)),
+                    ],
+                  ],
+                ),
+                // Only for somebody this device actually knows. There is no
+                // directory of bios to read, and a placeholder line here would
+                // be an invented one.
+                if (about.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Text(about, style: const TextStyle(fontSize: 14.5)),
+                ],
+                if (link.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  InkWell(
+                    onTap: () => InAppWebScreen.open(context, link),
+                    child: Row(
+                      children: [
+                        Icon(Icons.link, size: 15, color: scheme.primary),
+                        const SizedBox(width: 4),
+                        Flexible(
+                          child: Text(link,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                  fontSize: 13.5, color: scheme.primary)),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    // Real, from the server. The only count on this screen.
+                    _Count(
+                        value: postCount,
+                        label: postCount == 1 ? 'post' : 'posts'),
+                    if (isMe) ...[
+                      const SizedBox(width: 18),
+                      ListenableBuilder(
+                        listenable: FollowStore.instance,
+                        builder: (context, _) => _Count(
+                          value: FollowStore.instance.following.length,
+                          label: 'following',
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _Count extends StatelessWidget {
+  final int? value;
+  final String label;
+  const _Count({required this.value, required this.label});
+
+  @override
+  Widget build(BuildContext context) => Row(
+        children: [
+          Text(value == null ? '—' : '$value',
+              style: const TextStyle(fontWeight: FontWeight.w700)),
+          const SizedBox(width: 4),
+          Text(label, style: TextStyle(color: Colors.grey.shade500)),
+        ],
+      );
+}
+
+class _ProfileActions extends StatelessWidget {
+  final String username;
+  final bool isMe;
+  const _ProfileActions({required this.username, required this.isMe});
+
+  @override
+  Widget build(BuildContext context) {
+    if (isMe) {
+      return OutlinedButton(
+        onPressed: () => Navigator.of(context)
+            .push(MaterialPageRoute(builder: (_) => const EditProfileScreen())),
+        child: const Text('Edit profile'),
+      );
+    }
+    return ListenableBuilder(
+      listenable: FollowStore.instance,
+      builder: (context, _) {
+        final following = FollowStore.instance.isFollowing(username);
+        return following
+            ? OutlinedButton(
+                onPressed: () => FollowStore.instance.toggle(username),
+                child: const Text('Following'),
+              )
+            : FilledButton(
+                onPressed: () => FollowStore.instance.toggle(username),
+                child: const Text('Follow'),
+              );
+      },
+    );
+  }
+}
+
+class _ProfileTabs extends StatelessWidget {
+  final ProfileTab active;
+  final ValueChanged<ProfileTab> onPick;
+  const _ProfileTabs({required this.active, required this.onPick});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Column(
+      children: [
+        Row(
+          children: [
+            for (final t in ProfileTab.values)
+              Expanded(
+                child: InkWell(
+                  onTap: () => onPick(t),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    child: Column(
+                      children: [
+                        Text(t.label,
+                            style: TextStyle(
+                              fontWeight: t == active
+                                  ? FontWeight.w700
+                                  : FontWeight.w500,
+                              color: t == active
+                                  ? scheme.onSurface
+                                  : Colors.grey.shade500,
+                            )),
+                        const SizedBox(height: 8),
+                        Container(
+                          height: 3,
+                          width: 44,
+                          decoration: BoxDecoration(
+                            color:
+                                t == active ? scheme.primary : Colors.transparent,
+                            borderRadius: BorderRadius.circular(2),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+        const Divider(height: 1),
+      ],
+    );
+  }
+}
+
 /// One post, plus its like / reply / more actions.
 class _PostTile extends StatelessWidget {
   final PublicPost post;
@@ -228,11 +698,15 @@ class _PostTile extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            CircleAvatar(
-              radius: 20,
-              backgroundColor: scheme.primary.withValues(alpha: 0.18),
-              child: Text(initial,
-                  style: const TextStyle(fontWeight: FontWeight.w700)),
+            GestureDetector(
+              onTap: () => openPublicProfile(context, post.authorUsername,
+                  name: post.authorName),
+              child: CircleAvatar(
+                radius: 20,
+                backgroundColor: scheme.primary.withValues(alpha: 0.18),
+                child: Text(initial,
+                    style: const TextStyle(fontWeight: FontWeight.w700)),
+              ),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -242,14 +716,19 @@ class _PostTile extends StatelessWidget {
                   Row(
                     children: [
                       Flexible(
-                        child: Text(
-                            post.authorName.isEmpty
-                                ? '@${post.authorUsername}'
-                                : post.authorName,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style:
-                                const TextStyle(fontWeight: FontWeight.w700)),
+                        child: GestureDetector(
+                          onTap: () => openPublicProfile(
+                              context, post.authorUsername,
+                              name: post.authorName),
+                          child: Text(
+                              post.authorName.isEmpty
+                                  ? '@${post.authorUsername}'
+                                  : post.authorName,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style:
+                                  const TextStyle(fontWeight: FontWeight.w700)),
+                        ),
                       ),
                       if (post.authorVerified) ...[
                         const SizedBox(width: 4),
@@ -404,8 +883,8 @@ class _PostTile extends StatelessWidget {
                 title: Text('@${post.authorUsername}'),
                 onTap: () {
                   Navigator.of(sheetContext).pop();
-                  showPersonSheet(context,
-                      username: post.authorUsername, name: post.authorName);
+                  openPublicProfile(context, post.authorUsername,
+                      name: post.authorName);
                 },
               ),
             if (post.mine)
@@ -797,7 +1276,7 @@ class _Body extends StatelessWidget {
             if (token.startsWith('#')) {
               PublicFeedStore.instance.setTag(token.substring(1));
             } else {
-              showPersonSheet(context, username: token.substring(1));
+              openPublicProfile(context, token.substring(1));
             }
           },
       ));

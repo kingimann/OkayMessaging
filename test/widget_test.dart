@@ -13228,6 +13228,110 @@ void main() {
       expect(store.byId('b'), isNotNull);
     });
 
+    testWidgets('a profile shows what someone posted, in tabs', (t) async {
+      t.view.physicalSize = const Size(500, 2000);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.resetPhysicalSize);
+      final store = PublicFeedStore.instance;
+      addTearDown(store.resetForTest);
+
+      final now = DateTime.now();
+      final mine = [
+        PublicPost(
+            id: 'a',
+            authorUsername: 'sam',
+            authorName: 'Sam',
+            body: 'a top-level post',
+            createdAt: now),
+        PublicPost(
+            id: 'b',
+            authorUsername: 'sam',
+            authorName: 'Sam',
+            body: 'a reply',
+            replyTo: 'z',
+            createdAt: now.subtract(const Duration(minutes: 1))),
+        PublicPost(
+            id: 'c',
+            authorUsername: 'sam',
+            authorName: 'Sam',
+            body: 'with a photo',
+            imagePath: 'c.jpg',
+            createdAt: now.subtract(const Duration(minutes: 2))),
+        // Somebody else's post must never appear on Sam's profile.
+        PublicPost(
+            id: 'd',
+            authorUsername: 'kim',
+            authorName: 'Kim',
+            body: 'not sam',
+            createdAt: now),
+      ];
+      PublicFeedStore.debugProfileOverride = (_) async => mine;
+
+      await t.pumpWidget(const MaterialApp(
+          home: PublicProfileScreen(username: 'sam', name: 'Sam')));
+      await t.pumpAndSettle();
+
+      expect(find.text('@sam'), findsWidgets);
+      expect(find.text('a top-level post'), findsOneWidget);
+      expect(find.text('not sam'), findsNothing,
+          reason: 'a profile is one person\'s posts');
+      // Three of Sam's four, and the count is the real number the server gave.
+      expect(find.text('3'), findsWidgets);
+      expect(find.text('posts'), findsOneWidget);
+
+      // No follower count anywhere. This app knows who YOU follow, on your own
+      // device; it does not know who follows anybody, and there is no table
+      // that would say — so a number here could only be invented.
+      expect(find.textContaining('follower'), findsNothing);
+      expect(find.textContaining('Follower'), findsNothing);
+
+      await t.tap(find.text('Replies'));
+      await t.pumpAndSettle();
+      expect(find.text('a reply'), findsOneWidget);
+      expect(find.text('a top-level post'), findsNothing);
+
+      await t.tap(find.text('Media'));
+      await t.pumpAndSettle();
+      expect(find.text('with a photo'), findsOneWidget);
+      expect(find.text('a reply'), findsNothing);
+    });
+
+    test('the profile tabs are a rule, not three queries', () {
+      final now = DateTime.now();
+      PublicPost p(String id, {String? replyTo, String image = ''}) =>
+          PublicPost(
+              id: id,
+              authorUsername: 'sam',
+              authorName: 'Sam',
+              body: 'x',
+              replyTo: replyTo,
+              imagePath: image,
+              createdAt: now);
+      final all = [
+        p('top'),
+        p('reply', replyTo: 'other'),
+        p('photo', image: 'p.jpg'),
+        p('photoReply', replyTo: 'other', image: 'q.jpg'),
+      ];
+      ids(ProfileTab tab) =>
+          [for (final x in PublicFeedStore.profileTab(all, tab)) x.id];
+
+      expect(ids(ProfileTab.posts), ['top', 'photo'],
+          reason: 'Posts excludes replies');
+      expect(ids(ProfileTab.replies), ['reply', 'photoReply']);
+      // Media is about carrying an image, not about being top-level — a reply
+      // with a photo in it is still a photo this person posted.
+      expect(ids(ProfileTab.media), ['photo', 'photoReply']);
+
+      // A banner colour has to be stable, or somebody's profile looks like a
+      // different profile every time it opens.
+      const scheme = ColorScheme.light();
+      expect(publicProfileBannerSeed('sam', scheme),
+          publicProfileBannerSeed('sam', scheme));
+      expect(publicProfileBannerSeed('sam', scheme),
+          isNot(publicProfileBannerSeed('kim', scheme)));
+    });
+
     test('a view that predates reposts still gives a timeline', () {
       // The app and the web page deploy the moment they are pushed. The SQL is
       // pasted into a dashboard by hand, whenever somebody gets to it. So there
