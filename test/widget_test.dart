@@ -13253,6 +13253,35 @@ void main() {
       await expectLater(broken.next(), throwsA(isA<PaymentException>()));
     });
 
+    test('a connected account from the other mode is not used forever', () {
+      // A connected account belongs to one mode. If the stored id was made
+      // with a test secret key and the key is now live (or the reverse),
+      // Stripe answers "No such account" and the only symptom is its
+      // "An error occurred while authenticating your account" — which reads
+      // as a problem with the person's account.
+      final fn = File('supabase/functions/payments-account-session/index.ts')
+          .readAsStringSync();
+      expect(fn.contains('stripe.accounts.retrieve(accountId)'), isTrue,
+          reason: 'the stored account has to be checked, not assumed');
+      expect(fn.contains('resource_missing'), isTrue);
+      expect(
+          fn.contains('await admin.from("payment_accounts").delete()'), isTrue,
+          reason: 'an id from the other mode must be forgotten');
+      // …but only for a missing account. A network blip must not discard
+      // somebody's real connected account.
+      expect(fn.contains('} else {\n          throw e;'), isTrue,
+          reason: 'any other error must rethrow, not delete');
+
+      // A failure to create the session names the setting that is usually off.
+      expect(fn.contains('stripe_account_session_failed'), isTrue);
+      expect(fn.contains('embedded components'), isTrue);
+      // And the screen shows that text rather than swallowing it.
+      final screen =
+          File('lib/screens/connect_onboarding_screen.dart').readAsStringSync();
+      expect(screen.contains("text.contains('stripe_account_session_failed')"),
+          isTrue);
+    });
+
     test('the hosted fallback is bounded, announced, and comes back', () {
       final svc = File('lib/payments/payment_service.dart').readAsStringSync();
       // The fallback is reached *because* something already failed, so it must

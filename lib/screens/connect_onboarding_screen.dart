@@ -233,6 +233,11 @@ class _ConnectOnboardingScreenState extends State<ConnectOnboardingScreen> {
       return 'The server did not return a Stripe session.\n\n'
           '(payments-account-session answered without a clientSecret)';
     }
+    if (text.contains('stripe_account_session_failed')) {
+      // Stripe's own reason, already carrying the hint the function added.
+      return 'Stripe wouldn\'t start the setup form.\n\n'
+          '${text.replaceFirst('PaymentException: ', '')}';
+    }
     if (text.contains('no_onboarding_url')) {
       return 'Stripe did not return a setup link.\n\n'
           '(payments-onboard answered without a url — check '

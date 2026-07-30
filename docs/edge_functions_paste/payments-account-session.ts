@@ -150,6 +150,34 @@ Deno.serve(async (req) => {
       .maybeSingle();
 
     let accountId = existing?.stripe_account_id as string | undefined;
+
+    // Does the stored account still exist *under this secret key*?
+    //
+    // A connected account belongs to one mode. If the row was written while
+    // STRIPE_SECRET_KEY was a test key and it is now live (or the reverse),
+    // the id is real but invisible: Stripe answers "No such account". The
+    // Account Session then either fails to create or creates something the
+    // publishable key cannot authenticate, and the only symptom anybody sees
+    // is Stripe's "An error occurred while authenticating your account" —
+    // which reads as a problem with the person's account.
+    //
+    // So check, and when the id belongs to the other mode, forget it and make
+    // one that belongs to this one. Only on resource_missing: a network blip
+    // must never discard somebody's real account.
+    if (accountId) {
+      try {
+        await stripe.accounts.retrieve(accountId);
+      } catch (e) {
+        const err = e as { code?: string; statusCode?: number };
+        if (err?.code === "resource_missing" || err?.statusCode === 404) {
+          await admin.from("payment_accounts").delete().eq("phone", phone);
+          accountId = undefined;
+        } else {
+          throw e;
+        }
+      }
+    }
+
     if (!accountId) {
       const account = await stripe.accounts.create({
         type: "express",
@@ -169,12 +197,26 @@ Deno.serve(async (req) => {
       });
     }
 
-    const session = await stripe.accountSessions.create({
-      account: accountId,
-      components: {
-        account_onboarding: { enabled: true },
-      },
-    });
+    let session;
+    try {
+      session = await stripe.accountSessions.create({
+        account: accountId,
+        components: {
+          account_onboarding: { enabled: true },
+        },
+      });
+    } catch (e) {
+      // Stripe's own words, plus the one setting that is usually missing.
+      // "Could not start setup" with a raw Stripe message sent people looking
+      // at their bank details; embedded components being switched off is a
+      // platform setting and nothing about the account.
+      const msg = String((e as Error).message ?? e);
+      return json({
+        error: "stripe_account_session_failed: " + msg +
+          " — if this mentions components or embedded, switch on Connect " +
+          "embedded components in the Stripe Dashboard (Connect → Settings).",
+      }, 400);
+    }
 
     // A session minted by a test secret key cannot be authenticated with a
     // live publishable key, or the other way round. Stripe's only symptom is
@@ -183,14 +225,24 @@ Deno.serve(async (req) => {
     // where every version of the app shows the message, rather than only the
     // ones built after the client-side check was added.
     const pk = Deno.env.get("STRIPE_PUBLISHABLE_KEY") ?? "";
+    const serverMode = session.livemode ? "live" : "test";
     if (pk && pk.startsWith("pk_live_") !== session.livemode) {
-      const server = session.livemode ? "live" : "test";
       const key = pk.startsWith("pk_live_") ? "live" : "test";
       return json({
-        error: `stripe_key_mode_mismatch: STRIPE_SECRET_KEY is a ${server} ` +
+        error: `stripe_key_mode_mismatch: STRIPE_SECRET_KEY is a ${serverMode} ` +
           `key but STRIPE_PUBLISHABLE_KEY is a ${key} key. Both must match.`,
       }, 400);
     }
+    // With no publishable key here, the app falls back to the one compiled
+    // into the build and nothing can compare the two — which is the shape of
+    // the failure this check exists to catch, so say what the mode is and let
+    // the client finish the comparison. Not an error: a build carrying the
+    // matching key works fine this way.
+    const modeNote = pk
+      ? undefined
+      : `STRIPE_PUBLISHABLE_KEY is not set here, so the app is using the key ` +
+        `it was built with. This server is in ${serverMode} mode; that key ` +
+        `must be a pk_${serverMode}_ one.`;
 
     return json({
       clientSecret: session.client_secret,
@@ -204,6 +256,11 @@ Deno.serve(async (req) => {
       // authenticating your account" — so the client compares the two and
       // says which half is wrong.
       livemode: session.livemode,
+      // Which account the page is about to authenticate against, and a note
+      // when this server cannot cross-check the key modes itself. Both are
+      // here to be read in a failure, not used in the happy path.
+      mode: serverMode,
+      if_it_fails: modeNote,
     });
   } catch (e) {
     return json({ error: String((e as Error).message ?? e) }, 400);
