@@ -13301,12 +13301,18 @@ void main() {
       expect(page.contains('function refuse('), isTrue);
       expect(page.contains('refuse(hostAnswers'), isTrue,
           reason: 'the host-timeout path must report, not just reject');
-      expect(page.contains("refuse('The app could not start a Stripe "
-          "session.')"), isTrue);
-      // And the host reports a throw rather than swallowing it into ''.
+      // The host hands its reason to the page rather than reporting it
+      // separately: two events for one failure meant the generic one
+      // overwrote the useful one.
       final bridge = File('lib/payments/connect_webview_native.dart')
           .readAsStringSync();
-      expect(bridge.contains("widget.onEvent('error:\$e')"), isTrue);
+      expect(bridge.contains('var reason'), isTrue);
+      expect(bridge.contains(r"reason = '$e';"), isTrue);
+      expect(bridge.contains(r'${_js(reason)}'), isTrue);
+      expect(bridge.contains(r"widget.onEvent('error:$e')"), isFalse,
+          reason: 'a second error event overwrites the first');
+      expect(page.contains("refuse(reason || 'The app could not start"), isTrue,
+          reason: 'the host\'s reason must beat the fallback wording');
     });
   });
 

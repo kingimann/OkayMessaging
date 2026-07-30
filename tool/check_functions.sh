@@ -57,4 +57,12 @@ for f in supabase/functions/*/index.ts docs/edge_functions_paste/*.ts; do
 done
 
 echo "checked $checked file(s), $failed failing"
+
+# The Connect page's secret handshake, actually executed. Every bug in that
+# flow so far lived here and was found by tapping the screen; the Dart tests can
+# only read it as text.
+if [ -f tool/check_connect_page.mjs ]; then
+  deno run --allow-read tool/check_connect_page.mjs || failed=$((failed + 1))
+fi
+
 [ "$failed" -eq 0 ] || exit 1

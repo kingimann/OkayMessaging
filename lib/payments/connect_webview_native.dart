@@ -180,19 +180,23 @@ class _ConnectWebViewState extends State<_ConnectWebView> {
     }
     final id = message.substring(_kSecretRequest.length);
     var secret = '';
+    var reason = '';
     try {
       secret = await widget.onSecretRequest?.call() ?? '';
     } catch (e) {
-      // An exception thrown here would be swallowed by the channel, and the
-      // page can only report "the app could not start a session" — which
-      // Stripe then replaces with its own "error occurred while
-      // authenticating your account". So the reason is reported to the screen
-      // directly, or the one thing that knows what went wrong stays silent.
-      widget.onEvent('error:$e');
+      // Why it failed, handed to the page rather than reported separately.
+      //
+      // Reporting it here as well produced two error events for one failure —
+      // this detailed one, then the page's generic "the app could not start a
+      // Stripe session" — and the second overwrote the first, so the useful
+      // half was always the one thrown away. The page owns the message; this
+      // gives it something worth saying.
+      reason = '$e';
     }
     if (!mounted) return;
     await _controller.runJavaScript(
-      'window.okaySecret && window.okaySecret(${_js(id)}, ${_js(secret)});',
+      'window.okaySecret && window.okaySecret('
+      '${_js(id)}, ${_js(secret)}, ${_js(reason)});',
     );
   }
 

@@ -113,22 +113,24 @@
           : 'This version of the app cannot refresh the Stripe session. '
             + 'Update the app and try again.');
       }, 15000);
-      pending[id] = function (secret) {
+      pending[id] = function (secret, reason) {
         clearTimeout(timer);
         hostAnswers = true;
         if (secret) resolve(secret);
-        else refuse('The app could not start a Stripe session.');
+        // The host says why when it knows; its reason beats this fallback,
+        // which only knows that nothing came back.
+        else refuse(reason || 'The app could not start a Stripe session.');
       };
       notify('secret:' + id);
     });
   }
 
   // Answered by the host, one call per 'secret:<id>' it hears.
-  window.okaySecret = function (id, secret) {
+  window.okaySecret = function (id, secret, reason) {
     var done = pending[String(id)];
     if (!done) return;
     delete pending[String(id)];
-    done(secret);
+    done(secret, reason);
   };
 
   // The loader exposes StripeConnect.init — NOT .initialize, which is the npm
