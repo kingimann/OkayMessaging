@@ -3,6 +3,8 @@ import 'dart:ui' show ImageFilter;
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
+import '../models/user.dart';
+
 import '../state/call_log.dart';
 import '../state/chat_store.dart';
 import '../state/feed_store.dart';
@@ -16,7 +18,6 @@ import 'chat_search_delegate.dart';
 import 'communities.dart';
 import 'explore_map_screen.dart';
 import 'new_chat_screen.dart';
-import 'profile_screen.dart';
 import 'marketplace_screen.dart';
 import 'public_feed_screen.dart';
 import 'settings_screen.dart';
@@ -158,7 +159,9 @@ class _HomeScreenState extends State<HomeScreen>
             CommunitiesTab(),
             CallsTab(),
             ActivityTab(),
-            ProfileView(),
+            // The same profile screen everybody else gets, with the parts only
+            // you can act on. There used to be a second implementation here.
+            _YouTab(),
           ],
         ),
       ),
@@ -199,6 +202,22 @@ class _HomeScreenState extends State<HomeScreen>
 /// A floating "liquid glass" bottom bar: a translucent, blurred pill that
 /// hovers over the content (which shows through it), with an animated
 /// highlight behind the selected destination.
+/// The "You" tab: the one profile screen, told whose it is.
+class _YouTab extends StatelessWidget {
+  const _YouTab();
+
+  @override
+  Widget build(BuildContext context) => ValueListenableBuilder<AppUser>(
+        valueListenable: AppState.profile,
+        builder: (context, me, _) => PublicProfileScreen(
+          key: ValueKey('you-${me.username}'),
+          username: me.username,
+          name: me.name,
+          embedded: true,
+        ),
+      );
+}
+
 class _ModernNavBar extends StatelessWidget {
   final int index;
   final int missedCalls;
@@ -248,51 +267,51 @@ class _ModernNavBar extends StatelessWidget {
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-              _NavPill(
-                icon: Icons.chat_bubble_outline,
-                activeIcon: Icons.chat_bubble,
-                label: 'Chats',
-                selected: index == 0,
-                onTap: () => onSelect(0),
-              ),
-              const SizedBox(width: 6),
-              _NavPill(
-                icon: Icons.groups_outlined,
-                activeIcon: Icons.groups,
-                label: 'Servers',
-                selected: index == 1,
-                onTap: () => onSelect(1),
-              ),
-              const SizedBox(width: 6),
-              _NavPill(
-                icon: Icons.call_outlined,
-                activeIcon: Icons.call,
-                label: 'Calls',
-                selected: index == 2,
-                badgeCount: missedCalls,
-                onTap: () => onSelect(2),
-              ),
-              const SizedBox(width: 6),
-              _NavPill(
-                icon: Icons.notifications_none,
-                activeIcon: Icons.notifications,
-                label: 'Alerts',
-                selected: index == 3,
-                badgeCount: activityCount,
-                onTap: () => onSelect(3),
-              ),
-              const SizedBox(width: 6),
-              _NavPill(
-                icon: Icons.person_outline,
-                activeIcon: Icons.person,
-                label: 'You',
-                selected: index == 4,
-                onTap: () => onSelect(4),
-              ),
-                ],
-              ),
+            _NavPill(
+              icon: Icons.chat_bubble_outline,
+              activeIcon: Icons.chat_bubble,
+              label: 'Chats',
+              selected: index == 0,
+              onTap: () => onSelect(0),
             ),
-          );
+            const SizedBox(width: 6),
+            _NavPill(
+              icon: Icons.groups_outlined,
+              activeIcon: Icons.groups,
+              label: 'Servers',
+              selected: index == 1,
+              onTap: () => onSelect(1),
+            ),
+            const SizedBox(width: 6),
+            _NavPill(
+              icon: Icons.call_outlined,
+              activeIcon: Icons.call,
+              label: 'Calls',
+              selected: index == 2,
+              badgeCount: missedCalls,
+              onTap: () => onSelect(2),
+            ),
+            const SizedBox(width: 6),
+            _NavPill(
+              icon: Icons.notifications_none,
+              activeIcon: Icons.notifications,
+              label: 'Alerts',
+              selected: index == 3,
+              badgeCount: activityCount,
+              onTap: () => onSelect(3),
+            ),
+            const SizedBox(width: 6),
+            _NavPill(
+              icon: Icons.person_outline,
+              activeIcon: Icons.person,
+              label: 'You',
+              selected: index == 4,
+              onTap: () => onSelect(4),
+            ),
+          ],
+        ),
+      ),
+    );
 
     return Padding(
       padding:
@@ -321,8 +340,7 @@ class _AppSideBar extends StatelessWidget {
 
   void _go(BuildContext context, Widget screen) {
     Navigator.of(context).pop(); // close the drawer first
-    Navigator.of(context)
-        .push(MaterialPageRoute(builder: (_) => screen));
+    Navigator.of(context).push(MaterialPageRoute(builder: (_) => screen));
   }
 
   @override
@@ -350,8 +368,7 @@ class _AppSideBar extends StatelessWidget {
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: const TextStyle(
-                                    fontSize: 17,
-                                    fontWeight: FontWeight.w700)),
+                                    fontSize: 17, fontWeight: FontWeight.w700)),
                             if (me.handle.isNotEmpty)
                               Text(me.handle,
                                   style: TextStyle(

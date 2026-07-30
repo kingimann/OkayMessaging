@@ -118,12 +118,18 @@ class PublicFeedError implements Exception {
 enum ProfileTab {
   posts,
   replies,
-  media;
+  media,
+
+  /// Posts in the servers this account belongs to. Only ever shown on your own
+  /// profile: a server's feed is encrypted with that server's key, so there is
+  /// no such thing as seeing a stranger's server posts.
+  servers;
 
   String get label => switch (this) {
         ProfileTab.posts => 'Posts',
         ProfileTab.replies => 'Replies',
         ProfileTab.media => 'Media',
+        ProfileTab.servers => 'Servers',
       };
 }
 
@@ -565,6 +571,9 @@ class PublicFeedStore extends ChangeNotifier {
         ProfileTab.posts => [for (final p in all) if (p.replyTo == null) p],
         ProfileTab.replies => [for (final p in all) if (p.replyTo != null) p],
         ProfileTab.media => [for (final p in all) if (p.hasImage) p],
+        // Server posts are a different thing entirely and come from elsewhere;
+        // there is nothing here to filter.
+        ProfileTab.servers => const [],
       };
 
   /// The same narrowing the query does, for the test hook. Kept beside it so

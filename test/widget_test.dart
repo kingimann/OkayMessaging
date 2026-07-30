@@ -126,7 +126,6 @@ import 'package:okay_messaging/theme/app_theme.dart';
 import 'package:okay_messaging/tabs/calls_tab.dart';
 import 'package:okay_messaging/screens/starred_messages_screen.dart';
 import 'package:okay_messaging/widgets/emoji_data.dart';
-import 'package:okay_messaging/screens/profile_screen.dart';
 import 'package:okay_messaging/screens/edit_group_screen.dart';
 import 'package:okay_messaging/screens/group_info_screen.dart';
 import 'package:okay_messaging/state/live_location_store.dart';
@@ -6999,8 +6998,16 @@ void main() {
         IdentityVerification.instance.resetForTest();
       });
 
-      await tester.pumpWidget(
-          const MaterialApp(home: Scaffold(body: ProfileView())));
+      // What an account has proven is shown on your OWN profile — it is the
+      // door to changing each of those things, and a stranger's verification
+      // state is not somebody else's business to inspect.
+      final prevProfile = AppState.profile.value;
+      addTearDown(() => AppState.profile.value = prevProfile);
+      AppState.profile.value = const AppUser(
+          id: 'me', name: 'Me', avatarColor: '#000000', username: 'me');
+      await tester.pumpWidget(const MaterialApp(
+          home: Scaffold(
+              body: PublicProfileScreen(username: 'me', embedded: true))));
       await tester.pump();
 
       // Local mode, nothing attached: honest about all three.
@@ -10539,7 +10546,8 @@ void main() {
     testWidgets('so can the profile, score and starred screens',
         (tester) async {
       for (final screen in <Widget>[
-        const ProfileView(),
+        // The one profile screen, which is what the "You" tab renders now.
+        const PublicProfileScreen(username: 'me', embedded: true),
         const ScoreScreen(),
         const StarredMessagesScreen(),
       ]) {
@@ -14013,6 +14021,36 @@ void main() {
       expect(find.text('Replying to @sam'), findsOneWidget);
     });
 
+    testWidgets('the one profile shows what somebody posted', (t) async {
+      t.view.physicalSize = const Size(500, 2200);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.resetPhysicalSize);
+      final store = PublicFeedStore.instance;
+      addTearDown(store.resetForTest);
+      final prevProfile = AppState.profile.value;
+      addTearDown(() => AppState.profile.value = prevProfile);
+      AppState.profile.value = const AppUser(
+          id: 'me', name: 'Iman', avatarColor: '#000000', username: 'iman');
+
+      PublicFeedStore.debugProfileOverride = (username) async => [
+            PublicPost(
+                id: 'p1',
+                authorUsername: 'iman',
+                authorName: 'Iman',
+                body: 'posted on the newsfeed',
+                likeCount: 2,
+                createdAt: DateTime.now()),
+          ];
+
+      await t.pumpWidget(const MaterialApp(
+          home: Scaffold(
+              body: PublicProfileScreen(username: 'iman', embedded: true))));
+      await t.pumpAndSettle();
+
+      expect(find.text('posted on the newsfeed'), findsOneWidget);
+      expect(find.text('1'), findsWidgets, reason: 'a real post count');
+    });
+
     testWidgets('the newsfeed can always be left, and has one profile',
         (t) async {
       t.view.physicalSize = const Size(500, 1400);
@@ -14056,65 +14094,70 @@ void main() {
       expect(src.contains('Navigator.of(context).canPop()'), isTrue);
     });
 
-    test('one person has one profile', () {
-      // The rule itself, rather than the shape of the code around it.
-      expect(profileRouteFor('iman', me: 'iman'), ProfileRoute.mine);
-      expect(profileRouteFor('IMAN', me: 'iman'), ProfileRoute.mine,
-          reason: 'a handle is a handle whatever its capitalisation');
-      expect(profileRouteFor(' iman ', me: 'iman'), ProfileRoute.mine);
-      expect(profileRouteFor('someone', me: 'iman'), ProfileRoute.other);
-      // Signed out, nothing is yours — and claiming a stranger's profile is
-      // yours would be worse than showing theirs.
-      expect(profileRouteFor('iman', me: ''), ProfileRoute.other);
-
-      // Tapping your own avatar on the newsfeed opened a second self-profile:
-      // two screens showing one person with different facts on each — a score
-      // and a QR code on one, posts and tabs on the other. Whichever somebody
-      // found first became "their profile" and the other looked like a
-      // stranger's.
-      final src = File('lib/screens/public_feed_screen.dart').readAsStringSync();
-      final helper = src.substring(src.indexOf('void openPublicProfile'));
-      final self = helper.indexOf('ProfileView()');
-      final other = helper.indexOf('PublicProfileScreen(username:');
-      expect(self, greaterThanOrEqualTo(0),
-          reason: 'yours is the profile the app already had');
-      expect(other, greaterThanOrEqualTo(0), reason: 'others still have one');
-      expect(self, lessThan(other),
-          reason: 'the self check comes first, or it never runs');
-
-    });
-
-    testWidgets('the one profile shows the newsfeed posts too', (t) async {
-      t.view.physicalSize = const Size(500, 2200);
+    testWidgets('one person has one profile, and so does everybody else',
+        (t) async {
+      t.view.physicalSize = const Size(500, 1600);
       t.view.devicePixelRatio = 1.0;
       addTearDown(t.view.resetPhysicalSize);
+      SharedPreferences.setMockInitialValues({});
       final store = PublicFeedStore.instance;
       addTearDown(store.resetForTest);
+      await FeedMuteStore.instance.load();
+      addTearDown(FeedMuteStore.instance.resetForTest);
+
       final prevProfile = AppState.profile.value;
       addTearDown(() => AppState.profile.value = prevProfile);
       AppState.profile.value = const AppUser(
-          id: 'me',
-          name: 'Iman',
-          avatarColor: '#000000',
-          username: 'iman');
+          id: 'me', name: 'Iman', avatarColor: '#000000', username: 'iman');
 
-      PublicFeedStore.debugProfileOverride = (username) async => [
+      // There used to be two profile screens — the "You" tab and this one —
+      // with different layouts and different facts on each, so a field added to
+      // a profile had to be added twice or it existed on one and not the other.
+      // Whichever somebody found first became "their profile" and the other
+      // looked like a stranger's.
+      PublicFeedStore.debugLoadOverride = () async => [
             PublicPost(
-                id: 'p1',
+                id: 'a',
                 authorUsername: 'iman',
                 authorName: 'Iman',
-                body: 'posted on the newsfeed',
-                likeCount: 2,
+                body: 'mine',
                 createdAt: DateTime.now()),
+            PublicPost(
+                id: 'b',
+                authorUsername: 'sam',
+                authorName: 'Sam',
+                body: 'theirs',
+                createdAt: DateTime.now().subtract(const Duration(minutes: 1))),
           ];
+      PublicFeedStore.debugProfileOverride = (username) async => [];
 
-      await t.pumpWidget(const MaterialApp(home: Scaffold(body: ProfileView())));
+      await t.pumpWidget(const MaterialApp(home: PublicFeedScreen()));
       await t.pumpAndSettle();
 
-      // Without this the only profile somebody has hides half of what they
-      // have said: server posts on it, newsfeed posts nowhere.
-      expect(find.text('NEWSFEED'), findsOneWidget);
-      expect(find.text('posted on the newsfeed'), findsOneWidget);
+      // Yours.
+      await t.tap(find.text('Iman').first);
+      await t.pumpAndSettle();
+      expect(find.byType(PublicProfileScreen), findsOneWidget);
+      // The parts only you can act on are there, and nowhere else.
+      expect(find.text('Edit profile'), findsOneWidget);
+      expect(find.byTooltip('Share your profile'), findsOneWidget);
+      // Twice on your own: the count in the stats row, and the tab that lists
+      // them. Neither appears on anybody else's.
+      expect(find.text('Servers'), findsNWidgets(2),
+          reason: 'your own server posts, which nobody else could be shown');
+      await t.pageBack();
+      await t.pumpAndSettle();
+
+      // Somebody else's: the same screen, without them.
+      await t.tap(find.text('Sam').first);
+      await t.pumpAndSettle();
+      expect(find.byType(PublicProfileScreen), findsOneWidget);
+      expect(find.text('Edit profile'), findsNothing);
+      expect(find.byTooltip('Share your profile'), findsNothing);
+      expect(find.text('Servers'), findsNothing,
+          reason: 'a server feed is encrypted per server; there is nothing to '
+              'show and pretending otherwise would be a lie');
+      expect(find.text('Follow'), findsOneWidget);
     });
 
     testWidgets('the composer states that everyone will see it',

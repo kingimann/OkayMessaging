@@ -1,322 +1,25 @@
+// What was the "You" tab lives in one profile screen now
+// (PublicProfileScreen), used for everybody. Two implementations meant two
+// layouts and two sets of facts for one person, and any field added to a
+// profile had to be added twice or it existed on one and not the other.
+//
+// What is left here are the pieces that screen uses.
 import 'package:flutter/material.dart';
 
-import '../app_state.dart';
-import '../models/user.dart';
 import '../state/account_email.dart';
 import '../state/account_service.dart';
-import '../state/community_store.dart';
-import '../state/feed_store.dart';
-import '../state/follow_store.dart';
 import '../state/identity_verification.dart';
-import '../state/public_feed_store.dart';
 import '../state/session.dart';
-import '../utils/date_formatter.dart';
-import '../widgets/pull_to_refresh.dart';
-import '../widgets/user_avatar.dart';
-import '../widgets/verified_badge.dart';
 import 'account_email_screen.dart';
-import 'edit_profile_screen.dart';
-import 'feed_screen.dart';
-import 'my_qr_screen.dart';
-import 'people_screen.dart';
-import 'public_feed_screen.dart';
 import 'score_screen.dart';
 
-/// The "You" tab: a social-media-style profile — big avatar, handle, bio,
-/// stats, action buttons, and your recent posts. Settings live behind the
-/// gear in the app bar, not here.
-class ProfileView extends StatelessWidget {
-  const ProfileView({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return ValueListenableBuilder<AppUser>(
-      valueListenable: AppState.profile,
-      builder: (context, me, _) => ListenableBuilder(
-        listenable: Listenable.merge([
-          FollowStore.instance,
-          FeedStore.instance,
-          CommunityStore.instance,
-        ]),
-        builder: (context, _) {
-          final myPosts = FeedStore.instance
-              .recentPosts(limit: 100)
-              .where((p) =>
-                  p.authorUsername == 'you' ||
-                  (me.username.isNotEmpty && p.authorUsername == me.username))
-              .take(20)
-              .toList();
-          return PullToRefresh(
-            child: ListView(
-              padding: const EdgeInsets.only(bottom: 110),
-              children: [
-                const SizedBox(height: 18),
-                Center(child: UserAvatar(user: me, radius: 46)),
-                const SizedBox(height: 12),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Flexible(
-                      child: Text(me.name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(
-                              fontSize: 22, fontWeight: FontWeight.w800)),
-                    ),
-                    if (me.verified) ...[
-                      const SizedBox(width: 6),
-                      const VerifiedBadge(size: 20),
-                    ],
-                  ],
-                ),
-                if (me.handle.isNotEmpty)
-                  Text(me.handle,
-                      textAlign: TextAlign.center,
-                      style:
-                          TextStyle(fontSize: 15, color: Colors.grey.shade600)),
-                if (me.pronouns.trim().isNotEmpty)
-                  Text(me.pronouns.trim(),
-                      textAlign: TextAlign.center,
-                      style:
-                          TextStyle(fontSize: 13, color: Colors.grey.shade500)),
-                if (me.about.trim().isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(32, 10, 32, 0),
-                    child: Text(me.about.trim(),
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(fontSize: 14.5, height: 1.35)),
-                  ),
-                if (me.link.trim().isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 6),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.link,
-                            size: 15,
-                            color: Theme.of(context).colorScheme.primary),
-                        const SizedBox(width: 4),
-                        Text(me.link.trim(),
-                            style: TextStyle(
-                                fontSize: 13.5,
-                                color: Theme.of(context).colorScheme.primary,
-                                fontWeight: FontWeight.w600)),
-                      ],
-                    ),
-                  ),
-                const SizedBox(height: 12),
-                // What this account has proven, at a glance: the phone
-                // behind sign-in, the email that can recover it, the ID
-                // behind the blue check. Each chip goes where its state is
-                // changed, so "unconfirmed" is a door and not a verdict.
-                const _VerificationRow(),
-                const SizedBox(height: 14),
-                // Stats row — tap through to the relevant screens.
-                //
-                // Scaled down to fit rather than left to overflow: four stats
-                // and three fixed-width dividers are wider than a phone, and
-                // "Okay Score" is a long label. This overflowed by 30 pixels at
-                // a width narrower than most phones.
-                FittedBox(
-                  fit: BoxFit.scaleDown,
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      _Stat(
-                          value: '${myPosts.length}',
-                          label: 'Posts',
-                          onTap: null),
-                      _statDivider(context),
-                      _Stat(
-                          value:
-                              '${CommunityStore.instance.communities.length}',
-                          label: 'Servers',
-                          onTap: null),
-                      _statDivider(context),
-                      _Stat(
-                          value: '${FollowStore.instance.followingCount}',
-                          label: 'Following',
-                          onTap: () => Navigator.of(context).push(
-                              MaterialPageRoute(
-                                  builder: (_) => const PeopleScreen()))),
-                      _statDivider(context),
-                      _Stat(
-                          value: '${me.score}',
-                          label: 'Okay Score',
-                          onTap: () => Navigator.of(context).push(
-                              MaterialPageRoute(
-                                  builder: (_) => const ScoreScreen()))),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 18),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 24),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: FilledButton.tonalIcon(
-                          onPressed: () => Navigator.of(context).push(
-                              MaterialPageRoute(
-                                  builder: (_) => const EditProfileScreen())),
-                          icon: const Icon(Icons.edit_outlined, size: 18),
-                          label: const Text('Edit profile'),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: FilledButton.tonalIcon(
-                          onPressed: () => Navigator.of(context).push(
-                              MaterialPageRoute(
-                                  builder: (_) => const MyQrScreen())),
-                          icon: const Icon(Icons.qr_code, size: 18),
-                          label: const Text('Share'),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 10),
-                const Divider(height: 28, indent: 24, endIndent: 24),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
-                  child: Text('POSTS',
-                      style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: 0.6,
-                          color: Colors.grey.shade500)),
-                ),
-                if (myPosts.isEmpty)
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(32, 12, 32, 0),
-                    child: Text(
-                      'Nothing posted yet. Share something in a server\'s feed '
-                      'and it shows up here.',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                          color: Colors.grey.shade500, fontSize: 13.5),
-                    ),
-                  )
-                else
-                  for (final p in myPosts)
-                    ListTile(
-                      leading: UserAvatar(user: me, radius: 20),
-                      title: Text(p.text,
-                          maxLines: 3, overflow: TextOverflow.ellipsis),
-                      subtitle: Text(
-                          '${DateFormatter.callLabel(p.time)} · '
-                          '${p.likes} likes · ${p.replies} replies',
-                          style: TextStyle(
-                              fontSize: 12.5, color: Colors.grey.shade500)),
-                      onTap: () => Navigator.of(context).push(MaterialPageRoute(
-                          builder: (_) => FeedPostScreen(postId: p.id))),
-                    ),
-                // The public newsfeed is the other place this person posts, and
-                // this is now the only profile they have — leaving it out would
-                // hide half of what they have said.
-                const _MyNewsfeedPosts(),
-              ],
-            ),
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _statDivider(BuildContext context) => Container(
-        width: 1,
-        height: 30,
-        margin: const EdgeInsets.symmetric(horizontal: 22),
-        color: Theme.of(context).dividerColor,
-      );
-}
-
-/// This account's posts on the public newsfeed.
-///
-/// Fetched here rather than read from the timeline: the timeline holds whatever
-/// was last scrolled, which is not the same as what this person has posted.
-class _MyNewsfeedPosts extends StatefulWidget {
-  const _MyNewsfeedPosts();
-
-  @override
-  State<_MyNewsfeedPosts> createState() => _MyNewsfeedPostsState();
-}
-
-class _MyNewsfeedPostsState extends State<_MyNewsfeedPosts> {
-  List<PublicPost>? _posts;
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  Future<void> _load() async {
-    final me = AppState.profile.value.username;
-    if (me.isEmpty || !PublicFeedStore.instance.isConfigured) {
-      setState(() => _posts = const []);
-      return;
-    }
-    try {
-      final posts = await PublicFeedStore.instance.postsBy(me);
-      if (!mounted) return;
-      setState(() => _posts = posts);
-    } catch (_) {
-      // A profile is worth showing without this section; failing to reach the
-      // feed is not a reason to show an error where somebody's own details are.
-      if (mounted) setState(() => _posts = const []);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final posts = _posts;
-    if (posts == null || posts.isEmpty) return const SizedBox.shrink();
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Divider(height: 28, indent: 24, endIndent: 24),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
-          child: Text('NEWSFEED',
-              style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 0.6,
-                  color: Colors.grey.shade500)),
-        ),
-        for (final p in posts.take(20))
-          ListTile(
-            leading: Icon(p.replyTo != null
-                ? Icons.reply
-                : p.repostOf != null
-                    ? Icons.repeat
-                    : Icons.public),
-            title: Text(
-                p.body.isEmpty && p.repostOf != null
-                    ? 'Reposted a post'
-                    : p.body,
-                maxLines: 3,
-                overflow: TextOverflow.ellipsis),
-            subtitle: Text(
-                '${DateFormatter.postAge(p.createdAt)} · ${p.likeCount} likes '
-                '· ${p.replyCount} replies',
-                style: TextStyle(fontSize: 12.5, color: Colors.grey.shade500)),
-            onTap: () => Navigator.of(context).push(MaterialPageRoute(
-                builder: (_) => PublicThreadScreen(postId: p.id))),
-          ),
-      ],
-    );
-  }
-}
-
-class _Stat extends StatelessWidget {
+/// One number on a profile.
+class ProfileStat extends StatelessWidget {
   final String value;
   final String label;
   final VoidCallback? onTap;
-  const _Stat({required this.value, required this.label, this.onTap});
+  const ProfileStat(
+      {super.key, required this.value, required this.label, this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -338,8 +41,10 @@ class _Stat extends StatelessWidget {
 }
 
 /// Three chips saying what this account has proven: phone, email, identity.
-class _VerificationRow extends StatelessWidget {
-  const _VerificationRow();
+/// What this account has proven, at a glance. Public because there is one
+/// profile screen now and it lives elsewhere.
+class ProfileVerificationRow extends StatelessWidget {
+  const ProfileVerificationRow({super.key});
 
   @override
   Widget build(BuildContext context) {

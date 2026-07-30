@@ -9,7 +9,9 @@ import '../state/chat_store.dart';
 import '../state/follow_store.dart';
 import '../state/platform_moderation.dart';
 import '../state/bookmark_store.dart';
+import '../state/community_store.dart';
 import '../state/feed_mute_store.dart';
+import '../state/feed_store.dart';
 import '../state/public_feed_store.dart';
 import '../util/file_moderation.dart';
 import '../util/photo_prep.dart';
@@ -17,7 +19,11 @@ import '../utils/date_formatter.dart';
 import '../widgets/sanction_notice.dart';
 import '../widgets/verified_badge.dart';
 import 'edit_profile_screen.dart';
+import 'feed_screen.dart' show FeedPostScreen;
+import 'my_qr_screen.dart';
+import 'people_screen.dart';
 import 'profile_screen.dart';
+import 'score_screen.dart';
 import 'in_app_web_screen.dart';
 
 /// The colour behind somebody's avatar, derived from their handle.
@@ -37,39 +43,13 @@ Color publicProfileBannerSeed(String username, ColorScheme scheme) {
 
 /// Opens somebody's profile. One helper, so a tap on an avatar, a name, an
 /// @mention and the "more" sheet all land in the same place.
-/// Which profile screen a handle belongs to.
-enum ProfileRoute {
-  /// Yours — the profile the app already had, with your score, QR code and
-  /// settings on it.
-  mine,
-
-  /// Somebody else's, which only the public feed knows anything about.
-  other,
-}
-
-/// Pure, so "one person, one profile" is a rule with a test rather than a
-/// branch buried in a navigation call.
-ProfileRoute profileRouteFor(String username, {required String me}) =>
-    me.isNotEmpty && me.toLowerCase() == username.trim().toLowerCase()
-        ? ProfileRoute.mine
-        : ProfileRoute.other;
-
 void openPublicProfile(BuildContext context, String username, {String? name}) {
   if (username.isEmpty) return;
-  // YOURS IS THE ONE THE APP ALREADY HAD. Opening a second self-profile here
-  // meant two screens showing one person with different facts on each — a score
-  // and a QR code on one, posts and tabs on the other. Whichever somebody found
-  // first became "their profile", and the other one looked like somebody else's.
-  if (profileRouteFor(username, me: AppState.profile.value.username) ==
-      ProfileRoute.mine) {
-    Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) => Scaffold(
-        appBar: AppBar(title: const Text('Your profile')),
-        body: const ProfileView(),
-      ),
-    ));
-    return;
-  }
+  // ONE SCREEN, whoever it is about. There used to be two — the "You" tab and
+  // this one — with different layouts and different facts on each, so any field
+  // added to a profile had to be added twice or it existed on one and not the
+  // other. Yours is this screen with the parts only you can act on; everybody
+  // else's is this screen without them.
   Navigator.of(context).push(MaterialPageRoute(
     builder: (_) => PublicProfileScreen(username: username, name: name),
   ));
@@ -199,8 +179,8 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
                     ? Icons.bookmark_border
                     : Icons.bookmark),
                 tooltip: 'Bookmarks',
-                onPressed: () => Navigator.of(context).push(MaterialPageRoute(
-                    builder: (_) => const BookmarksScreen())),
+                onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const BookmarksScreen())),
               ),
             ),
           if (!_searching)
@@ -394,9 +374,8 @@ class MutedAccountsScreen extends StatelessWidget {
                     backgroundColor: publicProfileBannerSeed(
                             username, Theme.of(context).colorScheme)
                         .withValues(alpha: 0.25),
-                    child: Text(username.isEmpty
-                        ? '?'
-                        : username[0].toUpperCase()),
+                    child: Text(
+                        username.isEmpty ? '?' : username[0].toUpperCase()),
                   ),
                   title: Text('@$username'),
                   // Their profile is still reachable: muting hides a timeline,
@@ -444,8 +423,7 @@ class _BookmarksScreenState extends State<BookmarksScreen> {
       return;
     }
     try {
-      final (posts, missing) =
-          await PublicFeedStore.instance.postsByIds(ids);
+      final (posts, missing) = await PublicFeedStore.instance.postsByIds(ids);
       // A saved post that has been deleted should leave the list rather than
       // sit in it forever pointing at nothing.
       await BookmarkStore.instance.forget(missing);
@@ -516,12 +494,12 @@ class _BookmarksScreenState extends State<BookmarksScreen> {
                             post: shown[i],
                             onReply: () => Navigator.of(context).push(
                                 MaterialPageRoute(
-                                    builder: (_) =>
-                                        PublicThreadScreen(postId: shown[i].id))),
+                                    builder: (_) => PublicThreadScreen(
+                                        postId: shown[i].id))),
                             onOpen: () => Navigator.of(context).push(
                                 MaterialPageRoute(
-                                    builder: (_) =>
-                                        PublicThreadScreen(postId: shown[i].id))),
+                                    builder: (_) => PublicThreadScreen(
+                                        postId: shown[i].id))),
                           ),
                         );
                       },
@@ -584,7 +562,12 @@ class PublicProfileScreen extends StatefulWidget {
   /// flash the handle before the first post arrives.
   final String? name;
 
-  const PublicProfileScreen({super.key, required this.username, this.name});
+  /// True when this is the "You" tab rather than a pushed route: no app bar of
+  /// its own, because the tab scaffold already has one.
+  final bool embedded;
+
+  const PublicProfileScreen(
+      {super.key, required this.username, this.name, this.embedded = false});
 
   @override
   State<PublicProfileScreen> createState() => _PublicProfileScreenState();
@@ -594,6 +577,13 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
   List<PublicPost>? _posts;
   String? _error;
   ProfileTab _tab = ProfileTab.posts;
+
+  /// Servers is yours alone — a server's feed is encrypted with that server's
+  /// key, so there is no such thing as seeing a stranger's server posts.
+  List<ProfileTab> get _tabs => [
+        for (final t in ProfileTab.values)
+          if (t != ProfileTab.servers || _isMe) t
+      ];
 
   @override
   void initState() {
@@ -656,71 +646,176 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
     final tabPosts = posts == null
         ? const <PublicPost>[]
         : PublicFeedStore.profileTab(posts, _tab);
+    final me = AppState.profile.value;
     return Scaffold(
       body: ListenableBuilder(
         listenable: PublicFeedStore.instance,
-        builder: (context, _) => CustomScrollView(
-          slivers: [
-            SliverAppBar(
-              pinned: true,
-              expandedHeight: 132,
-              title: Text(_displayName,
-                  style: const TextStyle(fontWeight: FontWeight.w700)),
-              flexibleSpace: FlexibleSpaceBar(
-                background: _Banner(username: widget.username),
-              ),
-            ),
-            SliverToBoxAdapter(
-              child: _Header(
-                username: widget.username,
-                displayName: _displayName,
-                verified: _verified,
-                known: _known,
-                isMe: _isMe,
-                postCount: posts?.length,
-              ),
-            ),
-            SliverToBoxAdapter(
-              child: _TabStrip(
-                labels: [for (final t in ProfileTab.values) t.label],
-                active: ProfileTab.values.indexOf(_tab),
-                onPick: (i) => setState(() => _tab = ProfileTab.values[i]),
-              ),
-            ),
-            if (_error != null)
-              SliverToBoxAdapter(child: _profileMessage(_error!, retry: true))
-            else if (posts == null)
-              const SliverToBoxAdapter(
-                child: Padding(
-                  padding: EdgeInsets.symmetric(vertical: 48),
-                  child: Center(child: CircularProgressIndicator()),
+        // Pull to refresh, as the profile this replaced had: the posts on it
+        // are fetched once when it opens, so without this the only way to see a
+        // new one is to leave and come back.
+        builder: (context, _) => RefreshIndicator(
+          onRefresh: _load,
+          child: CustomScrollView(
+            // Always scrollable, or a short profile cannot be pulled at all.
+            physics: const AlwaysScrollableScrollPhysics(),
+            slivers: [
+              if (widget.embedded)
+                SliverToBoxAdapter(
+                  child: SizedBox(
+                    height: 132,
+                    child: _Banner(username: widget.username),
+                  ),
+                )
+              else
+                SliverAppBar(
+                  pinned: true,
+                  expandedHeight: 132,
+                  title: Text(_displayName,
+                      style: const TextStyle(fontWeight: FontWeight.w700)),
+                  flexibleSpace: FlexibleSpaceBar(
+                    background: _Banner(username: widget.username),
+                  ),
                 ),
-              )
-            else if (tabPosts.isEmpty)
               SliverToBoxAdapter(
-                child: _profileMessage(switch (_tab) {
-                  ProfileTab.posts => _isMe
-                      ? 'You haven\'t posted anything yet.'
-                      : 'No posts yet.',
-                  ProfileTab.replies => 'No replies yet.',
-                  ProfileTab.media => 'No photos yet.',
-                }),
-              )
-            else
-              SliverList.separated(
-                itemCount: tabPosts.length,
-                separatorBuilder: (_, __) => const Divider(height: 1),
-                itemBuilder: (context, i) => _PostTile(
-                  post: tabPosts[i],
-                  onReply: () => Navigator.of(context).push(MaterialPageRoute(
-                      builder: (_) => PublicThreadScreen(postId: tabPosts[i].id))),
-                  onOpen: () => Navigator.of(context).push(MaterialPageRoute(
-                      builder: (_) => PublicThreadScreen(postId: tabPosts[i].id))),
+                child: _Header(
+                  username: widget.username,
+                  displayName: _displayName,
+                  verified: _verified,
+                  known: _known,
+                  isMe: _isMe,
+                  postCount: posts?.length,
                 ),
               ),
-            const SliverToBoxAdapter(child: SizedBox(height: 40)),
-          ],
+              if (_isMe) ...[
+                const SliverToBoxAdapter(
+                  child: Padding(
+                    padding: EdgeInsets.fromLTRB(16, 4, 16, 0),
+                    // What this account has proven, at a glance: the phone behind
+                    // sign-in, the email that can recover it, the ID behind the
+                    // blue check. Each chip goes where its state is changed, so
+                    // "unconfirmed" is a door and not a verdict.
+                    child: ProfileVerificationRow(),
+                  ),
+                ),
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Row(
+                        children: [
+                          ProfileStat(
+                              value:
+                                  '${CommunityStore.instance.communities.length}',
+                              label: 'Servers',
+                              onTap: null),
+                          const SizedBox(width: 24),
+                          ProfileStat(
+                              value: '${FollowStore.instance.followingCount}',
+                              label: 'Following',
+                              onTap: () => Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                      builder: (_) => const PeopleScreen()))),
+                          const SizedBox(width: 24),
+                          ProfileStat(
+                              value: '${me.score}',
+                              label: 'Okay Score',
+                              onTap: () => Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                      builder: (_) => const ScoreScreen()))),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+              SliverToBoxAdapter(
+                child: _TabStrip(
+                  labels: [for (final t in _tabs) t.label],
+                  active: _tabs.indexOf(_tab),
+                  onPick: (i) => setState(() => _tab = _tabs[i]),
+                ),
+              ),
+              if (_error != null)
+                SliverToBoxAdapter(child: _profileMessage(_error!, retry: true))
+              else if (posts == null)
+                const SliverToBoxAdapter(
+                  child: Padding(
+                    padding: EdgeInsets.symmetric(vertical: 48),
+                    child: Center(child: CircularProgressIndicator()),
+                  ),
+                )
+              // Server posts come from a different store entirely: they are
+              // encrypted per server and have nothing to do with the public feed.
+              else if (_tab == ProfileTab.servers)
+                _serverPosts(context)
+              else if (tabPosts.isEmpty)
+                SliverToBoxAdapter(
+                  child: _profileMessage(switch (_tab) {
+                    ProfileTab.posts => _isMe
+                        ? 'You haven\'t posted anything yet.'
+                        : 'No posts yet.',
+                    ProfileTab.replies => 'No replies yet.',
+                    ProfileTab.media => 'No photos yet.',
+                    // Handled above; a switch over an enum has to be complete.
+                    ProfileTab.servers => '',
+                  }),
+                )
+              else
+                SliverList.separated(
+                  itemCount: tabPosts.length,
+                  separatorBuilder: (_, __) => const Divider(height: 1),
+                  itemBuilder: (context, i) => _PostTile(
+                    post: tabPosts[i],
+                    onReply: () => Navigator.of(context).push(MaterialPageRoute(
+                        builder: (_) =>
+                            PublicThreadScreen(postId: tabPosts[i].id))),
+                    onOpen: () => Navigator.of(context).push(MaterialPageRoute(
+                        builder: (_) =>
+                            PublicThreadScreen(postId: tabPosts[i].id))),
+                  ),
+                ),
+              const SliverToBoxAdapter(child: SizedBox(height: 40)),
+            ],
+          ),
         ),
+      ),
+    );
+  }
+
+  /// This account's posts in the servers it belongs to.
+  ///
+  /// Only ever your own: a server's feed is encrypted with that server's key,
+  /// so a stranger's server posts are not something this device could show even
+  /// if it wanted to.
+  Widget _serverPosts(BuildContext context) {
+    final me = AppState.profile.value;
+    final mine = FeedStore.instance
+        .recentPosts(limit: 100)
+        .where((p) =>
+            p.authorUsername == 'you' ||
+            (me.username.isNotEmpty && p.authorUsername == me.username))
+        .take(20)
+        .toList();
+    if (mine.isEmpty) {
+      return SliverToBoxAdapter(
+        child: _profileMessage(
+            'Nothing posted in a server yet. Share something in a server\'s '
+            'feed and it shows up here.'),
+      );
+    }
+    return SliverList.separated(
+      itemCount: mine.length,
+      separatorBuilder: (_, __) => const Divider(height: 1),
+      itemBuilder: (context, i) => ListTile(
+        leading: const Icon(Icons.forum_outlined),
+        title: Text(mine[i].text, maxLines: 3, overflow: TextOverflow.ellipsis),
+        subtitle: Text(
+            '${DateFormatter.postAge(mine[i].time)} · ${mine[i].likes} likes '
+            '· ${mine[i].replies} replies',
+            style: TextStyle(fontSize: 12.5, color: Colors.grey.shade500)),
+        onTap: () => Navigator.of(context).push(MaterialPageRoute(
+            builder: (_) => FeedPostScreen(postId: mine[i].id))),
       ),
     );
   }
@@ -934,10 +1029,22 @@ class _ProfileActions extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (isMe) {
-      return OutlinedButton(
-        onPressed: () => Navigator.of(context)
-            .push(MaterialPageRoute(builder: (_) => const EditProfileScreen())),
-        child: const Text('Edit profile'),
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          OutlinedButton(
+            onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const EditProfileScreen())),
+            child: const Text('Edit profile'),
+          ),
+          const SizedBox(width: 8),
+          IconButton(
+            tooltip: 'Share your profile',
+            icon: const Icon(Icons.qr_code),
+            onPressed: () => Navigator.of(context)
+                .push(MaterialPageRoute(builder: (_) => const MyQrScreen())),
+          ),
+        ],
       );
     }
     return ListenableBuilder(
@@ -1088,8 +1195,7 @@ class _PostTile extends StatelessWidget {
                               ),
                             ],
                             const SizedBox(width: 6),
-                            Text(
-                                '· ${DateFormatter.postAge(post.createdAt)}',
+                            Text('· ${DateFormatter.postAge(post.createdAt)}',
                                 style: TextStyle(
                                     fontSize: 12, color: Colors.grey.shade500)),
                           ],
@@ -1127,7 +1233,7 @@ class _PostTile extends StatelessWidget {
                   ],
                   if (post.hasImage) ...[
                     const SizedBox(height: 8),
-GestureDetector(
+                    GestureDetector(
                       onTap: () => Navigator.of(context).push(MaterialPageRoute(
                         builder: (_) => _PhotoScreen(
                             url: PublicFeedStore.imageUrlFor(post) ?? '',
@@ -1293,8 +1399,7 @@ GestureDetector(
               builder: (context, _) {
                 final saved = BookmarkStore.instance.contains(post.id);
                 return ListTile(
-                  leading: Icon(
-                      saved ? Icons.bookmark : Icons.bookmark_border),
+                  leading: Icon(saved ? Icons.bookmark : Icons.bookmark_border),
                   title: Text(saved ? 'Remove bookmark' : 'Bookmark'),
                   subtitle: const Text('Kept on this device only'),
                   onTap: () async {
