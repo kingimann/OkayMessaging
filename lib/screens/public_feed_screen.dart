@@ -1,3 +1,4 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -5,6 +6,8 @@ import '../app_state.dart';
 import '../models/platform_role.dart';
 import '../state/platform_moderation.dart';
 import '../state/public_feed_store.dart';
+import '../util/file_moderation.dart';
+import '../util/photo_prep.dart';
 import '../utils/date_formatter.dart';
 import '../widgets/sanction_notice.dart';
 import '../widgets/verified_badge.dart';
@@ -24,11 +27,29 @@ class PublicFeedScreen extends StatefulWidget {
 
 class _PublicFeedScreenState extends State<PublicFeedScreen> {
   final _store = PublicFeedStore.instance;
+  final _search = TextEditingController();
+  final _scroll = ScrollController();
+  bool _searching = false;
 
   @override
   void initState() {
     super.initState();
     if (_store.isConfigured) _store.load();
+    // Fetch the next page a little before the bottom, so scrolling doesn't
+    // stop dead while it loads.
+    _scroll.addListener(() {
+      if (_scroll.position.pixels >=
+          _scroll.position.maxScrollExtent - 600) {
+        _store.loadMore();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _search.dispose();
+    _scroll.dispose();
+    super.dispose();
   }
 
   Future<void> _refresh() => _store.load();
@@ -57,13 +78,36 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Newsfeed'),
+        title: _searching
+            ? TextField(
+                controller: _search,
+                autofocus: true,
+                textInputAction: TextInputAction.search,
+                decoration: const InputDecoration(
+                  hintText: 'Search posts',
+                  border: InputBorder.none,
+                ),
+                onSubmitted: (v) => _store.search(v),
+              )
+            : const Text('Newsfeed'),
         actions: [
           IconButton(
-            icon: const Icon(Icons.refresh),
-            tooltip: 'Refresh',
-            onPressed: _refresh,
+            icon: Icon(_searching ? Icons.close : Icons.search),
+            tooltip: _searching ? 'Close search' : 'Search',
+            onPressed: () {
+              setState(() => _searching = !_searching);
+              if (!_searching) {
+                _search.clear();
+                _store.search('');
+              }
+            },
           ),
+          if (!_searching)
+            IconButton(
+              icon: const Icon(Icons.refresh),
+              tooltip: 'Refresh',
+              onPressed: _refresh,
+            ),
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
@@ -86,8 +130,9 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
                   child: _empty(Icons.cloud_off,
                       'The newsfeed needs a server connection.'),
                 )
-              else
-              Expanded(
+              else ...[
+                _FilterBar(store: _store),
+                Expanded(
                 child: RefreshIndicator(
                   onRefresh: _refresh,
                   child: _store.loading && posts.isEmpty
@@ -109,28 +154,35 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
                                   ],
                                 )
                               : ListView.separated(
+                                  controller: _scroll,
                                   physics:
                                       const AlwaysScrollableScrollPhysics(),
                                   padding: const EdgeInsets.only(bottom: 96),
-                                  itemCount: posts.length,
+                                  itemCount: posts.length + 1,
                                   separatorBuilder: (_, __) =>
                                       const Divider(height: 1),
-                                  itemBuilder: (context, i) => _PostTile(
-                                    post: posts[i],
-                                    onReply: () => _compose(
-                                        replyTo: posts[i].id,
-                                        replyingToName:
-                                            posts[i].authorName),
-                                    onOpen: () => Navigator.of(context).push(
-                                      MaterialPageRoute(
-                                        builder: (_) => _ThreadScreen(
-                                            postId: posts[i].id),
+                                  itemBuilder: (context, i) {
+                                    if (i == posts.length) {
+                                      return _Footer(store: _store);
+                                    }
+                                    return _PostTile(
+                                      post: posts[i],
+                                      onReply: () => _compose(
+                                          replyTo: posts[i].id,
+                                          replyingToName:
+                                              posts[i].authorName),
+                                      onOpen: () => Navigator.of(context).push(
+                                        MaterialPageRoute(
+                                          builder: (_) => _ThreadScreen(
+                                              postId: posts[i].id),
+                                        ),
                                       ),
-                                    ),
-                                  ),
+                                    );
+                                  },
                                 ),
                 ),
-              ),
+                ),
+              ],
             ],
           );
         },
@@ -220,8 +272,34 @@ class _PostTile extends StatelessWidget {
                               fontSize: 12, color: Colors.grey.shade500)),
                     ],
                   ),
-                  const SizedBox(height: 4),
-                  Text(post.body, style: const TextStyle(fontSize: 15)),
+                  // A plain repost has nothing of its own to show; the quoted
+                  // post below carries the content.
+                  if (post.body.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    _Body(text: post.body),
+                  ],
+                  if (post.hasImage) ...[
+                    const SizedBox(height: 8),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: Image.network(
+                        PublicFeedStore.imageUrlFor(post) ?? '',
+                        fit: BoxFit.cover,
+                        // A broken image should be absent, not a grey box with
+                        // an icon in the middle of somebody's post.
+                        errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                        loadingBuilder: (context, child, progress) =>
+                            progress == null
+                                ? child
+                                : const SizedBox(
+                                    height: 160,
+                                    child: Center(
+                                        child: CircularProgressIndicator(
+                                            strokeWidth: 2))),
+                      ),
+                    ),
+                  ],
+                  if (post.repostOf != null) _Quoted(postId: post.repostOf!),
                   const SizedBox(height: 4),
                   Row(
                     children: [
@@ -232,6 +310,29 @@ class _PostTile extends StatelessWidget {
                             ? 'Reply'
                             : '${post.replyCount}',
                         onTap: onReply,
+                      ),
+                      const SizedBox(width: 4),
+                      _action(
+                        context,
+                        icon: Icons.repeat,
+                        label: post.repostCount == 0
+                            ? ''
+                            : '${post.repostCount}',
+                        color:
+                            PublicFeedStore.instance.myRepostOf(post.id) != null
+                                ? Colors.green
+                                : null,
+                        onTap: () async {
+                          try {
+                            await PublicFeedStore.instance
+                                .toggleRepost(post.id);
+                          } catch (e) {
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text('$e')));
+                            }
+                          }
+                        },
                       ),
                       const SizedBox(width: 4),
                       _action(
@@ -414,6 +515,28 @@ class _Composer extends StatefulWidget {
 class _ComposerState extends State<_Composer> {
   final _text = TextEditingController();
   bool _sending = false;
+  Uint8List? _image;
+
+  /// Picks a photo for the post.
+  ///
+  /// Goes through PhotoPrep so it inherits the moderation check and the EXIF
+  /// rotation fix, with a bigger byte budget than a chat message: this is
+  /// going into a bucket rather than through the relay, so there is no
+  /// broadcast size limit to respect — only the bucket's own 4 MB.
+  Future<void> _pickImage() async {
+    try {
+      final dataUri = await PhotoPrep.pickPhoto(maxBase64: 900 * 1024);
+      if (dataUri == null) return;
+      final bytes = PhotoPrep.bytesFromDataUri(dataUri);
+      if (bytes == null || !mounted) return;
+      setState(() => _image = bytes);
+    } on FileRejected catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.reason)));
+      }
+    }
+  }
 
   @override
   void dispose() {
@@ -425,7 +548,7 @@ class _ComposerState extends State<_Composer> {
     setState(() => _sending = true);
     try {
       await PublicFeedStore.instance
-          .post(_text.text, replyTo: widget.replyTo);
+          .post(_text.text, replyTo: widget.replyTo, image: _image);
       if (mounted) Navigator.of(context).pop();
     } catch (e) {
       if (!mounted) return;
@@ -479,17 +602,46 @@ class _ComposerState extends State<_Composer> {
               ),
               onChanged: (_) => setState(() {}),
             ),
+            if (_image != null) ...[
+              const SizedBox(height: 10),
+              Stack(
+                alignment: Alignment.topRight,
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: Image.memory(_image!,
+                        height: 160, width: double.infinity, fit: BoxFit.cover),
+                  ),
+                  IconButton(
+                    icon: const CircleAvatar(
+                      radius: 14,
+                      backgroundColor: Colors.black54,
+                      child: Icon(Icons.close, size: 16, color: Colors.white),
+                    ),
+                    tooltip: 'Remove photo',
+                    onPressed: () => setState(() => _image = null),
+                  ),
+                ],
+              ),
+            ],
             const SizedBox(height: 8),
             Row(
               children: [
+                IconButton(
+                  icon: const Icon(Icons.image_outlined),
+                  tooltip: 'Add a photo',
+                  onPressed: _sending ? null : _pickImage,
+                ),
                 Text('$left',
                     style: TextStyle(
                         fontSize: 12.5,
                         color: left < 0 ? Colors.red : Colors.grey.shade500)),
                 const Spacer(),
                 FilledButton(
+                  // A photo on its own is a post; text is not required when
+                  // something else is attached.
                   onPressed: _sending ||
-                          _text.text.trim().isEmpty ||
+                          (_text.text.trim().isEmpty && _image == null) ||
                           left < 0
                       ? null
                       : _send,
@@ -502,6 +654,219 @@ class _ComposerState extends State<_Composer> {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Latest / Top / Following, plus whatever narrowing is currently on.
+class _FilterBar extends StatelessWidget {
+  final PublicFeedStore store;
+  const _FilterBar({required this.store});
+
+  @override
+  Widget build(BuildContext context) {
+    final tags = PublicFeedStore.trendingTags(store.posts);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+          child: Row(
+            children: [
+              for (final f in FeedFilter.values) ...[
+                ChoiceChip(
+                  label: Text(f.label),
+                  selected: store.filter == f,
+                  onSelected: (_) => store.setFilter(f),
+                ),
+                const SizedBox(width: 8),
+              ],
+            ],
+          ),
+        ),
+        // What is currently narrowing the feed, and how to drop it. A filter
+        // you can't see is a feed that looks broken.
+        if (store.tag.isNotEmpty || store.query.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
+            child: Wrap(
+              spacing: 8,
+              children: [
+                if (store.tag.isNotEmpty)
+                  InputChip(
+                    label: Text('#${store.tag}'),
+                    onDeleted: () => store.setTag(''),
+                  ),
+                if (store.query.isNotEmpty)
+                  InputChip(
+                    label: Text('"${store.query}"'),
+                    onDeleted: () => store.search(''),
+                  ),
+              ],
+            ),
+          )
+        // Trending only when nothing is already narrowing things, or the row
+        // becomes a way to lose track of what you're looking at.
+        else if (tags.isNotEmpty)
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
+            child: Row(
+              children: [
+                for (final (tag, count) in tags) ...[
+                  ActionChip(
+                    label: Text('#$tag  $count'),
+                    visualDensity: VisualDensity.compact,
+                    onPressed: () => store.setTag(tag),
+                  ),
+                  const SizedBox(width: 6),
+                ],
+              ],
+            ),
+          ),
+        if (store.filter == FeedFilter.following && store.posts.isEmpty)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+            child: Text(
+                'Nothing from people you follow yet. Tap a name to follow '
+                'someone.',
+                style: TextStyle(fontSize: 12.5, color: Colors.grey.shade600)),
+          ),
+      ],
+    );
+  }
+}
+
+/// The end of the list: loading, a nudge to load more, or the end.
+class _Footer extends StatelessWidget {
+  final PublicFeedStore store;
+  const _Footer({required this.store});
+
+  @override
+  Widget build(BuildContext context) {
+    if (store.loadingMore) {
+      return const Padding(
+        padding: EdgeInsets.all(24),
+        child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+      );
+    }
+    if (store.reachedEnd) {
+      return Padding(
+        padding: const EdgeInsets.all(24),
+        child: Center(
+          child: Text('That\'s everything.',
+              style: TextStyle(fontSize: 12.5, color: Colors.grey.shade500)),
+        ),
+      );
+    }
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Center(
+        child: OutlinedButton(
+          onPressed: store.loadMore,
+          child: const Text('Load more'),
+        ),
+      ),
+    );
+  }
+}
+
+/// Post text with tappable #hashtags and @mentions.
+class _Body extends StatelessWidget {
+  final String text;
+  const _Body({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = Theme.of(context).colorScheme.primary;
+    const base = TextStyle(fontSize: 15);
+    final spans = <InlineSpan>[];
+    final pattern = RegExp(r'(#[A-Za-z0-9_]{1,40}|@[A-Za-z0-9_.]{2,})');
+    var last = 0;
+    for (final m in pattern.allMatches(text)) {
+      if (m.start > last) {
+        spans.add(TextSpan(text: text.substring(last, m.start), style: base));
+      }
+      final token = m.group(0)!;
+      spans.add(TextSpan(
+        text: token,
+        style: base.copyWith(color: accent, fontWeight: FontWeight.w600),
+        recognizer: TapGestureRecognizer()
+          ..onTap = () {
+            if (token.startsWith('#')) {
+              PublicFeedStore.instance.setTag(token.substring(1));
+            } else {
+              showPersonSheet(context, username: token.substring(1));
+            }
+          },
+      ));
+      last = m.end;
+    }
+    if (last < text.length) {
+      spans.add(TextSpan(text: text.substring(last), style: base));
+    }
+    return Text.rich(TextSpan(children: spans));
+  }
+}
+
+/// The post a repost repeats, shown inline. Only what is already loaded — a
+/// quoted post from further back reads as unavailable rather than fetching one
+/// row at a time while somebody scrolls.
+class _Quoted extends StatelessWidget {
+  final String postId;
+  const _Quoted({required this.postId});
+
+  @override
+  Widget build(BuildContext context) {
+    final original = PublicFeedStore.instance.byId(postId);
+    return Container(
+      margin: const EdgeInsets.only(top: 8),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        border: Border.all(color: Colors.grey.withValues(alpha: 0.35)),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: original == null
+          ? Text('This post isn\'t loaded.',
+              style: TextStyle(fontSize: 12.5, color: Colors.grey.shade500))
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Flexible(
+                      child: Text(
+                          original.authorName.isEmpty
+                              ? '@${original.authorUsername}'
+                              : original.authorName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                              fontWeight: FontWeight.w700, fontSize: 13)),
+                    ),
+                    if (original.authorVerified) ...[
+                      const SizedBox(width: 4),
+                      const VerifiedBadge(size: 12),
+                    ],
+                  ],
+                ),
+                if (original.body.isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Text(original.body,
+                      maxLines: 4,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 13.5)),
+                ],
+                if (original.hasImage)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Text('📷 Photo',
+                        style: TextStyle(
+                            fontSize: 12, color: Colors.grey.shade500)),
+                  ),
+              ],
+            ),
     );
   }
 }

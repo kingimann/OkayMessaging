@@ -182,6 +182,7 @@ class _ConnectOnboardingScreenState extends State<ConnectOnboardingScreen> {
                     url: session.pageUrl,
                     clientSecret: session.clientSecret,
                     publishableKey: session.publishableKey,
+                    platformAccount: session.platformAccount,
                     dark: dark,
                     accent: AppColors.accentOn(context),
                     onEvent: _onEvent,

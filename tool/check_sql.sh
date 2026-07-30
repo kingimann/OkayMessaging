@@ -68,6 +68,19 @@ grant usage on schema public, auth to anon, authenticated, service_role;
 -- only mean anything with this in place.
 alter default privileges in schema public grant all on tables to anon, authenticated, service_role;
 alter default privileges in schema public grant all on functions to anon, authenticated, service_role;
+
+-- Enough of Supabase Storage for the bucket policies to apply.
+create schema if not exists storage;
+create table if not exists storage.buckets (
+  id text primary key, name text, public boolean default false,
+  file_size_limit bigint);
+create table if not exists storage.objects (
+  id uuid primary key default gen_random_uuid(), bucket_id text, name text,
+  owner uuid, created_at timestamptz default now());
+alter table storage.objects enable row level security;
+grant usage on schema storage to anon, authenticated, service_role;
+grant select, insert, update, delete on storage.objects to anon, authenticated;
+grant select on storage.buckets to anon, authenticated;
 SQL
 
 # The assertions. Each raises on failure, so ON_ERROR_STOP fails the run.
@@ -189,6 +202,69 @@ do $$ begin
   raise notice '  ok   the post text is unchanged';
 end $$;
 
+-- The new shapes: reposts, quote posts, image-only posts, and the rules that
+-- keep a row from being nonsense.
+select pg_temp.as_user('15550001111');
+
+select pg_temp.expect_ok(
+  $$insert into public.public_posts (id, author_phone, author_username, repost_of)
+    values ('t_rp','15550001111','alice','t_p1')$$,
+  'a plain repost needs no text');
+
+select pg_temp.expect_ok(
+  $$insert into public.public_posts (id, author_phone, author_username, body, repost_of)
+    values ('t_qp','15550001111','alice','my take','t_p1')$$,
+  'a quote post is a repost with text');
+
+select pg_temp.expect_ok(
+  $$insert into public.public_posts (id, author_phone, author_username, image_path)
+    values ('t_img','15550001111','alice','t_img.jpg')$$,
+  'an image-only post needs no text');
+
+select pg_temp.expect_fail(
+  $$insert into public.public_posts (id, author_phone, author_username)
+    values ('t_empty','15550001111','alice')$$,
+  'a post with nothing in it is refused');
+
+select pg_temp.expect_fail(
+  $$insert into public.public_posts
+      (id, author_phone, author_username, body, reply_to, repost_of)
+    values ('t_both','15550001111','alice','x','t_p1','t_p1')$$,
+  'a post cannot be both a reply and a repost');
+
+select pg_temp.expect_fail(
+  $$insert into public.public_posts (id, author_phone, author_username, body)
+    values ('t_long','15550001111','alice', repeat('x', 501))$$,
+  'over 500 characters is refused');
+
+do $$ begin
+  if (select repost_count from public.public_feed where id='t_p1') <> 2 then
+    raise exception 'CHECK FAILED: repost_count is %, expected 2',
+      (select repost_count from public.public_feed where id='t_p1');
+  end if;
+  raise notice '  ok   reposts are counted (quote posts included)';
+end $$;
+
+-- Deleting the original takes its reposts: a repost of nothing is not a post.
+reset role; set role authenticated; select pg_temp.as_user('15550001111');
+select pg_temp.expect_ok($$delete from public.public_posts where id='t_p1'$$,
+  'you can delete your own post');
+do $$ begin
+  if (select count(*) from public.public_feed where id in ('t_rp','t_qp')) <> 0 then
+    raise exception 'CHECK FAILED: a repost outlived the post it repeats';
+  end if;
+  raise notice '  ok   deleting a post removes its reposts';
+end $$;
+
+-- The image bucket is public (these are attachments on public posts) and
+-- clients may add but never replace.
+do $$ begin
+  if not (select public from storage.buckets where id='public-media') then
+    raise exception 'CHECK FAILED: public-media should be a public bucket';
+  end if;
+  raise notice '  ok   the image bucket is public, as a public feed implies';
+end $$;
+
 -- The directory hides a banned account too (platform_moderation.sql).
 reset role;
 insert into public.usernames (phone, username, name)
@@ -205,9 +281,16 @@ SQL
 
 DB=okaycheck
 su pg -c "PATH=$PGBIN:\$PATH createdb -h $RUN -p $PORT $DB"
+# Status first, output second — for the third time in this file, piping psql
+# into grep hands the pipeline grep's exit code and turns a failure into a pass.
 apply() {
+  set +e
   su pg -c "PATH=$PGBIN:\$PATH psql -h $RUN -p $PORT -d $DB -v ON_ERROR_STOP=1 -q -f $1" \
-    2>&1 | grep -vE "^(psql:)?.*NOTICE:  (relation|policy|column|extension|database) " || true
+    >"$WORK/apply.txt" 2>&1
+  rc=$?
+  set -e
+  grep -vE "NOTICE:" "$WORK/apply.txt" | grep -v "^$" || true
+  return $rc
 }
 
 echo "postgres $(su pg -c "PATH=$PGBIN:\$PATH psql -h $RUN -p $PORT -d $DB -tAc 'show server_version'")"

@@ -17,6 +17,7 @@ class ConnectWebView {
     required bool dark,
     required Color accent,
     required void Function(String event) onEvent,
+    String platformAccount = '',
     bool needsCamera = false,
     Future<String> Function()? onSecretRequest,
     String completionUrlPrefix = '',

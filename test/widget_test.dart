@@ -13107,12 +13107,15 @@ void main() {
     });
 
     PublicPost mk(String id,
-            {String? replyTo, String user = 'ada', int likes = 0}) =>
+            {String? replyTo,
+            String user = 'ada',
+            int likes = 0,
+            String? body}) =>
         PublicPost(
           id: id,
           authorUsername: user,
           authorName: user,
-          body: 'post $id',
+          body: body ?? 'post $id',
           replyTo: replyTo,
           createdAt: DateTime(2026, 7, 30),
           likeCount: likes,
@@ -13126,13 +13129,20 @@ void main() {
       final over = PublicFeedStore.validate('x' * (PublicFeedStore.maxLength + 7));
       expect(over, contains('7 characters too long'),
           reason: 'say how much to cut, not just that it is too long');
+      // Empty text is fine when something else is attached — which is what
+      // the table allows too, via a not-empty constraint across the three.
+      expect(PublicFeedStore.validate('', hasImage: true), isNull);
+      expect(PublicFeedStore.validate('', isRepost: true), isNull);
+      expect(PublicFeedStore.validate('x' * 501, hasImage: true), isNotNull,
+          reason: 'the length cap still applies to a captioned photo');
       // The client cap and the table's CHECK have to be the same number, or
       // one of them is a lie.
       final sql = File('docs/public_feed.sql').readAsStringSync();
       expect(
-          sql.contains('char_length(body) between 1 and '
-              '${PublicFeedStore.maxLength}'),
+          sql.contains('char_length(body) <= ${PublicFeedStore.maxLength}'),
           isTrue);
+      expect(sql.contains('public_posts_not_empty'), isTrue,
+          reason: 'a row with no text, image or repost is nonsense');
     });
 
     test('ids do not collide', () {
@@ -13296,6 +13306,158 @@ void main() {
           lessThan(sql.indexOf('function public.public_post_like_count')));
       expect(sql.indexOf('create or replace function public.is_silenced'),
           lessThan(sql.indexOf('not public.is_silenced(author_phone)')));
+    });
+
+    test('hashtags are parsed, counted, and ranked stably', () {
+      expect(PublicFeedStore.tagsIn('no tags here'), isEmpty);
+      expect(PublicFeedStore.tagsIn('a #Flutter and #dart and #flutter again'),
+          ['flutter', 'dart'],
+          reason: 'lowercased and deduplicated, in first-seen order');
+      expect(PublicFeedStore.tagsIn('#a#b'), ['a', 'b']);
+      // Not a tag: a bare # or one that is only punctuation.
+      expect(PublicFeedStore.tagsIn('# and #!'), isEmpty);
+
+      final posts = [
+        mk('1', body: '#news #sport'),
+        mk('2', body: '#news'),
+        mk('3', body: '#art #news'),
+        mk('4', body: '#sport'),
+        mk('5', body: '#zebra #apple'),
+      ];
+      final trending = PublicFeedStore.trendingTags(posts);
+      expect(trending.first, ('news', 3));
+      expect(trending[1], ('sport', 2));
+      // Three tags tie on one use each. They must come out alphabetically, or
+      // the trending row reshuffles on every rebuild for no reason the reader
+      // can see — and the tags people tap move under their finger.
+      expect([for (final t in trending.skip(2)) t.$1], ['apple', 'art', 'zebra'],
+          reason: 'ties break alphabetically');
+      expect(PublicFeedStore.trendingTags(posts, take: 2), hasLength(2));
+    });
+
+    test('a repost repeats a post, and reposting twice undoes it', () async {
+      final store = PublicFeedStore.instance;
+      AppState.profile.value = AppState.profile.value;
+      PublicFeedStore.debugLoadOverride = () async => [mk('a', user: 'bob')];
+      await store.load();
+      final written = <PublicPost>[];
+      PublicFeedStore.debugPostOverride = (p) async => written.add(p);
+
+      // Posting as 'you' (the default test profile username).
+      final me = AppState.profile.value.username;
+      expect(me, isNotEmpty, reason: 'the test profile needs a username');
+
+      await store.toggleRepost('a');
+      expect(written.single.repostOf, 'a');
+      expect(written.single.body, isEmpty, reason: 'a plain repost adds nothing');
+      expect(store.byId('a')!.repostCount, 1);
+      expect(store.myRepostOf('a'), isNotNull);
+
+      // Again removes it.
+      await store.toggleRepost('a');
+      expect(store.myRepostOf('a'), isNull);
+      expect(store.byId('a')!.repostCount, 0);
+
+      // A quote post keeps its text and is NOT treated as a plain repost.
+      written.clear();
+      await store.post('my take', repostOf: 'a');
+      expect(written.single.repostOf, 'a');
+      expect(written.single.isPlainRepost, isFalse);
+      expect(store.myRepostOf('a'), isNull,
+          reason: 'a quote post is not the toggle');
+
+      // Reply and repost are mutually exclusive, as the table insists.
+      await expectLater(
+        store.post('x', replyTo: 'a', repostOf: 'a'),
+        throwsA(isA<PublicFeedError>()),
+      );
+    });
+
+    test('filters narrow the feed, and Top orders by likes', () async {
+      final store = PublicFeedStore.instance;
+      FollowStore.instance.resetForTest();
+      PublicFeedStore.debugLoadOverride = () async => [
+            mk('a', user: 'ada', likes: 1, body: 'apples #fruit'),
+            mk('b', user: 'bob', likes: 9, body: 'bananas #fruit'),
+            mk('c', user: 'cal', likes: 5, body: 'cars'),
+          ];
+      await store.load();
+      expect(store.posts.map((p) => p.id), ['a', 'b', 'c']);
+
+      await store.setFilter(FeedFilter.top);
+      expect(store.posts.map((p) => p.id), ['b', 'c', 'a'],
+          reason: 'most liked first');
+
+      await store.setFilter(FeedFilter.latest);
+      await store.setTag('fruit');
+      expect(store.posts.map((p) => p.id), ['a', 'b']);
+      await store.setTag('');
+      expect(store.posts, hasLength(3));
+
+      await store.search('cars');
+      expect(store.posts.map((p) => p.id), ['c']);
+      await store.search('');
+
+      // Following nobody shows nothing, rather than quietly showing everything.
+      await store.setFilter(FeedFilter.following);
+      expect(store.posts, isEmpty);
+      FollowStore.instance.toggle('bob');
+      await store.load();
+      expect(store.posts.map((p) => p.id), ['b']);
+    });
+
+    test('load more appends a page and stops at the end', () async {
+      final store = PublicFeedStore.instance;
+      final all = [
+        for (var i = 0; i < 95; i++)
+          PublicPost(
+            id: 'p$i',
+            authorUsername: 'ada',
+            body: 'post $i',
+            createdAt: DateTime(2026, 7, 30).subtract(Duration(minutes: i)),
+          ),
+      ];
+      PublicFeedStore.debugLoadOverride = () async => all;
+      await store.load();
+      expect(store.posts, hasLength(PublicFeedStore.pageSize));
+      expect(store.reachedEnd, isFalse);
+
+      await store.loadMore();
+      expect(store.posts, hasLength(PublicFeedStore.pageSize * 2));
+      expect(store.reachedEnd, isFalse);
+
+      await store.loadMore();
+      expect(store.posts, hasLength(95));
+      expect(store.reachedEnd, isTrue, reason: 'a short page means the end');
+
+      // Once at the end it stops asking.
+      await store.loadMore();
+      expect(store.posts, hasLength(95));
+    });
+
+    test('an oversized image is refused before it is uploaded', () async {
+      final store = PublicFeedStore.instance;
+      PublicFeedStore.debugLoadOverride = () async => [];
+      await store.load();
+      var uploaded = 0;
+      PublicFeedStore.debugUploadOverride = (id, bytes) async {
+        uploaded++;
+        return '$id.jpg';
+      };
+      PublicFeedStore.debugPostOverride = (_) async {};
+
+      final tooBig = Uint8List(PublicFeedStore.maxImageBytes + 1);
+      await expectLater(
+        store.post('caption', image: tooBig),
+        throwsA(predicate((e) => '$e'.contains('MB'))),
+      );
+      expect(uploaded, 0, reason: 'nothing should reach the bucket');
+
+      // A reasonable one goes up, and the post carries its path.
+      await store.post('caption', image: Uint8List(1024));
+      expect(uploaded, 1);
+      expect(store.posts.first.hasImage, isTrue);
+      expect(store.posts.first.imagePath, endsWith('.jpg'));
     });
 
     testWidgets('a timed-out account is told, not silently ignored',
@@ -13778,6 +13940,47 @@ void main() {
       PaymentService.checkKeyMode(key: 'pk_live_abc', livemode: true);
       PaymentService.checkKeyMode(key: 'pk_test_abc', livemode: false);
       PaymentService.checkKeyMode(key: 'pk_live_abc', livemode: null);
+    });
+
+    test('which Stripe account each key belongs to is carried end to end', () {
+      // Matching MODES is not enough. Two live keys from two different Stripe
+      // accounts fail exactly the same way, because the Account Session
+      // belongs to one platform and the publishable key to the other — and
+      // Stripe words that as a problem with the user's account.
+      //
+      // Neither half can see the other on its own: the server knows its secret
+      // key's account, the page can ask Stripe about the publishable key. So
+      // the server's answer has to reach the page for the comparison to exist.
+      final fn = File('supabase/functions/payments-account-session/index.ts')
+          .readAsStringSync();
+      expect(fn.contains('platformAccount'), isTrue,
+          reason: 'the function reports the account its secret key belongs to');
+      expect(fn.contains('stripe.accounts.retrieve()'), isTrue);
+      // Best-effort: failing to look it up must not cost somebody onboarding.
+      expect(fn.contains('catch (_)'), isTrue,
+          reason: 'a lookup failure is not fatal');
+
+      const session = ConnectSession(
+          clientSecret: 's', publishableKey: 'pk_live_a', pageUrl: 'u');
+      expect(session.platformAccount, '',
+          reason: 'a deployment too old to say leaves it empty, not null');
+
+      final html = File('web/connect.html').readAsStringSync();
+      // Last argument, so neither side requires the other: the page deploys
+      // the moment it is pushed, a build reaches a phone days later.
+      expect(
+          html.contains('function (clientSecret, publishableKey, dark, accent,'),
+          isTrue);
+      expect(html.contains('serverAccount'), isTrue);
+      expect(html.contains('different accounts'), isTrue,
+          reason: 'the page names the cause when it can prove it');
+      // The publishable key is client-safe, and this is the endpoint Stripe.js
+      // uses anyway — but nothing else may be sent with it.
+      expect(html.contains("body: 'key=' + encodeURIComponent(pk)"), isTrue);
+      final native =
+          File('lib/payments/connect_webview_native.dart').readAsStringSync();
+      expect(native.contains('_js(widget.platformAccount)'), isTrue,
+          reason: 'the host passes it to okayStart');
     });
 
     test('the ID check page ships too, and keeps documents with Stripe', () {

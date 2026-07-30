@@ -42,6 +42,7 @@ class ConnectWebView {
     required bool dark,
     required Color accent,
     required void Function(String event) onEvent,
+    String platformAccount = '',
     bool needsCamera = false,
     Future<String> Function()? onSecretRequest,
     String completionUrlPrefix = '',
@@ -53,6 +54,7 @@ class ConnectWebView {
         dark: dark,
         accent: accent,
         onEvent: onEvent,
+        platformAccount: platformAccount,
         needsCamera: needsCamera,
         onSecretRequest: onSecretRequest,
         completionUrlPrefix: completionUrlPrefix,
@@ -66,6 +68,7 @@ class _ConnectWebView extends StatefulWidget {
   final bool dark;
   final Color accent;
   final void Function(String event) onEvent;
+  final String platformAccount;
   final bool needsCamera;
   final Future<String> Function()? onSecretRequest;
   final String completionUrlPrefix;
@@ -77,6 +80,7 @@ class _ConnectWebView extends StatefulWidget {
     required this.dark,
     required this.accent,
     required this.onEvent,
+    required this.platformAccount,
     required this.needsCamera,
     required this.onSecretRequest,
     required this.completionUrlPrefix,
@@ -215,7 +219,10 @@ class _ConnectWebViewState extends State<_ConnectWebView> {
     _controller.runJavaScript(
       'window.okayStart && window.okayStart('
       '${_js(widget.clientSecret)}, ${_js(widget.publishableKey)}, '
-      '${widget.dark}, ${_js(hex)});',
+      // The account is last because a page deployed before this argument
+      // existed simply ignores it, and one deployed after works with a host
+      // that never sends it. The two sides ship days apart.
+      '${widget.dark}, ${_js(hex)}, ${_js(widget.platformAccount)});',
     );
   }
 

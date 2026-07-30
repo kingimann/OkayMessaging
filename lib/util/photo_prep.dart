@@ -27,7 +27,11 @@ class PhotoPrep {
 
   /// Opens the platform's photo picker and returns the prepared `data:` URI,
   /// or null when the user cancelled or nothing usable was picked.
-  static Future<String?> pickPhoto() async {
+  /// [maxBase64] is the byte budget for the encoded result. It defaults to the
+  /// relay's limit, which is what a chat photo has to fit; a picture bound for
+  /// a storage bucket has no broadcast to squeeze into and can pass a bigger
+  /// one.
+  static Future<String?> pickPhoto({int maxBase64 = maxBase64Length}) async {
     Uint8List? bytes;
     if (debugPickOverride != null) {
       bytes = await debugPickOverride!();
@@ -43,7 +47,7 @@ class PhotoPrep {
     // rejection is surfaced (thrown) so the UI can say why.
     final verdict = FileModeration.inspectImage(bytes);
     if (!verdict.allowed) throw FileRejected(verdict.reason!);
-    return prepare(bytes);
+    return prepare(bytes, maxBase64: maxBase64);
   }
 
   /// Resizes and re-encodes [original] until it fits the wire budget.

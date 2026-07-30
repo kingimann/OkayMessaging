@@ -90,6 +90,34 @@ now. Re-pasting it is a cosmetic upgrade, not a fix.
 
 Dashboard → Edge Functions → **Secrets**.
 
+### ⚠️ `STRIPE_SECRET_KEY` must match the key the app is built with
+
+This is the one to check if setting up payments says **"An error occurred while
+authenticating your account."** That is Stripe's wording for *the publishable
+key cannot authenticate this session*, and it points at your Stripe account
+when the problem is the pair of keys. Two ways they fail to pair:
+
+1. **Different modes.** The app is built with `pk_live_…`, so
+   `STRIPE_SECRET_KEY` has to be an `sk_live_…` key. A test secret key mints a
+   test session, which a live publishable key cannot authenticate.
+2. **Different accounts.** Two live keys from two different Stripe accounts
+   fail the same way.
+
+The app's publishable key belongs to Stripe account
+**`acct_1EXa8MFoLcXnRrCb`** (checked against Stripe, not assumed). So:
+
+> Dashboard → Edge Functions → Secrets → `STRIPE_SECRET_KEY` must be an
+> `sk_live_…` key from `acct_1EXa8MFoLcXnRrCb`.
+
+Get it from Stripe → Developers → API keys, with **Test mode off**, while
+signed into that account. Nothing else needs changing for this.
+
+The setup screen now says which of the two it is: it asks Stripe which account
+the app's own key belongs to, and prints that under the failure. Once
+`payments-account-session` is re-pasted it also reports the account the *secret*
+key belongs to, and the screen names the mismatch outright instead of asking
+you to compare them.
+
 | Secret | Needed for | Without it |
 |---|---|---|
 | `STRIPE_SECRET_KEY` | **All payments and the ID check** | Every payment function fails |

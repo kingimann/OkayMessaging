@@ -23,9 +23,19 @@ if (scripts.length !== 1) {
 }
 const src = scripts[0][1];
 
-function makeEnv() {
+// `answer` decides what Stripe says to the key probe; `requests` records what
+// the page sent, because a page that posts anything but a publishable key to
+// Stripe would be a privacy bug rather than a diagnostic.
+function makeEnv({ answer = null } = {}) {
   const status = { textContent: "", style: { display: "none" } };
   const events = [];
+  const requests = [];
+  const mounted = [];
+  const fetchStub = (url, opts) => {
+    requests.push({ url, opts });
+    if (!answer) return Promise.reject(new Error("offline"));
+    return Promise.resolve({ json: () => Promise.resolve(answer) });
+  };
   const ctx = {
     document: {
       getElementById: (id) =>
@@ -39,11 +49,24 @@ function makeEnv() {
     Promise,
     Error,
     console,
-    StripeConnect: {},
+    // Stands in for the loader. Recording the key it is initialised with is
+    // the only way to tell "refused before mounting" from "mounted anyway".
+    StripeConnect: {
+      init: (opts) => {
+        mounted.push(opts.publishableKey);
+        return {
+          create: () => ({
+            setOnExit() {},
+            setOnLoadError() {},
+            setOnLoaderStart() {},
+          }),
+        };
+      },
+    },
     Stripe: undefined,
   };
   ctx.window = ctx;
-  return { ctx, status, events };
+  return { ctx, status, events, requests, mounted, fetchStub };
 }
 
 // Evaluate the page script with window/document bound to the stub, and reach
@@ -55,12 +78,18 @@ function load(env) {
     "setTimeout",
     "clearTimeout",
     "console",
+    "fetch",
     src +
       "\n;return {requestSecret: requestSecret, fail: fail," +
+      " describeKey: describeKey, keyNote: keyNote," +
       " setInitial: function (s) { initialSecret = s; }};",
   );
-  return fn(env.ctx, env.ctx.document, setTimeout, clearTimeout, console);
+  return fn(env.ctx, env.ctx.document, setTimeout, clearTimeout, console,
+    env.fetchStub);
 }
+
+// The probe is a promise the page deliberately doesn't await, so give it a turn.
+const settle = () => new Promise((r) => setTimeout(r, 0));
 
 let failures = 0;
 function check(name, ok, extra = "") {
@@ -144,6 +173,143 @@ const secretId = (events) =>
   try { await api.requestSecret(); } catch (e) { msg = e.message; }
   check("a silent host is named as an old app",
     msg.includes("cannot refresh the Stripe session"), msg);
+}
+
+// A missing publishable key must be named, not handed to Stripe. Passing ''
+// to StripeConnect.init produces the same "authenticating your account"
+// message as a mismatched key and sends people to check their bank details.
+{
+  const env = makeEnv();
+  const api = load(env);
+  env.ctx.okayStart("accs_initial", "", false, "#12b76a");
+  check("no publishable key is named as such",
+    env.status.textContent.includes("no Stripe publishable key"),
+    JSON.stringify(env.status.textContent));
+  check("and Stripe is never initialised without one", env.mounted.length === 0,
+    JSON.stringify(env.mounted));
+}
+
+{
+  const env = makeEnv();
+  const api = load(env);
+  env.ctx.okayStart("accs_initial", "sk_live_nope", false, "#12b76a");
+  check("something that isn't a publishable key is refused",
+    env.status.textContent.includes("not a Stripe"),
+    JSON.stringify(env.status.textContent));
+  check("and is not sent to Stripe either", env.mounted.length === 0);
+}
+
+// A real key: mount, and ask Stripe which account it belongs to so a later
+// failure can say what the secret key has to match.
+{
+  const env = makeEnv({
+    answer: {
+      error: {
+        code: "parameter_missing",
+        request_log_url:
+          "https://dashboard.stripe.com/acct_1EXa8MFoLcXnRrCb/workbench/logs?object=req_x",
+      },
+    },
+  });
+  const api = load(env);
+  env.ctx.okayStart("accs_initial", "pk_live_abcdMM3P", true, "#12b76a");
+  check("a real key mounts the component",
+    env.mounted[0] === "pk_live_abcdMM3P", JSON.stringify(env.mounted));
+  check("exactly one request goes to Stripe", env.requests.length === 1,
+    JSON.stringify(env.requests));
+  check("and it carries nothing but the key",
+    env.requests[0].url === "https://api.stripe.com/v1/tokens" &&
+      env.requests[0].opts.body === "key=pk_live_abcdMM3P",
+    JSON.stringify(env.requests[0]));
+
+  await settle();
+  api.fail("An error occurred while authenticating your account.");
+  const text = env.status.textContent;
+  check("a failure names the key's mode", text.includes("live-mode"), text);
+  check("names the account to match",
+    text.includes("acct_1EXa8MFoLcXnRrCb"), text);
+  check("and says which secret to compare it with",
+    text.includes("STRIPE_SECRET_KEY") && text.includes("sk_live_"), text);
+  check("without leaking the whole key",
+    !text.includes("pk_live_abcdMM3P") && text.includes("MM3P"), text);
+  check("the host still hears Stripe's own words",
+    env.events.some((e) => e === "error:An error occurred while " +
+      "authenticating your account."), JSON.stringify(env.events));
+}
+
+// Two accounts, both known: name the cause instead of asking somebody to
+// compare two things themselves.
+{
+  const env = makeEnv({
+    answer: {
+      error: {
+        request_log_url:
+          "https://dashboard.stripe.com/acct_APPKEY/workbench/logs?object=req_x",
+      },
+    },
+  });
+  const api = load(env);
+  env.ctx.okayStart("accs_initial", "pk_live_abcdMM3P", false, "#12b76a",
+    "acct_SERVERKEY");
+  await settle();
+  api.fail("An error occurred while authenticating your account.");
+  const text = env.status.textContent;
+  check("different accounts are named as the cause",
+    text.includes("different accounts") && text.includes("acct_APPKEY") &&
+      text.includes("acct_SERVERKEY"), text);
+  check("and the fix names the key to change",
+    text.includes("STRIPE_SECRET_KEY") && text.includes("sk_live_"), text);
+}
+
+// The same account on both sides is not a fault: say nothing about accounts.
+{
+  const env = makeEnv({
+    answer: {
+      error: {
+        request_log_url:
+          "https://dashboard.stripe.com/acct_SAME/workbench/logs?object=req_x",
+      },
+    },
+  });
+  const api = load(env);
+  env.ctx.okayStart("accs_initial", "pk_live_abcdMM3P", false, "#12b76a",
+    "acct_SAME");
+  await settle();
+  api.fail("Stripe could not load the setup form.");
+  check("matching accounts are not blamed",
+    !env.status.textContent.includes("different accounts"),
+    JSON.stringify(env.status.textContent));
+}
+
+// A key Stripe no longer recognises is a cause, not a hint.
+{
+  const env = makeEnv({
+    answer: { error: { message: "Invalid API Key provided: pk_live_***" } },
+  });
+  const api = load(env);
+  env.ctx.okayStart("accs_initial", "pk_live_rolled", false, "#12b76a");
+  await settle();
+  api.fail("An error occurred while authenticating your account.");
+  check("a rolled key is named outright",
+    env.status.textContent.includes("does not recognise"),
+    JSON.stringify(env.status.textContent));
+  check("and no account-matching advice is given for it",
+    !env.status.textContent.includes("STRIPE_SECRET_KEY"),
+    JSON.stringify(env.status.textContent));
+}
+
+// Stripe unreachable. The mode is read off the key itself, so that half of the
+// advice still stands — but no account may be named, because none is known.
+{
+  const env = makeEnv();
+  const api = load(env);
+  env.ctx.okayStart("accs_initial", "pk_live_abcdMM3P", false, "#12b76a");
+  await settle();
+  api.fail("Stripe could not load the setup form.");
+  const text = env.status.textContent;
+  check("the mode is known without asking Stripe",
+    text.includes("live-mode") && text.includes("sk_live_"), text);
+  check("and no account is invented", !text.includes("acct_"), text);
 }
 
 console.log(failures === 0

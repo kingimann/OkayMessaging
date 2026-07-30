@@ -51,11 +51,94 @@
 
   var settled = false;
 
+  // ---------------------------------------------------------------------
+  // Which keys are actually in play
+  //
+  // "An error occurred while authenticating your account" is Stripe's wording
+  // for a session the publishable key cannot authenticate, and it is a lie
+  // about where the problem is: the account is fine, the two keys don't go
+  // together. Either they are in different modes, or they belong to different
+  // Stripe accounts, and both are set on a server nobody can see from here.
+  //
+  // So the page asks Stripe about the one key it holds. Posting a publishable
+  // key to /v1/tokens with no other parameter creates nothing and answers with
+  // a request_log_url that names the account the key belongs to — which is
+  // half of the comparison, printed where somebody can read it. The key is
+  // client-safe and this is the same endpoint Stripe.js uses; no user data is
+  // in the request.
+  var keyFacts = null;
+
+  // The account the server's secret key belongs to, when the host is new
+  // enough to say. Empty means the comparison can only be advised, not made.
+  var serverAccount = '';
+
+  function describeKey(pk) {
+    if (!pk) return;
+    var mode = pk.indexOf('pk_live_') === 0
+      ? 'live'
+      : (pk.indexOf('pk_test_') === 0 ? 'test' : '');
+    keyFacts = { key: pk, mode: mode, account: '', unknownKey: false };
+    try {
+      fetch('https://api.stripe.com/v1/tokens', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'key=' + encodeURIComponent(pk)
+      }).then(function (r) { return r.json(); }).then(function (j) {
+        var err = (j && j.error) || {};
+        // An unrecognised key is a cause on its own, not a detail.
+        if (err.code === 'api_key_expired' ||
+            (err.message || '').indexOf('Invalid API Key') >= 0) {
+          keyFacts.unknownKey = true;
+          return;
+        }
+        var m = /acct_[A-Za-z0-9]+/.exec(err.request_log_url || '');
+        if (m) keyFacts.account = m[0];
+      }).catch(function () {});
+    } catch (e) {}
+  }
+
+  // What is worth adding under a failure message, or '' when nothing is known
+  // yet. Deliberately says what to compare rather than naming a cause: the
+  // other half of the comparison is a secret this page cannot see.
+  function keyNote() {
+    if (!keyFacts) return '';
+    var tail = keyFacts.key.length > 4
+      ? '…' + keyFacts.key.slice(-4)
+      : keyFacts.key;
+    if (keyFacts.unknownKey) {
+      return '\n\nStripe does not recognise the publishable key this app was '
+        + 'built with (' + tail + '). It has been rolled or deleted, so no '
+        + 'session can authenticate against it.';
+    }
+    // Both halves known and different: this is the cause, not a thing to
+    // check. Worth saying outright, because "an error occurred while
+    // authenticating your account" has sent people to their bank details.
+    if (keyFacts.account && serverAccount && keyFacts.account !== serverAccount) {
+      return '\n\nThe two Stripe keys belong to different accounts. This app '
+        + 'is built with a key from ' + keyFacts.account + ', while the '
+        + 'server\'s STRIPE_SECRET_KEY belongs to ' + serverAccount + '. A '
+        + 'session made by one account cannot be authenticated by the other. '
+        + 'Set STRIPE_SECRET_KEY (Supabase → Edge Functions → Secrets) to an '
+        + 'sk_' + keyFacts.mode + '_ key from ' + keyFacts.account + '.';
+    }
+    if (!keyFacts.mode) return '';
+    var line = '\n\nThe app is using a ' + keyFacts.mode + '-mode publishable '
+      + 'key (' + tail + ')';
+    if (keyFacts.account) line += ', from Stripe account ' + keyFacts.account;
+    line += '.\n\nFor Stripe to authenticate this form, STRIPE_SECRET_KEY in '
+      + 'Supabase → Edge Functions → Secrets has to be an sk_' + keyFacts.mode
+      + '_ key';
+    line += keyFacts.account
+      ? ' belonging to that same account.'
+      : ' belonging to the same account.';
+    return line;
+  }
+
   function fail(message) {
     settled = true;
     var s = document.getElementById('status');
     s.style.display = '';
-    s.textContent = message;
+    s.textContent = message + keyNote();
     // The host shows the same words on its own screen, with a Try again
     // button. A message only the WebView knows is a message nobody can act on.
     notify('error:' + message);
@@ -192,10 +275,29 @@
 
   // Called by the host once the page has loaded, so no secret is ever in a URL.
   var started = false;
-  window.okayStart = function (clientSecret, publishableKey, dark, accent) {
+  window.okayStart = function (clientSecret, publishableKey, dark, accent,
+      platformAccount) {
     if (started) return;
     started = true;
     initialSecret = clientSecret || '';
+    // Absent from hosts older than this argument, which is why nothing below
+    // requires it.
+    serverAccount = platformAccount || '';
+    // Asked about now, so the answer is in hand if anything fails later.
+    describeKey(publishableKey);
+    // A missing or malformed key is worth catching here: handing '' to
+    // StripeConnect.init produces the same "authenticating your account"
+    // message as a mismatched key, and sends people to look at their bank
+    // details for a build-configuration problem.
+    if (!publishableKey || publishableKey.indexOf('pk_') !== 0) {
+      fail(publishableKey
+        ? 'This app was built with something that is not a Stripe '
+          + 'publishable key, so Stripe has nothing to authenticate against.'
+        : 'This app has no Stripe publishable key, so Stripe has nothing to '
+          + 'authenticate against. (STRIPE_PUBLISHABLE_KEY at build time, or '
+          + 'as an Edge Function secret.)');
+      return;
+    }
     if (window.StripeConnect.init) {
       mount(publishableKey, dark, accent);
       return;

@@ -244,6 +244,22 @@ Deno.serve(async (req) => {
         `it was built with. This server is in ${serverMode} mode; that key ` +
         `must be a pk_${serverMode}_ one.`;
 
+    // Which Stripe account this secret key belongs to.
+    //
+    // Matching modes is not enough: two live keys from two different accounts
+    // produce the same "an error occurred while authenticating your account",
+    // because the session belongs to one platform and the publishable key to
+    // another. The client can find out which account its own key belongs to,
+    // so reporting this makes that comparison possible. Best-effort — a
+    // failure here must not cost somebody their onboarding.
+    let platformAccount = "";
+    try {
+      const self = await stripe.accounts.retrieve();
+      platformAccount = self.id ?? "";
+    } catch (_) {
+      // Left empty; the client then says what to check rather than what is wrong.
+    }
+
     return json({
       clientSecret: session.client_secret,
       accountId,
@@ -260,6 +276,9 @@ Deno.serve(async (req) => {
       // when this server cannot cross-check the key modes itself. Both are
       // here to be read in a failure, not used in the happy path.
       mode: serverMode,
+      // The Stripe account the session belongs to. The app's publishable key
+      // has to belong to this same account or nothing can authenticate.
+      platformAccount,
       if_it_fails: modeNote,
     });
   } catch (e) {

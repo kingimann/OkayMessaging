@@ -43,11 +43,52 @@ create table if not exists public.public_posts (
   -- server-written `verified` column is the stronger claim; this is for
   -- rendering without a join.
   author_verified boolean not null default false,
-  body          text not null check (char_length(body) between 1 and 500),
+  -- Empty is allowed only when the post carries an image or is a plain
+  -- repost; the check below spells that out.
+  body          text not null default '' check (char_length(body) <= 500),
   -- A reply points at its parent; deleting a post takes its replies with it.
   reply_to      text references public.public_posts(id) on delete cascade,
-  created_at    timestamptz not null default now()
+  -- A repost points at what it repeats. With a body it reads as a quote post,
+  -- without one as a plain repost. Deleting the original takes the reposts:
+  -- a repost of nothing is not a post.
+  repost_of     text references public.public_posts(id) on delete cascade,
+  -- Path inside the public-media bucket, not a full URL, so moving the project
+  -- doesn't strand every image ever posted.
+  image_path    text not null default '',
+  created_at    timestamptz not null default now(),
+  -- Something has to be in a post. Text, an image, or a repost — an entirely
+  -- empty row is a rendering bug waiting to happen.
+  constraint public_posts_not_empty check (
+    char_length(body) > 0 or image_path <> '' or repost_of is not null
+  ),
+  -- A post cannot be both a reply and a repost: the two mean different places
+  -- in the tree and the UI would have to pick one anyway.
+  constraint public_posts_reply_xor_repost check (
+    reply_to is null or repost_of is null
+  )
 );
+
+-- Migration for a project that already ran the first version of this file.
+alter table public.public_posts
+  add column if not exists repost_of text references public.public_posts(id) on delete cascade;
+alter table public.public_posts
+  add column if not exists image_path text not null default '';
+alter table public.public_posts
+  alter column body set default '';
+do $$ begin
+  -- The original CHECK required 1..500; an image-only post needs 0 allowed.
+  alter table public.public_posts drop constraint if exists public_posts_body_check;
+  alter table public.public_posts
+    add constraint public_posts_body_check check (char_length(body) <= 500);
+exception when duplicate_object then null; end $$;
+do $$ begin
+  alter table public.public_posts add constraint public_posts_not_empty check (
+    char_length(body) > 0 or image_path <> '' or repost_of is not null);
+exception when duplicate_object then null; end $$;
+do $$ begin
+  alter table public.public_posts add constraint public_posts_reply_xor_repost
+    check (reply_to is null or repost_of is null);
+exception when duplicate_object then null; end $$;
 
 create table if not exists public.public_post_likes (
   post_id     text not null references public.public_posts(id) on delete cascade,
@@ -62,6 +103,10 @@ create index if not exists public_posts_replies_idx
   on public.public_posts (reply_to, created_at);
 create index if not exists public_posts_author_idx
   on public.public_posts (author_phone);
+create index if not exists public_posts_reposts_idx
+  on public.public_posts (repost_of);
+create index if not exists public_posts_username_idx
+  on public.public_posts (author_username, created_at desc);
 
 alter table public.public_posts enable row level security;
 alter table public.public_post_likes enable row level security;
@@ -101,6 +146,16 @@ as $$
   select count(*) from public.public_post_likes where post_id = p;
 $$;
 
+create or replace function public.public_post_repost_count(p text)
+returns bigint
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select count(*) from public.public_posts where repost_of = p;
+$$;
+
 create or replace function public.public_post_reply_count(p text)
 returns bigint
 language sql
@@ -127,7 +182,7 @@ $$;
 -- one by one. Anything asking for `*` is refused outright.
 revoke select on table public.public_posts from anon, authenticated;
 grant select (id, author_username, author_name, author_verified, body,
-              reply_to, created_at)
+              reply_to, repost_of, image_path, created_at)
   on public.public_posts to anon, authenticated;
 
 revoke select on table public.public_post_likes from anon, authenticated;
@@ -209,9 +264,40 @@ select
   p.author_verified,
   p.body,
   p.reply_to,
+  p.repost_of,
+  p.image_path,
   p.created_at,
-  public.public_post_like_count(p.id)  as like_count,
-  public.public_post_reply_count(p.id) as reply_count
+  public.public_post_like_count(p.id)   as like_count,
+  public.public_post_reply_count(p.id)  as reply_count,
+  public.public_post_repost_count(p.id) as repost_count
 from public.public_posts p;
 
 grant select on public.public_feed to anon, authenticated;
+
+-- ---------------------------------------------------------------------------
+-- 6. Images
+-- ---------------------------------------------------------------------------
+-- A public bucket, and public is the honest setting: these are attachments on
+-- posts anyone can read, so sealing them the way listing videos are sealed
+-- would accomplish nothing — the key would have to be as public as the post.
+--
+-- The object name is the post id, which is 8 random bytes, so a path is not
+-- guessable from a username or a phone number.
+insert into storage.buckets (id, name, public, file_size_limit)
+values ('public-media', 'public-media', true, 4194304)
+on conflict (id) do update
+  set public = true,
+      file_size_limit = 4194304;
+
+-- Anyone may read (the bucket is public); only a signed-in account may add.
+-- No update or delete for clients: an image swapped under a post that people
+-- have already read is the same trick as editing the text.
+drop policy if exists public_media_read on storage.objects;
+create policy public_media_read on storage.objects
+  for select to anon, authenticated
+  using (bucket_id = 'public-media');
+
+drop policy if exists public_media_insert on storage.objects;
+create policy public_media_insert on storage.objects
+  for insert to authenticated
+  with check (bucket_id = 'public-media');

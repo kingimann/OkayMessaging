@@ -135,10 +135,16 @@ class ConnectSession {
   final String clientSecret;
   final String publishableKey;
   final String pageUrl;
+
+  /// The Stripe account the server's secret key belongs to, or '' when the
+  /// deployed function is old enough not to say. The publishable key has to
+  /// belong to the same account or nothing authenticates.
+  final String platformAccount;
   const ConnectSession({
     required this.clientSecret,
     required this.publishableKey,
     required this.pageUrl,
+    this.platformAccount = '',
   });
 }
 
@@ -311,6 +317,7 @@ class PaymentService {
       clientSecret: secret,
       publishableKey: key,
       pageUrl: connectPageUrl,
+      platformAccount: r['platformAccount'] as String? ?? '',
     );
   }
 
