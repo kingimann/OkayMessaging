@@ -167,6 +167,15 @@ Future<void> tapInSettings(WidgetTester tester, Finder finder) async {
   await tester.pumpAndSettle();
 }
 
+
+/// Whether the framework recorded a layout overflow during this test.
+///
+/// Flutter reports a RenderFlex overflow as a test error, so this is belt and
+/// braces — but the profile's stats row overflowed by 30 pixels at a width
+/// narrower than a phone, and that is worth an explicit assertion.
+bool anythingOverflowed(WidgetTester tester) =>
+    tester.takeException() != null;
+
 void main() {
   // Singletons persist across tests; reset them so each starts clean. Most
   // tests assume a signed-in user so they land on the home screen; the
@@ -13291,8 +13300,10 @@ void main() {
       expect(find.text('not sam'), findsNothing,
           reason: 'a profile is one person\'s posts');
       // Three of Sam's four, and the count is the real number the server gave.
+      // Capitalised now: it is one stat among the others rather than a
+      // sentence fragment, since the two rows of counts became one.
       expect(find.text('3'), findsWidgets);
-      expect(find.text('posts'), findsOneWidget);
+      expect(find.text('Posts'), findsWidgets);
 
       // No follower count anywhere. This app knows who YOU follow, on your own
       // device; it does not know who follows anybody, and there is no table
@@ -14019,6 +14030,63 @@ void main() {
       await t.tap(find.text('the question'));
       await t.pumpAndSettle();
       expect(find.text('Replying to @sam'), findsOneWidget);
+    });
+
+    testWidgets('the profile header fits, and counts each thing once',
+        (t) async {
+      t.view.physicalSize = const Size(430, 1600);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.resetPhysicalSize);
+      final store = PublicFeedStore.instance;
+      addTearDown(store.resetForTest);
+      final prevProfile = AppState.profile.value;
+      addTearDown(() => AppState.profile.value = prevProfile);
+      AppState.profile.value = const AppUser(
+          id: 'me', name: 'Iman', avatarColor: '#000000', username: 'iman');
+
+      PublicFeedStore.debugProfileOverride = (username) async => [
+            PublicPost(
+                id: 'p1',
+                authorUsername: 'iman',
+                authorName: 'Iman',
+                body: 'hello',
+                createdAt: DateTime.now()),
+          ];
+      await t.pumpWidget(const MaterialApp(
+          home: Scaffold(
+              body: PublicProfileScreen(username: 'iman', embedded: true))));
+      await t.pumpAndSettle();
+
+      // THE AVATAR WAS CUT IN HALF. It was pushed up out of the header sliver
+      // with Transform.translate, and a sliver clips at its own bounds, so the
+      // top of somebody's head disappeared behind the banner. Both are one box
+      // now, and the whole avatar has to be inside the screen.
+      final avatar = t.getRect(find.byType(CircleAvatar).first);
+      expect(avatar.top, greaterThanOrEqualTo(0.0),
+          reason: 'the top of the head is on screen');
+      expect(avatar.height, greaterThan(50.0),
+          reason: 'and it is a whole circle, not a sliver of one');
+      // Clipping does not change a widget's rect, so the rect alone cannot see
+      // this. What can: the header below has to start BELOW the avatar. When
+      // the box holding banner and avatar is too short, the name is drawn over
+      // the avatar's lower half — which is what a clipped avatar looks like.
+      final handle = t.getRect(find.text('@iman').first);
+      expect(handle.top, greaterThanOrEqualTo(avatar.bottom),
+          reason: 'the header begins after the avatar, not through it');
+
+      // ONE row of counts. There were two — "1 post 0 following" above a second
+      // row repeating Following beside Servers and Okay Score — which invites
+      // somebody to check whether the two numbers disagree.
+      expect(find.text('Following'), findsOneWidget);
+      expect(find.text('following'), findsNothing);
+      expect(find.text('Posts'), findsOneWidget);
+      expect(find.text('post'), findsNothing);
+      expect(find.text('Okay Score'), findsOneWidget);
+
+      // Nothing overflows at a real phone width. A RenderFlex overflow is
+      // reported as a test failure by the framework, so reaching here is the
+      // assertion — but check the one row that did overflow before.
+      expect(anythingOverflowed(t), isFalse);
     });
 
     testWidgets('the one profile shows what somebody posted', (t) async {

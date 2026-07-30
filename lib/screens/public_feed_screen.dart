@@ -646,7 +646,6 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
     final tabPosts = posts == null
         ? const <PublicPost>[]
         : PublicFeedStore.profileTab(posts, _tab);
-    final me = AppState.profile.value;
     return Scaffold(
       body: ListenableBuilder(
         listenable: PublicFeedStore.instance,
@@ -659,23 +658,19 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
             // Always scrollable, or a short profile cannot be pulled at all.
             physics: const AlwaysScrollableScrollPhysics(),
             slivers: [
-              if (widget.embedded)
-                SliverToBoxAdapter(
-                  child: SizedBox(
-                    height: 132,
-                    child: _Banner(username: widget.username),
-                  ),
-                )
-              else
+              if (!widget.embedded)
                 SliverAppBar(
                   pinned: true,
-                  expandedHeight: 132,
                   title: Text(_displayName,
                       style: const TextStyle(fontWeight: FontWeight.w700)),
-                  flexibleSpace: FlexibleSpaceBar(
-                    background: _Banner(username: widget.username),
-                  ),
                 ),
+              SliverToBoxAdapter(
+                child: _BannerAndAvatar(
+                  username: widget.username,
+                  displayName: _displayName,
+                  isMe: _isMe,
+                ),
+              ),
               SliverToBoxAdapter(
                 child: _Header(
                   username: widget.username,
@@ -686,49 +681,18 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
                   postCount: posts?.length,
                 ),
               ),
-              if (_isMe) ...[
+              // What this account has proven, at a glance: the phone behind
+              // sign-in, the email that can recover it, the ID behind the blue
+              // check. Each chip goes where its state is changed, so
+              // "unconfirmed" is a door and not a verdict. Yours only — a
+              // stranger's verification state is not somebody's to inspect.
+              if (_isMe)
                 const SliverToBoxAdapter(
                   child: Padding(
-                    padding: EdgeInsets.fromLTRB(16, 4, 16, 0),
-                    // What this account has proven, at a glance: the phone behind
-                    // sign-in, the email that can recover it, the ID behind the
-                    // blue check. Each chip goes where its state is changed, so
-                    // "unconfirmed" is a door and not a verdict.
+                    padding: EdgeInsets.fromLTRB(12, 4, 12, 10),
                     child: ProfileVerificationRow(),
                   ),
                 ),
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
-                    child: FittedBox(
-                      fit: BoxFit.scaleDown,
-                      child: Row(
-                        children: [
-                          ProfileStat(
-                              value:
-                                  '${CommunityStore.instance.communities.length}',
-                              label: 'Servers',
-                              onTap: null),
-                          const SizedBox(width: 24),
-                          ProfileStat(
-                              value: '${FollowStore.instance.followingCount}',
-                              label: 'Following',
-                              onTap: () => Navigator.of(context).push(
-                                  MaterialPageRoute(
-                                      builder: (_) => const PeopleScreen()))),
-                          const SizedBox(width: 24),
-                          ProfileStat(
-                              value: '${me.score}',
-                              label: 'Okay Score',
-                              onTap: () => Navigator.of(context).push(
-                                  MaterialPageRoute(
-                                      builder: (_) => const ScoreScreen()))),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ],
               SliverToBoxAdapter(
                 child: _TabStrip(
                   labels: [for (final t in _tabs) t.label],
@@ -859,6 +823,73 @@ class _Banner extends StatelessWidget {
   }
 }
 
+/// The banner with the avatar sitting over its lower edge.
+///
+/// ONE WIDGET, because the overlap cannot work across two slivers. The avatar
+/// used to be pushed up out of the header sliver with Transform.translate, and a
+/// sliver clips at its own bounds — so the top of somebody's head was cut off by
+/// the banner rather than sitting over it. This box is tall enough to hold both,
+/// and nothing is drawn outside it.
+class _BannerAndAvatar extends StatelessWidget {
+  final String username;
+  final String displayName;
+  final bool isMe;
+
+  const _BannerAndAvatar(
+      {required this.username, required this.displayName, required this.isMe});
+
+  static const double _bannerHeight = 118;
+  static const double _avatarRadius = 36;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final initial =
+        (displayName.isEmpty ? '?' : displayName.replaceFirst('@', ''))
+            .substring(0, 1)
+            .toUpperCase();
+    return SizedBox(
+      // Banner, plus the half of the avatar that hangs below it, plus room for
+      // the buttons beside it.
+      height: _bannerHeight + _avatarRadius + 14,
+      child: Stack(
+        children: [
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            height: _bannerHeight,
+            child: _Banner(username: username),
+          ),
+          Positioned(
+            left: 16,
+            top: _bannerHeight - _avatarRadius,
+            child: Container(
+              padding: const EdgeInsets.all(3),
+              decoration: BoxDecoration(
+                  color: Theme.of(context).scaffoldBackgroundColor,
+                  shape: BoxShape.circle),
+              child: CircleAvatar(
+                radius: _avatarRadius,
+                backgroundColor: publicProfileBannerSeed(username, scheme)
+                    .withValues(alpha: 0.25),
+                child: Text(initial,
+                    style: const TextStyle(
+                        fontSize: 28, fontWeight: FontWeight.w700)),
+              ),
+            ),
+          ),
+          Positioned(
+            right: 12,
+            top: _bannerHeight + 8,
+            child: _ProfileActions(username: username, isMe: isMe),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _Header extends StatelessWidget {
   final String username;
   final String displayName;
@@ -879,146 +910,121 @@ class _Header extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final initial =
-        (displayName.isEmpty ? '?' : displayName.replaceFirst('@', ''))
-            .substring(0, 1)
-            .toUpperCase();
     final about = known?.about ?? '';
     final pronouns = known?.pronouns ?? '';
     final link = known?.link ?? '';
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // The avatar rides up over the banner, as it does everywhere else.
-          Transform.translate(
-            offset: const Offset(0, -30),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(3),
-                  decoration: BoxDecoration(
-                      color: Theme.of(context).scaffoldBackgroundColor,
-                      shape: BoxShape.circle),
-                  child: CircleAvatar(
-                    radius: 34,
-                    backgroundColor: publicProfileBannerSeed(username, scheme)
-                        .withValues(alpha: 0.25),
-                    child: Text(initial,
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Flexible(
+                    child: Text(displayName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
-                            fontSize: 26, fontWeight: FontWeight.w700)),
+                            fontSize: 20, fontWeight: FontWeight.w800)),
                   ),
-                ),
-                const Spacer(),
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 4),
-                  child: _ProfileActions(username: username, isMe: isMe),
-                ),
+                  if (verified) ...[
+                    const SizedBox(width: 5),
+                    const VerifiedBadge(size: 16),
+                  ],
+                ],
+              ),
+              Row(
+                children: [
+                  Text('@$username',
+                      style: TextStyle(color: Colors.grey.shade500)),
+                  if (pronouns.isNotEmpty) ...[
+                    const SizedBox(width: 8),
+                    Text(pronouns,
+                        style: TextStyle(
+                            fontSize: 12.5, color: Colors.grey.shade500)),
+                  ],
+                ],
+              ),
+              // Only for somebody this device actually knows. There is no
+              // directory of bios to read, and a placeholder line here would
+              // be an invented one.
+              if (about.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text(about, style: const TextStyle(fontSize: 14.5)),
               ],
-            ),
-          ),
-          Transform.translate(
-            offset: const Offset(0, -18),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Flexible(
-                      child: Text(displayName,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                              fontSize: 20, fontWeight: FontWeight.w800)),
-                    ),
-                    if (verified) ...[
-                      const SizedBox(width: 5),
-                      const VerifiedBadge(size: 16),
-                    ],
-                  ],
-                ),
-                Row(
-                  children: [
-                    Text('@$username',
-                        style: TextStyle(color: Colors.grey.shade500)),
-                    if (pronouns.isNotEmpty) ...[
-                      const SizedBox(width: 8),
-                      Text(pronouns,
-                          style: TextStyle(
-                              fontSize: 12.5, color: Colors.grey.shade500)),
-                    ],
-                  ],
-                ),
-                // Only for somebody this device actually knows. There is no
-                // directory of bios to read, and a placeholder line here would
-                // be an invented one.
-                if (about.isNotEmpty) ...[
-                  const SizedBox(height: 8),
-                  Text(about, style: const TextStyle(fontSize: 14.5)),
-                ],
-                if (link.isNotEmpty) ...[
-                  const SizedBox(height: 6),
-                  InkWell(
-                    onTap: () => InAppWebScreen.open(context, link),
-                    child: Row(
-                      children: [
-                        Icon(Icons.link, size: 15, color: scheme.primary),
-                        const SizedBox(width: 4),
-                        Flexible(
-                          child: Text(link,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                  fontSize: 13.5, color: scheme.primary)),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    // Real, from the server. The only count on this screen.
-                    _Count(
-                        value: postCount,
-                        label: postCount == 1 ? 'post' : 'posts'),
-                    if (isMe) ...[
-                      const SizedBox(width: 18),
-                      ListenableBuilder(
-                        listenable: FollowStore.instance,
-                        builder: (context, _) => _Count(
-                          value: FollowStore.instance.following.length,
-                          label: 'following',
-                        ),
+              if (link.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                InkWell(
+                  onTap: () => InAppWebScreen.open(context, link),
+                  child: Row(
+                    children: [
+                      Icon(Icons.link, size: 15, color: scheme.primary),
+                      const SizedBox(width: 4),
+                      Flexible(
+                        child: Text(link,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                                fontSize: 13.5, color: scheme.primary)),
                       ),
                     ],
-                  ],
+                  ),
                 ),
               ],
-            ),
+              const SizedBox(height: 12),
+              // ONE row of counts. There were two — "1 post 0 following"
+              // above a second row repeating Following beside Servers and
+              // Okay Score — which is the sort of thing that makes somebody
+              // check whether the two numbers disagree.
+              ListenableBuilder(
+                listenable: Listenable.merge(
+                    [FollowStore.instance, CommunityStore.instance]),
+                builder: (context, _) => FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Row(
+                    children: [
+                      // Real, from the server, and the only count that means
+                      // anything on somebody else's profile.
+                      ProfileStat(
+                          value: postCount == null ? '—' : '$postCount',
+                          label: postCount == 1 ? 'Post' : 'Posts',
+                          onTap: null),
+                      if (isMe) ...[
+                        const SizedBox(width: 22),
+                        ProfileStat(
+                            value: '${FollowStore.instance.followingCount}',
+                            label: 'Following',
+                            onTap: () => Navigator.of(context).push(
+                                MaterialPageRoute(
+                                    builder: (_) => const PeopleScreen()))),
+                        const SizedBox(width: 22),
+                        ProfileStat(
+                            value:
+                                '${CommunityStore.instance.communities.length}',
+                            label: 'Servers',
+                            onTap: null),
+                        const SizedBox(width: 22),
+                        ProfileStat(
+                            value: '${AppState.profile.value.score}',
+                            label: 'Okay Score',
+                            onTap: () => Navigator.of(context).push(
+                                MaterialPageRoute(
+                                    builder: (_) => const ScoreScreen()))),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            ],
           ),
         ],
       ),
     );
   }
-}
-
-class _Count extends StatelessWidget {
-  final int? value;
-  final String label;
-  const _Count({required this.value, required this.label});
-
-  @override
-  Widget build(BuildContext context) => Row(
-        children: [
-          Text(value == null ? '—' : '$value',
-              style: const TextStyle(fontWeight: FontWeight.w700)),
-          const SizedBox(width: 4),
-          Text(label, style: TextStyle(color: Colors.grey.shade500)),
-        ],
-      );
 }
 
 class _ProfileActions extends StatelessWidget {
