@@ -17,6 +17,7 @@ import '../util/file_moderation.dart';
 import '../util/photo_prep.dart';
 import '../utils/date_formatter.dart';
 import '../widgets/sanction_notice.dart';
+import '../widgets/user_avatar.dart';
 import '../widgets/verified_badge.dart';
 import 'edit_profile_screen.dart';
 import 'feed_screen.dart' show FeedPostScreen;
@@ -39,6 +40,43 @@ Color publicProfileBannerSeed(String username, ColorScheme scheme) {
     hash = (hash * 31 + unit) & 0x7fffffff;
   }
   return HSLColor.fromAHSL(1, (hash % 360).toDouble(), 0.45, 0.42).toColor();
+}
+
+/// The account behind a public handle, when this device happens to know it:
+/// you, or somebody there is a chat with.
+///
+/// WHY IT MATTERS. Everywhere else in this app a person is drawn by UserAvatar,
+/// with the colour they picked and the emoji they set. The feed drew its own
+/// circle from a hash of the handle — so somebody's own face on the newsfeed was
+/// a different colour from their face in chats, in calls and on the contact
+/// list. One person looked like two.
+///
+/// Nobody else can be resolved, and that is not a gap to paper over: a stranger
+/// on a public feed is a handle and a name, and a generated circle is the honest
+/// way to draw one.
+AppUser? knownUserFor(String username) {
+  final handle = username.trim().toLowerCase();
+  if (handle.isEmpty) return null;
+  final me = AppState.profile.value;
+  if (me.username.toLowerCase() == handle) return me;
+  for (final chat in ChatStore.instance.chats) {
+    if (chat.contact.username.toLowerCase() == handle) return chat.contact;
+  }
+  return null;
+}
+
+/// The colour behind a handle: the one they picked when this device knows them,
+/// and a stable generated one otherwise — so a profile's banner matches the
+/// avatar sitting on it rather than clashing with it.
+Color profileAccentFor(String username, ColorScheme scheme) {
+  final known = knownUserFor(username);
+  if (known != null) {
+    var hex = known.avatarColor.replaceFirst('#', '');
+    if (hex.length == 6) hex = 'FF$hex';
+    final value = int.tryParse(hex, radix: 16);
+    if (value != null) return Color(value);
+  }
+  return publicProfileBannerSeed(username, scheme);
 }
 
 /// Opens somebody's profile. One helper, so a tap on an avatar, a name, an
@@ -810,8 +848,7 @@ class _Banner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final seed =
-        publicProfileBannerSeed(username, Theme.of(context).colorScheme);
+    final seed = profileAccentFor(username, Theme.of(context).colorScheme);
     return DecoratedBox(
       decoration: BoxDecoration(
         gradient: LinearGradient(
@@ -848,6 +885,7 @@ class _BannerAndAvatar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final known = knownUserFor(username);
     final initial =
         (displayName.isEmpty ? '?' : displayName.replaceFirst('@', ''))
             .substring(0, 1)
@@ -873,14 +911,16 @@ class _BannerAndAvatar extends StatelessWidget {
               decoration: BoxDecoration(
                   color: Theme.of(context).scaffoldBackgroundColor,
                   shape: BoxShape.circle),
-              child: CircleAvatar(
-                radius: _avatarRadius,
-                backgroundColor: publicProfileBannerSeed(username, scheme)
-                    .withValues(alpha: 0.25),
-                child: Text(initial,
-                    style: const TextStyle(
-                        fontSize: 28, fontWeight: FontWeight.w700)),
-              ),
+              child: known != null
+                  ? UserAvatar(user: known, radius: _avatarRadius)
+                  : CircleAvatar(
+                      radius: _avatarRadius,
+                      backgroundColor: profileAccentFor(username, scheme)
+                          .withValues(alpha: 0.25),
+                      child: Text(initial,
+                          style: const TextStyle(
+                              fontSize: 28, fontWeight: FontWeight.w700)),
+                    ),
             ),
           ),
           Positioned(
@@ -1145,6 +1185,7 @@ class _PostTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final author = knownUserFor(post.authorUsername);
     final initial =
         (post.authorName.isEmpty ? '?' : post.authorName[0]).toUpperCase();
     return InkWell(
@@ -1157,12 +1198,16 @@ class _PostTile extends StatelessWidget {
             GestureDetector(
               onTap: () => openPublicProfile(context, post.authorUsername,
                   name: post.authorName),
-              child: CircleAvatar(
-                radius: 20,
-                backgroundColor: scheme.primary.withValues(alpha: 0.18),
-                child: Text(initial,
-                    style: const TextStyle(fontWeight: FontWeight.w700)),
-              ),
+              child: author != null
+                  ? UserAvatar(user: author, radius: 20)
+                  : CircleAvatar(
+                      radius: 20,
+                      backgroundColor:
+                          profileAccentFor(post.authorUsername, scheme)
+                              .withValues(alpha: 0.22),
+                      child: Text(initial,
+                          style: const TextStyle(fontWeight: FontWeight.w700)),
+                    ),
             ),
             const SizedBox(width: 12),
             Expanded(

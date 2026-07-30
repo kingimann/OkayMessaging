@@ -14107,6 +14107,53 @@ void main() {
       expect(anythingOverflowed(t), isFalse);
     });
 
+    testWidgets('a person has one face everywhere in the app', (t) async {
+      t.view.physicalSize = const Size(500, 1600);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.resetPhysicalSize);
+      final store = PublicFeedStore.instance;
+      addTearDown(store.resetForTest);
+      final prevProfile = AppState.profile.value;
+      addTearDown(() => AppState.profile.value = prevProfile);
+
+      // Everywhere else in this app somebody is drawn by UserAvatar, with the
+      // colour they picked and the emoji they set. The feed drew its own circle
+      // from a hash of the handle, so a person's face on the newsfeed was a
+      // different colour from their face in chats and calls. One person looked
+      // like two.
+      AppState.profile.value = const AppUser(
+          id: 'me',
+          name: 'Iman',
+          avatarColor: '#FF5722',
+          username: 'iman',
+          emoji: '🦊');
+      expect(knownUserFor('iman')?.emoji, '🦊');
+      expect(knownUserFor('IMAN')?.emoji, '🦊',
+          reason: 'a handle is a handle whatever its capitalisation');
+      expect(profileAccentFor('iman', const ColorScheme.light()),
+          const Color(0xFFFF5722),
+          reason: 'the banner takes the colour they chose');
+
+      // A stranger cannot be resolved, and that is not a gap to paper over: a
+      // handle and a name is all a public feed gives you, so a generated circle
+      // is the honest way to draw one — stable, so it does not change per view.
+      expect(knownUserFor('stranger'), isNull);
+      const scheme = ColorScheme.light();
+      expect(profileAccentFor('stranger', scheme),
+          publicProfileBannerSeed('stranger', scheme));
+      expect(knownUserFor(''), isNull);
+
+      PublicFeedStore.debugProfileOverride = (username) async => [];
+      await t.pumpWidget(const MaterialApp(
+          home: Scaffold(
+              body: PublicProfileScreen(username: 'iman', embedded: true))));
+      await t.pumpAndSettle();
+      // Your own emoji, on your own profile — not a generated initial.
+      expect(find.text('🦊'), findsWidgets);
+      expect(find.text('I'), findsNothing,
+          reason: 'the generated initial is for people we do not know');
+    });
+
     testWidgets('the one profile shows what somebody posted', (t) async {
       t.view.physicalSize = const Size(500, 2200);
       t.view.devicePixelRatio = 1.0;
