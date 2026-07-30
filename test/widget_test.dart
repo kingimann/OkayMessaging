@@ -13643,12 +13643,121 @@ void main() {
 
       // The banner explains it before anyone tries.
       expect(find.text('You are timed out'), findsOneWidget);
-      await tester.tap(find.widgetWithText(FloatingActionButton, 'Post'));
+      // The compose button is round and iconic on this timeline, so it is
+      // found by its tooltip — which is also the only thing a screen
+      // reader has to go on.
+      await tester.tap(find.byTooltip('New post'));
       await tester.pumpAndSettle();
       // And tapping Post says why rather than opening a composer that would
       // only fail at the database.
       expect(find.textContaining('you can post again in'), findsOneWidget);
       expect(find.text('New post'), findsNothing);
+    });
+
+    testWidgets('the timeline is laid out like the feeds people arrive from',
+        (t) async {
+      t.view.physicalSize = const Size(500, 1400);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.resetPhysicalSize);
+      final store = PublicFeedStore.instance;
+      addTearDown(store.resetForTest);
+
+      final now = DateTime.now();
+      PublicFeedStore.debugLoadOverride = () async => [
+            PublicPost(
+                id: 'a',
+                authorUsername: 'sam',
+                authorName: 'Sam',
+                body: 'first post #news',
+                createdAt: now),
+            PublicPost(
+                id: 'b',
+                authorUsername: 'kim',
+                authorName: 'Kim',
+                body: 'second #news #sport',
+                createdAt: now.subtract(const Duration(minutes: 2))),
+          ];
+      await t.pumpWidget(const MaterialApp(home: PublicFeedScreen()));
+      await t.pumpAndSettle();
+
+      // Tabs, not chips. Chips read as removable filters; these are which
+      // timeline you are on, and the underline is what says so.
+      expect(find.byType(ChoiceChip), findsNothing);
+      for (final f in FeedFilter.values) {
+        expect(find.text(f.label), findsOneWidget);
+      }
+      // Evenly divided, which is what makes it a tab row rather than a row of
+      // buttons that happen to be next to each other.
+      final first = t.getRect(find.text(FeedFilter.values.first.label));
+      final last = t.getRect(find.text(FeedFilter.values.last.label));
+      expect(first.center.dx, lessThan(last.center.dx));
+
+      // Trending is plain tappable text, not a second row of chips competing
+      // with the tabs above it.
+      expect(find.text('TRENDING'), findsOneWidget);
+      expect(find.byType(ActionChip), findsNothing);
+      await t.tap(find.text('#news'));
+      await t.pumpAndSettle();
+      expect(store.tag, 'news');
+
+      // Tapping the tag put a removable chip up, because a filter you cannot
+      // see is a feed that looks broken.
+      expect(find.byType(InputChip), findsOneWidget);
+      expect(find.text('TRENDING'), findsNothing,
+          reason: 'no trending row while something is already narrowing');
+    });
+
+    testWidgets('a post carries four evenly spread actions', (t) async {
+      t.view.physicalSize = const Size(500, 1400);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.resetPhysicalSize);
+      final store = PublicFeedStore.instance;
+      addTearDown(store.resetForTest);
+
+      PublicFeedStore.debugLoadOverride = () async => [
+            PublicPost(
+                id: 'a',
+                authorUsername: 'sam',
+                authorName: 'Sam',
+                body: 'hello',
+                likeCount: 3,
+                createdAt: DateTime.now()),
+          ];
+      await t.pumpWidget(const MaterialApp(home: PublicFeedScreen()));
+      await t.pumpAndSettle();
+
+      for (final icon in [
+        Icons.chat_bubble_outline,
+        Icons.repeat,
+        Icons.favorite_border,
+        Icons.ios_share,
+      ]) {
+        expect(find.byIcon(icon), findsOneWidget, reason: '$icon is missing');
+      }
+      // Spread across the post rather than bunched at the left: the gap
+      // between the first and last action is most of the width.
+      final reply = t.getRect(find.byIcon(Icons.chat_bubble_outline));
+      final share = t.getRect(find.byIcon(Icons.ios_share));
+      expect(share.center.dx - reply.center.dx, greaterThan(200),
+          reason: 'evenly spread, so every target is under a thumb');
+
+      // The overflow sits up beside the timestamp, which is what frees the
+      // action row to be four things.
+      final more = t.getRect(find.byIcon(Icons.more_horiz));
+      expect(more.center.dy, lessThan(reply.center.dy));
+      expect(more.center.dx, greaterThan(share.center.dx - 60),
+          reason: 'right-aligned on the name row');
+
+      // A like reads as a like without having to be learned. The hook stands
+      // in for the server; without one the optimistic like is rolled back and
+      // the heart never fills, which is correct behaviour and not what this
+      // test is about.
+      PublicFeedStore.debugLikeOverride = (id, liked) async {};
+      await t.tap(find.byIcon(Icons.favorite_border));
+      await t.pumpAndSettle();
+      expect(find.byIcon(Icons.favorite), findsOneWidget);
+      final heart = t.widget<Icon>(find.byIcon(Icons.favorite));
+      expect(heart.color, const Color(0xFFF91880));
     });
 
     testWidgets('the composer states that everyone will see it',
@@ -13657,7 +13766,10 @@ void main() {
       AppState.profile.value = AppState.profile.value;
       await tester.pumpWidget(const MaterialApp(home: PublicFeedScreen()));
       await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(FloatingActionButton, 'Post'));
+      // The compose button is round and iconic on this timeline, so it is
+      // found by its tooltip — which is also the only thing a screen
+      // reader has to go on.
+      await tester.tap(find.byTooltip('New post'));
       await tester.pumpAndSettle();
       expect(find.text('New post'), findsOneWidget);
       expect(find.textContaining('Everyone using OkayMessenger can see this'),

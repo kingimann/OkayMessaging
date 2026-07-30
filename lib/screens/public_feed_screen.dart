@@ -66,8 +66,7 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
     // Fetch the next page a little before the bottom, so scrolling doesn't
     // stop dead while it loads.
     _scroll.addListener(() {
-      if (_scroll.position.pixels >=
-          _scroll.position.maxScrollExtent - 600) {
+      if (_scroll.position.pixels >= _scroll.position.maxScrollExtent - 600) {
         _store.loadMore();
       }
     });
@@ -98,7 +97,8 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
-      builder: (_) => _Composer(replyTo: replyTo, replyingToName: replyingToName),
+      builder: (_) =>
+          _Composer(replyTo: replyTo, replyingToName: replyingToName),
     );
   }
 
@@ -106,6 +106,30 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
+        titleSpacing: 8,
+        // Your own avatar, top left, going to your own profile — the same
+        // gesture the feeds people arrive from use.
+        leading: _searching
+            ? null
+            : ValueListenableBuilder<AppUser>(
+                valueListenable: AppState.profile,
+                builder: (context, me, _) => Center(
+                  child: GestureDetector(
+                    onTap: () =>
+                        openPublicProfile(context, me.username, name: me.name),
+                    child: CircleAvatar(
+                      radius: 16,
+                      backgroundColor: publicProfileBannerSeed(
+                              me.username, Theme.of(context).colorScheme)
+                          .withValues(alpha: 0.25),
+                      child: Text(
+                          (me.name.isEmpty ? '?' : me.name[0]).toUpperCase(),
+                          style: const TextStyle(
+                              fontSize: 13, fontWeight: FontWeight.w700)),
+                    ),
+                  ),
+                ),
+              ),
         title: _searching
             ? TextField(
                 controller: _search,
@@ -138,10 +162,12 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
             ),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
+      // Round and iconic, where the compose button lives on a timeline like
+      // this one.
+      floatingActionButton: FloatingActionButton(
         onPressed: () => _compose(),
-        icon: const Icon(Icons.edit_outlined),
-        label: const Text('Post'),
+        tooltip: 'New post',
+        child: const Icon(Icons.edit_outlined),
       ),
       body: ListenableBuilder(
         listenable: Listenable.merge([_store, PlatformModeration.instance]),
@@ -161,54 +187,56 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
               else ...[
                 _FilterBar(store: _store),
                 Expanded(
-                child: RefreshIndicator(
-                  onRefresh: _refresh,
-                  child: _store.loading && posts.isEmpty
-                      ? const Center(child: CircularProgressIndicator())
-                      : _store.error != null && posts.isEmpty
-                          ? ListView(children: [
-                              const SizedBox(height: 80),
-                              _empty(Icons.error_outline, _store.error!),
-                            ])
-                          : posts.isEmpty
-                              ? ListView(
-                                  physics:
-                                      const AlwaysScrollableScrollPhysics(),
-                                  children: [
-                                    const SizedBox(height: 80),
-                                    _empty(Icons.forum_outlined,
-                                        'Nothing here yet. Be the first to '
-                                        'post — everyone will see it.'),
-                                  ],
-                                )
-                              : ListView.separated(
-                                  controller: _scroll,
-                                  physics:
-                                      const AlwaysScrollableScrollPhysics(),
-                                  padding: const EdgeInsets.only(bottom: 96),
-                                  itemCount: posts.length + 1,
-                                  separatorBuilder: (_, __) =>
-                                      const Divider(height: 1),
-                                  itemBuilder: (context, i) {
-                                    if (i == posts.length) {
-                                      return _Footer(store: _store);
-                                    }
-                                    return _PostTile(
-                                      post: posts[i],
-                                      onReply: () => _compose(
-                                          replyTo: posts[i].id,
-                                          replyingToName:
-                                              posts[i].authorName),
-                                      onOpen: () => Navigator.of(context).push(
-                                        MaterialPageRoute(
-                                          builder: (_) => _ThreadScreen(
-                                              postId: posts[i].id),
+                  child: RefreshIndicator(
+                    onRefresh: _refresh,
+                    child: _store.loading && posts.isEmpty
+                        ? const Center(child: CircularProgressIndicator())
+                        : _store.error != null && posts.isEmpty
+                            ? ListView(children: [
+                                const SizedBox(height: 80),
+                                _empty(Icons.error_outline, _store.error!),
+                              ])
+                            : posts.isEmpty
+                                ? ListView(
+                                    physics:
+                                        const AlwaysScrollableScrollPhysics(),
+                                    children: [
+                                      const SizedBox(height: 80),
+                                      _empty(
+                                          Icons.forum_outlined,
+                                          'Nothing here yet. Be the first to '
+                                          'post — everyone will see it.'),
+                                    ],
+                                  )
+                                : ListView.separated(
+                                    controller: _scroll,
+                                    physics:
+                                        const AlwaysScrollableScrollPhysics(),
+                                    padding: const EdgeInsets.only(bottom: 96),
+                                    itemCount: posts.length + 1,
+                                    separatorBuilder: (_, __) =>
+                                        const Divider(height: 1),
+                                    itemBuilder: (context, i) {
+                                      if (i == posts.length) {
+                                        return _Footer(store: _store);
+                                      }
+                                      return _PostTile(
+                                        post: posts[i],
+                                        onReply: () => _compose(
+                                            replyTo: posts[i].id,
+                                            replyingToName:
+                                                posts[i].authorName),
+                                        onOpen: () =>
+                                            Navigator.of(context).push(
+                                          MaterialPageRoute(
+                                            builder: (_) => _ThreadScreen(
+                                                postId: posts[i].id),
+                                          ),
                                         ),
-                                      ),
-                                    );
-                                  },
-                                ),
-                ),
+                                      );
+                                    },
+                                  ),
+                  ),
                 ),
               ],
             ],
@@ -307,7 +335,8 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
 
   /// The best display name available, in order of how much it is worth.
   String get _displayName {
-    final fromPosts = _posts?.isNotEmpty == true ? _posts!.first.authorName : '';
+    final fromPosts =
+        _posts?.isNotEmpty == true ? _posts!.first.authorName : '';
     if (fromPosts.isNotEmpty) return fromPosts;
     if (widget.name?.isNotEmpty == true) return widget.name!;
     final known = _known?.name ?? '';
@@ -322,8 +351,9 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
   @override
   Widget build(BuildContext context) {
     final posts = _posts;
-    final tabPosts =
-        posts == null ? const <PublicPost>[] : PublicFeedStore.profileTab(posts, _tab);
+    final tabPosts = posts == null
+        ? const <PublicPost>[]
+        : PublicFeedStore.profileTab(posts, _tab);
     return Scaffold(
       body: ListenableBuilder(
         listenable: PublicFeedStore.instance,
@@ -349,9 +379,10 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
               ),
             ),
             SliverToBoxAdapter(
-              child: _ProfileTabs(
-                active: _tab,
-                onPick: (t) => setState(() => _tab = t),
+              child: _TabStrip(
+                labels: [for (final t in ProfileTab.values) t.label],
+                active: ProfileTab.values.indexOf(_tab),
+                onPick: (i) => setState(() => _tab = ProfileTab.values[i]),
               ),
             ),
             if (_error != null)
@@ -625,10 +656,15 @@ class _ProfileActions extends StatelessWidget {
   }
 }
 
-class _ProfileTabs extends StatelessWidget {
-  final ProfileTab active;
-  final ValueChanged<ProfileTab> onPick;
-  const _ProfileTabs({required this.active, required this.onPick});
+/// The tab row used by both the timeline and a profile: even columns, bold
+/// label, short underline under the active one. One widget so the two cannot
+/// drift into looking like different apps.
+class _TabStrip extends StatelessWidget {
+  final List<String> labels;
+  final int active;
+  final ValueChanged<int> onPick;
+  const _TabStrip(
+      {required this.labels, required this.active, required this.onPick});
 
   @override
   Widget build(BuildContext context) {
@@ -637,20 +673,20 @@ class _ProfileTabs extends StatelessWidget {
       children: [
         Row(
           children: [
-            for (final t in ProfileTab.values)
+            for (var i = 0; i < labels.length; i++)
               Expanded(
                 child: InkWell(
-                  onTap: () => onPick(t),
+                  onTap: () => onPick(i),
                   child: Padding(
                     padding: const EdgeInsets.symmetric(vertical: 12),
                     child: Column(
                       children: [
-                        Text(t.label,
+                        Text(labels[i],
                             style: TextStyle(
-                              fontWeight: t == active
+                              fontWeight: i == active
                                   ? FontWeight.w700
                                   : FontWeight.w500,
-                              color: t == active
+                              color: i == active
                                   ? scheme.onSurface
                                   : Colors.grey.shade500,
                             )),
@@ -659,8 +695,9 @@ class _ProfileTabs extends StatelessWidget {
                           height: 3,
                           width: 44,
                           decoration: BoxDecoration(
-                            color:
-                                t == active ? scheme.primary : Colors.transparent,
+                            color: i == active
+                                ? scheme.primary
+                                : Colors.transparent,
                             borderRadius: BorderRadius.circular(2),
                           ),
                         ),
@@ -689,8 +726,8 @@ class _PostTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final initial = (post.authorName.isEmpty ? '?' : post.authorName[0])
-        .toUpperCase();
+    final initial =
+        (post.authorName.isEmpty ? '?' : post.authorName[0]).toUpperCase();
     return InkWell(
       onTap: onOpen,
       child: Padding(
@@ -715,40 +752,56 @@ class _PostTile extends StatelessWidget {
                 children: [
                   Row(
                     children: [
-                      Flexible(
-                        child: GestureDetector(
-                          onTap: () => openPublicProfile(
-                              context, post.authorUsername,
-                              name: post.authorName),
-                          child: Text(
-                              post.authorName.isEmpty
-                                  ? '@${post.authorUsername}'
-                                  : post.authorName,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style:
-                                  const TextStyle(fontWeight: FontWeight.w700)),
+                      Expanded(
+                        child: Row(
+                          children: [
+                            Flexible(
+                              child: GestureDetector(
+                                onTap: () => openPublicProfile(
+                                    context, post.authorUsername,
+                                    name: post.authorName),
+                                child: Text(
+                                    post.authorName.isEmpty
+                                        ? '@${post.authorUsername}'
+                                        : post.authorName,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                        fontWeight: FontWeight.w700)),
+                              ),
+                            ),
+                            if (post.authorVerified) ...[
+                              const SizedBox(width: 4),
+                              const VerifiedBadge(size: 14),
+                            ],
+                            if (post.authorUsername.isNotEmpty) ...[
+                              const SizedBox(width: 6),
+                              Flexible(
+                                child: Text('@${post.authorUsername}',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                        fontSize: 12.5,
+                                        color: Colors.grey.shade500)),
+                              ),
+                            ],
+                            const SizedBox(width: 6),
+                            Text(
+                                '· ${DateFormatter.chatListLabel(post.createdAt)}',
+                                style: TextStyle(
+                                    fontSize: 12, color: Colors.grey.shade500)),
+                          ],
                         ),
                       ),
-                      if (post.authorVerified) ...[
-                        const SizedBox(width: 4),
-                        const VerifiedBadge(size: 14),
-                      ],
-                      if (post.authorUsername.isNotEmpty) ...[
-                        const SizedBox(width: 6),
-                        Flexible(
-                          child: Text('@${post.authorUsername}',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                  fontSize: 12.5,
-                                  color: Colors.grey.shade500)),
+                      GestureDetector(
+                        onTap: () => _more(context),
+                        behavior: HitTestBehavior.opaque,
+                        child: Padding(
+                          padding: const EdgeInsets.only(left: 8, bottom: 2),
+                          child: Icon(Icons.more_horiz,
+                              size: 17, color: Colors.grey.shade500),
                         ),
-                      ],
-                      const SizedBox(width: 6),
-                      Text('· ${DateFormatter.chatListLabel(post.createdAt)}',
-                          style: TextStyle(
-                              fontSize: 12, color: Colors.grey.shade500)),
+                      ),
                     ],
                   ),
                   // A plain repost has nothing of its own to show; the quoted
@@ -779,24 +832,25 @@ class _PostTile extends StatelessWidget {
                     ),
                   ],
                   if (post.repostOf != null) _Quoted(postId: post.repostOf!),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 2),
+                  // Four actions, evenly spread across the post's own width
+                  // rather than bunched at the left. That is the shape a
+                  // timeline like this one has, and it puts every target under
+                  // a thumb instead of crowding them into one corner.
                   Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       _action(
                         context,
                         icon: Icons.chat_bubble_outline,
-                        label: post.replyCount == 0
-                            ? 'Reply'
-                            : '${post.replyCount}',
+                        label: post.replyCount == 0 ? '' : '${post.replyCount}',
                         onTap: onReply,
                       ),
-                      const SizedBox(width: 4),
                       _action(
                         context,
                         icon: Icons.repeat,
-                        label: post.repostCount == 0
-                            ? ''
-                            : '${post.repostCount}',
+                        label:
+                            post.repostCount == 0 ? '' : '${post.repostCount}',
                         color:
                             PublicFeedStore.instance.myRepostOf(post.id) != null
                                 ? Colors.green
@@ -807,29 +861,32 @@ class _PostTile extends StatelessWidget {
                                 .toggleRepost(post.id);
                           } catch (e) {
                             if (context.mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(content: Text('$e')));
+                              ScaffoldMessenger.of(context)
+                                  .showSnackBar(SnackBar(content: Text('$e')));
                             }
                           }
                         },
                       ),
-                      const SizedBox(width: 4),
                       _action(
                         context,
-                        icon: post.liked
-                            ? Icons.favorite
-                            : Icons.favorite_border,
-                        label:
-                            post.likeCount == 0 ? '' : '${post.likeCount}',
-                        color: post.liked ? Colors.pink : null,
+                        icon:
+                            post.liked ? Icons.favorite : Icons.favorite_border,
+                        label: post.likeCount == 0 ? '' : '${post.likeCount}',
+                        // The pink a liked heart is everywhere else, so the
+                        // gesture reads without being learned.
+                        color: post.liked ? const Color(0xFFF91880) : null,
                         onTap: () =>
                             PublicFeedStore.instance.toggleLike(post.id),
                       ),
-                      const Spacer(),
-                      IconButton(
-                        icon: const Icon(Icons.more_horiz, size: 18),
-                        visualDensity: VisualDensity.compact,
-                        onPressed: () => _more(context),
+                      _action(
+                        context,
+                        icon: Icons.ios_share,
+                        label: '',
+                        onTap: () {
+                          Clipboard.setData(ClipboardData(text: post.body));
+                          ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('Post copied.')));
+                        },
                       ),
                     ],
                   ),
@@ -851,8 +908,8 @@ class _PostTile extends StatelessWidget {
       onPressed: onTap,
       icon: Icon(icon, size: 17, color: color ?? Colors.grey.shade500),
       label: Text(label,
-          style: TextStyle(
-              fontSize: 12.5, color: color ?? Colors.grey.shade500)),
+          style:
+              TextStyle(fontSize: 12.5, color: color ?? Colors.grey.shade500)),
       style: TextButton.styleFrom(
         padding: const EdgeInsets.symmetric(horizontal: 8),
         minimumSize: const Size(0, 32),
@@ -969,8 +1026,7 @@ class _ThreadScreen extends StatelessWidget {
                 for (final r in replies)
                   Padding(
                     padding: const EdgeInsets.only(left: 20),
-                    child: _PostTile(
-                        post: r, onReply: () {}, onOpen: () {}),
+                    child: _PostTile(post: r, onReply: () {}, onOpen: () {}),
                   ),
             ],
           );
@@ -1032,8 +1088,7 @@ class _ComposerState extends State<_Composer> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _sending = false);
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('$e')));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
     }
   }
 
@@ -1066,8 +1121,7 @@ class _ComposerState extends State<_Composer> {
                         'username in your profile so people know who posted.'
                     : 'Everyone using OkayMessenger can see this, posted as '
                         '@${me.username}.',
-                style:
-                    TextStyle(fontSize: 12.5, color: Colors.grey.shade600)),
+                style: TextStyle(fontSize: 12.5, color: Colors.grey.shade600)),
             const SizedBox(height: 14),
             TextField(
               controller: _text,
@@ -1148,21 +1202,13 @@ class _FilterBar extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
-          child: Row(
-            children: [
-              for (final f in FeedFilter.values) ...[
-                ChoiceChip(
-                  label: Text(f.label),
-                  selected: store.filter == f,
-                  onSelected: (_) => store.setFilter(f),
-                ),
-                const SizedBox(width: 8),
-              ],
-            ],
-          ),
+        // Tabs across the top, not chips. Chips read as removable filters;
+        // these are the timeline you are on, which is a different thing, and
+        // the underline is what says so.
+        _TabStrip(
+          labels: [for (final f in FeedFilter.values) f.label],
+          active: FeedFilter.values.indexOf(store.filter),
+          onPick: (i) => store.setFilter(FeedFilter.values[i]),
         ),
         // What is currently narrowing the feed, and how to drop it. A filter
         // you can't see is a feed that looks broken.
@@ -1190,16 +1236,30 @@ class _FilterBar extends StatelessWidget {
         else if (tags.isNotEmpty)
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
+            padding: const EdgeInsets.fromLTRB(14, 8, 14, 8),
             child: Row(
               children: [
+                Text('TRENDING',
+                    style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0.6,
+                        color: Colors.grey.shade500)),
+                const SizedBox(width: 12),
                 for (final (tag, count) in tags) ...[
-                  ActionChip(
-                    label: Text('#$tag  $count'),
-                    visualDensity: VisualDensity.compact,
-                    onPressed: () => store.setTag(tag),
+                  GestureDetector(
+                    onTap: () => store.setTag(tag),
+                    child: Text('#$tag',
+                        style: TextStyle(
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.w600,
+                            color: Theme.of(context).colorScheme.primary)),
                   ),
-                  const SizedBox(width: 6),
+                  const SizedBox(width: 4),
+                  Text('$count',
+                      style: TextStyle(
+                          fontSize: 11.5, color: Colors.grey.shade500)),
+                  const SizedBox(width: 14),
                 ],
               ],
             ),
