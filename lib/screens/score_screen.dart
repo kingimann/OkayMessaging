@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart' hide Badge;
-import 'package:url_launcher/url_launcher.dart';
 
 import '../app_state.dart';
 import '../models/chat.dart';
@@ -14,6 +13,7 @@ import '../widgets/pull_to_refresh.dart';
 import '../widgets/streak_chip.dart';
 import '../widgets/user_avatar.dart';
 import '../widgets/verified_badge.dart';
+import 'in_app_web_screen.dart';
 import 'chat_screen.dart';
 
 /// A section header used on the Okay Score screen.
@@ -654,13 +654,17 @@ class _VerifiedRow extends StatelessWidget {
       return;
     }
 
-    // No WebView here (the web build) — fall back to Stripe's hosted page.
-    if (session.hostedUrl.isEmpty ||
-        !await launchUrl(Uri.parse(session.hostedUrl),
-            mode: LaunchMode.externalApplication)) {
+    // No WebView here — only the web build, where a page is a tab in the
+    // browser this already is. On mobile the branch above hosts the check on
+    // the app's own screen, so nothing ever leaves the app.
+    if (session.hostedUrl.isEmpty) {
       messenger.showSnackBar(const SnackBar(
           content: Text('Could not open the verification page.')));
       return;
+    }
+    if (context.mounted) {
+      await InAppWebScreen.open(context, session.hostedUrl,
+          title: 'Verify your identity');
     }
     messenger.showSnackBar(const SnackBar(
         content: Text('Finish the ID check, then come back — the badge '

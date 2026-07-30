@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../payments/payment_service.dart';
 import '../payments/connect_webview.dart';
 import 'payment_controls_screen.dart';
 import 'payment_history_screen.dart';
+import 'in_app_web_screen.dart';
 import 'connect_onboarding_screen.dart';
 import '../widgets/app_dialogs.dart';
 import '../theme/app_theme.dart';
@@ -90,12 +90,11 @@ class _WalletScreenState extends State<WalletScreen> {
     final messenger = ScaffoldMessenger.of(context);
     try {
       final url = await PaymentService.instance.onboardingUrl();
-      final ok = await launchUrl(Uri.parse(url),
-          mode: LaunchMode.inAppBrowserView);
-      if (!ok) {
-        await launchUrl(Uri.parse(url),
-            mode: LaunchMode.externalApplication);
-      }
+      // Only reachable on the web build, where there is no WebView to host it
+      // and "a tab" means a tab in the browser this already is. On mobile the
+      // branch above keeps everything on the app's own screen — no browser,
+      // in-app or otherwise.
+      if (mounted) await InAppWebScreen.open(context, url, title: 'Stripe');
     } catch (e) {
       messenger.showSnackBar(
           SnackBar(content: Text('Could not start setup: $e')));

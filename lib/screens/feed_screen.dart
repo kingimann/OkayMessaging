@@ -1,7 +1,6 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../app_state.dart';
 import '../state/chat_store.dart';
@@ -18,6 +17,7 @@ import '../widgets/pull_to_refresh.dart';
 import '../widgets/verified_badge.dart';
 import 'chat_screen.dart';
 import 'people_screen.dart';
+import 'in_app_web_screen.dart';
 
 /// Splits post text into styled spans: @mentions, #tags, and links pop in
 /// the accent colour. Pure, so it's easy to test.
@@ -1311,11 +1311,10 @@ class _FeedRichTextState extends State<_FeedRichText> {
     } else if (token.startsWith('@') && widget.onMention != null) {
       action = () => widget.onMention!(token.substring(1));
     } else if (token.startsWith('http')) {
-      action = () async {
-        try {
-          await launchUrl(Uri.parse(token));
-        } catch (_) {}
-      };
+      // On one of the app's own screens, never handed to a browser. The
+      // helper also refuses anything that isn't http(s), which matters here
+      // because a post's text is whatever somebody typed.
+      action = () => InAppWebScreen.open(context, token);
     }
     if (action == null) return null;
     final r = TapGestureRecognizer()..onTap = action;

@@ -13094,6 +13094,82 @@ void main() {
     });
   });
 
+  group('Nothing leaves the app', () {
+    test('no screen opens a browser or another app for a web page', () {
+      // The rule: a web page opens on one of the app's own screens. Not a
+      // browser, not an in-app browser view, not a handoff. The only files
+      // allowed to name url_launcher are the ones handing a *phone number* to
+      // the system composer, which iOS gives no in-app alternative for, and
+      // the in-app screen itself (for the web build, where a tab is a tab in
+      // the browser the app already is).
+      const allowed = {
+        'lib/state/incoming_links.dart', // telephony: / tel: / sms:
+        'lib/screens/chat_screen.dart', // sms: composer
+        'lib/main.dart', // sms: for a number that isn't on the app
+        'lib/screens/in_app_web_screen.dart', // web build fallback only
+      };
+      final offenders = <String>[];
+      final external = <String>[];
+      for (final f in Directory('lib')
+          .listSync(recursive: true)
+          .whereType<File>()
+          .where((f) => f.path.endsWith('.dart'))) {
+        final src = f.readAsStringSync();
+        if (!src.contains('url_launcher')) continue;
+        if (!allowed.contains(f.path)) offenders.add(f.path);
+        // And nowhere at all may ask for a browser explicitly.
+        if (src.contains('LaunchMode.externalApplication') ||
+            src.contains('LaunchMode.inAppBrowserView')) {
+          external.add(f.path);
+        }
+      }
+      expect(offenders, isEmpty,
+          reason: 'these would take the user out of the app: $offenders');
+      expect(external, isEmpty,
+          reason: 'an explicit browser mode is never wanted: $external');
+    });
+
+    test('every allowed launch hands over a phone number, not a page', () {
+      // The exceptions earn their place only while they stay phone-shaped.
+      for (final path in [
+        'lib/state/incoming_links.dart',
+        'lib/screens/chat_screen.dart',
+        'lib/main.dart',
+      ]) {
+        final src = File(path).readAsStringSync();
+        final calls = RegExp(r'launchUrl\(\s*Uri\.(?:parse|tryParse)?\(?([^)]*)')
+            .allMatches(src)
+            .map((m) => m.group(1)!)
+            .toList();
+        expect(calls, isNotEmpty, reason: '$path was expected to launch');
+        for (final c in calls) {
+          expect(
+              c.contains('sms:') ||
+                  c.contains('tel:') ||
+                  c.contains('scheme') ||
+                  c.contains('fallback'),
+              isTrue,
+              reason: '$path launches something that is not a number: $c');
+        }
+      }
+    });
+
+    test('the in-app page screen refuses anything but http(s)', () {
+      // A link in a post is untrusted text; javascript: or a custom scheme is
+      // not something to hand to a WebView, let alone anywhere else.
+      final src =
+          File('lib/screens/in_app_web_screen.dart').readAsStringSync();
+      expect(
+          src.contains(
+              "uri.scheme != 'http' && uri.scheme != 'https'"),
+          isTrue);
+      // Feed links go through it rather than launching.
+      final feed = File('lib/screens/feed_screen.dart').readAsStringSync();
+      expect(feed.contains('InAppWebScreen.open(context, token)'), isTrue);
+      expect(feed.contains('url_launcher'), isFalse);
+    });
+  });
+
   group('Connect onboarding secrets', () {
     test('a client secret is never handed out twice', () async {
       // The bug this pins: an Account Session authenticates ONCE. The screen

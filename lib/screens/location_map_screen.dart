@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
-import 'package:url_launcher/url_launcher.dart';
 
-import '../utils/maps_link.dart';
 import '../widgets/osm_map.dart';
 import 'route_map_screen.dart';
 
@@ -32,16 +30,6 @@ class _LocationMapScreenState extends State<LocationMapScreen> {
   double get lng => widget.lng;
   String get label => widget.label;
 
-  Future<void> _openExternally(BuildContext context) async {
-    final isApple = Theme.of(context).platform == TargetPlatform.iOS ||
-        Theme.of(context).platform == TargetPlatform.macOS;
-    final uri = mapsUrl(lat: lat, lng: lng, label: label, apple: isApple);
-    try {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    } catch (_) {
-      /* ignore — the in-app map is still shown */
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -90,15 +78,6 @@ class _LocationMapScreenState extends State<LocationMapScreen> {
                       style: FilledButton.styleFrom(
                         minimumSize: const Size.fromHeight(48),
                       ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  OutlinedButton.icon(
-                    onPressed: () => _openExternally(context),
-                    icon: const Icon(Icons.open_in_new, size: 18),
-                    label: const Text('Maps app'),
-                    style: OutlinedButton.styleFrom(
-                      minimumSize: const Size.fromHeight(48),
                     ),
                   ),
                 ],

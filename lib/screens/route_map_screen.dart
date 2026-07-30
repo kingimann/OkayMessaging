@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../app_state.dart';
 import '../util/geolocation.dart';
@@ -325,17 +324,6 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
 
   // -----------------------------------------------------------------------
 
-  Future<void> _openExternally() async {
-    final isApple = Theme.of(context).platform == TargetPlatform.iOS ||
-        Theme.of(context).platform == TargetPlatform.macOS;
-    final uri = directionsUrl(
-        lat: widget.dest.latitude, lng: widget.dest.longitude, apple: isApple);
-    try {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    } catch (_) {
-      /* ignore */
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -343,14 +331,6 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.label.isEmpty ? 'Directions' : widget.label),
-        actions: [
-          if (!_navigating)
-            IconButton(
-              icon: const Icon(Icons.open_in_new),
-              tooltip: 'Open in Maps app (optional)',
-              onPressed: _openExternally,
-            ),
-        ],
       ),
       body: Stack(
         children: [
