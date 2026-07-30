@@ -50,6 +50,30 @@ class PhotoPrep {
     return prepare(bytes, maxBase64: maxBase64);
   }
 
+  /// The picked image's own bytes, moderated but not shrunk.
+  ///
+  /// [pickPhoto] exists to fit a photo into a relay message, so it resizes and
+  /// returns a data: URI. An identity document is the opposite problem: it goes
+  /// to Stripe as a file, and squeezing it to a chat-sized payload is how a
+  /// licence becomes too blurry to verify. Moderation still runs — nothing
+  /// leaves this device unchecked.
+  static Future<Uint8List?> pickBytes() async {
+    Uint8List? bytes;
+    if (debugPickOverride != null) {
+      bytes = await debugPickOverride!();
+    } else {
+      final result = await FilePicker.pickFiles(
+        type: FileType.image,
+        withData: true,
+      );
+      bytes = result?.files.firstOrNull?.bytes;
+    }
+    if (bytes == null || bytes.isEmpty) return null;
+    final verdict = FileModeration.inspectImage(bytes);
+    if (!verdict.allowed) throw FileRejected(verdict.reason!);
+    return bytes;
+  }
+
   /// Resizes and re-encodes [original] until it fits the wire budget.
   /// Returns the `data:image/jpeg;base64,…` URI, or null for undecodable
   /// input. Pure, so the shrink loop is unit-testable with generated images.

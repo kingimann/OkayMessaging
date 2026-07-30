@@ -18,6 +18,7 @@ enum ConnectField {
   idNumber,
   ssnLast4,
   bank,
+  document,
   tos,
   business,
 }
@@ -44,6 +45,8 @@ const Map<String, ConnectField> stripeRequirementFields = {
   'individual.id_number': ConnectField.idNumber,
   'individual.ssn_last_4': ConnectField.ssnLast4,
   'external_account': ConnectField.bank,
+  'individual.verification.document': ConnectField.document,
+  'individual.verification.additional_document': ConnectField.document,
   'tos_acceptance.date': ConnectField.tos,
   'tos_acceptance.ip': ConnectField.tos,
   'business_profile.mcc': ConnectField.business,

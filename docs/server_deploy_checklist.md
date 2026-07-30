@@ -77,9 +77,16 @@ native onboarding, and it is a business decision. Existing Express accounts
 cannot be converted; anyone who already has one is offered Stripe's page for
 that account, and a fresh account is native.
 
-No new secrets. Bank account numbers and SIN/SSN never reach it: the app
-tokenises them against Stripe with the publishable key and sends only
-`btok_…` / `piitok_…`, and the function refuses anything else.
+No new secrets. Bank account numbers, SIN/SSN **and the photo of your ID**
+never reach it: the app sends all three to Stripe from the device with the
+publishable key — Stripe's file endpoint accepts that key over Bearer auth,
+checked against the live API — and passes on only `btok_…`, `piitok_…` and
+`file_…`. The function refuses anything that isn't one of those rather than
+forwarding it.
+
+So the whole of onboarding is the app's own screen: name, date of birth,
+address, SIN, bank details and photo ID, each asked for only when Stripe says
+it is due.
 
 ### New — moderation won't work without these
 

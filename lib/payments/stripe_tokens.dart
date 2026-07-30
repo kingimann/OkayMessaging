@@ -56,6 +56,47 @@ class StripeTokens {
     return _idOf(body, 'btok_', 'bank account');
   }
 
+  /// Injected in tests: uploading a file is a different request shape from
+  /// posting a form, so it gets its own hook.
+  @visibleForTesting
+  static Future<Map<String, dynamic>> Function(
+      String purpose, Uint8List bytes, String filename)? debugUpload;
+
+  /// Uploads a photo of an identity document to Stripe and returns its file id.
+  ///
+  /// Stripe's file endpoint accepts a publishable key over Bearer auth — proven
+  /// against the live API, not assumed — so the photo of somebody's driving
+  /// licence goes from the camera to Stripe and nowhere else. This app's server
+  /// receives the `file_…` id and never the image.
+  static Future<String> identityDocument(Uint8List bytes,
+      {String filename = 'document.jpg'}) async {
+    final key = _key;
+    if (key.isEmpty) {
+      throw StripeTokenException(
+          'This build has no Stripe key, so nothing can be sent to Stripe.');
+    }
+    final hook = debugUpload;
+    final Map<String, dynamic> body;
+    if (hook != null) {
+      body = await hook('identity_document', bytes, filename);
+    } else {
+      final request = http.MultipartRequest(
+          'POST', Uri.parse('https://files.stripe.com/v1/files'))
+        ..headers['Authorization'] = 'Bearer \$key'
+        ..fields['purpose'] = 'identity_document'
+        ..files.add(http.MultipartFile.fromBytes('file', bytes,
+            filename: filename));
+      final response = await http.Response.fromStream(
+          await request.send().timeout(const Duration(seconds: 40)));
+      final decoded = jsonDecode(response.body);
+      if (decoded is! Map) {
+        throw StripeTokenException('Stripe answered with something unexpected.');
+      }
+      body = decoded.cast<String, dynamic>();
+    }
+    return _idOf(body, 'file_', 'document');
+  }
+
   /// A token standing in for a government ID number.
   static Future<String> idNumber(String number) async {
     final body = await _post('tokens', {'pii[id_number]': number});

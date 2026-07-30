@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../payments/connect_fields.dart';
 import '../payments/payment_service.dart';
 import '../payments/stripe_tokens.dart';
+import '../util/photo_prep.dart';
 import 'connect_onboarding_screen.dart';
 
 /// Setting up payments in the app's own forms.
@@ -52,6 +53,11 @@ class _NativeOnboardingScreenState extends State<NativeOnboardingScreen> {
   final _account = TextEditingController();
   final _work = TextEditingController();
   bool _tos = false;
+
+  /// The document photos, held as bytes until submission so nothing is uploaded
+  /// for a form somebody then abandons.
+  Uint8List? _docFront;
+  Uint8List? _docBack;
 
   @override
   void initState() {
@@ -125,6 +131,26 @@ class _NativeOnboardingScreenState extends State<NativeOnboardingScreen> {
           accountNumber: ConnectValidation.digitsOf(_account.text),
         );
       }
+      // Straight from the camera to Stripe. Stripe's file endpoint takes the
+      // publishable key over Bearer auth, so the photo of somebody's licence
+      // goes to Stripe and nowhere else — this app's server sees only the id.
+      String? frontId;
+      String? backId;
+      if (needs.contains(ConnectField.document)) {
+        if (_docFront == null) {
+          setState(() {
+            _submitting = false;
+            _submitError = 'Add a photo of your ID.';
+          });
+          return;
+        }
+        frontId = await StripeTokens.identityDocument(_docFront!,
+            filename: 'id-front.jpg');
+        if (_docBack != null) {
+          backId = await StripeTokens.identityDocument(_docBack!,
+              filename: 'id-back.jpg');
+        }
+      }
       String? idToken;
       if (needs.contains(ConnectField.idNumber)) {
         idToken = await StripeTokens.idNumber(
@@ -156,6 +182,8 @@ class _NativeOnboardingScreenState extends State<NativeOnboardingScreen> {
         if (needs.contains(ConnectField.ssnLast4))
           'ssnLast4': ConnectValidation.digitsOf(_ssnLast4.text),
         if (bankToken != null) 'bankToken': bankToken,
+        if (frontId != null) 'documentFrontFileId': frontId,
+        if (backId != null) 'documentBackFileId': backId,
         if (needs.contains(ConnectField.business))
           'productDescription': _work.text.trim().isEmpty
               ? 'Peer-to-peer transfers between people who know each other'
@@ -397,6 +425,28 @@ class _NativeOnboardingScreenState extends State<NativeOnboardingScreen> {
                 validator: (v) =>
                     ConnectValidation.accountNumber(v, _country)),
           ],
+          if (needs.contains(ConnectField.document)) ...[
+            _section('Photo ID'),
+            Text(
+              'A driving licence or passport. Sent from this device straight to '
+              'Stripe — this app\'s server never receives the image.',
+              style: TextStyle(fontSize: 12.5, color: Colors.grey.shade600),
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: _docButton('Front', _docFront,
+                      (b) => setState(() => _docFront = b)),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: _docButton('Back (if it has one)', _docBack,
+                      (b) => setState(() => _docBack = b)),
+                ),
+              ],
+            ),
+          ],
           if (needs.contains(ConnectField.business)) ...[
             _section('What the money is for'),
             _text(_work, 'e.g. paying friends back'),
@@ -445,6 +495,46 @@ class _NativeOnboardingScreenState extends State<NativeOnboardingScreen> {
       ),
     );
   }
+
+  /// One document photo. Shows a thumbnail once picked, because "did that
+  /// actually attach?" is the question this kind of button always raises.
+  Widget _docButton(
+          String label, Uint8List? picked, ValueChanged<Uint8List?> onPicked) =>
+      OutlinedButton(
+        onPressed: () async {
+          try {
+            final bytes = await PhotoPrep.pickBytes();
+            if (bytes != null) onPicked(bytes);
+          } catch (e) {
+            if (mounted) setState(() => _submitError = '\$e');
+          }
+        },
+        style: OutlinedButton.styleFrom(
+            padding: const EdgeInsets.symmetric(vertical: 12)),
+        child: picked == null
+            ? Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.photo_camera_outlined, size: 18),
+                  const SizedBox(width: 8),
+                  Flexible(
+                      child: Text(label,
+                          maxLines: 1, overflow: TextOverflow.ellipsis)),
+                ],
+              )
+            : Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(4),
+                    child: Image.memory(picked,
+                        width: 28, height: 28, fit: BoxFit.cover),
+                  ),
+                  const SizedBox(width: 8),
+                  const Text('Change'),
+                ],
+              ),
+      );
 
   Widget _section(String title) => Padding(
         padding: const EdgeInsets.only(top: 16, bottom: 6),

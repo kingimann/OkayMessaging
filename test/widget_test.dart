@@ -14269,6 +14269,10 @@ void main() {
       expect(fn.contains('id_number_must_be_tokenised'), isTrue);
       expect(fn.contains('startsWith("btok_")'), isTrue);
       expect(fn.contains('startsWith("piitok_")'), isTrue);
+      expect(fn.contains('document_must_be_uploaded_from_the_device'), isTrue);
+      expect(fn.contains('startsWith("file_")'), isTrue);
+      // And the document is attached where Stripe looks for it.
+      expect(fn.contains('individual.verification = {'), isTrue);
 
       // Terms acceptance is evidence, so the IP comes from the request rather
       // than from whatever the client claims.
@@ -14287,6 +14291,7 @@ void main() {
       addTearDown(() {
         StripeTokens.debugPost = null;
         StripeTokens.debugPublishableKey = null;
+        StripeTokens.debugUpload = null;
       });
       StripeTokens.debugPublishableKey = 'pk_live_test';
       final sent = <String, Map<String, String>>{};
@@ -14308,6 +14313,45 @@ void main() {
       expect(sent['tokens']!['key'], 'pk_live_test');
       expect(sent['tokens']!['bank_account[account_number]'], '000123456789');
       expect(sent['tokens']!['bank_account[account_holder_type]'], 'individual');
+
+      // Nothing leaves this device unchecked, documents included: pickBytes
+      // skips the resize (a shrunk licence is an unreadable licence) but not the
+      // moderation.
+      PhotoPrep.debugPickOverride =
+          () async => Uint8List.fromList([1, 2, 3, 4, 5, 6, 7, 8]);
+      addTearDown(() => PhotoPrep.debugPickOverride = null);
+      await expectLater(PhotoPrep.pickBytes(), throwsA(isA<FileRejected>()),
+          reason: 'not an image');
+      // A real image passes through at full size — Stripe has to be able to
+      // read it.
+      final png = Uint8List.fromList(base64Decode(
+          'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg=='));
+      PhotoPrep.debugPickOverride = () async => png;
+      expect(await PhotoPrep.pickBytes(), png,
+          reason: 'byte-for-byte, not re-encoded');
+      PhotoPrep.debugPickOverride = null;
+
+      // The ID PHOTO too. Stripe's file endpoint accepts a publishable key over
+      // Bearer auth — checked against the live API, not assumed — so a picture
+      // of somebody's licence goes camera → Stripe, and this app's server holds
+      // only the file id.
+      Uint8List? uploaded;
+      StripeTokens.debugUpload = (purpose, bytes, filename) async {
+        uploaded = bytes;
+        expect(purpose, 'identity_document');
+        return {'id': 'file_1'};
+      };
+      expect(
+          await StripeTokens.identityDocument(Uint8List.fromList([1, 2, 3]),
+              filename: 'id-front.jpg'),
+          'file_1');
+      expect(uploaded, isNotNull);
+      // A wrong-kind id must not pass as a file id.
+      StripeTokens.debugUpload = (p, b, f) async => {'id': 'tok_visa'};
+      await expectLater(
+          StripeTokens.identityDocument(Uint8List.fromList([1])),
+          throwsA(isA<StripeTokenException>()));
+      StripeTokens.debugUpload = null;
 
       final pii = await StripeTokens.idNumber('046454286');
       expect(pii, 'piitok_1');
@@ -14385,13 +14429,23 @@ void main() {
       expect(express.collectableInApp, isFalse);
 
       // A missing field with no form is reported, never dropped.
-      final odd = ConnectRequirements.fromJson({
+      // A photo ID is asked for in the app now, so it is a section like any
+      // other rather than a reason to leave.
+      final withDoc = ConnectRequirements.fromJson({
         'collection': 'application',
         'currentlyDue': ['individual.verification.document'],
-        'unhandled': ['individual.verification.document'],
         'status': <String, dynamic>{},
       });
-      expect(odd.unhandled, ['individual.verification.document']);
+      expect(withDoc.fieldsNeeded, [ConnectField.document]);
+
+      // Something genuinely uncollectable is still reported, never dropped.
+      final odd = ConnectRequirements.fromJson({
+        'collection': 'application',
+        'currentlyDue': ['company.tax_id'],
+        'unhandled': ['company.tax_id'],
+        'status': <String, dynamic>{},
+      });
+      expect(odd.unhandled, ['company.tax_id']);
       expect(odd.fieldsNeeded, isEmpty,
           reason: 'no form claims to collect it');
     });

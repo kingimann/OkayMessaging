@@ -51,6 +51,8 @@ const HANDLED = new Set([
   "individual.id_number",
   "individual.ssn_last_4",
   "external_account",
+  "individual.verification.document",
+  "individual.verification.additional_document",
   "tos_acceptance.date",
   "tos_acceptance.ip",
   "business_profile.mcc",
@@ -78,6 +80,10 @@ type Submission = {
   idNumberToken?: string;
   ssnLast4?: string;
   bankToken?: string;
+  // Ids of files already uploaded to Stripe FROM THE DEVICE. The photo of
+  // somebody's licence never passes through here either.
+  documentFrontFileId?: string;
+  documentBackFileId?: string;
   productDescription?: string;
   mcc?: string;
   acceptedTos?: boolean;
@@ -197,6 +203,16 @@ Deno.serve(async (req) => {
           error: "id_number_must_be_tokenised: send a piitok_ from the device",
         }, 400);
       }
+      for (
+        const id of [submit.documentFrontFileId, submit.documentBackFileId]
+      ) {
+        if (id && !id.startsWith("file_")) {
+          return json({
+            error: "document_must_be_uploaded_from_the_device: send a file_ id, " +
+              "never image bytes",
+          }, 400);
+        }
+      }
 
       const individual: Record<string, unknown> = {};
       if (submit.firstName) individual.first_name = submit.firstName;
@@ -215,6 +231,19 @@ Deno.serve(async (req) => {
           ...(a.state ? { state: a.state } : {}),
           ...(a.postalCode ? { postal_code: a.postalCode } : {}),
           ...(a.country ? { country: a.country } : {}),
+        };
+      }
+
+      if (submit.documentFrontFileId || submit.documentBackFileId) {
+        individual.verification = {
+          document: {
+            ...(submit.documentFrontFileId
+              ? { front: submit.documentFrontFileId }
+              : {}),
+            ...(submit.documentBackFileId
+              ? { back: submit.documentBackFileId }
+              : {}),
+          },
         };
       }
 
