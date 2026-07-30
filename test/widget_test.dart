@@ -13154,6 +13154,50 @@ void main() {
       }
     });
 
+    test('setting up payments never leaves the app, on any branch', () {
+      // Every file in the payments path, checked rather than remembered.
+      for (final path in [
+        'lib/screens/wallet_screen.dart',
+        'lib/screens/connect_onboarding_screen.dart',
+        'lib/screens/payment_controls_screen.dart',
+        'lib/screens/payment_history_screen.dart',
+        'lib/payments/payment_service.dart',
+        'lib/payments/connect_webview_native.dart',
+      ]) {
+        final src = File(path).readAsStringSync();
+        expect(src.contains('launchUrl'), isFalse,
+            reason: '$path can take the user out of the app');
+      }
+      final wallet = File('lib/screens/wallet_screen.dart').readAsStringSync();
+      // Mobile: the app's own screen. Web: the in-app helper, which is the
+      // only thing allowed to fall back to a tab.
+      expect(wallet.contains('ConnectOnboardingScreen()'), isTrue);
+      expect(wallet.contains('InAppWebScreen.open('), isTrue);
+      // The "Trouble?" fallback loads Stripe's hosted page into the SAME
+      // WebView rather than handing it anywhere.
+      final screen =
+          File('lib/screens/connect_onboarding_screen.dart').readAsStringSync();
+      expect(screen.contains('url: _hostedUrl!'), isTrue);
+    });
+
+    test('a new-window link inside Stripe\'s forms opens here, not nowhere',
+        () {
+      // WKWebView drops target=_blank, so those links read as broken. The
+      // click is re-pointed at this frame. window.open is left alone on
+      // purpose: bank verification needs a real popup and an opener to talk
+      // back to.
+      final src = File('lib/payments/connect_webview_native.dart')
+          .readAsStringSync();
+      expect(src.contains('_keepBlankLinksInside'), isTrue);
+      expect(src.contains("el.target !== '_blank'"), isTrue);
+      expect(src.contains('window.location.href = el.href'), isTrue);
+      expect(src.contains('window.open ='), isFalse,
+          reason: 'hijacking window.open breaks the bank-verification popup');
+      // Installed on every page load, since the flow navigates between pages.
+      expect(src.contains('_keepBlankLinksInside();\n            _start();'),
+          isTrue);
+    });
+
     test('the in-app page screen refuses anything but http(s)', () {
       // A link in a post is untrusted text; javascript: or a custom scheme is
       // not something to hand to a WebView, let alone anywhere else.

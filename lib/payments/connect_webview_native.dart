@@ -113,7 +113,10 @@ class _ConnectWebViewState extends State<_ConnectWebView> {
           onMessageReceived: (m) => _onMessage(m.message))
       ..setNavigationDelegate(
         NavigationDelegate(
-          onPageFinished: (_) => _start(),
+          onPageFinished: (_) {
+            _keepBlankLinksInside();
+            _start();
+          },
           onNavigationRequest: _onNavigation,
         ),
       )
@@ -137,6 +140,35 @@ class _ConnectWebViewState extends State<_ConnectWebView> {
       return NavigationDecision.prevent;
     }
     return NavigationDecision.navigate;
+  }
+
+  /// Makes `target="_blank"` links navigate here instead of nowhere.
+  ///
+  /// Stripe's forms mark their terms, privacy and "learn more" links to open in
+  /// a new window. WKWebView has no window to give them, so it drops the
+  /// request and the link reads as broken — which is worse than either opening
+  /// it or not having it. Re-pointing the click at this frame keeps them
+  /// working without anything leaving the app.
+  ///
+  /// Runs on every page load, because the flow navigates between pages.
+  ///
+  /// Deliberately does NOT touch `window.open`: bank verification opens a real
+  /// popup and talks back to its opener, and forcing that into this frame would
+  /// break the handshake rather than fix it.
+  void _keepBlankLinksInside() {
+    _controller.runJavaScript('''
+(function () {
+  if (window.__okayBlankPatched) return;
+  window.__okayBlankPatched = true;
+  document.addEventListener('click', function (e) {
+    var el = e.target;
+    while (el && el.tagName !== 'A') el = el.parentElement;
+    if (!el || el.target !== '_blank' || !el.href) return;
+    e.preventDefault();
+    window.location.href = el.href;
+  }, true);
+})();
+''');
   }
 
   /// A message from the page: either a request for a client secret, or an
