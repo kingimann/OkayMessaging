@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../payments/payment_service.dart';
+import '../widgets/app_shell.dart';
 import 'payment_controls_screen.dart';
 import 'native_onboarding_screen.dart';
 import 'payment_diagnostics_screen.dart';
@@ -61,8 +62,8 @@ class _WalletScreenState extends State<WalletScreen> {
 
   void _onTestMode() {
     if (!mounted) return;
-    setState(() =>
-        _future = PaymentService.instance.isConfigured ? _load() : null);
+    setState(
+        () => _future = PaymentService.instance.isConfigured ? _load() : null);
   }
 
   Future<WalletStatus> _load() => PaymentService.instance.status();
@@ -88,6 +89,8 @@ class _WalletScreenState extends State<WalletScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
+        automaticallyImplyLeading: false,
+        leading: const SidebarButton(),
         title: const Text('Wallet'),
         actions: [
           if (PaymentService.instance.isConfigured) ...[
@@ -97,9 +100,7 @@ class _WalletScreenState extends State<WalletScreen> {
               onPressed: () => Navigator.of(context).push(MaterialPageRoute(
                   builder: (_) => const PaymentControlsScreen())),
             ),
-            IconButton(
-                icon: const Icon(Icons.refresh),
-                onPressed: _refresh),
+            IconButton(icon: const Icon(Icons.refresh), onPressed: _refresh),
           ],
           // Outside the isConfigured guard on purpose: "payments aren't set up"
           // is one of the things the self-test exists to explain.
@@ -222,7 +223,6 @@ class _BalanceCard extends StatelessWidget {
 }
 
 class _OnboardCard extends StatelessWidget {
-
   final VoidCallback onStart;
   const _OnboardCard({required this.onStart});
 
@@ -231,8 +231,7 @@ class _OnboardCard extends StatelessWidget {
     return Card(
       elevation: 0,
       color: Theme.of(context).colorScheme.surfaceContainerHighest,
-      shape:
-          RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Padding(
         padding: const EdgeInsets.all(18),
         child: Column(
@@ -308,8 +307,7 @@ class _PayoutCard extends StatelessWidget {
                         ? 'Your balance is automatically paid out to your bank.'
                         : 'Latest payout: $payout'
                             '${status.payoutAmountCents != null ? ' · ${status.money(status.payoutAmountCents!)}' : ''}',
-                    style:
-                        TextStyle(color: Colors.grey.shade600, fontSize: 13),
+                    style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
                   ),
                 ],
               ),
@@ -336,7 +334,8 @@ class _InfoFooter extends StatelessWidget {
           child: Text(
             'Payments are processed by Stripe. OkayMessenger never holds your '
             'funds or sees your card details, and your messages stay private.',
-            style: TextStyle(color: Colors.grey.shade500, fontSize: 12, height: 1.4),
+            style: TextStyle(
+                color: Colors.grey.shade500, fontSize: 12, height: 1.4),
           ),
         ),
       ],

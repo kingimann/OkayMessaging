@@ -4,6 +4,7 @@ import '../app_state.dart';
 import '../models/chat.dart';
 import '../state/chat_store.dart';
 import '../state/identity_verification.dart';
+import '../widgets/app_shell.dart';
 import 'identity_check_screen.dart';
 import '../state/score_store.dart';
 import '../state/session.dart';
@@ -23,8 +24,7 @@ Widget _sectionHeader(BuildContext context, String text) => Text(
         fontSize: 12,
         fontWeight: FontWeight.w700,
         letterSpacing: 0.7,
-        color:
-            Theme.of(context).colorScheme.primary.withValues(alpha: 0.7),
+        color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.7),
       ),
     );
 
@@ -36,10 +36,13 @@ class ScoreScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Okay Score')),
+      appBar: AppBar(
+          automaticallyImplyLeading: false,
+          leading: const SidebarButton(),
+          title: const Text('Okay Score')),
       body: AnimatedBuilder(
-        animation: Listenable.merge(
-            [ScoreStore.instance, StreakStore.instance]),
+        animation:
+            Listenable.merge([ScoreStore.instance, StreakStore.instance]),
         builder: (context, _) {
           final store = ScoreStore.instance;
           final earnedFirst = [
@@ -87,10 +90,9 @@ class ScoreScreen extends StatelessWidget {
                         // (or unfeatures), a locked one explains itself
                         // instead of being a dead square.
                         onTap: () => store.isEarned(badge.id)
-                            ? store.setFeatured(
-                                store.featuredBadge == badge.id
-                                    ? null
-                                    : badge.id)
+                            ? store.setFeatured(store.featuredBadge == badge.id
+                                ? null
+                                : badge.id)
                             : _explainBadge(context, badge, store),
                       ),
                   ],
@@ -116,8 +118,7 @@ class _StreaksSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: Listenable.merge(
-          [StreakStore.instance, ChatStore.instance]),
+      listenable: Listenable.merge([StreakStore.instance, ChatStore.instance]),
       builder: (context, _) {
         final ranked = <(Chat, int)>[];
         for (final chat in ChatStore.instance.chats) {
@@ -168,8 +169,7 @@ class _StreaksSection extends StatelessWidget {
                   rank: i + 1,
                   chat: top[i].$1,
                   streak: top[i].$2,
-                  expiring:
-                      StreakStore.instance.isExpiringSoon(top[i].$1.id),
+                  expiring: StreakStore.instance.isExpiringSoon(top[i].$1.id),
                 ),
             const SizedBox(height: 20),
           ],
@@ -191,8 +191,7 @@ class _StreakRow extends StatelessWidget {
     required this.expiring,
   });
 
-  static const _hint =
-      TextStyle(fontSize: 11.5, color: Color(0xFFEF8A3C));
+  static const _hint = TextStyle(fontSize: 11.5, color: Color(0xFFEF8A3C));
 
   /// Whose turn it is for today to count. Both sides have to send.
   String _todayNeeds() {
@@ -351,7 +350,9 @@ class _StatsRow extends StatelessWidget {
         _stat(context, Icons.military_tech_outlined, '${score.earnedCount}',
             'of ${ScoreStore.catalog.length} badges'),
         const SizedBox(width: 10),
-        _stat(context, Icons.local_fire_department_outlined,
+        _stat(
+            context,
+            Icons.local_fire_department_outlined,
             '${streaks.activeCount()}',
             streaks.activeCount() == 1 ? 'live streak' : 'live streaks'),
         const SizedBox(width: 10),
@@ -363,8 +364,8 @@ class _StatsRow extends StatelessWidget {
     );
   }
 
-  Widget _stat(BuildContext context, IconData icon, String value,
-          String label) =>
+  Widget _stat(
+          BuildContext context, IconData icon, String value, String label) =>
       Expanded(
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
@@ -386,8 +387,7 @@ class _StatsRow extends StatelessWidget {
               Text(label,
                   textAlign: TextAlign.center,
                   maxLines: 2,
-                  style:
-                      TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+                  style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
             ],
           ),
         ),
@@ -438,8 +438,7 @@ class _NextBadgeCard extends StatelessWidget {
                     child: LinearProgressIndicator(
                       value: store.progressToward(badge.id),
                       minHeight: 6,
-                      backgroundColor:
-                          scheme.primary.withValues(alpha: 0.18),
+                      backgroundColor: scheme.primary.withValues(alpha: 0.18),
                     ),
                   ),
                 ],
@@ -476,8 +475,8 @@ class _EarningRules extends StatelessWidget {
               child: Row(
                 children: [
                   Expanded(
-                      child: Text(label,
-                          style: const TextStyle(fontSize: 13.5))),
+                      child:
+                          Text(label, style: const TextStyle(fontSize: 13.5))),
                   Text('+$points',
                       style: TextStyle(
                           fontSize: 13.5,
@@ -520,8 +519,8 @@ void _explainBadge(BuildContext context, Badge badge, ScoreStore store) {
             Text(badge.emoji, style: const TextStyle(fontSize: 46)),
             const SizedBox(height: 10),
             Text(badge.label,
-                style: const TextStyle(
-                    fontSize: 18, fontWeight: FontWeight.w800)),
+                style:
+                    const TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
             const SizedBox(height: 6),
             Text(badge.description,
                 textAlign: TextAlign.center,
@@ -537,8 +536,8 @@ void _explainBadge(BuildContext context, Badge badge, ScoreStore store) {
               ),
               const SizedBox(height: 8),
               Text('${store.points} / $target points',
-                  style: TextStyle(
-                      fontSize: 12.5, color: Colors.grey.shade600)),
+                  style:
+                      TextStyle(fontSize: 12.5, color: Colors.grey.shade600)),
             ],
           ],
         ),
@@ -573,8 +572,7 @@ class _VerifiedRow extends StatelessWidget {
                 ),
                 // No "remove": the badge reflects a completed ID check, so
                 // it isn't the device's to switch off.
-                Icon(Icons.lock_outline,
-                    size: 16, color: Colors.grey.shade500),
+                Icon(Icons.lock_outline, size: 16, color: Colors.grey.shade500),
               ],
             ),
           );
@@ -692,7 +690,9 @@ class _VerifiedRow extends StatelessWidget {
     }
     if (!value) ScoreStore.instance.clearFlag('verified');
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(value ? 'You\'re now verified' : 'Verification removed')),
+      SnackBar(
+          content:
+              Text(value ? 'You\'re now verified' : 'Verification removed')),
     );
   }
 }

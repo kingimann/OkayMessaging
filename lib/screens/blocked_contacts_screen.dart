@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../app_state.dart';
 import '../models/user.dart';
 import '../state/chat_store.dart';
+import '../widgets/app_shell.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/pull_to_refresh.dart';
 import '../widgets/user_avatar.dart';
@@ -17,7 +18,10 @@ class BlockedContactsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Blocked contacts')),
+      appBar: AppBar(
+          automaticallyImplyLeading: false,
+          leading: const SidebarButton(),
+          title: const Text('Blocked contacts')),
       body: ValueListenableBuilder<Set<String>>(
         valueListenable: AppState.blockedContacts,
         builder: (context, blocked, _) {

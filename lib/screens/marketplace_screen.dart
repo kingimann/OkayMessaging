@@ -15,6 +15,7 @@ import '../state/storage_store.dart';
 import '../util/file_moderation.dart';
 import '../util/photo_prep.dart';
 import '../widgets/app_dialogs.dart';
+import '../widgets/app_shell.dart';
 import '../widgets/chat_photo.dart';
 import '../widgets/listing_video.dart';
 import '../widgets/sanction_notice.dart';
@@ -325,8 +326,8 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
                             label: Text(n > 0 ? '$c · $n' : c),
                             selected: _category == c,
                             onSelected: (_) {
-                              setState(() =>
-                                  _category = _category == c ? '' : c);
+                              setState(
+                                  () => _category = _category == c ? '' : c);
                               Navigator.of(sheetContext).pop();
                             },
                           );
@@ -388,6 +389,8 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
       // Search and filters live in the top-right corner; the body is the
       // goods.
       appBar: AppBar(
+        automaticallyImplyLeading: false,
+        leading: const SidebarButton(),
         title: _searching
             ? TextField(
                 controller: _search,
@@ -474,23 +477,20 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
                           avatar: const Icon(Icons.sell_outlined, size: 15),
                           label: const Text('Your listings'),
                           visualDensity: VisualDensity.compact,
-                          onDeleted: () =>
-                              setState(() => _mineOnly = false),
+                          onDeleted: () => setState(() => _mineOnly = false),
                         ),
                       if (_savedOnly)
                         InputChip(
                           avatar: const Icon(Icons.bookmark_outline, size: 15),
                           label: const Text('Saved'),
                           visualDensity: VisualDensity.compact,
-                          onDeleted: () =>
-                              setState(() => _savedOnly = false),
+                          onDeleted: () => setState(() => _savedOnly = false),
                         ),
                       if (_category.isNotEmpty)
                         InputChip(
                           label: Text(_category),
                           visualDensity: VisualDensity.compact,
-                          onDeleted: () =>
-                              setState(() => _category = ''),
+                          onDeleted: () => setState(() => _category = ''),
                         ),
                       if (_sort != ListingSort.newest)
                         InputChip(
@@ -555,8 +555,8 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
             ListTile(
               leading: const Icon(Icons.person_off_outlined),
               title: Text('Mute ${listing.authorName}'),
-              subtitle: const Text(
-                  'Hides their listings and posts on this device'),
+              subtitle:
+                  const Text('Hides their listings and posts on this device'),
               onTap: () {
                 FeedStore.instance.toggleMute(listing.authorUsername);
                 Navigator.of(sheetContext).pop();
@@ -593,8 +593,7 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
                   size: 52, color: Colors.grey.shade400),
               const SizedBox(height: 14),
               const Text('Nothing for sale yet',
-                  style:
-                      TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
               const SizedBox(height: 8),
               Text(
                 _query.isNotEmpty || _category.isNotEmpty
@@ -669,8 +668,7 @@ class _ListingCard extends StatelessWidget {
                     ),
                   ),
                 Builder(builder: (context) {
-                  final n =
-                      FeedStore.instance.listingPhotos(listing.id).length;
+                  final n = FeedStore.instance.listingPhotos(listing.id).length;
                   if (n < 2) return const SizedBox.shrink();
                   return Positioned(
                     right: 8,
@@ -727,8 +725,7 @@ class _ListingCard extends StatelessWidget {
             Text(serverName,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style:
-                    TextStyle(fontSize: 11.5, color: Colors.grey.shade600)),
+                style: TextStyle(fontSize: 11.5, color: Colors.grey.shade600)),
         ],
       ),
     );
@@ -736,8 +733,8 @@ class _ListingCard extends StatelessWidget {
 
   Widget _placeholder(BuildContext context) => Container(
         color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        child: Icon(Icons.image_outlined,
-            size: 36, color: Colors.grey.shade500),
+        child:
+            Icon(Icons.image_outlined, size: 36, color: Colors.grey.shade500),
       );
 }
 
@@ -774,7 +771,10 @@ class ListingScreen extends StatelessWidget {
             .firstOrNull;
         if (listing == null) {
           return Scaffold(
-            appBar: AppBar(),
+            appBar: AppBar(
+              automaticallyImplyLeading: false,
+              leading: const SidebarButton(),
+            ),
             body: Center(
               child: Text('This listing was removed.',
                   style: TextStyle(color: Colors.grey.shade600)),
@@ -791,15 +791,16 @@ class ListingScreen extends StatelessWidget {
             TextStyle(fontSize: 15, height: 1.45, color: scheme.onSurface);
         return Scaffold(
           appBar: AppBar(
+            automaticallyImplyLeading: false,
+            leading: const SidebarButton(),
             title: Text(title, maxLines: 1),
             actions: [
               IconButton(
                 icon: Icon(FeedStore.instance.isSaved(listing.id)
                     ? Icons.bookmark
                     : Icons.bookmark_outline),
-                tooltip: FeedStore.instance.isSaved(listing.id)
-                    ? 'Unsave'
-                    : 'Save',
+                tooltip:
+                    FeedStore.instance.isSaved(listing.id) ? 'Unsave' : 'Save',
                 onPressed: () => FeedStore.instance.toggleSaved(listing.id),
               ),
               if (mine)
@@ -912,8 +913,7 @@ class ListingScreen extends StatelessWidget {
                         Text(formatListingPrice(listing.priceCents ?? 0),
                             style: const TextStyle(
                                 fontSize: 18, fontWeight: FontWeight.w700)),
-                        if (listing.listingSold &&
-                            listing.gifUrl == null) ...[
+                        if (listing.listingSold && listing.gifUrl == null) ...[
                           const SizedBox(width: 8),
                           const _SoldBadge(),
                         ],
@@ -929,8 +929,8 @@ class ListingScreen extends StatelessWidget {
                         if (serverName.isNotEmpty) serverName,
                         feedAge(listing.time),
                       ].join(' · '),
-                      style: TextStyle(
-                          fontSize: 13, color: Colors.grey.shade600),
+                      style:
+                          TextStyle(fontSize: 13, color: Colors.grey.shade600),
                     ),
                   ],
                 ),
@@ -945,8 +945,8 @@ class ListingScreen extends StatelessWidget {
                             username: listing.authorUsername,
                             name: listing.authorName))),
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 16, vertical: 4),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                   child: Row(
                     children: [
                       CircleAvatar(
@@ -1161,8 +1161,7 @@ class _ReviewsSection extends StatelessWidget {
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
-                                fontSize: 12.5,
-                                color: Colors.grey.shade600),
+                                fontSize: 12.5, color: Colors.grey.shade600),
                           ),
                         ),
                       ],
@@ -1171,8 +1170,7 @@ class _ReviewsSection extends StatelessWidget {
                       Padding(
                         padding: const EdgeInsets.only(top: 3),
                         child: Text(r.text,
-                            style: const TextStyle(
-                                fontSize: 14, height: 1.35)),
+                            style: const TextStyle(fontSize: 14, height: 1.35)),
                       ),
                   ],
                 ),
@@ -1218,8 +1216,8 @@ class _ReviewSheetState extends State<_ReviewSheet> {
                     ? 'Review this listing'
                     : 'Edit your review',
                 textAlign: TextAlign.center,
-                style: const TextStyle(
-                    fontSize: 17, fontWeight: FontWeight.w700)),
+                style:
+                    const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
             const SizedBox(height: 10),
             Center(
               child: _Stars(
@@ -1235,8 +1233,8 @@ class _ReviewSheetState extends State<_ReviewSheet> {
               maxLines: 5,
               maxLength: 300,
               textCapitalization: TextCapitalization.sentences,
-              decoration: const InputDecoration(
-                  hintText: 'How did it go? (optional)'),
+              decoration:
+                  const InputDecoration(hintText: 'How did it go? (optional)'),
             ),
             const SizedBox(height: 4),
             FilledButton(
@@ -1286,8 +1284,8 @@ class _ListingGalleryState extends State<_ListingGallery> {
                 GestureDetector(
                   onTap: () => Navigator.of(context).push(
                     MaterialPageRoute(
-                      builder: (_) => _ListingPhotoScreen(
-                          url: url, title: widget.title),
+                      builder: (_) =>
+                          _ListingPhotoScreen(url: url, title: widget.title),
                     ),
                   ),
                   child: ChatPhoto(
@@ -1306,8 +1304,7 @@ class _ListingGalleryState extends State<_ListingGallery> {
             right: 12,
             top: 12,
             child: Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
               decoration: BoxDecoration(
                 color: Colors.black.withValues(alpha: 0.6),
                 borderRadius: BorderRadius.circular(10),
@@ -1357,6 +1354,8 @@ class _ListingPhotoScreen extends StatelessWidget {
   Widget build(BuildContext context) => Scaffold(
         backgroundColor: Colors.black,
         appBar: AppBar(
+          automaticallyImplyLeading: false,
+          leading: const SidebarButton(),
           backgroundColor: Colors.black,
           foregroundColor: Colors.white,
           title: Text(title, maxLines: 1),
@@ -1425,6 +1424,7 @@ class _SellScreenState extends State<SellScreen> {
       ? widget.existing!.listingCategory
       : kMarketplaceCategories.first;
   late String _condition = widget.existing?.listingCondition ?? '';
+
   /// Up to [kMaxListingPhotos], cover first. Prefilled from the existing
   /// listing and its photo parts when editing.
   late final List<String> _photos = widget.existing == null
@@ -1459,7 +1459,7 @@ class _SellScreenState extends State<SellScreen> {
       if (bytes.length > MarketMedia.maxVideoBytes) {
         setState(() => _error =
             'Videos can be up to ${MarketMedia.maxVideoBytes ~/ (1024 * 1024)}'
-            ' MB — about 30 seconds.');
+                ' MB — about 30 seconds.');
         return;
       }
       setState(() {
@@ -1514,8 +1514,8 @@ class _SellScreenState extends State<SellScreen> {
     final hit = CommunityStore.instance
         .filterHit(_communityId, '$title\n${_description.text}');
     if (hit != null) {
-      setState(() =>
-          _error = '"$hit" is blocked by this server\'s word filter.');
+      setState(
+          () => _error = '"$hit" is blocked by this server\'s word filter.');
       return;
     }
     _finish(title, cents);
@@ -1678,8 +1678,7 @@ class _SellScreenState extends State<SellScreen> {
         _condition != existing.listingCondition ||
         _videoBytes != null ||
         (_videoPath.isEmpty) != existing.listingVideo.isEmpty ||
-        !listEquals(
-            _photos, FeedStore.instance.listingPhotos(existing.id));
+        !listEquals(_photos, FeedStore.instance.listingPhotos(existing.id));
   }
 
   Future<void> _close() async {
@@ -1713,6 +1712,7 @@ class _SellScreenState extends State<SellScreen> {
   Widget _buildScaffold(BuildContext context, List<Community> servers) {
     return Scaffold(
       appBar: AppBar(
+        automaticallyImplyLeading: false,
         title: Text(widget.existing == null ? 'New listing' : 'Edit listing'),
         leading: IconButton(
           icon: const Icon(Icons.close),
@@ -1758,8 +1758,7 @@ class _SellScreenState extends State<SellScreen> {
                             child: ChatPhoto(
                                 url: _photos[i],
                                 fit: BoxFit.cover,
-                                errorBuilder: (_) =>
-                                    const SizedBox.shrink()),
+                                errorBuilder: (_) => const SizedBox.shrink()),
                           ),
                         ),
                         if (i == 0)
@@ -1770,8 +1769,7 @@ class _SellScreenState extends State<SellScreen> {
                               padding: const EdgeInsets.symmetric(
                                   horizontal: 6, vertical: 2),
                               decoration: BoxDecoration(
-                                color:
-                                    Colors.black.withValues(alpha: 0.6),
+                                color: Colors.black.withValues(alpha: 0.6),
                                 borderRadius: BorderRadius.circular(5),
                               ),
                               child: const Text('Cover',
@@ -1785,13 +1783,11 @@ class _SellScreenState extends State<SellScreen> {
                           right: 4,
                           top: 4,
                           child: InkWell(
-                            onTap: () =>
-                                setState(() => _photos.removeAt(i)),
+                            onTap: () => setState(() => _photos.removeAt(i)),
                             child: Container(
                               padding: const EdgeInsets.all(3),
                               decoration: BoxDecoration(
-                                color:
-                                    Colors.black.withValues(alpha: 0.6),
+                                color: Colors.black.withValues(alpha: 0.6),
                                 shape: BoxShape.circle,
                               ),
                               child: const Icon(Icons.close,
@@ -1826,8 +1822,7 @@ class _SellScreenState extends State<SellScreen> {
                                   ? 'Add photos'
                                   : '${_photos.length}/$kMaxListingPhotos',
                               style: TextStyle(
-                                  fontSize: 11.5,
-                                  color: Colors.grey.shade600)),
+                                  fontSize: 11.5, color: Colors.grey.shade600)),
                         ],
                       ),
                     ),
@@ -1843,7 +1838,8 @@ class _SellScreenState extends State<SellScreen> {
             textCapitalization: TextCapitalization.sentences,
             // The title carries the listing, so it reads a size up.
             style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
-            decoration: const InputDecoration(hintText: 'What are you selling?'),
+            decoration:
+                const InputDecoration(hintText: 'What are you selling?'),
           ),
           const SizedBox(height: 12),
           Row(
@@ -1898,8 +1894,8 @@ class _SellScreenState extends State<SellScreen> {
                   label: Text(c),
                   selected: _condition == c,
                   visualDensity: VisualDensity.compact,
-                  onSelected: (_) => setState(
-                      () => _condition = _condition == c ? '' : c),
+                  onSelected: (_) =>
+                      setState(() => _condition = _condition == c ? '' : c),
                 ),
             ],
           ),
@@ -1912,7 +1908,8 @@ class _SellScreenState extends State<SellScreen> {
                 for (final s in servers)
                   DropdownMenuItem(value: s.id, child: Text(s.name)),
               ],
-              onChanged: (v) => setState(() => _communityId = v ?? _communityId),
+              onChanged: (v) =>
+                  setState(() => _communityId = v ?? _communityId),
               decoration: const InputDecoration(labelText: 'Server'),
             ),
             const SizedBox(height: 12),
@@ -1946,8 +1943,7 @@ class _SellScreenState extends State<SellScreen> {
                 child: Text(
                   'Shared with members of '
                   '${servers.firstWhere((c) => c.id == _communityId, orElse: () => servers.first).name}.',
-                  style:
-                      TextStyle(fontSize: 12.5, color: Colors.grey.shade600),
+                  style: TextStyle(fontSize: 12.5, color: Colors.grey.shade600),
                 ),
               ),
             ],
@@ -1956,8 +1952,7 @@ class _SellScreenState extends State<SellScreen> {
             Padding(
               padding: const EdgeInsets.only(top: 10),
               child: Text(_error!,
-                  style:
-                      TextStyle(color: Theme.of(context).colorScheme.error)),
+                  style: TextStyle(color: Theme.of(context).colorScheme.error)),
             ),
         ],
       ),
@@ -1983,7 +1978,10 @@ class SellerScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(name)),
+      appBar: AppBar(
+          automaticallyImplyLeading: false,
+          leading: const SidebarButton(),
+          title: Text(name)),
       body: ListenableBuilder(
         listenable: FeedStore.instance,
         builder: (context, _) {
@@ -2001,8 +1999,7 @@ class SellerScreen extends StatelessWidget {
                   children: [
                     CircleAvatar(
                       radius: 26,
-                      child: Text(
-                          name.isEmpty ? '?' : name[0].toUpperCase(),
+                      child: Text(name.isEmpty ? '?' : name[0].toUpperCase(),
                           style: const TextStyle(fontSize: 20)),
                     ),
                     const SizedBox(width: 12),
@@ -2021,8 +2018,7 @@ class SellerScreen extends StatelessWidget {
                                         fontSize: 17,
                                         fontWeight: FontWeight.w800)),
                               ),
-                              if (listings
-                                  .any((l) => l.authorVerified)) ...[
+                              if (listings.any((l) => l.authorVerified)) ...[
                                 const SizedBox(width: 5),
                                 const VerifiedBadge(size: 17),
                               ],
@@ -2031,8 +2027,7 @@ class SellerScreen extends StatelessWidget {
                           if (username.isNotEmpty && username != 'you')
                             Text('@$username',
                                 style: TextStyle(
-                                    fontSize: 13,
-                                    color: Colors.grey.shade600)),
+                                    fontSize: 13, color: Colors.grey.shade600)),
                           Row(
                             children: [
                               if (count > 0) ...[
@@ -2087,12 +2082,11 @@ class SellerScreen extends StatelessWidget {
                         itemCount: listings.length,
                         itemBuilder: (context, i) => _ListingCard(
                           listing: listings[i],
-                          serverName:
-                              _serverName(listings[i].communityId),
+                          serverName: _serverName(listings[i].communityId),
                           onTap: () => Navigator.of(context).push(
                             MaterialPageRoute(
-                              builder: (_) => ListingScreen(
-                                  listingId: listings[i].id),
+                              builder: (_) =>
+                                  ListingScreen(listingId: listings[i].id),
                             ),
                           ),
                         ),

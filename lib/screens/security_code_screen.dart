@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../crypto/e2e.dart';
 import '../models/user.dart';
 import '../state/session.dart';
+import '../widgets/app_shell.dart';
 import '../widgets/user_avatar.dart';
 
 /// Shows the conversation's security code (safety number). If it matches on
@@ -21,7 +22,10 @@ class SecurityCodeScreen extends StatelessWidget {
     final groups = code.split(' ');
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Security code')),
+      appBar: AppBar(
+          automaticallyImplyLeading: false,
+          leading: const SidebarButton(),
+          title: const Text('Security code')),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
         children: [

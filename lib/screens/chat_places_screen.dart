@@ -5,6 +5,7 @@ import 'package:latlong2/latlong.dart';
 import '../models/message.dart';
 import '../state/chat_store.dart';
 import '../utils/date_formatter.dart';
+import '../widgets/app_shell.dart';
 import '../widgets/osm_map.dart';
 import 'route_map_screen.dart';
 
@@ -64,7 +65,10 @@ class _ChatPlacesScreenState extends State<ChatPlacesScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Shared places')),
+      appBar: AppBar(
+          automaticallyImplyLeading: false,
+          leading: const SidebarButton(),
+          title: const Text('Shared places')),
       body: ListenableBuilder(
         listenable: ChatStore.instance,
         builder: (context, _) {
@@ -141,7 +145,8 @@ class _ChatPlacesScreenState extends State<ChatPlacesScreen> {
                   const LiveAttribution(),
                 ],
               ),
-              MapControls(controller: _map, bottom: selected == null ? 96 : 200),
+              MapControls(
+                  controller: _map, bottom: selected == null ? 96 : 200),
               if (selected != null)
                 Positioned(
                   left: 12,

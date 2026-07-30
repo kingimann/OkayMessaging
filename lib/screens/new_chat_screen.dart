@@ -8,6 +8,7 @@ import '../models/user.dart';
 import '../state/chat_store.dart';
 import '../state/contacts_sync.dart';
 import '../widgets/app_dialogs.dart';
+import '../widgets/app_shell.dart';
 import '../widgets/pull_to_refresh.dart';
 import '../widgets/user_avatar.dart';
 import 'chat_screen.dart';
@@ -35,7 +36,8 @@ class NewChatScreen extends StatelessWidget {
       if (existing.isArchived) store.setArchived(existing.id, false);
       chat = existing;
     } else {
-      chat = Chat(id: 'chat_${contact.id}', contact: contact, messages: const []);
+      chat =
+          Chat(id: 'chat_${contact.id}', contact: contact, messages: const []);
       store.upsert(chat);
     }
     _openChat(context, chat);
@@ -105,7 +107,10 @@ class NewChatScreen extends StatelessWidget {
     // Sample contacts are dev/test-only; a real install starts empty.
     final contacts = kReleaseMode ? <AppUser>[] : MockData.contacts();
     return Scaffold(
-      appBar: AppBar(title: const Text('New chat')),
+      appBar: AppBar(
+          automaticallyImplyLeading: false,
+          leading: const SidebarButton(),
+          title: const Text('New chat')),
       body: PullToRefresh(
         child: ListView(
           children: [
@@ -126,7 +131,8 @@ class NewChatScreen extends StatelessWidget {
                 icon: Icons.contacts_outlined,
                 label: 'Find contacts on OkayMessenger',
                 onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const ContactsOnAppScreen()),
+                  MaterialPageRoute(
+                      builder: (_) => const ContactsOnAppScreen()),
                 ),
               ),
             _ActionTile(

@@ -9,6 +9,7 @@ import '../util/geolocation.dart';
 import '../util/routing.dart';
 import '../util/speech.dart';
 import '../utils/maps_link.dart';
+import '../widgets/app_shell.dart';
 import '../widgets/osm_map.dart';
 import 'forward_screen.dart';
 
@@ -46,8 +47,7 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
 
   /// The directions sheet, so the things that must stay clear of it can
   /// follow where it actually is instead of guessing.
-  final DraggableScrollableController _panel =
-      DraggableScrollableController();
+  final DraggableScrollableController _panel = DraggableScrollableController();
 
   /// Where the sheet rests, and how far up the map's furniture has to sit.
   static const double _panelResting = 0.30;
@@ -57,6 +57,7 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
     final size = _panel.isAttached ? _panel.size : _panelResting;
     return MediaQuery.of(context).size.height * size.clamp(0.0, 0.5);
   }
+
   List<RouteResult> _routes = const [];
   int _routeIndex = 0;
   LatLng? _from;
@@ -67,8 +68,9 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
       orElse: () => TravelMode.car);
 
   /// The currently chosen route (primary or a picked alternative).
-  RouteResult? get _route =>
-      _routes.isEmpty ? null : _routes[_routeIndex.clamp(0, _routes.length - 1)];
+  RouteResult? get _route => _routes.isEmpty
+      ? null
+      : _routes[_routeIndex.clamp(0, _routes.length - 1)];
 
   // In-app navigation state.
   bool _navigating = false;
@@ -200,8 +202,9 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
     final step = r.steps[_navStep];
     final user = _navPos;
     final loc = step.location;
-    final dist =
-        user != null && loc != null ? const Distance().distance(user, loc) : null;
+    final dist = user != null && loc != null
+        ? const Distance().distance(user, loc)
+        : null;
     speak(dist != null && dist >= 60
         ? 'In ${spokenDistance(dist)}, ${step.instruction}.'
         : '${step.instruction}.');
@@ -236,8 +239,7 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
     if (off && !_rerouting && cooledDown) {
       _lastReroute = DateTime.now();
       setState(() => _rerouting = true);
-      final fresh =
-          await fetchRoute(from: user, to: widget.dest, mode: _mode);
+      final fresh = await fetchRoute(from: user, to: widget.dest, mode: _mode);
       if (!mounted || !_navigating) return;
       setState(() {
         _rerouting = false;
@@ -297,8 +299,7 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
     if (route == null) return;
     final left =
         remainingMeters(route: route, current: _navStep, user: _navPos);
-    final frac =
-        route.distanceMeters <= 0 ? 0.0 : left / route.distanceMeters;
+    final frac = route.distanceMeters <= 0 ? 0.0 : left / route.distanceMeters;
     final secs = route.durationSeconds * frac.clamp(0.0, 1.0);
     final arrive = TimeOfDay.fromDateTime(
             DateTime.now().add(Duration(seconds: secs.round())))
@@ -306,8 +307,8 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
     final where = widget.label.isEmpty ? 'my destination' : widget.label;
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) =>
-            ForwardScreen(text: 'On my way to $where — arriving around '
+        builder: (_) => ForwardScreen(
+            text: 'On my way to $where — arriving around '
                 '$arrive.'),
       ),
     );
@@ -324,12 +325,13 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
 
   // -----------------------------------------------------------------------
 
-
   @override
   Widget build(BuildContext context) {
     final route = _route;
     return Scaffold(
       appBar: AppBar(
+        automaticallyImplyLeading: false,
+        leading: const SidebarButton(),
         title: Text(widget.label.isEmpty ? 'Directions' : widget.label),
       ),
       body: Stack(
@@ -418,8 +420,8 @@ class _RouteMapScreenState extends State<RouteMapScreen> {
           ),
           AnimatedBuilder(
             animation: _panel,
-            builder: (context, _) =>
-                MapControls(controller: _map, bottom: _abovePanel(context) + 16),
+            builder: (context, _) => MapControls(
+                controller: _map, bottom: _abovePanel(context) + 16),
           ),
           if (_navigating && route != null) ...[
             _NavBanner(
@@ -572,8 +574,7 @@ class _NavBanner extends StatelessWidget {
                     child: Row(
                       children: [
                         Icon(
-                            iconForManeuver(
-                                nextStep!.type, nextStep!.modifier),
+                            iconForManeuver(nextStep!.type, nextStep!.modifier),
                             color: Colors.white70,
                             size: 18),
                         const SizedBox(width: 8),
@@ -650,7 +651,10 @@ class _NavBottomBar extends StatelessWidget {
                           style: const TextStyle(
                               fontSize: 20, fontWeight: FontWeight.w700)),
                       Text('${formatDistance(left)} left · arrive $arrive',
-                          style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                          style: TextStyle(
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onSurfaceVariant)),
                     ],
                   ),
                 ),
@@ -824,7 +828,10 @@ class _DirectionsPanel extends StatelessWidget {
                   title: Text(step.instruction),
                   trailing: step.distanceMeters > 0
                       ? Text(formatDistance(step.distanceMeters),
-                          style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant))
+                          style: TextStyle(
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onSurfaceVariant))
                       : null,
                   // Peek at this turn on the map.
                   onTap: () => onStep(step),
@@ -865,12 +872,12 @@ class _DirectionsPanel extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         Text(formatDuration(r.durationSeconds),
-            style:
-                const TextStyle(fontSize: 22, fontWeight: FontWeight.w700)),
+            style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700)),
         Text(
             '${formatDistance(r.distanceMeters)} · '
             '${mode.label.toLowerCase()} · arrive $arrive',
-            style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
+            style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant)),
       ],
     );
   }

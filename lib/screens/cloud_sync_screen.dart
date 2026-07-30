@@ -5,6 +5,7 @@ import '../state/cloud_sync.dart';
 import '../payments/iap_entitlement.dart';
 import '../state/storage_store.dart';
 import '../utils/date_formatter.dart';
+import '../widgets/app_shell.dart';
 
 /// Cloud storage.
 ///
@@ -118,7 +119,10 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Cloud storage')),
+      appBar: AppBar(
+          automaticallyImplyLeading: false,
+          leading: const SidebarButton(),
+          title: const Text('Cloud storage')),
       body: ListenableBuilder(
         listenable:
             Listenable.merge([CloudSync.instance, StorageStore.instance]),
@@ -199,8 +203,7 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
             Text(
               '${storage.usedLabel} of ${storage.quotaLabel} used · '
               '${storage.availableLabel} free',
-              style:
-                  TextStyle(fontSize: 12.5, color: scheme.onSurfaceVariant),
+              style: TextStyle(fontSize: 12.5, color: scheme.onSurfaceVariant),
             ),
             if (storage.isFull || storage.nearLimit) ...[
               const SizedBox(height: 10),
@@ -457,16 +460,15 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
           )),
         if (sync.lastSync != null)
           Text('Last backup: ${DateFormatter.callLabel(sync.lastSync!)}',
-              style:
-                  TextStyle(fontSize: 12.5, color: scheme.onSurfaceVariant)),
+              style: TextStyle(fontSize: 12.5, color: scheme.onSurfaceVariant)),
         if (sync.lastError != null) ...[
           const SizedBox(height: 8),
           Card(
             color: scheme.errorContainer.withValues(alpha: 0.4),
             child: Padding(
               padding: const EdgeInsets.all(12),
-              child: Text(sync.lastError!,
-                  style: const TextStyle(fontSize: 13.5)),
+              child:
+                  Text(sync.lastError!, style: const TextStyle(fontSize: 13.5)),
             ),
           ),
         ],

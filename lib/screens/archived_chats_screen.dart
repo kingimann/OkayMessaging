@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/chat.dart';
 import '../state/chat_store.dart';
+import '../widgets/app_shell.dart';
 import '../widgets/chat_list_tile.dart';
 import '../widgets/pull_to_refresh.dart';
 import 'chat_screen.dart';
@@ -45,7 +46,10 @@ class ArchivedChatsScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final store = ChatStore.instance;
     return Scaffold(
-      appBar: AppBar(title: const Text('Archived')),
+      appBar: AppBar(
+          automaticallyImplyLeading: false,
+          leading: const SidebarButton(),
+          title: const Text('Archived')),
       body: ListenableBuilder(
         listenable: store,
         builder: (context, _) {

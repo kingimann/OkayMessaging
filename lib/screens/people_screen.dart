@@ -4,6 +4,7 @@ import '../models/chat.dart';
 import '../models/user.dart';
 import '../state/chat_store.dart';
 import '../state/follow_store.dart';
+import '../widgets/app_shell.dart';
 import '../widgets/pull_to_refresh.dart';
 import '../widgets/user_avatar.dart';
 import 'chat_screen.dart';
@@ -53,13 +54,15 @@ class _PeopleScreenState extends State<PeopleScreen> {
   }
 
   /// The follow key: username when they have one, phone digits otherwise.
-  String _followKey(AppUser u) =>
-      u.username.isNotEmpty ? u.username : u.phone;
+  String _followKey(AppUser u) => u.username.isNotEmpty ? u.username : u.phone;
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('People')),
+      appBar: AppBar(
+          automaticallyImplyLeading: false,
+          leading: const SidebarButton(),
+          title: const Text('People')),
       body: ListenableBuilder(
         listenable:
             Listenable.merge([ChatStore.instance, FollowStore.instance]),
@@ -68,8 +71,8 @@ class _PeopleScreenState extends State<PeopleScreen> {
               .map((c) => c.contact)
               .where((u) => !u.isGroup)
               .toList()
-            ..sort((a, b) =>
-                a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+            ..sort(
+                (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
           return PullToRefresh(
             child: ListView(
               padding: const EdgeInsets.only(bottom: 24),
@@ -111,17 +114,18 @@ class _PeopleScreenState extends State<PeopleScreen> {
                   Padding(
                     padding: const EdgeInsets.all(24),
                     child: Text('No contacts yet — add a friend above.',
-                        style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                        style: TextStyle(
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onSurfaceVariant)),
                   ),
                 for (final u in people)
                   ListTile(
                     leading: UserAvatar(user: u, radius: 22),
                     title: Text(u.name,
                         style: const TextStyle(fontWeight: FontWeight.w600)),
-                    subtitle: Text(
-                        u.handle.isNotEmpty ? u.handle : u.phone,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis),
+                    subtitle: Text(u.handle.isNotEmpty ? u.handle : u.phone,
+                        maxLines: 1, overflow: TextOverflow.ellipsis),
                     trailing: _FollowButton(followKey: _followKey(u)),
                     onTap: () => Navigator.of(context).push(MaterialPageRoute(
                         builder: (_) => ContactInfoScreen(user: u))),
@@ -153,14 +157,13 @@ class _FollowButton extends StatelessWidget {
     return following
         ? OutlinedButton(
             onPressed: () => FollowStore.instance.toggle(followKey),
-            style: OutlinedButton.styleFrom(
-                visualDensity: VisualDensity.compact),
+            style:
+                OutlinedButton.styleFrom(visualDensity: VisualDensity.compact),
             child: const Text('Following'),
           )
         : FilledButton.tonal(
             onPressed: () => FollowStore.instance.toggle(followKey),
-            style:
-                FilledButton.styleFrom(visualDensity: VisualDensity.compact),
+            style: FilledButton.styleFrom(visualDensity: VisualDensity.compact),
             child: const Text('Follow'),
           );
   }

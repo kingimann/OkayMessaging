@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../payments/connect_webview.dart';
 import '../payments/payment_service.dart';
 import '../theme/app_theme.dart';
+import '../widgets/app_shell.dart';
 import 'in_app_web_screen.dart';
 
 /// How a hosted Stripe page can be shown here.
@@ -256,16 +257,9 @@ class _ConnectOnboardingScreenState extends State<ConnectOnboardingScreen> {
     final dark = Theme.of(context).brightness == Brightness.dark;
     return Scaffold(
       appBar: AppBar(
+        automaticallyImplyLeading: false,
+        leading: const SidebarButton(),
         title: const Text('Set up payments'),
-        leading: IconButton(
-          icon: const Icon(Icons.close),
-          tooltip: 'Cancel',
-          // The hosted flow gives no completion signal back to the app, so
-          // closing it has to be treated as "something may have changed" —
-          // otherwise finishing setup leaves the wallet showing the old
-          // status until the next launch.
-          onPressed: () => Navigator.of(context).pop(_hostedUrl != null),
-        ),
         actions: [
           // Only worth offering when the embedded component is what is on
           // screen. When this build goes to the hosted flow first, this button
@@ -275,6 +269,15 @@ class _ConnectOnboardingScreenState extends State<ConnectOnboardingScreen> {
               onPressed: _loadingHosted ? null : _useHosted,
               child: const Text('Trouble?'),
             ),
+          IconButton(
+            icon: const Icon(Icons.close),
+            tooltip: 'Cancel',
+            // The hosted flow gives no completion signal back to the app, so
+            // closing it has to be treated as "something may have changed" —
+            // otherwise finishing setup leaves the wallet showing the old
+            // status until the next launch.
+            onPressed: () => Navigator.of(context).pop(_hostedUrl != null),
+          ),
         ],
       ),
       // Fetching the hosted URL used to leave the failed embedded component on

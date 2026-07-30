@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../app_state.dart';
 import '../state/chat_store.dart';
 import '../theme/app_theme.dart';
+import '../widgets/app_shell.dart';
 
 /// A simple chat-wallpaper picker: choose a solid background color (or the
 /// default). With no [chatId] the choice is the global default for every
@@ -33,12 +34,12 @@ class WallpaperScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
+        automaticallyImplyLeading: false,
+        leading: const SidebarButton(),
         title: Text(chatId == null ? 'Chat wallpaper' : 'Wallpaper'),
       ),
       body: AnimatedBuilder(
-        animation: chatId == null
-            ? AppState.chatWallpaper
-            : ChatStore.instance,
+        animation: chatId == null ? AppState.chatWallpaper : ChatStore.instance,
         builder: (context, _) {
           final current = chatId == null
               ? AppState.chatWallpaper.value

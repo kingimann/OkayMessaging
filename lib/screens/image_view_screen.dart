@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/message.dart';
 import '../utils/date_formatter.dart';
+import '../widgets/app_shell.dart';
 import '../widgets/chat_photo.dart';
 
 /// A full-screen viewer for an image [Message], opened by tapping a photo
@@ -47,6 +48,8 @@ class ImageViewScreen extends StatelessWidget {
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
+        automaticallyImplyLeading: false,
+        leading: const SidebarButton(),
         backgroundColor: Colors.black,
         foregroundColor: Colors.white,
         elevation: 0,
@@ -79,7 +82,8 @@ class ImageViewScreen extends StatelessWidget {
                       fit: BoxFit.contain,
                       errorBuilder: (_) => _placeholder(colors),
                     )
-                  : AspectRatio(aspectRatio: 220 / 260, child: _placeholder(colors)),
+                  : AspectRatio(
+                      aspectRatio: 220 / 260, child: _placeholder(colors)),
             ),
           ),
         ),

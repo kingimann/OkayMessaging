@@ -4,6 +4,7 @@ import '../payments/connect_webview.dart';
 import '../payments/payment_service.dart';
 import '../state/identity_verification.dart';
 import '../theme/app_theme.dart';
+import '../widgets/app_shell.dart';
 
 /// The ID check, inside the app.
 ///
@@ -63,12 +64,16 @@ class _IdentityCheckScreenState extends State<IdentityCheckScreen> {
     final canHost = ConnectWebView.isSupported && (useStripeJs || hosted.isNotEmpty);
     return Scaffold(
       appBar: AppBar(
+        automaticallyImplyLeading: false,
+        leading: const SidebarButton(),
         title: const Text('Verify your identity'),
-        leading: IconButton(
-          icon: const Icon(Icons.close),
-          tooltip: 'Cancel',
-          onPressed: () => Navigator.of(context).pop(false),
-        ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.close),
+            tooltip: 'Cancel',
+            onPressed: () => Navigator.of(context).pop(false),
+          ),
+        ],
       ),
       body: !canHost
           ? Center(

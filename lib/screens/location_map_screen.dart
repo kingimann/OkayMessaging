@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 
+import '../widgets/app_shell.dart';
 import '../widgets/osm_map.dart';
 import 'route_map_screen.dart';
 
@@ -30,12 +31,14 @@ class _LocationMapScreenState extends State<LocationMapScreen> {
   double get lng => widget.lng;
   String get label => widget.label;
 
-
   @override
   Widget build(BuildContext context) {
     final point = LatLng(lat, lng);
     return Scaffold(
-      appBar: AppBar(title: Text(label.isEmpty ? 'Location' : label)),
+      appBar: AppBar(
+          automaticallyImplyLeading: false,
+          leading: const SidebarButton(),
+          title: Text(label.isEmpty ? 'Location' : label)),
       body: Stack(
         children: [
           FlutterMap(

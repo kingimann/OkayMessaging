@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../app_state.dart';
+import '../widgets/app_shell.dart';
 import '../widgets/info_section.dart';
 import 'settings_widgets.dart';
 import 'wallpaper_screen.dart';
@@ -13,7 +14,10 @@ class ChatsSettingsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Chats & appearance')),
+      appBar: AppBar(
+          automaticallyImplyLeading: false,
+          leading: const SidebarButton(),
+          title: const Text('Chats & appearance')),
       body: ListView(
         children: [
           const SizedBox(height: 6),
@@ -82,9 +86,8 @@ class _BubbleColorTile extends StatelessWidget {
       builder: (context, color, _) => InfoTile(
         leading: const Icon(Icons.color_lens_outlined),
         title: 'Chat bubble color',
-        subtitle: color == null
-            ? 'Default green'
-            : 'Custom color for your messages',
+        subtitle:
+            color == null ? 'Default green' : 'Custom color for your messages',
         trailing: Container(
           width: 24,
           height: 24,
@@ -119,8 +122,8 @@ class _BubbleColorTile extends StatelessWidget {
                 children: [
                   for (final c in _palette)
                     GestureDetector(
-                      onTap: () => Navigator.of(sheetContext)
-                          .pop(_ColorChoice(c)),
+                      onTap: () =>
+                          Navigator.of(sheetContext).pop(_ColorChoice(c)),
                       child: Container(
                         width: 46,
                         height: 46,
@@ -145,8 +148,8 @@ class _BubbleColorTile extends StatelessWidget {
               Align(
                 alignment: Alignment.centerLeft,
                 child: TextButton.icon(
-                  onPressed: () => Navigator.of(sheetContext)
-                      .pop(const _ColorChoice(null)),
+                  onPressed: () =>
+                      Navigator.of(sheetContext).pop(const _ColorChoice(null)),
                   icon: const Icon(Icons.restart_alt),
                   label: const Text('Reset to default green'),
                 ),

@@ -21,6 +21,7 @@ import '../state/feed_store.dart';
 import '../theme/app_theme.dart';
 import '../utils/date_formatter.dart';
 import '../widgets/app_dialogs.dart';
+import '../widgets/app_shell.dart';
 import '../widgets/chat_photo.dart';
 import '../widgets/emoji_gif_sheet.dart';
 import '../widgets/empty_state.dart';
@@ -34,8 +35,7 @@ import 'feed_screen.dart';
 import 'forum_screen.dart';
 import 'forward_screen.dart';
 
-Color _hex(String s) =>
-    Color(int.parse(s.replaceFirst('#', 'ff'), radix: 16));
+Color _hex(String s) => Color(int.parse(s.replaceFirst('#', 'ff'), radix: 16));
 
 IconData _channelIcon(ChannelType type) => switch (type) {
       ChannelType.voice => Icons.volume_up_rounded,
@@ -48,8 +48,8 @@ IconData _channelIcon(ChannelType type) => switch (type) {
 /// creates the community and replaces itself with the new server's screen.
 /// Called from the home screen's compose button on the Communities tab.
 Future<void> createCommunityFlow(BuildContext context) async {
-  await Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) => const CreateServerScreen()));
+  await Navigator.of(context)
+      .push(MaterialPageRoute(builder: (_) => const CreateServerScreen()));
 }
 
 /// The "Communities" tab: Discord-style servers you can create and open,
@@ -167,8 +167,7 @@ class _CommunitiesTabState extends State<CommunitiesTab> {
                         padding: const EdgeInsets.all(24),
                         child: Center(
                           child: Text('No servers match your search.',
-                              style:
-                                  TextStyle(color: Colors.grey.shade600)),
+                              style: TextStyle(color: Colors.grey.shade600)),
                         ),
                       ),
                     for (final c in communities) _CommunityCard(community: c),
@@ -314,8 +313,7 @@ class _CommunityCard extends StatelessWidget {
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: const TextStyle(
-                                    fontSize: 17,
-                                    fontWeight: FontWeight.w700)),
+                                    fontSize: 17, fontWeight: FontWeight.w700)),
                           ),
                           if (CommunityStore.instance
                                   .unreadInCommunity(community) >
@@ -413,8 +411,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
   Future<void> _addChannel(BuildContext context) async {
     final result = await _promptNewChannel(context);
     if (result == null) return;
-    CommunityStore.instance
-        .addChannel(communityId, result.$1, type: result.$2);
+    CommunityStore.instance.addChannel(communityId, result.$1, type: result.$2);
   }
 
   void _openMembers(BuildContext context, Community community) {
@@ -444,13 +441,12 @@ class _CommunityScreenState extends State<CommunityScreen> {
                       fontSize: 18, fontWeight: FontWeight.w700)),
               const SizedBox(height: 6),
               Text('Anyone with this link can join the server.',
-                  style:
-                      TextStyle(fontSize: 13, color: Colors.grey.shade600)),
+                  style: TextStyle(fontSize: 13, color: Colors.grey.shade600)),
               const SizedBox(height: 16),
               Container(
                 width: double.infinity,
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 14, vertical: 12),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                 decoration: BoxDecoration(
                   color: Theme.of(sheetContext)
                       .colorScheme
@@ -465,8 +461,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
-                              fontSize: 13.5,
-                              fontWeight: FontWeight.w600)),
+                              fontSize: 13.5, fontWeight: FontWeight.w600)),
                     ),
                     IconButton(
                       icon: const Icon(Icons.copy, size: 18),
@@ -523,8 +518,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
     ));
   }
 
-  Future<void> _channelActions(
-      BuildContext context, Channel ch) async {
+  Future<void> _channelActions(BuildContext context, Channel ch) async {
     final store = CommunityStore.instance;
     final action = await showModalBottomSheet<String>(
       context: context,
@@ -656,7 +650,8 @@ class _CommunityScreenState extends State<CommunityScreen> {
       builder: (context, _) {
         final community = CommunityStore.instance.byId(communityId);
         if (community == null) {
-          return const Scaffold(body: Center(child: Text('Community not found')));
+          return const Scaffold(
+              body: Center(child: Text('Community not found')));
         }
         final onlineCount = community.members.where((m) => m.online).length;
         final voiceHere = VoicePresenceStore.instance.countInChannels([
@@ -665,6 +660,8 @@ class _CommunityScreenState extends State<CommunityScreen> {
         ]);
         return Scaffold(
           appBar: AppBar(
+            automaticallyImplyLeading: false,
+            leading: const SidebarButton(),
             title: Row(
               children: [
                 CircleAvatar(
@@ -681,8 +678,8 @@ class _CommunityScreenState extends State<CommunityScreen> {
                 ),
                 const SizedBox(width: 10),
                 Expanded(
-                    child: Text(community.name,
-                        overflow: TextOverflow.ellipsis)),
+                    child:
+                        Text(community.name, overflow: TextOverflow.ellipsis)),
               ],
             ),
             actions: [
@@ -757,8 +754,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                     if (CommunityStore.instance.canInvite(communityId))
                       FilledButton.tonalIcon(
                         style: FilledButton.styleFrom(
-                          backgroundColor:
-                              Colors.white.withValues(alpha: 0.22),
+                          backgroundColor: Colors.white.withValues(alpha: 0.22),
                           foregroundColor: Colors.white,
                           padding: const EdgeInsets.symmetric(
                               horizontal: 14, vertical: 8),
@@ -778,7 +774,8 @@ class _CommunityScreenState extends State<CommunityScreen> {
                   children: [
                     const Icon(Icons.circle, size: 9, color: Color(0xFF43B581)),
                     const SizedBox(width: 6),
-                    Text('$onlineCount online · ${community.members.length} members',
+                    Text(
+                        '$onlineCount online · ${community.members.length} members',
                         style: TextStyle(
                             fontSize: 12.5, color: Colors.grey.shade600)),
                     if (voiceHere > 0) ...[
@@ -813,7 +810,8 @@ class _CommunityScreenState extends State<CommunityScreen> {
                                 Theme.of(context).colorScheme.surface,
                             child: CircleAvatar(
                               radius: 14,
-                              backgroundColor: Colors.primaries[
+                              backgroundColor: Colors
+                                  .primaries[
                                       community.members[i].name.hashCode %
                                           Colors.primaries.length]
                                   .shade600,
@@ -849,8 +847,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                   return ListTile(
                     dense: true,
                     leading: Icon(Icons.dynamic_feed,
-                        color: Theme.of(context).colorScheme.primary,
-                        size: 22),
+                        color: Theme.of(context).colorScheme.primary, size: 22),
                     title: const Text('Feed',
                         style: TextStyle(fontWeight: FontWeight.w600)),
                     subtitle: Text(
@@ -861,8 +858,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
-                    onTap: () =>
-                        Navigator.of(context).push(MaterialPageRoute(
+                    onTap: () => Navigator.of(context).push(MaterialPageRoute(
                       builder: (_) => FeedScreen(
                         communityId: communityId,
                         communityName: community.name,
@@ -909,122 +905,129 @@ class _CommunityScreenState extends State<CommunityScreen> {
                   ),
                 ),
                 if (!_collapsed.contains(category))
-                for (final ch in community.channelsIn(category))
-                  Builder(builder: (context) {
-                  final muted = CommunityStore.instance.isChannelMuted(ch.id);
-                  final unread = CommunityStore.instance.unreadInChannel(ch);
-                  final mentions =
-                      CommunityStore.instance.unreadMentionsIn(ch);
-                  final voice = ch.type == ChannelType.voice
-                      ? VoicePresenceStore.instance.occupantsIn(ch.id)
-                      : const <VoiceOccupant>[];
-                  return Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                  ListTile(
-                    dense: true,
-                    leading: Icon(_channelIcon(ch.type),
-                        // A muted channel never highlights, however busy it is
-                        // — unless someone actually said your name.
-                        color: mentions > 0
-                            ? const Color(0xFFE0245E)
-                            : (unread > 0 && !muted
-                                ? Theme.of(context).colorScheme.primary
-                                : Colors.grey),
-                        size: 22),
-                    title: Row(
-                      children: [
-                        Flexible(child: Text(ch.name)),
-                        if (muted) ...[
-                          const SizedBox(width: 6),
-                          Icon(Icons.notifications_off,
-                              size: 14, color: Colors.grey.shade500),
-                        ],
-                        if (mentions > 0) ...[
-                          const SizedBox(width: 8),
-                          // Being @mentioned is the one thing a mute doesn't
-                          // quieten: it means someone is talking *to* you.
-                          _MentionBadge(count: mentions),
-                        ] else if (unread > 0) ...[
-                          const SizedBox(width: 8),
-                          // Still counted so you can see what you missed —
-                          // just muted-grey rather than shouting.
-                          _UnreadBadge(count: unread, muted: muted),
-                        ],
-                      ],
-                    ),
-                    subtitle: ch.type == ChannelType.voice
-                        ? Text(voice.isEmpty
-                            ? 'Voice channel'
-                            : '${voice.length} '
-                                '${voice.length == 1 ? 'person' : 'people'} '
-                                'in voice')
-                        : ch.type == ChannelType.forum
-                            ? Text('Forum · ${ch.posts.length} '
-                                '${ch.posts.length == 1 ? 'post' : 'posts'}')
-                            : (ch.messages.isNotEmpty
-                                ? Text(ch.messages.last.text,
-                                    maxLines: 1, overflow: TextOverflow.ellipsis)
-                                : (ch.topic.isEmpty ? null : Text(ch.topic))),
-                    trailing: IconButton(
-                      icon: const Icon(Icons.more_vert, size: 20),
-                      tooltip: 'Channel options',
-                      onPressed: () => _channelActions(context, ch),
-                    ),
-                    onLongPress: () => _channelActions(context, ch),
-                    onTap: () => Navigator.of(context).push(MaterialPageRoute(
-                      builder: (_) => switch (ch.type) {
-                        ChannelType.voice => VoiceChannelScreen(
-                            communityId: communityId, channelId: ch.id),
-                        ChannelType.forum => ForumChannelScreen(
-                            communityId: communityId, channelId: ch.id),
-                        _ => ChannelScreen(
-                            communityId: communityId, channelId: ch.id),
-                      },
-                    )),
-                  ),
-                  // Who's in the room, listed under it the way Discord does —
-                  // the whole point of a voice channel is seeing it's occupied
-                  // without having to open it.
-                  for (final o in voice)
-                    Padding(
-                      padding: const EdgeInsets.only(left: 56, bottom: 2),
-                      child: Row(
+                  for (final ch in community.channelsIn(category))
+                    Builder(builder: (context) {
+                      final muted =
+                          CommunityStore.instance.isChannelMuted(ch.id);
+                      final unread =
+                          CommunityStore.instance.unreadInChannel(ch);
+                      final mentions =
+                          CommunityStore.instance.unreadMentionsIn(ch);
+                      final voice = ch.type == ChannelType.voice
+                          ? VoicePresenceStore.instance.occupantsIn(ch.id)
+                          : const <VoiceOccupant>[];
+                      return Column(
+                        mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(
-                            o.screen
-                                ? Icons.screen_share
-                                : o.video
-                                    ? Icons.videocam
-                                    : o.muted
-                                        ? Icons.mic_off
-                                        : Icons.mic,
-                            size: 14,
-                            color: o.muted
-                                ? Colors.red.shade300
-                                : Colors.grey.shade500,
-                          ),
-                          const SizedBox(width: 6),
-                          Flexible(
-                            child: Text(
-                              o.isMe ? '${o.name} (you)' : o.name,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                  fontSize: 13,
-                                  color: Colors.grey.shade600,
-                                  fontWeight: o.isMe
-                                      ? FontWeight.w600
-                                      : FontWeight.w400),
+                          ListTile(
+                            dense: true,
+                            leading: Icon(_channelIcon(ch.type),
+                                // A muted channel never highlights, however busy it is
+                                // — unless someone actually said your name.
+                                color: mentions > 0
+                                    ? const Color(0xFFE0245E)
+                                    : (unread > 0 && !muted
+                                        ? Theme.of(context).colorScheme.primary
+                                        : Colors.grey),
+                                size: 22),
+                            title: Row(
+                              children: [
+                                Flexible(child: Text(ch.name)),
+                                if (muted) ...[
+                                  const SizedBox(width: 6),
+                                  Icon(Icons.notifications_off,
+                                      size: 14, color: Colors.grey.shade500),
+                                ],
+                                if (mentions > 0) ...[
+                                  const SizedBox(width: 8),
+                                  // Being @mentioned is the one thing a mute doesn't
+                                  // quieten: it means someone is talking *to* you.
+                                  _MentionBadge(count: mentions),
+                                ] else if (unread > 0) ...[
+                                  const SizedBox(width: 8),
+                                  // Still counted so you can see what you missed —
+                                  // just muted-grey rather than shouting.
+                                  _UnreadBadge(count: unread, muted: muted),
+                                ],
+                              ],
                             ),
+                            subtitle: ch.type == ChannelType.voice
+                                ? Text(voice.isEmpty
+                                    ? 'Voice channel'
+                                    : '${voice.length} '
+                                        '${voice.length == 1 ? 'person' : 'people'} '
+                                        'in voice')
+                                : ch.type == ChannelType.forum
+                                    ? Text('Forum · ${ch.posts.length} '
+                                        '${ch.posts.length == 1 ? 'post' : 'posts'}')
+                                    : (ch.messages.isNotEmpty
+                                        ? Text(ch.messages.last.text,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis)
+                                        : (ch.topic.isEmpty
+                                            ? null
+                                            : Text(ch.topic))),
+                            trailing: IconButton(
+                              icon: const Icon(Icons.more_vert, size: 20),
+                              tooltip: 'Channel options',
+                              onPressed: () => _channelActions(context, ch),
+                            ),
+                            onLongPress: () => _channelActions(context, ch),
+                            onTap: () =>
+                                Navigator.of(context).push(MaterialPageRoute(
+                              builder: (_) => switch (ch.type) {
+                                ChannelType.voice => VoiceChannelScreen(
+                                    communityId: communityId, channelId: ch.id),
+                                ChannelType.forum => ForumChannelScreen(
+                                    communityId: communityId, channelId: ch.id),
+                                _ => ChannelScreen(
+                                    communityId: communityId, channelId: ch.id),
+                              },
+                            )),
                           ),
+                          // Who's in the room, listed under it the way Discord does —
+                          // the whole point of a voice channel is seeing it's occupied
+                          // without having to open it.
+                          for (final o in voice)
+                            Padding(
+                              padding:
+                                  const EdgeInsets.only(left: 56, bottom: 2),
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    o.screen
+                                        ? Icons.screen_share
+                                        : o.video
+                                            ? Icons.videocam
+                                            : o.muted
+                                                ? Icons.mic_off
+                                                : Icons.mic,
+                                    size: 14,
+                                    color: o.muted
+                                        ? Colors.red.shade300
+                                        : Colors.grey.shade500,
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Flexible(
+                                    child: Text(
+                                      o.isMe ? '${o.name} (you)' : o.name,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                          fontSize: 13,
+                                          color: Colors.grey.shade600,
+                                          fontWeight: o.isMe
+                                              ? FontWeight.w600
+                                              : FontWeight.w400),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          if (voice.isNotEmpty) const SizedBox(height: 6),
                         ],
-                      ),
-                    ),
-                  if (voice.isNotEmpty) const SizedBox(height: 6),
-                    ],
-                  );
-                  }),
+                      );
+                    }),
               ],
               const SizedBox(height: 20),
             ],
@@ -1121,8 +1124,8 @@ class _VoiceChannelScreenState extends State<VoiceChannelScreen> {
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable:
-          Listenable.merge([CommunityStore.instance, VoicePresenceStore.instance]),
+      listenable: Listenable.merge(
+          [CommunityStore.instance, VoicePresenceStore.instance]),
       builder: (context, _) {
         final community = CommunityStore.instance.byId(widget.communityId);
         final channel = community?.channels
@@ -1136,6 +1139,8 @@ class _VoiceChannelScreenState extends State<VoiceChannelScreen> {
         final occupants = _voice.occupantsIn(widget.channelId);
         return Scaffold(
           appBar: AppBar(
+            automaticallyImplyLeading: false,
+            leading: const SidebarButton(),
             title: Row(
               children: [
                 const Icon(Icons.volume_up_rounded, size: 20),
@@ -1199,8 +1204,7 @@ class _VoiceChannelScreenState extends State<VoiceChannelScreen> {
                 : CircleAvatar(
                     radius: 30,
                     backgroundColor: _hex(community.color),
-                    child: Text(
-                        o.name.isEmpty ? '?' : o.name[0].toUpperCase(),
+                    child: Text(o.name.isEmpty ? '?' : o.name[0].toUpperCase(),
                         style: const TextStyle(
                             color: Colors.white,
                             fontSize: 22,
@@ -1317,16 +1321,17 @@ class _VoiceChannelScreenState extends State<VoiceChannelScreen> {
                   _voiceButton(
                     icon: _video ? Icons.videocam : Icons.videocam_off,
                     label: 'Video',
-                    color: _video ? AppColors.tealGreenDark : Colors.grey.shade700,
+                    color:
+                        _video ? AppColors.tealGreenDark : Colors.grey.shade700,
                     onTap: () => _voice.setLocalState(video: !_video),
                   ),
                   _voiceButton(
-                    icon: _screen
-                        ? Icons.stop_screen_share
-                        : Icons.screen_share,
+                    icon:
+                        _screen ? Icons.stop_screen_share : Icons.screen_share,
                     label: 'Screen',
-                    color:
-                        _screen ? AppColors.tealGreenDark : Colors.grey.shade700,
+                    color: _screen
+                        ? AppColors.tealGreenDark
+                        : Colors.grey.shade700,
                     onTap: () => _voice.setLocalState(screen: !_screen),
                   ),
                   _voiceButton(
@@ -1456,8 +1461,8 @@ class _ChannelScreenState extends State<ChannelScreen> {
   /// Members whose name matches what's being typed after "@".
   List<Member> _mentionMatches(Community comm) {
     final caret = _controller.selection.baseOffset;
-    final prefix = mentionPrefix(_controller.text,
-        caret < 0 ? _controller.text.length : caret);
+    final prefix = mentionPrefix(
+        _controller.text, caret < 0 ? _controller.text.length : caret);
     if (prefix == null) return const [];
     final p = prefix.toLowerCase();
     return [
@@ -1518,8 +1523,7 @@ class _ChannelScreenState extends State<ChannelScreen> {
       final hit = store.filterHit(widget.communityId, text);
       if (hit != null) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content:
-                Text('"$hit" is blocked by this server\'s word filter')));
+            content: Text('"$hit" is blocked by this server\'s word filter')));
         return false;
       }
     }
@@ -1790,6 +1794,8 @@ class _ChannelScreenState extends State<ChannelScreen> {
             _searching ? filterMessages(messages, _search.text) : messages;
         return Scaffold(
           appBar: AppBar(
+            automaticallyImplyLeading: false,
+            leading: const SidebarButton(),
             title: _searching
                 ? TextField(
                     controller: _search,
@@ -1852,8 +1858,8 @@ class _ChannelScreenState extends State<ChannelScreen> {
                         : Icons.notifications_none),
                     tooltip: muted ? 'Unmute channel' : 'Mute channel',
                     onPressed: () {
-                      final nowMuted = CommunityStore.instance
-                          .toggleChannelMute(channel.id);
+                      final nowMuted =
+                          CommunityStore.instance.toggleChannelMute(channel.id);
                       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
                         content: Text(nowMuted
                             ? '#${channel.name} muted — it won\'t badge the '
@@ -1876,8 +1882,8 @@ class _ChannelScreenState extends State<ChannelScreen> {
                       .surfaceContainerHighest
                       .withValues(alpha: 0.4),
                   child: Text(channel.topic,
-                      style: TextStyle(
-                          fontSize: 13, color: Colors.grey.shade600)),
+                      style:
+                          TextStyle(fontSize: 13, color: Colors.grey.shade600)),
                 ),
               if (channel.pinnedMessages.isNotEmpty && !_searching)
                 _PinnedBar(
@@ -1889,85 +1895,87 @@ class _ChannelScreenState extends State<ChannelScreen> {
                   children: [
                     Positioned.fill(
                       child: visible.isEmpty
-                    ? Center(
-                        child: Text(
-                            _searching
-                                ? 'No messages match "${_search.text.trim()}"'
-                                : 'This is the start of #${channel.name}',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(color: Colors.grey.shade500)),
-                      )
-                    : ListView.builder(
-                        controller: _scroll,
-                        padding: const EdgeInsets.symmetric(vertical: 8),
-                        itemCount: visible.length,
-                        itemBuilder: (context, i) {
-                          final m = visible[i];
-                          final showDate = i == 0 ||
-                              !_sameDay(visible[i - 1].time, m.time);
-                          // Where the user left off last time they were here.
-                          final unreadHere =
-                              !_searching && m.id == _firstUnreadId;
-                          // Group a run from the same sender: only the first
-                          // shows the name, the rest tuck in tight — like chat.
-                          final prev = i == 0 ? null : visible[i - 1];
-                          final grouped = prev != null &&
-                              !showDate &&
-                              prev.isMe == m.isMe &&
-                              prev.senderName == m.senderName &&
-                              !prev.isCallEvent;
-                          final bubble = _ChannelBubble(
-                            message: m,
-                            communityId: widget.communityId,
-                            channelId: widget.channelId,
-                            announcement:
-                                channel.type == ChannelType.announcement,
-                            pinned:
-                                channel.pinnedMessageIds.contains(m.id),
-                            grouped: grouped,
-                            onReply: () => setState(() => _replyTo = m),
-                            onQuickReact: () => CommunityStore.instance
-                                .toggleChannelReaction(widget.communityId,
-                                    widget.channelId, m.id, '❤️'),
-                            onVote: m.isPoll
-                                ? (opt) => _votePoll(m, opt)
-                                : null,
-                          );
-                          // Swipe a message to the right to reply, exactly
-                          // like the 1:1 chat.
-                          final row = m.isPoll ||
-                                  channel.type == ChannelType.announcement
-                              ? bubble
-                              : Dismissible(
-                                  key: ValueKey('chmsg_${m.id}'),
-                                  direction: DismissDirection.startToEnd,
-                                  dismissThresholds: const {
-                                    DismissDirection.startToEnd: 0.25
-                                  },
-                                  confirmDismiss: (_) async {
-                                    setState(() => _replyTo = m);
-                                    return false;
-                                  },
-                                  background: const Padding(
-                                    padding: EdgeInsets.only(left: 24),
-                                    child: Align(
-                                      alignment: Alignment.centerLeft,
-                                      child: Icon(Icons.reply,
-                                          color: Colors.grey),
-                                    ),
-                                  ),
-                                  child: bubble,
+                          ? Center(
+                              child: Text(
+                                  _searching
+                                      ? 'No messages match "${_search.text.trim()}"'
+                                      : 'This is the start of #${channel.name}',
+                                  textAlign: TextAlign.center,
+                                  style:
+                                      TextStyle(color: Colors.grey.shade500)),
+                            )
+                          : ListView.builder(
+                              controller: _scroll,
+                              padding: const EdgeInsets.symmetric(vertical: 8),
+                              itemCount: visible.length,
+                              itemBuilder: (context, i) {
+                                final m = visible[i];
+                                final showDate = i == 0 ||
+                                    !_sameDay(visible[i - 1].time, m.time);
+                                // Where the user left off last time they were here.
+                                final unreadHere =
+                                    !_searching && m.id == _firstUnreadId;
+                                // Group a run from the same sender: only the first
+                                // shows the name, the rest tuck in tight — like chat.
+                                final prev = i == 0 ? null : visible[i - 1];
+                                final grouped = prev != null &&
+                                    !showDate &&
+                                    prev.isMe == m.isMe &&
+                                    prev.senderName == m.senderName &&
+                                    !prev.isCallEvent;
+                                final bubble = _ChannelBubble(
+                                  message: m,
+                                  communityId: widget.communityId,
+                                  channelId: widget.channelId,
+                                  announcement:
+                                      channel.type == ChannelType.announcement,
+                                  pinned:
+                                      channel.pinnedMessageIds.contains(m.id),
+                                  grouped: grouped,
+                                  onReply: () => setState(() => _replyTo = m),
+                                  onQuickReact: () => CommunityStore.instance
+                                      .toggleChannelReaction(widget.communityId,
+                                          widget.channelId, m.id, '❤️'),
+                                  onVote: m.isPoll
+                                      ? (opt) => _votePoll(m, opt)
+                                      : null,
                                 );
-                          return Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              if (showDate) _DateSeparator(time: m.time),
-                              if (unreadHere) const _UnreadDivider(),
-                              row,
-                            ],
-                          );
-                        },
-                      ),
+                                // Swipe a message to the right to reply, exactly
+                                // like the 1:1 chat.
+                                final row = m.isPoll ||
+                                        channel.type == ChannelType.announcement
+                                    ? bubble
+                                    : Dismissible(
+                                        key: ValueKey('chmsg_${m.id}'),
+                                        direction: DismissDirection.startToEnd,
+                                        dismissThresholds: const {
+                                          DismissDirection.startToEnd: 0.25
+                                        },
+                                        confirmDismiss: (_) async {
+                                          setState(() => _replyTo = m);
+                                          return false;
+                                        },
+                                        background: const Padding(
+                                          padding: EdgeInsets.only(left: 24),
+                                          child: Align(
+                                            alignment: Alignment.centerLeft,
+                                            child: Icon(Icons.reply,
+                                                color: Colors.grey),
+                                          ),
+                                        ),
+                                        child: bubble,
+                                      );
+                                return Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    if (showDate) _DateSeparator(time: m.time),
+                                    if (unreadHere) const _UnreadDivider(),
+                                    row,
+                                  ],
+                                );
+                              },
+                            ),
                     ),
                     // Scrolled up through history? One tap back to the newest.
                     if (_showJumpToLatest && visible.isNotEmpty)
@@ -2010,8 +2018,7 @@ class _ChannelScreenState extends State<ChannelScreen> {
                         Flexible(
                           child: Text(_composerLock(comm, channel)!.$2,
                               style: TextStyle(
-                                  color: Colors.grey.shade600,
-                                  fontSize: 13.5)),
+                                  color: Colors.grey.shade600, fontSize: 13.5)),
                         ),
                       ],
                     ),
@@ -2019,176 +2026,176 @@ class _ChannelScreenState extends State<ChannelScreen> {
                 )
               else
                 SafeArea(
-                top: false,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (_replyTo != null)
-                      Container(
-                        margin: const EdgeInsets.fromLTRB(12, 4, 12, 0),
-                        padding:
-                            const EdgeInsets.fromLTRB(12, 8, 4, 8),
-                        decoration: BoxDecoration(
-                          color: Theme.of(context)
-                              .colorScheme
-                              .surfaceContainerHighest
-                              .withValues(alpha: 0.5),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(Icons.reply,
-                                size: 17,
-                                color:
-                                    Theme.of(context).colorScheme.primary),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                'Replying to '
-                                '${_replyTo!.isMe ? 'yourself' : (_replyTo!.senderName.isEmpty ? 'a member' : _replyTo!.senderName)}'
-                                ' — ${_replyTo!.isImage ? 'Photo' : _replyTo!.text}',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(fontSize: 12.5),
-                              ),
-                            ),
-                            IconButton(
-                              icon: const Icon(Icons.close, size: 17),
-                              tooltip: 'Cancel reply',
-                              visualDensity: VisualDensity.compact,
-                              onPressed: () =>
-                                  setState(() => _replyTo = null),
-                            ),
-                          ],
-                        ),
-                      ),
-                    // Typing "@" offers the members of this server.
-                    if (_mentionMatches(comm).isNotEmpty)
-                      _MentionBar(
-                        matches: _mentionMatches(comm),
-                        onPick: _applyMention,
-                      ),
-                    Builder(builder: (context) {
-                      final label = ChannelTypingStore.instance
-                          .labelFor(widget.channelId);
-                      if (label == null) return const SizedBox.shrink();
-                      return Padding(
-                        padding: const EdgeInsets.fromLTRB(18, 0, 18, 4),
-                        child: Row(
-                          children: [
-                            SizedBox(
-                              width: 12,
-                              height: 12,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 1.6,
-                                color: Colors.grey.shade400,
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Flexible(
-                              child: Text(label,
+                  top: false,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (_replyTo != null)
+                        Container(
+                          margin: const EdgeInsets.fromLTRB(12, 4, 12, 0),
+                          padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
+                          decoration: BoxDecoration(
+                            color: Theme.of(context)
+                                .colorScheme
+                                .surfaceContainerHighest
+                                .withValues(alpha: 0.5),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(Icons.reply,
+                                  size: 17,
+                                  color: Theme.of(context).colorScheme.primary),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  'Replying to '
+                                  '${_replyTo!.isMe ? 'yourself' : (_replyTo!.senderName.isEmpty ? 'a member' : _replyTo!.senderName)}'
+                                  ' — ${_replyTo!.isImage ? 'Photo' : _replyTo!.text}',
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                      fontSize: 12.5,
-                                      fontStyle: FontStyle.italic,
-                                      color: Colors.grey.shade600)),
-                            ),
-                          ],
+                                  style: const TextStyle(fontSize: 12.5),
+                                ),
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.close, size: 17),
+                                tooltip: 'Cancel reply',
+                                visualDensity: VisualDensity.compact,
+                                onPressed: () =>
+                                    setState(() => _replyTo = null),
+                              ),
+                            ],
+                          ),
                         ),
-                      );
-                    }),
-                    // Opens in place rather than a modal sheet, so the
-                    // channel stays visible while you choose.
-                    if (_attachOpen)
+                      // Typing "@" offers the members of this server.
+                      if (_mentionMatches(comm).isNotEmpty)
+                        _MentionBar(
+                          matches: _mentionMatches(comm),
+                          onPick: _applyMention,
+                        ),
+                      Builder(builder: (context) {
+                        final label = ChannelTypingStore.instance
+                            .labelFor(widget.channelId);
+                        if (label == null) return const SizedBox.shrink();
+                        return Padding(
+                          padding: const EdgeInsets.fromLTRB(18, 0, 18, 4),
+                          child: Row(
+                            children: [
+                              SizedBox(
+                                width: 12,
+                                height: 12,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 1.6,
+                                  color: Colors.grey.shade400,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Flexible(
+                                child: Text(label,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                        fontSize: 12.5,
+                                        fontStyle: FontStyle.italic,
+                                        color: Colors.grey.shade600)),
+                              ),
+                            ],
+                          ),
+                        );
+                      }),
+                      // Opens in place rather than a modal sheet, so the
+                      // channel stays visible while you choose.
+                      if (_attachOpen)
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
+                          child: Row(
+                            children: [
+                              _attachOption(
+                                icon: Icons.photo_outlined,
+                                label: 'Photo',
+                                color: const Color(0xFF7A5CFF),
+                                onTap: () {
+                                  setState(() => _attachOpen = false);
+                                  _sendPhoto();
+                                },
+                              ),
+                              const SizedBox(width: 10),
+                              _attachOption(
+                                icon: Icons.poll_outlined,
+                                label: 'Poll',
+                                color: const Color(0xFF2AA6A0),
+                                onTap: () {
+                                  setState(() => _attachOpen = false);
+                                  _createPoll();
+                                },
+                              ),
+                            ],
+                          ),
+                        ),
                       Padding(
-                        padding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
+                        padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
                         child: Row(
                           children: [
-                            _attachOption(
-                              icon: Icons.photo_outlined,
-                              label: 'Photo',
-                              color: const Color(0xFF7A5CFF),
-                              onTap: () {
-                                setState(() => _attachOpen = false);
-                                _sendPhoto();
+                            IconButton(
+                              icon: const Icon(Icons.emoji_emotions_outlined),
+                              color: Colors.grey,
+                              tooltip: 'Emoji & GIFs',
+                              onPressed: _pickEmojiOrGif,
+                            ),
+                            // One attach button owns everything that isn't typing,
+                            // so the bar stays two icons and a field — the same
+                            // shape as the 1:1 composer.
+                            IconButton(
+                              icon: Icon(_attachOpen
+                                  ? Icons.close
+                                  : Icons.attach_file),
+                              color: Colors.grey,
+                              tooltip: 'Attach',
+                              onPressed: () {
+                                setState(() => _attachOpen = !_attachOpen);
+                                if (_attachOpen) {
+                                  FocusManager.instance.primaryFocus?.unfocus();
+                                }
                               },
                             ),
-                            const SizedBox(width: 10),
-                            _attachOption(
-                              icon: Icons.poll_outlined,
-                              label: 'Poll',
-                              color: const Color(0xFF2AA6A0),
-                              onTap: () {
-                                setState(() => _attachOpen = false);
-                                _createPoll();
-                              },
+                            Expanded(
+                              child: TextField(
+                                controller: _controller,
+                                textCapitalization:
+                                    TextCapitalization.sentences,
+                                decoration: InputDecoration(
+                                  hintText: 'Message #${channel.name}',
+                                  border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(24)),
+                                  contentPadding: const EdgeInsets.symmetric(
+                                      horizontal: 16, vertical: 10),
+                                ),
+                                // Keeps the mention suggestions in step with typing.
+                                onChanged: (v) {
+                                  if (v.isNotEmpty) {
+                                    ChannelTypingStore.instance.noteLocalTyping(
+                                        widget.communityId, widget.channelId);
+                                  }
+                                  setState(() {});
+                                },
+                                onSubmitted: (_) => _send(),
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            IconButton.filled(
+                              icon: const Icon(Icons.send),
+                              style: IconButton.styleFrom(
+                                backgroundColor: AppColors.accentOn(context),
+                                foregroundColor: AppColors.onAccent(context),
+                              ),
+                              onPressed: _send,
                             ),
                           ],
                         ),
-                      ),
-                    Padding(
-                  padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
-                  child: Row(
-                    children: [
-                      IconButton(
-                        icon: const Icon(Icons.emoji_emotions_outlined),
-                        color: Colors.grey,
-                        tooltip: 'Emoji & GIFs',
-                        onPressed: _pickEmojiOrGif,
-                      ),
-                      // One attach button owns everything that isn't typing,
-                      // so the bar stays two icons and a field — the same
-                      // shape as the 1:1 composer.
-                      IconButton(
-                        icon: Icon(
-                            _attachOpen ? Icons.close : Icons.attach_file),
-                        color: Colors.grey,
-                        tooltip: 'Attach',
-                        onPressed: () {
-                          setState(() => _attachOpen = !_attachOpen);
-                          if (_attachOpen) {
-                            FocusManager.instance.primaryFocus?.unfocus();
-                          }
-                        },
-                      ),
-                      Expanded(
-                        child: TextField(
-                          controller: _controller,
-                          textCapitalization: TextCapitalization.sentences,
-                          decoration: InputDecoration(
-                            hintText: 'Message #${channel.name}',
-                            border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(24)),
-                            contentPadding: const EdgeInsets.symmetric(
-                                horizontal: 16, vertical: 10),
-                          ),
-                          // Keeps the mention suggestions in step with typing.
-                          onChanged: (v) {
-                            if (v.isNotEmpty) {
-                              ChannelTypingStore.instance.noteLocalTyping(
-                                  widget.communityId, widget.channelId);
-                            }
-                            setState(() {});
-                          },
-                          onSubmitted: (_) => _send(),
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      IconButton.filled(
-                        icon: const Icon(Icons.send),
-                        style: IconButton.styleFrom(
-                          backgroundColor: AppColors.accentOn(context),
-                          foregroundColor: AppColors.onAccent(context),
-                        ),
-                        onPressed: _send,
                       ),
                     ],
                   ),
                 ),
-                  ],
-                ),
-              ),
             ],
           ),
         );
@@ -2322,9 +2329,7 @@ class _MembersSheetState extends State<_MembersSheet> {
   /// The voice channel [m] is sitting in, or null. Presence travels by phone
   /// digits; the roster stores those as a 'u_<digits>' wire id.
   String? _voiceChannelOf(Community community, Member m) {
-    final digits = m.id == 'me'
-        ? null
-        : CommunityStore.digitsOfWireId(m.id);
+    final digits = m.id == 'me' ? null : CommunityStore.digitsOfWireId(m.id);
     for (final ch in community.channels) {
       if (ch.type != ChannelType.voice) continue;
       for (final o in VoicePresenceStore.instance.occupantsIn(ch.id)) {
@@ -2340,11 +2345,11 @@ class _MembersSheetState extends State<_MembersSheet> {
     // Owner/admins first, then everyone; online before offline within a role.
     final members = filterMembers(
         [...community.members]..sort((a, b) {
-          final r = a.role.index.compareTo(b.role.index);
-          if (r != 0) return r;
-          if (a.online != b.online) return a.online ? -1 : 1;
-          return a.name.compareTo(b.name);
-        }),
+            final r = a.role.index.compareTo(b.role.index);
+            if (r != 0) return r;
+            if (a.online != b.online) return a.online ? -1 : 1;
+            return a.name.compareTo(b.name);
+          }),
         _search.text);
     return DraggableScrollableSheet(
       expand: false,
@@ -2356,8 +2361,8 @@ class _MembersSheetState extends State<_MembersSheet> {
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
             child: Text('Members — ${community.members.length}',
-                style: const TextStyle(
-                    fontSize: 18, fontWeight: FontWeight.w700)),
+                style:
+                    const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
           ),
           // Scrolling to find one person stops working somewhere around the
           // second screenful.
@@ -2402,8 +2407,7 @@ class _MembersSheetState extends State<_MembersSheet> {
                     child: Text(
                       m.name.isEmpty ? '?' : m.name[0].toUpperCase(),
                       style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w700),
+                          color: Colors.white, fontWeight: FontWeight.w700),
                     ),
                   ),
                   if (m.online)
@@ -2470,8 +2474,7 @@ class _MembersSheetState extends State<_MembersSheet> {
                   if (m.role != MemberRole.member) _RoleBadge(role: m.role),
                 ],
               ),
-              onTap:
-                  m.id == 'me' ? null : () => _manageMember(context, m),
+              onTap: m.id == 'me' ? null : () => _manageMember(context, m),
             ),
           const SizedBox(height: 12),
         ],
@@ -2493,8 +2496,7 @@ class _MembersSheetState extends State<_MembersSheet> {
 
   Future<void> _manageMember(BuildContext context, Member m) async {
     final store = CommunityStore.instance;
-    final muted =
-        store.byId(community.id)?.mutedIds.contains(m.id) ?? false;
+    final muted = store.byId(community.id)?.mutedIds.contains(m.id) ?? false;
     final manage = _canManage(m);
     final action = await showModalBottomSheet<String>(
       context: context,
@@ -2535,8 +2537,8 @@ class _MembersSheetState extends State<_MembersSheet> {
                 ),
               const Divider(height: 1),
               ListTile(
-                leading: const Icon(Icons.person_remove_outlined,
-                    color: Colors.red),
+                leading:
+                    const Icon(Icons.person_remove_outlined, color: Colors.red),
                 title: const Text('Remove from server',
                     style: TextStyle(color: Colors.red)),
                 onTap: () => Navigator.pop(context, 'remove'),
@@ -2555,8 +2557,8 @@ class _MembersSheetState extends State<_MembersSheet> {
     );
     if (action == null) return;
     if (action.startsWith('role:')) {
-      final r = MemberRole.values
-          .firstWhere((v) => v.name == action.substring(5));
+      final r =
+          MemberRole.values.firstWhere((v) => v.name == action.substring(5));
       store.setMemberRole(community.id, m.id, r);
       return;
     }
@@ -2827,8 +2829,7 @@ class _ChannelBubble extends StatelessWidget {
                 },
               ),
             ListTile(
-              leading: Icon(
-                  pinned ? Icons.push_pin : Icons.push_pin_outlined),
+              leading: Icon(pinned ? Icons.push_pin : Icons.push_pin_outlined),
               title: Text(pinned ? 'Unpin' : 'Pin'),
               onTap: () {
                 CommunityStore.instance.togglePinChannelMessage(
@@ -2860,11 +2861,11 @@ class _ChannelBubble extends StatelessWidget {
             if (message.isMe)
               ListTile(
                 leading: const Icon(Icons.delete_outline, color: Colors.red),
-                title: const Text('Delete',
-                    style: TextStyle(color: Colors.red)),
+                title:
+                    const Text('Delete', style: TextStyle(color: Colors.red)),
                 onTap: () {
-                  CommunityStore.instance.deleteChannelMessage(
-                      communityId, channelId, message.id);
+                  CommunityStore.instance
+                      .deleteChannelMessage(communityId, channelId, message.id);
                   Navigator.pop(sheetContext);
                 },
               ),
@@ -2912,8 +2913,7 @@ class _ChannelBubble extends StatelessWidget {
             const SizedBox(height: 8),
             RichMessageText(
               text: message.text,
-              textColor:
-                  Theme.of(context).colorScheme.onSurface,
+              textColor: Theme.of(context).colorScheme.onSurface,
               linkColor: accent,
             ),
           ],
@@ -2929,9 +2929,8 @@ class _ChannelBubble extends StatelessWidget {
     final onBubble = message.isMe
         ? (isDark ? Colors.black : Colors.white)
         : (isDark ? Colors.white : Colors.black87);
-    final metaColor = message.isMe
-        ? (isDark ? Colors.black54 : Colors.white70)
-        : Colors.grey;
+    final metaColor =
+        message.isMe ? (isDark ? Colors.black54 : Colors.white70) : Colors.grey;
     return Align(
       alignment: message.isMe ? Alignment.centerRight : Alignment.centerLeft,
       child: Column(
@@ -2969,9 +2968,9 @@ class _ChannelBubble extends StatelessWidget {
                           style: TextStyle(
                               fontSize: 12,
                               fontWeight: FontWeight.w700,
-                              color: Colors.primaries[
-                                      message.senderName.hashCode %
-                                          Colors.primaries.length]
+                              color: Colors
+                                  .primaries[message.senderName.hashCode %
+                                      Colors.primaries.length]
                                   .shade400)),
                     ),
                   if (message.replyTo != null)
@@ -3070,8 +3069,7 @@ class _ChannelBubble extends StatelessWidget {
                               .surfaceContainerHighest,
                           borderRadius: BorderRadius.circular(12),
                         ),
-                        child: Text(
-                            e.value > 1 ? '${e.key} ${e.value}' : e.key,
+                        child: Text(e.value > 1 ? '${e.key} ${e.value}' : e.key,
                             style: const TextStyle(fontSize: 13)),
                       ),
                     ),
@@ -3105,8 +3103,7 @@ class _Empty extends StatelessWidget {
   }
 }
 
-Future<String?> _promptName(
-        BuildContext context, String title, String hint) =>
+Future<String?> _promptName(BuildContext context, String title, String hint) =>
     showAppTextPrompt(
       context,
       icon: Icons.workspaces_outline,
@@ -3152,7 +3149,9 @@ Future<(String, ChannelType)?> _promptNewChannel(BuildContext context) {
         final name = _cleanChannelPreview(controller.text, type);
         final valid = name.isNotEmpty;
         void submit() {
-          if (valid) Navigator.of(dialogContext).pop((controller.text.trim(), type));
+          if (valid) {
+            Navigator.of(dialogContext).pop((controller.text.trim(), type));
+          }
         }
 
         return AlertDialog(
@@ -3208,9 +3207,8 @@ Future<(String, ChannelType)?> _promptNewChannel(BuildContext context) {
                     filled: true,
                     isDense: true,
                     prefixIcon: Icon(_channelIcon(type), size: 20),
-                    hintText: type == ChannelType.voice
-                        ? 'General'
-                        : 'new-channel',
+                    hintText:
+                        type == ChannelType.voice ? 'General' : 'new-channel',
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(14),
                       borderSide: BorderSide.none,

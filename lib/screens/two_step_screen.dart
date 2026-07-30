@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../state/account_email.dart';
 import '../state/two_step.dart';
 import '../widgets/app_dialogs.dart';
+import '../widgets/app_shell.dart';
 import '../widgets/info_section.dart';
 import 'account_email_screen.dart';
 import 'settings_widgets.dart';
@@ -16,7 +17,10 @@ class TwoStepScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Two-step verification')),
+      appBar: AppBar(
+          automaticallyImplyLeading: false,
+          leading: const SidebarButton(),
+          title: const Text('Two-step verification')),
       body: ValueListenableBuilder<bool>(
         valueListenable: TwoStepVerification.instance.enabled,
         builder: (context, on, _) => ListenableBuilder(
@@ -74,7 +78,8 @@ class TwoStepScreen extends StatelessWidget {
                         builder: (_) => const AccountEmailScreen())),
                   ),
                   InfoTile(
-                    leading: const Icon(Icons.no_encryption_gmailerrorred_outlined,
+                    leading: const Icon(
+                        Icons.no_encryption_gmailerrorred_outlined,
                         color: Colors.red),
                     title: 'Turn off two-step verification',
                     titleColor: Colors.red,
@@ -104,13 +109,11 @@ class TwoStepScreen extends StatelessWidget {
     }
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(changing
-            ? 'PIN changed'
-            : 'Two-step verification turned on'),
+        content:
+            Text(changing ? 'PIN changed' : 'Two-step verification turned on'),
       ));
     }
   }
-
 
   Future<void> _disable(BuildContext context) async {
     final ok = await showAppConfirmDialog(
@@ -165,8 +168,7 @@ class _PinDialogState extends State<_PinDialog> {
       setState(() => _error = 'PINs don\'t match');
       return;
     }
-    Navigator.of(context)
-        .pop((pin: _pin.text, email: _email.text.trim()));
+    Navigator.of(context).pop((pin: _pin.text, email: _email.text.trim()));
   }
 
   @override
@@ -200,8 +202,7 @@ class _PinDialogState extends State<_PinDialog> {
           if (_error != null)
             Padding(
               padding: const EdgeInsets.only(top: 8),
-              child:
-                  Text(_error!, style: const TextStyle(color: Colors.red)),
+              child: Text(_error!, style: const TextStyle(color: Colors.red)),
             ),
         ],
       ),

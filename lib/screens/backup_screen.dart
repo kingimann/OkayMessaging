@@ -5,6 +5,7 @@ import '../state/backup_service.dart';
 import '../util/backup_export.dart';
 import '../utils/date_formatter.dart';
 import '../widgets/app_dialogs.dart';
+import '../widgets/app_shell.dart';
 import '../widgets/info_section.dart';
 import 'settings_widgets.dart';
 
@@ -99,7 +100,10 @@ class BackupScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Chat backup')),
+      appBar: AppBar(
+          automaticallyImplyLeading: false,
+          leading: const SidebarButton(),
+          title: const Text('Chat backup')),
       body: ListView(
         children: [
           const SizedBox(height: 8),
@@ -162,8 +166,7 @@ class BackupScreen extends StatelessWidget {
                   child: Text(
                     'End-to-end encrypted with AES-256. If you lose the '
                     'passphrase, the backup can\'t be recovered.',
-                    style:
-                        TextStyle(color: Colors.grey.shade500, fontSize: 12),
+                    style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
                   ),
                 ),
               ],
@@ -189,7 +192,8 @@ class _DueBanner extends StatelessWidget {
       decoration: BoxDecoration(
         color: const Color(0xFFF9A825).withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFF9A825).withValues(alpha: 0.4)),
+        border:
+            Border.all(color: const Color(0xFFF9A825).withValues(alpha: 0.4)),
       ),
       child: Row(
         children: [
@@ -232,8 +236,8 @@ class _ProviderRow extends StatelessWidget {
                       .colorScheme
                       .primary
                       .withValues(alpha: 0.10),
-                  child: Icon(icon,
-                      color: Theme.of(context).colorScheme.primary),
+                  child:
+                      Icon(icon, color: Theme.of(context).colorScheme.primary),
                 ),
                 const SizedBox(height: 6),
                 Text(label,
@@ -291,7 +295,8 @@ class _PassphraseDialogState extends State<_PassphraseDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: Text(widget.confirming ? 'Set a backup passphrase' : 'Enter passphrase'),
+      title: Text(
+          widget.confirming ? 'Set a backup passphrase' : 'Enter passphrase'),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -312,14 +317,14 @@ class _PassphraseDialogState extends State<_PassphraseDialog> {
             TextField(
               controller: _confirm,
               obscureText: _obscure,
-              decoration: const InputDecoration(labelText: 'Confirm passphrase'),
+              decoration:
+                  const InputDecoration(labelText: 'Confirm passphrase'),
             ),
           ],
           if (_error != null)
             Padding(
               padding: const EdgeInsets.only(top: 8),
-              child:
-                  Text(_error!, style: const TextStyle(color: Colors.red)),
+              child: Text(_error!, style: const TextStyle(color: Colors.red)),
             ),
         ],
       ),

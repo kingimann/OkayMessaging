@@ -7,6 +7,7 @@ import '../state/call_service.dart' show CallService;
 import '../state/chat_store.dart';
 import '../state/contacts_sync.dart';
 import '../widgets/app_dialogs.dart';
+import '../widgets/app_shell.dart';
 import '../widgets/pull_to_refresh.dart';
 import '../widgets/user_avatar.dart';
 import '../widgets/verified_badge.dart';
@@ -98,7 +99,10 @@ class _ContactsOnAppScreenState extends State<ContactsOnAppScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Contacts on OkayMessenger')),
+      appBar: AppBar(
+          automaticallyImplyLeading: false,
+          leading: const SidebarButton(),
+          title: const Text('Contacts on OkayMessenger')),
       body: switch (_view) {
         _View.intro => _intro(),
         _View.loading => const Center(child: CircularProgressIndicator()),
@@ -221,8 +225,9 @@ class _ContactsOnAppScreenState extends State<ContactsOnAppScreen> {
                           ],
                         ],
                       ),
-                      subtitle:
-                          user.username.isEmpty ? null : Text('@${user.username}'),
+                      subtitle: user.username.isEmpty
+                          ? null
+                          : Text('@${user.username}'),
                       trailing: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [

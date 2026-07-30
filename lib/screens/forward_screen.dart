@@ -7,6 +7,7 @@ import '../relay/relay_config.dart';
 import '../relay/relay_service.dart';
 import '../state/chat_store.dart';
 import '../theme/app_theme.dart';
+import '../widgets/app_shell.dart';
 import '../widgets/user_avatar.dart';
 
 /// Lets the user pick one or more conversations to send [text] — or, when
@@ -101,6 +102,8 @@ class _ForwardScreenState extends State<ForwardScreen> {
     final chats = ChatStore.instance.chats;
     return Scaffold(
       appBar: AppBar(
+        automaticallyImplyLeading: false,
+        leading: const SidebarButton(),
         title: Text(_selected.isEmpty
             ? (widget.place != null || widget.invite != null
                 ? 'Send to...'

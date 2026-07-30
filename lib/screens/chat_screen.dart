@@ -21,6 +21,7 @@ import '../util/phone_format.dart';
 import '../util/file_moderation.dart';
 import '../util/photo_prep.dart';
 import '../widgets/app_dialogs.dart';
+import '../widgets/app_shell.dart';
 import '../widgets/poll_widgets.dart';
 import '../relay/relay_service.dart';
 import '../state/chat_store.dart';
@@ -197,8 +198,9 @@ class _ChatScreenState extends State<ChatScreen> {
     String name = '';
     if (widget.chat.contact.isGroup) {
       final members = _store.chatById(_chatId)?.members ?? const [];
-      final match = members.where(
-          (m) => RelayService.digits(m.phone) == fromDigits).toList();
+      final match = members
+          .where((m) => RelayService.digits(m.phone) == fromDigits)
+          .toList();
       if (match.isEmpty) return;
       name = match.first.name.split(' ').first;
     } else if (fromDigits != RelayService.digits(widget.chat.contact.phone)) {
@@ -292,8 +294,8 @@ class _ChatScreenState extends State<ChatScreen> {
       _searchController.clear();
     });
     _jumpTimer?.cancel();
-    _jumpTimer = Timer(const Duration(milliseconds: 300),
-        () => _jumpToMessage(messageId));
+    _jumpTimer = Timer(
+        const Duration(milliseconds: 300), () => _jumpToMessage(messageId));
   }
 
   List<Message> get _messages => _store.chatById(_chatId)?.messages ?? const [];
@@ -569,8 +571,8 @@ class _ChatScreenState extends State<ChatScreen> {
       consider(chat.contact);
       chat.members.forEach(consider);
     }
-    contacts.sort(
-        (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    contacts
+        .sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
     showModalBottomSheet<void>(
       context: context,
       builder: (sheetContext) => SafeArea(
@@ -682,8 +684,7 @@ class _ChatScreenState extends State<ChatScreen> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => Dialog(
-        shape:
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
         child: Padding(
           padding: const EdgeInsets.fromLTRB(24, 26, 24, 18),
           child: Column(
@@ -695,8 +696,7 @@ class _ChatScreenState extends State<ChatScreen> {
               const Text(
                 'Send to the right chat?',
                 textAlign: TextAlign.center,
-                style:
-                    TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
               ),
               const SizedBox(height: 8),
               Text(
@@ -905,12 +905,11 @@ class _ChatScreenState extends State<ChatScreen> {
         onPollVote:
             m.isPoll && !_selectionMode ? (i) => _handleVotePoll(m, i) : null,
         // A call record is the natural place to return the call from.
-        onCallBack: m.isCallEvent &&
-                !_selectionMode &&
-                !widget.chat.contact.isGroup
-            ? () => CallService.instance
-                .startOutgoing(widget.chat.contact, video: m.callVideo)
-            : null,
+        onCallBack:
+            m.isCallEvent && !_selectionMode && !widget.chat.contact.isGroup
+                ? () => CallService.instance
+                    .startOutgoing(widget.chat.contact, video: m.callVideo)
+                : null,
       );
 
       final key = _messageKeys.putIfAbsent(m.id, () => GlobalKey());
@@ -1239,8 +1238,7 @@ class _ChatScreenState extends State<ChatScreen> {
     // Your own message can be recalled anywhere it was actually delivered —
     // a real 1:1 peer or a group (the old real-peer check silently made
     // group deletes local-only, so the message lived on for everyone else).
-    final canDeleteForEveryone =
-        message.isMe && _relayPhones().isNotEmpty;
+    final canDeleteForEveryone = message.isMe && _relayPhones().isNotEmpty;
     if (!canDeleteForEveryone) {
       _store.deleteMessage(_chatId, message.id);
       return;
@@ -1292,8 +1290,7 @@ class _ChatScreenState extends State<ChatScreen> {
               .contains(emoji) ??
           false;
       for (final phone in phones) {
-        RelayService.instance
-            .sendReaction(phone, messageId, emoji, present);
+        RelayService.instance.sendReaction(phone, messageId, emoji, present);
       }
     }
   }
@@ -1366,7 +1363,10 @@ class _ChatScreenState extends State<ChatScreen> {
         Navigator.of(context).push(
           MaterialPageRoute(
             builder: (_) => contact.isGroup
-                ? GroupInfoScreen(group: contact, members: widget.chat.members, chatId: _chatId)
+                ? GroupInfoScreen(
+                    group: contact,
+                    members: widget.chat.members,
+                    chatId: _chatId)
                 : ContactInfoScreen(user: contact, chatId: _chatId),
           ),
         );
@@ -1465,8 +1465,7 @@ class _ChatScreenState extends State<ChatScreen> {
     if (chosen == null || !mounted) return;
     _store.setDisappearing(_chatId, chosen);
     setState(() {});
-    final label =
-        options.entries.firstWhere((e) => e.value == chosen).key;
+    final label = options.entries.firstWhere((e) => e.value == chosen).key;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content: Text(chosen == 0
           ? 'Disappearing messages off'
@@ -1649,8 +1648,7 @@ class _ChatScreenState extends State<ChatScreen> {
     final me = AppState.profile.value;
     return [
       for (final u in widget.chat.members)
-        if (u.id != me.id && u.id != 'me' && u.id != 'self' && _isRealPeer(u))
-          u
+        if (u.id != me.id && u.id != 'me' && u.id != 'self' && _isRealPeer(u)) u
     ];
   }
 
@@ -1676,8 +1674,7 @@ class _ChatScreenState extends State<ChatScreen> {
             const Padding(
               padding: EdgeInsets.fromLTRB(20, 4, 20, 12),
               child: Text('Who are you paying?',
-                  style:
-                      TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
             ),
             for (final m in members)
               ListTile(
@@ -1726,8 +1723,8 @@ class _ChatScreenState extends State<ChatScreen> {
     // Not even in test mode: there is no second party in your own notes, so
     // offering to pay them is nonsense however the payment is simulated.
     if (_isNoteToSelf) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('You can\'t send money to yourself')));
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('You can\'t send money to yourself')));
       return;
     }
 
@@ -1746,7 +1743,8 @@ class _ChatScreenState extends State<ChatScreen> {
     }
     if (!widget.chat.contact.isGroup && !await _confirmRecipient()) return;
     if (!mounted) return;
-    final result = await showModalBottomSheet<({int cents, String note, bool acknowledged})>(
+    final result = await showModalBottomSheet<
+        ({int cents, String note, bool acknowledged})>(
       context: context,
       isScrollControlled: true,
       builder: (_) => PaymentAmountSheet(peerName: recipient.name),
@@ -1817,9 +1815,8 @@ class _ChatScreenState extends State<ChatScreen> {
       }
       settle('pending');
       final intentId = svc.lastPaymentIntentId;
-      final outcome = intentId.isEmpty
-          ? 'pending'
-          : await svc.awaitSettlement(intentId);
+      final outcome =
+          intentId.isEmpty ? 'pending' : await svc.awaitSettlement(intentId);
       settle(switch (outcome) {
         'succeeded' || 'paid' => 'paid',
         'pending' => 'pending',
@@ -1888,8 +1885,7 @@ class _ChatScreenState extends State<ChatScreen> {
     final previous = _store.votePoll(_chatId, message.id, option);
     if (previous == option) return; // no change
     for (final phone in _relayPhones()) {
-      RelayService.instance
-          .sendPollVote(phone, message.id, option, previous);
+      RelayService.instance.sendPollVote(phone, message.id, option, previous);
     }
   }
 
@@ -1971,356 +1967,367 @@ class _ChatScreenState extends State<ChatScreen> {
       builder: (context, _) {
         final globalWallpaper = AppState.chatWallpaper.value;
         return Scaffold(
-        // A per-chat wallpaper overrides the global default.
-        backgroundColor: (_store.wallpaperFor(_chatId) ?? globalWallpaper) ??
-            (isDark ? AppColors.chatBgDark : AppColors.chatBgLight),
-        appBar: _selectionMode
-            ? AppBar(
-                leading: IconButton(
-                  icon: const Icon(Icons.close),
-                  onPressed: _exitSelection,
-                ),
-                title: Text('${_selectedIds.length}'),
-                actions: [
-                  IconButton(
-                    icon: const Icon(Icons.star_border),
-                    tooltip: 'Star',
-                    onPressed: _starSelected,
+          // A per-chat wallpaper overrides the global default.
+          backgroundColor: (_store.wallpaperFor(_chatId) ?? globalWallpaper) ??
+              (isDark ? AppColors.chatBgDark : AppColors.chatBgLight),
+          appBar: _selectionMode
+              ? AppBar(
+                  automaticallyImplyLeading: false,
+                  leading: IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: _exitSelection,
                   ),
-                  IconButton(
-                    icon: const Icon(Icons.delete_outline),
-                    tooltip: 'Delete',
-                    onPressed: _deleteSelected,
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.shortcut),
-                    tooltip: 'Forward',
-                    onPressed: _forwardSelected,
-                  ),
-                  if (_selectedIds.length == 1)
+                  title: Text('${_selectedIds.length}'),
+                  actions: [
                     IconButton(
-                      icon: const Icon(Icons.copy),
-                      tooltip: 'Copy',
-                      onPressed: _copySelected,
+                      icon: const Icon(Icons.star_border),
+                      tooltip: 'Star',
+                      onPressed: _starSelected,
                     ),
-                ],
-              )
-            : _searching
-                ? AppBar(
-                    leading: IconButton(
-                      icon: const Icon(Icons.arrow_back),
-                      onPressed: _exitSearch,
+                    IconButton(
+                      icon: const Icon(Icons.delete_outline),
+                      tooltip: 'Delete',
+                      onPressed: _deleteSelected,
                     ),
-                    titleSpacing: 0,
-                    title: TextField(
-                      controller: _searchController,
-                      autofocus: true,
-                      decoration: const InputDecoration(
-                        hintText: 'Search this chat',
-                        border: InputBorder.none,
-                      ),
-                      onChanged: (v) => setState(() => _searchQuery = v),
+                    IconButton(
+                      icon: const Icon(Icons.shortcut),
+                      tooltip: 'Forward',
+                      onPressed: _forwardSelected,
                     ),
-                    actions: [
-                      if (_searchQuery.trim().isNotEmpty)
-                        Center(
-                          child: Padding(
-                            padding: const EdgeInsets.only(right: 4),
-                            child: Text(
-                              _visibleMessages.isEmpty
-                                  ? 'No matches'
-                                  : '${_visibleMessages.length} found',
-                              style: TextStyle(
-                                  color: Colors.grey.shade500, fontSize: 13),
-                            ),
-                          ),
-                        ),
-                      if (_searchQuery.isNotEmpty)
-                        IconButton(
-                          icon: const Icon(Icons.close),
-                          onPressed: () => setState(() {
-                            _searchQuery = '';
-                            _searchController.clear();
-                          }),
-                        ),
-                    ],
-                  )
-                : AppBar(
-                    titleSpacing: 0,
-                    title: InkWell(
-                      onTap: () => Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => contact.isGroup
-                              ? GroupInfoScreen(group: contact, members: widget.chat.members, chatId: _chatId)
-                              : ContactInfoScreen(user: contact, chatId: _chatId),
-                        ),
-                      ),
-                      child: Row(
-                        children: [
-                          UserAvatar(
-                            user: contact,
-                            radius: 18,
-                            heroTag: 'chatHeaderAvatar',
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Row(
-                                  children: [
-                                    Flexible(
-                                      child: NameWithBadge(
-                                        // Bare numbers print like a phone
-                                        // would show them.
-                                        name: formatPhoneForDisplay(
-                                            contact.name),
-                                        verified: contact.verified,
-                                        badgeSize: 16,
-                                        style: const TextStyle(
-                                          fontSize: 17,
-                                          fontWeight: FontWeight.w600,
-                                        ),
-                                        trailing: () {
-                                          final s = StreakStore.instance
-                                              .streakFor(_chatId);
-                                          return s > 0
-                                              ? StreakChip(
-                                                  count: s,
-                                                  expiring: StreakStore.instance
-                                                      .isExpiringSoon(_chatId),
-                                                )
-                                              : null;
-                                        }(),
-                                      ),
-                                    ),
-                                    if (_store.chatById(_chatId)?.isMuted ??
-                                        false) ...[
-                                      const SizedBox(width: 6),
-                                      Icon(
-                                        Icons.volume_off,
-                                        size: 16,
-                                        color: isDark
-                                            ? Colors.white54
-                                            : Colors.black45,
-                                      ),
-                                    ],
-                                    if (_store
-                                            .chatById(_chatId)
-                                            ?.confirmBeforeSend ??
-                                        false) ...[
-                                      const SizedBox(width: 6),
-                                      const Icon(
-                                        Icons.verified_user,
-                                        size: 15,
-                                        color: AppColors.tealGreenDark,
-                                      ),
-                                    ],
-                                  ],
-                                ),
-                                _isTyping
-                                    ? Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          if (_typingName.isNotEmpty)
-                                            Padding(
-                                              padding: const EdgeInsets.only(
-                                                  right: 4),
-                                              child: Text(
-                                                _typingName,
-                                                style: TextStyle(
-                                                  fontSize: 12.5,
-                                                  color: AppColors.accentOn(
-                                                      context),
-                                                ),
-                                              ),
-                                            ),
-                                          TypingIndicator(
-                                            color: AppColors.accentOn(context),
-                                          ),
-                                        ],
-                                      )
-                                    : Text(
-                                        (contact.isOnline || _peerOnline)
-                                            ? 'online'
-                                            : 'last seen recently',
-                                        style: TextStyle(
-                                          fontSize: 12.5,
-                                          color: isDark
-                                              ? Colors.white70
-                                              : Colors.black54,
-                                        ),
-                                      ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    actions: [
-                      if ((_store.chatById(_chatId)?.disappearingSeconds ?? 0) >
-                          0)
-                        IconButton(
-                          icon: const Icon(Icons.timer_outlined),
-                          tooltip: 'Disappearing messages on',
-                          onPressed: _chooseDisappearing,
-                        ),
+                    if (_selectedIds.length == 1)
                       IconButton(
-                        icon: const Icon(Icons.call),
-                        onPressed: () => _startCall(video: false),
+                        icon: const Icon(Icons.copy),
+                        tooltip: 'Copy',
+                        onPressed: _copySelected,
                       ),
-                      IconButton(
-                        icon: const Icon(Icons.videocam),
-                        onPressed: () => _startCall(video: true),
+                  ],
+                )
+              : _searching
+                  ? AppBar(
+                      automaticallyImplyLeading: false,
+                      leading: IconButton(
+                        icon: const Icon(Icons.arrow_back),
+                        onPressed: _exitSearch,
                       ),
-                      // The heavy settings moved to the contact info
-                      // screen (View contact) — the menu keeps only what
-                      // belongs to this moment in the conversation.
-                      PopupMenuButton<String>(
-                        onSelected: _onMenuSelected,
-                        itemBuilder: (context) => [
-                          const PopupMenuItem(
-                              value: 'search', child: Text('Search')),
-                          const PopupMenuItem(
-                              value: 'view',
-                              child: Text('Contact & chat settings')),
-                          const PopupMenuItem(
-                              value: 'media',
-                              child: Text('Media, links, and docs')),
-                          if (!widget.chat.contact.isGroup &&
-                              widget.chat.contact.phone.isNotEmpty)
-                            const PopupMenuItem(
-                                value: 'sms',
-                                child: Text('Send as text (SMS)')),
-                        ],
+                      titleSpacing: 0,
+                      title: TextField(
+                        controller: _searchController,
+                        autofocus: true,
+                        decoration: const InputDecoration(
+                          hintText: 'Search this chat',
+                          border: InputBorder.none,
+                        ),
+                        onChanged: (v) => setState(() => _searchQuery = v),
                       ),
-                    ],
-                  ),
-        body: Column(
-          children: [
-            ListenableBuilder(
-              listenable: _store,
-              builder: (context, _) {
-                final chat = _store.chatById(_chatId);
-                final pinnedId = chat?.pinnedMessageId;
-                if (pinnedId == null) return const SizedBox.shrink();
-                final matches = chat!.messages.where((m) => m.id == pinnedId);
-                if (matches.isEmpty) return const SizedBox.shrink();
-                final count = chat.pinnedMessageIds.length;
-                return _PinnedBanner(
-                  message: matches.first,
-                  count: count,
-                  onTap: count > 1 ? _showPinnedSheet : null,
-                  onUnpin: () => _store.unpinMessage(_chatId, pinnedId),
-                );
-              },
-            ),
-            Expanded(
-              child: Stack(
-                children: [
-                  ListenableBuilder(
-                    listenable: _store,
-                    builder: (context, _) {
-                      final items = _buildItems();
-                      if (items.isEmpty && !_searching) {
-                        return const _EmptyConversation();
-                      }
-                      return ListView(
-                        controller: _scrollController,
-                        padding: const EdgeInsets.symmetric(vertical: 8),
-                        children: items,
-                      );
-                    },
-                  ),
-                  if (_showScrollToBottom)
-                    Positioned(
-                      right: 12,
-                      bottom: 12,
-                      child: FloatingActionButton.small(
-                        heroTag: 'scrollToBottom',
-                        backgroundColor:
-                            isDark ? AppColors.darkAppBar : Colors.white,
-                        // Theme-aware: the light accent is invisible on the
-                        // dark app-bar surface.
-                        foregroundColor: isDark
-                            ? Colors.white
-                            : AppColors.tealGreenDark,
-                        elevation: 2,
-                        onPressed: _animateToBottom,
-                        child: const Icon(Icons.keyboard_arrow_down),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-            ListenableBuilder(
-              listenable: Scheduler.instance,
-              builder: (context, _) {
-                final count = Scheduler.instance.pendingFor(_chatId).length;
-                if (count == 0) return const SizedBox.shrink();
-                return Material(
-                  color: AppColors.tealGreenDark.withValues(alpha: 0.12),
-                  child: InkWell(
-                    onTap: _showScheduledSheet,
-                    child: Padding(
-                      padding:
-                          const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.schedule,
-                              size: 18, color: AppColors.tealGreenDark),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Text(
-                              count == 1
-                                  ? '1 message scheduled'
-                                  : '$count messages scheduled',
-                              style: const TextStyle(
-                                color: AppColors.tealGreenDark,
-                                fontWeight: FontWeight.w600,
-                                fontSize: 13.5,
+                      actions: [
+                        if (_searchQuery.trim().isNotEmpty)
+                          Center(
+                            child: Padding(
+                              padding: const EdgeInsets.only(right: 4),
+                              child: Text(
+                                _visibleMessages.isEmpty
+                                    ? 'No matches'
+                                    : '${_visibleMessages.length} found',
+                                style: TextStyle(
+                                    color: Colors.grey.shade500, fontSize: 13),
                               ),
                             ),
                           ),
-                          const Icon(Icons.chevron_right,
-                              size: 20, color: AppColors.tealGreenDark),
-                        ],
+                        if (_searchQuery.isNotEmpty)
+                          IconButton(
+                            icon: const Icon(Icons.close),
+                            onPressed: () => setState(() {
+                              _searchQuery = '';
+                              _searchController.clear();
+                            }),
+                          ),
+                      ],
+                    )
+                  : AppBar(
+                      automaticallyImplyLeading: false,
+                      leading: const SidebarButton(),
+                      titleSpacing: 0,
+                      title: InkWell(
+                        onTap: () => Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => contact.isGroup
+                                ? GroupInfoScreen(
+                                    group: contact,
+                                    members: widget.chat.members,
+                                    chatId: _chatId)
+                                : ContactInfoScreen(
+                                    user: contact, chatId: _chatId),
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            UserAvatar(
+                              user: contact,
+                              radius: 18,
+                              heroTag: 'chatHeaderAvatar',
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Flexible(
+                                        child: NameWithBadge(
+                                          // Bare numbers print like a phone
+                                          // would show them.
+                                          name: formatPhoneForDisplay(
+                                              contact.name),
+                                          verified: contact.verified,
+                                          badgeSize: 16,
+                                          style: const TextStyle(
+                                            fontSize: 17,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                          trailing: () {
+                                            final s = StreakStore.instance
+                                                .streakFor(_chatId);
+                                            return s > 0
+                                                ? StreakChip(
+                                                    count: s,
+                                                    expiring: StreakStore
+                                                        .instance
+                                                        .isExpiringSoon(
+                                                            _chatId),
+                                                  )
+                                                : null;
+                                          }(),
+                                        ),
+                                      ),
+                                      if (_store.chatById(_chatId)?.isMuted ??
+                                          false) ...[
+                                        const SizedBox(width: 6),
+                                        Icon(
+                                          Icons.volume_off,
+                                          size: 16,
+                                          color: isDark
+                                              ? Colors.white54
+                                              : Colors.black45,
+                                        ),
+                                      ],
+                                      if (_store
+                                              .chatById(_chatId)
+                                              ?.confirmBeforeSend ??
+                                          false) ...[
+                                        const SizedBox(width: 6),
+                                        const Icon(
+                                          Icons.verified_user,
+                                          size: 15,
+                                          color: AppColors.tealGreenDark,
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                  _isTyping
+                                      ? Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            if (_typingName.isNotEmpty)
+                                              Padding(
+                                                padding: const EdgeInsets.only(
+                                                    right: 4),
+                                                child: Text(
+                                                  _typingName,
+                                                  style: TextStyle(
+                                                    fontSize: 12.5,
+                                                    color: AppColors.accentOn(
+                                                        context),
+                                                  ),
+                                                ),
+                                              ),
+                                            TypingIndicator(
+                                              color:
+                                                  AppColors.accentOn(context),
+                                            ),
+                                          ],
+                                        )
+                                      : Text(
+                                          (contact.isOnline || _peerOnline)
+                                              ? 'online'
+                                              : 'last seen recently',
+                                          style: TextStyle(
+                                            fontSize: 12.5,
+                                            color: isDark
+                                                ? Colors.white70
+                                                : Colors.black54,
+                                          ),
+                                        ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
+                      actions: [
+                        if ((_store.chatById(_chatId)?.disappearingSeconds ??
+                                0) >
+                            0)
+                          IconButton(
+                            icon: const Icon(Icons.timer_outlined),
+                            tooltip: 'Disappearing messages on',
+                            onPressed: _chooseDisappearing,
+                          ),
+                        IconButton(
+                          icon: const Icon(Icons.call),
+                          onPressed: () => _startCall(video: false),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.videocam),
+                          onPressed: () => _startCall(video: true),
+                        ),
+                        // The heavy settings moved to the contact info
+                        // screen (View contact) — the menu keeps only what
+                        // belongs to this moment in the conversation.
+                        PopupMenuButton<String>(
+                          onSelected: _onMenuSelected,
+                          itemBuilder: (context) => [
+                            const PopupMenuItem(
+                                value: 'search', child: Text('Search')),
+                            const PopupMenuItem(
+                                value: 'view',
+                                child: Text('Contact & chat settings')),
+                            const PopupMenuItem(
+                                value: 'media',
+                                child: Text('Media, links, and docs')),
+                            if (!widget.chat.contact.isGroup &&
+                                widget.chat.contact.phone.isNotEmpty)
+                              const PopupMenuItem(
+                                  value: 'sms',
+                                  child: Text('Send as text (SMS)')),
+                          ],
+                        ),
+                      ],
                     ),
-                  ),
-                );
-              },
-            ),
-            if (!_selectionMode)
-              ValueListenableBuilder<Set<String>>(
-                valueListenable: AppState.blockedContacts,
-                builder: (context, _, __) {
-                  if (AppState.isBlocked(widget.chat.contact.phone)) {
-                    return _BlockedBanner(
-                      name: widget.chat.contact.name,
-                      onUnblock: () => AppState.setBlocked(
-                          widget.chat.contact.phone, false),
-                    );
-                  }
-                  return ChatInputBar(
-                    onSend: _handleSend,
-                    onSendGif: _handleSendGif,
-                    attachments: _attachmentOptions(),
-                    onSendVoice: _handleSendVoice,
-                    onTyping: _onTyping,
-                    onSchedule: _scheduleMessage,
-                    replyTo: _replyTo,
-                    onCancelReply: () => setState(() => _replyTo = null),
-                    initialText: _store.draftFor(_chatId),
-                    onChanged: (t) => _store.setDraft(_chatId, t),
-                    confirmSend: _confirmRecipient,
-                    mentionNames: _mentionNames(),
+          body: Column(
+            children: [
+              ListenableBuilder(
+                listenable: _store,
+                builder: (context, _) {
+                  final chat = _store.chatById(_chatId);
+                  final pinnedId = chat?.pinnedMessageId;
+                  if (pinnedId == null) return const SizedBox.shrink();
+                  final matches = chat!.messages.where((m) => m.id == pinnedId);
+                  if (matches.isEmpty) return const SizedBox.shrink();
+                  final count = chat.pinnedMessageIds.length;
+                  return _PinnedBanner(
+                    message: matches.first,
+                    count: count,
+                    onTap: count > 1 ? _showPinnedSheet : null,
+                    onUnpin: () => _store.unpinMessage(_chatId, pinnedId),
                   );
                 },
               ),
-          ],
-        ),
+              Expanded(
+                child: Stack(
+                  children: [
+                    ListenableBuilder(
+                      listenable: _store,
+                      builder: (context, _) {
+                        final items = _buildItems();
+                        if (items.isEmpty && !_searching) {
+                          return const _EmptyConversation();
+                        }
+                        return ListView(
+                          controller: _scrollController,
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          children: items,
+                        );
+                      },
+                    ),
+                    if (_showScrollToBottom)
+                      Positioned(
+                        right: 12,
+                        bottom: 12,
+                        child: FloatingActionButton.small(
+                          heroTag: 'scrollToBottom',
+                          backgroundColor:
+                              isDark ? AppColors.darkAppBar : Colors.white,
+                          // Theme-aware: the light accent is invisible on the
+                          // dark app-bar surface.
+                          foregroundColor:
+                              isDark ? Colors.white : AppColors.tealGreenDark,
+                          elevation: 2,
+                          onPressed: _animateToBottom,
+                          child: const Icon(Icons.keyboard_arrow_down),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              ListenableBuilder(
+                listenable: Scheduler.instance,
+                builder: (context, _) {
+                  final count = Scheduler.instance.pendingFor(_chatId).length;
+                  if (count == 0) return const SizedBox.shrink();
+                  return Material(
+                    color: AppColors.tealGreenDark.withValues(alpha: 0.12),
+                    child: InkWell(
+                      onTap: _showScheduledSheet,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 16, vertical: 10),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.schedule,
+                                size: 18, color: AppColors.tealGreenDark),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                count == 1
+                                    ? '1 message scheduled'
+                                    : '$count messages scheduled',
+                                style: const TextStyle(
+                                  color: AppColors.tealGreenDark,
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 13.5,
+                                ),
+                              ),
+                            ),
+                            const Icon(Icons.chevron_right,
+                                size: 20, color: AppColors.tealGreenDark),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+              if (!_selectionMode)
+                ValueListenableBuilder<Set<String>>(
+                  valueListenable: AppState.blockedContacts,
+                  builder: (context, _, __) {
+                    if (AppState.isBlocked(widget.chat.contact.phone)) {
+                      return _BlockedBanner(
+                        name: widget.chat.contact.name,
+                        onUnblock: () => AppState.setBlocked(
+                            widget.chat.contact.phone, false),
+                      );
+                    }
+                    return ChatInputBar(
+                      onSend: _handleSend,
+                      onSendGif: _handleSendGif,
+                      attachments: _attachmentOptions(),
+                      onSendVoice: _handleSendVoice,
+                      onTyping: _onTyping,
+                      onSchedule: _scheduleMessage,
+                      replyTo: _replyTo,
+                      onCancelReply: () => setState(() => _replyTo = null),
+                      initialText: _store.draftFor(_chatId),
+                      onChanged: (t) => _store.setDraft(_chatId, t),
+                      confirmSend: _confirmRecipient,
+                      mentionNames: _mentionNames(),
+                    );
+                  },
+                ),
+            ],
+          ),
         );
       },
     );

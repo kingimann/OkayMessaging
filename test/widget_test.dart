@@ -48,6 +48,7 @@ import 'package:okay_messaging/payments/stripe_tokens.dart';
 import 'package:okay_messaging/screens/payment_diagnostics_screen.dart';
 import 'package:okay_messaging/screens/public_feed_screen.dart';
 import 'package:okay_messaging/state/public_feed_store.dart';
+import 'package:okay_messaging/widgets/app_shell.dart';
 import 'package:okay_messaging/widgets/streak_chip.dart';
 import 'package:okay_messaging/widgets/sanction_notice.dart';
 import 'package:okay_messaging/screens/forum_screen.dart';
@@ -167,6 +168,18 @@ Future<void> tapInSettings(WidgetTester tester, Finder finder) async {
   await tester.pumpAndSettle();
 }
 
+
+
+/// Goes back the way somebody still can: the platform gesture.
+///
+/// The app bar's arrow is gone — every screen shows the sidebar there instead,
+/// and the bottom bar is always on screen — but the system back gesture (an
+/// iOS edge swipe, an Android back) is untouched, so this is what "back" means
+/// now. tester.pageBack() looks for the button and cannot find one.
+Future<void> goBack(WidgetTester tester) async {
+  await tester.binding.handlePopRoute();
+  await tester.pumpAndSettle();
+}
 
 void main() {
   // Singletons persist across tests; reset them so each starts clean. Most
@@ -355,7 +368,7 @@ void main() {
     await tester.tap(find.text('Star'));
     await tester.pumpAndSettle();
 
-    await tester.pageBack();
+    await goBack(tester);
     await tester.pumpAndSettle();
 
     await tester.tap(find.byIcon(Icons.more_vert));
@@ -1321,7 +1334,7 @@ void main() {
     expect(AppState.isBlocked(bobPhone), isTrue);
 
     // Back in the conversation, the composer is gone and a banner shows.
-    await tester.pageBack();
+    await goBack(tester);
     await tester.pumpAndSettle();
     expect(find.byType(ChatInputBar), findsNothing);
     expect(find.text('You blocked Bob Carter'), findsOneWidget);
@@ -1341,7 +1354,7 @@ void main() {
     await tapInSettings(tester, find.text('Wallpaper & sound'));
     // Per-chat wallpaper picker (its "Default" swatch is shown).
     expect(find.text('Default'), findsOneWidget);
-    await tester.pageBack();
+    await goBack(tester);
     await tester.pumpAndSettle();
 
     // Export builds a transcript and hands it off (share/download), then
@@ -1367,7 +1380,7 @@ void main() {
     await tapInSettings(tester, find.text('Disappearing messages'));
     await tester.tap(find.text('1 day'));
     await tester.pumpAndSettle();
-    await tester.pageBack(); // back to the chat
+    await goBack(tester); // back to the chat
     await tester.pumpAndSettle();
 
     // The timer indicator now shows in the header.
@@ -1423,7 +1436,7 @@ void main() {
     await tester.pump();
 
     // Leave the chat: the chat list shows a Draft indicator.
-    await tester.pageBack();
+    await goBack(tester);
     await tester.pumpAndSettle();
     expect(find.text('Draft: '), findsOneWidget);
     expect(ChatStore.instance.chatWithContact('u_bob')!.id, isNotEmpty);
@@ -2520,7 +2533,7 @@ void main() {
         find.descendant(
             of: find.widgetWithText(InfoTile, 'Mute notifications'),
             matching: find.byType(Switch)));
-    await tester.pageBack();
+    await goBack(tester);
     await tester.pumpAndSettle();
 
     expect(ChatStore.instance.chatWithContact('u_bob')!.isMuted, isTrue);
@@ -7095,7 +7108,7 @@ void main() {
 
       // Back on the timeline the reply lives in the thread, not inline —
       // and there is no For you / Following split, just one timeline.
-      await tester.pageBack();
+      await goBack(tester);
       await tester.pumpAndSettle();
       expect(find.text('First post from me!'), findsOneWidget);
       expect(find.text('And a reply'), findsNothing); // threaded, not inline
@@ -8571,8 +8584,10 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Communities'), findsOneWidget,
           reason: 'the home app bar should now title the Servers tab');
-      expect(find.byTooltip('Open navigation menu'), findsOneWidget,
-          reason: 'still on the home screen, not a pushed copy');
+      // Every screen carries a sidebar button now, so finding one proves
+      // nothing about which screen this is — ask the navigator instead.
+      expect(rootNavigatorKey.currentState!.canPop(), isFalse,
+          reason: 'the sidebar switched tabs rather than pushing a copy');
     });
 
     test('screen share reports an honest error with no active call', () async {
@@ -9906,7 +9921,7 @@ void main() {
       await tester.tap(find.text('View once'));
       await tester.pumpAndSettle();
       // The full-screen viewer opened; go back to consume it.
-      await tester.pageBack();
+      await goBack(tester);
       await tester.pumpAndSettle();
 
       expect(
@@ -14244,6 +14259,9 @@ void main() {
       // THE BUG. The avatar was the app bar's `leading`, and `leading` REPLACES
       // the back arrow. On a tab there is nothing to go back to, so it looked
       // right; pushed as a route it left somebody on a screen with no way out.
+      // No screen has a back arrow any more — the leading slot is the sidebar
+      // everywhere — so what this guards is that the slot never goes back to
+      // holding something that is only a shortcut.
       await t.pumpWidget(MaterialApp(
         home: Builder(
           builder: (context) => Scaffold(
@@ -14258,18 +14276,18 @@ void main() {
       await t.tap(find.text('open feed'));
       await t.pumpAndSettle();
       expect(find.text('Newsfeed'), findsOneWidget);
-      expect(find.byType(BackButton), findsOneWidget,
-          reason: 'pushed, so there has to be a way back');
-      await t.tap(find.byType(BackButton));
+      expect(find.byType(SidebarButton), findsOneWidget,
+          reason: 'the leading slot is the sidebar, on this screen too');
+      await goBack(t);
       await t.pumpAndSettle();
-      expect(find.text('open feed'), findsOneWidget, reason: 'and it works');
+      expect(find.text('open feed'), findsOneWidget,
+          reason: 'and the route can still be left');
 
       // Where the avatar cannot go, the route to your own profile is still
       // there — it is never the only way in.
       final src = File('lib/screens/public_feed_screen.dart').readAsStringSync();
       expect(src.contains("value: 'profile', child: Text('Your profile')"),
           isTrue);
-      expect(src.contains('Navigator.of(context).canPop()'), isTrue);
     });
 
     testWidgets('one person has one profile, and so does everybody else',
@@ -14323,7 +14341,7 @@ void main() {
       // them. Neither appears on anybody else's.
       expect(find.text('Servers'), findsNWidgets(2),
           reason: 'your own server posts, which nobody else could be shown');
-      await t.pageBack();
+      await goBack(t);
       await t.pumpAndSettle();
 
       // Somebody else's: the same screen, without them.
@@ -16714,6 +16732,126 @@ void main() {
       expect(CommunityStore.instance.communities, isNotEmpty);
       CommunityStore.instance.clearAll();
       expect(CommunityStore.instance.communities, isEmpty);
+    });
+  });
+
+  group('The shell above every screen', () {
+    testWidgets('a pushed screen keeps the sidebar and the bottom bar',
+        (tester) async {
+      await tester.pumpWidget(const OkayMessagingApp());
+      await tester.pumpAndSettle();
+      expect(find.byType(ModernNavBar), findsOneWidget);
+
+      // A chat is as deep as the app goes on a normal day.
+      await tester.tap(find.text('Bob Carter'));
+      await tester.pumpAndSettle();
+      expect(find.text('Bob Carter'), findsWidgets, reason: 'chat is open');
+
+      // THE POINT OF ALL THIS. The bar used to belong to the home screen's
+      // Scaffold, so this route covered it and the arrow in the corner was
+      // the only way anywhere.
+      expect(find.byType(ModernNavBar), findsOneWidget,
+          reason: 'the bottom bar rides above the pushed route');
+      expect(find.byType(BackButton), findsNothing,
+          reason: 'no screen has a back arrow any more');
+      expect(find.byType(SidebarButton), findsOneWidget,
+          reason: 'the leading slot is the sidebar instead');
+
+      // And the sidebar really opens from here, not just renders. It hangs off
+      // a Scaffold that is a *parent* of the navigator, so the drawer's own
+      // tiles cannot use Navigator.of either.
+      await tester.tap(find.byType(SidebarButton));
+      await tester.pumpAndSettle();
+      expect(find.text('Marketplace'), findsOneWidget);
+      await tester.tap(find.text('Wallet'));
+      await tester.pumpAndSettle();
+      expect(find.text('Marketplace'), findsNothing, reason: 'drawer closed');
+      expect(find.byType(WalletScreen), findsOneWidget,
+          reason: 'a sidebar tile pushed a route from above the navigator');
+    });
+
+    testWidgets('a bottom-bar tap unstacks whatever is on top',
+        (tester) async {
+      await tester.pumpWidget(const OkayMessagingApp());
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Bob Carter'));
+      await tester.pumpAndSettle();
+
+      // A pill only wears its label when it is the selected one, so this
+      // reaches for the icon inside the bar rather than the word.
+      await tester.tap(find.descendant(
+          of: find.byType(ModernNavBar),
+          matching: find.byIcon(Icons.call_outlined)));
+      await tester.pumpAndSettle();
+      expect(rootNavigatorKey.currentState!.canPop(), isFalse,
+          reason: 'a destination is a destination: the chat is gone');
+      expect(ShellTabs.index.value, 2);
+    });
+
+    testWidgets('the pages are told what the floating bar covers',
+        (tester) async {
+      await tester.pumpWidget(const OkayMessagingApp());
+      await tester.pumpAndSettle();
+
+      final bar = tester.getRect(find.byType(ModernNavBar));
+      final page = MediaQuery.of(tester.element(find.text('Bob Carter').first));
+      // Without this the send button in the forward picker sat underneath the
+      // bar and the tap landed on the bar. Both insets: SafeArea reads
+      // `padding`, Scaffold places a floating action button off `viewPadding`.
+      expect(page.padding.bottom, bar.height);
+      expect(page.viewPadding.bottom, bar.height);
+    });
+
+    testWidgets('a sheet gets the whole screen, and the bar comes back',
+        (tester) async {
+      await tester.pumpWidget(const OkayMessagingApp());
+      await tester.pumpAndSettle();
+
+      await tester.longPress(find.text('Carol Diaz'));
+      await tester.pumpAndSettle();
+      expect(find.text('Archive chat'), findsOneWidget);
+      // A sheet owns the screen: the bar would paint over its buttons, and the
+      // padding the pages get would push its content out of its own box.
+      expect(find.byType(ModernNavBar), findsNothing);
+      expect(
+          MediaQuery.of(tester.element(find.text('Archive chat'))).padding.bottom,
+          0);
+
+      await tester.tapAt(const Offset(400, 40)); // the barrier
+      await tester.pumpAndSettle();
+      expect(find.byType(ModernNavBar), findsOneWidget,
+          reason: 'and it is back the moment the sheet is gone');
+    });
+
+    test('no app bar in the app implies a back arrow', () {
+      // 75 app bars agreeing by habit is a rule waiting to be broken. Flutter
+      // fills the leading slot with a back arrow whenever the route can pop
+      // and nothing else claims it, so the flag has to be explicit.
+      final offenders = <String>[];
+      for (final file in Directory('lib')
+          .listSync(recursive: true)
+          .whereType<File>()
+          .where((f) => f.path.endsWith('.dart'))) {
+        final src = file.readAsStringSync();
+        for (final match in RegExp(r'\bAppBar\(').allMatches(src)) {
+          // The arguments of this AppBar only — a nested widget's own are its
+          // business.
+          var depth = 0;
+          final own = StringBuffer();
+          for (var i = match.end - 1; i < src.length; i++) {
+            final c = src[i];
+            if ('([{'.contains(c)) depth++;
+            if (')]}'.contains(c)) depth--;
+            if (depth == 0) break;
+            if (depth == 1) own.write(c);
+          }
+          if (!own.toString().contains('automaticallyImplyLeading: false')) {
+            offenders.add('${file.path}:${'\n'.allMatches(src.substring(0, match.start)).length + 1}');
+          }
+        }
+      }
+      expect(offenders, isEmpty,
+          reason: 'these app bars would grow a back arrow when pushed');
     });
   });
 }

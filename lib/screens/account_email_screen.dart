@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../state/account_email.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_dialogs.dart';
+import '../widgets/app_shell.dart';
 import '../widgets/info_section.dart';
 import '../widgets/pull_to_refresh.dart';
 
@@ -100,7 +101,10 @@ class _AccountEmailScreenState extends State<AccountEmailScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Email address')),
+      appBar: AppBar(
+          automaticallyImplyLeading: false,
+          leading: const SidebarButton(),
+          title: const Text('Email address')),
       body: ListenableBuilder(
         listenable: AccountEmail.instance,
         builder: (context, _) {

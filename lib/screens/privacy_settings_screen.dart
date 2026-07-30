@@ -6,6 +6,7 @@ import '../state/account_service.dart';
 import '../state/app_lock.dart';
 import '../state/two_step.dart';
 import '../widgets/app_dialogs.dart';
+import '../widgets/app_shell.dart';
 import '../widgets/info_section.dart';
 import 'blocked_contacts_screen.dart';
 import 'settings_widgets.dart';
@@ -28,7 +29,10 @@ class PrivacySettingsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Privacy & security')),
+      appBar: AppBar(
+          automaticallyImplyLeading: false,
+          leading: const SidebarButton(),
+          title: const Text('Privacy & security')),
       body: ListView(
         children: [
           const SizedBox(height: 6),
@@ -80,7 +84,8 @@ class PrivacySettingsScreen extends StatelessWidget {
               subtitle: 'Manage who can\'t reach you',
               trailing: _BlockedCountBadge(),
               onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const BlockedContactsScreen()),
+                MaterialPageRoute(
+                    builder: (_) => const BlockedContactsScreen()),
               ),
             ),
           ]),
@@ -177,9 +182,9 @@ class PrivacySettingsScreen extends StatelessWidget {
       builder: (context, on, _) => SwitchListTile(
         secondary: const Icon(Icons.link_off),
         title: const Text('Block links from strangers'),
-        subtitle: const Text(
-            'Silently drop messages with links from people you '
-            'haven\'t chatted with'),
+        subtitle:
+            const Text('Silently drop messages with links from people you '
+                'haven\'t chatted with'),
         value: on,
         shape: kSettingsTileShape,
         onChanged: (v) => AppState.blockLinksFromStrangers.value = v,
@@ -365,8 +370,8 @@ class _AppLockTile extends StatelessWidget {
                 if (error != null)
                   Padding(
                     padding: const EdgeInsets.only(top: 8),
-                    child: Text(error!,
-                        style: const TextStyle(color: Colors.red)),
+                    child:
+                        Text(error!, style: const TextStyle(color: Colors.red)),
                   ),
               ],
             ),
@@ -396,7 +401,8 @@ class _AppLockTile extends StatelessWidget {
       await AppLock.instance.setPin(pin.text);
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(changing ? 'PIN changed' : 'App lock enabled')),
+          SnackBar(
+              content: Text(changing ? 'PIN changed' : 'App lock enabled')),
         );
       }
     }
@@ -428,7 +434,6 @@ class _BlockedCountBadge extends StatelessWidget {
     );
   }
 }
-
 
 /// The two doors to this account — profile search and contact sync — as
 /// switches backed by the directory row itself, so the choice applies on
@@ -499,16 +504,14 @@ class _ReachabilityTilesState extends State<_ReachabilityTiles> {
               'Appear in username search, so people can message your '
               'profile without knowing your number'),
           value: _byUsername ?? true,
-          onChanged: loading || _saving
-              ? null
-              : (v) => _apply(byUsername: v),
+          onChanged: loading || _saving ? null : (v) => _apply(byUsername: v),
         ),
         SwitchListTile.adaptive(
           secondary: const Icon(Icons.dialpad),
           title: const Text('By phone number'),
-          subtitle: const Text(
-              'Appear when someone who has your number syncs their '
-              'contacts'),
+          subtitle:
+              const Text('Appear when someone who has your number syncs their '
+                  'contacts'),
           value: _byPhone ?? true,
           onChanged: loading || _saving ? null : (v) => _apply(byPhone: v),
         ),
@@ -519,7 +522,7 @@ class _ReachabilityTilesState extends State<_ReachabilityTiles> {
             child: Text(
               _note ??
                   'Controls being found. People you already chat with keep '
-                  'the conversation either way.',
+                      'the conversation either way.',
               style: TextStyle(
                   fontSize: 12,
                   color: _note == null

@@ -6,13 +6,13 @@ import 'package:flutter/material.dart';
 import '../models/user.dart';
 
 import '../state/call_log.dart';
-import '../state/chat_store.dart';
 import '../state/feed_store.dart';
 import '../state/follow_store.dart';
 import '../tabs/activity_tab.dart';
 import '../tabs/calls_tab.dart';
 import '../tabs/chats_tab.dart';
 import '../theme/app_theme.dart';
+import '../widgets/app_shell.dart';
 import 'archived_chats_screen.dart';
 import 'chat_search_delegate.dart';
 import 'communities.dart';
@@ -52,7 +52,29 @@ class _HomeScreenState extends State<HomeScreen>
       .drive(Tween(begin: 0.35, end: 1.0));
 
   @override
+  void initState() {
+    super.initState();
+    // The bottom bar lives in the shell above every route, so the tab it
+    // chooses arrives from there rather than from a callback here.
+    ShellTabs.index.addListener(_followShell);
+    ShellTabs.onSelected = _onSelectTab;
+    // The shell's bar outlives any one home screen, so a fresh one starts on
+    // the tab this screen is actually showing rather than whichever was last
+    // chosen before signing out. After the frame, because the bar is an
+    // ancestor and notifying it mid-build is not allowed.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) ShellTabs.index.value = _index;
+    });
+  }
+
+  void _followShell() {
+    if (ShellTabs.index.value != _index) _onSelectTab(ShellTabs.index.value);
+  }
+
+  @override
   void dispose() {
+    ShellTabs.index.removeListener(_followShell);
+    if (ShellTabs.onSelected == _onSelectTab) ShellTabs.onSelected = null;
     _tabFadeController.dispose();
     super.dispose();
   }
@@ -86,6 +108,8 @@ class _HomeScreenState extends State<HomeScreen>
     final onChats = _index == 0;
     return Scaffold(
       appBar: AppBar(
+        automaticallyImplyLeading: false,
+        leading: const SidebarButton(),
         titleSpacing: 20,
         title: _index == 0
             ? Text(
@@ -145,9 +169,10 @@ class _HomeScreenState extends State<HomeScreen>
             ),
         ],
       ),
-      // Let the content flow behind the floating glass bar so it blurs through.
-      extendBody: true,
-      drawer: _AppSideBar(onSelectTab: _onSelectTab),
+      // The sidebar and the bottom bar are the shell's now — they sit above
+      // every route rather than only above these tabs, so a pushed screen
+      // keeps them instead of covering them.
+      //
       // Tabs keep their state in an IndexedStack; switching softly fades the
       // incoming tab in rather than hard-cutting.
       body: FadeTransition(
@@ -165,23 +190,11 @@ class _HomeScreenState extends State<HomeScreen>
           ],
         ),
       ),
-      bottomNavigationBar: ListenableBuilder(
-        listenable: Listenable.merge(
-            [CallLog.instance, ChatStore.instance, FeedStore.instance]),
-        builder: (context, _) => _ModernNavBar(
-          index: _index,
-          missedCalls: CallLog.instance.newMissedCount,
-          activityCount: CallLog.instance.newMissedCount +
-              FeedStore.instance.unseenNotificationCount +
-              ChatStore.instance.chats
-                  .fold(0, (n, c) => n + (c.unreadCount > 0 ? 1 : 0)),
-          onSelect: _onSelectTab,
-        ),
-      ),
     );
   }
 
   void _onSelectTab(int i) {
+    if (!mounted) return;
     if (i != _index) _tabFadeController.forward(from: 0);
     setState(() => _index = i);
     // Opening the Calls tab clears the missed-call badge.
@@ -218,13 +231,15 @@ class _YouTab extends StatelessWidget {
       );
 }
 
-class _ModernNavBar extends StatelessWidget {
+/// The bottom bar. Public for the same reason as the sidebar.
+class ModernNavBar extends StatelessWidget {
   final int index;
   final int missedCalls;
   final int activityCount;
   final ValueChanged<int> onSelect;
 
-  const _ModernNavBar({
+  const ModernNavBar({
+    super.key,
     required this.index,
     required this.onSelect,
     this.missedCalls = 0,
@@ -331,16 +346,22 @@ class _ModernNavBar extends StatelessWidget {
 
 /// The left sidebar: profile up top, then one-tap shortcuts to the places
 /// that otherwise live several taps deep.
-class _AppSideBar extends StatelessWidget {
+/// The app's sidebar. Public because the shell above every route owns it now
+/// rather than the home screen.
+class AppSideBar extends StatelessWidget {
   /// Switches the home screen's bottom tab — for destinations that ARE a tab,
   /// where pushing a second copy on top would stack two of the same screen.
   final ValueChanged<int> onSelectTab;
 
-  const _AppSideBar({required this.onSelectTab});
+  const AppSideBar({super.key, required this.onSelectTab});
 
+  /// The sidebar hangs off the shell's Scaffold, which is a *parent* of the
+  /// app's navigator — so `Navigator.of(context)` from a tile finds nothing.
+  /// The drawer closes through its own scaffold and pushes through the key.
   void _go(BuildContext context, Widget screen) {
-    Navigator.of(context).pop(); // close the drawer first
-    Navigator.of(context).push(MaterialPageRoute(builder: (_) => screen));
+    AppShell.closeSidebar();
+    rootNavigatorKey.currentState
+        ?.push(MaterialPageRoute(builder: (_) => screen));
   }
 
   @override
@@ -422,7 +443,7 @@ class _AppSideBar extends StatelessWidget {
                 leading: const Icon(Icons.groups_outlined),
                 title: const Text('Servers'),
                 onTap: () {
-                  Navigator.of(context).pop();
+                  AppShell.closeSidebar();
                   onSelectTab(1); // the Servers tab, without stacking a copy
                 },
               ),

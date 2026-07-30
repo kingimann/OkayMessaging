@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../payments/payment_service.dart';
 import '../util/phone_format.dart';
+import '../widgets/app_shell.dart';
 
 /// Every transfer this account has been part of, sent and received.
 ///
@@ -27,7 +28,10 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Transactions')),
+      appBar: AppBar(
+          automaticallyImplyLeading: false,
+          leading: const SidebarButton(),
+          title: const Text('Transactions')),
       body: RefreshIndicator(
         onRefresh: _refresh,
         child: FutureBuilder<List<PaymentRecord>>(
@@ -58,8 +62,7 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
               size: 48, color: Colors.grey.shade400),
           const SizedBox(height: 12),
           Center(
-            child: Text(message,
-                style: TextStyle(color: Colors.grey.shade600)),
+            child: Text(message, style: TextStyle(color: Colors.grey.shade600)),
           ),
         ],
       );
