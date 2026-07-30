@@ -13325,7 +13325,10 @@ void main() {
 
       await t.tap(find.text('Media'));
       await t.pumpAndSettle();
-      expect(find.text('with a photo'), findsOneWidget);
+      // A grid of the photos themselves: the caption is not what somebody
+      // opened this tab to look at, so it is in the post it belongs to.
+      expect(find.byType(SliverGrid), findsOneWidget);
+      expect(find.byType(Image), findsWidgets);
       expect(find.text('a reply'), findsNothing);
     });
 
@@ -14164,7 +14167,7 @@ void main() {
       // Still usable where it stopped.
       await t.tap(find.text('Media'));
       await t.pumpAndSettle();
-      expect(find.text('No photos yet.'), findsOneWidget);
+      expect(find.text('No photos yet'), findsOneWidget);
     });
 
     testWidgets('a person has one face everywhere in the app', (t) async {
@@ -14361,6 +14364,141 @@ void main() {
       await t.pumpAndSettle();
       expect(find.text('Edit profile'), findsNothing,
           reason: 'a stranger\'s avatar is not a door to your own settings');
+    });
+
+    testWidgets('a profile wears the account colour from the bar down',
+        (t) async {
+      t.view.physicalSize = const Size(500, 1400);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.resetPhysicalSize);
+      SharedPreferences.setMockInitialValues({});
+      addTearDown(PublicFeedStore.instance.resetForTest);
+      PublicFeedStore.debugProfileOverride = (username) async => [];
+
+      await t.pumpWidget(const MaterialApp(
+          home: PublicProfileScreen(username: 'sam', name: 'Sam')));
+      await t.pumpAndSettle();
+
+      final scheme = Theme.of(t.element(find.byType(PublicProfileScreen)))
+          .colorScheme;
+      final accent = profileAccentFor('sam', scheme);
+      final bar = t.widget<SliverAppBar>(find.byType(SliverAppBar));
+      // A default grey bar above a coloured banner drew a seam across the top
+      // of every profile. The bar and the banner are one block of colour.
+      expect(bar.backgroundColor, accent);
+      expect(bar.foregroundColor, onProfileAccent(accent));
+    });
+
+    test('the app bar text is readable on any accent it can be given', () {
+      // An account's accent is whatever avatar colour its owner picked, and
+      // this app lets somebody pick pale yellow.
+      for (final accent in [
+        const Color(0xFFFFF176), // pale yellow
+        const Color(0xFF11161C), // near black
+        const Color(0xFF075E54), // the app's own green
+        const Color(0xFFFFFFFF),
+      ]) {
+        final on = onProfileAccent(accent);
+        final ratio = (accent.computeLuminance() + 0.05) /
+            (on.computeLuminance() + 0.05);
+        final contrast = ratio < 1 ? 1 / ratio : ratio;
+        expect(contrast, greaterThan(4.5),
+            reason: 'unreadable on ${accent.toARGB32().toRadixString(16)}');
+      }
+    });
+
+    testWidgets('the media tab is a grid of the photos themselves', (t) async {
+      t.view.physicalSize = const Size(500, 1400);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.resetPhysicalSize);
+      SharedPreferences.setMockInitialValues({});
+      addTearDown(PublicFeedStore.instance.resetForTest);
+      final now = DateTime.now();
+      PublicFeedStore.debugProfileOverride = (username) async => [
+            for (var i = 0; i < 5; i++)
+              PublicPost(
+                  id: 'p$i',
+                  authorUsername: 'sam',
+                  authorName: 'Sam',
+                  body: 'caption $i',
+                  imagePath: 'sam/$i.jpg',
+                  createdAt: now.subtract(Duration(minutes: i))),
+          ];
+
+      await t.pumpWidget(const MaterialApp(
+          home: PublicProfileScreen(username: 'sam', name: 'Sam')));
+      await t.pumpAndSettle();
+      await t.tap(find.text('Media'));
+      await t.pumpAndSettle();
+
+      // Three across, so the photos are the tab rather than captions with a
+      // picture attached, three to a screen.
+      expect(find.byType(SliverGrid), findsOneWidget);
+      final cells = t.widgetList(find.byType(Image)).length;
+      expect(cells, greaterThanOrEqualTo(5));
+      final first = t.getRect(find.byType(Image).first);
+      expect(first.width, closeTo(first.height, 1),
+          reason: 'a photo grid is square cells');
+      expect(first.width, lessThan(500 / 2),
+          reason: 'three to a row, not one');
+    });
+
+    testWidgets('an empty tab says which one is empty, and what fills it',
+        (t) async {
+      t.view.physicalSize = const Size(500, 1400);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.resetPhysicalSize);
+      SharedPreferences.setMockInitialValues({});
+      addTearDown(PublicFeedStore.instance.resetForTest);
+      PublicFeedStore.debugProfileOverride = (username) async => [];
+
+      await t.pumpWidget(const MaterialApp(
+          home: PublicProfileScreen(username: 'sam', name: 'Sam')));
+      await t.pumpAndSettle();
+      expect(find.text('No posts yet'), findsOneWidget);
+
+      await t.tap(find.text('Media'));
+      await t.pumpAndSettle();
+      // Each tab names itself. They all used to read "No posts yet.", so an
+      // empty Media tab looked like the profile had failed to load.
+      expect(find.text('No photos yet'), findsOneWidget);
+      expect(find.textContaining('Posts with a picture'), findsOneWidget);
+
+      await t.tap(find.text('Replies'));
+      await t.pumpAndSettle();
+      expect(find.text('No replies yet'), findsOneWidget);
+    });
+
+    testWidgets('the tab mark travels to the tab you picked', (t) async {
+      t.view.physicalSize = const Size(500, 1400);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.resetPhysicalSize);
+      SharedPreferences.setMockInitialValues({});
+      addTearDown(PublicFeedStore.instance.resetForTest);
+      PublicFeedStore.debugProfileOverride = (username) async => [];
+
+      await t.pumpWidget(const MaterialApp(
+          home: PublicProfileScreen(username: 'sam', name: 'Sam')));
+      await t.pumpAndSettle();
+
+      // One mark that moves, not one per tab switching on and off — so there
+      // is exactly one of it whichever tab is active.
+      final mark = find.byType(AnimatedPositioned);
+      expect(mark, findsOneWidget);
+      final onPosts = t.getRect(mark).center.dx;
+      expect(onPosts, lessThan(500 / 3), reason: 'Posts is the first tab');
+
+      await t.tap(find.text('Media'));
+      await t.pumpAndSettle();
+      // The tab's own column, not the label: the label sits centred inside it
+      // and would agree by accident if the mark were nailed to the left edge.
+      final cell = t.getRect(find
+          .ancestor(of: find.text('Media'), matching: find.byType(InkWell))
+          .first);
+      final onMedia = t.getRect(mark).center.dx;
+      expect(onMedia, closeTo(cell.center.dx, 2));
+      expect(onMedia, greaterThan(onPosts),
+          reason: 'Media is to the right of Posts');
     });
 
     testWidgets('the composer states that everyone will see it',
@@ -16833,7 +16971,10 @@ void main() {
           .whereType<File>()
           .where((f) => f.path.endsWith('.dart'))) {
         final src = file.readAsStringSync();
-        for (final match in RegExp(r'\bAppBar\(').allMatches(src)) {
+        // SliverAppBar too — it grows the same arrow, and matching only
+        // `\bAppBar\(` walked straight past both of the app's own.
+        for (final match
+            in RegExp(r'(?<![A-Za-z0-9_])(Sliver)?AppBar\(').allMatches(src)) {
           // The arguments of this AppBar only — a nested widget's own are its
           // business.
           var depth = 0;

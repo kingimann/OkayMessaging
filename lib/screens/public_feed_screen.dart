@@ -80,6 +80,14 @@ Color profileAccentFor(String username, ColorScheme scheme) {
   return publicProfileBannerSeed(username, scheme);
 }
 
+/// Black or white, whichever can be read on [accent].
+///
+/// The generated banner colours all sit at the same lightness and would take
+/// white every time, but an account's accent can also be the avatar colour its
+/// owner picked — and this app lets somebody pick a pale yellow.
+Color onProfileAccent(Color accent) =>
+    accent.computeLuminance() > 0.55 ? const Color(0xFF11161C) : Colors.white;
+
 /// Opens somebody's profile. One helper, so a tap on an avatar, a name, an
 /// @mention and the "more" sheet all land in the same place.
 void openPublicProfile(BuildContext context, String username, {String? name}) {
@@ -674,6 +682,8 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
     final tabPosts = posts == null
         ? const <PublicPost>[]
         : PublicFeedStore.profileTab(posts, _tab);
+    final accent =
+        profileAccentFor(widget.username, Theme.of(context).colorScheme);
     return Scaffold(
       body: ListenableBuilder(
         listenable: PublicFeedStore.instance,
@@ -689,6 +699,16 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
               if (!widget.embedded)
                 SliverAppBar(
                   pinned: true,
+                  automaticallyImplyLeading: false,
+                  leading: const SidebarButton(),
+                  // The bar wears the account's own colour, so the top of the
+                  // screen is one block of it running down into the banner.
+                  // A default grey bar above a coloured banner drew a seam
+                  // across the top of every profile.
+                  backgroundColor: accent,
+                  foregroundColor: onProfileAccent(accent),
+                  elevation: 0,
+                  scrolledUnderElevation: 0,
                   title: Text(_displayName,
                       style: const TextStyle(fontWeight: FontWeight.w700)),
                 ),
@@ -749,16 +769,24 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
               else if (_tab == ProfileTab.servers)
                 _serverPosts(context)
               else if (tabPosts.isEmpty)
-                SliverToBoxAdapter(
-                  child: _profileMessage(switch (_tab) {
-                    ProfileTab.posts => _isMe
-                        ? 'You haven\'t posted anything yet.'
-                        : 'No posts yet.',
-                    ProfileTab.replies => 'No replies yet.',
-                    ProfileTab.media => 'No photos yet.',
-                    // Handled above; a switch over an enum has to be complete.
-                    ProfileTab.servers => '',
-                  }),
+                SliverToBoxAdapter(child: _emptyTab())
+              // Photos are what somebody came to the Media tab to look at, so
+              // they are the whole tile. As a column of post tiles they were
+              // a caption with a picture attached, three to a screen.
+              else if (_tab == ProfileTab.media)
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(2, 2, 2, 0),
+                  sliver: SliverGrid.builder(
+                    gridDelegate:
+                        const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 3,
+                      crossAxisSpacing: 2,
+                      mainAxisSpacing: 2,
+                    ),
+                    itemCount: tabPosts.length,
+                    itemBuilder: (context, i) =>
+                        _MediaCell(post: tabPosts[i]),
+                  ),
                 )
               else
                 SliverList.separated(
@@ -815,6 +843,53 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
             style: TextStyle(fontSize: 12.5, color: Colors.grey.shade500)),
         onTap: () => Navigator.of(context).push(MaterialPageRoute(
             builder: (_) => FeedPostScreen(postId: mine[i].id))),
+      ),
+    );
+  }
+
+  /// What each tab says when it has nothing in it.
+  ///
+  /// An icon and two lines rather than one sentence in grey: an empty tab and
+  /// a tab that failed to load used to look the same, and neither said what to
+  /// do about it.
+  Widget _emptyTab() {
+    final (icon, title, subtitle) = switch (_tab) {
+      ProfileTab.posts when _isMe => (
+          Icons.edit_outlined,
+          'Nothing posted yet',
+          'Anything you post to the public timeline shows up here.',
+        ),
+      ProfileTab.posts => (
+          Icons.article_outlined,
+          'No posts yet',
+          'When this account posts, it appears here.',
+        ),
+      ProfileTab.replies => (
+          Icons.chat_bubble_outline,
+          'No replies yet',
+          'Replies to other people\'s posts collect here.',
+        ),
+      ProfileTab.media => (
+          Icons.photo_library_outlined,
+          'No photos yet',
+          'Posts with a picture in them show up here.',
+        ),
+      // Handled above; a switch over an enum has to be complete.
+      ProfileTab.servers => (Icons.forum_outlined, '', ''),
+    };
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(40, 44, 40, 44),
+      child: Column(
+        children: [
+          Icon(icon, size: 34, color: Colors.grey.shade400),
+          const SizedBox(height: 12),
+          Text(title,
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+          const SizedBox(height: 6),
+          Text(subtitle,
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 13.5, color: Colors.grey.shade500)),
+        ],
       ),
     );
   }
@@ -913,8 +988,18 @@ class _BannerAndAvatar extends StatelessWidget {
               child: Container(
                 padding: const EdgeInsets.all(3),
                 decoration: BoxDecoration(
-                    color: Theme.of(context).scaffoldBackgroundColor,
-                    shape: BoxShape.circle),
+                  color: Theme.of(context).scaffoldBackgroundColor,
+                  shape: BoxShape.circle,
+                  // Sitting on the banner's own colour, the ring alone reads as
+                  // a hole cut in it. A soft shadow puts the face in front.
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.18),
+                      blurRadius: 10,
+                      offset: const Offset(0, 3),
+                    ),
+                  ],
+                ),
                 child: known != null
                     ? UserAvatar(user: known, radius: _avatarRadius)
                     : CircleAvatar(
@@ -934,6 +1019,36 @@ class _BannerAndAvatar extends StatelessWidget {
             child: _ProfileActions(username: username, isMe: isMe),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// One photo in the Media grid.
+class _MediaCell extends StatelessWidget {
+  final PublicPost post;
+  const _MediaCell({required this.post});
+
+  @override
+  Widget build(BuildContext context) {
+    final url = PublicFeedStore.imageUrlFor(post) ?? '';
+    final surface = Theme.of(context).colorScheme.surfaceContainerHighest;
+    return GestureDetector(
+      onTap: () => Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => PublicThreadScreen(postId: post.id),
+      )),
+      child: Container(
+        color: surface,
+        child: Image.network(
+          url,
+          fit: BoxFit.cover,
+          // A cell that cannot load its photo keeps its square — a grid that
+          // drops tiles reflows every time one fails.
+          errorBuilder: (_, __, ___) =>
+              Icon(Icons.broken_image_outlined, color: Colors.grey.shade400),
+          loadingBuilder: (context, child, progress) =>
+              progress == null ? child : const SizedBox.shrink(),
+        ),
       ),
     );
   }
@@ -1031,41 +1146,36 @@ class _Header extends StatelessWidget {
               ListenableBuilder(
                 listenable: Listenable.merge(
                     [FollowStore.instance, CommunityStore.instance]),
-                builder: (context, _) => FittedBox(
-                  fit: BoxFit.scaleDown,
-                  alignment: Alignment.centerLeft,
-                  child: Row(
-                    children: [
-                      // Real, from the server, and the only count that means
-                      // anything on somebody else's profile.
+                builder: (context, _) => Wrap(
+                  spacing: 18,
+                  runSpacing: 4,
+                  children: [
+                    // Real, from the server, and the only count that means
+                    // anything on somebody else's profile.
+                    ProfileStat(
+                        value: postCount == null ? '—' : '$postCount',
+                        label: postCount == 1 ? 'Post' : 'Posts',
+                        onTap: null),
+                    if (isMe) ...[
                       ProfileStat(
-                          value: postCount == null ? '—' : '$postCount',
-                          label: postCount == 1 ? 'Post' : 'Posts',
+                          value: '${FollowStore.instance.followingCount}',
+                          label: 'Following',
+                          onTap: () => Navigator.of(context).push(
+                              MaterialPageRoute(
+                                  builder: (_) => const PeopleScreen()))),
+                      ProfileStat(
+                          value:
+                              '${CommunityStore.instance.communities.length}',
+                          label: 'Servers',
                           onTap: null),
-                      if (isMe) ...[
-                        const SizedBox(width: 22),
-                        ProfileStat(
-                            value: '${FollowStore.instance.followingCount}',
-                            label: 'Following',
-                            onTap: () => Navigator.of(context).push(
-                                MaterialPageRoute(
-                                    builder: (_) => const PeopleScreen()))),
-                        const SizedBox(width: 22),
-                        ProfileStat(
-                            value:
-                                '${CommunityStore.instance.communities.length}',
-                            label: 'Servers',
-                            onTap: null),
-                        const SizedBox(width: 22),
-                        ProfileStat(
-                            value: '${AppState.profile.value.score}',
-                            label: 'Okay Score',
-                            onTap: () => Navigator.of(context).push(
-                                MaterialPageRoute(
-                                    builder: (_) => const ScoreScreen()))),
-                      ],
+                      ProfileStat(
+                          value: '${AppState.profile.value.score}',
+                          label: 'Okay Score',
+                          onTap: () => Navigator.of(context).push(
+                              MaterialPageRoute(
+                                  builder: (_) => const ScoreScreen()))),
                     ],
-                  ),
+                  ],
                 ),
               ),
             ],
@@ -1164,50 +1274,79 @@ class _TabStrip extends StatelessWidget {
   const _TabStrip(
       {required this.labels, required this.active, required this.onPick});
 
+  /// The underline's own size, shared by the widget that draws it and the sums
+  /// that place it.
+  static const double _markWidth = 44;
+  static const double _markHeight = 3;
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return Column(
-      children: [
-        Row(
+    return LayoutBuilder(
+      builder: (context, box) {
+        // Even columns, so where the mark belongs is arithmetic rather than
+        // something to measure.
+        final cell = box.maxWidth / labels.length;
+        return Column(
           children: [
-            for (var i = 0; i < labels.length; i++)
-              Expanded(
-                child: InkWell(
-                  onTap: () => onPick(i),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    child: Column(
-                      children: [
-                        Text(labels[i],
-                            style: TextStyle(
-                              fontWeight: i == active
-                                  ? FontWeight.w700
-                                  : FontWeight.w500,
-                              color: i == active
-                                  ? scheme.onSurface
-                                  : Colors.grey.shade500,
-                            )),
-                        const SizedBox(height: 8),
-                        Container(
-                          height: 3,
-                          width: 44,
-                          decoration: BoxDecoration(
-                            color: i == active
-                                ? scheme.primary
-                                : Colors.transparent,
-                            borderRadius: BorderRadius.circular(2),
+            Stack(
+              children: [
+                Row(
+                  children: [
+                    for (var i = 0; i < labels.length; i++)
+                      Expanded(
+                        child: InkWell(
+                          onTap: () => onPick(i),
+                          child: Padding(
+                            padding: const EdgeInsets.fromLTRB(
+                                4, 12, 4, 12 + _markHeight + 8),
+                            child: Center(
+                              // The weight changes with the tab, so the label
+                              // is laid out for the bold one either way — a
+                              // strip whose columns shift as you tap between
+                              // them reads as the whole row moving.
+                              child: Text(
+                                labels[i],
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontWeight: i == active
+                                      ? FontWeight.w700
+                                      : FontWeight.w500,
+                                  color: i == active
+                                      ? scheme.onSurface
+                                      : Colors.grey.shade500,
+                                ),
+                              ),
+                            ),
                           ),
                         ),
-                      ],
+                      ),
+                  ],
+                ),
+                // ONE mark that travels, rather than one per tab appearing and
+                // disappearing. It is the thing that says which tab you are on,
+                // and watching it move is what tells you the tap landed.
+                AnimatedPositioned(
+                  duration: const Duration(milliseconds: 220),
+                  curve: Curves.easeOutCubic,
+                  bottom: 0,
+                  left: cell * active + (cell - _markWidth) / 2,
+                  child: Container(
+                    height: _markHeight,
+                    width: _markWidth,
+                    decoration: BoxDecoration(
+                      color: scheme.primary,
+                      borderRadius: BorderRadius.circular(2),
                     ),
                   ),
                 ),
-              ),
+              ],
+            ),
+            const Divider(height: 1),
           ],
-        ),
-        const Divider(height: 1),
-      ],
+        );
+      },
     );
   }
 }

@@ -25,16 +25,28 @@ class ProfileStat extends StatelessWidget {
   Widget build(BuildContext context) {
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(10),
-      child: Column(
-        children: [
-          Text(value,
-              style:
-                  const TextStyle(fontSize: 19, fontWeight: FontWeight.w800)),
-          const SizedBox(height: 2),
-          Text(label,
-              style: TextStyle(fontSize: 12.5, color: Colors.grey.shade600)),
-        ],
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 2),
+        // The number and what it counts on one line. Stacked, four of them
+        // needed more width than a phone has, and the row they sat in was
+        // scaled down to fit — which is how a profile ends up with counts too
+        // small to read.
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          // Two sizes on one line only look like one line if they sit on the
+          // same baseline.
+          crossAxisAlignment: CrossAxisAlignment.baseline,
+          textBaseline: TextBaseline.alphabetic,
+          children: [
+            Text(value,
+                style: const TextStyle(
+                    fontSize: 15, fontWeight: FontWeight.w800)),
+            const SizedBox(width: 4),
+            Text(label,
+                style: TextStyle(fontSize: 14, color: Colors.grey.shade600)),
+          ],
+        ),
       ),
     );
   }
