@@ -58,6 +58,19 @@ done
 
 echo "checked $checked file(s), $failed failing"
 
+# The verdict logic behind moderation-screen, actually executed. It decides
+# whether somebody gets to post, and a threshold nobody runs is a threshold
+# that drifts.
+if [ -f supabase/functions/_shared/moderation_test.mjs ]; then
+  if out=$(deno run --allow-read supabase/functions/_shared/moderation_test.mjs 2>&1); then
+    echo "$out" | tail -1
+  else
+    echo "--- FAIL moderation verdicts"
+    echo "$out" | grep FAIL | head -10
+    failed=$((failed + 1))
+  fi
+fi
+
 # The Connect page's secret handshake, actually executed. Every bug in that
 # flow so far lived here and was found by tapping the screen; the Dart tests can
 # only read it as text.
