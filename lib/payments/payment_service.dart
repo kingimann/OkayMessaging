@@ -321,6 +321,14 @@ class PaymentService {
     );
   }
 
+  /// The raw answer from payments-account-session, for the self-test.
+  ///
+  /// Separate from [connectSession] on purpose: that one throws on a key-mode
+  /// mismatch, which is exactly what the self-test is trying to *report*.
+  Future<Map<String, dynamic>> connectSessionRaw() =>
+      _invoke('payments-account-session')
+          .timeout(const Duration(seconds: 25));
+
   /// Throws when the publishable key the page will use can't authenticate a
   /// session minted by the server's secret key.
   ///

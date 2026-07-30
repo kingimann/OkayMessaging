@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../payments/payment_service.dart';
 import '../payments/connect_webview.dart';
 import 'payment_controls_screen.dart';
+import 'payment_diagnostics_screen.dart';
 import 'payment_history_screen.dart';
 import 'in_app_web_screen.dart';
 import 'connect_onboarding_screen.dart';
@@ -120,6 +121,14 @@ class _WalletScreenState extends State<WalletScreen> {
                 icon: const Icon(Icons.refresh),
                 onPressed: _busy ? null : _refresh),
           ],
+          // Outside the isConfigured guard on purpose: "payments aren't set up"
+          // is one of the things the self-test exists to explain.
+          IconButton(
+            icon: const Icon(Icons.medical_information_outlined),
+            tooltip: 'Check payments setup',
+            onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                builder: (_) => const PaymentDiagnosticsScreen())),
+          ),
         ],
       ),
       floatingActionButton: !PaymentService.instance.isConfigured

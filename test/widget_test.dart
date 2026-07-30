@@ -39,6 +39,8 @@ import 'package:okay_messaging/screens/admin_screen.dart';
 import 'package:okay_messaging/screens/settings_screen.dart';
 import 'package:okay_messaging/screens/identity_check_screen.dart';
 import 'package:okay_messaging/state/platform_moderation.dart';
+import 'package:okay_messaging/payments/payment_diagnostics.dart';
+import 'package:okay_messaging/screens/payment_diagnostics_screen.dart';
 import 'package:okay_messaging/screens/public_feed_screen.dart';
 import 'package:okay_messaging/state/public_feed_store.dart';
 import 'package:okay_messaging/widgets/streak_chip.dart';
@@ -14077,6 +14079,120 @@ void main() {
       expect(html.contains("notify('error:' + message)"), isTrue);
       // The spinner hides when the component paints, not when it is appended.
       expect(html.contains('setOnLoaderStart'), isTrue);
+    });
+
+    test('the self-test names the broken link, in the order that matters', () {
+      String verdict({
+        String appKeyMode = 'live',
+        String appKeyAccount = 'acct_APP',
+        bool appKeyRecognised = true,
+        bool appKeyPresent = true,
+        String? serverMode = 'live',
+        String serverAccount = 'acct_APP',
+        String? serverError,
+        bool signedIn = true,
+      }) =>
+          PaymentsSelfTest.verdictFor(
+            appKeyMode: appKeyMode,
+            appKeyAccount: appKeyAccount,
+            appKeyRecognised: appKeyRecognised,
+            appKeyPresent: appKeyPresent,
+            serverMode: serverMode,
+            serverAccount: serverAccount,
+            serverError: serverError,
+            signedIn: signedIn,
+          ).$1;
+      bool faulty({String serverMode = 'live', String serverAccount = 'acct_APP'}) =>
+          PaymentsSelfTest.verdictFor(
+            appKeyMode: 'live',
+            appKeyAccount: 'acct_APP',
+            appKeyRecognised: true,
+            appKeyPresent: true,
+            serverMode: serverMode,
+            serverAccount: serverAccount,
+            serverError: null,
+            signedIn: true,
+          ).$2;
+
+      // Everything lines up: say so plainly rather than hedging. A self-test
+      // that never clears anything is a self-test nobody believes.
+      expect(faulty(), isFalse);
+      expect(verdict(), contains('Nothing is wrong with the keys'));
+
+      // The two causes of "an error occurred while authenticating your
+      // account", each named with the key to change.
+      expect(verdict(serverMode: 'test'),
+          allOf(contains('different modes'), contains('sk_live_')));
+      expect(faulty(serverMode: 'test'), isTrue);
+      expect(
+          verdict(serverAccount: 'acct_OTHER'),
+          allOf(contains('different Stripe accounts'), contains('acct_APP'),
+              contains('acct_OTHER')));
+      expect(faulty(serverAccount: 'acct_OTHER'), isTrue);
+
+      // Order matters: an earlier fault would produce the later symptom
+      // anyway, so reporting the later one would send somebody after the wrong
+      // thing. A mode mismatch wins over an account mismatch.
+      expect(verdict(serverMode: 'test', serverAccount: 'acct_OTHER'),
+          contains('different modes'));
+      // And anything that stops a session being minted wins over both.
+      expect(
+          verdict(
+              serverError: 'PaymentException: unauthorized',
+              serverMode: 'test',
+              serverAccount: 'acct_OTHER'),
+          allOf(contains('could not start a Stripe session'),
+              isNot(contains('different modes'))));
+      expect(verdict(signedIn: false, serverError: 'anything'),
+          contains('Sign in first'));
+      expect(verdict(appKeyPresent: false, appKeyMode: ''),
+          contains('no Stripe publishable key'));
+      expect(verdict(appKeyRecognised: false),
+          contains('does not recognise'));
+
+      // What it must NOT do: claim the accounts match when it never learned
+      // one of them. Silence is the honest answer there.
+      expect(verdict(serverAccount: ''),
+          allOf(contains('could not be established'),
+              isNot(contains('Nothing is wrong'))));
+      expect(faulty(serverAccount: ''), isFalse,
+          reason: 'unknown is not a fault');
+      expect(verdict(serverMode: null),
+          contains('re-paste payments-account-session'));
+
+      // A report is for pasting into a message, so it must never carry a whole
+      // key — and there is no secret key on a client to leak in the first place.
+      expect(PaymentsSelfTest.maskKey('pk_live_abcdefghMM3P'), '…MM3P');
+      expect(PaymentsSelfTest.modeOfPublishableKey('pk_live_x'), 'live');
+      expect(PaymentsSelfTest.modeOfPublishableKey('pk_test_x'), 'test');
+      expect(PaymentsSelfTest.modeOfPublishableKey('sk_live_x'), '',
+          reason: 'a secret key is not a publishable key');
+    });
+
+    testWidgets('the self-test screen prints the step that failed', (t) async {
+      addTearDown(() {
+        PaymentsSelfTest.debugSessionProbe = null;
+        PaymentsSelfTest.debugKeyProbe = null;
+        PaymentsSelfTest.debugAppKey = null;
+      });
+      PaymentsSelfTest.debugAppKey = 'pk_live_abcdefghMM3P';
+      PaymentsSelfTest.debugKeyProbe = (key) async =>
+          const StripeKeyFacts(recognised: true, account: 'acct_APPSIDE');
+      PaymentsSelfTest.debugSessionProbe = () async => {
+            'clientSecret': 'accs_x',
+            'mode': 'live',
+            'platformAccount': 'acct_SERVERSIDE',
+          };
+
+      await t.pumpWidget(
+          const MaterialApp(home: PaymentDiagnosticsScreen()));
+      await t.pumpAndSettle();
+
+      // Twice each: once in the step that found it, once in the verdict.
+      expect(find.textContaining('acct_APPSIDE'), findsWidgets);
+      expect(find.textContaining('acct_SERVERSIDE'), findsWidgets);
+      expect(find.text('What to change'), findsOneWidget);
+      expect(find.textContaining('different Stripe accounts'), findsOneWidget);
     });
 
     test('a key in the wrong mode is named, not left to Stripe', () {
