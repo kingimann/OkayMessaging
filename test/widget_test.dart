@@ -39,6 +39,8 @@ import 'package:okay_messaging/screens/admin_screen.dart';
 import 'package:okay_messaging/screens/settings_screen.dart';
 import 'package:okay_messaging/screens/identity_check_screen.dart';
 import 'package:okay_messaging/state/platform_moderation.dart';
+import 'package:okay_messaging/screens/public_feed_screen.dart';
+import 'package:okay_messaging/state/public_feed_store.dart';
 import 'package:okay_messaging/widgets/streak_chip.dart';
 import 'package:okay_messaging/widgets/sanction_notice.dart';
 import 'package:okay_messaging/screens/forum_screen.dart';
@@ -13091,6 +13093,234 @@ void main() {
       // And they are NOT environment-tunable: they are Stripe's prices, not
       // ours, so a deployment must not be able to pretend otherwise.
       expect(shared.contains('Deno.env.get("STRIPE_PERCENT")'), isFalse);
+    });
+  });
+
+  group('Public newsfeed', () {
+    setUp(() {
+      PublicFeedStore.instance.resetForTest();
+      PlatformModeration.instance.resetForTest();
+    });
+    tearDown(() {
+      PublicFeedStore.instance.resetForTest();
+      PlatformModeration.instance.resetForTest();
+    });
+
+    PublicPost mk(String id,
+            {String? replyTo, String user = 'ada', int likes = 0}) =>
+        PublicPost(
+          id: id,
+          authorUsername: user,
+          authorName: user,
+          body: 'post $id',
+          replyTo: replyTo,
+          createdAt: DateTime(2026, 7, 30),
+          likeCount: likes,
+        );
+
+    test('length is validated before the database has to refuse it', () {
+      expect(PublicFeedStore.validate(''), isNotNull);
+      expect(PublicFeedStore.validate('   '), isNotNull);
+      expect(PublicFeedStore.validate('hello'), isNull);
+      expect(PublicFeedStore.validate('x' * PublicFeedStore.maxLength), isNull);
+      final over = PublicFeedStore.validate('x' * (PublicFeedStore.maxLength + 7));
+      expect(over, contains('7 characters too long'),
+          reason: 'say how much to cut, not just that it is too long');
+      // The client cap and the table's CHECK have to be the same number, or
+      // one of them is a lie.
+      final sql = File('docs/public_feed.sql').readAsStringSync();
+      expect(
+          sql.contains('char_length(body) between 1 and '
+              '${PublicFeedStore.maxLength}'),
+          isTrue);
+    });
+
+    test('ids do not collide', () {
+      final ids = {for (var i = 0; i < 500; i++) PublicFeedStore.newId()};
+      expect(ids, hasLength(500));
+      expect(ids.every((i) => i.startsWith('pp_')), isTrue);
+    });
+
+    test('the timeline is top-level posts; replies hang off their parent',
+        () async {
+      final store = PublicFeedStore.instance;
+      PublicFeedStore.debugLoadOverride = () async => [
+            mk('a'),
+            mk('b'),
+            mk('r1', replyTo: 'a'),
+            mk('r2', replyTo: 'a'),
+          ];
+      await store.load();
+      expect(store.posts.map((p) => p.id), ['a', 'b'],
+          reason: 'a reply is not a timeline entry');
+      expect(store.repliesTo('a').map((p) => p.id), ['r2', 'r1']);
+      expect(store.repliesTo('b'), isEmpty);
+      expect(store.byId('r1')?.replyTo, 'a');
+    });
+
+    test('a post appears at once and its parent\'s reply count moves',
+        () async {
+      final store = PublicFeedStore.instance;
+      PublicFeedStore.debugLoadOverride = () async => [mk('a')];
+      await store.load();
+      final written = <PublicPost>[];
+      PublicFeedStore.debugPostOverride = (p) async => written.add(p);
+
+      await store.post('  hello world  ');
+      expect(written.single.body, 'hello world', reason: 'trimmed');
+      expect(store.posts.first.body, 'hello world',
+          reason: 'shown without waiting for a reload');
+      expect(store.posts.first.mine, isTrue);
+
+      await store.post('a reply', replyTo: 'a');
+      expect(store.byId('a')!.replyCount, 1,
+          reason: 'an empty-looking thread after replying is a bug');
+      expect(store.posts.any((p) => p.body == 'a reply'), isFalse,
+          reason: 'a reply belongs under its parent, not on the timeline');
+
+      // Nothing is written when the text is unusable.
+      written.clear();
+      await expectLater(store.post('   '), throwsA(isA<PublicFeedError>()));
+      expect(written, isEmpty);
+    });
+
+    test('a like that the server refuses is put back', () async {
+      final store = PublicFeedStore.instance;
+      PublicFeedStore.debugLoadOverride = () async => [mk('a', likes: 4)];
+      await store.load();
+
+      PublicFeedStore.debugLikeOverride = (_, __) async {};
+      await store.toggleLike('a');
+      expect(store.byId('a')!.liked, isTrue);
+      expect(store.byId('a')!.likeCount, 5);
+      await store.toggleLike('a');
+      expect(store.byId('a')!.liked, isFalse);
+      expect(store.byId('a')!.likeCount, 4);
+
+      // A refusal rolls the optimistic change back, rather than showing a
+      // like that never happened.
+      PublicFeedStore.debugLikeOverride =
+          (_, __) async => throw PublicFeedError('no');
+      await store.toggleLike('a');
+      expect(store.byId('a')!.liked, isFalse, reason: 'rolled back');
+      expect(store.byId('a')!.likeCount, 4);
+    });
+
+    test('deleting a post takes its replies with it', () async {
+      final store = PublicFeedStore.instance;
+      PublicFeedStore.debugLoadOverride =
+          () async => [mk('a'), mk('r1', replyTo: 'a'), mk('b')];
+      await store.load();
+      await store.delete('a');
+      expect(store.byId('a'), isNull);
+      expect(store.byId('r1'), isNull,
+          reason: 'the table cascades; the store must match');
+      expect(store.byId('b'), isNotNull);
+    });
+
+    test('the feed is public by design, and says so where it matters', () {
+      final sql = File('docs/public_feed.sql').readAsStringSync();
+      // This is the one table holding plaintext, so the file has to be explicit
+      // about it rather than leaving it to be discovered.
+      expect(sql.contains('plaintext the server can read'), isTrue);
+      expect(sql.contains('Private messaging is untouched'), isTrue);
+      // The composer warns before somebody types, not after.
+      final screen =
+          File('lib/screens/public_feed_screen.dart').readAsStringSync();
+      expect(screen.contains('Everyone using OkayMessenger can see this'),
+          isTrue);
+    });
+
+    test('a phone number is never readable from the feed', () {
+      final sql = File('docs/public_feed.sql').readAsStringSync();
+      // Column-level, so Postgres refuses the request rather than trusting a
+      // client not to make it.
+      expect(
+          sql.contains('revoke select (author_phone) on public.public_posts '
+              'from anon, authenticated'),
+          isTrue);
+      expect(
+          sql.contains('revoke select (liker_phone) on '
+              'public.public_post_likes from anon, authenticated'),
+          isTrue);
+      // The view clients read has no phone column at all.
+      final view = sql.substring(sql.indexOf('create or replace view'));
+      expect(view.contains('author_phone'), isFalse);
+      expect(view.contains('security_invoker = on'), isTrue,
+          reason: 'without it the view would bypass the read policy');
+      // And the store never selects '*', which is how that leaks by accident.
+      final store = File('lib/state/public_feed_store.dart').readAsStringSync();
+      expect(store.contains(".select('*')"), isFalse);
+      expect(store.contains('author_phone'), isTrue,
+          reason: 'it is still sent on insert, for the ownership check');
+    });
+
+    test('posting as someone else, or while sanctioned, is refused by the DB',
+        () {
+      final sql = File('docs/public_feed.sql').readAsStringSync();
+      // Identity comes from the JWT, so a modified client cannot claim another
+      // account…
+      expect(sql.contains("author_phone = (auth.jwt() ->> 'phone')"), isTrue);
+      // …and a sanctioned account is refused at the database, not merely
+      // discouraged in the UI.
+      expect(sql.contains('not public.is_silenced(author_phone)'), isTrue);
+      expect(sql.contains('not public.is_silenced(liker_phone)'), isTrue);
+      // A banned or suspended author's posts leave the feed entirely.
+      expect(sql.contains('using (not public.is_locked_out(author_phone))'),
+          isTrue);
+      // No update policy: a public post that can be silently rewritten is a
+      // way to bait people.
+      expect(sql.contains('for update'), isFalse);
+      // is_silenced must exist before the policies that call it, or the whole
+      // script fails on a fresh project.
+      expect(sql.indexOf('create or replace function public.is_silenced'),
+          lessThan(sql.indexOf('not public.is_silenced(author_phone)')));
+    });
+
+    testWidgets('a timed-out account is told, not silently ignored',
+        (tester) async {
+      PublicFeedStore.debugLoadOverride = () async => [];
+      PlatformModeration.instance.debugSet(
+        role: PlatformRole.member,
+        sanction: AccountSanction(
+            kind: SanctionKind.timeout,
+            reason: 'Spam',
+            until: DateTime.now().toUtc().add(const Duration(hours: 3)),
+            createdAt: DateTime.now().toUtc()),
+        loaded: true,
+      );
+      await tester.pumpWidget(const MaterialApp(home: PublicFeedScreen()));
+      await tester.pumpAndSettle();
+
+      // The banner explains it before anyone tries.
+      expect(find.text('You are timed out'), findsOneWidget);
+      await tester.tap(find.widgetWithText(FloatingActionButton, 'Post'));
+      await tester.pumpAndSettle();
+      // And tapping Post says why rather than opening a composer that would
+      // only fail at the database.
+      expect(find.textContaining('you can post again in'), findsOneWidget);
+      expect(find.text('New post'), findsNothing);
+    });
+
+    testWidgets('the composer states that everyone will see it',
+        (tester) async {
+      PublicFeedStore.debugLoadOverride = () async => [];
+      AppState.profile.value = AppState.profile.value;
+      await tester.pumpWidget(const MaterialApp(home: PublicFeedScreen()));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FloatingActionButton, 'Post'));
+      await tester.pumpAndSettle();
+      expect(find.text('New post'), findsOneWidget);
+      expect(find.textContaining('Everyone using OkayMessenger can see this'),
+          findsOneWidget);
+      // The counter starts at the cap and Post is disabled until something
+      // is typed.
+      expect(find.text('${PublicFeedStore.maxLength}'), findsOneWidget);
+      expect(
+          tester
+              .widget<FilledButton>(find.widgetWithText(FilledButton, 'Post'))
+              .onPressed,
+          isNull);
     });
   });
 

@@ -18,6 +18,7 @@ import 'explore_map_screen.dart';
 import 'new_chat_screen.dart';
 import 'profile_screen.dart';
 import 'marketplace_screen.dart';
+import 'public_feed_screen.dart';
 import 'settings_screen.dart';
 import 'wallet_screen.dart';
 import 'edit_profile_screen.dart';
@@ -382,6 +383,12 @@ class _AppSideBar extends StatelessWidget {
               const Divider(height: 1),
               // The full apps that live outside the five tabs, plus the
               // destinations people kept asking where to find.
+              ListTile(
+                leading: const Icon(Icons.public),
+                title: const Text('Newsfeed'),
+                subtitle: const Text('One public timeline, everyone on it'),
+                onTap: () => _go(context, const PublicFeedScreen()),
+              ),
               ListTile(
                 leading: const Icon(Icons.map_outlined),
                 title: const Text('Maps'),
