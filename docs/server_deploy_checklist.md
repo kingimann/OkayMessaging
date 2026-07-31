@@ -21,7 +21,7 @@ Dashboard → **SQL Editor** → paste the file → Run.
 | 3 | `docs/directory_privacy.sql` | The "How people can reach you" switches | The switches say "Couldn't save" |
 | 4 | `docs/market_media_bucket.sql` | Listing videos | Uploading a video says the bucket isn't provisioned |
 | 5 | `docs/platform_moderation.sql` | App-wide roles, bans, suspensions, time-outs, reports | No Moderation section anywhere |
-| 6 | `docs/public_feed.sql` | The public Newsfeed | The Newsfeed says it isn't set up |
+| 6 | `docs/public_feed.sql` | The public Newsfeed, including polls | The Newsfeed says it isn't set up; polls can't be posted or voted on |
 
 ### Then grant yourself the owner role
 

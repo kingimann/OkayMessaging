@@ -14252,6 +14252,304 @@ void main() {
       expect(marks.ids, ['a']);
     });
 
+    // --- Polls ------------------------------------------------------------
+    PublicPost poll(String id,
+            {List<String> options = const ['Tabs', 'Spaces'],
+            List<int> votes = const [0, 0],
+            int? myVote,
+            Duration closesIn = const Duration(days: 1)}) =>
+        PublicPost(
+          id: id,
+          authorUsername: 'ada',
+          authorName: 'Ada',
+          body: 'Tabs or spaces?',
+          createdAt: DateTime.now(),
+          pollOptions: options,
+          pollClosesAt: DateTime.now().add(closesIn),
+          pollVotes: votes,
+          myVote: myVote,
+        );
+
+    test('what a poll is, and what it is not', () {
+      expect(poll('a').isPoll, isTrue);
+      // One answer is a broken row, not a poll with one button.
+      expect(poll('a', options: ['Only']).isPoll, isFalse);
+      expect(mk('b').isPoll, isFalse);
+      expect(mk('b').pollClosed, isFalse,
+          reason: 'a post with no poll has not closed one');
+    });
+
+    test('a poll opens, closes, and only takes one vote from you', () {
+      final open = poll('a');
+      expect(open.pollClosed, isFalse);
+      expect(open.canVote, isTrue);
+      expect(open.showPollResults, isFalse);
+
+      // Voting flips it to results without waiting for the server.
+      final voted = poll('a', myVote: 1);
+      expect(voted.canVote, isFalse);
+      expect(voted.showPollResults, isTrue);
+
+      // So does closing, whether or not you answered.
+      final shut = poll('a', closesIn: const Duration(seconds: -1));
+      expect(shut.pollClosed, isTrue);
+      expect(shut.canVote, isFalse);
+      expect(shut.showPollResults, isTrue);
+    });
+
+    test('the tally divides, and a tie has no winner', () {
+      final p = poll('a', options: ['A', 'B', 'C'], votes: [1, 3, 0]);
+      expect(p.pollTotalVotes, 4);
+      expect(p.pollShare(0), closeTo(0.25, 0.001));
+      expect(p.pollShare(1), closeTo(0.75, 0.001));
+      expect(p.pollShare(2), 0);
+      expect(p.pollLeaders, {1});
+
+      // Nothing cast yet: no division by nothing, and nobody leading.
+      final fresh = poll('a', votes: [0, 0]);
+      expect(fresh.pollShare(0), 0);
+      expect(fresh.pollLeaders, isEmpty);
+
+      // A tie names both rather than picking one — drawing a winner where
+      // there isn't one is inventing a result.
+      expect(poll('a', votes: [2, 2]).pollLeaders, {0, 1});
+
+      // An index the poll hasn't got reads as zero, not as a crash.
+      expect(p.pollShare(9), 0);
+      expect(p.pollShare(-1), 0);
+    });
+
+    test('the answers a poll may have are checked before the database sees them',
+        () {
+      expect(PublicFeedStore.validatePoll(['Yes', 'No']), isNull);
+      expect(PublicFeedStore.validatePoll(['Yes']), isNotNull);
+      expect(PublicFeedStore.validatePoll(['Yes', '   ']), isNotNull,
+          reason: 'a blank answer does not count towards the two');
+      expect(PublicFeedStore.validatePoll(['a', 'b', 'c', 'd', 'e']), isNotNull);
+      expect(PublicFeedStore.validatePoll(['Yes', 'yes']), isNotNull,
+          reason: 'two answers that are the same make a useless result');
+      expect(
+          PublicFeedStore.validatePoll(
+              ['Yes', 'x' * (PublicFeedStore.maxPollOptionLength + 1)]),
+          isNotNull);
+      // Whitespace around an answer is the person's, not the poll's.
+      expect(PublicFeedStore.validatePoll([' Yes ', 'No']), isNull);
+    });
+
+    test('a vote moves the tally, and goes back when the server refuses',
+        () async {
+      final store = PublicFeedStore.instance;
+      PublicFeedStore.debugLoadOverride = () async => [poll('p')];
+      await store.load();
+      expect(store.byId('p')!.canVote, isTrue);
+
+      final asked = <(String, int)>[];
+      PublicFeedStore.debugVoteOverride = (id, choice) async {
+        asked.add((id, choice));
+      };
+      await store.vote('p', 1);
+      expect(asked, [('p', 1)]);
+      expect(store.byId('p')!.myVote, 1);
+      expect(store.byId('p')!.pollVotes, [0, 1]);
+      expect(store.byId('p')!.canVote, isFalse);
+
+      // A second vote is not sent at all: the server refuses it anyway, and
+      // an optimistic tally that moved would be lying until the next load.
+      await store.vote('p', 0);
+      expect(asked.length, 1);
+      expect(store.byId('p')!.pollVotes, [0, 1]);
+
+      // A refusal puts the tally back AND clears the vote, so the buttons
+      // come back rather than leaving somebody stuck on an answer that
+      // never counted.
+      PublicFeedStore.debugLoadOverride = () async => [poll('q')];
+      await store.load();
+      PublicFeedStore.debugVoteOverride = (id, choice) async {
+        throw StateError('no');
+      };
+      await store.vote('q', 0);
+      expect(store.byId('q')!.pollVotes, [0, 0]);
+      expect(store.byId('q')!.myVote, isNull);
+      expect(store.byId('q')!.canVote, isTrue);
+    });
+
+    test('a closed poll takes no vote, and nor does an answer it has not got',
+        () async {
+      final store = PublicFeedStore.instance;
+      PublicFeedStore.debugLoadOverride = () async => [
+            poll('shut', closesIn: const Duration(seconds: -1)),
+            poll('open'),
+          ];
+      await store.load();
+      final asked = <int>[];
+      PublicFeedStore.debugVoteOverride = (id, c) async => asked.add(c);
+
+      await store.vote('shut', 0);
+      await store.vote('open', 7);
+      await store.vote('open', -1);
+      expect(asked, isEmpty);
+      // The server refuses all three as well — this is the client not making
+      // a request it knows the answer to.
+      final sql = File('docs/public_feed.sql').readAsStringSync();
+      expect(sql.contains('poll_closes_at > now()'), isTrue);
+      expect(sql.contains('array_length(p.poll_options, 1)'), isTrue);
+    });
+
+    test('a poll goes up with its question, answers and closing time',
+        () async {
+      final store = PublicFeedStore.instance;
+      PublicPost? sent;
+      PublicFeedStore.debugPostOverride = (p) async => sent = p;
+      final screened = <String>[];
+      PublicFeedStore.debugScreenOverride = (text) async {
+        screened.add(text);
+        return {'verdict': 'ok'};
+      };
+
+      await store.post('Tabs or spaces?',
+          pollOptions: ['Tabs', ' Spaces ', '  '],
+          pollRunsFor: const Duration(hours: 6));
+
+      expect(sent!.pollOptions, ['Tabs', 'Spaces'],
+          reason: 'blank answers are dropped and the rest trimmed');
+      expect(sent!.pollVotes, [0, 0]);
+      expect(sent!.pollClosesAt!.difference(DateTime.now()).inMinutes,
+          closeTo(360, 2));
+      // The answers are public text on a public post. Screening only the
+      // question would leave the obvious way round it.
+      expect(screened.single, 'Tabs or spaces?\nTabs\nSpaces');
+    });
+
+    test('a poll cannot be a reply, a quote, or a question nobody asked',
+        () async {
+      final store = PublicFeedStore.instance;
+      PublicFeedStore.debugPostOverride = (p) async {};
+      PublicFeedStore.debugScreenOverride = (_) async => {'verdict': 'ok'};
+
+      Future<String?> fails(Future<void> Function() f) async {
+        try {
+          await f();
+          return null;
+        } catch (e) {
+          return '$e';
+        }
+      }
+
+      expect(
+          await fails(() =>
+              store.post('Q', pollOptions: ['a', 'b'], replyTo: 'x')),
+          isNotNull);
+      expect(
+          await fails(() =>
+              store.post('Q', pollOptions: ['a', 'b'], repostOf: 'x')),
+          isNotNull);
+      expect(await fails(() => store.post('', pollOptions: ['a', 'b'])),
+          isNotNull);
+      expect(await fails(() => store.post('Q', pollOptions: ['a'])), isNotNull);
+      // And the same rules are CHECK constraints, not just these messages.
+      final sql = File('docs/public_feed.sql').readAsStringSync();
+      expect(sql.contains('public_posts_poll_shape'), isTrue);
+    });
+
+    test('a feed view without polls still gives a timeline', () {
+      // The app deploys on push; the SQL is pasted by hand. A single boolean
+      // could only ever describe two schemas, and polls made a third — so a
+      // missing column steps down a generation rather than blanking the feed.
+      final src = File('lib/state/public_feed_store.dart').readAsStringSync();
+      final sets = RegExp(r'_columnSets = \[').allMatches(src);
+      expect(sets.length, 1);
+      expect(src.contains('poll_votes'), isTrue);
+      expect(PublicFeedStore.isMissingColumn('42703'), isTrue);
+      expect(PublicFeedStore.isMissingColumn('42P01'), isFalse);
+    });
+
+    testWidgets('a poll shows buttons, then bars, and says how long is left',
+        (t) async {
+      t.view.physicalSize = const Size(500, 1600);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.resetPhysicalSize);
+      SharedPreferences.setMockInitialValues({});
+      final store = PublicFeedStore.instance;
+      PublicFeedStore.debugLoadOverride = () async =>
+          [poll('p', votes: [3, 1], closesIn: const Duration(hours: 5))];
+      PublicFeedStore.debugVoteOverride = (id, c) async {};
+
+      await t.pumpWidget(const MaterialApp(home: PublicFeedScreen()));
+      await t.pumpAndSettle();
+
+      expect(find.widgetWithText(OutlinedButton, 'Tabs'), findsOneWidget);
+      expect(find.text('4 votes · 5 hours left'), findsOneWidget);
+      // Before voting, no percentages: showing the result to somebody who has
+      // not answered is how you change the answer they give.
+      expect(find.textContaining('%'), findsNothing);
+
+      await t.tap(find.widgetWithText(OutlinedButton, 'Tabs'));
+      await t.pumpAndSettle();
+
+      expect(find.widgetWithText(OutlinedButton, 'Tabs'), findsNothing);
+      expect(find.text('80%'), findsOneWidget, reason: '4 of 5 after my vote');
+      expect(find.text('20%'), findsOneWidget);
+      expect(find.text('5 votes · 5 hours left'), findsOneWidget);
+      expect(store.byId('p')!.myVote, 0);
+    });
+
+    testWidgets('a closed poll shows the result and no way to answer',
+        (t) async {
+      t.view.physicalSize = const Size(500, 1600);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.resetPhysicalSize);
+      SharedPreferences.setMockInitialValues({});
+      PublicFeedStore.debugLoadOverride = () async => [
+            poll('p',
+                votes: [2, 2], closesIn: const Duration(seconds: -1))
+          ];
+      await t.pumpWidget(const MaterialApp(home: PublicFeedScreen()));
+      await t.pumpAndSettle();
+
+      expect(find.widgetWithText(OutlinedButton, 'Tabs'), findsNothing);
+      expect(find.text('4 votes · Final result'), findsOneWidget);
+      // A tie draws both at 50% rather than picking a winner.
+      expect(find.text('50%'), findsNWidgets(2));
+    });
+
+    testWidgets('the composer writes a poll and refuses a broken one',
+        (t) async {
+      t.view.physicalSize = const Size(500, 1600);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.resetPhysicalSize);
+      SharedPreferences.setMockInitialValues({});
+      PublicFeedStore.debugLoadOverride = () async => const [];
+      PublicFeedStore.debugScreenOverride = (_) async => {'verdict': 'ok'};
+      PublicPost? sent;
+      PublicFeedStore.debugPostOverride = (p) async => sent = p;
+
+      await t.pumpWidget(const MaterialApp(home: PublicFeedScreen()));
+      await t.pumpAndSettle();
+      await t.tap(find.byTooltip('New post'));
+      await t.pumpAndSettle();
+
+      await t.enterText(find.byType(TextField).first, 'Tabs or spaces?');
+      await t.pumpAndSettle();
+      // Postable as an ordinary post before the poll is added.
+      expect(t.widget<FilledButton>(find.widgetWithText(FilledButton, 'Post'))
+          .onPressed, isNotNull);
+
+      await t.tap(find.byTooltip('Add a poll'));
+      await t.pumpAndSettle();
+      // Two empty answers: a poll with nothing in it cannot go up.
+      expect(t.widget<FilledButton>(find.widgetWithText(FilledButton, 'Post'))
+          .onPressed, isNull);
+
+      await t.enterText(find.widgetWithText(TextField, 'Answer 1'), 'Tabs');
+      await t.enterText(find.widgetWithText(TextField, 'Answer 2'), 'Spaces');
+      await t.pumpAndSettle();
+      await t.tap(find.widgetWithText(FilledButton, 'Post'));
+      await t.pumpAndSettle();
+
+      expect(sent!.pollOptions, ['Tabs', 'Spaces']);
+      expect(sent!.body, 'Tabs or spaces?');
+    });
+
     testWidgets('muting someone hides them, and can be undone', (t) async {
       t.view.physicalSize = const Size(500, 1600);
       t.view.devicePixelRatio = 1.0;

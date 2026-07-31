@@ -26,6 +26,7 @@ import 'package:okay_messaging/state/chat_store.dart';
 import 'package:okay_messaging/state/legal_consent.dart';
 import 'package:okay_messaging/state/session.dart';
 import 'package:okay_messaging/state/public_feed_store.dart';
+import 'package:okay_messaging/screens/public_feed_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Real type instead of the test font's filled boxes.
@@ -137,5 +138,42 @@ void main() {
     await shot('narrow_chats');
     await t.tap(find.byIcon(Icons.notifications_none));
     await shot('narrow_alerts');
+
+    // The newsfeed, with a poll open and a poll finished.
+    t.view.physicalSize = const Size(390, 844);
+    final feedNow = DateTime.now();
+    PublicFeedStore.debugLoadOverride = () async => [
+          PublicPost(
+            id: 'poll1',
+            authorUsername: 'ada',
+            authorName: 'Ada Lovelace',
+            body: 'Tabs or spaces? Settle it.',
+            createdAt: feedNow,
+            pollOptions: const ['Tabs', 'Spaces', 'I use both'],
+            pollClosesAt: feedNow.add(const Duration(hours: 5)),
+            pollVotes: const [12, 31, 4],
+          ),
+          PublicPost(
+            id: 'poll2',
+            authorUsername: 'grace',
+            authorName: 'Grace Hopper',
+            body: 'Ship it Friday?',
+            createdAt: feedNow.subtract(const Duration(hours: 2)),
+            pollOptions: const ['Yes', 'No'],
+            pollClosesAt: feedNow.subtract(const Duration(minutes: 5)),
+            pollVotes: const [9, 3],
+            myVote: 0,
+          ),
+        ];
+    await t.pumpWidget(const MaterialApp(home: PublicFeedScreen()));
+    await shot('feed_polls');
+    await t.tap(find.byTooltip('New post'));
+    await t.pumpAndSettle();
+    await t.enterText(find.byType(TextField).first, 'Tabs or spaces?');
+    await t.tap(find.byTooltip('Add a poll'));
+    await t.pumpAndSettle();
+    await t.enterText(find.widgetWithText(TextField, 'Answer 1'), 'Tabs');
+    await t.enterText(find.widgetWithText(TextField, 'Answer 2'), 'Spaces');
+    await shot('compose_poll');
   });
 }

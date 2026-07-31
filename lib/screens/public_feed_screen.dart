@@ -1526,6 +1526,10 @@ class _PostTile extends StatelessWidget {
                       ),
                     ),
                   ],
+                  if (post.isPoll) ...[
+                    const SizedBox(height: 10),
+                    _Poll(post: post),
+                  ],
                   if (post.repostOf != null) _Quoted(postId: post.repostOf!),
                   const SizedBox(height: 2),
                   // Four actions, evenly spread across the post's own width
@@ -1851,6 +1855,54 @@ class _ComposerState extends State<_Composer> {
   bool _sending = false;
   Uint8List? _image;
 
+  /// Non-null once a poll is being written. Two answer fields to start with,
+  /// because two is the fewest a poll can have.
+  List<TextEditingController>? _pollFields;
+  Duration _pollRunsFor = const Duration(days: 1);
+
+  bool get _isPoll => _pollFields != null;
+
+  void _togglePoll() {
+    setState(() {
+      if (_isPoll) {
+        for (final c in _pollFields!) {
+          c.dispose();
+        }
+        _pollFields = null;
+      } else {
+        _pollFields = [TextEditingController(), TextEditingController()];
+        // A photo and a poll in one post would have to share the space and
+        // the question, and no timeline does it. The poll wins because it is
+        // the thing just asked for.
+        _image = null;
+      }
+    });
+  }
+
+  void _addPollField() {
+    if (_pollFields == null ||
+        _pollFields!.length >= PublicFeedStore.maxPollOptions) {
+      return;
+    }
+    setState(() => _pollFields!.add(TextEditingController()));
+  }
+
+  void _removePollField(int i) {
+    if (_pollFields == null ||
+        _pollFields!.length <= PublicFeedStore.minPollOptions) {
+      return;
+    }
+    setState(() => _pollFields!.removeAt(i).dispose());
+  }
+
+  static String _durationLabel(Duration d) {
+    if (d.inHours < 24) {
+      return '${d.inHours} hour${d.inHours == 1 ? '' : 's'}';
+    }
+    final days = d.inDays;
+    return '$days day${days == 1 ? '' : 's'}';
+  }
+
   /// Picks a photo for the post.
   ///
   /// Goes through PhotoPrep so it inherits the moderation check and the EXIF
@@ -1875,6 +1927,9 @@ class _ComposerState extends State<_Composer> {
   @override
   void dispose() {
     _text.dispose();
+    for (final c in _pollFields ?? const <TextEditingController>[]) {
+      c.dispose();
+    }
     super.dispose();
   }
 
@@ -1882,7 +1937,11 @@ class _ComposerState extends State<_Composer> {
     setState(() => _sending = true);
     try {
       await PublicFeedStore.instance.post(_text.text,
-          replyTo: widget.replyTo, repostOf: widget.quoteOf, image: _image);
+          replyTo: widget.replyTo,
+          repostOf: widget.quoteOf,
+          image: _image,
+          pollOptions: [for (final c in _pollFields ?? const []) c.text],
+          pollRunsFor: _isPoll ? _pollRunsFor : null);
       if (mounted) Navigator.of(context).pop();
     } catch (e) {
       if (!mounted) return;
@@ -1940,6 +1999,60 @@ class _ComposerState extends State<_Composer> {
               const SizedBox(height: 10),
               _Quoted(postId: widget.quoteOf!),
             ],
+            if (_isPoll) ...[
+              const SizedBox(height: 12),
+              for (var i = 0; i < _pollFields!.length; i++)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _pollFields![i],
+                          maxLength: PublicFeedStore.maxPollOptionLength,
+                          decoration: InputDecoration(
+                            labelText: 'Answer ${i + 1}',
+                            border: const OutlineInputBorder(),
+                            isDense: true,
+                            counterText: '',
+                          ),
+                          onChanged: (_) => setState(() {}),
+                        ),
+                      ),
+                      // Only past the minimum: removing an answer down to one
+                      // would leave a poll nobody can answer.
+                      if (_pollFields!.length > PublicFeedStore.minPollOptions)
+                        IconButton(
+                          icon: const Icon(Icons.remove_circle_outline),
+                          tooltip: 'Remove answer',
+                          onPressed: () => _removePollField(i),
+                        ),
+                    ],
+                  ),
+                ),
+              Row(
+                children: [
+                  if (_pollFields!.length < PublicFeedStore.maxPollOptions)
+                    TextButton.icon(
+                      onPressed: _addPollField,
+                      icon: const Icon(Icons.add, size: 18),
+                      label: const Text('Add answer'),
+                    ),
+                  const Spacer(),
+                  DropdownButton<Duration>(
+                    value: _pollRunsFor,
+                    underline: const SizedBox.shrink(),
+                    onChanged: (d) =>
+                        setState(() => _pollRunsFor = d ?? _pollRunsFor),
+                    items: [
+                      for (final d in PublicFeedStore.pollDurations)
+                        DropdownMenuItem(
+                            value: d, child: Text(_durationLabel(d))),
+                    ],
+                  ),
+                ],
+              ),
+            ],
             if (_image != null) ...[
               const SizedBox(height: 10),
               Stack(
@@ -1968,7 +2081,20 @@ class _ComposerState extends State<_Composer> {
                 IconButton(
                   icon: const Icon(Icons.image_outlined),
                   tooltip: 'Add a photo',
-                  onPressed: _sending ? null : _pickImage,
+                  onPressed: _sending || _isPoll ? null : _pickImage,
+                ),
+                IconButton(
+                  icon: Icon(_isPoll ? Icons.poll : Icons.poll_outlined),
+                  color: _isPoll ? Theme.of(context).colorScheme.primary : null,
+                  tooltip: _isPoll ? 'Remove poll' : 'Add a poll',
+                  // A poll is a post of its own — it cannot be a reply or a
+                  // quote, and the table refuses those too.
+                  onPressed: _sending ||
+                          widget.replyTo != null ||
+                          widget.quoteOf != null ||
+                          !PublicFeedStore.instance.pollsSupported
+                      ? null
+                      : _togglePoll,
                 ),
                 Text('$left',
                     style: TextStyle(
@@ -1977,12 +2103,19 @@ class _ComposerState extends State<_Composer> {
                 const Spacer(),
                 FilledButton(
                   // A photo on its own is a post; text is not required when
-                  // something else is attached.
+                  // something else is attached. A poll is the exception —
+                  // answers with no question is not a poll.
                   onPressed: _sending ||
                           (_text.text.trim().isEmpty &&
                               _image == null &&
                               widget.quoteOf == null) ||
-                          left < 0
+                          left < 0 ||
+                          (_isPoll &&
+                              (_text.text.trim().isEmpty ||
+                                  PublicFeedStore.validatePoll([
+                                        for (final c in _pollFields!) c.text
+                                      ]) !=
+                                      null))
                       ? null
                       : _send,
                   child: Text(_sending
@@ -2113,6 +2246,154 @@ class _Footer extends StatelessWidget {
           onPressed: store.loadMore,
           child: const Text('Load more'),
         ),
+      ),
+    );
+  }
+}
+
+/// A poll: buttons until you answer, bars afterwards.
+///
+/// Which way round it renders is the post's own state, not this widget's —
+/// [PublicPost.showPollResults] is true once you have voted or once it has
+/// closed, and the server refuses a vote in either case, so the two cannot
+/// disagree about whether voting is still open.
+class _Poll extends StatelessWidget {
+  const _Poll({required this.post});
+
+  final PublicPost post;
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = Theme.of(context).colorScheme.primary;
+    final total = post.pollTotalVotes;
+    final leaders = post.pollLeaders;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (var i = 0; i < post.pollOptions.length; i++)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: post.showPollResults
+                ? _Result(
+                    label: post.pollOptions[i],
+                    share: post.pollShare(i),
+                    mine: post.myVote == i,
+                    leading: leaders.contains(i),
+                    accent: accent,
+                  )
+                : OutlinedButton(
+                    onPressed: () =>
+                        PublicFeedStore.instance.vote(post.id, i),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: accent,
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10)),
+                    ),
+                    child: Text(post.pollOptions[i],
+                        maxLines: 2, overflow: TextOverflow.ellipsis),
+                  ),
+          ),
+        Text(
+          '${_votes(total)} · ${_timeLeft(post)}',
+          style: TextStyle(fontSize: 12.5, color: Colors.grey.shade600),
+        ),
+      ],
+    );
+  }
+
+  static String _votes(int n) => n == 1 ? '1 vote' : '$n votes';
+
+  /// How long is left, in the words somebody would use. A closed poll says so
+  /// rather than counting down past zero.
+  static String _timeLeft(PublicPost post) {
+    if (post.pollClosed) return 'Final result';
+    final mins = post.pollClosesAt!.difference(DateTime.now()).inMinutes;
+    if (mins < 60) return '$mins min left';
+    // Rounded, not truncated. A poll set to run five hours is read a
+    // millisecond later, and truncating turns that into "4 hours left" — the
+    // one number somebody checks against what they just chose.
+    final hours = (mins / 60).round();
+    if (hours < 24) return '$hours hour${hours == 1 ? '' : 's'} left';
+    final days = (hours / 24).round();
+    return '$days day${days == 1 ? '' : 's'} left';
+  }
+}
+
+/// One answer with its share of the vote drawn behind it.
+class _Result extends StatelessWidget {
+  const _Result({
+    required this.label,
+    required this.share,
+    required this.mine,
+    required this.leading,
+    required this.accent,
+  });
+
+  final String label;
+  final double share;
+  final bool mine;
+  final bool leading;
+  final Color accent;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, box) => Stack(
+        children: [
+          Container(
+            height: 38,
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.onSurface.withValues(
+                  alpha: 0.05),
+              borderRadius: BorderRadius.circular(10),
+            ),
+          ),
+          // The bar, animated from wherever it was — a tally that jumps on a
+          // vote reads as a different poll rather than as your own answer
+          // landing.
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 350),
+            curve: Curves.easeOutCubic,
+            height: 38,
+            width: box.maxWidth * share.clamp(0.0, 1.0),
+            decoration: BoxDecoration(
+              color: accent.withValues(alpha: leading ? 0.22 : 0.12),
+              borderRadius: BorderRadius.circular(10),
+            ),
+          ),
+          SizedBox(
+            height: 38,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                          fontSize: 14.5,
+                          fontWeight:
+                              leading ? FontWeight.w700 : FontWeight.w500),
+                    ),
+                  ),
+                  // Your own answer is marked. Nobody else's is: the server
+                  // will not say who voted for what, and this is the client
+                  // side of the same promise.
+                  if (mine) ...[
+                    Icon(Icons.check_circle, size: 15, color: accent),
+                    const SizedBox(width: 6),
+                  ],
+                  Text('${(share * 100).round()}%',
+                      style: const TextStyle(
+                          fontSize: 13.5, fontWeight: FontWeight.w600)),
+                ],
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

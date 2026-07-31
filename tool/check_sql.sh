@@ -265,6 +265,130 @@ do $$ begin
   raise notice '  ok   the image bucket is public, as a public feed implies';
 end $$;
 
+-- Polls. Everything that makes a vote a vote is enforced in the database, so
+-- a modified client gains nothing by asking differently.
+reset role; set role authenticated; select pg_temp.as_user('15550001111');
+
+select pg_temp.expect_ok(
+  $$insert into public.public_posts
+      (id, author_phone, author_username, body, poll_options, poll_closes_at)
+    values ('t_poll','15550001111','alice','Tabs or spaces?',
+            array['Tabs','Spaces'], now() + interval '1 day')$$,
+  'you can post a poll');
+
+select pg_temp.expect_fail(
+  $$insert into public.public_posts
+      (id, author_phone, author_username, body, poll_options, poll_closes_at)
+    values ('t_p1o','15550001111','alice','One answer?', array['Yes'],
+            now() + interval '1 day')$$,
+  'a poll with one answer is refused');
+
+select pg_temp.expect_fail(
+  $$insert into public.public_posts
+      (id, author_phone, author_username, body, poll_options, poll_closes_at)
+    values ('t_p5o','15550001111','alice','Five?',
+            array['a','b','c','d','e'], now() + interval '1 day')$$,
+  'a poll with five answers is refused');
+
+select pg_temp.expect_fail(
+  $$insert into public.public_posts
+      (id, author_phone, author_username, body, poll_options, poll_closes_at)
+    values ('t_pblank','15550001111','alice','Blank?', array['Yes','  '],
+            now() + interval '1 day')$$,
+  'a blank answer is refused');
+
+select pg_temp.expect_fail(
+  $$insert into public.public_posts
+      (id, author_phone, author_username, body, poll_options)
+    values ('t_pnoend','15550001111','alice','Forever?', array['Yes','No'])$$,
+  'a poll that never closes is refused');
+
+select pg_temp.expect_fail(
+  $$insert into public.public_posts
+      (id, author_phone, author_username, poll_options, poll_closes_at)
+    values ('t_pnoq','15550001111','alice', array['Yes','No'],
+            now() + interval '1 day')$$,
+  'a poll with no question is refused');
+
+select pg_temp.expect_fail(
+  $$insert into public.public_posts
+      (id, author_phone, author_username, body, repost_of, poll_options,
+       poll_closes_at)
+    values ('t_prp','15550001111','alice','Q', 't_poll', array['Yes','No'],
+            now() + interval '1 day')$$,
+  'a repost cannot also be a poll');
+
+-- Voting.
+select pg_temp.as_user('15550002222');
+-- Before any vote by this account lands, or the primary key would be what
+-- refuses this and the bound in the policy would go untested.
+select pg_temp.expect_fail(
+  $$insert into public.public_post_votes (post_id, voter_phone, choice)
+    values ('t_poll','15550002222',3)$$,
+  'you cannot pick an answer the poll does not have');
+select pg_temp.expect_ok(
+  $$insert into public.public_post_votes (post_id, voter_phone, choice)
+    values ('t_poll','15550002222',1)$$,
+  'you can vote');
+select pg_temp.expect_fail(
+  $$insert into public.public_post_votes (post_id, voter_phone, choice)
+    values ('t_poll','15550002222',0)$$,
+  'you cannot vote twice');
+select pg_temp.expect_fail(
+  $$insert into public.public_post_votes (post_id, voter_phone, choice)
+    values ('t_poll','15550001111',0)$$,
+  'you cannot vote as somebody else');
+select pg_temp.expect_fail(
+  $$update public.public_post_votes set choice = 0 where post_id = 't_poll'$$,
+  'a vote cannot be changed');
+select pg_temp.expect_fail(
+  $$delete from public.public_post_votes where post_id = 't_poll'$$,
+  'a vote cannot be taken back');
+select pg_temp.expect_fail(
+  $$select voter_phone from public.public_post_votes$$,
+  'a client cannot read who voted');
+
+-- A post that is not a poll cannot be voted on, and a closed one cannot
+-- either. Both are refusals the app must not be trusted with.
+select pg_temp.as_user('15550001111');
+select pg_temp.expect_fail(
+  $$insert into public.public_post_votes (post_id, voter_phone, choice)
+    values ('t_p4','15550001111',0)$$,
+  'a post that is not a poll cannot be voted on');
+reset role;
+insert into public.public_posts
+    (id, author_phone, author_username, body, poll_options, poll_closes_at)
+  values ('t_shut','15550001111','alice','Over?', array['Yes','No'],
+          now() - interval '1 minute');
+set role authenticated; select pg_temp.as_user('15550002222');
+select pg_temp.expect_fail(
+  $$insert into public.public_post_votes (post_id, voter_phone, choice)
+    values ('t_shut','15550002222',0)$$,
+  'a closed poll takes no more votes');
+
+-- The tally is true even though nobody can read the rows behind it.
+reset role;
+insert into public.public_post_votes (post_id, voter_phone, choice) values
+  ('t_poll','15550003333',1), ('t_poll','15550009999',0);
+set role authenticated; select pg_temp.as_user('15550002222');
+do $$
+declare got int[];
+begin
+  select poll_votes into got from public.public_feed where id = 't_poll';
+  if got <> array[1,2] then
+    raise exception 'CHECK FAILED: tally is %, expected {1,2}', got;
+  end if;
+  raise notice '  ok   the tally counts every vote, readable by nobody';
+end $$;
+
+do $$ begin
+  if (select poll_votes from public.public_feed where id = 't_p4')
+       <> '{}'::int[] then
+    raise exception 'CHECK FAILED: a post with no poll has a tally';
+  end if;
+  raise notice '  ok   a post that is not a poll has no tally';
+end $$;
+
 -- Payment controls. The whole point of storing these server-side is that the
 -- account cannot change them by talking to Postgres directly — only the Edge
 -- Functions, on the service-role key, may. RLS is on with no policies, so
@@ -381,6 +505,10 @@ done
 # has to arrive at the same guarantees the fresh one does.
 cat >"$WORK/v1shape.sql" <<'SQL'
 drop view if exists public.public_feed;
+drop table if exists public.public_post_votes;
+alter table public.public_posts drop constraint if exists public_posts_poll_shape;
+alter table public.public_posts drop column if exists poll_options cascade;
+alter table public.public_posts drop column if exists poll_closes_at cascade;
 alter table public.public_posts drop column if exists repost_of cascade;
 alter table public.public_posts drop column if exists image_path cascade;
 alter table public.public_posts drop constraint if exists public_posts_not_empty;

@@ -41,6 +41,21 @@ class PublicPost {
   /// Whether this device wrote it, so it can offer to delete it.
   final bool mine;
 
+  /// The answers, when this is a poll. Empty for an ordinary post.
+  final List<String> pollOptions;
+
+  /// When voting stops. Null unless this is a poll.
+  final DateTime? pollClosesAt;
+
+  /// How many votes each answer has, in the answers' own order. Comes from a
+  /// counter that runs as the table's owner — the vote rows themselves are
+  /// readable only by whoever cast them.
+  final List<int> pollVotes;
+
+  /// Which answer this account picked, or null for not voted. Read from your
+  /// own vote row; nobody can see anyone else's.
+  final int? myVote;
+
   const PublicPost({
     required this.id,
     this.authorUsername = '',
@@ -56,6 +71,10 @@ class PublicPost {
     this.repostCount = 0,
     this.liked = false,
     this.mine = false,
+    this.pollOptions = const [],
+    this.pollClosesAt,
+    this.pollVotes = const [],
+    this.myVote,
   });
 
   /// Whether this carries an image.
@@ -64,12 +83,50 @@ class PublicPost {
   /// Whether this repeats another post without adding anything.
   bool get isPlainRepost => repostOf != null && body.isEmpty;
 
+  /// Whether this is a poll. Two answers is the fewest a poll can have, so a
+  /// row carrying one is a broken row rather than a poll with one button.
+  bool get isPoll => pollOptions.length >= 2;
+
+  /// Whether voting has stopped.
+  bool get pollClosed =>
+      pollClosesAt != null && !pollClosesAt!.isAfter(DateTime.now());
+
+  /// Whether this account may still vote on it.
+  bool get canVote => isPoll && !pollClosed && myVote == null;
+
+  /// Whether the tally is shown rather than the buttons: once you have voted,
+  /// or once it is over.
+  bool get showPollResults => isPoll && (myVote != null || pollClosed);
+
+  int get pollTotalVotes => pollVotes.fold(0, (a, b) => a + b);
+
+  /// The share of the vote answer [i] holds, 0..1. Zero votes reads as zero
+  /// rather than as a division by nothing.
+  double pollShare(int i) {
+    final total = pollTotalVotes;
+    if (total <= 0 || i < 0 || i >= pollVotes.length) return 0;
+    return pollVotes[i] / total;
+  }
+
+  /// Which answers are winning — plural, because a tie has no single winner
+  /// and drawing one would be inventing a result.
+  Set<int> get pollLeaders {
+    if (!isPoll || pollTotalVotes <= 0) return const {};
+    final best = pollVotes.reduce((a, b) => a > b ? a : b);
+    return {
+      for (var i = 0; i < pollVotes.length; i++)
+        if (pollVotes[i] == best) i
+    };
+  }
+
   PublicPost copyWith({
     int? likeCount,
     int? replyCount,
     int? repostCount,
     bool? liked,
     bool? mine,
+    List<int>? pollVotes,
+    int? myVote,
   }) =>
       PublicPost(
         id: id,
@@ -86,6 +143,33 @@ class PublicPost {
         repostCount: repostCount ?? this.repostCount,
         liked: liked ?? this.liked,
         mine: mine ?? this.mine,
+        pollOptions: pollOptions,
+        pollClosesAt: pollClosesAt,
+        pollVotes: pollVotes ?? this.pollVotes,
+        myVote: myVote ?? this.myVote,
+      );
+
+  /// The same post with this account's vote removed. A separate method
+  /// because copyWith reads null as "leave it alone", so it has no way to say
+  /// "back to not voted".
+  PublicPost withNoVote() => PublicPost(
+        id: id,
+        authorUsername: authorUsername,
+        authorName: authorName,
+        authorVerified: authorVerified,
+        body: body,
+        replyTo: replyTo,
+        repostOf: repostOf,
+        imagePath: imagePath,
+        createdAt: createdAt,
+        likeCount: likeCount,
+        replyCount: replyCount,
+        repostCount: repostCount,
+        liked: liked,
+        mine: mine,
+        pollOptions: pollOptions,
+        pollClosesAt: pollClosesAt,
+        pollVotes: pollVotes,
       );
 
   factory PublicPost.fromRow(Map<String, dynamic> r) => PublicPost(
@@ -103,6 +187,16 @@ class PublicPost {
         likeCount: (r['like_count'] as num?)?.toInt() ?? 0,
         replyCount: (r['reply_count'] as num?)?.toInt() ?? 0,
         repostCount: (r['repost_count'] as num?)?.toInt() ?? 0,
+        pollOptions: [
+          for (final o in (r['poll_options'] as List? ?? const []))
+            if (o != null) o.toString()
+        ],
+        pollClosesAt:
+            DateTime.tryParse(r['poll_closes_at'] as String? ?? '')?.toLocal(),
+        pollVotes: [
+          for (final v in (r['poll_votes'] as List? ?? const []))
+            (v as num?)?.toInt() ?? 0
+        ],
       );
 }
 
@@ -170,35 +264,55 @@ class PublicFeedStore extends ChangeNotifier {
   /// stops someone at the counter instead of the database rejecting it.
   static const int maxLength = 500;
 
-  /// Columns read from the `public_feed` view. Named explicitly and never '*':
-  /// the underlying table has a phone column that clients must not select, and
-  /// asking for everything is how that becomes an accident.
-  static const String _columns =
-      'id, author_username, author_name, author_verified, body, reply_to, '
-      'repost_of, image_path, created_at, like_count, reply_count, '
-      'repost_count';
-
-  /// The columns the first version of the view had.
+  /// Columns read from the `public_feed` view, newest schema first. Named
+  /// explicitly and never '*': the underlying table has a phone column that
+  /// clients must not select, and asking for everything is how that becomes an
+  /// accident.
   ///
-  /// The app and the page deploy the moment they are pushed; the SQL is pasted
-  /// into a dashboard by hand, whenever somebody gets to it. So there is always
-  /// a window where the client asks for columns the view hasn't got, and asking
-  /// for one missing column fails the whole request — the feed goes blank, with
-  /// nothing said about why.
+  /// WHY THERE IS MORE THAN ONE. The app and the page deploy the moment they
+  /// are pushed; the SQL is pasted into a dashboard by hand, whenever somebody
+  /// gets to it. So there is always a window where the client asks for columns
+  /// the view hasn't got, and asking for one missing column fails the *whole*
+  /// request — the feed goes blank, with nothing said about why.
   ///
-  /// A timeline without reposts or images is worth far more than no timeline,
-  /// so fall back to this and keep going.
-  static const String _legacyColumns =
-      'id, author_username, author_name, author_verified, body, reply_to, '
-      'created_at, like_count, reply_count';
+  /// A timeline without polls is worth far more than no timeline, and one
+  /// without reposts or images is worth more than that, so each 42703 steps
+  /// down a generation and tries again. This used to be a single boolean,
+  /// which could only ever describe two schemas; polls made a third.
+  static const List<String> _columnSets = [
+    // Current: polls.
+    'id, author_username, author_name, author_verified, body, reply_to, '
+        'repost_of, image_path, poll_options, poll_closes_at, created_at, '
+        'like_count, reply_count, repost_count, poll_votes',
+    // Before polls: reposts and images.
+    'id, author_username, author_name, author_verified, body, reply_to, '
+        'repost_of, image_path, created_at, like_count, reply_count, '
+        'repost_count',
+    // The first version of the view.
+    'id, author_username, author_name, author_verified, body, reply_to, '
+        'created_at, like_count, reply_count',
+  ];
 
-  /// Set once the view has been found to predate reposts and images. Sticky for
-  /// the session: retrying the wide query on every page would double the
-  /// requests for a schema that isn't going to change under us.
-  bool _legacyView = false;
+  /// Which generation the server turned out to be on. Sticky for the session:
+  /// retrying the wide query on every page would double the requests for a
+  /// schema that isn't going to change under us.
+  int _columnLevel = 0;
 
-  /// Whether the server's feed is too old for reposts and images.
-  bool get legacyView => _legacyView;
+  String get _columns => _columnSets[_columnLevel];
+
+  /// Whether the server's feed is behind the app.
+  bool get legacyView => _columnLevel > 0;
+
+  /// Whether the server's feed knows about polls.
+  bool get pollsSupported => _columnLevel == 0;
+
+  /// Steps down one schema generation. Returns false when there is nothing
+  /// older to try, so the caller rethrows rather than looping.
+  bool _stepDownSchema() {
+    if (_columnLevel >= _columnSets.length - 1) return false;
+    _columnLevel++;
+    return true;
+  }
 
   /// Whether a Postgres error code means "you asked for a column I haven't
   /// got". Named so the retry above reads as a decision rather than a magic
@@ -284,6 +398,11 @@ class PublicFeedStore extends ChangeNotifier {
   @visibleForTesting
   static Future<void> Function(String postId, bool liked)? debugLikeOverride;
 
+  /// Test hook: stands in for the network call that casts a vote. The counting
+  /// and the refusals around it still run.
+  @visibleForTesting
+  static Future<void> Function(String postId, int choice)? debugVoteOverride;
+
   /// A post id nobody else will generate. Random rather than a counter so two
   /// devices posting in the same millisecond can't collide.
   static String newId() {
@@ -305,6 +424,49 @@ class PublicFeedStore extends ChangeNotifier {
     if (t.isEmpty && !hasImage && !isRepost) return 'Write something first.';
     if (t.length > maxLength) {
       return 'That\'s ${t.length - maxLength} characters too long.';
+    }
+    return null;
+  }
+
+  /// The most answers a poll may have, and the fewest. Matches the CHECK on
+  /// the table, so somebody is stopped while typing rather than by a database
+  /// error with nothing readable in it.
+  static const int minPollOptions = 2;
+  static const int maxPollOptions = 4;
+  static const int maxPollOptionLength = 40;
+
+  /// How long a poll may run. A week is the longest anybody waits for a
+  /// result, and the shortest is short enough to be useful in a conversation.
+  static const List<Duration> pollDurations = [
+    Duration(hours: 1),
+    Duration(hours: 6),
+    Duration(days: 1),
+    Duration(days: 3),
+    Duration(days: 7),
+  ];
+
+  /// What is wrong with a set of poll answers, or null when nothing is. Pure,
+  /// and the same rules the table's CHECK enforces.
+  static String? validatePoll(List<String> options) {
+    final filled = [
+      for (final o in options)
+        if (o.trim().isNotEmpty) o.trim()
+    ];
+    if (filled.length < minPollOptions) {
+      return 'A poll needs at least $minPollOptions answers.';
+    }
+    if (filled.length > maxPollOptions) {
+      return 'A poll can have at most $maxPollOptions answers.';
+    }
+    for (final o in filled) {
+      if (o.length > maxPollOptionLength) {
+        return 'Keep each answer under $maxPollOptionLength characters.';
+      }
+    }
+    // Two identical answers make a result nobody can act on.
+    final seen = <String>{};
+    for (final o in filled) {
+      if (!seen.add(o.toLowerCase())) return 'Two answers are the same.';
     }
     return null;
   }
@@ -422,7 +584,7 @@ class PublicFeedStore extends ChangeNotifier {
     if (client == null) throw PublicFeedError('No server configured.');
     var q = client
         .from('public_feed')
-        .select(_legacyView ? _legacyColumns : _columns);
+        .select(_columns);
     if (_query.isNotEmpty) {
       q = q.ilike('body', '%${_escapeLike(_query)}%');
     }
@@ -449,8 +611,7 @@ class PublicFeedStore extends ChangeNotifier {
       // 42703 is "column does not exist". The view is behind the app, so ask
       // for what it does have and try again — once, from the top, because the
       // builder above has already been spent.
-      if (isMissingColumn(e.code) && !_legacyView) {
-        _legacyView = true;
+      if (isMissingColumn(e.code) && _stepDownSchema()) {
         return _fetch(limit: limit, before: before);
       }
       rethrow;
@@ -464,12 +625,14 @@ class PublicFeedStore extends ChangeNotifier {
   Future<List<PublicPost>> _hydrate(List<dynamic> rows) async {
     final mineUsername = AppState.profile.value.username;
     final liked = await _myLikes();
+    final voted = await _myVotes();
     return [
       for (final r in rows)
         () {
           final post = PublicPost.fromRow(Map<String, dynamic>.from(r as Map));
           return post.copyWith(
             liked: liked.contains(post.id),
+            myVote: voted[post.id],
             // Attribution is by username, so that is what "mine" can honestly
             // mean here — the phone column is not readable.
             mine: mineUsername.isNotEmpty &&
@@ -506,7 +669,7 @@ class PublicFeedStore extends ChangeNotifier {
     if (client == null) throw PublicFeedError('No server configured.');
     var q = client
         .from('public_feed')
-        .select(_legacyView ? _legacyColumns : _columns)
+        .select(_columns)
         .eq('author_username', username);
     if (before != null) {
       q = q.lt('created_at', before.toUtc().toIso8601String());
@@ -515,8 +678,7 @@ class PublicFeedStore extends ChangeNotifier {
     try {
       rows = await q.order('created_at', ascending: false).limit(limit);
     } on PostgrestException catch (e) {
-      if (isMissingColumn(e.code) && !_legacyView) {
-        _legacyView = true;
+      if (isMissingColumn(e.code) && _stepDownSchema()) {
         return postsBy(username, limit: limit, before: before);
       }
       throw PublicFeedError(_explain(e));
@@ -546,13 +708,12 @@ class PublicFeedStore extends ChangeNotifier {
       try {
         final rows = await client
             .from('public_feed')
-            .select(_legacyView ? _legacyColumns : _columns)
+            .select(_columns)
             .inFilter('id', ids)
             .order('created_at', ascending: false);
         found = await _hydrate(rows);
       } on PostgrestException catch (e) {
-        if (isMissingColumn(e.code) && !_legacyView) {
-          _legacyView = true;
+        if (isMissingColumn(e.code) && _stepDownSchema()) {
           return postsByIds(ids);
         }
         throw PublicFeedError(_explain(e));
@@ -620,6 +781,71 @@ class PublicFeedStore extends ChangeNotifier {
       }..remove('');
     } catch (_) {
       return {}; // unmigrated or offline: nothing shown as liked
+    }
+  }
+
+  /// Which answer this account picked, per poll. Own rows only — the vote
+  /// policy hides everyone else's, which is the whole point of a secret
+  /// ballot.
+  Future<Map<String, int>> _myVotes() async {
+    final client = _client;
+    if (client == null) return {};
+    try {
+      final rows =
+          await client.from('public_post_votes').select('post_id, choice');
+      return {
+        for (final r in rows)
+          if ((r as Map)['post_id'] is String)
+            r['post_id'] as String: (r['choice'] as num?)?.toInt() ?? 0,
+      };
+    } catch (_) {
+      return {}; // unmigrated or offline: nothing shown as voted
+    }
+  }
+
+  /// Casts a vote. Optimistic: the tally moves at once and is put back if the
+  /// server refuses — which it will for a closed poll, a second vote, or an
+  /// answer the poll hasn't got, none of which this client is trusted with.
+  Future<void> vote(String postId, int choice) async {
+    final post = byId(postId);
+    if (post == null || !post.canVote) return;
+    if (choice < 0 || choice >= post.pollOptions.length) return;
+
+    List<int> bump(List<int> votes, int by) {
+      // A tally shorter than the answers means the counter hasn't caught up;
+      // pad rather than throw, so a vote is never lost to a rendering detail.
+      final next = [
+        for (var i = 0; i < post.pollOptions.length; i++)
+          i < votes.length ? votes[i] : 0
+      ];
+      next[choice] = (next[choice] + by).clamp(0, 1 << 30);
+      return next;
+    }
+
+    final before = post.pollVotes;
+    _apply(postId,
+        (p) => p.copyWith(pollVotes: bump(p.pollVotes, 1), myVote: choice));
+
+    final override = debugVoteOverride;
+    try {
+      if (override != null) {
+        await override(postId, choice);
+        return;
+      }
+      final client = _client;
+      final phone = local.Session.instance.user.value?.phone ?? '';
+      if (client == null || phone.isEmpty) {
+        throw PublicFeedError('Sign in to vote.');
+      }
+      await client.from('public_post_votes').insert({
+        'post_id': postId,
+        'voter_phone': AccountService.e164(phone),
+        'choice': choice,
+      });
+    } catch (_) {
+      // Put it back. A vote that silently didn't count is worse than one that
+      // visibly bounced, and there is no way to cast it again to find out.
+      _apply(postId, (p) => p.copyWith(pollVotes: before).withNoVote());
     }
   }
 
@@ -695,7 +921,11 @@ class PublicFeedStore extends ChangeNotifier {
       debugScreenOverride;
 
   Future<void> post(String text,
-      {String? replyTo, String? repostOf, Uint8List? image}) async {
+      {String? replyTo,
+      String? repostOf,
+      Uint8List? image,
+      List<String>? pollOptions,
+      Duration? pollRunsFor}) async {
     final problem = validate(text,
         hasImage: image != null, isRepost: repostOf != null);
     if (problem != null) throw PublicFeedError(problem);
@@ -703,14 +933,36 @@ class PublicFeedStore extends ChangeNotifier {
       // The table refuses this too; catching it here keeps the message useful.
       throw PublicFeedError('A post can be a reply or a repost, not both.');
     }
+    // A poll is a top-level post with a question. Each of these is a CHECK on
+    // the table as well; saying it here is what makes the refusal readable.
+    final answers = pollOptions == null
+        ? const <String>[]
+        : [
+            for (final o in pollOptions)
+              if (o.trim().isNotEmpty) o.trim()
+          ];
+    if (answers.isNotEmpty) {
+      final wrong = validatePoll(answers);
+      if (wrong != null) throw PublicFeedError(wrong);
+      if (replyTo != null || repostOf != null) {
+        throw PublicFeedError('A poll has to be a post of its own.');
+      }
+      if (text.trim().isEmpty) throw PublicFeedError('Ask a question first.');
+    }
+    final closesAt = answers.isEmpty
+        ? null
+        : DateTime.now().add(pollRunsFor ?? const Duration(days: 1));
     final me = AppState.profile.value;
     final phone = local.Session.instance.user.value?.phone ?? me.phone;
     if (phone.trim().isEmpty) {
       throw PublicFeedError('Sign in to post.');
     }
     // Before the image upload, so a blocked post leaves nothing behind in
-    // the bucket to sweep up later.
-    final blocked = await screen(text, hasImage: image != null);
+    // the bucket to sweep up later. The answers are screened with the
+    // question: they are public text on a public post, and a poll whose
+    // answers went unread would be the obvious way round the screening.
+    final blocked = await screen([text, ...answers].join('\n'),
+        hasImage: image != null);
     if (blocked != null) throw PublicFeedError(blocked);
 
     final id = newId();
@@ -731,6 +983,11 @@ class PublicFeedStore extends ChangeNotifier {
       imagePath: imagePath,
       createdAt: DateTime.now(),
       mine: true,
+      pollOptions: answers,
+      pollClosesAt: closesAt,
+      // Nobody has voted yet, and an empty tally would render as no bars at
+      // all rather than as a row of zeroes.
+      pollVotes: [for (final _ in answers) 0],
     );
 
     final override = debugPostOverride;
@@ -750,6 +1007,9 @@ class PublicFeedStore extends ChangeNotifier {
           if (replyTo != null) 'reply_to': replyTo,
           if (repostOf != null) 'repost_of': repostOf,
           if (imagePath.isNotEmpty) 'image_path': imagePath,
+          if (answers.isNotEmpty) 'poll_options': answers,
+          if (closesAt != null)
+            'poll_closes_at': closesAt.toUtc().toIso8601String(),
         });
       } catch (e) {
         throw PublicFeedError(_explain(e));
@@ -950,6 +1210,7 @@ class PublicFeedStore extends ChangeNotifier {
     debugLoadOverride = null;
     debugPostOverride = null;
     debugLikeOverride = null;
+    debugVoteOverride = null;
     debugUploadOverride = null;
     debugProfileOverride = null;
     debugByIdsOverride = null;
@@ -958,7 +1219,7 @@ class PublicFeedStore extends ChangeNotifier {
     _tag = '';
     _reachedEnd = false;
     _loadingMore = false;
-    _legacyView = false;
+    _columnLevel = 0;
     notifyListeners();
   }
 }

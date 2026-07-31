@@ -55,6 +55,11 @@ create table if not exists public.public_posts (
   -- Path inside the public-media bucket, not a full URL, so moving the project
   -- doesn't strand every image ever posted.
   image_path    text not null default '',
+  -- A poll: two to four answers, with the question in `body`. Null for an
+  -- ordinary post. Who voted for what is in public_post_votes and is readable
+  -- by nobody; only the tally comes back, from the counter below.
+  poll_options  text[],
+  poll_closes_at timestamptz,
   created_at    timestamptz not null default now(),
   -- Something has to be in a post. Text, an image, or a repost — an entirely
   -- empty row is a rendering bug waiting to happen.
@@ -89,12 +94,30 @@ do $$ begin
   alter table public.public_posts add constraint public_posts_reply_xor_repost
     check (reply_to is null or repost_of is null);
 exception when duplicate_object then null; end $$;
+alter table public.public_posts
+  add column if not exists poll_options text[];
+alter table public.public_posts
+  add column if not exists poll_closes_at timestamptz;
 
 create table if not exists public.public_post_likes (
   post_id     text not null references public.public_posts(id) on delete cascade,
   liker_phone text not null,
   created_at  timestamptz not null default now(),
   primary key (post_id, liker_phone)
+);
+
+-- One vote per person per poll — that is the primary key, not a rule the app
+-- is trusted to keep. There is no UPDATE or DELETE granted below either: a
+-- vote you can take back is a vote somebody can be talked into taking back,
+-- and the tally would move under people who had already read it.
+create table if not exists public.public_post_votes (
+  post_id     text not null references public.public_posts(id) on delete cascade,
+  voter_phone text not null,
+  -- Zero-based index into the post's poll_options. Bounded statically here
+  -- and against the actual number of answers in the insert policy.
+  choice      int not null check (choice >= 0 and choice < 4),
+  created_at  timestamptz not null default now(),
+  primary key (post_id, voter_phone)
 );
 
 create index if not exists public_posts_recent_idx
@@ -110,6 +133,7 @@ create index if not exists public_posts_username_idx
 
 alter table public.public_posts enable row level security;
 alter table public.public_post_likes enable row level security;
+alter table public.public_post_votes enable row level security;
 
 -- ---------------------------------------------------------------------------
 -- 2. Functions (the tables above have to exist first)
@@ -166,6 +190,53 @@ as $$
   select count(*) from public.public_posts where reply_to = p;
 $$;
 
+-- The poll tally, one count per answer, in the answers' own order. Same reason
+-- as the like counter: votes are readable only by the person who cast them, so
+-- counting as the caller would report your own vote and nothing else. This
+-- runs as the owner so the totals are true while who voted stays private.
+create or replace function public.public_post_vote_counts(p text)
+returns int[]
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select array(
+    select (select count(*)::int
+              from public.public_post_votes v
+             where v.post_id = p and v.choice = i - 1)
+      from generate_subscripts(
+             coalesce((select poll_options from public.public_posts where id = p),
+                      '{}'::text[]), 1) i
+     order by i);
+$$;
+
+-- Whether a set of answers is one a poll may have. A CHECK cannot hold a
+-- subquery, so the per-answer rules live in an immutable function it can call.
+create or replace function public.poll_options_ok(opts text[])
+returns boolean
+language sql
+immutable
+as $$
+  select opts is null or (
+    array_length(opts, 1) between 2 and 4
+    and not exists (
+      select 1 from unnest(opts) o
+       where char_length(btrim(o)) = 0 or char_length(o) > 40));
+$$;
+
+-- A poll is a top-level post with a question, two to four answers, and a
+-- closing time. Anything else called a poll is a rendering bug.
+do $$ begin
+  alter table public.public_posts add constraint public_posts_poll_shape check (
+    poll_options is null or (
+      public.poll_options_ok(poll_options)
+      and reply_to is null
+      and repost_of is null
+      and char_length(body) > 0
+      and poll_closes_at is not null));
+exception when duplicate_object then null; end $$;
+
 -- ---------------------------------------------------------------------------
 -- 3. Column privileges
 -- ---------------------------------------------------------------------------
@@ -182,16 +253,26 @@ $$;
 -- one by one. Anything asking for `*` is refused outright.
 revoke select on table public.public_posts from anon, authenticated;
 grant select (id, author_username, author_name, author_verified, body,
-              reply_to, repost_of, image_path, created_at)
+              reply_to, repost_of, image_path, poll_options, poll_closes_at,
+              created_at)
   on public.public_posts to anon, authenticated;
 
 revoke select on table public.public_post_likes from anon, authenticated;
 grant select (post_id, created_at)
   on public.public_post_likes to anon, authenticated;
 
+-- Your own vote comes back so the app can show which answer you picked.
+-- voter_phone is never granted, so the row is only ever yours to read — the
+-- policy below sees to that as well.
+revoke select on table public.public_post_votes from anon, authenticated;
+grant select (post_id, choice, created_at)
+  on public.public_post_votes to authenticated;
+
 -- Writing is by whole row; the policies below decide whose row it may be.
 grant insert, delete on public.public_posts to authenticated;
 grant insert, delete on public.public_post_likes to authenticated;
+-- Insert only. A vote is cast once and stands.
+grant insert on public.public_post_votes to authenticated;
 
 -- No UPDATE for anyone. There is no update policy either, but relying on that
 -- alone makes an edit fail *silently* — an UPDATE matching no policy affects
@@ -199,6 +280,7 @@ grant insert, delete on public.public_post_likes to authenticated;
 -- away makes the refusal explicit.
 revoke update on public.public_posts from anon, authenticated;
 revoke update on public.public_post_likes from anon, authenticated;
+revoke update, delete on public.public_post_votes from anon, authenticated;
 
 -- ---------------------------------------------------------------------------
 -- 4. Policies (the functions above have to exist first)
@@ -249,6 +331,31 @@ create policy public_post_likes_delete_own on public.public_post_likes
   for delete to authenticated
   using (liker_phone = (auth.jwt() ->> 'phone'));
 
+-- Same shape as likes: you can see your own vote, nobody else's, and the
+-- tally comes from the counter that runs as the owner.
+drop policy if exists public_post_votes_read_own on public.public_post_votes;
+create policy public_post_votes_read_own on public.public_post_votes
+  for select to authenticated
+  using (voter_phone = (auth.jwt() ->> 'phone'));
+
+-- Everything that makes a vote a vote is checked here rather than in the app.
+-- A modified client gains nothing: it cannot vote as somebody else, cannot
+-- pick an answer the poll does not have, cannot vote on a post that is not a
+-- poll, and cannot vote after it closes. Voting twice is stopped by the
+-- primary key above.
+drop policy if exists public_post_votes_insert_own on public.public_post_votes;
+create policy public_post_votes_insert_own on public.public_post_votes
+  for insert to authenticated
+  with check (
+    voter_phone = (auth.jwt() ->> 'phone')
+    and not public.is_silenced(voter_phone)
+    and exists (
+      select 1 from public.public_posts p
+       where p.id = post_id
+         and p.poll_options is not null
+         and choice < coalesce(array_length(p.poll_options, 1), 0)
+         and p.poll_closes_at > now()));
+
 -- ---------------------------------------------------------------------------
 -- 5. What clients actually read
 -- ---------------------------------------------------------------------------
@@ -278,10 +385,13 @@ select
   p.reply_to,
   p.repost_of,
   p.image_path,
+  p.poll_options,
+  p.poll_closes_at,
   p.created_at,
   public.public_post_like_count(p.id)   as like_count,
   public.public_post_reply_count(p.id)  as reply_count,
-  public.public_post_repost_count(p.id) as repost_count
+  public.public_post_repost_count(p.id) as repost_count,
+  public.public_post_vote_counts(p.id)  as poll_votes
 from public.public_posts p;
 
 grant select on public.public_feed to anon, authenticated;
