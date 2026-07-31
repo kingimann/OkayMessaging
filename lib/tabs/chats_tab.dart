@@ -6,6 +6,7 @@ import '../models/user.dart';
 import '../screens/chat_screen.dart';
 import '../screens/contacts_on_app_screen.dart';
 import '../screens/edit_profile_screen.dart';
+import '../screens/new_chat_screen.dart';
 import '../screens/find_people_screen.dart';
 import '../state/chat_store.dart';
 import '../state/contacts_sync.dart';
@@ -445,11 +446,16 @@ class _EmptyChats extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const EmptyState(
+    // It used to say "tap the compose button" and point at an icon in the
+    // corner. A blank screen that names an action should carry it.
+    return EmptyState(
       icon: Icons.chat_bubble_outline,
       title: 'No chats yet',
-      caption: 'Tap the compose button to start a private, '
-          'encrypted conversation.',
+      caption: 'Start a private, end-to-end encrypted conversation.',
+      actionLabel: 'Start a chat',
+      onAction: () => Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => const NewChatScreen()),
+      ),
     );
   }
 }

@@ -42,16 +42,15 @@ class _ActivityTabState extends State<ActivityTab> {
       listenable: Listenable.merge(
           [ChatStore.instance, CallLog.instance, FeedStore.instance]),
       builder: (context, _) {
-        final unread = ChatStore.instance.chats
-            .where((c) => c.unreadCount > 0)
-            .toList()
-          ..sort((a, b) {
-            final at =
-                a.messages.isEmpty ? DateTime(2000) : a.messages.last.time;
-            final bt =
-                b.messages.isEmpty ? DateTime(2000) : b.messages.last.time;
-            return bt.compareTo(at);
-          });
+        final unread =
+            ChatStore.instance.chats.where((c) => c.unreadCount > 0).toList()
+              ..sort((a, b) {
+                final at =
+                    a.messages.isEmpty ? DateTime(2000) : a.messages.last.time;
+                final bt =
+                    b.messages.isEmpty ? DateTime(2000) : b.messages.last.time;
+                return bt.compareTo(at);
+              });
         final missed =
             CallLog.instance.records.where((r) => r.isMissed).take(10).toList();
         final posts = FeedStore.instance.recentPosts(limit: 5);
@@ -70,54 +69,43 @@ class _ActivityTabState extends State<ActivityTab> {
 
         return Column(
           children: [
-            // Filter chips + mark-all-read on one compact row.
+            // The four filters, and nothing else on the row. A "Mark all read"
+            // button used to share it and left the chips 240pt to live in, so
+            // "Servers" was cut to "Ser" with the button's text over the top.
+            // The action moved to the app bar; the filters get the full width
+            // and now fit without scrolling at all on a 390pt phone.
             Padding(
-              padding: const EdgeInsets.fromLTRB(12, 10, 4, 0),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: Row(
-                        children: [
-                          for (final (f, label) in const [
-                            (_Filter.all, 'All'),
-                            (_Filter.messages, 'Messages'),
-                            (_Filter.calls, 'Calls'),
-                            (_Filter.servers, 'Servers'),
-                          ])
-                            Padding(
-                              padding: const EdgeInsets.only(right: 6),
-                              child: ChoiceChip(
-                                label: Text(label),
-                                selected: _filter == f,
-                                showCheckmark: false,
-                                visualDensity: VisualDensity.compact,
-                                onSelected: (_) =>
-                                    setState(() => _filter = f),
-                              ),
-                            ),
-                        ],
+              padding: const EdgeInsets.fromLTRB(0, 10, 0, 0),
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: Row(
+                  children: [
+                    for (final (f, label) in const [
+                      (_Filter.all, 'All'),
+                      (_Filter.messages, 'Messages'),
+                      (_Filter.calls, 'Calls'),
+                      (_Filter.servers, 'Servers'),
+                    ])
+                      Padding(
+                        padding: const EdgeInsets.only(right: 6),
+                        child: ChoiceChip(
+                          label: Text(label),
+                          selected: _filter == f,
+                          showCheckmark: false,
+                          visualDensity: VisualDensity.compact,
+                          onSelected: (_) => setState(() => _filter = f),
+                        ),
                       ),
-                    ),
-                  ),
-                  if (unread.isNotEmpty)
-                    TextButton(
-                      onPressed: () {
-                        for (final c in unread) {
-                          ChatStore.instance.markRead(c.id);
-                        }
-                      },
-                      child: const Text('Mark all read'),
-                    ),
-                ],
+                  ],
+                ),
               ),
             ),
             Expanded(
               child: !somethingVisible
                   ? PullToRefresh.emptyState(child: _empty(context))
                   : PullToRefresh(
-                    child: ListView(
+                      child: ListView(
                         padding: const EdgeInsets.only(bottom: 96),
                         children: [
                           if (showMessages && unread.isNotEmpty) ...[
@@ -131,8 +119,8 @@ class _ActivityTabState extends State<ActivityTab> {
                                 onDismissed: (_) =>
                                     ChatStore.instance.markRead(chat.id),
                                 child: ListTile(
-                                  leading:
-                                      UserAvatar(user: chat.contact, radius: 22),
+                                  leading: UserAvatar(
+                                      user: chat.contact, radius: 22),
                                   title: Text(chat.contact.name,
                                       style: const TextStyle(
                                           fontWeight: FontWeight.w600)),
@@ -256,8 +244,7 @@ class _ActivityTabState extends State<ActivityTab> {
                                       Container(
                                         width: 8,
                                         height: 8,
-                                        margin:
-                                            const EdgeInsets.only(right: 6),
+                                        margin: const EdgeInsets.only(right: 6),
                                         decoration: BoxDecoration(
                                           color: Theme.of(context)
                                               .colorScheme
@@ -314,7 +301,7 @@ class _ActivityTabState extends State<ActivityTab> {
                           ],
                         ],
                       ),
-                  ),
+                    ),
             ),
           ],
         );

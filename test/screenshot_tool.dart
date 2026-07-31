@@ -129,5 +129,13 @@ void main() {
     // A screen reached from the drawer — does it have a way back?
     await t.tap(find.text('Settings'));
     await shot('pushed_settings');
+    await t.pageBack();
+    await t.pumpAndSettle();
+
+    // The narrowest phone still sold, where the bar and the title are tightest.
+    t.view.physicalSize = const Size(320, 568);
+    await shot('narrow_chats');
+    await t.tap(find.byIcon(Icons.notifications_none));
+    await shot('narrow_alerts');
   });
 }

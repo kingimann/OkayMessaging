@@ -3109,11 +3109,15 @@ class _Empty extends StatelessWidget {
   const _Empty();
   @override
   Widget build(BuildContext context) {
-    return const EmptyState(
+    // EmptyState has always taken a button; this screen told people to create
+    // a server and left them to find the small + in the corner themselves.
+    return EmptyState(
       icon: Icons.groups_outlined,
       title: 'No servers yet',
       caption:
           'Create a server to organise channels with friends or a team.',
+      actionLabel: 'Create a server',
+      onAction: () => createCommunityFlow(context),
     );
   }
 }

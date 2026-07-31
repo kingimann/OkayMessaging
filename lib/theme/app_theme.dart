@@ -83,6 +83,10 @@ class AppTheme {
         scrolledUnderElevation: 1,
         surfaceTintColor: Colors.transparent,
         titleTextStyle: TextStyle(
+          // Named explicitly: an AppBarTheme style does not inherit from the
+          // textTheme, so without this the one piece of chrome on every screen
+          // was the one piece not drawn in the app's own type.
+          fontFamily: 'Roboto',
           color: Color(0xFF11181C),
           fontSize: 20,
           fontWeight: FontWeight.w600,
@@ -128,8 +132,11 @@ class AppTheme {
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
           shape:
               RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-          textStyle:
-              const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+          // Same reason as the app bar title: a component theme's textStyle
+          // does not inherit the textTheme's family, so every filled button
+          // in the app was labelled in a different typeface to the app.
+          textStyle: const TextStyle(
+              fontFamily: 'Roboto', fontSize: 15, fontWeight: FontWeight.w600),
         ),
       ),
       outlinedButtonTheme: OutlinedButtonThemeData(
@@ -196,6 +203,7 @@ class AppTheme {
         scrolledUnderElevation: 1,
         surfaceTintColor: Colors.transparent,
         titleTextStyle: TextStyle(
+          fontFamily: 'Roboto',
           color: Colors.white,
           fontSize: 20,
           fontWeight: FontWeight.w600,
@@ -239,8 +247,11 @@ class AppTheme {
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
           shape:
               RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-          textStyle:
-              const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+          // Same reason as the app bar title: a component theme's textStyle
+          // does not inherit the textTheme's family, so every filled button
+          // in the app was labelled in a different typeface to the app.
+          textStyle: const TextStyle(
+              fontFamily: 'Roboto', fontSize: 15, fontWeight: FontWeight.w600),
         ),
       ),
       outlinedButtonTheme: OutlinedButtonThemeData(

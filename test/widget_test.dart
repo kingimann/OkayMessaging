@@ -1,8 +1,10 @@
+import 'dart:math' as math;
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -17438,6 +17440,252 @@ void main() {
           reason: 'still under the conversation with the keyboard up');
       expect(composer.bottom, closeTo(844 - 336, 24),
           reason: 'it rides the top of the keyboard');
+    });
+  });
+
+  group('Getting around', () {
+    Future<void> home(WidgetTester t,
+        {double width = 390, double height = 844}) async {
+      t.view.physicalSize = Size(width, height);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.resetPhysicalSize);
+      await t.pumpWidget(const OkayMessagingApp());
+      await t.pumpAndSettle();
+    }
+
+    /// The pill in the floating bar, named rather than found by icon: the
+    /// Servers empty state draws `Icons.groups_outlined` too, so finding the
+    /// pill by its glyph can land on the illustration instead.
+    Finder navPill(String label) => find.byKey(HomeScreen.debugNavPillKey(label));
+
+    testWidgets('back leaves the tab you are on before it leaves the app',
+        (t) async {
+      // Android's back gesture and the browser's back button both closed the
+      // app outright from a tab nobody had navigated *to*. The bar is
+      // navigation; back has to undo it first.
+      await home(t);
+      await t.tap(navPill('Alerts'));
+      await t.pumpAndSettle();
+      expect(find.text('Notifications'), findsWidgets);
+
+      final popped =
+          await t.binding.handlePopRoute(); // the system back button
+      await t.pumpAndSettle();
+      expect(popped, isTrue, reason: 'the app handled it rather than exiting');
+      expect(find.text('OkayMessenger'), findsOneWidget,
+          reason: 'back from a tab lands on Chats');
+
+      // And from Chats it is a real pop again, so the app can still be left.
+      expect(await t.binding.handlePopRoute(), isFalse);
+    });
+
+    testWidgets('tapping the tab you are on scrolls it back to the top',
+        (t) async {
+      // Short enough that the conversation list actually overflows — at
+      // 390x844 the sample chats fit, and a list with nowhere to go proves
+      // nothing about coming back.
+      await home(t, height: 460);
+      // The conversation list itself, not whichever Scrollable happens to be
+      // first in the tree — a horizontal chip row would answer to that. Held
+      // by reference: the row it was found through scrolls out of the tree.
+      final list = t.state<ScrollableState>(find
+          .ancestor(
+              of: find.text('Alice Bennett'), matching: find.byType(Scrollable))
+          .first);
+      await t.drag(find.text('Alice Bennett'), const Offset(0, -200));
+      await t.pumpAndSettle();
+      expect(list.position.pixels, greaterThan(0), reason: 'the list moved');
+
+      await t.tap(navPill('Chats')); // already selected
+      await t.pumpAndSettle();
+      expect(list.position.pixels, 0,
+          reason: 'a second tap on the current tab returns to the top');
+    });
+
+    testWidgets('a re-tap is safe on a tab that is not a plain list',
+        (t) async {
+      // The profile tab carries its own tab bar and a grid, so it is the one
+      // most likely to hand its controller a number of positions other than
+      // one — which is what the guard in _scrollTabToTop is for. As it stands
+      // it attaches exactly one, so this covers the re-tap rather than the
+      // guard; the guard is belt and braces and says so.
+      await home(t);
+      await t.tap(navPill('You'));
+      await t.pumpAndSettle();
+      await t.tap(navPill('You'));
+      await t.pumpAndSettle();
+      expect(t.takeException(), isNull);
+    });
+
+    testWidgets('the brand name is never cut off, on any phone', (t) async {
+      // At 20pt with three actions beside it, "OkayMessenger" ellipsised to
+      // "OkayMessen…" on a 390pt iPhone and "OkayMe…" on a 320pt one.
+      for (final width in [320.0, 375.0, 390.0, 430.0]) {
+        await home(t, width: width);
+        final title =
+            t.renderObject<RenderParagraph>(find.text('OkayMessenger').first);
+        // Every letter is laid out — an ellipsis shows up as a laid-out width
+        // narrower than the text wants to be.
+        expect(title.size.width,
+            greaterThanOrEqualTo(title.getMaxIntrinsicWidth(double.infinity)),
+            reason: 'the brand name is truncated at $width');
+        // And it is painted where it fits. Laying every letter out is not the
+        // same as showing them: scaling the title to fit is the fix, and a
+        // FittedBox lays its child out unconstrained whether it fits or not,
+        // so without this the check passes over a name running under the
+        // buttons.
+        expect(t.getRect(find.text('OkayMessenger').first).right,
+            lessThanOrEqualTo(t.getRect(find.byTooltip('New chat')).left),
+            reason: 'the brand name runs into the actions at $width');
+      }
+    });
+
+    testWidgets('the notification filters are readable, not clipped',
+        (t) async {
+      // "Mark all read" shared the row and left the chips 240pt, so "Servers"
+      // rendered as "Ser" underneath the button's own text.
+      for (final width in [320.0, 390.0]) {
+        await home(t, width: width);
+        await t.tap(navPill('Alerts'));
+        await t.pumpAndSettle();
+        // The row the chips scroll in has to be the whole row. Measuring the
+        // labels instead would measure the test font, which is a fixed-width
+        // box per glyph and far wider than the Roboto they ship in — every
+        // chip "overflows" here and none of them does on a phone. What went
+        // wrong was never the chips' width, it was being given 240pt of a
+        // 320pt screen and clipped without a hint that there was more.
+        final viewport = t.getRect(find
+            .ancestor(of: find.text('All'), matching: find.byType(Scrollable))
+            .first);
+        expect(viewport.width, closeTo(width, 1),
+            reason: 'the filters do not get the full row at $width');
+        expect(find.byTooltip('Mark all read'), findsOneWidget,
+            reason: 'the action lives in the app bar now');
+      }
+    });
+
+    testWidgets('mark all read clears every unread chat', (t) async {
+      await home(t);
+      expect(ChatStore.instance.chats.any((c) => c.unreadCount > 0), isTrue);
+      await t.tap(navPill('Alerts'));
+      await t.pumpAndSettle();
+      await t.tap(find.byTooltip('Mark all read'));
+      await t.pumpAndSettle();
+      expect(ChatStore.instance.chats.every((c) => c.unreadCount == 0), isTrue);
+      expect(find.byTooltip('Mark all read'), findsNothing,
+          reason: 'nothing left to mark, so no button');
+    });
+
+    testWidgets('the sidebar says which tab you are on, and switches to it',
+        (t) async {
+      await home(t);
+      ListTile serversRow() => t.widget<ListTile>(find
+          .ancestor(of: find.text('Servers'), matching: find.byType(ListTile))
+          .first);
+
+      await t.tap(find.byTooltip('Open navigation menu'));
+      await t.pumpAndSettle();
+      expect(serversRow().selected, isFalse, reason: 'Chats is showing');
+
+      await t.tap(find.text('Servers'));
+      await t.pumpAndSettle();
+      // Switched the bar rather than pushing a second copy on top of it: a
+      // pushed screen would have a back arrow and hide the menu button.
+      expect(find.byTooltip('Open navigation menu'), findsOneWidget);
+      expect(find.byType(BackButton), findsNothing);
+
+      await t.tap(find.byTooltip('Open navigation menu'));
+      await t.pumpAndSettle();
+      expect(serversRow().selected, isTrue,
+          reason: 'the row for the tab you are on says so');
+    });
+
+    testWidgets('an empty Servers tab offers the thing it asks for', (t) async {
+      // Debug builds seed sample servers, so empty it first — the empty state
+      // is what a real new account sees (a release build seeds nothing) and
+      // what nothing else exercises.
+      addTearDown(CommunityStore.instance.resetForTest);
+      for (final c in [...CommunityStore.instance.communities]) {
+        CommunityStore.instance.deleteCommunity(c.id);
+      }
+      await home(t);
+      await t.tap(navPill('Servers'));
+      await t.pumpAndSettle();
+      expect(find.text('No servers yet'), findsOneWidget);
+      // It said "Create a server to organise channels" and left people to
+      // find the small + in the corner by themselves.
+      await t.tap(find.widgetWithText(FilledButton, 'Create a server'));
+      await t.pumpAndSettle();
+      expect(t.takeException(), isNull);
+      expect(find.text('No servers yet'), findsNothing,
+          reason: 'the button starts the create flow');
+    });
+
+    testWidgets('no app-bar action is cut off by the edge of the screen',
+        (t) async {
+      // A guard, not a fix: the Calls tab carries three actions and the last
+      // one sits hard against the right edge, close enough that a screenshot
+      // reads as clipped. Measured, it fits — but there is no room left for a
+      // fourth, and this is what will say so.
+      for (final width in [320.0, 390.0]) {
+        for (final label in ['Chats', 'Servers', 'Calls', 'Alerts', 'You']) {
+          await home(t, width: width);
+          await t.tap(navPill(label));
+          await t.pumpAndSettle();
+          final glyphs = find.descendant(
+              of: find.byType(AppBar), matching: find.byType(Icon));
+          for (var i = 0; i < glyphs.evaluate().length; i++) {
+            final r = t.getRect(glyphs.at(i));
+            expect(r.right, lessThanOrEqualTo(width),
+                reason: 'an action on $label is off the right at $width');
+            expect(r.left, greaterThanOrEqualTo(0.0),
+                reason: 'an action on $label is off the left at $width');
+          }
+        }
+      }
+    });
+
+    testWidgets('a blank screen carries the action it names', (t) async {
+      // "Tap the compose button to start a conversation" pointed at an icon in
+      // the corner. EmptyState has always taken a button; four screens told
+      // people what to do and made them go and find it.
+      addTearDown(ChatStore.instance.reset);
+      for (final c in [...ChatStore.instance.chats]) {
+        ChatStore.instance.deleteChat(c.id);
+      }
+      await home(t);
+      expect(find.text('No chats yet'), findsOneWidget);
+      await t.tap(find.widgetWithText(FilledButton, 'Start a chat'));
+      await t.pumpAndSettle();
+      expect(t.takeException(), isNull);
+      expect(find.text('No chats yet'), findsNothing,
+          reason: 'the button opens the compose screen');
+    });
+
+    testWidgets('every themed text style is drawn in the app\'s own type',
+        (t) async {
+      // A component theme's textStyle does NOT inherit the textTheme's family,
+      // so the app bar title and every filled button were being drawn in
+      // whatever the platform picked instead of Roboto. Invisible on iOS,
+      // where the fallback happens to look similar; not on the web.
+      // Comments stripped first: the explanations for exactly this are long
+      // enough to push `fontFamily` out of any fixed window after the match.
+      final theme = File('lib/theme/app_theme.dart')
+          .readAsStringSync()
+          .split('\n')
+          .where((l) => !l.trimLeft().startsWith('//'))
+          .join('\n');
+      final styles =
+          RegExp(r'(?:title)?[tT]extStyle:\s*(?:const\s*)?TextStyle\(')
+              .allMatches(theme);
+      expect(styles.length, greaterThan(3),
+          reason: 'the regex stopped matching the component themes');
+      for (final m in styles) {
+        final body =
+            theme.substring(m.end, math.min(m.end + 200, theme.length));
+        expect(body.contains("fontFamily: 'Roboto'"), isTrue,
+            reason: 'a themed style at offset ${m.start} names no font family');
+      }
     });
   });
 

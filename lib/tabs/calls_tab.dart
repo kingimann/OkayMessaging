@@ -859,10 +859,12 @@ class _EmptyRecent extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const EmptyState(
+    return EmptyState(
       icon: Icons.call_outlined,
       title: 'No recent calls',
       caption: 'Calls you make and receive will show up here.',
+      actionLabel: 'Call someone',
+      onAction: () => showCallContactPicker(context),
       compact: true,
     );
   }

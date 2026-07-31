@@ -33,6 +33,12 @@ import '../widgets/user_avatar.dart';
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
+  /// Names a destination in the floating bar for a test. Finding one by its
+  /// icon is ambiguous — the Servers empty state draws the same glyph, and so
+  /// does the sidebar's row for the same tab.
+  @visibleForTesting
+  static Key debugNavPillKey(String label) => _NavPill.keyFor(label);
+
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
@@ -40,6 +46,17 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen>
     with SingleTickerProviderStateMixin {
   int _index = 0;
+
+  /// One scroll controller per tab, handed down as the tab's
+  /// [PrimaryScrollController]. A tab's own ListView attaches to it without
+  /// being told to, which is what makes tapping the current tab again scroll
+  /// it back to the top — the gesture every app with a bottom bar has.
+  ///
+  /// One controller per tab rather than one shared: they all live at once
+  /// inside the IndexedStack, and a controller with five positions attached
+  /// cannot be asked to animate any of them.
+  late final List<ScrollController> _tabScrollControllers =
+      List.generate(5, (_) => ScrollController());
 
   /// Runs a quick fade-in whenever the visible tab changes.
   late final AnimationController _tabFadeController = AnimationController(
@@ -54,6 +71,9 @@ class _HomeScreenState extends State<HomeScreen>
   @override
   void dispose() {
     _tabFadeController.dispose();
+    for (final c in _tabScrollControllers) {
+      c.dispose();
+    }
     super.dispose();
   }
 
@@ -84,110 +104,179 @@ class _HomeScreenState extends State<HomeScreen>
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final onChats = _index == 0;
-    return Scaffold(
-      appBar: AppBar(
-        titleSpacing: 20,
-        title: _index == 0
-            ? Text(
-                'OkayMessenger',
-                style: TextStyle(
-                  color: isDark ? Colors.white : AppColors.tealGreen,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 22,
+    return PopScope(
+      // Back from any other tab returns to Chats before it leaves the app.
+      // Without this, Android's back gesture and the browser's back button
+      // both closed the app from a tab nobody had navigated *to* — the tab
+      // bar is navigation, so back should undo it.
+      canPop: _index == 0,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _onSelectTab(0);
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          // 20pt of title inset plus three actions truncated the brand name to
+          // "OkayMessen…" on a 390pt iPhone. The name is the one word on this
+          // screen that must not be cut.
+          titleSpacing: 14,
+          title: _index == 0
+              // Scaled down rather than ellipsised. Three actions leave the
+              // title about 190pt on a 390pt iPhone and 120pt on a 320pt one,
+              // where 20pt type read "OkayMe…" — a truncated brand name is
+              // worse than a slightly smaller one, and this does nothing at
+              // all on a screen wide enough to hold it.
+              ? FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'OkayMessenger',
+                    style: TextStyle(
+                      color: isDark ? Colors.white : AppColors.tealGreen,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 20,
+                    ),
+                  ),
+                )
+              : Text(_titleForIndex),
+          actions: [
+            if (onChats) ...[
+              IconButton(
+                icon: const Icon(Icons.add_comment_outlined),
+                tooltip: 'New chat',
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const NewChatScreen()),
                 ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.search),
+                tooltip: 'Search',
+                onPressed: () => showSearch(
+                    context: context, delegate: ChatSearchDelegate()),
+              ),
+              PopupMenuButton<String>(
+                onSelected: _onMenuSelected,
+                itemBuilder: (context) => [
+                  PopupMenuItem(
+                    value: 'filter',
+                    child: Text(ChatsTab.filtersVisible.value
+                        ? 'Hide filters'
+                        : 'Filter chats'),
+                  ),
+                  const PopupMenuItem(
+                      value: 'archived', child: Text('Archived chats')),
+                  const PopupMenuItem(
+                      value: 'starred', child: Text('Starred messages')),
+                ],
+              ),
+            ] else if (_index == 1)
+              IconButton(
+                icon: const Icon(Icons.add),
+                tooltip: 'New server',
+                onPressed: () => createCommunityFlow(context),
               )
-            : Text(_titleForIndex),
-        actions: [
-          if (onChats) ...[
-            IconButton(
-              icon: const Icon(Icons.add_comment_outlined),
-              tooltip: 'New chat',
-              onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const NewChatScreen()),
-              ),
-            ),
-            IconButton(
-              icon: const Icon(Icons.search),
-              tooltip: 'Search',
-              onPressed: () =>
-                  showSearch(context: context, delegate: ChatSearchDelegate()),
-            ),
-            PopupMenuButton<String>(
-              onSelected: _onMenuSelected,
-              itemBuilder: (context) => [
-                PopupMenuItem(
-                  value: 'filter',
-                  child: Text(ChatsTab.filtersVisible.value
-                      ? 'Hide filters'
-                      : 'Filter chats'),
+            else if (_index == 2)
+              const CallsTabActions()
+            else if (_index == 3)
+              // It used to sit beside the filter chips, on the same row, and
+              // clipped them mid-word — "Servers" read "Ser". An action belongs
+              // in the bar the screen already has.
+              ListenableBuilder(
+                listenable: ChatStore.instance,
+                builder: (context, _) {
+                  final unread = ChatStore.instance.chats
+                      .where((c) => c.unreadCount > 0)
+                      .toList();
+                  if (unread.isEmpty) return const SizedBox.shrink();
+                  return IconButton(
+                    icon: const Icon(Icons.done_all),
+                    tooltip: 'Mark all read',
+                    onPressed: () {
+                      for (final c in unread) {
+                        ChatStore.instance.markRead(c.id);
+                      }
+                    },
+                  );
+                },
+              )
+            else if (_index == 4)
+              IconButton(
+                icon: const Icon(Icons.settings_outlined),
+                tooltip: 'Settings',
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const SettingsScreen()),
                 ),
-                const PopupMenuItem(
-                    value: 'archived', child: Text('Archived chats')),
-                const PopupMenuItem(
-                    value: 'starred', child: Text('Starred messages')),
-              ],
-            ),
-          ] else if (_index == 1)
-            IconButton(
-              icon: const Icon(Icons.add),
-              tooltip: 'New server',
-              onPressed: () => createCommunityFlow(context),
-            )
-          else if (_index == 2)
-            const CallsTabActions()
-          else if (_index == 4)
-            IconButton(
-              icon: const Icon(Icons.settings_outlined),
-              tooltip: 'Settings',
-              onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const SettingsScreen()),
               ),
-            ),
-        ],
-      ),
-      // Let the content flow behind the floating glass bar so it blurs through.
-      extendBody: true,
-      drawer: _AppSideBar(onSelectTab: _onSelectTab),
-      // Tabs keep their state in an IndexedStack; switching softly fades the
-      // incoming tab in rather than hard-cutting.
-      body: FadeTransition(
-        opacity: _tabFade,
-        child: IndexedStack(
-          index: _index,
-          children: const [
-            ChatsTab(),
-            CommunitiesTab(),
-            CallsTab(),
-            ActivityTab(),
-            // The same profile screen everybody else gets, with the parts only
-            // you can act on. There used to be a second implementation here.
-            _YouTab(),
           ],
         ),
-      ),
-      bottomNavigationBar: ListenableBuilder(
-        listenable: Listenable.merge(
-            [CallLog.instance, ChatStore.instance, FeedStore.instance]),
-        builder: (context, _) => _ModernNavBar(
-          index: _index,
-          missedCalls: CallLog.instance.newMissedCount,
-          activityCount: CallLog.instance.newMissedCount +
-              FeedStore.instance.unseenNotificationCount +
-              ChatStore.instance.chats
-                  .fold(0, (n, c) => n + (c.unreadCount > 0 ? 1 : 0)),
-          onSelect: _onSelectTab,
+        // Let the content flow behind the floating glass bar so it blurs through.
+        extendBody: true,
+        drawer: _AppSideBar(onSelectTab: _onSelectTab, currentTab: _index),
+        // Tabs keep their state in an IndexedStack; switching softly fades the
+        // incoming tab in rather than hard-cutting.
+        body: FadeTransition(
+          opacity: _tabFade,
+          child: IndexedStack(
+            index: _index,
+            children: [
+              for (final (i, tab) in const <(int, Widget)>[
+                (0, ChatsTab()),
+                (1, CommunitiesTab()),
+                (2, CallsTab()),
+                (3, ActivityTab()),
+                // The same profile screen everybody else gets, with the parts
+                // only you can act on. There used to be a second one here.
+                (4, _YouTab()),
+              ])
+                PrimaryScrollController(
+                  controller: _tabScrollControllers[i],
+                  child: tab,
+                ),
+            ],
+          ),
+        ),
+        bottomNavigationBar: ListenableBuilder(
+          listenable: Listenable.merge(
+              [CallLog.instance, ChatStore.instance, FeedStore.instance]),
+          builder: (context, _) => _ModernNavBar(
+            index: _index,
+            missedCalls: CallLog.instance.newMissedCount,
+            activityCount: CallLog.instance.newMissedCount +
+                FeedStore.instance.unseenNotificationCount +
+                ChatStore.instance.chats
+                    .fold(0, (n, c) => n + (c.unreadCount > 0 ? 1 : 0)),
+            onSelect: _onSelectTab,
+          ),
         ),
       ),
     );
   }
 
   void _onSelectTab(int i) {
-    if (i != _index) _tabFadeController.forward(from: 0);
-    setState(() => _index = i);
-    // Opening the Calls tab clears the missed-call badge.
+    // Tapping the tab you are already on takes you back to the top of it —
+    // the gesture every app with a bottom bar has, and the only way back up a
+    // long list without dragging.
+    if (i == _index) {
+      _scrollTabToTop(i);
+    } else {
+      _tabFadeController.forward(from: 0);
+      setState(() => _index = i);
+    }
+    // Opening the Calls tab clears the missed-call badge. Also on a re-tap:
+    // something can have arrived while the tab was already open.
     if (i == 2) CallLog.instance.markSeen();
     // Opening Notifications clears the feed mention/reply badge.
     if (i == 3) FeedStore.instance.markNotificationsSeen();
+  }
+
+  void _scrollTabToTop(int i) {
+    final c = _tabScrollControllers[i];
+    // A tab with nested scrollables (the profile's own tab bar) attaches more
+    // than one position to its controller, and animating an ambiguous
+    // controller throws. Nothing to scroll is not an error either.
+    if (c.positions.length != 1 || c.offset <= 0) return;
+    c.animateTo(0,
+        duration: const Duration(milliseconds: 320),
+        curve: Curves.easeOutCubic);
   }
 
   String get _titleForIndex => switch (_index) {
@@ -345,7 +434,20 @@ class _AppSideBar extends StatelessWidget {
   /// where pushing a second copy on top would stack two of the same screen.
   final ValueChanged<int> onSelectTab;
 
-  const _AppSideBar({required this.onSelectTab});
+  /// Which bottom tab is showing behind the drawer, so its row can say so.
+  final int currentTab;
+
+  const _AppSideBar({required this.onSelectTab, required this.currentTab});
+
+  Widget _drawerHeader(BuildContext context, String text) => Padding(
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
+        child: Text(text.toUpperCase(),
+            style: TextStyle(
+                fontSize: 11.5,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.7,
+                color: Theme.of(context).colorScheme.onSurfaceVariant)),
+      );
 
   void _go(BuildContext context, Widget screen) {
     Navigator.of(context).pop(); // close the drawer first
@@ -407,8 +509,15 @@ class _AppSideBar extends StatelessWidget {
                 ),
               ),
               const Divider(height: 1),
-              // The full apps that live outside the five tabs, plus the
-              // destinations people kept asking where to find.
+              // The full apps that live outside the five tabs, under a header
+              // that says what they are — the list used to run them straight
+              // into Settings with nothing to separate the two.
+              //
+              // The bottom bar is not repeated here. It is on screen already,
+              // and a drawer that lists the tab bar is a second copy of the
+              // navigation rather than more of it. Servers is the exception,
+              // because it is where the other apps' content lives.
+              _drawerHeader(context, 'Apps'),
               ListTile(
                 leading: const Icon(Icons.public),
                 title: const Text('Newsfeed'),
@@ -430,9 +539,16 @@ class _AppSideBar extends StatelessWidget {
               ListTile(
                 leading: const Icon(Icons.groups_outlined),
                 title: const Text('Servers'),
+                // Servers IS a bottom tab, so this switches the bar rather
+                // than pushing a second copy of a screen that is already open
+                // behind the drawer — and says when it is the one showing,
+                // which nothing here used to do for any row.
+                selected: currentTab == 1,
+                selectedTileColor:
+                    Theme.of(context).colorScheme.primary.withValues(alpha: 0.10),
                 onTap: () {
                   Navigator.of(context).pop();
-                  onSelectTab(1); // the Servers tab, without stacking a copy
+                  onSelectTab(1);
                 },
               ),
               ListTile(
@@ -441,6 +557,7 @@ class _AppSideBar extends StatelessWidget {
                 subtitle: const Text('Send and receive money'),
                 onTap: () => _go(context, const WalletScreen()),
               ),
+              const Divider(height: 17),
               ListTile(
                 leading: const Icon(Icons.settings_outlined),
                 title: const Text('Settings'),
@@ -448,7 +565,7 @@ class _AppSideBar extends StatelessWidget {
               ),
               const SizedBox(height: 12),
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
                 child: Text(
                   'OkayMessenger · $kBuildStamp',
                   style: TextStyle(
@@ -472,14 +589,19 @@ class _NavPill extends StatelessWidget {
   final int badgeCount;
   final VoidCallback onTap;
 
-  const _NavPill({
+  _NavPill({
     required this.icon,
     required this.activeIcon,
     required this.label,
     required this.selected,
     required this.onTap,
     this.badgeCount = 0,
-  });
+  }) : super(key: keyFor(label));
+
+  /// How a test names a destination in the bar. The icon is not enough:
+  /// `Icons.groups_outlined` is also the Servers empty state, so finding a
+  /// pill by icon can land on the illustration instead of the button.
+  static Key keyFor(String label) => ValueKey('nav-pill-$label');
 
   @override
   Widget build(BuildContext context) {
