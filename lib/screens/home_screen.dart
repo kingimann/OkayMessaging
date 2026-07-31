@@ -139,6 +139,16 @@ class _HomeScreenState extends State<HomeScreen>
                 )
               : Text(_titleForIndex),
           actions: [
+            // Search is on every tab, not just this one. It looks through
+            // people, messages, servers, channels, calls and links — none of
+            // which is a Chats-tab-only idea — and it was reachable from one
+            // of five destinations.
+            IconButton(
+              icon: const Icon(Icons.search),
+              tooltip: 'Search',
+              onPressed: () =>
+                  showSearch(context: context, delegate: ChatSearchDelegate()),
+            ),
             if (onChats) ...[
               IconButton(
                 icon: const Icon(Icons.add_comment_outlined),
@@ -146,12 +156,6 @@ class _HomeScreenState extends State<HomeScreen>
                 onPressed: () => Navigator.of(context).push(
                   MaterialPageRoute(builder: (_) => const NewChatScreen()),
                 ),
-              ),
-              IconButton(
-                icon: const Icon(Icons.search),
-                tooltip: 'Search',
-                onPressed: () => showSearch(
-                    context: context, delegate: ChatSearchDelegate()),
               ),
               PopupMenuButton<String>(
                 onSelected: _onMenuSelected,

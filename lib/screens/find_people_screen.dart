@@ -16,7 +16,12 @@ import 'chat_screen.dart';
 /// call with them. Backed by the server directory (the `usernames` table);
 /// results are empty unless you're signed in with a verified account.
 class FindPeopleScreen extends StatefulWidget {
-  const FindPeopleScreen({super.key});
+  const FindPeopleScreen({super.key, this.initialQuery = ''});
+
+  /// What to look up on arrival. Set when this is reached from a search that
+  /// found nobody on the device — carrying the handle across means not typing
+  /// it twice to be told a second time.
+  final String initialQuery;
 
   @override
   State<FindPeopleScreen> createState() => _FindPeopleScreenState();
@@ -29,6 +34,15 @@ class _FindPeopleScreenState extends State<FindPeopleScreen> {
   bool _searching = false;
   List<AppUser> _results = const [];
   String _query = '';
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.initialQuery.isNotEmpty) {
+      _controller.text = widget.initialQuery;
+      _onChanged(widget.initialQuery);
+    }
+  }
 
   @override
   void dispose() {

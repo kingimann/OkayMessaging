@@ -1,3 +1,4 @@
+import 'find_people_screen.dart';
 import 'package:flutter/material.dart';
 
 import '../data/mock_data.dart';
@@ -90,6 +91,40 @@ class ChatSearchDelegate extends SearchDelegate<void> {
   @override
   Widget buildSuggestions(BuildContext context) =>
       _SearchBody(query: query, onRun: (q) => _run(context, q));
+}
+
+/// The way out of a search that found nothing.
+///
+/// This search only ever looked at what is already on the device — chats,
+/// contacts, servers, calls. Looking for somebody you have not met yet
+/// therefore returned "No results" and stopped, with nothing to say that a
+/// directory exists or how to reach it. It was on the Calls tab, behind a
+/// second magnifying glass that meant something different from this one.
+class _DirectoryLookup extends StatelessWidget {
+  const _DirectoryLookup({required this.query});
+
+  final String query;
+
+  @override
+  Widget build(BuildContext context) {
+    final handle = query.trim().replaceFirst('@', '');
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text('Nobody on this device matches.',
+            style: TextStyle(fontSize: 13, color: AppColors.subtle(context))),
+        const SizedBox(height: 10),
+        FilledButton.tonalIcon(
+          onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => FindPeopleScreen(initialQuery: handle))),
+          icon: const Icon(Icons.person_search_outlined, size: 18),
+          label: Text(handle.isEmpty
+              ? 'Find people by username'
+              : 'Look up @$handle'),
+        ),
+      ],
+    );
+  }
 }
 
 class _SearchBody extends StatefulWidget {
@@ -246,8 +281,15 @@ class _SearchBodyState extends State<_SearchBody> {
         if (total == 0)
           Expanded(
             child: Center(
-              child: Text('No results for "${widget.query}"',
-                  style: TextStyle(color: AppColors.subtle(context))),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('No results for "${widget.query}"',
+                      style: TextStyle(color: AppColors.subtle(context))),
+                  const SizedBox(height: 16),
+                  _DirectoryLookup(query: widget.query),
+                ],
+              ),
             ),
           )
         else

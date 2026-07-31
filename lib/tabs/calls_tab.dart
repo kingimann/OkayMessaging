@@ -203,13 +203,12 @@ class CallsTabActions extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        IconButton(
-          icon: const Icon(Icons.search),
-          tooltip: 'Find people by username',
-          onPressed: () => Navigator.of(context).push(
-            MaterialPageRoute(builder: (_) => const FindPeopleScreen()),
-          ),
-        ),
+        // The magnifying glass that used to sit here opened the DIRECTORY,
+        // while the identical one on the Chats tab opened a search of this
+        // device — one icon meaning two things, depending which tab you were
+        // on. The device search is now in the bar on every tab, and it offers
+        // the directory itself when it finds nobody.
+        //
         // The dialer rates its own button: it's how you call anyone,
         // on the app or off it.
         IconButton(

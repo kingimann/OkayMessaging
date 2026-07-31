@@ -18349,6 +18349,48 @@ void main() {
       }
     });
 
+    testWidgets('search is reachable from every tab', (t) async {
+      // It looks through people, messages, servers, channels, calls and links
+      // — none of which is a Chats-tab idea — and it was in the bar on one of
+      // the five destinations.
+      await home(t);
+      for (final label in ['Chats', 'Servers', 'Calls', 'Alerts', 'You']) {
+        await t.tap(navPill(label));
+        await t.pumpAndSettle();
+        expect(find.byTooltip('Search'), findsOneWidget,
+            reason: 'no way to search from $label');
+      }
+
+      // And the Calls tab no longer carries a SECOND magnifying glass that
+      // opened something else — the directory rather than this device.
+      await t.tap(navPill('Calls'));
+      await t.pumpAndSettle();
+      expect(find.byIcon(Icons.search), findsOneWidget,
+          reason: 'one magnifier, one meaning');
+    });
+
+    testWidgets('a search that finds nobody offers the directory', (t) async {
+      // This search only ever looked at what is already on the device, so
+      // looking for somebody you have not met said "No results" and stopped.
+      // The directory lookup existed the whole time, on another tab, behind
+      // the icon that meant something different.
+      await home(t);
+      await t.tap(find.byTooltip('Search'));
+      await t.pumpAndSettle();
+      await t.enterText(find.byType(TextField).first, 'nobodyhere');
+      await t.pumpAndSettle();
+
+      expect(find.textContaining('No results'), findsOneWidget);
+      final lookUp = find.widgetWithText(FilledButton, 'Look up @nobodyhere');
+      expect(lookUp, findsOneWidget, reason: 'the way out is offered');
+
+      await t.tap(lookUp);
+      await t.pumpAndSettle();
+      // And it arrives with the handle already typed, rather than asking for
+      // it a second time.
+      expect(find.widgetWithText(TextField, 'nobodyhere'), findsWidgets);
+    });
+
     testWidgets('a blank screen carries the action it names', (t) async {
       // "Tap the compose button to start a conversation" pointed at an icon in
       // the corner. EmptyState has always taken a button; four screens told
