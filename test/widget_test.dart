@@ -52,6 +52,7 @@ import 'package:okay_messaging/screens/payment_diagnostics_screen.dart';
 import 'package:okay_messaging/screens/public_feed_screen.dart';
 import 'package:okay_messaging/state/public_feed_store.dart';
 import 'package:okay_messaging/state/smart_replies.dart';
+import 'package:okay_messaging/widgets/feed_post_actions.dart';
 import 'package:okay_messaging/widgets/streak_chip.dart';
 import 'package:okay_messaging/widgets/sanction_notice.dart';
 import 'package:okay_messaging/screens/forum_screen.dart';
@@ -18040,6 +18041,96 @@ void main() {
           reason: 'still under the conversation with the keyboard up');
       expect(composer.bottom, closeTo(844 - 336, 24),
           reason: 'it rides the top of the keyboard');
+    });
+  });
+
+  group('The two timelines are one timeline', () {
+    test('both feeds draw the same actions, from the same widget', () {
+      // There were two implementations of the same row. The public feed spread
+      // four evenly across the post's width; a server feed put three inside a
+      // 240-point box and bolted a bookmark and a share on the end — so the
+      // same gesture sat in a different place, at a different size, depending
+      // which of the two you were looking at.
+      for (final path in [
+        'lib/screens/public_feed_screen.dart',
+        'lib/screens/feed_screen.dart',
+      ]) {
+        final src = File(path).readAsStringSync();
+        expect(src.contains('FeedPostActions('), isTrue,
+            reason: '$path builds its own action row again');
+        // The private builders that used to draw them, gone from both.
+        expect(src.contains('class _PostAction '), isFalse);
+        expect(src.contains('Widget _action(BuildContext context,'), isFalse);
+      }
+    });
+
+    testWidgets('the shared strip draws four actions and hides empty counts',
+        (t) async {
+      var tapped = '';
+      await t.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: FeedPostActions(
+            replyCount: 0,
+            repostCount: 2,
+            likeCount: 13,
+            liked: true,
+            reposted: false,
+            onReply: () => tapped = 'reply',
+            onRepost: () => tapped = 'repost',
+            onLike: () => tapped = 'like',
+            onShare: () => tapped = 'share',
+          ),
+        ),
+      ));
+      await t.pumpAndSettle();
+
+      // A zero is not drawn. "0 replies" is a fact nobody needs, and four of
+      // them under every post is a row of noise.
+      expect(find.text('0'), findsNothing);
+      expect(find.text('2'), findsOneWidget);
+      expect(find.text('13'), findsOneWidget);
+
+      // Liked reads as liked without being learned.
+      expect(find.byIcon(Icons.favorite), findsOneWidget);
+      expect(find.byIcon(Icons.favorite_border), findsNothing);
+      final heart = t.widget<Icon>(find.byIcon(Icons.favorite));
+      expect(heart.color, FeedPostActions.likeColour);
+
+      // Evenly spread, not bunched at the left: the last one is out past the
+      // middle of what it was given.
+      final row = t.getRect(find.byType(FeedPostActions));
+      final share = t.getRect(find.byIcon(Icons.ios_share));
+      expect(share.center.dx, greaterThan(row.center.dx),
+          reason: 'the four are spread across the width, not crowded');
+
+      for (final (tooltip, expected) in [
+        ('Reply', 'reply'),
+        ('Repost', 'repost'),
+        ('Like', 'like'),
+        ('Copy text', 'share'),
+      ]) {
+        await t.tap(find.byTooltip(tooltip));
+        expect(tapped, expected);
+      }
+    });
+
+    test('a post on either feed has the same menu behind the same icon', () {
+      // The server feed's menu was on a long-press and nothing else — the one
+      // gesture nobody finds by looking — and the thread screen had no menu at
+      // all, so a post you had opened was one you could no longer bookmark,
+      // mute or report.
+      final server = File('lib/screens/feed_screen.dart').readAsStringSync();
+      expect(server.contains('Icons.more_horiz'), isTrue,
+          reason: 'the server feed has no visible way into the post menu');
+      expect(server.contains('void showFeedPostOptions('), isTrue,
+          reason: 'the thread screen needs the same menu, so it is shared');
+      // Bookmark left the action row on both, which is what makes room for
+      // four evenly spread targets.
+      expect(server.contains("Text(saved ? 'Remove bookmark' : 'Bookmark')"),
+          isTrue);
+      final public = File('lib/screens/public_feed_screen.dart').readAsStringSync();
+      expect(public.contains("Text(saved ? 'Remove bookmark' : 'Bookmark')"),
+          isTrue);
     });
   });
 

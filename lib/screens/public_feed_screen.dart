@@ -20,6 +20,7 @@ import '../util/photo_prep.dart';
 import '../utils/date_formatter.dart';
 import '../widgets/sanction_notice.dart';
 import '../widgets/user_avatar.dart';
+import '../widgets/feed_post_actions.dart';
 import '../widgets/verified_badge.dart';
 import 'edit_profile_screen.dart';
 import 'feed_screen.dart' show FeedPostScreen;
@@ -1586,87 +1587,30 @@ class _PostTile extends StatelessWidget {
                   ],
                   if (post.repostOf != null) _Quoted(postId: post.repostOf!),
                   const SizedBox(height: 2),
-                  // Four actions, evenly spread across the post's own width
-                  // rather than bunched at the left. That is the shape a
-                  // timeline like this one has, and it puts every target under
-                  // a thumb instead of crowding them into one corner. The last
-                  // one stops short of the edge rather than touching it.
-                  Padding(
-                    padding: const EdgeInsets.only(right: 4),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        _action(
-                          context,
-                          icon: Icons.chat_bubble_outline,
-                          label:
-                              post.replyCount == 0 ? '' : '${post.replyCount}',
-                          onTap: onReply,
-                        ),
-                        _action(
-                          context,
-                          icon: Icons.repeat,
-                          label: post.repostCount == 0
-                              ? ''
-                              : '${post.repostCount}',
-                          color: PublicFeedStore.instance.myRepostOf(post.id) !=
-                                  null
-                              ? Colors.green
-                              : null,
-                          // A repeat is two different intentions — pass it on
-                          // as it is, or pass it on with something to say — so it
-                          // asks which rather than picking one.
-                          onTap: () => _repostMenu(context),
-                        ),
-                        _action(
-                          context,
-                          icon: post.liked
-                              ? Icons.favorite
-                              : Icons.favorite_border,
-                          label: post.likeCount == 0 ? '' : '${post.likeCount}',
-                          // The pink a liked heart is everywhere else, so the
-                          // gesture reads without being learned.
-                          color: post.liked ? const Color(0xFFF91880) : null,
-                          onTap: () =>
-                              PublicFeedStore.instance.toggleLike(post.id),
-                        ),
-                        _action(
-                          context,
-                          icon: Icons.ios_share,
-                          label: '',
-                          onTap: () {
-                            Clipboard.setData(ClipboardData(text: post.body));
-                            ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(content: Text('Post copied.')));
-                          },
-                        ),
-                      ],
-                    ),
+                  FeedPostActions(
+                    replyCount: post.replyCount,
+                    repostCount: post.repostCount,
+                    likeCount: post.likeCount,
+                    liked: post.liked,
+                    reposted:
+                        PublicFeedStore.instance.myRepostOf(post.id) != null,
+                    onReply: onReply,
+                    // A repeat is two different intentions — pass it on as it
+                    // is, or pass it on with something to say — so it asks
+                    // which rather than picking one.
+                    onRepost: () => _repostMenu(context),
+                    onLike: () => PublicFeedStore.instance.toggleLike(post.id),
+                    onShare: () {
+                      Clipboard.setData(ClipboardData(text: post.body));
+                      ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Post copied.')));
+                    },
                   ),
                 ],
               ),
             ),
           ],
         ),
-      ),
-    );
-  }
-
-  Widget _action(BuildContext context,
-      {required IconData icon,
-      required String label,
-      required VoidCallback onTap,
-      Color? color}) {
-    return TextButton.icon(
-      onPressed: onTap,
-      icon: Icon(icon, size: 17, color: color ?? AppColors.subtle(context)),
-      label: Text(label,
-          style:
-              TextStyle(fontSize: 12.5, color: color ?? AppColors.subtle(context))),
-      style: TextButton.styleFrom(
-        padding: const EdgeInsets.symmetric(horizontal: 8),
-        minimumSize: const Size(0, 32),
-        visualDensity: VisualDensity.compact,
       ),
     );
   }

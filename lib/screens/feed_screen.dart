@@ -14,6 +14,7 @@ import '../util/photo_prep.dart';
 import '../widgets/app_dialogs.dart';
 import '../widgets/chat_photo.dart';
 import '../widgets/emoji_gif_sheet.dart';
+import '../widgets/feed_post_actions.dart';
 import '../widgets/poll_widgets.dart';
 import '../widgets/pull_to_refresh.dart';
 import '../widgets/verified_badge.dart';
@@ -25,8 +26,7 @@ import 'in_app_web_screen.dart';
 /// the accent colour. Pure, so it's easy to test.
 List<TextSpan> feedSpans(String text, TextStyle base, TextStyle accent) {
   final spans = <TextSpan>[];
-  final pattern =
-      RegExp(r'(@[A-Za-z0-9_]+|#[A-Za-z0-9_]+|https?://\S+)');
+  final pattern = RegExp(r'(@[A-Za-z0-9_]+|#[A-Za-z0-9_]+|https?://\S+)');
   var last = 0;
   for (final m in pattern.allMatches(text)) {
     if (m.start > last) {
@@ -179,123 +179,13 @@ class _FeedScreenState extends State<FeedScreen> {
   void _authorSheet(FeedPost post) => showPersonSheet(context,
       username: post.authorUsername, name: post.authorName);
 
-  void _postOptions(FeedPost post) {
-    final mine = post.authorUsername == 'you' ||
-        post.authorUsername == AppState.profile.value.username;
-    showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      builder: (sheetContext) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.copy),
-              title: const Text('Copy text'),
-              onTap: () {
-                Clipboard.setData(ClipboardData(text: post.text));
-                Navigator.of(sheetContext).pop();
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Copied')),
-                );
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.forum_outlined),
-              title: const Text('View thread'),
-              onTap: () {
-                Navigator.of(sheetContext).pop();
-                _openThread(post);
-              },
-            ),
-            if (!mine) ...[
-              ListTile(
-                leading: const Icon(Icons.visibility_off_outlined),
-                title: const Text('Hide post'),
-                onTap: () {
-                  FeedStore.instance.hidePost(post.id);
-                  Navigator.of(sheetContext).pop();
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.flag_outlined),
-                title: const Text('Report post'),
-                subtitle: const Text('Hidden for you, and sent to the '
-                    'moderators'),
-                onTap: () async {
-                  final messenger = ScaffoldMessenger.of(context);
-                  FeedStore.instance.hidePost(post.id);
-                  Navigator.of(sheetContext).pop();
-                  // It said "Reported" and only hid it. A server post is
-                  // encrypted, so the report carries who and where, never
-                  // what — which is all a moderator can act on here anyway.
-                  final sent = await PlatformModeration.instance.report(
-                    reason: 'Reported from a server feed',
-                    targetHandle: post.authorUsername,
-                    context: 'server_post:${post.id}',
-                    reporterPhone:
-                        local.Session.instance.user.value?.phone ?? '',
-                  );
-                  messenger.showSnackBar(SnackBar(
-                    content: Text(sent
-                        ? 'Reported — the post is hidden for you.'
-                        : 'Hidden for you. The report couldn\'t be sent — '
-                            'you may be offline.'),
-                  ));
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.volume_off_outlined),
-                title: Text(
-                    FeedStore.instance.isMuted(post.authorUsername)
-                        ? 'Unmute @${post.authorUsername}'
-                        : 'Mute @${post.authorUsername}'),
-                onTap: () {
-                  FeedStore.instance.toggleMute(post.authorUsername);
-                  Navigator.of(sheetContext).pop();
-                },
-              ),
-            ],
-            if (CommunityStore.instance.canModerate(widget.communityId))
-              ListTile(
-                leading: Icon(
-                    post.pinned ? Icons.push_pin : Icons.push_pin_outlined),
-                title: Text(post.pinned ? 'Unpin from feed' : 'Pin to feed'),
-                onTap: () {
-                  final pinned = FeedStore.instance.togglePinned(post.id);
-                  Navigator.of(sheetContext).pop();
-                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                    content: Text(pinned
-                        ? 'Pinned to the top of the feed.'
-                        : 'Unpinned.'),
-                  ));
-                },
-              ),
-            if (mine) ...[
-              ListTile(
-                leading: const Icon(Icons.edit_outlined),
-                title: const Text('Edit post'),
-                onTap: () {
-                  Navigator.of(sheetContext).pop();
-                  _editPost(post);
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.delete_outline, color: Colors.red),
-                title: const Text('Delete post',
-                    style: TextStyle(color: Colors.red)),
-                onTap: () {
-                  FeedStore.instance.deletePost(post.id);
-                  Navigator.of(sheetContext).pop();
-                },
-              ),
-            ],
-            const SizedBox(height: 8),
-          ],
-        ),
-      ),
-    );
-  }
+  void _postOptions(FeedPost post) => showFeedPostOptions(
+        context,
+        post,
+        communityId: widget.communityId,
+        onOpenThread: _openThread,
+        onEdit: _editPost,
+      );
 
   /// Posts a poll to the feed, using the same composer sheet as channels.
   Future<void> _createPoll() async {
@@ -450,8 +340,7 @@ class _FeedScreenState extends State<FeedScreen> {
         onRepost: () => _repostOptions(post),
         onReply: () => _openThread(post),
         onAuthor: () => _authorSheet(post),
-        saved: FeedStore.instance.isSaved(post.id),
-        onSave: () => FeedStore.instance.toggleSaved(post.id),
+        onMore: () => _postOptions(post),
         // Tags filter the timeline in place; mentions open the person.
         onTag: (t) => setState(() => _tag = _tag == t ? '' : t),
         onMention: (u) => showPersonSheet(context, username: u),
@@ -558,8 +447,7 @@ class _FeedScreenState extends State<FeedScreen> {
           var posts = sortFeed(filterFeedByTag(all, _tag), top: _top);
           if (_savedOnly) {
             posts = posts
-                .where((p) => FeedStore.instance
-                    .isSaved(p.repostOfId ?? p.id))
+                .where((p) => FeedStore.instance.isSaved(p.repostOfId ?? p.id))
                 .toList();
           }
           // Search narrows whatever the chips already selected.
@@ -633,7 +521,9 @@ class _FeedScreenState extends State<FeedScreen> {
                             : 'No posts yet. Tap the pencil up top to say '
                                 'something!',
                         textAlign: TextAlign.center,
-                        style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
+                        style: TextStyle(
+                            color:
+                                Theme.of(context).colorScheme.onSurfaceVariant),
                       ),
                     ),
                   ),
@@ -654,6 +544,159 @@ class _FeedScreenState extends State<FeedScreen> {
   }
 }
 
+/// The post's own menu: bookmark, copy, open the thread, hide, report,
+/// mute, and the moderator actions.
+///
+/// A free function because the thread screen opens the SAME menu. It had
+/// none at all — a post you had opened was a post you could no longer
+/// bookmark, mute or report, which is the opposite of what opening it is
+/// for.
+void showFeedPostOptions(
+  BuildContext context,
+  FeedPost post, {
+  required String communityId,
+  required void Function(FeedPost) onOpenThread,
+  required Future<void> Function(FeedPost) onEdit,
+}) {
+  final mine = post.authorUsername == 'you' ||
+      post.authorUsername == AppState.profile.value.username;
+  showModalBottomSheet<void>(
+    context: context,
+    showDragHandle: true,
+    // The menu grows with what a post can be — bookmark, thread, hide,
+    // report, mute, pin, edit, delete — and a fixed sheet clipped the last
+    // rows off the bottom the moment one more was added.
+    isScrollControlled: true,
+    builder: (sheetContext) => SafeArea(
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Bookmarking moved off the action row and in here, where the
+            // public timeline already keeps it.
+            ListenableBuilder(
+              listenable: FeedStore.instance,
+              builder: (context, _) {
+                final saved = FeedStore.instance.isSaved(post.id);
+                return ListTile(
+                  leading: Icon(saved ? Icons.bookmark : Icons.bookmark_border),
+                  title: Text(saved ? 'Remove bookmark' : 'Bookmark'),
+                  subtitle: const Text('Kept on this device only'),
+                  onTap: () {
+                    FeedStore.instance.toggleSaved(post.id);
+                    Navigator.of(sheetContext).pop();
+                  },
+                );
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.copy),
+              title: const Text('Copy text'),
+              onTap: () {
+                Clipboard.setData(ClipboardData(text: post.text));
+                Navigator.of(sheetContext).pop();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Copied')),
+                );
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.forum_outlined),
+              title: const Text('View thread'),
+              onTap: () {
+                Navigator.of(sheetContext).pop();
+                onOpenThread(post);
+              },
+            ),
+            if (!mine) ...[
+              ListTile(
+                leading: const Icon(Icons.visibility_off_outlined),
+                title: const Text('Hide post'),
+                onTap: () {
+                  FeedStore.instance.hidePost(post.id);
+                  Navigator.of(sheetContext).pop();
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.flag_outlined),
+                title: const Text('Report post'),
+                subtitle: const Text('Hidden for you, and sent to the '
+                    'moderators'),
+                onTap: () async {
+                  final messenger = ScaffoldMessenger.of(context);
+                  FeedStore.instance.hidePost(post.id);
+                  Navigator.of(sheetContext).pop();
+                  // It said "Reported" and only hid it. A server post is
+                  // encrypted, so the report carries who and where, never
+                  // what — which is all a moderator can act on here anyway.
+                  final sent = await PlatformModeration.instance.report(
+                    reason: 'Reported from a server feed',
+                    targetHandle: post.authorUsername,
+                    context: 'server_post:${post.id}',
+                    reporterPhone:
+                        local.Session.instance.user.value?.phone ?? '',
+                  );
+                  messenger.showSnackBar(SnackBar(
+                    content: Text(sent
+                        ? 'Reported — the post is hidden for you.'
+                        : 'Hidden for you. The report couldn\'t be sent — '
+                            'you may be offline.'),
+                  ));
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.volume_off_outlined),
+                title: Text(FeedStore.instance.isMuted(post.authorUsername)
+                    ? 'Unmute @${post.authorUsername}'
+                    : 'Mute @${post.authorUsername}'),
+                onTap: () {
+                  FeedStore.instance.toggleMute(post.authorUsername);
+                  Navigator.of(sheetContext).pop();
+                },
+              ),
+            ],
+            if (CommunityStore.instance.canModerate(communityId))
+              ListTile(
+                leading: Icon(
+                    post.pinned ? Icons.push_pin : Icons.push_pin_outlined),
+                title: Text(post.pinned ? 'Unpin from feed' : 'Pin to feed'),
+                onTap: () {
+                  final pinned = FeedStore.instance.togglePinned(post.id);
+                  Navigator.of(sheetContext).pop();
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                    content: Text(pinned
+                        ? 'Pinned to the top of the feed.'
+                        : 'Unpinned.'),
+                  ));
+                },
+              ),
+            if (mine) ...[
+              ListTile(
+                leading: const Icon(Icons.edit_outlined),
+                title: const Text('Edit post'),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  onEdit(post);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.delete_outline, color: Colors.red),
+                title: const Text('Delete post',
+                    style: TextStyle(color: Colors.red)),
+                onTap: () {
+                  FeedStore.instance.deletePost(post.id);
+                  Navigator.of(sheetContext).pop();
+                },
+              ),
+            ],
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
 /// One X-style post row.
 class _PostCard extends StatelessWidget {
   final FeedPost post;
@@ -661,8 +704,10 @@ class _PostCard extends StatelessWidget {
   final VoidCallback onRepost;
   final VoidCallback onReply;
   final VoidCallback? onAuthor;
-  final bool saved;
-  final VoidCallback? onSave;
+
+  /// Opens the post's own menu. It was a long-press only, which is not an
+  /// affordance.
+  final VoidCallback? onMore;
 
   /// Tapping a #hashtag / @mention in the text.
   final ValueChanged<String>? onTag;
@@ -674,8 +719,7 @@ class _PostCard extends StatelessWidget {
     required this.onRepost,
     required this.onReply,
     this.onAuthor,
-    this.saved = false,
-    this.onSave,
+    this.onMore,
     this.onTag,
     this.onMention,
   });
@@ -740,6 +784,19 @@ class _PostCard extends StatelessWidget {
                           style: TextStyle(color: grey, fontSize: 13.5)),
                     ),
                     const Spacer(),
+                    // The same affordance the public timeline has. This menu
+                    // was on a long-press and nothing else — the one gesture
+                    // nobody finds by looking, holding everything from
+                    // bookmark to report.
+                    if (onMore != null)
+                      GestureDetector(
+                        onTap: onMore,
+                        behavior: HitTestBehavior.opaque,
+                        child: Padding(
+                          padding: const EdgeInsets.only(left: 8),
+                          child: Icon(Icons.more_horiz, size: 18, color: grey),
+                        ),
+                      ),
                   ],
                 ),
                 const SizedBox(height: 3),
@@ -764,10 +821,8 @@ class _PostCard extends StatelessWidget {
                       options: post.pollOptions,
                       votes: post.pollVotes,
                       myVote: post.pollMyVote,
-                      textColor:
-                          Theme.of(context).colorScheme.onSurface,
-                      metaColor:
-                          Theme.of(context).colorScheme.onSurfaceVariant,
+                      textColor: Theme.of(context).colorScheme.onSurface,
+                      metaColor: Theme.of(context).colorScheme.onSurfaceVariant,
                       onVote: (i) => FeedStore.instance.votePoll(post.id, i),
                     ),
                   ),
@@ -793,59 +848,27 @@ class _PostCard extends StatelessWidget {
                 Row(
                   children: [
                     Expanded(
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 240),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            _PostAction(
-                              icon: Icons.chat_bubble_outline,
-                              count: post.replies,
-                              onTap: onReply,
-                              tooltip: 'Reply',
-                            ),
-                            _PostAction(
-                              icon: Icons.repeat,
-                              count: post.reposts,
-                              active: post.reposted,
-                              activeColor: const Color(0xFF00BA7C),
-                              onTap: onRepost,
-                              tooltip: 'Repost',
-                            ),
-                            _PostAction(
-                              icon: post.liked
-                                  ? Icons.favorite
-                                  : Icons.favorite_border,
-                              count: post.likes,
-                              active: post.liked,
-                              activeColor: const Color(0xFFF91880),
-                              onTap: onLike,
-                              tooltip: 'Like',
-                            ),
-                          ],
-                        ),
+                      // The same strip the public timeline uses, rather than
+                      // three actions inside a 240-point box with a bookmark
+                      // and a share bolted on the end. Four evenly spread is
+                      // the shape both feeds have now; bookmark moved into the
+                      // post's own menu, where the public feed already kept it.
+                      child: FeedPostActions(
+                        replyCount: post.replies,
+                        repostCount: post.reposts,
+                        likeCount: post.likes,
+                        liked: post.liked,
+                        reposted: post.reposted,
+                        onReply: onReply,
+                        onRepost: onRepost,
+                        onLike: onLike,
+                        onShare: () {
+                          Clipboard.setData(ClipboardData(text: post.text));
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Post copied.')),
+                          );
+                        },
                       ),
-                    ),
-                    if (onSave != null)
-                      _PostAction(
-                        icon: saved ? Icons.bookmark : Icons.bookmark_border,
-                        count: 0,
-                        active: saved,
-                        activeColor: const Color(0xFFF5A623),
-                        tooltip: saved ? 'Unsave' : 'Save',
-                        onTap: onSave!,
-                      ),
-                    const SizedBox(width: 10),
-                    _PostAction(
-                      icon: Icons.ios_share,
-                      count: 0,
-                      tooltip: 'Copy text',
-                      onTap: () {
-                        Clipboard.setData(ClipboardData(text: post.text));
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Post copied')),
-                        );
-                      },
                     ),
                   ],
                 ),
@@ -898,54 +921,11 @@ class _FeedTab extends StatelessWidget {
               width: 44,
               decoration: BoxDecoration(
                 color: selected ? scheme.primary : Colors.transparent,
-                borderRadius: const BorderRadius.vertical(
-                    top: Radius.circular(2)),
+                borderRadius:
+                    const BorderRadius.vertical(top: Radius.circular(2)),
               ),
             ),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-class _PostAction extends StatelessWidget {
-  final IconData icon;
-  final int count;
-  final bool active;
-  final Color? activeColor;
-  final VoidCallback onTap;
-  final String tooltip;
-
-  const _PostAction({
-    required this.icon,
-    required this.count,
-    required this.onTap,
-    required this.tooltip,
-    this.active = false,
-    this.activeColor,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final color = active ? activeColor : Theme.of(context).colorScheme.onSurfaceVariant;
-    return Tooltip(
-      message: tooltip,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(16),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
-          child: Row(
-            children: [
-              Icon(icon, size: 17, color: color),
-              if (count > 0) ...[
-                const SizedBox(width: 4),
-                Text('$count',
-                    style: TextStyle(fontSize: 12.5, color: color)),
-              ],
-            ],
-          ),
         ),
       ),
     );
@@ -1007,11 +987,10 @@ class _FeedPostScreenState extends State<FeedPostScreen> {
                                 ? null
                                 : () => Navigator.of(context).push(
                                     MaterialPageRoute(
-                                        builder: (_) => FeedPostScreen(
-                                            postId: parent.id))),
+                                        builder: (_) =>
+                                            FeedPostScreen(postId: parent.id))),
                             child: Padding(
-                              padding:
-                                  const EdgeInsets.fromLTRB(16, 10, 16, 0),
+                              padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
                               child: Row(
                                 children: [
                                   Icon(Icons.subdirectory_arrow_left,
@@ -1046,18 +1025,20 @@ class _FeedPostScreenState extends State<FeedPostScreen> {
                         onRepost: () =>
                             FeedStore.instance.toggleRepost(post.id),
                         onReply: () {},
-                        saved: FeedStore.instance.isSaved(post.id),
-                        onSave: () =>
-                            FeedStore.instance.toggleSaved(post.id),
-                        onMention: (u) =>
-                            showPersonSheet(context, username: u),
+                        onMore: () => showFeedPostOptions(
+                          context,
+                          post,
+                          communityId: post.communityId,
+                          onOpenThread: (_) {},
+                          onEdit: (_) async {},
+                        ),
+                        onMention: (u) => showPersonSheet(context, username: u),
                       ),
                       if (post.likes > 0 ||
                           post.reposts > 0 ||
                           replies.isNotEmpty)
                         Padding(
-                          padding:
-                              const EdgeInsets.fromLTRB(64, 0, 16, 10),
+                          padding: const EdgeInsets.fromLTRB(64, 0, 16, 10),
                           child: Text(
                             [
                               if (replies.isNotEmpty)
@@ -1083,8 +1064,10 @@ class _FeedPostScreenState extends State<FeedPostScreen> {
                           padding: const EdgeInsets.all(28),
                           child: Center(
                             child: Text('No replies yet.',
-                                style:
-                                    TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                                style: TextStyle(
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onSurfaceVariant)),
                           ),
                         ),
                       for (final r in replies) ...[
@@ -1099,8 +1082,7 @@ class _FeedPostScreenState extends State<FeedPostScreen> {
                                         FeedPostScreen(postId: r.id))),
                             child: _PostCard(
                               post: r,
-                              onLike: () =>
-                                  FeedStore.instance.toggleLike(r.id),
+                              onLike: () => FeedStore.instance.toggleLike(r.id),
                               onRepost: () =>
                                   FeedStore.instance.toggleRepost(r.id),
                               onReply: () => Navigator.of(context).push(
@@ -1131,8 +1113,7 @@ class _FeedPostScreenState extends State<FeedPostScreen> {
                           maxLines: 3,
                           onSubmitted: (_) => _send(),
                           decoration: InputDecoration(
-                            hintText:
-                                'Reply to @${post.authorUsername}',
+                            hintText: 'Reply to @${post.authorUsername}',
                             filled: true,
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(24),
@@ -1174,8 +1155,7 @@ class _FeedAvatar extends StatelessWidget {
     for (final c in username.codeUnits) {
       h = (h * 31 + c) & 0x7fffffff;
     }
-    final color =
-        Colors.primaries[h % Colors.primaries.length].shade600;
+    final color = Colors.primaries[h % Colors.primaries.length].shade600;
     final initials = name.isEmpty
         ? '?'
         : name
@@ -1203,8 +1183,7 @@ void showPersonSheet(BuildContext context,
   // Best display name we know: the given one, a post by them, or the handle.
   final displayName =
       name ?? FeedStore.instance.authorNameFor(username) ?? '@$username';
-  final mine =
-      username == 'you' || username == AppState.profile.value.username;
+  final mine = username == 'you' || username == AppState.profile.value.username;
   final contact = ChatStore.instance.chats
       .map((c) => c.contact)
       .where((u) => u.username.toLowerCase() == username.toLowerCase())
@@ -1221,8 +1200,8 @@ void showPersonSheet(BuildContext context,
             _FeedAvatar(name: displayName, username: username),
             const SizedBox(height: 8),
             Text(displayName,
-                style: const TextStyle(
-                    fontSize: 17, fontWeight: FontWeight.w700)),
+                style:
+                    const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
             Text('@$username',
                 style: TextStyle(
                     color: Theme.of(context).colorScheme.onSurfaceVariant)),
@@ -1230,14 +1209,12 @@ void showPersonSheet(BuildContext context,
             if (mine)
               Text('This is you.',
                   style: TextStyle(
-                      color:
-                          Theme.of(context).colorScheme.onSurfaceVariant))
+                      color: Theme.of(context).colorScheme.onSurfaceVariant))
             else
               ListenableBuilder(
                 listenable: FollowStore.instance,
                 builder: (context, _) {
-                  final following =
-                      FollowStore.instance.isFollowing(username);
+                  final following = FollowStore.instance.isFollowing(username);
                   return Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
@@ -1251,8 +1228,8 @@ void showPersonSheet(BuildContext context,
                           : FilledButton.icon(
                               onPressed: () =>
                                   FollowStore.instance.toggle(username),
-                              icon: const Icon(Icons.person_add_alt_1,
-                                  size: 18),
+                              icon:
+                                  const Icon(Icons.person_add_alt_1, size: 18),
                               label: const Text('Follow'),
                             ),
                       if (contact.isNotEmpty) ...[
@@ -1267,8 +1244,7 @@ void showPersonSheet(BuildContext context,
                                   builder: (_) => ChatScreen(chat: chat)));
                             }
                           },
-                          icon: const Icon(Icons.chat_bubble_outline,
-                              size: 16),
+                          icon: const Icon(Icons.chat_bubble_outline, size: 16),
                           label: const Text('Message'),
                         ),
                       ],
@@ -1357,8 +1333,8 @@ class _FeedRichTextState extends State<_FeedRichText> {
       last = m.end;
     }
     if (last < widget.text.length) {
-      spans.add(
-          TextSpan(text: widget.text.substring(last), style: widget.base));
+      spans
+          .add(TextSpan(text: widget.text.substring(last), style: widget.base));
     }
     return Text.rich(TextSpan(
         children: spans.isEmpty
@@ -1575,8 +1551,8 @@ class _FeedComposerScreenState extends State<FeedComposerScreen> {
                             Padding(
                               padding: const EdgeInsets.only(right: 6),
                               child: ActionChip(
-                                avatar: const Icon(Icons.alternate_email,
-                                    size: 14),
+                                avatar:
+                                    const Icon(Icons.alternate_email, size: 14),
                                 label: Text(u),
                                 visualDensity: VisualDensity.compact,
                                 onPressed: () {
