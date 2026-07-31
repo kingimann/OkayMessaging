@@ -58,18 +58,40 @@ done
 
 echo "checked $checked file(s), $failed failing"
 
-# The verdict logic behind moderation-screen, actually executed. It decides
-# whether somebody gets to post, and a threshold nobody runs is a threshold
-# that drifts.
-if [ -f supabase/functions/_shared/moderation_test.mjs ]; then
-  if out=$(deno run --allow-read supabase/functions/_shared/moderation_test.mjs 2>&1); then
-    echo "$out" | tail -1
+# The decisions the shared helpers make, actually executed — who gets to post,
+# whose card is refused, whose money moves. A threshold nobody runs is a
+# threshold that drifts, and a type-check has no opinion about any of them.
+#
+# apple_jws and iap are node tests: one needs an openssl-generated certificate
+# chain, the other replaces globalThis.Deno, which newer Deno will not allow.
+# Both are run by hand per docs/in_app_purchases_setup.md.
+DENO_TESTS="cardholder moderation payment_limits"
+NODE_TESTS="apple_jws iap"
+
+for name in $DENO_TESTS; do
+  t="supabase/functions/_shared/${name}_test.mjs"
+  [ -f "$t" ] || { echo "--- FAIL $name has no test file"; failed=$((failed + 1)); continue; }
+  if out=$(deno run --allow-read "$t" 2>&1); then
+    echo "$name: $(echo "$out" | tail -1)"
   else
-    echo "--- FAIL moderation verdicts"
+    echo "--- FAIL $name"
     echo "$out" | grep FAIL | head -10
     failed=$((failed + 1))
   fi
-fi
+done
+
+# A new shared test that nobody wired up is a test that never runs — which is
+# how cardholder_test.mjs sat here unexecuted. Naming both lists makes the
+# omission loud instead of invisible.
+for t in supabase/functions/_shared/*_test.mjs; do
+  [ -f "$t" ] || continue
+  name=$(basename "$t" _test.mjs)
+  case " $DENO_TESTS $NODE_TESTS " in
+    *" $name "*) ;;
+    *) echo "--- FAIL $name is not run by anything (add it to tool/check_functions.sh)"
+       failed=$((failed + 1)) ;;
+  esac
+done
 
 # The Connect page's secret handshake, actually executed. Every bug in that
 # flow so far lived here and was found by tapping the screen; the Dart tests can

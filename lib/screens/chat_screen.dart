@@ -1891,7 +1891,13 @@ class _ChatScreenState extends State<ChatScreen> {
             '${recipient.name} isn\'t accepting payments.',
           'daily_limit_reached' =>
             'You\'ve reached your daily sending limit. Raise it in '
-                'Wallet → Payment controls.',
+                'Wallet → Payment controls (a higher limit starts tomorrow).',
+          'over_send_limit' =>
+            'That\'s more than your limit for a single transfer. Change it '
+                'in Wallet → Payment controls.',
+          'payments_paused' =>
+            'Your payments are paused. Turn that off in Wallet → Payment '
+                'controls.',
           _ => 'Payment failed: ${e.code}',
         }),
       ));

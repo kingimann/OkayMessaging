@@ -16,7 +16,7 @@ Dashboard → **SQL Editor** → paste the file → Run.
 
 | # | File | Turns on | If you skip it |
 |---|---|---|---|
-| 1 | `docs/payment_controls.sql` | Transaction history, receive controls | History is empty; receive settings don't save |
+| 1 | `docs/payment_controls.sql` | Transaction history, pause, send limits, blocks | History is empty; nothing under Payment controls saves |
 | 2 | `docs/identity_directory_badge.sql` | Blue check visible to *other* people | Your badge shows only on your own device |
 | 3 | `docs/directory_privacy.sql` | The "How people can reach you" switches | The switches say "Couldn't save" |
 | 4 | `docs/market_media_bucket.sql` | Listing videos | Uploading a video says the bucket isn't provisioned |
@@ -111,9 +111,9 @@ No new secrets needed; they only use `SUPABASE_URL` and
 |---|---|
 | `payments-account-session` | The Connect onboarding "error occurred while authenticating" |
 | `payments-webhook` | Writes the blue check into the directory so peers see it |
-| `payments-create-intent` | Sender pays the fees (grossing up), send guards |
+| `payments-create-intent` | Sender pays the fees (grossing up), send guards — pause, per-transfer cap, daily cap |
 | `payments-history` | Transaction history (needs SQL #1) |
-| `payments-settings` | Receive controls (needs SQL #1) |
+| `payments-settings` | Payment controls: pause, send limits, blocks (needs SQL #1) |
 | `identity-start` | Returns a client secret, so the ID check runs on the app's own themed screen instead of Stripe's generic hosted page |
 
 `identity-start` is optional — the ID check stays inside the app either way

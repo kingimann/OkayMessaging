@@ -16,6 +16,11 @@ import {
   json,
   stripe,
 } from "../_shared/stripe.ts";
+import {
+  effectiveLimits,
+  type LimitRow,
+  refusalFor,
+} from "../_shared/payment_limits.ts";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -83,13 +88,16 @@ Deno.serve(async (req) => {
   }
 
   // The recipient's own rules come first: they decide who may pay them, and
-  // refusing a specific person outranks accepting everyone.
+  // refusing a specific person outranks accepting everyone. A paused account
+  // is not accepting either — the sender is told the same thing in both cases,
+  // because which of the two it is isn't the sender's business.
   const { data: recipientSettings } = await admin
     .from("payment_settings")
-    .select("accepts_from")
+    .select("accepts_from, paused")
     .eq("phone", toPhone)
     .maybeSingle();
-  if (recipientSettings?.accepts_from === "nobody") {
+  if (recipientSettings?.accepts_from === "nobody" ||
+      recipientSettings?.paused === true) {
     return json({ error: "recipient_not_accepting" }, 403);
   }
   const { data: blocked } = await admin
@@ -100,16 +108,29 @@ Deno.serve(async (req) => {
     .maybeSingle();
   if (blocked) return json({ error: "recipient_not_accepting" }, 403);
 
-  // A rolling-day cap on the sender. It bounds what a phone someone else has
-  // picked up can move, and what one bad afternoon can cost — neither of
-  // which the per-transfer checks address.
-  const { data: senderSettings } = await admin
+  // The sender's own limits. A per-transfer cap bounds one mistake; the
+  // rolling-day cap bounds a bad afternoon and a phone in the wrong hands.
+  // Neither is addressed by the per-transfer checks above.
+  const { data: senderRow } = await admin
     .from("payment_settings")
-    .select("daily_send_limit_cents")
+    .select(
+      "paused, daily_send_limit_cents, max_send_cents, " +
+        "pending_daily_send_limit_cents, pending_daily_effective_at, " +
+        "pending_max_send_cents, pending_max_effective_at",
+    )
     .eq("phone", fromPhone)
     .maybeSingle();
-  const dailyLimit = senderSettings?.daily_send_limit_cents ?? 50000;
-  if (dailyLimit > 0) {
+  // Composed column list, so supabase-js infers no row shape; named here.
+  const senderSettings =
+    (senderRow ?? null) as (LimitRow & { paused?: boolean | null }) | null;
+  if (senderSettings?.paused === true) {
+    return json({ error: "payments_paused" }, 403);
+  }
+  const limits = effectiveLimits(senderSettings, Date.now());
+
+  // The day is only summed when there is a day to fill.
+  let spent = 0;
+  if (limits.dailyCents > 0) {
     const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
     const { data: recent } = await admin
       .from("payment_transactions")
@@ -118,7 +139,7 @@ Deno.serve(async (req) => {
       .gte("updated_at", since);
     // Only money that actually moved (or is still moving) counts. A blocked
     // or failed charge never left the account and must not use up the day.
-    const spent = (recent ?? [])
+    spent = (recent ?? [])
       .filter((t: { status?: string }) =>
         !String(t.status ?? "").startsWith("blocked_") &&
         t.status !== "canceled" &&
@@ -129,20 +150,19 @@ Deno.serve(async (req) => {
           sum + (t.amount_cents ?? 0),
         0,
       );
-    if (spent + amountCents > dailyLimit) {
-      return json({
-        error: "daily_limit_reached",
-        limitCents: dailyLimit,
-        spentCents: spent,
-      }, 403);
-    }
   }
+  // amountCents is what the RECIPIENT should receive. Both fees come out of
+  // the transfer, so the sender is charged the grossed-up total — paying the
+  // amount plus the fees, rather than the recipient absorbing them.
+  //
+  // The limits are checked against that total, not against the target: a limit
+  // is about what leaves the sender's card, and `spent` is summed from the same
+  // grossed-up figures the transaction rows store.
+  const chargeCents = grossUp(amountCents);
+  const refusal = refusalFor(limits, chargeCents, spent);
+  if (refusal) return json(refusal, 403);
 
   try {
-    // amountCents is what the RECIPIENT should receive. Both fees come out of
-    // the transfer, so the sender is charged the grossed-up total — paying
-    // the amount plus the fees, rather than the recipient absorbing them.
-    const chargeCents = grossUp(amountCents);
     const feeCents = applicationFee(chargeCents);
     // DIRECT charge, not a destination charge: the PaymentIntent is created
     // ON the recipient's connected account. The money goes straight there and

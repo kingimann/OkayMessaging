@@ -106,15 +106,44 @@ class PaymentRecord {
       );
 }
 
-/// Who may pay this account, and how much it may send in a day.
+/// A limit raise that has been asked for and has not started yet.
+class PendingLimit {
+  final int cents;
+  final DateTime at;
+  const PendingLimit(this.cents, this.at);
+
+  static PendingLimit? fromJson(Object? raw) {
+    if (raw is! Map) return null;
+    final cents = (raw['cents'] as num?)?.toInt();
+    final at = DateTime.tryParse(raw['at'] as String? ?? '');
+    if (cents == null || at == null) return null;
+    return PendingLimit(cents, at.toLocal());
+  }
+}
+
+/// Who may pay this account, and what it may send.
+///
+/// Every field here is stored and enforced on the server. Lowering a limit is
+/// immediate; raising one waits, and shows up as [pendingDaily] / [pendingMax]
+/// beside the number that is still live until it arrives.
 class PaymentControls {
   final String acceptsFrom; // 'anyone' | 'nobody'
+  final bool paused;
   final int dailySendLimitCents;
+
+  /// The most one transfer may be. 0 means no per-transfer cap.
+  final int maxSendCents;
+  final PendingLimit? pendingDaily;
+  final PendingLimit? pendingMax;
   final List<String> blocked;
 
   const PaymentControls({
     this.acceptsFrom = 'anyone',
+    this.paused = false,
     this.dailySendLimitCents = 50000,
+    this.maxSendCents = 0,
+    this.pendingDaily,
+    this.pendingMax,
     this.blocked = const [],
   });
 
@@ -122,8 +151,12 @@ class PaymentControls {
 
   factory PaymentControls.fromJson(Map<String, dynamic> j) => PaymentControls(
         acceptsFrom: j['acceptsFrom'] as String? ?? 'anyone',
+        paused: j['paused'] == true,
         dailySendLimitCents:
             (j['dailySendLimitCents'] as num?)?.toInt() ?? 50000,
+        maxSendCents: (j['maxSendCents'] as num?)?.toInt() ?? 0,
+        pendingDaily: PendingLimit.fromJson(j['pendingDaily']),
+        pendingMax: PendingLimit.fromJson(j['pendingMax']),
         blocked: [
           for (final b in (j['blocked'] as List? ?? const []))
             if (b is String) b
@@ -254,16 +287,24 @@ class PaymentService {
   }
 
   /// Reads the account's payment controls. Passing values updates them.
+  ///
+  /// The server has the last word on all of it — a raised limit may come back
+  /// unchanged with a `pending` alongside it, so use what this returns rather
+  /// than assuming the request took.
   Future<PaymentControls> controls({
     String? acceptsFrom,
+    bool? paused,
     int? dailySendLimitCents,
+    int? maxSendCents,
     String? block,
     String? unblock,
   }) async {
     final r = await _invoke('payments-settings', {
       if (acceptsFrom != null) 'acceptsFrom': acceptsFrom,
+      if (paused != null) 'paused': paused,
       if (dailySendLimitCents != null)
         'dailySendLimitCents': dailySendLimitCents,
+      if (maxSendCents != null) 'maxSendCents': maxSendCents,
       if (block != null) 'block': block,
       if (unblock != null) 'unblock': unblock,
     });

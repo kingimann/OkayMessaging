@@ -1,14 +1,36 @@
-// Reads and updates who may send this account money, and its daily send cap.
+// Reads and updates this account's payment controls.
 //
-// POST {}                                   -> current settings
-// POST { acceptsFrom, dailySendLimitCents } -> updated settings
-// POST { block } / { unblock }              -> adjust the refusal list
+// POST {}                          -> current settings
+// POST { acceptsFrom }             -> 'anyone' | 'nobody'
+// POST { paused }                  -> stop/resume everything, both directions
+// POST { dailySendLimitCents }     -> the rolling-24h cap
+// POST { maxSendCents }            -> the most one transfer may be (0 = no cap)
+// POST { block } / { unblock }     -> adjust the refusal list
 //
 // Enforced in payments-create-intent, not here: this only stores the choice.
+//
+// Lowering a limit takes effect at once; raising one waits (RAISE_DELAY_MS) and
+// comes back as `pendingDaily`/`pendingMax` until it does. The rule lives in
+// _shared/payment_limits.ts, where it is tested.
 
 import { admin, callerPhone, corsHeaders, json } from "../_shared/http.ts";
+import {
+  effectiveLimits,
+  type LimitRow,
+  limitPatch,
+} from "../_shared/payment_limits.ts";
 
-const DEFAULT_DAILY_LIMIT_CENTS = 50000; // $500
+const COLUMNS =
+  "accepts_from, paused, daily_send_limit_cents, max_send_cents, " +
+  "pending_daily_send_limit_cents, pending_daily_effective_at, " +
+  "pending_max_send_cents, pending_max_effective_at";
+
+// The row as this function uses it. Built by hand because the column list is a
+// composed string, which supabase-js cannot infer a row shape from.
+type SettingsRow = LimitRow & {
+  accepts_from?: string | null;
+  paused?: boolean | null;
+};
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -18,7 +40,9 @@ Deno.serve(async (req) => {
 
   let body: {
     acceptsFrom?: string;
+    paused?: boolean;
     dailySendLimitCents?: number;
+    maxSendCents?: number;
     block?: string;
     unblock?: string;
   } = {};
@@ -39,15 +63,26 @@ Deno.serve(async (req) => {
       .eq("phone", phone).eq("blocked_phone", target);
   }
 
+  const readSettings = async (): Promise<SettingsRow | null> => {
+    const { data } = await admin
+      .from("payment_settings")
+      .select(COLUMNS)
+      .eq("phone", phone)
+      .maybeSingle();
+    return (data ?? null) as SettingsRow | null;
+  };
+
+  const before = await readSettings();
+
   const patch: Record<string, unknown> = {};
   if (body.acceptsFrom === "anyone" || body.acceptsFrom === "nobody") {
     patch.accepts_from = body.acceptsFrom;
   }
-  if (typeof body.dailySendLimitCents === "number") {
-    // Clamped, so a client can't hand itself an unlimited day.
-    patch.daily_send_limit_cents =
-      Math.min(Math.max(Math.round(body.dailySendLimitCents), 0), 200000);
-  }
+  if (typeof body.paused === "boolean") patch.paused = body.paused;
+  // Clamped, delayed when it loosens — a client cannot hand itself an
+  // unlimited day, nor a bigger one that starts working immediately.
+  Object.assign(patch, limitPatch(before, body, Date.now()));
+
   if (Object.keys(patch).length > 0) {
     await admin.from("payment_settings").upsert({
       phone,
@@ -56,20 +91,25 @@ Deno.serve(async (req) => {
     });
   }
 
-  const { data } = await admin
-    .from("payment_settings")
-    .select("accepts_from, daily_send_limit_cents")
-    .eq("phone", phone)
-    .maybeSingle();
+  // Re-read rather than merging the patch by hand: the row is what the charge
+  // path will see, and a scheduled raise is not in the patch at all.
+  const data = Object.keys(patch).length > 0 ? await readSettings() : before;
   const { data: blocks } = await admin
     .from("payment_blocks")
     .select("blocked_phone")
     .eq("phone", phone);
 
+  const limits = effectiveLimits(data, Date.now());
+
   return json({
     acceptsFrom: data?.accepts_from ?? "anyone",
-    dailySendLimitCents:
-      data?.daily_send_limit_cents ?? DEFAULT_DAILY_LIMIT_CENTS,
+    paused: data?.paused === true,
+    // What is live, and what is still waiting — never merged into one number,
+    // or the app would show a limit that does not hold yet.
+    dailySendLimitCents: limits.dailyCents,
+    maxSendCents: limits.maxSendCents,
+    pendingDaily: limits.pendingDaily,
+    pendingMax: limits.pendingMax,
     blocked: (blocks ?? []).map((b: { blocked_phone: string }) =>
       b.blocked_phone
     ),

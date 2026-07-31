@@ -1,8 +1,9 @@
--- Who may send you money, and how much can leave in a day.
+-- Who may send you money, how much can leave at once, and how much in a day.
 -- ============================================================================
--- Run this ONCE in the Supabase dashboard (SQL Editor -> New query -> Run).
+-- Run this in the Supabase dashboard (SQL Editor -> New query -> Run). Safe to
+-- run again: a project already holding the first version is upgraded in place.
 --
--- Both of these are enforced in payments-create-intent, before a charge
+-- Every one of these is enforced in payments-create-intent, before a charge
 -- exists. A limit the app applies is a limit a modified app ignores.
 
 create table if not exists public.payment_settings (
@@ -19,8 +20,42 @@ create table if not exists public.payment_settings (
   -- repeatedly. Null means the project default applies.
   daily_send_limit_cents int,
 
+  -- The most one single transfer may be, in cents. A day's worth of small
+  -- mistakes and one big one are different failures; the rolling cap only
+  -- catches the first. Null or 0 means no per-transfer cap.
+  max_send_cents int,
+
+  -- Everything off, both directions, in one tap. Nothing leaves and nothing
+  -- arrives while this is set.
+  paused boolean not null default false,
+
+  -- A raise that has been asked for and has not arrived yet. Lowering a limit
+  -- takes effect immediately; raising one waits 24 hours, so an unlocked phone
+  -- in the wrong hands is held to whatever its owner chose while calm. Both
+  -- columns of a pair are set together or not at all.
+  pending_daily_send_limit_cents int,
+  pending_daily_effective_at timestamptz,
+  pending_max_send_cents int,
+  pending_max_effective_at timestamptz,
+
   updated_at timestamptz not null default now()
 );
+
+-- Added after the first version shipped. The columns are in the CREATE above
+-- too, so a fresh project reads the whole table in one place; these ALTERs are
+-- what upgrade a project that already ran v1. Both are no-ops on the other.
+alter table public.payment_settings
+  add column if not exists paused boolean not null default false;
+alter table public.payment_settings
+  add column if not exists max_send_cents int;
+alter table public.payment_settings
+  add column if not exists pending_daily_send_limit_cents int;
+alter table public.payment_settings
+  add column if not exists pending_daily_effective_at timestamptz;
+alter table public.payment_settings
+  add column if not exists pending_max_send_cents int;
+alter table public.payment_settings
+  add column if not exists pending_max_effective_at timestamptz;
 
 -- People this account refuses money from, whatever accepts_from says.
 create table if not exists public.payment_blocks (

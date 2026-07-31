@@ -67,7 +67,21 @@ class _WalletScreenState extends State<WalletScreen> {
 
   Future<WalletStatus> _load() => PaymentService.instance.status();
 
-  void _refresh() => setState(() => _future = _load());
+  void _refresh() => setState(() {
+        _future = _load();
+        _controlsEpoch++;
+      });
+
+  /// Bumped to make [_PausedBanner] ask again. Pausing is invisible from here
+  /// otherwise, and a wallet that looks ordinary while nothing can move is how
+  /// somebody discovers the switch days later, from a failed transfer.
+  int _controlsEpoch = 0;
+
+  Future<void> _openControls() async {
+    await Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => const PaymentControlsScreen()));
+    if (mounted) setState(() => _controlsEpoch++);
+  }
 
   Future<void> _startOnboarding() async {
     final understood = await showRecipientLiabilityNotice(context);
@@ -94,8 +108,7 @@ class _WalletScreenState extends State<WalletScreen> {
             IconButton(
               icon: const Icon(Icons.tune),
               tooltip: 'Payment controls',
-              onPressed: () => Navigator.of(context).push(MaterialPageRoute(
-                  builder: (_) => const PaymentControlsScreen())),
+              onPressed: _openControls,
             ),
             IconButton(
                 icon: const Icon(Icons.refresh),
@@ -137,6 +150,10 @@ class _WalletScreenState extends State<WalletScreen> {
                     children: [
                       if (PaymentService.instance.testMode.value)
                         const _TestModeBanner(),
+                      _PausedBanner(
+                        key: ValueKey(_controlsEpoch),
+                        onResume: _openControls,
+                      ),
                       _BalanceCard(status: s),
                       const SizedBox(height: 16),
                       if (!s.canReceive)
@@ -381,6 +398,69 @@ class _NotConfigured extends StatelessWidget {
                 style: TextStyle(color: Colors.grey.shade500, fontSize: 12)),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Says so when payments are paused, and nothing at all otherwise.
+///
+/// Fetches on its own so a wallet that can't reach the settings function still
+/// renders — the balance is the point of this screen, and a banner failing to
+/// load must not take it down.
+class _PausedBanner extends StatefulWidget {
+  const _PausedBanner({super.key, required this.onResume});
+
+  final VoidCallback onResume;
+
+  @override
+  State<_PausedBanner> createState() => _PausedBannerState();
+}
+
+class _PausedBannerState extends State<_PausedBanner> {
+  bool _paused = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _check();
+  }
+
+  Future<void> _check() async {
+    try {
+      final c = await PaymentService.instance.controls();
+      if (mounted && c.paused != _paused) setState(() => _paused = c.paused);
+    } catch (_) {
+      // Unknown reads as not paused: the transfer itself is refused server-side
+      // either way, so guessing here costs nothing.
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_paused) return const SizedBox.shrink();
+    const stop = Color(0xFFD92D20);
+    return Container(
+      margin: const EdgeInsets.only(bottom: 14),
+      padding: const EdgeInsets.fromLTRB(14, 10, 8, 10),
+      decoration: BoxDecoration(
+        color: stop.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: stop.withValues(alpha: 0.4)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.pause_circle, color: stop),
+          const SizedBox(width: 10),
+          const Expanded(
+            child: Text('Payments are paused — nothing can be sent or '
+                'received.'),
+          ),
+          TextButton(
+            onPressed: widget.onResume,
+            child: const Text('Resume'),
+          ),
+        ],
       ),
     );
   }

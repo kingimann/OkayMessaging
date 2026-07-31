@@ -265,6 +265,68 @@ do $$ begin
   raise notice '  ok   the image bucket is public, as a public feed implies';
 end $$;
 
+-- Payment controls. The whole point of storing these server-side is that the
+-- account cannot change them by talking to Postgres directly — only the Edge
+-- Functions, on the service-role key, may. RLS is on with no policies, so
+-- every one of these is refused or silently matches nothing.
+reset role;
+insert into public.payment_settings (phone, daily_send_limit_cents, paused)
+  values ('15550001111', 10000, false)
+  on conflict (phone) do update set daily_send_limit_cents = 10000;
+insert into public.payment_blocks (phone, blocked_phone)
+  values ('15550001111', '15550002222') on conflict do nothing;
+set role authenticated;
+select pg_temp.as_user('15550001111');
+
+do $$ begin
+  if (select count(*) from public.payment_settings) <> 0 then
+    raise exception 'SECURITY CHECK FAILED: a client can read payment settings';
+  end if;
+  raise notice '  ok   a client cannot read payment settings';
+end $$;
+
+update public.payment_settings set daily_send_limit_cents = 200000
+  where phone = '15550001111';
+do $$ begin
+  if (select daily_send_limit_cents from public.payment_settings) is not null then
+    raise exception 'SECURITY CHECK FAILED: a client raised its own send limit';
+  end if;
+  raise notice '  ok   a client cannot raise its own send limit';
+end $$;
+
+update public.payment_settings set paused = false where phone = '15550001111';
+delete from public.payment_blocks where phone = '15550001111';
+reset role;
+do $$ begin
+  if (select count(*) from public.payment_blocks
+      where phone='15550001111') <> 1 then
+    raise exception 'SECURITY CHECK FAILED: a client unblocked itself';
+  end if;
+  raise notice '  ok   a client cannot unblock itself';
+end $$;
+
+-- The upgrade path put the v2 columns back. Without these the delayed-raise
+-- rule has nowhere to store what is waiting, and every raise would apply at
+-- once — silently, because the function reads null and carries on.
+do $$
+declare missing text;
+begin
+  select string_agg(c, ', ') into missing from unnest(array[
+    'paused', 'max_send_cents',
+    'pending_daily_send_limit_cents', 'pending_daily_effective_at',
+    'pending_max_send_cents', 'pending_max_effective_at']) c
+  where not exists (
+    select 1 from information_schema.columns
+    where table_schema='public' and table_name='payment_settings'
+      and column_name = c);
+  if missing is not null then
+    raise exception 'CHECK FAILED: payment_settings is missing %', missing;
+  end if;
+  raise notice '  ok   an existing project gains the new limit columns';
+end $$;
+set role authenticated;
+select pg_temp.as_user('15550001111');
+
 -- The directory hides a banned account too (platform_moderation.sql).
 reset role;
 insert into public.usernames (phone, username, name)
@@ -294,7 +356,7 @@ apply() {
 }
 
 echo "postgres $(su pg -c "PATH=$PGBIN:\$PATH psql -h $RUN -p $PORT -d $DB -tAc 'show server_version'")"
-for f in "$WORK/harness.sql" supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql; do
+for f in "$WORK/harness.sql" supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/payment_controls.sql; do
   if apply "$f"; then
     echo "  applied $(basename "$f")"
   else
@@ -333,6 +395,18 @@ select p.id, p.author_username, p.author_name, p.author_verified, p.body,
        public.public_post_reply_count(p.id) as reply_count
 from public.public_posts p;
 grant select on public.public_feed to anon, authenticated;
+
+-- payment_controls.sql v1: the limits table before pausing, per-transfer caps
+-- and delayed raises existed. Its ALTERs are the upgrade path, and a fresh
+-- database never runs them.
+alter table public.payment_settings drop column if exists paused;
+alter table public.payment_settings drop column if exists max_send_cents;
+alter table public.payment_settings
+  drop column if exists pending_daily_send_limit_cents;
+alter table public.payment_settings
+  drop column if exists pending_daily_effective_at;
+alter table public.payment_settings drop column if exists pending_max_send_cents;
+alter table public.payment_settings drop column if exists pending_max_effective_at;
 SQL
 
 if apply "$WORK/v1shape.sql"; then
@@ -341,7 +415,7 @@ else
   echo "  FAILED  could not rebuild the previous shape"; exit 1
 fi
 
-for f in supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql; do
+for f in supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/payment_controls.sql; do
   if apply "$f"; then
     echo "  re-applied $(basename "$f")"
   else

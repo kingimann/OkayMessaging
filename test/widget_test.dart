@@ -45,6 +45,7 @@ import 'package:okay_messaging/state/platform_moderation.dart';
 import 'package:okay_messaging/payments/connect_fields.dart';
 import 'package:okay_messaging/payments/payment_diagnostics.dart';
 import 'package:okay_messaging/payments/stripe_tokens.dart';
+import 'package:okay_messaging/screens/payment_controls_screen.dart';
 import 'package:okay_messaging/screens/payment_diagnostics_screen.dart';
 import 'package:okay_messaging/screens/public_feed_screen.dart';
 import 'package:okay_messaging/state/public_feed_store.dart';
@@ -12696,17 +12697,347 @@ void main() {
       expect(off.blocked, ['15550009']);
     });
 
+    test('a fresh account is not paused and has no per-transfer cap', () {
+      const fresh = PaymentControls();
+      expect(fresh.paused, isFalse);
+      expect(fresh.maxSendCents, 0, reason: '0 is no cap, not a stop');
+      expect(fresh.pendingDaily, isNull);
+      expect(fresh.pendingMax, isNull);
+    });
+
+    test('a raise that has not arrived yet is parsed, not lost', () {
+      final c = PaymentControls.fromJson(const {
+        'paused': true,
+        'dailySendLimitCents': 10000,
+        'maxSendCents': 2500,
+        'pendingDaily': {'cents': 100000, 'at': '2026-02-01T12:00:00.000Z'},
+      });
+      expect(c.paused, isTrue);
+      expect(c.maxSendCents, 2500);
+      // The live number is what is live. A pending raise sits beside it.
+      expect(c.dailySendLimitCents, 10000);
+      expect(c.pendingDaily!.cents, 100000);
+      expect(c.pendingDaily!.at.toUtc(),
+          DateTime.utc(2026, 2, 1, 12));
+      expect(c.pendingMax, isNull);
+    });
+
+    test('a malformed pending raise is dropped rather than half-read', () {
+      // Half a pending raise would render as "starts in 0 min" forever.
+      for (final raw in <Object?>[
+        null,
+        'soon',
+        const {'cents': 5000},
+        const {'at': '2026-02-01T12:00:00.000Z'},
+        const {'cents': 5000, 'at': 'whenever'},
+      ]) {
+        expect(PendingLimit.fromJson(raw), isNull, reason: 'from $raw');
+      }
+    });
+
     test('every guard against an accidental send is on the server', () {
       // The app can ask twice, but only the server can refuse.
       final intent = File('supabase/functions/payments-create-intent/index.ts')
           .readAsStringSync();
+      final rules = File('supabase/functions/_shared/payment_limits.ts')
+          .readAsStringSync();
       expect(intent.contains('recipient_not_accepting'), isTrue,
           reason: 'the recipient decides who may pay them');
       expect(intent.contains('payment_blocks'), isTrue);
-      expect(intent.contains('daily_limit_reached'), isTrue,
+      expect(rules.contains('daily_limit_reached'), isTrue,
           reason: 'a day has a ceiling, so a lost phone has one too');
       // A refused charge never took money, so it must not use up the day.
       expect(intent.contains("startsWith(\"blocked_\")"), isTrue);
+      expect(intent.contains('payments_paused'), isTrue,
+          reason: 'pausing has to hold against an app that ignores it');
+      expect(rules.contains('over_send_limit'), isTrue,
+          reason: 'one large mistake is not what a daily cap catches');
+      // The limits are checked against the grossed-up total, which is what
+      // leaves the card and what the transaction rows store. Checking the
+      // target instead lets a limit be exceeded by the size of the fee.
+      expect(intent.contains('refusalFor(limits, chargeCents, spent)'), isTrue);
+    });
+
+    test('a paused account cannot be paid either', () {
+      final intent = File('supabase/functions/payments-create-intent/index.ts')
+          .readAsStringSync();
+      // Pausing is one switch, both directions. Reading only the sender's row
+      // would leave a paused account still collecting money.
+      expect(
+          intent.contains('recipientSettings?.paused === true'), isTrue,
+          reason: 'a paused recipient is not accepting');
+    });
+
+    test('every refusal the server can send has words for it', () {
+      // A code that reaches the snackbar unmapped shows as "Payment failed:
+      // over_send_limit", which is not something anyone can act on.
+      final chat = File('lib/screens/chat_screen.dart').readAsStringSync();
+      final server =
+          File('supabase/functions/payments-create-intent/index.ts')
+                  .readAsStringSync() +
+              File('supabase/functions/_shared/payment_limits.ts')
+                  .readAsStringSync();
+      final codes = RegExp(r'error: "(\w+)"')
+          .allMatches(server)
+          .map((m) => m.group(1)!)
+          .toSet();
+      expect(codes.length, greaterThan(5),
+          reason: 'the regex stopped matching the refusals');
+      for (final code in codes) {
+        // Not a refusal anyone sees: the app cannot reach this without a
+        // session, and a session is what the screen needs to exist at all.
+        if (code == 'unauthorized') continue;
+        expect(chat.contains("'$code'"), isTrue,
+            reason: '$code has no wording in chat_screen.dart');
+      }
+    });
+
+    test('the limits the app offers are ones the server will accept', () {
+      // A sheet offering $5,000 against a server that clamps to $2,000 shows a
+      // tick beside a number that is not what got stored.
+      final ui = File('lib/screens/payment_controls_screen.dart')
+          .readAsStringSync();
+      final limits =
+          File('supabase/functions/_shared/payment_limits.ts').readAsStringSync();
+      final ceiling = int.parse(RegExp(r'MAX_DAILY_LIMIT_CENTS = (\d+)')
+          .firstMatch(limits)!
+          .group(1)!);
+      for (final m in RegExp(r'options: const \[([\d, ]+)\]').allMatches(ui)) {
+        for (final part in m.group(1)!.split(',')) {
+          expect(int.parse(part.trim()), lessThanOrEqualTo(ceiling),
+              reason: 'the sheet offers more than the server allows');
+        }
+      }
+    });
+
+    // The screen driven for real, with the one network call stood in for. Every
+    // control below used to be either absent or unreachable: the blocked list
+    // rendered with no way to add to it, and PaymentService.controls() has
+    // always taken a `block` nothing called.
+    testWidgets('pausing stops everything, in one tap', (tester) async {
+      final asked = <String>[];
+      var state = const PaymentControls();
+      Future<PaymentControls> api({
+        String? acceptsFrom,
+        bool? paused,
+        int? dailySendLimitCents,
+        int? maxSendCents,
+        String? block,
+        String? unblock,
+      }) async {
+        if (paused != null) {
+          asked.add('paused=$paused');
+          state = PaymentControls(paused: paused);
+        }
+        return state;
+      }
+
+      await tester.pumpWidget(
+          MaterialApp(home: PaymentControlsScreen(debugControls: api)));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Stops sending and receiving in one tap'), findsOneWidget);
+      await tester.tap(find.byType(SwitchListTile).first);
+      await tester.pumpAndSettle();
+
+      expect(asked, ['paused=true']);
+      expect(find.text('Nothing can be sent or received. Turn this off to resume.'),
+          findsOneWidget);
+    });
+
+    testWidgets('a number can be refused without closing the door to everyone',
+        (tester) async {
+      final asked = <String>[];
+      var state = const PaymentControls();
+      Future<PaymentControls> api({
+        String? acceptsFrom,
+        bool? paused,
+        int? dailySendLimitCents,
+        int? maxSendCents,
+        String? block,
+        String? unblock,
+      }) async {
+        if (block != null) {
+          asked.add('block=$block');
+          state = PaymentControls(blocked: [...state.blocked, block]);
+        }
+        if (unblock != null) {
+          asked.add('unblock=$unblock');
+          state = PaymentControls(
+              blocked: [...state.blocked.where((b) => b != unblock)]);
+        }
+        return state;
+      }
+
+      await tester.pumpWidget(
+          MaterialApp(home: PaymentControlsScreen(debugControls: api)));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Block someone from paying you'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), '+1 (555) 010-0000');
+      await tester.tap(find.widgetWithText(TextButton, 'Block'));
+      await tester.pumpAndSettle();
+
+      // Punctuation is the person's, not the server's.
+      expect(asked, ['block=15550100000']);
+      expect(find.text('Cannot send you money'), findsOneWidget);
+
+      await tester.tap(find.widgetWithText(TextButton, 'Unblock'));
+      await tester.pumpAndSettle();
+      expect(asked.last, 'unblock=15550100000');
+      expect(find.text('Cannot send you money'), findsNothing);
+    });
+
+    testWidgets('something that is not a number is not blocked',
+        (tester) async {
+      final asked = <String>[];
+      Future<PaymentControls> api({
+        String? acceptsFrom,
+        bool? paused,
+        int? dailySendLimitCents,
+        int? maxSendCents,
+        String? block,
+        String? unblock,
+      }) async {
+        if (block != null) asked.add(block);
+        return const PaymentControls();
+      }
+
+      await tester.pumpWidget(
+          MaterialApp(home: PaymentControlsScreen(debugControls: api)));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Block someone from paying you'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), '123');
+      await tester.tap(find.widgetWithText(TextButton, 'Block'));
+      await tester.pumpAndSettle();
+
+      expect(asked, isEmpty);
+      // Silence would read as "blocked", and the list would just not show them.
+      expect(find.text('That is not a phone number.'), findsOneWidget);
+    });
+
+    testWidgets('a raise waits, and the screen says so rather than snapping back',
+        (tester) async {
+      // The server keeps the old limit and answers with a pending one. Without
+      // an explanation the switch simply reverts, which reads as a failure.
+      Future<PaymentControls> api({
+        String? acceptsFrom,
+        bool? paused,
+        int? dailySendLimitCents,
+        int? maxSendCents,
+        String? block,
+        String? unblock,
+      }) async {
+        if (dailySendLimitCents == null) {
+          return const PaymentControls(dailySendLimitCents: 10000);
+        }
+        return PaymentControls(
+          dailySendLimitCents: 10000,
+          pendingDaily: PendingLimit(
+              dailySendLimitCents,
+              DateTime.now().add(const Duration(hours: 24))),
+        );
+      }
+
+      await tester.pumpWidget(
+          MaterialApp(home: PaymentControlsScreen(debugControls: api)));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('At most \$100 can leave'), findsOneWidget);
+
+      await tester.tap(find.text('Daily limit'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(ListTile, '\$1000'));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('A higher limit starts in 1 day'),
+          findsOneWidget);
+      // And the tile itself keeps saying it, after the snackbar is gone.
+      expect(find.textContaining('\$1000 starts in 1 day'), findsOneWidget);
+      expect(find.textContaining('At most \$100 can leave'), findsOneWidget,
+          reason: 'the live limit has not changed yet');
+    });
+
+    testWidgets('the controls fit a small phone, in both themes',
+        (tester) async {
+      // The suite's 800x600 default has hidden every layout bug that reached a
+      // phone. This is the widest this screen ever gets: a blocked entry with
+      // its Unblock button, and both limits carrying a pending raise.
+      Future<PaymentControls> api({
+        String? acceptsFrom,
+        bool? paused,
+        int? dailySendLimitCents,
+        int? maxSendCents,
+        String? block,
+        String? unblock,
+      }) async =>
+          PaymentControls(
+            paused: true,
+            dailySendLimitCents: 200000,
+            maxSendCents: 100000,
+            pendingDaily: PendingLimit(
+                200000, DateTime.now().add(const Duration(hours: 24))),
+            pendingMax: PendingLimit(
+                0, DateTime.now().add(const Duration(hours: 24))),
+            blocked: const ['14386386261'],
+          );
+
+      tester.view.physicalSize = const Size(320, 568);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      for (final brightness in Brightness.values) {
+        await tester.pumpWidget(MaterialApp(
+          theme: ThemeData(brightness: brightness),
+          home: PaymentControlsScreen(debugControls: api),
+        ));
+        await tester.pumpAndSettle();
+        // An overflow paints a FlutterError, which fails the test by itself;
+        // scrolling the whole list is what exposes the rows below the fold.
+        await tester.drag(find.byType(ListView), const Offset(0, -400));
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+      }
+    });
+
+    testWidgets('a per-transfer cap can be set and lifted', (tester) async {
+      final asked = <int>[];
+      var state = const PaymentControls();
+      Future<PaymentControls> api({
+        String? acceptsFrom,
+        bool? paused,
+        int? dailySendLimitCents,
+        int? maxSendCents,
+        String? block,
+        String? unblock,
+      }) async {
+        if (maxSendCents != null) {
+          asked.add(maxSendCents);
+          state = PaymentControls(maxSendCents: maxSendCents);
+        }
+        return state;
+      }
+
+      await tester.pumpWidget(
+          MaterialApp(home: PaymentControlsScreen(debugControls: api)));
+      await tester.pumpAndSettle();
+      expect(find.text('No cap beyond the daily limit.'), findsOneWidget);
+
+      await tester.tap(find.text('Most in one transfer'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(ListTile, '\$250'));
+      await tester.pumpAndSettle();
+      expect(asked, [25000]);
+      expect(find.text('No single transfer may be over \$250.'), findsOneWidget);
+
+      // And zero has to read as "no limit", not as "nothing may be sent".
+      await tester.tap(find.text('Most in one transfer'));
+      await tester.pumpAndSettle();
+      expect(find.widgetWithText(ListTile, 'No limit'), findsOneWidget);
+      await tester.tap(find.widgetWithText(ListTile, 'No limit'));
+      await tester.pumpAndSettle();
+      expect(asked, [25000, 0]);
     });
 
     test('a large amount is confirmed twice', () {

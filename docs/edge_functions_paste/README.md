@@ -237,16 +237,29 @@ Run `docs/payment_controls.sql`, then deploy `payments-history` and
 
 | Control | Where it lives | Enforced |
 |---|---|---|
+| Pause everything, both directions | `payment_settings.paused` | `payments-create-intent` |
 | Who may pay you (`anyone` / `nobody`) | `payment_settings` | `payments-create-intent` |
 | Blocked senders | `payment_blocks` | `payments-create-intent` |
+| Most in one transfer (default: no cap) | `payment_settings.max_send_cents` | `payments-create-intent` |
 | Daily send cap (default $500) | `payment_settings` | `payments-create-intent` |
 
-All three are checked before a charge exists. A limit the app applies is a
+All of them are checked before a charge exists. A limit the app applies is a
 limit a modified app ignores, and a limit matters most when something has
 already gone wrong.
 
 Blocked and failed charges are excluded from the daily total — money that
 never moved must not use up someone's day.
+
+**Raising a limit waits 24 hours; lowering one is immediate.** Without that
+the caps stop nothing they were written to stop: whoever is holding an
+unlocked phone holds the session too, so they can raise the day to its ceiling
+and then send. The waiting raise lives in the `pending_*` columns and is
+applied on the first read after its moment passes — no job runs. The rule is
+`_shared/payment_limits.ts`, and `payment_limits_test.mjs` executes every
+branch of it (`sh tool/check_functions.sh`).
+
+Zero means *no cap* for both limits, not "nothing may be sent" — so lifting a
+cap is a loosening, and waits like any other.
 
 `payments-history` returns both directions from `payment_transactions`, which
 is where the whole picture lives: a transfer has two sides and only one of
