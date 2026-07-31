@@ -13757,8 +13757,7 @@ void main() {
       // The composer warns before somebody types, not after.
       final screen =
           File('lib/screens/public_feed_screen.dart').readAsStringSync();
-      expect(screen.contains('Everyone using OkayMessenger can see this'),
-          isTrue);
+      expect(screen.contains('Everyone can see this'), isTrue);
     });
 
     test('a phone number is never readable from the feed', () {
@@ -15154,17 +15153,71 @@ void main() {
       // reader has to go on.
       await tester.tap(find.byTooltip('New post'));
       await tester.pumpAndSettle();
-      expect(find.text('New post'), findsOneWidget);
-      expect(find.textContaining('Everyone using OkayMessenger can see this'),
-          findsOneWidget);
-      // The counter starts at the cap and Post is disabled until something
-      // is typed.
-      expect(find.text('${PublicFeedStore.maxLength}'), findsOneWidget);
+      expect(find.textContaining('Everyone can see this'), findsOneWidget);
+      // Post sits in the bar and is disabled until something is typed.
       expect(
           tester
               .widget<FilledButton>(find.widgetWithText(FilledButton, 'Post'))
               .onPressed,
           isNull);
+
+      // The limit is a ring, not a number — until the last twenty characters,
+      // where the number is the thing somebody wants. A count that is only
+      // read once you are already over is not a warning.
+      final ring = find.byType(CircularProgressIndicator);
+      expect(ring, findsOneWidget);
+      expect(find.text('${PublicFeedStore.maxLength}'), findsNothing);
+      expect(tester.widget<CircularProgressIndicator>(ring).value, 0);
+
+      await tester.enterText(
+          find.byType(TextField).first, 'x' * (PublicFeedStore.maxLength - 5));
+      await tester.pumpAndSettle();
+      expect(find.text('5'), findsOneWidget, reason: 'five characters left');
+      expect(
+          tester.widget<CircularProgressIndicator>(ring).value, closeTo(0.99, 0.01));
+
+      // Past the cap the ring stays full rather than wrapping round to look
+      // nearly empty again, and Post is refused.
+      await tester.enterText(
+          find.byType(TextField).first, 'x' * (PublicFeedStore.maxLength + 30));
+      await tester.pumpAndSettle();
+      expect(tester.widget<CircularProgressIndicator>(ring).value, 1.0);
+      expect(find.text('-30'), findsOneWidget);
+      expect(
+          tester
+              .widget<FilledButton>(find.widgetWithText(FilledButton, 'Post'))
+              .onPressed,
+          isNull);
+    });
+
+    testWidgets('the composer is a page, not a sheet that fights the keyboard',
+        (tester) async {
+      // It grew a poll editor and a photo preview. A sheet that has to be
+      // taller than half the screen with the keyboard up is a sheet fighting
+      // the keyboard, and every timeline this one is modelled on opens a page.
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      PublicFeedStore.debugLoadOverride = () async => [];
+      await tester.pumpWidget(const MaterialApp(home: PublicFeedScreen()));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('New post'));
+      await tester.pumpAndSettle();
+
+      // Full height, with the close and the action in the bar rather than the
+      // button at the bottom of a sheet that moves with the keyboard.
+      final composer = tester.getRect(find.byType(Scaffold).last);
+      expect(composer.height, 844);
+      expect(find.byTooltip('Cancel'), findsOneWidget);
+      final close = tester.getRect(find.byTooltip('Cancel'));
+      final post = tester.getRect(find.widgetWithText(FilledButton, 'Post'));
+      expect(close.center.dx, lessThan(post.center.dx));
+      expect(post.top, lessThan(120), reason: 'the action is in the bar');
+
+      // And it closes without posting.
+      await tester.tap(find.byTooltip('Cancel'));
+      await tester.pumpAndSettle();
+      expect(find.widgetWithText(FilledButton, 'Post'), findsNothing);
     });
   });
 

@@ -173,13 +173,8 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
                   '$left')));
       return;
     }
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (_) =>
-          _Composer(replyTo: replyTo, replyingToName: replyingToName),
-    );
+    await _openComposer(context,
+        replyTo: replyTo, replyingToName: replyingToName);
   }
 
   @override
@@ -1648,12 +1643,7 @@ class _PostTile extends StatelessWidget {
               subtitle: const Text('Add your own words above it'),
               onTap: () {
                 Navigator.of(sheetContext).pop();
-                showModalBottomSheet<void>(
-                  context: context,
-                  isScrollControlled: true,
-                  showDragHandle: true,
-                  builder: (_) => _Composer(quoteOf: post.id),
-                );
+                _openComposer(context, quoteOf: post.id);
               },
             ),
           ],
@@ -1801,13 +1791,8 @@ class PublicThreadScreen extends StatelessWidget {
             children: [
               _PostTile(
                 post: post,
-                onReply: () => showModalBottomSheet<void>(
-                  context: context,
-                  isScrollControlled: true,
-                  showDragHandle: true,
-                  builder: (_) => _Composer(
-                      replyTo: post.id, replyingToName: post.authorName),
-                ),
+                onReply: () => _openComposer(context,
+                    replyTo: post.id, replyingToName: post.authorName),
                 onOpen: () {},
               ),
               const Divider(height: 1),
@@ -1832,6 +1817,22 @@ class PublicThreadScreen extends StatelessWidget {
     );
   }
 }
+
+/// Opens the composer.
+///
+/// A full-screen route rather than a bottom sheet. The composer grew a poll
+/// editor and a photo preview, and a sheet that has to grow past half the
+/// screen while the keyboard is up is a sheet fighting the keyboard — every
+/// timeline this one is modelled on opens a page instead.
+Future<void> _openComposer(BuildContext context,
+        {String? replyTo, String? replyingToName, String? quoteOf}) =>
+    Navigator.of(context).push<void>(MaterialPageRoute(
+      fullscreenDialog: true,
+      builder: (_) => _Composer(
+          replyTo: replyTo,
+          replyingToName: replyingToName,
+          quoteOf: quoteOf),
+    ));
 
 /// The composer. Says out loud that a post here is public, because this is the
 /// one place in the app where that is true.
@@ -1895,13 +1896,6 @@ class _ComposerState extends State<_Composer> {
     setState(() => _pollFields!.removeAt(i).dispose());
   }
 
-  static String _durationLabel(Duration d) {
-    if (d.inHours < 24) {
-      return '${d.inHours} hour${d.inHours == 1 ? '' : 's'}';
-    }
-    final days = d.inDays;
-    return '$days day${days == 1 ? '' : 's'}';
-  }
 
   /// Picks a photo for the post.
   ///
@@ -1953,179 +1947,346 @@ class _ComposerState extends State<_Composer> {
   @override
   Widget build(BuildContext context) {
     final me = AppState.profile.value;
-    final left = PublicFeedStore.maxLength - _text.text.trim().length;
-    return SafeArea(
-      child: Padding(
-        padding: EdgeInsets.only(
-            left: 20,
-            right: 20,
-            bottom: MediaQuery.of(context).viewInsets.bottom + 16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-                widget.quoteOf != null
-                    ? 'Quote post'
-                    : widget.replyTo == null
-                        ? 'New post'
-                        : 'Reply to ${widget.replyingToName ?? 'post'}',
-                style:
-                    const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
-            const SizedBox(height: 4),
-            // The one thing worth saying here, and the only screen in the app
-            // where it applies: this is not a private message.
-            Text(
-                me.username.isEmpty
-                    ? 'Everyone using OkayMessenger can see this. Set a '
-                        'username in your profile so people know who posted.'
-                    : 'Everyone using OkayMessenger can see this, posted as '
-                        '@${me.username}.',
-                style: TextStyle(fontSize: 12.5, color: Colors.grey.shade600)),
-            const SizedBox(height: 14),
-            TextField(
-              controller: _text,
-              autofocus: true,
-              maxLines: 6,
-              minLines: 3,
-              textCapitalization: TextCapitalization.sentences,
-              decoration: const InputDecoration(
-                hintText: 'What\'s happening?',
-                border: OutlineInputBorder(),
+    final typed = _text.text.trim().length;
+    final left = PublicFeedStore.maxLength - typed;
+    final accent = Theme.of(context).colorScheme.primary;
+    final postable = !_sending &&
+        left >= 0 &&
+        (typed > 0 || _image != null || widget.quoteOf != null) &&
+        (!_isPoll ||
+            (typed > 0 &&
+                PublicFeedStore.validatePoll(
+                        [for (final c in _pollFields!) c.text]) ==
+                    null));
+
+    return Scaffold(
+      appBar: AppBar(
+        // Close on the left and the action on the right, the way every
+        // timeline's composer is laid out — the button you are reaching for is
+        // where your thumb already is, not at the bottom of a sheet whose
+        // height changes with the keyboard.
+        leading: IconButton(
+          icon: const Icon(Icons.close),
+          tooltip: 'Cancel',
+          onPressed: _sending ? null : () => Navigator.of(context).pop(),
+        ),
+        titleSpacing: 0,
+        title: widget.replyTo == null && widget.quoteOf == null
+            ? null
+            : Text(widget.quoteOf != null
+                ? 'Quote post'
+                : 'Reply to ${widget.replyingToName ?? 'post'}'),
+        actions: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(0, 8, 12, 8),
+            child: FilledButton(
+              style: FilledButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(20)),
               ),
-              onChanged: (_) => setState(() {}),
+              // A photo on its own is a post; text is not required when
+              // something else is attached. A poll is the exception — answers
+              // with no question is not a poll.
+              onPressed: postable ? _send : null,
+              child: Text(_sending
+                  ? 'Posting…'
+                  : (widget.replyTo == null ? 'Post' : 'Reply')),
             ),
-            if (widget.quoteOf != null) ...[
-              const SizedBox(height: 10),
-              _Quoted(postId: widget.quoteOf!),
-            ],
-            if (_isPoll) ...[
-              const SizedBox(height: 12),
-              for (var i = 0; i < _pollFields!.length; i++)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          controller: _pollFields![i],
-                          maxLength: PublicFeedStore.maxPollOptionLength,
-                          decoration: InputDecoration(
-                            labelText: 'Answer ${i + 1}',
-                            border: const OutlineInputBorder(),
-                            isDense: true,
-                            counterText: '',
+          ),
+        ],
+      ),
+      body: SafeArea(
+        child: Column(
+          children: [
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Your own face beside what you are writing, so a post
+                    // reads as coming from somebody before it is sent.
+                    UserAvatar(user: me, radius: 20),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          TextField(
+                            controller: _text,
+                            autofocus: true,
+                            maxLines: null,
+                            // Sized to what is written, so a photo or a poll
+                            // sits directly under the words rather than after
+                            // a reserved block of empty lines.
+                            minLines: 1,
+                            style: const TextStyle(fontSize: 18, height: 1.35),
+                            textCapitalization:
+                                TextCapitalization.sentences,
+                            // No box. The page is the field — a bordered
+                            // rectangle inside a screen that is already
+                            // nothing else reads as a form.
+                            decoration: const InputDecoration(
+                              hintText: 'What\'s happening?',
+                              border: InputBorder.none,
+                              isDense: true,
+                              contentPadding: EdgeInsets.zero,
+                            ),
+                            onChanged: (_) => setState(() {}),
                           ),
-                          onChanged: (_) => setState(() {}),
-                        ),
+                          if (widget.quoteOf != null) ...[
+                            const SizedBox(height: 10),
+                            _Quoted(postId: widget.quoteOf!),
+                          ],
+                          if (_isPoll) ...[
+                            const SizedBox(height: 12),
+                            _PollEditor(
+                              fields: _pollFields!,
+                              runsFor: _pollRunsFor,
+                              onAdd: _addPollField,
+                              onRemove: _removePollField,
+                              onDuration: (d) =>
+                                  setState(() => _pollRunsFor = d),
+                              onChanged: () => setState(() {}),
+                            ),
+                          ],
+                          if (_image != null) ...[
+                            const SizedBox(height: 10),
+                            Stack(
+                              alignment: Alignment.topRight,
+                              children: [
+                                ClipRRect(
+                                  borderRadius: BorderRadius.circular(16),
+                                  child: Image.memory(_image!,
+                                      height: 200,
+                                      width: double.infinity,
+                                      fit: BoxFit.cover),
+                                ),
+                                IconButton(
+                                  icon: const CircleAvatar(
+                                    radius: 14,
+                                    backgroundColor: Colors.black54,
+                                    child: Icon(Icons.close,
+                                        size: 16, color: Colors.white),
+                                  ),
+                                  tooltip: 'Remove photo',
+                                  onPressed: () =>
+                                      setState(() => _image = null),
+                                ),
+                              ],
+                            ),
+                          ],
+                          const SizedBox(height: 12),
+                          // Who can see it, said where the timelines people
+                          // arrive from say who can reply. This is the one
+                          // screen in the app where a post is not private, and
+                          // it is the one line that has to be read.
+                          Row(
+                            children: [
+                              Icon(Icons.public, size: 15, color: accent),
+                              const SizedBox(width: 6),
+                              Expanded(
+                                child: Text(
+                                  me.username.isEmpty
+                                      ? 'Everyone can see this — set a username '
+                                          'so people know who posted'
+                                      : 'Everyone can see this, as '
+                                          '@${me.username}',
+                                  style: TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
+                                      color: accent),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
                       ),
-                      // Only past the minimum: removing an answer down to one
-                      // would leave a poll nobody can answer.
-                      if (_pollFields!.length > PublicFeedStore.minPollOptions)
-                        IconButton(
-                          icon: const Icon(Icons.remove_circle_outline),
-                          tooltip: 'Remove answer',
-                          onPressed: () => _removePollField(i),
-                        ),
-                    ],
-                  ),
-                ),
-              Row(
-                children: [
-                  if (_pollFields!.length < PublicFeedStore.maxPollOptions)
-                    TextButton.icon(
-                      onPressed: _addPollField,
-                      icon: const Icon(Icons.add, size: 18),
-                      label: const Text('Add answer'),
                     ),
-                  const Spacer(),
-                  DropdownButton<Duration>(
-                    value: _pollRunsFor,
-                    underline: const SizedBox.shrink(),
-                    onChanged: (d) =>
-                        setState(() => _pollRunsFor = d ?? _pollRunsFor),
-                    items: [
-                      for (final d in PublicFeedStore.pollDurations)
-                        DropdownMenuItem(
-                            value: d, child: Text(_durationLabel(d))),
-                    ],
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ],
-            if (_image != null) ...[
-              const SizedBox(height: 10),
-              Stack(
-                alignment: Alignment.topRight,
+            ),
+            const Divider(height: 1),
+            // The tools, on one row above the keyboard.
+            Padding(
+              // No viewInsets padding here: the Scaffold already shrinks the
+              // body for the keyboard, and adding it again would push the row
+              // a keyboard's height off the bottom of the screen.
+              padding: const EdgeInsets.only(left: 6, right: 12),
+              child: Row(
                 children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(12),
-                    child: Image.memory(_image!,
-                        height: 160, width: double.infinity, fit: BoxFit.cover),
+                  IconButton(
+                    icon: const Icon(Icons.image_outlined),
+                    color: accent,
+                    tooltip: 'Add a photo',
+                    onPressed: _sending || _isPoll ? null : _pickImage,
                   ),
                   IconButton(
-                    icon: const CircleAvatar(
-                      radius: 14,
-                      backgroundColor: Colors.black54,
-                      child: Icon(Icons.close, size: 16, color: Colors.white),
-                    ),
-                    tooltip: 'Remove photo',
-                    onPressed: () => setState(() => _image = null),
+                    icon: Icon(_isPoll ? Icons.poll : Icons.poll_outlined),
+                    color: accent,
+                    tooltip: _isPoll ? 'Remove poll' : 'Add a poll',
+                    // A poll is a post of its own — it cannot be a reply or a
+                    // quote, and the table refuses those too.
+                    onPressed: _sending ||
+                            widget.replyTo != null ||
+                            widget.quoteOf != null ||
+                            !PublicFeedStore.instance.pollsSupported
+                        ? null
+                        : _togglePoll,
                   ),
+                  const Spacer(),
+                  _CharacterRing(
+                      used: typed, limit: PublicFeedStore.maxLength),
                 ],
               ),
-            ],
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.image_outlined),
-                  tooltip: 'Add a photo',
-                  onPressed: _sending || _isPoll ? null : _pickImage,
-                ),
-                IconButton(
-                  icon: Icon(_isPoll ? Icons.poll : Icons.poll_outlined),
-                  color: _isPoll ? Theme.of(context).colorScheme.primary : null,
-                  tooltip: _isPoll ? 'Remove poll' : 'Add a poll',
-                  // A poll is a post of its own — it cannot be a reply or a
-                  // quote, and the table refuses those too.
-                  onPressed: _sending ||
-                          widget.replyTo != null ||
-                          widget.quoteOf != null ||
-                          !PublicFeedStore.instance.pollsSupported
-                      ? null
-                      : _togglePoll,
-                ),
-                Text('$left',
-                    style: TextStyle(
-                        fontSize: 12.5,
-                        color: left < 0 ? Colors.red : Colors.grey.shade500)),
-                const Spacer(),
-                FilledButton(
-                  // A photo on its own is a post; text is not required when
-                  // something else is attached. A poll is the exception —
-                  // answers with no question is not a poll.
-                  onPressed: _sending ||
-                          (_text.text.trim().isEmpty &&
-                              _image == null &&
-                              widget.quoteOf == null) ||
-                          left < 0 ||
-                          (_isPoll &&
-                              (_text.text.trim().isEmpty ||
-                                  PublicFeedStore.validatePoll([
-                                        for (final c in _pollFields!) c.text
-                                      ]) !=
-                                      null))
-                      ? null
-                      : _send,
-                  child: Text(_sending
-                      ? 'Posting…'
-                      : (widget.replyTo == null ? 'Post' : 'Reply')),
-                ),
-              ],
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// The answer fields, split out of the composer's build so that method reads as
+/// a layout rather than as two screens sharing one function.
+class _PollEditor extends StatelessWidget {
+  const _PollEditor({
+    required this.fields,
+    required this.runsFor,
+    required this.onAdd,
+    required this.onRemove,
+    required this.onDuration,
+    required this.onChanged,
+  });
+
+  final List<TextEditingController> fields;
+  final Duration runsFor;
+  final VoidCallback onAdd;
+  final ValueChanged<int> onRemove;
+  final ValueChanged<Duration> onDuration;
+  final VoidCallback onChanged;
+
+  static String _durationLabel(Duration d) {
+    if (d.inHours < 24) return '${d.inHours} hour${d.inHours == 1 ? '' : 's'}';
+    return '${d.inDays} day${d.inDays == 1 ? '' : 's'}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 12, 8, 6),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+            color: Theme.of(context).dividerColor.withValues(alpha: 0.8)),
+      ),
+      child: Column(
+        children: [
+          for (var i = 0; i < fields.length; i++)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: fields[i],
+                      maxLength: PublicFeedStore.maxPollOptionLength,
+                      decoration: InputDecoration(
+                        labelText: 'Answer ${i + 1}',
+                        border: const OutlineInputBorder(),
+                        isDense: true,
+                        counterText: '',
+                      ),
+                      onChanged: (_) => onChanged(),
+                    ),
+                  ),
+                  // Only past the minimum: removing an answer down to one
+                  // would leave a poll nobody can answer.
+                  if (fields.length > PublicFeedStore.minPollOptions)
+                    IconButton(
+                      icon: const Icon(Icons.remove_circle_outline),
+                      tooltip: 'Remove answer',
+                      onPressed: () => onRemove(i),
+                    ),
+                ],
+              ),
+            ),
+          Row(
+            children: [
+              if (fields.length < PublicFeedStore.maxPollOptions)
+                TextButton.icon(
+                  onPressed: onAdd,
+                  icon: const Icon(Icons.add, size: 18),
+                  label: const Text('Add answer'),
+                ),
+              const Spacer(),
+              DropdownButton<Duration>(
+                value: runsFor,
+                underline: const SizedBox.shrink(),
+                onChanged: (d) => d == null ? null : onDuration(d),
+                items: [
+                  for (final d in PublicFeedStore.pollDurations)
+                    DropdownMenuItem(value: d, child: Text(_durationLabel(d))),
+                ],
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// How much of the limit is gone, as a ring that fills.
+///
+/// A bare number counting down is only read once somebody is already near the
+/// end. The ring is legible from the corner of an eye the whole way, and it
+/// only spells the number out for the last twenty characters — which is when
+/// the number is the thing you want.
+class _CharacterRing extends StatelessWidget {
+  const _CharacterRing({required this.used, required this.limit});
+
+  final int used;
+  final int limit;
+
+  @override
+  Widget build(BuildContext context) {
+    final left = limit - used;
+    final over = left < 0;
+    final close = left <= 20;
+    final colour = over
+        ? const Color(0xFFD92D20)
+        : close
+            ? const Color(0xFFF79009)
+            : Theme.of(context).colorScheme.primary;
+    return SizedBox(
+      width: 34,
+      height: 34,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          SizedBox(
+            width: close ? 26 : 22,
+            height: close ? 26 : 22,
+            child: CircularProgressIndicator(
+              // Past the limit the ring stays full and turns red rather than
+              // wrapping around to look nearly empty again.
+              value: (used / limit).clamp(0.0, 1.0),
+              strokeWidth: 2.5,
+              backgroundColor:
+                  Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.12),
+              valueColor: AlwaysStoppedAnimation<Color>(colour),
+            ),
+          ),
+          if (close)
+            Text('$left',
+                style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: colour)),
+        ],
       ),
     );
   }
