@@ -6,6 +6,8 @@ import '../app_state.dart';
 import '../state/chat_store.dart';
 import '../state/community_store.dart';
 import '../state/feed_store.dart';
+import '../state/platform_moderation.dart';
+import '../state/session.dart' as local;
 import '../state/follow_store.dart';
 import '../util/file_moderation.dart';
 import '../util/photo_prep.dart';
@@ -218,14 +220,28 @@ class _FeedScreenState extends State<FeedScreen> {
               ListTile(
                 leading: const Icon(Icons.flag_outlined),
                 title: const Text('Report post'),
-                onTap: () {
+                subtitle: const Text('Hidden for you, and sent to the '
+                    'moderators'),
+                onTap: () async {
+                  final messenger = ScaffoldMessenger.of(context);
                   FeedStore.instance.hidePost(post.id);
                   Navigator.of(sheetContext).pop();
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                        content:
-                            Text('Reported — the post is hidden for you.')),
+                  // It said "Reported" and only hid it. A server post is
+                  // encrypted, so the report carries who and where, never
+                  // what — which is all a moderator can act on here anyway.
+                  final sent = await PlatformModeration.instance.report(
+                    reason: 'Reported from a server feed',
+                    targetHandle: post.authorUsername,
+                    context: 'server_post:${post.id}',
+                    reporterPhone:
+                        local.Session.instance.user.value?.phone ?? '',
                   );
+                  messenger.showSnackBar(SnackBar(
+                    content: Text(sent
+                        ? 'Reported — the post is hidden for you.'
+                        : 'Hidden for you. The report couldn\'t be sent — '
+                            'you may be offline.'),
+                  ));
                 },
               ),
               ListTile(

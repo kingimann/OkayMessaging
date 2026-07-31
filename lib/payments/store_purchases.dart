@@ -1,4 +1,5 @@
 import 'apple_iap.dart';
+import 'purchase_outcome.dart';
 import 'iap_entitlement.dart';
 import 'payment_service.dart';
 
@@ -45,27 +46,29 @@ class StorePurchases {
   /// transaction goes to `iap-validate`, and the entitlement that comes back
   /// is what the app honours. Apple renews monthly on its own, so the device
   /// can't be the source of truth.
-  Future<bool> buyStorage(int gb) async {
+  Future<PurchaseResult> buyStorage(int gb) async {
     final id = storageProductId(gb);
-    if (id.isEmpty) return false;
+    if (id.isEmpty) {
+      return const PurchaseResult(PurchaseOutcome.notOffered);
+    }
     if (_testMode) {
       await Future<void>.delayed(const Duration(milliseconds: 900));
-      return true;
+      return const PurchaseResult.bought('test-mode');
     }
-    final jws = await AppleIap.buy(id, consumable: false);
-    if (jws == null) return false;
+    final result = await AppleIap.buy(id, consumable: false);
+    if (!result.ok) return result;
     // AppleIap.onTransaction has already forwarded this for validation; the
     // await is so the caller sees the entitlement before the screen redraws.
-    await IapEntitlement.instance.validate(jws);
-    return true;
+    await IapEntitlement.instance.validate(result.jws!);
+    return result;
   }
 
   /// Sends a tip to the developer via a consumable in-app purchase.
-  Future<bool> tip(String productId) async {
+  Future<PurchaseResult> tip(String productId) async {
     if (_testMode) {
       await Future<void>.delayed(const Duration(milliseconds: 900));
-      return true;
+      return const PurchaseResult.bought('test-mode');
     }
-    return await AppleIap.buy(productId, consumable: true) != null;
+    return AppleIap.buy(productId, consumable: true);
   }
 }

@@ -1,3 +1,5 @@
+import 'purchase_outcome.dart';
+
 /// Web / default implementation. In-app purchases only exist in the native
 /// app, so this reports unsupported and never references the plugin.
 class AppleIap {
@@ -11,9 +13,12 @@ class AppleIap {
 
   static Future<bool> storeAvailable() async => false;
 
-  static Future<String?> buy(String productId, {bool consumable = false}) async {
-    throw UnsupportedError('In-app purchases are available in the mobile app.');
-  }
+  /// There is no store here, and saying so is better than throwing: the
+  /// caller has a message for it, and a web build reaching this is a person
+  /// who tapped Buy, not a bug.
+  static Future<PurchaseResult> buy(String productId,
+          {bool consumable = false}) async =>
+      const PurchaseResult(PurchaseOutcome.unavailable);
 
   static Future<void> restore() async {}
 }

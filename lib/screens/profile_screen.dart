@@ -27,7 +27,7 @@ class ProfileStat extends StatelessWidget {
       onTap: onTap,
       borderRadius: BorderRadius.circular(8),
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 2),
+        padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
         // The number and what it counts on one line. Stacked, four of them
         // needed more width than a phone has, and the row they sat in was
         // scaled down to fit — which is how a profile ends up with counts too
@@ -41,10 +41,10 @@ class ProfileStat extends StatelessWidget {
           children: [
             Text(value,
                 style: const TextStyle(
-                    fontSize: 15, fontWeight: FontWeight.w800)),
-            const SizedBox(width: 4),
+                    fontSize: 16, fontWeight: FontWeight.w800)),
+            const SizedBox(width: 5),
             Text(label,
-                style: TextStyle(fontSize: 14, color: Colors.grey.shade600)),
+                style: TextStyle(fontSize: 14.5, color: Colors.grey.shade600)),
           ],
         ),
       ),
@@ -128,7 +128,7 @@ class ProfileVerificationRow extends StatelessWidget {
       onTap: onTap,
       borderRadius: BorderRadius.circular(20),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 8),
         decoration: BoxDecoration(
           color: done
               ? const Color(0xFF12B76A).withValues(alpha: 0.10)
@@ -138,11 +138,11 @@ class ProfileVerificationRow extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(done ? Icons.check_circle : icon, size: 15, color: fg),
-            const SizedBox(width: 5),
+            Icon(done ? Icons.check_circle : icon, size: 16, color: fg),
+            const SizedBox(width: 6),
             Text(label,
                 style: TextStyle(
-                    fontSize: 12.5, fontWeight: FontWeight.w600, color: fg)),
+                    fontSize: 13, fontWeight: FontWeight.w600, color: fg)),
           ],
         ),
       ),

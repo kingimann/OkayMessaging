@@ -9,6 +9,8 @@ import '../state/call_service.dart';
 import '../state/chat_store.dart';
 import '../state/favourites_store.dart';
 import '../state/follow_store.dart';
+import '../state/platform_moderation.dart';
+import '../state/session.dart' as local;
 import '../theme/app_theme.dart';
 import '../util/file_saver.dart';
 import '../utils/chat_transcript.dart';
@@ -404,13 +406,29 @@ class ContactInfoScreen extends StatelessWidget {
         ),
       ),
     );
-    if (reason == null || !context.mounted) return;
+    if (reason == null) return;
+    // ACTUALLY SENT. This said "has been reported" and did nothing of the
+    // kind: it blocked locally and told the person their report had gone
+    // somewhere. A report nobody receives is worse than no report button,
+    // because it stops them from doing anything that would have worked.
+    final sent = await PlatformModeration.instance.report(
+      reason: reason,
+      targetPhone: user.phone,
+      targetHandle: user.username,
+      reporterPhone: local.Session.instance.user.value?.phone ?? '',
+    );
     if (alsoBlock) AppState.setBlocked(user.phone, true);
+    if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-          content: Text(alsoBlock
-              ? 'Reported and blocked ${user.name}'
-              : 'Thanks — ${user.name} has been reported')),
+          content: Text(!sent
+              ? (alsoBlock
+                  ? 'Blocked ${user.name}. The report couldn\'t be sent — '
+                      'you may be offline.'
+                  : 'Couldn\'t send that report — you may be offline.')
+              : alsoBlock
+                  ? 'Reported and blocked ${user.name}'
+                  : 'Thanks — ${user.name} has been reported')),
     );
   }
 }

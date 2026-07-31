@@ -54,7 +54,14 @@ create policy chat_backups_delete on storage.objects
 -- ----------------------------------------------------------------------------
 -- If you ran docs/storage_usage_setup.sql, this view reports what the bucket
 -- actually holds — the number your Supabase bill is computed from.
-create or replace view public.chat_backup_totals as
+--
+-- security_invoker, and granted to NOBODY. A view without it runs with its
+-- owner's privileges, which is what Supabase's advisor flags as CRITICAL: it
+-- reads storage.objects past the caller's RLS, so any signed-in client could
+-- count and size every backup in the bucket. This is an operator's number,
+-- read in the SQL editor by whoever owns the project.
+create or replace view public.chat_backup_totals
+with (security_invoker = on) as
   select
     count(*)                                          as backups,
     coalesce(sum((metadata->>'size')::bigint), 0)     as total_bytes,
@@ -62,3 +69,5 @@ create or replace view public.chat_backup_totals as
           / 1073741824.0, 3)                          as total_gb
   from storage.objects
   where bucket_id = 'chat-backups';
+
+revoke all on public.chat_backup_totals from anon, authenticated;

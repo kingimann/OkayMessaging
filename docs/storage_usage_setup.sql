@@ -144,10 +144,18 @@ $$;
 -- ----------------------------------------------------------------------------
 -- e.g. a $25 Supabase Pro project includes 100 GB storage / 250 GB egress.
 -- When total_used_bytes nears ~80 GB, raise prices or archive cold blobs.
-create or replace view public.storage_totals as
+--
+-- security_invoker, and granted to NOBODY — see the note on
+-- chat_backup_totals. Without it the view runs as its owner and hands every
+-- account's usage to any client that asks; Supabase's advisor flags it
+-- CRITICAL, and it is right to.
+create or replace view public.storage_totals
+with (security_invoker = on) as
   select
     count(*)                                    as accounts,
     count(*) filter (where tier = 'free')       as free_accounts,
     coalesce(sum(used_bytes), 0)                as total_used_bytes,
     coalesce(sum(egress_bytes), 0)              as total_egress_bytes_this_month
   from public.user_storage_usage;
+
+revoke all on public.storage_totals from anon, authenticated;

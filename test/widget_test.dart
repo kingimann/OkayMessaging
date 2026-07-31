@@ -107,6 +107,7 @@ import 'package:okay_messaging/payments/connect_webview_stub.dart' as stub;
 import 'package:okay_messaging/payments/payment_amount_sheet.dart';
 import 'package:okay_messaging/screens/wallet_screen.dart';
 import 'package:okay_messaging/payments/storage_economics.dart';
+import 'package:okay_messaging/payments/purchase_outcome.dart';
 import 'package:okay_messaging/payments/store_purchases.dart';
 import 'package:okay_messaging/state/backup_service.dart';
 import 'package:okay_messaging/screens/status_screen.dart';
@@ -7402,10 +7403,55 @@ void main() {
       addTearDown(() => payments.setTestMode(wasTest));
       payments.setTestMode(true);
       expect(StorePurchases.instance.isSupported, isTrue);
-      expect(await StorePurchases.instance.buyStorage(30), isTrue);
-      expect(await StorePurchases.instance.tip(tips.first.id), isTrue);
+      expect((await StorePurchases.instance.buyStorage(30)).ok, isTrue);
+      expect((await StorePurchases.instance.tip(tips.first.id)).ok, isTrue);
       // A zero-GB "purchase" is a no-op that doesn't pretend to charge.
-      expect(await StorePurchases.instance.buyStorage(0), isFalse);
+      expect((await StorePurchases.instance.buyStorage(0)).ok, isFalse);
+    });
+
+    test('every way a purchase can end says which one it was', () {
+      // All five collapsed into `false`, and the screen rendered `false` as
+      // "Purchase cancelled." So an account whose products have not been
+      // created in App Store Connect — which is every account today — was
+      // told it had changed its mind.
+      expect(PurchaseOutcome.bought.ok, isTrue);
+      for (final o in PurchaseOutcome.values) {
+        expect(o.message.trim(), isNotEmpty, reason: '$o has nothing to say');
+        if (o != PurchaseOutcome.bought) {
+          expect(o.ok, isFalse);
+        }
+      }
+
+      // Only one of them is a cancellation, and only it may say so.
+      final saysCancelled = [
+        for (final o in PurchaseOutcome.values)
+          if (o.message.toLowerCase().contains('cancel')) o
+      ];
+      expect(saysCancelled, [PurchaseOutcome.cancelled]);
+
+      // The two that cost nothing say so, because the question somebody has
+      // after a failed purchase is whether they have been charged.
+      for (final o in [PurchaseOutcome.notOffered, PurchaseOutcome.failed]) {
+        expect(o.message.toLowerCase(), contains('nothing was charged'),
+            reason: '$o leaves the money question open');
+      }
+
+      // A result carries the transaction only when there was one.
+      expect(const PurchaseResult.bought('jws').jws, 'jws');
+      expect(const PurchaseResult(PurchaseOutcome.notOffered).jws, isNull);
+    });
+
+    test('the screens say the reason rather than inventing one', () {
+      for (final path in [
+        'lib/screens/cloud_sync_screen.dart',
+        'lib/screens/okay_pro_screen.dart',
+      ]) {
+        final src = File(path).readAsStringSync();
+        expect(src.contains('result.message'), isTrue,
+            reason: '$path does not pass the outcome through');
+        expect(src.contains("_snack('Purchase cancelled.')"), isFalse,
+            reason: '$path still hard-codes a cancellation');
+      }
     });
 
     test('a lapsed purchase falls back to the free allowance', () {
@@ -14549,6 +14595,133 @@ void main() {
       expect(sent!.body, 'Tabs or spaces?');
     });
 
+    testWidgets('a post can be reported, and the report actually goes',
+        (t) async {
+      // The public feed is the one surface with a real moderator behind it —
+      // a world-readable table and a reports queue — and it was the only one
+      // with no way to report anything.
+      t.view.physicalSize = const Size(500, 1600);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.resetPhysicalSize);
+      SharedPreferences.setMockInitialValues({});
+      await FeedMuteStore.instance.load();
+      addTearDown(FeedMuteStore.instance.resetForTest);
+
+      final filed = <Map<String, dynamic>>[];
+      PlatformModeration.debugFileOverride = (row) async {
+        filed.add(row);
+        return true;
+      };
+      addTearDown(PlatformModeration.instance.resetForTest);
+
+      PublicFeedStore.debugLoadOverride = () async => [
+            PublicPost(
+                id: 'bad',
+                authorUsername: 'loud',
+                authorName: 'Loud',
+                body: 'something worth reporting',
+                createdAt: DateTime.now()),
+          ];
+      await t.pumpWidget(const MaterialApp(home: PublicFeedScreen()));
+      await t.pumpAndSettle();
+
+      await t.tap(find.byIcon(Icons.more_horiz).first);
+      await t.pumpAndSettle();
+      await t.tap(find.text('Report post'));
+      await t.pumpAndSettle();
+      await t.tap(find.text('Also mute @loud'));
+      await t.pumpAndSettle();
+      await t.tap(find.text('Harassment or bullying'));
+      await t.pumpAndSettle();
+
+      expect(filed.length, 1, reason: 'the report was filed');
+      expect(filed.single['reason'], 'Harassment or bullying');
+      expect(filed.single['target_handle'], 'loud');
+      // The post id, not its text. A moderator reads the post itself — it is
+      // public — and a report carrying a copy would outlive a deletion.
+      expect(filed.single['context'], 'public_post:bad');
+      expect(filed.single['detail'], '');
+      expect(FeedMuteStore.instance.isMuted('loud'), isTrue);
+      expect(find.textContaining('A moderator will look at it'), findsOneWidget);
+    });
+
+    testWidgets('a report that did not send does not claim it did', (t) async {
+      t.view.physicalSize = const Size(500, 1600);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.resetPhysicalSize);
+      SharedPreferences.setMockInitialValues({});
+      PlatformModeration.debugFileOverride = (_) async => false;
+      addTearDown(PlatformModeration.instance.resetForTest);
+      PublicFeedStore.debugLoadOverride = () async => [
+            PublicPost(
+                id: 'bad',
+                authorUsername: 'loud',
+                authorName: 'Loud',
+                body: 'x',
+                createdAt: DateTime.now()),
+          ];
+      await t.pumpWidget(const MaterialApp(home: PublicFeedScreen()));
+      await t.pumpAndSettle();
+      await t.tap(find.byIcon(Icons.more_horiz).first);
+      await t.pumpAndSettle();
+      await t.tap(find.text('Report post'));
+      await t.pumpAndSettle();
+      await t.tap(find.text('Spam or scam'));
+      await t.pumpAndSettle();
+      expect(find.textContaining('Couldn\'t send'), findsOneWidget);
+      expect(find.textContaining('A moderator will look at it'), findsNothing);
+    });
+
+    testWidgets('reporting somebody from their contact sheet really files it',
+        (t) async {
+      // It said "has been reported" and filed nothing — it blocked locally and
+      // left it there. Driven for real rather than checked as text, because
+      // the text check passes just as happily on a call wrapped in `if
+      // (false)`, which is what a probe of it turned out to prove.
+      t.view.physicalSize = const Size(430, 1600);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.resetPhysicalSize);
+      final filed = <Map<String, dynamic>>[];
+      PlatformModeration.debugFileOverride = (row) async {
+        filed.add(row);
+        return true;
+      };
+      addTearDown(PlatformModeration.instance.resetForTest);
+
+      final user = MockData.contacts().firstWhere((c) => !c.isGroup);
+      await t.pumpWidget(MaterialApp(home: ContactInfoScreen(user: user)));
+      await t.pumpAndSettle();
+      await t.scrollUntilVisible(find.text('Report ${user.name}'), 200);
+      await t.tap(find.text('Report ${user.name}'));
+      await t.pumpAndSettle();
+      await t.tap(find.text('Impersonation'));
+      await t.pumpAndSettle();
+
+      expect(filed.length, 1, reason: 'the report was filed');
+      expect(filed.single['reason'], 'Impersonation');
+      expect(filed.single['target_phone'],
+          user.phone.replaceAll(RegExp(r'\D'), ''));
+      // Never what was said. These are end-to-end encrypted messages; the
+      // server could not read them even if this sent them.
+      expect(filed.single['detail'], '');
+    });
+
+    test('nothing says "reported" without sending one', () {
+      // Two screens said a report had been filed and filed nothing: the
+      // contact sheet blocked locally, and a server post was merely hidden.
+      // A report nobody receives is worse than no button, because it stops
+      // somebody doing the thing that would have worked.
+      for (final path in [
+        'lib/screens/contact_info_screen.dart',
+        'lib/screens/feed_screen.dart',
+        'lib/screens/public_feed_screen.dart',
+      ]) {
+        final src = File(path).readAsStringSync();
+        expect(src.contains('PlatformModeration.instance.report('), isTrue,
+            reason: '$path claims to report and never calls report()');
+      }
+    });
+
     testWidgets('muting someone hides them, and can be undone', (t) async {
       t.view.physicalSize = const Size(500, 1600);
       t.view.devicePixelRatio = 1.0;
@@ -14710,7 +14883,20 @@ void main() {
       expect(find.text('following'), findsNothing);
       expect(find.text('Posts'), findsOneWidget);
       expect(find.text('post'), findsNothing);
+      // Okay Score used to be a fourth count in the same row. Four do not fit
+      // a 390pt phone, so the row broke three-and-one; it has a row of its own
+      // now, with somewhere to go, which is what it was all along.
       expect(find.text('Okay Score'), findsOneWidget);
+      final scoreRow = t.getRect(find.ancestor(
+          of: find.text('Okay Score'), matching: find.byType(InkWell)).first);
+      // Against Following, not Posts: with one post the count reads "Post"
+      // while the TAB reads "Posts", so measuring from "Posts" measures the
+      // tab strip and passes for the wrong reason.
+      final followingCount = t.getRect(find.text('Following'));
+      expect(scoreRow.top, greaterThan(followingCount.bottom),
+          reason: 'it is below the counts, not wrapped off the end of them');
+      expect(find.byIcon(Icons.chevron_right), findsWidgets,
+          reason: 'and it says it goes somewhere');
 
       // Everything down the left edge starts at the same margin. The
       // verification chips were centred while the name, bio and counts were
@@ -14723,12 +14909,17 @@ void main() {
       expect(chips.left, closeTo(name.left, 1.0),
           reason: 'the chips share the margin everything else uses');
 
-      // The header has to leave room for the thing the profile is for. At a
-      // banner of 118 the tabs sat far enough down that a post needed a scroll
-      // on a normal phone.
+      // The header has to leave room for the thing the profile is for. This
+      // was 520 while the header was packed into 4-to-8-point gaps; opening it
+      // out cost about 70 points, which is the change and not a regression.
+      //
+      // 600 is where it stops being one: the shortest phone still sold is 667
+      // tall, so the tabs have to end far enough up that the first lines of a
+      // post are under them without a scroll. Tightening this back below 520
+      // means taking the air out again.
       final tabs = t.getRect(find.text('Replies'));
-      expect(tabs.bottom, lessThan(520.0),
-          reason: 'a post is visible without scrolling');
+      expect(tabs.bottom, lessThan(600.0),
+          reason: 'a post is visible without scrolling on a 667pt phone');
 
       // Nothing overflows at a real phone width. takeException() CONSUMES the
       // error, so asserting on a bool threw away the one thing that says what

@@ -122,7 +122,42 @@ create policy push_tokens_update_own on public.push_tokens
   for update to authenticated
   using (phone = (auth.jwt() ->> 'phone'))
   with check (phone = (auth.jwt() ->> 'phone'));
--- No select policy for clients: tokens are readable only by the service role.
+
+-- YOUR OWN ROW HAS TO BE VISIBLE TO YOU, and it is worth saying why because
+-- the obvious reading is that it should not be.
+--
+-- The app upserts its token on every launch, which PostgREST issues as
+-- `insert ... on conflict do update`. When the row already exists, Postgres
+-- applies the UPDATE policy to it — and a row no SELECT policy makes visible
+-- cannot be updated that way. With no read policy at all, the first launch
+-- inserted fine and every launch after it failed:
+--
+--   42501  new row violates row-level security policy for table "push_tokens"
+--
+-- read from the project's Postgres logs, once per launch, silently — the app
+-- swallows the error, so push simply never updated its token.
+--
+-- The policy is the row, and the row is only ever yours. `anon` is refused
+-- outright; a signed-in client sees one row, its own.
+--
+-- The token column IS readable — to that client, of its own row, only. Hiding
+-- it was tried and does not work: PostgREST writes the upsert as
+-- `... do update set token = excluded.token`, and `excluded` is a pseudo-row
+-- OF THE TARGET TABLE, so reading it needs SELECT on that column. Revoking it
+-- turns the silent RLS failure into a silent privilege failure and fixes
+-- nothing. It costs nothing either: a device reading back the APNs token it
+-- just generated learns something it already had. What must not happen is
+-- reading somebody else's, and that is the policy's job, not a column grant's.
+drop policy if exists push_tokens_read_own on public.push_tokens;
+create policy push_tokens_read_own on public.push_tokens
+  for select to authenticated
+  using (phone = (auth.jwt() ->> 'phone'));
+
+revoke all on table public.push_tokens from anon;
+-- Named rather than left to Supabase's default grant on new tables in public.
+-- A table this file bothers to revoke from should not depend on an implicit
+-- grant for the half it keeps.
+grant select, insert, update on public.push_tokens to authenticated;
 
 -- =============================================================================
 -- Crash reports

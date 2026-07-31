@@ -265,6 +265,44 @@ do $$ begin
   raise notice '  ok   the image bucket is public, as a public feed implies';
 end $$;
 
+-- Push tokens. The app upserts its token on every launch, so the second
+-- launch is the one that matters — and it is the one that was failing.
+reset role; set role authenticated; select pg_temp.as_user('15550001111');
+
+select pg_temp.expect_ok(
+  $$insert into public.push_tokens (phone, token, platform)
+    values ('15550001111','apns-aaa','ios')
+    on conflict (phone) do update set token = excluded.token$$,
+  'you can register a push token');
+select pg_temp.expect_ok(
+  $$insert into public.push_tokens (phone, token, platform)
+    values ('15550001111','apns-bbb','ios')
+    on conflict (phone) do update set token = excluded.token$$,
+  'and register it again on the next launch');
+select pg_temp.expect_fail(
+  $$insert into public.push_tokens (phone, token, platform)
+    values ('15550002222','apns-ccc','ios')$$,
+  'you cannot register a token for somebody else');
+
+-- Your own row, and only your own.
+do $$ begin
+  if (select count(*) from public.push_tokens) <> 1 then
+    raise exception 'CHECK FAILED: your own token row should be visible';
+  end if;
+  raise notice '  ok   your own row is visible, which is what the upsert needs';
+end $$;
+reset role;
+insert into public.push_tokens (phone, token) values ('15550007777','apns-ddd')
+  on conflict (phone) do nothing;
+set role authenticated; select pg_temp.as_user('15550001111');
+do $$ begin
+  if (select count(*) from public.push_tokens
+        where phone = '15550007777') <> 0 then
+    raise exception 'SECURITY CHECK FAILED: somebody else''s token row is visible';
+  end if;
+  raise notice '  ok   and nobody else''s is';
+end $$;
+
 -- Polls. Everything that makes a vote a vote is enforced in the database, so
 -- a modified client gains nothing by asking differently.
 reset role; set role authenticated; select pg_temp.as_user('15550001111');

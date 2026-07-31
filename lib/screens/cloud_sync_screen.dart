@@ -78,13 +78,17 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
     }
     setState(() => _busy = true);
     try {
-      final ok = await store.buyStorage(gb);
+      final result = await store.buyStorage(gb);
       if (!mounted) return;
-      if (ok) {
+      if (result.ok) {
         await storage.subscribe(gb);
         _snack('You now have $gb GB of chat storage.');
       } else {
-        _snack('Purchase cancelled.');
+        // Every one of these used to read "Purchase cancelled." — including
+        // the one that actually happens today, which is that the products do
+        // not exist in App Store Connect yet. Telling somebody they changed
+        // their mind when they did not is worse than saying nothing.
+        _snack(result.message);
       }
     } catch (_) {
       _snack('Couldn\'t complete the purchase. Try again.');

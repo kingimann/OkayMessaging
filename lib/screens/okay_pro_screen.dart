@@ -35,10 +35,16 @@ class _OkayProScreenState extends State<OkayProScreen> {
     }
     setState(() => _sending = true);
     try {
-      final ok = await StorePurchases.instance.tip(_tips[_selected].id);
+      final result = await StorePurchases.instance.tip(_tips[_selected].id);
       if (!mounted) return;
       setState(() => _sending = false);
-      if (ok) _thankYou();
+      if (result.ok) {
+        _thankYou();
+      } else {
+        // Says which of the several ways it ended, rather than calling all of
+        // them a cancellation.
+        messenger.showSnackBar(SnackBar(content: Text(result.message)));
+      }
     } catch (_) {
       if (!mounted) return;
       setState(() => _sending = false);

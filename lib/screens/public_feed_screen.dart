@@ -8,6 +8,7 @@ import '../models/user.dart';
 import '../state/chat_store.dart';
 import '../state/follow_store.dart';
 import '../state/platform_moderation.dart';
+import '../state/session.dart' as local;
 import '../state/bookmark_store.dart';
 import '../state/community_store.dart';
 import '../state/feed_mute_store.dart';
@@ -760,8 +761,10 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
               if (_isMe)
                 const SliverToBoxAdapter(
                   child: Padding(
-                    // The same 16 the name, bio and counts use.
-                    padding: EdgeInsets.fromLTRB(16, 2, 16, 10),
+                    // The same 16 the name, bio and counts use, with real air
+                    // above and below: these are their own section, not a
+                    // continuation of the counts.
+                    padding: EdgeInsets.fromLTRB(16, 2, 16, 14),
                     child: ProfileVerificationRow(),
                   ),
                 ),
@@ -1104,8 +1107,11 @@ class _Header extends StatelessWidget {
     final about = known?.about ?? '';
     final pronouns = known?.pronouns ?? '';
     final link = known?.link ?? '';
+    // Room to breathe. Everything below used to sit in 4-to-8-point gaps with
+    // a 4-point top inset, so the name, the handle, the status, the counts and
+    // the badges read as one dense block rather than as five different things.
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1119,23 +1125,27 @@ class _Header extends StatelessWidget {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
-                            fontSize: 20, fontWeight: FontWeight.w800)),
+                            fontSize: 23,
+                            fontWeight: FontWeight.w800,
+                            height: 1.15)),
                   ),
                   if (verified) ...[
-                    const SizedBox(width: 5),
-                    const VerifiedBadge(size: 16),
+                    const SizedBox(width: 6),
+                    const VerifiedBadge(size: 17),
                   ],
                 ],
               ),
+              const SizedBox(height: 3),
               Row(
                 children: [
                   Text('@$username',
-                      style: TextStyle(color: Colors.grey.shade500)),
+                      style: TextStyle(
+                          fontSize: 15, color: Colors.grey.shade500)),
                   if (pronouns.isNotEmpty) ...[
                     const SizedBox(width: 8),
                     Text(pronouns,
                         style: TextStyle(
-                            fontSize: 12.5, color: Colors.grey.shade500)),
+                            fontSize: 13, color: Colors.grey.shade500)),
                   ],
                 ],
               ),
@@ -1143,11 +1153,12 @@ class _Header extends StatelessWidget {
               // directory of bios to read, and a placeholder line here would
               // be an invented one.
               if (about.isNotEmpty) ...[
-                const SizedBox(height: 8),
-                Text(about, style: const TextStyle(fontSize: 14.5)),
+                const SizedBox(height: 14),
+                Text(about,
+                    style: const TextStyle(fontSize: 15, height: 1.4)),
               ],
               if (link.isNotEmpty) ...[
-                const SizedBox(height: 6),
+                const SizedBox(height: 10),
                 InkWell(
                   onTap: () => InAppWebScreen.open(context, link),
                   child: Row(
@@ -1165,7 +1176,7 @@ class _Header extends StatelessWidget {
                   ),
                 ),
               ],
-              const SizedBox(height: 12),
+              const SizedBox(height: 16),
               // ONE row of counts. There were two — "1 post 0 following"
               // above a second row repeating Following beside Servers and
               // Okay Score — which is the sort of thing that makes somebody
@@ -1174,8 +1185,8 @@ class _Header extends StatelessWidget {
                 listenable: Listenable.merge(
                     [FollowStore.instance, CommunityStore.instance]),
                 builder: (context, _) => Wrap(
-                  spacing: 18,
-                  runSpacing: 4,
+                  spacing: 20,
+                  runSpacing: 10,
                   children: [
                     // Real, from the server, and the only count that means
                     // anything on somebody else's profile.
@@ -1195,19 +1206,66 @@ class _Header extends StatelessWidget {
                               '${CommunityStore.instance.communities.length}',
                           label: 'Servers',
                           onTap: null),
-                      ProfileStat(
-                          value: '${AppState.profile.value.score}',
-                          label: 'Okay Score',
-                          onTap: () => Navigator.of(context).push(
-                              MaterialPageRoute(
-                                  builder: (_) => const ScoreScreen()))),
                     ],
                   ],
                 ),
               ),
+              // Okay Score used to be the fourth count. Four do not fit a
+              // 390pt phone, so the row broke three-and-one, which reads as a
+              // mistake rather than a layout. It is also the only one of the
+              // four that is a whole screen of its own, so a row with somewhere
+              // to go suits it better than a number in a huddle.
+              if (isMe) ...[
+                const SizedBox(height: 12),
+                _ScoreRow(
+                    onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => const ScoreScreen()))),
+              ],
             ],
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// The Okay Score, given a row of its own — a number, what it is, and a way
+/// in. It is the one profile stat with a screen behind it.
+class _ScoreRow extends StatelessWidget {
+  const _ScoreRow({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(14, 10, 10, 10),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: Theme.of(context).dividerColor),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.local_fire_department,
+                size: 20, color: scheme.primary),
+            const SizedBox(width: 10),
+            ValueListenableBuilder<AppUser>(
+              valueListenable: AppState.profile,
+              builder: (context, me, _) => Text('${me.score}',
+                  style: const TextStyle(
+                      fontSize: 16, fontWeight: FontWeight.w800)),
+            ),
+            const SizedBox(width: 6),
+            Text('Okay Score',
+                style: TextStyle(fontSize: 14.5, color: Colors.grey.shade600)),
+            const Spacer(),
+            Icon(Icons.chevron_right, color: Colors.grey.shade500),
+          ],
+        ),
       ),
     );
   }
@@ -1697,6 +1755,20 @@ class _PostTile extends StatelessWidget {
                       name: post.authorName);
                 },
               ),
+            // The public feed is the one surface with a real moderator behind
+            // it — a world-readable table, a reports queue, and people with
+            // the power to act on it. It was also the only surface with no way
+            // to report anything.
+            if (!post.mine)
+              ListTile(
+                leading: const Icon(Icons.flag_outlined),
+                title: const Text('Report post'),
+                subtitle: const Text('Sends it to the moderators'),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  _reportPost(context, post);
+                },
+              ),
             if (!post.mine && post.authorUsername.isNotEmpty)
               ListenableBuilder(
                 listenable: FeedMuteStore.instance,
@@ -1816,6 +1888,88 @@ class PublicThreadScreen extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Reports a public post to the moderation queue.
+///
+/// Sends the post's id and its author's handle, not its text. A moderator
+/// reads the post itself from the table — it is public, so there is nothing to
+/// copy across, and a report carrying a snippet would be a second copy of
+/// something that can be deleted from the first.
+Future<void> _reportPost(BuildContext context, PublicPost post) async {
+  const reasons = [
+    'Spam or scam',
+    'Harassment or bullying',
+    'Inappropriate content',
+    'Impersonation',
+    'Something else',
+  ];
+  var alsoMute = false;
+  final reason = await showModalBottomSheet<String>(
+    context: context,
+    showDragHandle: true,
+    isScrollControlled: true,
+    builder: (sheetContext) => StatefulBuilder(
+      builder: (sheetContext, setSheet) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(20, 4, 20, 4),
+              child: Text('Report this post',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
+              child: Text(
+                  'A moderator reads the post itself. Nothing about your own '
+                  'account is shown to whoever posted it.',
+                  style:
+                      TextStyle(fontSize: 13, color: Colors.grey.shade600)),
+            ),
+            for (final r in reasons)
+              ListTile(
+                title: Text(r),
+                onTap: () => Navigator.pop(sheetContext, r),
+              ),
+            if (post.authorUsername.isNotEmpty)
+              CheckboxListTile(
+                value: alsoMute,
+                onChanged: (v) => setSheet(() => alsoMute = v ?? false),
+                controlAffinity: ListTileControlAffinity.leading,
+                title: Text('Also mute @${post.authorUsername}'),
+                subtitle: const Text('Hides their posts for you, on this '
+                    'device. They are not told.'),
+              ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    ),
+  );
+  if (reason == null) return;
+
+  final sent = await PlatformModeration.instance.report(
+    reason: reason,
+    targetHandle: post.authorUsername,
+    context: 'public_post:${post.id}',
+    reporterPhone: local.Session.instance.user.value?.phone ?? '',
+  );
+  if (alsoMute &&
+      post.authorUsername.isNotEmpty &&
+      !FeedMuteStore.instance.isMuted(post.authorUsername)) {
+    await FeedMuteStore.instance.toggle(post.authorUsername);
+  }
+  if (!context.mounted) return;
+  // Says which of the two happened. Claiming a report landed when the insert
+  // was refused is the kind of thing somebody only finds out by nothing ever
+  // being done about it.
+  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+    content: Text(sent
+        ? 'Reported. A moderator will look at it.'
+        : 'Couldn\'t send that report — you may be offline. Try again.'),
+  ));
 }
 
 /// Opens the composer.

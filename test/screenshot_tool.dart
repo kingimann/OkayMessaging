@@ -26,6 +26,7 @@ import 'package:okay_messaging/state/chat_store.dart';
 import 'package:okay_messaging/state/legal_consent.dart';
 import 'package:okay_messaging/state/session.dart';
 import 'package:okay_messaging/state/public_feed_store.dart';
+import 'package:okay_messaging/screens/home_screen.dart';
 import 'package:okay_messaging/screens/public_feed_screen.dart';
 import 'package:okay_messaging/theme/app_theme.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -95,6 +96,18 @@ void main() {
     AppState.resetForTest();
     Session.instance.signInForTest();
     LegalConsent.instance.resetForTest();
+    // AFTER resetForTest, which puts MockData.me back — set before it, the
+    // profile shots were of a blank account and said nothing about how a
+    // filled-in one lays out.
+    AppState.profile.value = const AppUser(
+        id: 'me',
+        name: 'Iman Fakhar',
+        avatarColor: '#2E7D32',
+        username: 'iman',
+        about: 'Building OkayMessenger — privacy-first, local-first. '
+            'Everything stays on your device.',
+        link: 'okaymessaging.com',
+        pronouns: 'he/him');
     await t.pumpWidget(const OkayMessagingApp());
     await t.pumpAndSettle();
 
@@ -106,24 +119,20 @@ void main() {
 
     // Every bottom-bar destination.
     await shot('tab_chats');
-    for (final (i, name) in [
-      (1, 'tab_servers'),
-      (2, 'tab_calls'),
-      (3, 'tab_alerts'),
-      (4, 'tab_you'),
+    // By key, not by icon: the pills' glyphs also appear inside the tabs they
+    // open, so finding one by icon lands wherever the tree happens to put it.
+    for (final (label, name) in [
+      ('Servers', 'tab_servers'),
+      ('Calls', 'tab_calls'),
+      ('Alerts', 'tab_alerts'),
+      ('You', 'tab_you'),
     ]) {
-      await t.tap(find.byIcon([
-        Icons.chat_bubble_outline,
-        Icons.groups_outlined,
-        Icons.call_outlined,
-        Icons.notifications_none,
-        Icons.person_outline,
-      ][i]));
+      await t.tap(find.byKey(HomeScreen.debugNavPillKey(label)));
       await shot(name);
     }
 
     // Back to Chats, then the drawer.
-    await t.tap(find.byIcon(Icons.chat_bubble_outline));
+    await t.tap(find.byKey(HomeScreen.debugNavPillKey('Chats')));
     await t.pumpAndSettle();
     await t.tap(find.byTooltip('Open navigation menu'));
     await shot('drawer');
@@ -137,7 +146,7 @@ void main() {
     // The narrowest phone still sold, where the bar and the title are tightest.
     t.view.physicalSize = const Size(320, 568);
     await shot('narrow_chats');
-    await t.tap(find.byIcon(Icons.notifications_none));
+    await t.tap(find.byKey(HomeScreen.debugNavPillKey('Alerts')));
     await shot('narrow_alerts');
 
     // The newsfeed, with a poll open and a poll finished.

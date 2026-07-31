@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:in_app_purchase/in_app_purchase.dart';
 
+import 'purchase_outcome.dart';
+
 /// Native in-app purchases (Apple App Store / Google Play).
 ///
 /// Apple requires that digital goods consumed in the app — the cloud-storage
@@ -21,7 +23,7 @@ class AppleIap {
   static StreamSubscription<List<PurchaseDetails>>? _sub;
 
   // Only one purchase is ever in flight from the UI at a time.
-  static Completer<String?>? _pending;
+  static Completer<PurchaseResult>? _pending;
   static String? _pendingId;
 
   /// Called with Apple's signed transaction for every delivered purchase —
@@ -33,24 +35,36 @@ class AppleIap {
   static Future<void> init() async {
     _sub ??= _iap.purchaseStream.listen(
       _onPurchases,
-      onError: (_) => _resolvePending(null),
+      onError: (_) =>
+          _resolvePending(const PurchaseResult(PurchaseOutcome.failed)),
     );
   }
 
   static Future<bool> storeAvailable() => _iap.isAvailable();
 
   /// Presents the store sheet for [productId] and completes when the purchase
-  /// resolves. Returns Apple's signed transaction (JWS) on success, or null on
-  /// cancel, error, or an unknown product. The caller hands that token to
-  /// `iap-validate`; the app itself never decides what a purchase granted.
-  static Future<String?> buy(String productId, {bool consumable = false}) async {
+  /// resolves. The caller hands the returned token to `iap-validate`; the app
+  /// itself never decides what a purchase granted.
+  ///
+  /// Every way this can end is named. It used to return a bare nullable
+  /// string, and null meant any of "no store", "no such product", "wouldn't
+  /// start", "errored" and "they cancelled" — which is how a product that was
+  /// never created in App Store Connect came out as "Purchase cancelled."
+  static Future<PurchaseResult> buy(String productId,
+      {bool consumable = false}) async {
     await init();
-    if (!await _iap.isAvailable()) return null;
+    if (!await _iap.isAvailable()) {
+      return const PurchaseResult(PurchaseOutcome.unavailable);
+    }
     final resp = await _iap.queryProductDetails({productId});
-    if (resp.productDetails.isEmpty) return null;
+    // notFoundIDs is Apple saying it has never heard of it. An empty details
+    // list with no error is the same thing said more quietly.
+    if (resp.productDetails.isEmpty) {
+      return const PurchaseResult(PurchaseOutcome.notOffered);
+    }
     final param = PurchaseParam(productDetails: resp.productDetails.first);
 
-    _pending = Completer<String?>();
+    _pending = Completer<PurchaseResult>();
     _pendingId = productId;
     final started = consumable
         ? await _iap.buyConsumable(purchaseParam: param)
@@ -58,7 +72,7 @@ class AppleIap {
     if (!started) {
       _pending = null;
       _pendingId = null;
-      return null;
+      return const PurchaseResult(PurchaseOutcome.failed);
     }
     return _pending!.future;
   }
@@ -74,20 +88,30 @@ class AppleIap {
           if (p.pendingCompletePurchase) _iap.completePurchase(p);
           final jws = p.verificationData.serverVerificationData;
           if (jws.isNotEmpty) onTransaction?.call(jws);
-          if (p.productID == _pendingId) _resolvePending(jws);
+          if (p.productID == _pendingId) {
+            _resolvePending(jws.isEmpty
+                ? const PurchaseResult(PurchaseOutcome.failed)
+                : PurchaseResult.bought(jws));
+          }
+        // Kept apart, because they are different things to be told.
         case PurchaseStatus.error:
+          if (p.productID == _pendingId) {
+            _resolvePending(const PurchaseResult(PurchaseOutcome.failed));
+          }
         case PurchaseStatus.canceled:
-          if (p.productID == _pendingId) _resolvePending(null);
+          if (p.productID == _pendingId) {
+            _resolvePending(const PurchaseResult(PurchaseOutcome.cancelled));
+          }
         case PurchaseStatus.pending:
           break;
       }
     }
   }
 
-  static void _resolvePending(String? jws) {
+  static void _resolvePending(PurchaseResult result) {
     final c = _pending;
     _pending = null;
     _pendingId = null;
-    if (c != null && !c.isCompleted) c.complete(jws);
+    if (c != null && !c.isCompleted) c.complete(result);
   }
 }
