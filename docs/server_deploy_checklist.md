@@ -53,7 +53,7 @@ the sanction, but the database would stop hiding anyone.
 
 ---
 
-## 2. Edge Functions — nine to paste
+## 2. Edge Functions — ten to paste
 
 Dashboard → **Edge Functions** → Deploy a new function → **Via Editor**. Name
 each one **exactly** as listed. Paste-ready, self-contained copies (the
@@ -104,6 +104,25 @@ it is due.
 
 No new secrets needed; they only use `SUPABASE_URL` and
 `SUPABASE_SERVICE_ROLE_KEY`, which are already set.
+
+### Optional — screening public posts before they go up
+
+| Function | Does |
+|---|---|
+| `moderation-screen` | Runs a public post past a classifier and refuses the worst of it |
+
+**This one is genuinely optional and inert without its secret.** With no
+`OPENAI_API_KEY` set it answers `{ verdict: 'ok', configured: false }` and
+posting works exactly as it does today — so deploying it changes nothing until
+the key is there, and it can never be the reason somebody cannot post.
+
+It uses OpenAI's `omni-moderation-latest`, which is **free** — a purpose-built
+classifier rather than a general model billed per token. Set `OPENAI_API_KEY`
+in Edge Function secrets to turn it on.
+
+Only the public newsfeed goes anywhere near it. Private messages, server
+channels and listings are encrypted before they leave the device, so there is
+nothing to send and nothing that could be sent.
 
 ### Changed — the deployed copies are behind
 
