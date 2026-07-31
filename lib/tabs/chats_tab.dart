@@ -224,7 +224,7 @@ class _ChatsTabState extends State<ChatsTab> {
               key: ValueKey('chatrow_${chat.id}'),
               direction: DismissDirection.endToStart,
               background: Container(
-                color: AppColors.tealGreenDark,
+                color: AppColors.accentOn(context),
                 alignment: Alignment.centerRight,
                 padding: const EdgeInsets.only(right: 24),
                 child: const Icon(Icons.archive, color: Colors.white),
@@ -425,7 +425,7 @@ class _StepRow extends StatelessWidget {
                           fontSize: 14.5, fontWeight: FontWeight.w600)),
                   Text(subtitle,
                       style: TextStyle(
-                          fontSize: 12.5, color: Colors.grey.shade600)),
+                          fontSize: 12.5, color: AppColors.subtle(context))),
                 ],
               ),
             ),

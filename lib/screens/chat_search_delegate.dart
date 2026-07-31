@@ -247,7 +247,7 @@ class _SearchBodyState extends State<_SearchBody> {
           Expanded(
             child: Center(
               child: Text('No results for "${widget.query}"',
-                  style: TextStyle(color: Colors.grey.shade500)),
+                  style: TextStyle(color: AppColors.subtle(context))),
             ),
           )
         else
@@ -341,13 +341,13 @@ class _SearchBodyState extends State<_SearchBody> {
               padding: const EdgeInsets.fromLTRB(20, 20, 20, 4),
               child: Row(
                 children: [
-                  Icon(Icons.search, size: 18, color: Colors.grey.shade500),
+                  Icon(Icons.search, size: 18, color: AppColors.subtle(context)),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
                       'Search people, messages, servers, channels, calls and links',
                       style:
-                          TextStyle(color: Colors.grey.shade500, fontSize: 13),
+                          TextStyle(color: AppColors.subtle(context), fontSize: 13),
                     ),
                   ),
                 ],
@@ -369,7 +369,7 @@ class _SearchBodyState extends State<_SearchBody> {
               for (final q in searches)
                 ListTile(
                   dense: true,
-                  leading: Icon(Icons.history, color: Colors.grey.shade500),
+                  leading: Icon(Icons.history, color: AppColors.subtle(context)),
                   title: Text(q),
                   trailing: IconButton(
                     icon: const Icon(Icons.close, size: 18),
@@ -399,10 +399,10 @@ class _Header extends StatelessWidget {
   Widget build(BuildContext context) => Padding(
         padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
         child: Text(label,
-            style: const TextStyle(
+            style: TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.w700,
-                color: AppColors.tealGreenDark)),
+                color: AppColors.accentOn(context))),
       );
 }
 
@@ -525,7 +525,7 @@ class _MessageResultTile extends StatelessWidget {
             style: const TextStyle(fontWeight: FontWeight.w600)),
         subtitle: _Highlighted(text: hit.message.text, query: query),
         trailing: Text(DateFormatter.callLabel(hit.message.time),
-            style: TextStyle(color: Colors.grey.shade500, fontSize: 12)),
+            style: TextStyle(color: AppColors.subtle(context), fontSize: 12)),
         onTap: onTap,
       );
 }
@@ -555,8 +555,8 @@ class _Highlighted extends StatelessWidget {
       if (index > start) spans.add(TextSpan(text: text.substring(start, index)));
       spans.add(TextSpan(
         text: text.substring(index, index + query.length),
-        style: const TextStyle(
-            color: AppColors.tealGreenDark, fontWeight: FontWeight.w700),
+        style: TextStyle(
+            color: AppColors.accentOn(context), fontWeight: FontWeight.w700),
       ));
       start = index + query.length;
     }

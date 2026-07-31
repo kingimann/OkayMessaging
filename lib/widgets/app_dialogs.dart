@@ -55,7 +55,7 @@ Future<bool> showAppConfirmDialog(
                 style: TextStyle(
                   fontSize: 14,
                   height: 1.4,
-                  color: Colors.grey.shade600,
+                  color: AppColors.subtle(context),
                 ),
               ),
               const SizedBox(height: 20),
@@ -77,7 +77,7 @@ Future<bool> showAppConfirmDialog(
                   onPressed: () => Navigator.of(dialogContext).pop(false),
                   child: Text(
                     cancelLabel,
-                    style: TextStyle(color: Colors.grey.shade600),
+                    style: TextStyle(color: AppColors.subtle(context)),
                   ),
                 ),
             ],
@@ -152,7 +152,7 @@ Future<String?> showAppTextPrompt(
                       style: TextStyle(
                         fontSize: 13.5,
                         height: 1.35,
-                        color: Colors.grey.shade600,
+                        color: AppColors.subtle(context),
                       ),
                     ),
                   ],
@@ -182,7 +182,7 @@ Future<String?> showAppTextPrompt(
                       TextButton(
                         onPressed: () => Navigator.of(dialogContext).pop(),
                         child: Text('Cancel',
-                            style: TextStyle(color: Colors.grey.shade600)),
+                            style: TextStyle(color: AppColors.subtle(context))),
                       ),
                       const SizedBox(width: 8),
                       FilledButton(

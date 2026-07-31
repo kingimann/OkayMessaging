@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../theme/app_theme.dart';
 import 'package:flutter/services.dart';
 
 import '../payments/payment_service.dart';
@@ -157,7 +158,7 @@ class _PaymentControlsScreenState extends State<PaymentControlsScreen> {
                   'asking — and raising one waits a day, so whoever is holding '
                   'the phone right now cannot simply raise it and send.',
                   style:
-                      TextStyle(fontSize: 12.5, color: Colors.grey.shade600),
+                      TextStyle(fontSize: 12.5, color: AppColors.subtle(context)),
                 ),
               ),
             ],
@@ -189,7 +190,7 @@ class _PaymentControlsScreenState extends State<PaymentControlsScreen> {
                 fontSize: 12,
                 fontWeight: FontWeight.w700,
                 letterSpacing: 0.6,
-                color: Colors.grey.shade600)),
+                color: AppColors.subtle(context))),
       );
 
   Future<void> _blockSomeone() async {
@@ -351,7 +352,7 @@ class _PauseCard extends StatelessWidget {
         onChanged: onChanged,
         activeThumbColor: stop,
         secondary: Icon(paused ? Icons.pause_circle : Icons.pause_circle_outline,
-            color: paused ? stop : Colors.grey.shade600),
+            color: paused ? stop : AppColors.subtle(context)),
         title: Text('Pause all payments',
             style: TextStyle(
                 fontWeight: FontWeight.w700, color: paused ? stop : null)),

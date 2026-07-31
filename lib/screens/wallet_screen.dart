@@ -183,11 +183,11 @@ class _WalletScreenState extends State<WalletScreen> {
               Text('Couldn\'t load your wallet',
                   style: TextStyle(
                       fontWeight: FontWeight.w600,
-                      color: Colors.grey.shade700)),
+                      color: AppColors.subtle(context))),
               const SizedBox(height: 6),
               Text(msg,
                   textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.grey.shade500, fontSize: 12)),
+                  style: TextStyle(color: AppColors.subtle(context), fontSize: 12)),
               const SizedBox(height: 16),
               OutlinedButton(onPressed: _refresh, child: const Text('Retry')),
             ],
@@ -270,7 +270,7 @@ class _OnboardCard extends StatelessWidget {
             Text(
               'A quick, secure identity check (handled by Stripe) lets you '
               'receive money and have it auto-deposited to your Canadian bank.',
-              style: TextStyle(color: Colors.grey.shade600, fontSize: 13.5),
+              style: TextStyle(color: AppColors.subtle(context), fontSize: 13.5),
             ),
             const SizedBox(height: 14),
             SizedBox(
@@ -326,7 +326,7 @@ class _PayoutCard extends StatelessWidget {
                         : 'Latest payout: $payout'
                             '${status.payoutAmountCents != null ? ' · ${status.money(status.payoutAmountCents!)}' : ''}',
                     style:
-                        TextStyle(color: Colors.grey.shade600, fontSize: 13),
+                        TextStyle(color: AppColors.subtle(context), fontSize: 13),
                   ),
                 ],
               ),
@@ -347,13 +347,13 @@ class _InfoFooter extends StatelessWidget {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(Icons.lock_outline, size: 15, color: Colors.grey.shade500),
+        Icon(Icons.lock_outline, size: 15, color: AppColors.subtle(context)),
         const SizedBox(width: 8),
         Expanded(
           child: Text(
             'Payments are processed by Stripe. OkayMessenger never holds your '
             'funds or sees your card details, and your messages stay private.',
-            style: TextStyle(color: Colors.grey.shade500, fontSize: 12, height: 1.4),
+            style: TextStyle(color: AppColors.subtle(context), fontSize: 12, height: 1.4),
           ),
         ),
       ],
@@ -372,20 +372,20 @@ class _NotConfigured extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.payments_outlined,
-                size: 48, color: AppColors.tealGreenDark),
+            Icon(Icons.payments_outlined,
+                size: 48, color: AppColors.accentOn(context)),
             const SizedBox(height: 14),
             Text('Payments aren\'t set up yet',
                 style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w600,
-                    color: Colors.grey.shade700)),
+                    color: AppColors.subtle(context))),
             const SizedBox(height: 6),
             Text(
               'Add your Stripe publishable key and deploy the payment Edge '
               'Functions to enable in-chat payments. See PAYMENTS.md.',
               textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.grey.shade500, height: 1.4),
+              style: TextStyle(color: AppColors.subtle(context), height: 1.4),
             ),
             const SizedBox(height: 20),
             FilledButton.tonalIcon(
@@ -395,7 +395,7 @@ class _NotConfigured extends StatelessWidget {
             ),
             const SizedBox(height: 6),
             Text('Simulates payments — no real money moves.',
-                style: TextStyle(color: Colors.grey.shade500, fontSize: 12)),
+                style: TextStyle(color: AppColors.subtle(context), fontSize: 12)),
           ],
         ),
       ),

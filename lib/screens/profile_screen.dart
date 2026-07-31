@@ -5,6 +5,7 @@
 //
 // What is left here are the pieces that screen uses.
 import 'package:flutter/material.dart';
+import '../theme/app_theme.dart';
 
 import '../state/account_email.dart';
 import '../state/account_service.dart';
@@ -44,7 +45,7 @@ class ProfileStat extends StatelessWidget {
                     fontSize: 16, fontWeight: FontWeight.w800)),
             const SizedBox(width: 5),
             Text(label,
-                style: TextStyle(fontSize: 14.5, color: Colors.grey.shade600)),
+                style: TextStyle(fontSize: 14.5, color: AppColors.subtle(context))),
           ],
         ),
       ),

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../theme/app_theme.dart';
 
 import '../models/platform_role.dart';
 import '../state/platform_moderation.dart';
@@ -163,7 +164,7 @@ class _ReportSheetState extends State<_ReportSheet> {
                 'sent — never your messages, which stay encrypted on your '
                 'device.',
                 style:
-                    TextStyle(fontSize: 12.5, color: Colors.grey.shade600)),
+                    TextStyle(fontSize: 12.5, color: AppColors.subtle(context))),
             const SizedBox(height: 14),
             Wrap(
               spacing: 8,

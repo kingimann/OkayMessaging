@@ -54,7 +54,7 @@ class EmptyState extends StatelessWidget {
           style: TextStyle(
             fontSize: compact ? 13 : 13.5,
             height: 1.4,
-            color: Colors.grey.shade600,
+            color: AppColors.subtle(context),
           ),
         ),
         if (actionLabel != null) ...[

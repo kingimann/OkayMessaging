@@ -18043,6 +18043,115 @@ void main() {
     });
   });
 
+  group('Colour that survives both themes', () {
+    /// WCAG contrast between two opaque colours.
+    double ratio(Color a, Color b) {
+      final l1 = a.computeLuminance(), l2 = b.computeLuminance();
+      final hi = l1 > l2 ? l1 : l2, lo = l1 > l2 ? l2 : l1;
+      return (hi + 0.05) / (lo + 0.05);
+    }
+
+    test('no fixed grey can pass both themes, which is why subtle exists', () {
+      // The measurement the sweep came out of. Each of the two greys the app
+      // reached for fails in one theme, and not the same one — so there is no
+      // shade to pick, only a theme colour to ask for.
+      final light = AppTheme.light.colorScheme;
+      final dark = AppTheme.dark.colorScheme;
+
+      expect(ratio(Colors.grey.shade600, dark.surface), lessThan(4.5),
+          reason: 'shade600 is the one that fails on dark');
+      expect(ratio(Colors.grey.shade500, light.surface), lessThan(4.5),
+          reason: 'and shade500 is the one that fails on light');
+
+      // What replaced them, in both.
+      for (final (name, scheme) in [('light', light), ('dark', dark)]) {
+        expect(ratio(scheme.onSurfaceVariant, scheme.surface),
+            greaterThanOrEqualTo(4.5),
+            reason: 'secondary text is unreadable on $name');
+        // And the ordinary text colour, while we are here.
+        expect(ratio(scheme.onSurface, scheme.surface),
+            greaterThanOrEqualTo(7.0),
+            reason: 'body text should be comfortable on $name, not just legal');
+      }
+    });
+
+    test('the screens people actually look at ask the theme, not the palette',
+        () {
+      // Everywhere secondary text appears on a surface that changes with the
+      // theme. Not a blanket ban: a grey drawn on a fixed-colour background —
+      // a photo, a coloured banner — is a different question, and those files
+      // are not in this list.
+      for (final path in [
+        'lib/widgets/empty_state.dart',
+        'lib/widgets/app_dialogs.dart',
+        'lib/widgets/sanction_notice.dart',
+        'lib/screens/public_feed_screen.dart',
+        'lib/screens/profile_screen.dart',
+        'lib/screens/home_screen.dart',
+        'lib/screens/wallet_screen.dart',
+        'lib/screens/payment_controls_screen.dart',
+        'lib/screens/cloud_sync_screen.dart',
+        'lib/screens/chat_search_delegate.dart',
+        'lib/tabs/chats_tab.dart',
+        'lib/tabs/calls_tab.dart',
+        'lib/tabs/activity_tab.dart',
+      ]) {
+        final src = File(path).readAsStringSync();
+        for (final grey in [
+          'Colors.grey.shade500',
+          'Colors.grey.shade600',
+          'Colors.grey.shade700',
+        ]) {
+          expect(src.contains(grey), isFalse,
+              reason: '$path uses $grey, which fails one of the two themes');
+        }
+        // The trap app_theme.dart documents in so many words — "hard-coding it
+        // paints a near-black button onto a near-black screen" — and which the
+        // wallet's own empty state had fallen into: a 48-point icon in
+        // #0F1419, centred on a #121212 background.
+        expect(src.contains('AppColors.tealGreenDark'), isFalse,
+            reason: '$path paints with the LIGHT accent, whatever the theme');
+      }
+    });
+
+    testWidgets('the same screen is readable in both themes', (t) async {
+      // Measured on what is actually painted, not on the palette. A colour
+      // that passes in the abstract is still wrong if the widget draws it on
+      // something other than the surface it was checked against.
+      t.view.physicalSize = const Size(390, 844);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.resetPhysicalSize);
+
+      for (final (name, theme) in [
+        ('light', AppTheme.light),
+        ('dark', AppTheme.dark),
+      ]) {
+        await t.pumpWidget(MaterialApp(
+          theme: theme,
+          home: const Scaffold(
+            body: EmptyState(
+              icon: Icons.chat_bubble_outline,
+              title: 'No chats yet',
+              caption: 'Start a private, end-to-end encrypted conversation.',
+            ),
+          ),
+        ));
+        await t.pumpAndSettle();
+
+        final surface = theme.colorScheme.surface;
+        for (final finder in [
+          find.text('No chats yet'),
+          find.text('Start a private, end-to-end encrypted conversation.'),
+        ]) {
+          final colour = t.widget<Text>(finder).style?.color ??
+              theme.textTheme.bodyMedium!.color!;
+          expect(ratio(colour, surface), greaterThanOrEqualTo(4.5),
+              reason: 'an empty state is unreadable on $name');
+        }
+      }
+    });
+  });
+
   group('Getting around', () {
     Future<void> home(WidgetTester t,
         {double width = 390, double height = 844}) async {

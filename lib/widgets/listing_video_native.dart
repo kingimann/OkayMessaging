@@ -1,4 +1,5 @@
 import 'dart:io';
+import '../theme/app_theme.dart';
 
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
@@ -105,7 +106,7 @@ class _ListingVideoState extends State<_ListingVideo> {
         child: Center(
           child: Text(error,
               textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.grey.shade600, fontSize: 13.5)),
+              style: TextStyle(color: AppColors.subtle(context), fontSize: 13.5)),
         ),
       );
     }

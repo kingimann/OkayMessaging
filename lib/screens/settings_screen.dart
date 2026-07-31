@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../theme/app_theme.dart';
 import 'package:flutter/services.dart';
 
 import '../app_state.dart';
@@ -277,7 +278,7 @@ class SettingsView extends StatelessWidget {
         Center(
           child: Text(
             'OkayMessenger · v1.0.0',
-            style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
+            style: TextStyle(color: AppColors.subtle(context), fontSize: 12),
           ),
         ),
         const SizedBox(height: 24),
@@ -321,7 +322,7 @@ class SettingsView extends StatelessWidget {
     Widget row(IconData icon, String label, String value) => ListTile(
           leading: Icon(icon, size: 22),
           title: Text(label,
-              style: TextStyle(fontSize: 12.5, color: Colors.grey.shade500)),
+              style: TextStyle(fontSize: 12.5, color: AppColors.subtle(context))),
           subtitle: Text(value,
               style:
                   const TextStyle(fontSize: 15.5, fontWeight: FontWeight.w600)),
@@ -355,7 +356,7 @@ class SettingsView extends StatelessWidget {
             if (me.pronouns.trim().isNotEmpty)
               Text(me.pronouns.trim(),
                   style:
-                      TextStyle(fontSize: 13, color: Colors.grey.shade500)),
+                      TextStyle(fontSize: 13, color: AppColors.subtle(context))),
             const SizedBox(height: 8),
             row(Icons.phone_outlined, 'Phone number',
                 me.phone.isEmpty ? 'Not set' : me.phone),

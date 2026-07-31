@@ -204,5 +204,29 @@ void main() {
       await t.tap(find.byTooltip('Cancel'));
       await t.pumpAndSettle();
     }
+
+    // The same five destinations in the dark theme. Half of what looks wrong
+    // on a phone is width; the other half is a colour that was only ever
+    // checked in one of the two themes the app ships.
+    AppState.themeMode.value = ThemeMode.dark;
+    await t.pumpWidget(const OkayMessagingApp());
+    await t.pumpAndSettle();
+    await shot('dark_chats');
+    for (final (label, name) in [
+      ('Servers', 'dark_servers'),
+      ('Calls', 'dark_calls'),
+      ('Alerts', 'dark_alerts'),
+      ('You', 'dark_you'),
+    ]) {
+      await t.tap(find.byKey(HomeScreen.debugNavPillKey(label)));
+      await shot(name);
+    }
+    await t.tap(find.byKey(HomeScreen.debugNavPillKey('Chats')));
+    await t.pumpAndSettle();
+    await t.tap(find.byTooltip('Open navigation menu'));
+    await shot('dark_drawer');
+    await t.tap(find.text('Wallet'));
+    await shot('dark_wallet');
+    AppState.themeMode.value = ThemeMode.light;
   });
 }

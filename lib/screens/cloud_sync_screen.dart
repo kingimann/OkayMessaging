@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../theme/app_theme.dart';
 
 import '../payments/store_purchases.dart';
 import '../state/cloud_sync.dart';
@@ -278,7 +279,7 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
                   fontSize: 12,
                   fontWeight: FontWeight.w700,
                   letterSpacing: 0.6,
-                  color: Colors.grey.shade500)),
+                  color: AppColors.subtle(context))),
         ),
         Padding(
           padding: const EdgeInsets.only(left: 4, bottom: 4),
@@ -381,7 +382,7 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
                   fontSize: 12,
                   fontWeight: FontWeight.w700,
                   letterSpacing: 0.6,
-                  color: Colors.grey.shade500)),
+                  color: AppColors.subtle(context))),
         ),
         Text(
           'Your chats are encrypted with a key only you hold before they ever '

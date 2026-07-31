@@ -42,6 +42,19 @@ class AppColors {
   /// The colour for text and icons sitting on [accentOn].
   static Color onAccent(BuildContext context) =>
       Theme.of(context).colorScheme.onPrimary;
+
+  /// Secondary text — captions, timestamps, the grey half of a two-tone line.
+  ///
+  /// USE THIS RATHER THAN A GREY FROM THE PALETTE. `Colors.grey.shade600`
+  /// contrasts 4.61:1 against the light surface and **3.86:1** against the
+  /// dark one; `shade500` is 6.63:1 on dark and **2.68:1** on light. Each
+  /// fails in one theme and neither fails in the same one, so no fixed grey
+  /// can pass both — the app had 300 of them, half of them unreadable
+  /// depending on which theme you were in.
+  ///
+  /// This is 9.36:1 and 10.44:1, because the theme picks it per brightness.
+  static Color subtle(BuildContext context) =>
+      Theme.of(context).colorScheme.onSurfaceVariant;
 }
 
 class AppTheme {

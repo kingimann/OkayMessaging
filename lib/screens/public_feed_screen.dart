@@ -1,4 +1,5 @@
 import 'package:flutter/gestures.dart';
+import '../theme/app_theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -371,7 +372,7 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
               const SizedBox(height: 14),
               Text(text,
                   textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.grey.shade600)),
+                  style: TextStyle(color: AppColors.subtle(context))),
             ],
           ),
         ),
@@ -408,7 +409,7 @@ class MutedAccountsScreen extends StatelessWidget {
                         'somebody from your timeline — they are not told, and '
                         'it only applies on this device.',
                         textAlign: TextAlign.center,
-                        style: TextStyle(color: Colors.grey.shade600),
+                        style: TextStyle(color: AppColors.subtle(context)),
                       ),
                     ],
                   ),
@@ -426,7 +427,7 @@ class MutedAccountsScreen extends StatelessWidget {
                       'Muting is kept on this device, so it does not follow you '
                       'to a new one — and nobody, including them, can see it.',
                       style: TextStyle(
-                          fontSize: 12.5, color: Colors.grey.shade600),
+                          fontSize: 12.5, color: AppColors.subtle(context)),
                     ),
                   );
                 }
@@ -534,7 +535,7 @@ class _BookmarksScreenState extends State<BookmarksScreen> {
                               'Nothing saved yet. Use the ··· on a post to '
                               'bookmark it — bookmarks stay on this device.',
                               textAlign: TextAlign.center,
-                              style: TextStyle(color: Colors.grey.shade600),
+                              style: TextStyle(color: AppColors.subtle(context)),
                             ),
                           ],
                         ),
@@ -865,7 +866,7 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
         subtitle: Text(
             '${DateFormatter.postAge(mine[i].time)} · ${mine[i].likes} likes '
             '· ${mine[i].replies} replies',
-            style: TextStyle(fontSize: 12.5, color: Colors.grey.shade500)),
+            style: TextStyle(fontSize: 12.5, color: AppColors.subtle(context))),
         onTap: () => Navigator.of(context).push(MaterialPageRoute(
             builder: (_) => FeedPostScreen(postId: mine[i].id))),
       ),
@@ -914,7 +915,7 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
           const SizedBox(height: 6),
           Text(subtitle,
               textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 13.5, color: Colors.grey.shade500)),
+              style: TextStyle(fontSize: 13.5, color: AppColors.subtle(context))),
         ],
       ),
     );
@@ -926,7 +927,7 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
           children: [
             Text(text,
                 textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.grey.shade600)),
+                style: TextStyle(color: AppColors.subtle(context))),
             if (retry) ...[
               const SizedBox(height: 14),
               OutlinedButton(onPressed: _load, child: const Text('Try again')),
@@ -1140,12 +1141,12 @@ class _Header extends StatelessWidget {
                 children: [
                   Text('@$username',
                       style: TextStyle(
-                          fontSize: 15, color: Colors.grey.shade500)),
+                          fontSize: 15, color: AppColors.subtle(context))),
                   if (pronouns.isNotEmpty) ...[
                     const SizedBox(width: 8),
                     Text(pronouns,
                         style: TextStyle(
-                            fontSize: 13, color: Colors.grey.shade500)),
+                            fontSize: 13, color: AppColors.subtle(context))),
                   ],
                 ],
               ),
@@ -1261,9 +1262,9 @@ class _ScoreRow extends StatelessWidget {
             ),
             const SizedBox(width: 6),
             Text('Okay Score',
-                style: TextStyle(fontSize: 14.5, color: Colors.grey.shade600)),
+                style: TextStyle(fontSize: 14.5, color: AppColors.subtle(context))),
             const Spacer(),
-            Icon(Icons.chevron_right, color: Colors.grey.shade500),
+            Icon(Icons.chevron_right, color: AppColors.subtle(context)),
           ],
         ),
       ),
@@ -1400,7 +1401,7 @@ class _TabStrip extends StatelessWidget {
                                       : FontWeight.w500,
                                   color: i == active
                                       ? scheme.onSurface
-                                      : Colors.grey.shade500,
+                                      : AppColors.subtle(context),
                                 ),
                               ),
                             ),
@@ -1509,13 +1510,13 @@ class _PostTile extends StatelessWidget {
                                     overflow: TextOverflow.ellipsis,
                                     style: TextStyle(
                                         fontSize: 12.5,
-                                        color: Colors.grey.shade500)),
+                                        color: AppColors.subtle(context))),
                               ),
                             ],
                             const SizedBox(width: 6),
                             Text('· ${DateFormatter.postAge(post.createdAt)}',
                                 style: TextStyle(
-                                    fontSize: 12, color: Colors.grey.shade500)),
+                                    fontSize: 12, color: AppColors.subtle(context))),
                           ],
                         ),
                       ),
@@ -1525,7 +1526,7 @@ class _PostTile extends StatelessWidget {
                         child: Padding(
                           padding: const EdgeInsets.only(left: 8, bottom: 2),
                           child: Icon(Icons.more_horiz,
-                              size: 17, color: Colors.grey.shade500),
+                              size: 17, color: AppColors.subtle(context)),
                         ),
                       ),
                     ],
@@ -1658,10 +1659,10 @@ class _PostTile extends StatelessWidget {
       Color? color}) {
     return TextButton.icon(
       onPressed: onTap,
-      icon: Icon(icon, size: 17, color: color ?? Colors.grey.shade500),
+      icon: Icon(icon, size: 17, color: color ?? AppColors.subtle(context)),
       label: Text(label,
           style:
-              TextStyle(fontSize: 12.5, color: color ?? Colors.grey.shade500)),
+              TextStyle(fontSize: 12.5, color: color ?? AppColors.subtle(context))),
       style: TextButton.styleFrom(
         padding: const EdgeInsets.symmetric(horizontal: 8),
         minimumSize: const Size(0, 32),
@@ -1873,7 +1874,7 @@ class PublicThreadScreen extends StatelessWidget {
                   padding: const EdgeInsets.all(32),
                   child: Center(
                     child: Text('No replies yet.',
-                        style: TextStyle(color: Colors.grey.shade500)),
+                        style: TextStyle(color: AppColors.subtle(context))),
                   ),
                 )
               else
@@ -1926,7 +1927,7 @@ Future<void> _reportPost(BuildContext context, PublicPost post) async {
                   'A moderator reads the post itself. Nothing about your own '
                   'account is shown to whoever posted it.',
                   style:
-                      TextStyle(fontSize: 13, color: Colors.grey.shade600)),
+                      TextStyle(fontSize: 13, color: AppColors.subtle(context))),
             ),
             for (final r in reasons)
               ListTile(
@@ -2517,7 +2518,7 @@ class _FilterBar extends StatelessWidget {
                         fontSize: 11,
                         fontWeight: FontWeight.w800,
                         letterSpacing: 0.6,
-                        color: Colors.grey.shade500)),
+                        color: AppColors.subtle(context))),
                 const SizedBox(width: 12),
                 for (final (tag, count) in tags) ...[
                   GestureDetector(
@@ -2531,7 +2532,7 @@ class _FilterBar extends StatelessWidget {
                   const SizedBox(width: 4),
                   Text('$count',
                       style: TextStyle(
-                          fontSize: 11.5, color: Colors.grey.shade500)),
+                          fontSize: 11.5, color: AppColors.subtle(context))),
                   const SizedBox(width: 14),
                 ],
               ],
@@ -2543,7 +2544,7 @@ class _FilterBar extends StatelessWidget {
             child: Text(
                 'Nothing from people you follow yet. Tap a name to follow '
                 'someone.',
-                style: TextStyle(fontSize: 12.5, color: Colors.grey.shade600)),
+                style: TextStyle(fontSize: 12.5, color: AppColors.subtle(context))),
           ),
       ],
     );
@@ -2568,7 +2569,7 @@ class _Footer extends StatelessWidget {
         padding: const EdgeInsets.all(24),
         child: Center(
           child: Text('That\'s everything.',
-              style: TextStyle(fontSize: 12.5, color: Colors.grey.shade500)),
+              style: TextStyle(fontSize: 12.5, color: AppColors.subtle(context))),
         ),
       );
     }
@@ -2628,7 +2629,7 @@ class _Poll extends StatelessWidget {
           ),
         Text(
           '${_votes(total)} · ${_timeLeft(post)}',
-          style: TextStyle(fontSize: 12.5, color: Colors.grey.shade600),
+          style: TextStyle(fontSize: 12.5, color: AppColors.subtle(context)),
         ),
       ],
     );
@@ -2790,7 +2791,7 @@ class _Quoted extends StatelessWidget {
       ),
       child: original == null
           ? Text('This post isn\'t loaded.',
-              style: TextStyle(fontSize: 12.5, color: Colors.grey.shade500))
+              style: TextStyle(fontSize: 12.5, color: AppColors.subtle(context)))
           : Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -2824,7 +2825,7 @@ class _Quoted extends StatelessWidget {
                     padding: const EdgeInsets.only(top: 6),
                     child: Text('📷 Photo',
                         style: TextStyle(
-                            fontSize: 12, color: Colors.grey.shade500)),
+                            fontSize: 12, color: AppColors.subtle(context))),
                   ),
               ],
             ),

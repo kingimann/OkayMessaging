@@ -156,7 +156,7 @@ class _EmojiPaneState extends State<EmojiPane> {
                               fontSize: 11.5,
                               fontWeight: FontWeight.w700,
                               letterSpacing: 0.6,
-                              color: Colors.grey.shade500,
+                              color: AppColors.subtle(context),
                             ),
                           ),
                         ),
@@ -317,7 +317,7 @@ class _GifUnconfigured extends StatelessWidget {
               'This build has no Tenor API key. Add one at build time with '
               '--dart-define=TENOR_API_KEY=… and the GIF tab starts working.',
               textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 13.5, color: Colors.grey.shade600),
+              style: TextStyle(fontSize: 13.5, color: AppColors.subtle(context)),
             ),
           ],
         ),
@@ -333,7 +333,7 @@ class _NoResults extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Center(
-      child: Text(message, style: TextStyle(color: Colors.grey.shade600)),
+      child: Text(message, style: TextStyle(color: AppColors.subtle(context))),
     );
   }
 }

@@ -289,9 +289,9 @@ class _CallLinkSheet extends StatelessWidget {
             Center(
               child: CircleAvatar(
                 radius: 28,
-                backgroundColor: AppColors.tealGreenDark.withValues(alpha: 0.15),
-                child: const Icon(Icons.link,
-                    color: AppColors.tealGreenDark, size: 30),
+                backgroundColor: AppColors.accentOn(context).withValues(alpha: 0.15),
+                child: Icon(Icons.link,
+                    color: AppColors.accentOn(context), size: 30),
               ),
             ),
             const SizedBox(height: 14),
@@ -303,7 +303,7 @@ class _CallLinkSheet extends StatelessWidget {
               'Share this link with anyone you want on the call. They can join '
               'straight from it — no number needed.',
               textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.grey.shade600, fontSize: 13.5),
+              style: TextStyle(color: AppColors.subtle(context), fontSize: 13.5),
             ),
             const SizedBox(height: 18),
             Container(
@@ -416,7 +416,7 @@ void showCallContactPicker(BuildContext context) {
                     'No contacts yet. Find people by username or dial a number '
                     'to make your first call.',
                     textAlign: TextAlign.center,
-                    style: TextStyle(color: Colors.grey.shade600),
+                    style: TextStyle(color: AppColors.subtle(context)),
                   ),
                   const SizedBox(height: 14),
                   FilledButton.icon(
@@ -445,8 +445,8 @@ void showCallContactPicker(BuildContext context) {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       IconButton(
-                        icon: const Icon(Icons.call,
-                            color: AppColors.tealGreenDark),
+                        icon: Icon(Icons.call,
+                            color: AppColors.accentOn(context)),
                         tooltip: 'Voice call',
                         onPressed: () {
                           Navigator.pop(sheetContext);
@@ -454,8 +454,8 @@ void showCallContactPicker(BuildContext context) {
                         },
                       ),
                       IconButton(
-                        icon: const Icon(Icons.videocam,
-                            color: AppColors.tealGreenDark),
+                        icon: Icon(Icons.videocam,
+                            color: AppColors.accentOn(context)),
                         tooltip: 'Video call',
                         onPressed: () {
                           Navigator.pop(sheetContext);
@@ -523,7 +523,7 @@ class _FavouritesRow extends StatelessWidget {
                         'Chat with or call someone first, then add them here '
                         'for one-tap calling.',
                         textAlign: TextAlign.center,
-                        style: TextStyle(color: Colors.grey.shade600),
+                        style: TextStyle(color: AppColors.subtle(context)),
                       ),
                       const SizedBox(height: 14),
                       FilledButton.icon(
@@ -635,7 +635,7 @@ class _FavouritesRow extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.only(left: 20, top: 2),
             child: Text('Tap for call, video or message',
-                style: TextStyle(fontSize: 11.5, color: Colors.grey.shade500)),
+                style: TextStyle(fontSize: 11.5, color: AppColors.subtle(context))),
           ),
       ],
     );
@@ -666,11 +666,11 @@ class _AddFavouriteTile extends StatelessWidget {
                     : const Color(0xFFF0F2F3),
                 border: Border.all(color: Colors.grey.shade400, width: 1),
               ),
-              child: Icon(Icons.add, color: Colors.grey.shade600, size: 28),
+              child: Icon(Icons.add, color: AppColors.subtle(context), size: 28),
             ),
             const SizedBox(height: 6),
             Text('Add',
-                style: TextStyle(fontSize: 12.5, color: Colors.grey.shade600)),
+                style: TextStyle(fontSize: 12.5, color: AppColors.subtle(context))),
           ],
         ),
       ),
@@ -701,7 +701,7 @@ class _VoicemailTile extends StatelessWidget {
             child: Container(
               padding: const EdgeInsets.all(3),
               decoration: BoxDecoration(
-                color: AppColors.tealGreenDark,
+                color: AppColors.accentOn(context),
                 shape: BoxShape.circle,
                 border: Border.all(color: Theme.of(context).canvasColor, width: 2),
               ),
@@ -714,17 +714,17 @@ class _VoicemailTile extends StatelessWidget {
           style: const TextStyle(fontWeight: FontWeight.w600)),
       subtitle: Row(
         children: [
-          Icon(Icons.voicemail, size: 15, color: Colors.grey.shade500),
+          Icon(Icons.voicemail, size: 15, color: AppColors.subtle(context)),
           const SizedBox(width: 4),
           Text('Voicemail · $_duration'),
           const SizedBox(width: 6),
           Text('· ${DateFormatter.callLabel(voicemail.message.time)}',
-              style: TextStyle(color: Colors.grey.shade500, fontSize: 12.5)),
+              style: TextStyle(color: AppColors.subtle(context), fontSize: 12.5)),
         ],
       ),
       trailing: IconButton(
-        icon: const Icon(Icons.play_circle_fill,
-            color: AppColors.tealGreenDark, size: 34),
+        icon: Icon(Icons.play_circle_fill,
+            color: AppColors.accentOn(context), size: 34),
         tooltip: 'Open voicemail',
         onPressed: () => _openChat(context),
       ),
@@ -774,17 +774,17 @@ class _CallTile extends StatelessWidget {
           Text(DateFormatter.callLabel(record.time)),
           if (record.durationLabel != null) ...[
             const SizedBox(width: 6),
-            Icon(Icons.timer_outlined, size: 13, color: Colors.grey.shade500),
+            Icon(Icons.timer_outlined, size: 13, color: AppColors.subtle(context)),
             const SizedBox(width: 2),
             Text(record.durationLabel!,
-                style: TextStyle(color: Colors.grey.shade500)),
+                style: TextStyle(color: AppColors.subtle(context))),
           ],
         ],
       ),
       trailing: IconButton(
         icon: Icon(
           record.type == CallType.video ? Icons.videocam : Icons.call,
-          color: AppColors.tealGreenDark,
+          color: AppColors.accentOn(context),
         ),
         onPressed: () =>
             _startCall(context, record.user, video: record.type == CallType.video),

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../theme/app_theme.dart';
 
 import '../models/chat.dart';
 import '../models/feed_notification.dart';
@@ -255,7 +256,7 @@ class _ActivityTabState extends State<ActivityTab> {
                                     Text(DateFormatter.callLabel(n.time),
                                         style: TextStyle(
                                             fontSize: 12,
-                                            color: Colors.grey.shade500)),
+                                            color: AppColors.subtle(context))),
                                   ],
                                 ),
                                 onTap: () => Navigator.of(context).push(
@@ -291,7 +292,7 @@ class _ActivityTabState extends State<ActivityTab> {
                                 trailing: Text(DateFormatter.callLabel(p.time),
                                     style: TextStyle(
                                         fontSize: 12,
-                                        color: Colors.grey.shade500)),
+                                        color: AppColors.subtle(context))),
                                 onTap: () => Navigator.of(context).push(
                                   MaterialPageRoute(
                                       builder: (_) =>

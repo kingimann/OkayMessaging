@@ -484,12 +484,12 @@ class _AppSideBar extends StatelessWidget {
                               Text(me.handle,
                                   style: TextStyle(
                                       fontSize: 13.5,
-                                      color: Colors.grey.shade600)),
+                                      color: AppColors.subtle(context))),
                             if (me.pronouns.trim().isNotEmpty)
                               Text(me.pronouns.trim(),
                                   style: TextStyle(
                                       fontSize: 12.5,
-                                      color: Colors.grey.shade500)),
+                                      color: AppColors.subtle(context))),
                             ListenableBuilder(
                               listenable: FollowStore.instance,
                               builder: (context, _) => Text(
@@ -497,7 +497,7 @@ class _AppSideBar extends StatelessWidget {
                                   'following',
                                   style: TextStyle(
                                       fontSize: 12.5,
-                                      color: Colors.grey.shade500)),
+                                      color: AppColors.subtle(context))),
                             ),
                           ],
                         ),
@@ -607,7 +607,7 @@ class _NavPill extends StatelessWidget {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final ink = isDark ? Colors.white : const Color(0xFF0F1419);
-    final idle = isDark ? Colors.grey.shade500 : Colors.grey.shade600;
+    final idle = isDark ? AppColors.subtle(context) : AppColors.subtle(context);
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: onTap,
