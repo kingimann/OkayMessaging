@@ -27,6 +27,7 @@ import 'package:okay_messaging/state/legal_consent.dart';
 import 'package:okay_messaging/state/session.dart';
 import 'package:okay_messaging/state/public_feed_store.dart';
 import 'package:okay_messaging/screens/public_feed_screen.dart';
+import 'package:okay_messaging/theme/app_theme.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Real type instead of the test font's filled boxes.
@@ -175,5 +176,24 @@ void main() {
     await t.enterText(find.widgetWithText(TextField, 'Answer 1'), 'Tabs');
     await t.enterText(find.widgetWithText(TextField, 'Answer 2'), 'Spaces');
     await shot('compose_poll');
+    await t.tap(find.byTooltip('Cancel'));
+    await t.pumpAndSettle();
+
+    // The empty composer, in the app's OWN light and dark themes. Dark is
+    // where the field showed up as a pill around the placeholder: the theme
+    // fills every field and outlines a focused one, and `border` overrides
+    // neither. A phone screenshot was the first thing to say so.
+    for (final (name, theme) in [
+      ('compose_empty', AppTheme.light),
+      ('compose_empty_dark', AppTheme.dark),
+    ]) {
+      await t.pumpWidget(
+          MaterialApp(theme: theme, home: const PublicFeedScreen()));
+      await t.pumpAndSettle();
+      await t.tap(find.byTooltip('New post'));
+      await shot(name);
+      await t.tap(find.byTooltip('Cancel'));
+      await t.pumpAndSettle();
+    }
   });
 }

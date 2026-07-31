@@ -1829,9 +1829,7 @@ Future<void> _openComposer(BuildContext context,
     Navigator.of(context).push<void>(MaterialPageRoute(
       fullscreenDialog: true,
       builder: (_) => _Composer(
-          replyTo: replyTo,
-          replyingToName: replyingToName,
-          quoteOf: quoteOf),
+          replyTo: replyTo, replyingToName: replyingToName, quoteOf: quoteOf),
     ));
 
 /// The composer. Says out loud that a post here is public, because this is the
@@ -1855,6 +1853,8 @@ class _ComposerState extends State<_Composer> {
   final _text = TextEditingController();
   bool _sending = false;
   Uint8List? _image;
+
+  final _focus = FocusNode();
 
   /// Non-null once a poll is being written. Two answer fields to start with,
   /// because two is the fewest a poll can have.
@@ -1896,7 +1896,6 @@ class _ComposerState extends State<_Composer> {
     setState(() => _pollFields!.removeAt(i).dispose());
   }
 
-
   /// Picks a photo for the post.
   ///
   /// Goes through PhotoPrep so it inherits the moderation check and the EXIF
@@ -1921,6 +1920,7 @@ class _ComposerState extends State<_Composer> {
   @override
   void dispose() {
     _text.dispose();
+    _focus.dispose();
     for (final c in _pollFields ?? const <TextEditingController>[]) {
       c.dispose();
     }
@@ -2000,111 +2000,130 @@ class _ComposerState extends State<_Composer> {
         child: Column(
           children: [
             Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Your own face beside what you are writing, so a post
-                    // reads as coming from somebody before it is sent.
-                    UserAvatar(user: me, radius: 20),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          TextField(
-                            controller: _text,
-                            autofocus: true,
-                            maxLines: null,
-                            // Sized to what is written, so a photo or a poll
-                            // sits directly under the words rather than after
-                            // a reserved block of empty lines.
-                            minLines: 1,
-                            style: const TextStyle(fontSize: 18, height: 1.35),
-                            textCapitalization:
-                                TextCapitalization.sentences,
-                            // No box. The page is the field — a bordered
-                            // rectangle inside a screen that is already
-                            // nothing else reads as a form.
-                            decoration: const InputDecoration(
-                              hintText: 'What\'s happening?',
-                              border: InputBorder.none,
-                              isDense: true,
-                              contentPadding: EdgeInsets.zero,
+              // Most of this screen is blank, and on a page whose whole point
+              // is writing, blank space that does nothing when tapped reads as
+              // a dead screen. Tapping anywhere brings the cursor back.
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: _focus.requestFocus,
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Your own face beside what you are writing, so a post
+                      // reads as coming from somebody before it is sent.
+                      UserAvatar(user: me, radius: 20),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            TextField(
+                              controller: _text,
+                              focusNode: _focus,
+                              autofocus: true,
+                              maxLines: null,
+                              // Sized to what is written, so a photo or a poll
+                              // sits directly under the words rather than after
+                              // a reserved block of empty lines.
+                              minLines: 1,
+                              style:
+                                  const TextStyle(fontSize: 18, height: 1.35),
+                              textCapitalization: TextCapitalization.sentences,
+                              // No box. The page is the field — a bordered
+                              // rectangle inside a screen that is nothing else
+                              // reads as a form.
+                              //
+                              // All four of these are needed. The theme fills
+                              // every field and gives it a focused outline, and
+                              // `border` alone overrides NEITHER: `filled` is a
+                              // separate flag, and enabledBorder/focusedBorder
+                              // take precedence over `border` whenever they are
+                              // set. This shipped as a pill around
+                              // "What's happening?" for exactly that reason.
+                              decoration: const InputDecoration(
+                                hintText: 'What\'s happening?',
+                                filled: false,
+                                border: InputBorder.none,
+                                enabledBorder: InputBorder.none,
+                                focusedBorder: InputBorder.none,
+                                isDense: true,
+                                contentPadding: EdgeInsets.zero,
+                              ),
+                              onChanged: (_) => setState(() {}),
                             ),
-                            onChanged: (_) => setState(() {}),
-                          ),
-                          if (widget.quoteOf != null) ...[
-                            const SizedBox(height: 10),
-                            _Quoted(postId: widget.quoteOf!),
-                          ],
-                          if (_isPoll) ...[
-                            const SizedBox(height: 12),
-                            _PollEditor(
-                              fields: _pollFields!,
-                              runsFor: _pollRunsFor,
-                              onAdd: _addPollField,
-                              onRemove: _removePollField,
-                              onDuration: (d) =>
-                                  setState(() => _pollRunsFor = d),
-                              onChanged: () => setState(() {}),
-                            ),
-                          ],
-                          if (_image != null) ...[
-                            const SizedBox(height: 10),
-                            Stack(
-                              alignment: Alignment.topRight,
-                              children: [
-                                ClipRRect(
-                                  borderRadius: BorderRadius.circular(16),
-                                  child: Image.memory(_image!,
-                                      height: 200,
-                                      width: double.infinity,
-                                      fit: BoxFit.cover),
-                                ),
-                                IconButton(
-                                  icon: const CircleAvatar(
-                                    radius: 14,
-                                    backgroundColor: Colors.black54,
-                                    child: Icon(Icons.close,
-                                        size: 16, color: Colors.white),
+                            if (widget.quoteOf != null) ...[
+                              const SizedBox(height: 10),
+                              _Quoted(postId: widget.quoteOf!),
+                            ],
+                            if (_isPoll) ...[
+                              const SizedBox(height: 12),
+                              _PollEditor(
+                                fields: _pollFields!,
+                                runsFor: _pollRunsFor,
+                                onAdd: _addPollField,
+                                onRemove: _removePollField,
+                                onDuration: (d) =>
+                                    setState(() => _pollRunsFor = d),
+                                onChanged: () => setState(() {}),
+                              ),
+                            ],
+                            if (_image != null) ...[
+                              const SizedBox(height: 10),
+                              Stack(
+                                alignment: Alignment.topRight,
+                                children: [
+                                  ClipRRect(
+                                    borderRadius: BorderRadius.circular(16),
+                                    child: Image.memory(_image!,
+                                        height: 200,
+                                        width: double.infinity,
+                                        fit: BoxFit.cover),
                                   ),
-                                  tooltip: 'Remove photo',
-                                  onPressed: () =>
-                                      setState(() => _image = null),
+                                  IconButton(
+                                    icon: const CircleAvatar(
+                                      radius: 14,
+                                      backgroundColor: Colors.black54,
+                                      child: Icon(Icons.close,
+                                          size: 16, color: Colors.white),
+                                    ),
+                                    tooltip: 'Remove photo',
+                                    onPressed: () =>
+                                        setState(() => _image = null),
+                                  ),
+                                ],
+                              ),
+                            ],
+                            const SizedBox(height: 12),
+                            // Who can see it, said where the timelines people
+                            // arrive from say who can reply. This is the one
+                            // screen in the app where a post is not private, and
+                            // it is the one line that has to be read.
+                            Row(
+                              children: [
+                                Icon(Icons.public, size: 15, color: accent),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: Text(
+                                    me.username.isEmpty
+                                        ? 'Everyone can see this — set a username '
+                                            'so people know who posted'
+                                        : 'Everyone can see this, as '
+                                            '@${me.username}',
+                                    style: TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600,
+                                        color: accent),
+                                  ),
                                 ),
                               ],
                             ),
                           ],
-                          const SizedBox(height: 12),
-                          // Who can see it, said where the timelines people
-                          // arrive from say who can reply. This is the one
-                          // screen in the app where a post is not private, and
-                          // it is the one line that has to be read.
-                          Row(
-                            children: [
-                              Icon(Icons.public, size: 15, color: accent),
-                              const SizedBox(width: 6),
-                              Expanded(
-                                child: Text(
-                                  me.username.isEmpty
-                                      ? 'Everyone can see this — set a username '
-                                          'so people know who posted'
-                                      : 'Everyone can see this, as '
-                                          '@${me.username}',
-                                  style: TextStyle(
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w600,
-                                      color: accent),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -2137,8 +2156,7 @@ class _ComposerState extends State<_Composer> {
                         : _togglePoll,
                   ),
                   const Spacer(),
-                  _CharacterRing(
-                      used: typed, limit: PublicFeedStore.maxLength),
+                  _CharacterRing(used: typed, limit: PublicFeedStore.maxLength),
                 ],
               ),
             ),
@@ -2275,17 +2293,17 @@ class _CharacterRing extends StatelessWidget {
               // wrapping around to look nearly empty again.
               value: (used / limit).clamp(0.0, 1.0),
               strokeWidth: 2.5,
-              backgroundColor:
-                  Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.12),
+              backgroundColor: Theme.of(context)
+                  .colorScheme
+                  .onSurface
+                  .withValues(alpha: 0.12),
               valueColor: AlwaysStoppedAnimation<Color>(colour),
             ),
           ),
           if (close)
             Text('$left',
                 style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    color: colour)),
+                    fontSize: 11, fontWeight: FontWeight.w700, color: colour)),
         ],
       ),
     );
@@ -2443,8 +2461,7 @@ class _Poll extends StatelessWidget {
                     accent: accent,
                   )
                 : OutlinedButton(
-                    onPressed: () =>
-                        PublicFeedStore.instance.vote(post.id, i),
+                    onPressed: () => PublicFeedStore.instance.vote(post.id, i),
                     style: OutlinedButton.styleFrom(
                       foregroundColor: accent,
                       padding: const EdgeInsets.symmetric(vertical: 10),
@@ -2505,8 +2522,10 @@ class _Result extends StatelessWidget {
           Container(
             height: 38,
             decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.onSurface.withValues(
-                  alpha: 0.05),
+              color: Theme.of(context)
+                  .colorScheme
+                  .onSurface
+                  .withValues(alpha: 0.05),
               borderRadius: BorderRadius.circular(10),
             ),
           ),

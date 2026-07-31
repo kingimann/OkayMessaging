@@ -15190,6 +15190,64 @@ void main() {
           isNull);
     });
 
+    testWidgets('there is no box around what you are writing, in either theme',
+        (tester) async {
+      // It shipped as a pill around "What's happening?", and only a photo of
+      // a real phone said so. `border: InputBorder.none` overrides NEITHER of
+      // the two things the theme sets: `filled` is a separate flag, and
+      // enabledBorder/focusedBorder take precedence over `border` whenever
+      // they are present — which, on a focused field, they are.
+      for (final theme in [AppTheme.light, AppTheme.dark]) {
+        PublicFeedStore.debugLoadOverride = () async => [];
+        await tester.pumpWidget(
+            MaterialApp(theme: theme, home: const PublicFeedScreen()));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byTooltip('New post'));
+        await tester.pumpAndSettle();
+
+        final d = tester.widget<TextField>(find.byType(TextField).first)
+            .decoration!;
+        expect(d.filled, isFalse, reason: 'the theme fills every other field');
+        expect(d.border, InputBorder.none);
+        expect(d.enabledBorder, InputBorder.none);
+        expect(d.focusedBorder, InputBorder.none,
+            reason: 'the field is focused the moment it opens');
+        await tester.tap(find.byTooltip('Cancel'));
+        await tester.pumpAndSettle();
+      }
+
+      // And the theme really does supply all of it — which is why naming one
+      // of the three is not enough, and why this test is worth its length.
+      for (final theme in [AppTheme.light, AppTheme.dark]) {
+        expect(theme.inputDecorationTheme.filled, isTrue);
+        expect(theme.inputDecorationTheme.focusedBorder, isNotNull);
+      }
+    });
+
+    testWidgets('tapping the blank part of the composer brings the cursor back',
+        (tester) async {
+      // Most of the page is empty, and on a screen whose whole point is
+      // writing, empty space that does nothing when tapped reads as a dead
+      // screen.
+      PublicFeedStore.debugLoadOverride = () async => [];
+      await tester.pumpWidget(const MaterialApp(home: PublicFeedScreen()));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('New post'));
+      await tester.pumpAndSettle();
+
+      final field = find.byType(TextField).first;
+      expect(tester.widget<TextField>(field).focusNode!.hasFocus, isTrue,
+          reason: 'it opens ready to type');
+      primaryFocus?.unfocus();
+      await tester.pumpAndSettle();
+      expect(tester.widget<TextField>(field).focusNode!.hasFocus, isFalse);
+
+      // Well below the one line of text, in what is otherwise nothing.
+      await tester.tapAt(const Offset(200, 400));
+      await tester.pumpAndSettle();
+      expect(tester.widget<TextField>(field).focusNode!.hasFocus, isTrue);
+    });
+
     testWidgets('the composer is a page, not a sheet that fights the keyboard',
         (tester) async {
       // It grew a poll editor and a photo preview. A sheet that has to be
