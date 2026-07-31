@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../theme/app_theme.dart';
 
 import '../payments/payment_service.dart';
 import '../payments/store_purchases.dart';
@@ -154,7 +155,7 @@ class _OkayProScreenState extends State<OkayProScreen> {
                   ? 'Payments are in test mode — no real charge is made.'
                   : 'Billed by the App Store. 100% optional.',
               textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
+              style: TextStyle(color: AppColors.subtle(context), fontSize: 12),
             ),
           ),
         ],
@@ -208,7 +209,7 @@ class _AmountTile extends StatelessWidget {
                           fontSize: 17, fontWeight: FontWeight.w800)),
                   Text(label,
                       style: TextStyle(
-                          fontSize: 12, color: Colors.grey.shade600)),
+                          fontSize: 12, color: AppColors.subtle(context))),
                 ],
               ),
             ),

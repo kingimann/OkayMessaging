@@ -158,7 +158,7 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
                 title: Text(c.$2),
                 trailing: Text(c.$3,
                     style: TextStyle(
-                        color: Colors.grey.shade600,
+                        color: AppColors.subtle(context),
                         fontWeight: FontWeight.w600)),
                 onTap: () => Navigator.pop(sheetContext, c),
               ),
@@ -438,12 +438,15 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
                     child: Container(
                       width: 112,
                       height: 112,
-                      decoration: const BoxDecoration(
+                      decoration: BoxDecoration(
                         shape: BoxShape.circle,
                         gradient: LinearGradient(
                           begin: Alignment.topLeft,
                           end: Alignment.bottomRight,
-                          colors: [Color(0xFF35C48D), AppColors.tealGreenDark],
+                          colors: [
+                            const Color(0xFF35C48D),
+                            AppColors.accentOn(context)
+                          ],
                         ),
                       ),
                       child: const Icon(Icons.chat_bubble_rounded,
@@ -466,7 +469,7 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
                       _subtitle(),
                       textAlign: TextAlign.center,
                       style: TextStyle(
-                          color: Colors.grey.shade600,
+                          color: AppColors.subtle(context),
                           fontSize: 15,
                           height: 1.35),
                     ),
@@ -521,7 +524,7 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
                   Text(
                     'Your number and messages stay on this device.',
                     textAlign: TextAlign.center,
-                    style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
+                    style: TextStyle(color: AppColors.subtle(context), fontSize: 12),
                   ),
                 ],
               ),
@@ -600,7 +603,7 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
       fillColor: scheme.surfaceContainerHighest.withValues(alpha: 0.55),
       border: border(Colors.transparent, 0),
       enabledBorder: border(Colors.transparent, 0),
-      focusedBorder: border(AppColors.tealGreenDark, 1.6),
+      focusedBorder: border(AppColors.accentOn(context), 1.6),
       contentPadding:
           const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
     );
@@ -729,7 +732,7 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                            fontSize: 13, color: Colors.grey.shade600),
+                            fontSize: 13, color: AppColors.subtle(context)),
                       ),
                     ],
                   ),
@@ -748,7 +751,7 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
           onPressed:
               _busy ? null : () => setState(() => _showWelcomeBack = false),
           child: Text('Use a different account',
-              style: TextStyle(color: Colors.grey.shade600)),
+              style: TextStyle(color: AppColors.subtle(context))),
         ),
       ];
 
@@ -780,7 +783,7 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
                     _step = _Step.identifier;
                   }),
           child: Text('Sign in with username or email',
-              style: TextStyle(color: Colors.grey.shade600)),
+              style: TextStyle(color: AppColors.subtle(context))),
         ),
       ];
 
@@ -808,7 +811,7 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
                     _step = _Step.phone;
                   }),
           child: Text('Use phone number instead',
-              style: TextStyle(color: Colors.grey.shade600)),
+              style: TextStyle(color: AppColors.subtle(context))),
         ),
       ];
 
@@ -939,7 +942,7 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
         TextButton(
           onPressed: _busy ? null : _skipUsername,
           child: Text('Skip for now',
-              style: TextStyle(color: Colors.grey.shade600)),
+              style: TextStyle(color: AppColors.subtle(context))),
         ),
       ];
 }
@@ -987,7 +990,7 @@ class _TwoStepPromptState extends State<_TwoStepPrompt> {
             Padding(
               padding: const EdgeInsets.only(top: 8),
               child: Text('Forgot it? Recovery email: $email',
-                  style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
+                  style: TextStyle(color: AppColors.subtle(context), fontSize: 12)),
             ),
         ],
       ),

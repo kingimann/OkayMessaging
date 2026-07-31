@@ -1,4 +1,5 @@
 import 'package:file_picker/file_picker.dart';
+import '../theme/app_theme.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
@@ -282,7 +283,7 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
                           fontSize: 12,
                           fontWeight: FontWeight.w700,
                           letterSpacing: 0.6,
-                          color: Colors.grey.shade600)),
+                          color: AppColors.subtle(context))),
                 ),
                 for (final sort in ListingSort.values)
                   RadioListTile<ListingSort>(
@@ -305,7 +306,7 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
                           fontSize: 12,
                           fontWeight: FontWeight.w700,
                           letterSpacing: 0.6,
-                          color: Colors.grey.shade600)),
+                          color: AppColors.subtle(context))),
                 ),
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
@@ -603,7 +604,7 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
                     : 'Listings from members of your servers show up here. '
                         'Be the first — tap Sell.',
                 textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.grey.shade600, fontSize: 14),
+                style: TextStyle(color: AppColors.subtle(context), fontSize: 14),
               ),
             ],
           ),
@@ -714,7 +715,7 @@ class _ListingCard extends StatelessWidget {
                 Text(formatListingPrice(listing.prevPriceCents),
                     style: TextStyle(
                         fontSize: 12.5,
-                        color: Colors.grey.shade600,
+                        color: AppColors.subtle(context),
                         decoration: TextDecoration.lineThrough)),
               ],
             ],
@@ -728,7 +729,7 @@ class _ListingCard extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style:
-                    TextStyle(fontSize: 11.5, color: Colors.grey.shade600)),
+                    TextStyle(fontSize: 11.5, color: AppColors.subtle(context))),
         ],
       ),
     );
@@ -737,7 +738,7 @@ class _ListingCard extends StatelessWidget {
   Widget _placeholder(BuildContext context) => Container(
         color: Theme.of(context).colorScheme.surfaceContainerHighest,
         child: Icon(Icons.image_outlined,
-            size: 36, color: Colors.grey.shade500),
+            size: 36, color: AppColors.subtle(context)),
       );
 }
 
@@ -777,7 +778,7 @@ class ListingScreen extends StatelessWidget {
             appBar: AppBar(),
             body: Center(
               child: Text('This listing was removed.',
-                  style: TextStyle(color: Colors.grey.shade600)),
+                  style: TextStyle(color: AppColors.subtle(context))),
             ),
           );
         }
@@ -894,7 +895,7 @@ class ListingScreen extends StatelessWidget {
                             'This listing has a video — watch it in the '
                             'mobile app.',
                             style: TextStyle(
-                                fontSize: 13, color: Colors.grey.shade600),
+                                fontSize: 13, color: AppColors.subtle(context)),
                           ),
                         ),
                 ),
@@ -930,7 +931,7 @@ class ListingScreen extends StatelessWidget {
                         feedAge(listing.time),
                       ].join(' · '),
                       style: TextStyle(
-                          fontSize: 13, color: Colors.grey.shade600),
+                          fontSize: 13, color: AppColors.subtle(context)),
                     ),
                   ],
                 ),
@@ -990,7 +991,7 @@ class ListingScreen extends StatelessWidget {
                                     ? Text('@${listing.authorUsername}',
                                         style: TextStyle(
                                             fontSize: 12.5,
-                                            color: Colors.grey.shade600))
+                                            color: AppColors.subtle(context)))
                                     : const SizedBox.shrink();
                               }
                               return Row(
@@ -1004,7 +1005,7 @@ class ListingScreen extends StatelessWidget {
                                     '${count == 1 ? "review" : "reviews"}',
                                     style: TextStyle(
                                         fontSize: 12.5,
-                                        color: Colors.grey.shade600),
+                                        color: AppColors.subtle(context)),
                                   ),
                                 ],
                               );
@@ -1014,7 +1015,7 @@ class ListingScreen extends StatelessWidget {
                       ),
                       if (!mine)
                         Icon(Icons.chevron_right,
-                            size: 20, color: Colors.grey.shade500),
+                            size: 20, color: AppColors.subtle(context)),
                     ],
                   ),
                 ),
@@ -1030,7 +1031,7 @@ class ListingScreen extends StatelessWidget {
                           style: TextStyle(
                               fontSize: 13,
                               fontWeight: FontWeight.w700,
-                              color: Colors.grey.shade600)),
+                              color: AppColors.subtle(context))),
                       const SizedBox(height: 6),
                       Text.rich(TextSpan(
                           children: feedSpans(
@@ -1075,7 +1076,7 @@ class _Stars extends StatelessWidget {
                   size: size,
                   color: i <= rating
                       ? const Color(0xFFF5A623)
-                      : Colors.grey.shade500,
+                      : AppColors.subtle(context),
                 ),
               ),
             ),
@@ -1123,7 +1124,7 @@ class _ReviewsSection extends StatelessWidget {
                   style: TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w700,
-                      color: Colors.grey.shade600)),
+                      color: AppColors.subtle(context))),
               const Spacer(),
               if (!mine)
                 TextButton(
@@ -1138,7 +1139,7 @@ class _ReviewsSection extends StatelessWidget {
               padding: const EdgeInsets.only(top: 2, bottom: 6),
               child: Text('No reviews yet.',
                   style:
-                      TextStyle(fontSize: 13.5, color: Colors.grey.shade600)),
+                      TextStyle(fontSize: 13.5, color: AppColors.subtle(context))),
             )
           else
             for (final r in reviews)
@@ -1162,7 +1163,7 @@ class _ReviewsSection extends StatelessWidget {
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
                                 fontSize: 12.5,
-                                color: Colors.grey.shade600),
+                                color: AppColors.subtle(context)),
                           ),
                         ),
                       ],
@@ -1606,7 +1607,7 @@ class _SellScreenState extends State<SellScreen> {
               child: CircularProgressIndicator(strokeWidth: 2)),
           const SizedBox(width: 10),
           Text('Uploading video…',
-              style: TextStyle(color: Colors.grey.shade600)),
+              style: TextStyle(color: AppColors.subtle(context))),
         ],
       );
     }
@@ -1638,13 +1639,13 @@ class _SellScreenState extends State<SellScreen> {
       return Row(
         children: [
           Icon(Icons.videocam_off_outlined,
-              size: 20, color: Colors.grey.shade500),
+              size: 20, color: AppColors.subtle(context)),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
               'Add a video with cloud storage — hosting video costs real '
               'storage, and the subscription is what pays for it.',
-              style: TextStyle(fontSize: 12.5, color: Colors.grey.shade600),
+              style: TextStyle(fontSize: 12.5, color: AppColors.subtle(context)),
             ),
           ),
         ],
@@ -1819,7 +1820,7 @@ class _SellScreenState extends State<SellScreen> {
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           Icon(Icons.add_a_photo_outlined,
-                              size: 26, color: Colors.grey.shade500),
+                              size: 26, color: AppColors.subtle(context)),
                           const SizedBox(height: 4),
                           Text(
                               _photos.isEmpty
@@ -1827,7 +1828,7 @@ class _SellScreenState extends State<SellScreen> {
                                   : '${_photos.length}/$kMaxListingPhotos',
                               style: TextStyle(
                                   fontSize: 11.5,
-                                  color: Colors.grey.shade600)),
+                                  color: AppColors.subtle(context))),
                         ],
                       ),
                     ),
@@ -1886,7 +1887,7 @@ class _SellScreenState extends State<SellScreen> {
                 style: TextStyle(
                     fontSize: 12.5,
                     fontWeight: FontWeight.w700,
-                    color: Colors.grey.shade600)),
+                    color: AppColors.subtle(context))),
           ),
           const SizedBox(height: 6),
           Wrap(
@@ -1940,14 +1941,14 @@ class _SellScreenState extends State<SellScreen> {
           Row(
             children: [
               Icon(Icons.groups_outlined,
-                  size: 16, color: Colors.grey.shade600),
+                  size: 16, color: AppColors.subtle(context)),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
                   'Shared with members of '
                   '${servers.firstWhere((c) => c.id == _communityId, orElse: () => servers.first).name}.',
                   style:
-                      TextStyle(fontSize: 12.5, color: Colors.grey.shade600),
+                      TextStyle(fontSize: 12.5, color: AppColors.subtle(context)),
                 ),
               ),
             ],
@@ -2032,7 +2033,7 @@ class SellerScreen extends StatelessWidget {
                             Text('@$username',
                                 style: TextStyle(
                                     fontSize: 13,
-                                    color: Colors.grey.shade600)),
+                                    color: AppColors.subtle(context))),
                           Row(
                             children: [
                               if (count > 0) ...[
@@ -2044,7 +2045,7 @@ class SellerScreen extends StatelessWidget {
                                   '${count == 1 ? "review" : "reviews"} · ',
                                   style: TextStyle(
                                       fontSize: 12.5,
-                                      color: Colors.grey.shade600),
+                                      color: AppColors.subtle(context)),
                                 ),
                               ],
                               Text(
@@ -2052,7 +2053,7 @@ class SellerScreen extends StatelessWidget {
                                 '${listings.length == 1 ? "listing" : "listings"}',
                                 style: TextStyle(
                                     fontSize: 12.5,
-                                    color: Colors.grey.shade600),
+                                    color: AppColors.subtle(context)),
                               ),
                             ],
                           ),
@@ -2073,7 +2074,7 @@ class SellerScreen extends StatelessWidget {
                     ? Center(
                         child: Text('Nothing for sale right now.',
                             style: TextStyle(
-                                color: Colors.grey.shade600, fontSize: 14)),
+                                color: AppColors.subtle(context), fontSize: 14)),
                       )
                     : GridView.builder(
                         padding: const EdgeInsets.all(12),

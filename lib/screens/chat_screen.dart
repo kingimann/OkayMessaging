@@ -635,7 +635,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   'No one to share yet — contacts appear here once you have '
                   'other chats or groups.',
                   textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.grey.shade600),
+                  style: TextStyle(color: AppColors.subtle(context)),
                 ),
               )
             else
@@ -747,7 +747,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     : 'This message will be sent to ${contact.name}.',
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                    fontSize: 14, height: 1.4, color: Colors.grey.shade600),
+                    fontSize: 14, height: 1.4, color: AppColors.subtle(context)),
               ),
               const SizedBox(height: 18),
               FilledButton(
@@ -764,7 +764,7 @@ class _ChatScreenState extends State<ChatScreen> {
               TextButton(
                 onPressed: () => Navigator.of(dialogContext).pop(false),
                 child: Text('Cancel',
-                    style: TextStyle(color: Colors.grey.shade600)),
+                    style: TextStyle(color: AppColors.subtle(context))),
               ),
             ],
           ),
@@ -960,7 +960,7 @@ class _ChatScreenState extends State<ChatScreen> {
       final keyed = Container(
         key: key,
         color: highlighted
-            ? AppColors.tealGreenDark.withValues(alpha: 0.18)
+            ? AppColors.accentOn(context).withValues(alpha: 0.18)
             : null,
         child: bubble,
       );
@@ -974,7 +974,7 @@ class _ChatScreenState extends State<ChatScreen> {
           onLongPress: () => _toggleSelect(m.id),
           child: Container(
             color: selected
-                ? AppColors.tealGreenDark.withValues(alpha: 0.16)
+                ? AppColors.accentOn(context).withValues(alpha: 0.16)
                 : null,
             child: keyed,
           ),
@@ -1646,7 +1646,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Widget _infoRow(IconData icon, String text) => Row(
         children: [
-          Icon(icon, size: 18, color: Colors.grey.shade600),
+          Icon(icon, size: 18, color: AppColors.subtle(context)),
           const SizedBox(width: 10),
           Expanded(child: Text(text)),
         ],
@@ -2079,7 +2079,7 @@ class _ChatScreenState extends State<ChatScreen> {
                                   ? 'No matches'
                                   : '${_visibleMessages.length} found',
                               style: TextStyle(
-                                  color: Colors.grey.shade500, fontSize: 13),
+                                  color: AppColors.subtle(context), fontSize: 13),
                             ),
                           ),
                         ),
@@ -2159,10 +2159,10 @@ class _ChatScreenState extends State<ChatScreen> {
                                             ?.confirmBeforeSend ??
                                         false) ...[
                                       const SizedBox(width: 6),
-                                      const Icon(
+                                      Icon(
                                         Icons.verified_user,
                                         size: 15,
-                                        color: AppColors.tealGreenDark,
+                                        color: AppColors.accentOn(context),
                                       ),
                                     ],
                                   ],
@@ -2293,7 +2293,7 @@ class _ChatScreenState extends State<ChatScreen> {
                         // dark app-bar surface.
                         foregroundColor: isDark
                             ? Colors.white
-                            : AppColors.tealGreenDark,
+                            : AppColors.accentOn(context),
                         elevation: 2,
                         onPressed: _animateToBottom,
                         child: const Icon(Icons.keyboard_arrow_down),
@@ -2308,7 +2308,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 final count = Scheduler.instance.pendingFor(_chatId).length;
                 if (count == 0) return const SizedBox.shrink();
                 return Material(
-                  color: AppColors.tealGreenDark.withValues(alpha: 0.12),
+                  color: AppColors.accentOn(context).withValues(alpha: 0.12),
                   child: InkWell(
                     onTap: _showScheduledSheet,
                     child: Padding(
@@ -2316,23 +2316,23 @@ class _ChatScreenState extends State<ChatScreen> {
                           const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                       child: Row(
                         children: [
-                          const Icon(Icons.schedule,
-                              size: 18, color: AppColors.tealGreenDark),
+                          Icon(Icons.schedule,
+                              size: 18, color: AppColors.accentOn(context)),
                           const SizedBox(width: 10),
                           Expanded(
                             child: Text(
                               count == 1
                                   ? '1 message scheduled'
                                   : '$count messages scheduled',
-                              style: const TextStyle(
-                                color: AppColors.tealGreenDark,
+                              style: TextStyle(
+                                color: AppColors.accentOn(context),
                                 fontWeight: FontWeight.w600,
                                 fontSize: 13.5,
                               ),
                             ),
                           ),
-                          const Icon(Icons.chevron_right,
-                              size: 20, color: AppColors.tealGreenDark),
+                          Icon(Icons.chevron_right,
+                              size: 20, color: AppColors.accentOn(context)),
                         ],
                       ),
                     ),
@@ -2400,7 +2400,7 @@ class _BlockedBanner extends StatelessWidget {
           children: [
             Text(
               'You blocked $name',
-              style: TextStyle(color: Colors.grey.shade600),
+              style: TextStyle(color: AppColors.subtle(context)),
             ),
             TextButton(
               onPressed: onUnblock,
@@ -2515,9 +2515,9 @@ class _PinnedBanner extends StatelessWidget {
         onTap: onTap,
         child: Container(
           padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
-          decoration: const BoxDecoration(
+          decoration: BoxDecoration(
             border: Border(
-              left: BorderSide(color: AppColors.tealGreenDark, width: 4),
+              left: BorderSide(color: AppColors.accentOn(context), width: 4),
             ),
           ),
           child: Row(
@@ -2531,10 +2531,10 @@ class _PinnedBanner extends StatelessWidget {
                   children: [
                     Text(
                       count > 1 ? '$count pinned messages' : 'Pinned message',
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w600,
-                        color: AppColors.tealGreenDark,
+                        color: AppColors.accentOn(context),
                       ),
                     ),
                     Text(
@@ -2620,13 +2620,13 @@ class _UnreadDivider extends StatelessWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     // Near-white accent in dark mode so the label is readable on the soft
     // dark background (the mono ink is near-black and would vanish).
-    final accent = isDark ? const Color(0xFFB9C1C9) : AppColors.tealGreenDark;
+    final accent = isDark ? const Color(0xFFB9C1C9) : AppColors.accentOn(context);
     return Center(
       child: Container(
         margin: const EdgeInsets.symmetric(vertical: 8),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
         decoration: BoxDecoration(
-          color: (isDark ? Colors.white : AppColors.tealGreenDark)
+          color: (isDark ? Colors.white : AppColors.accentOn(context))
               .withValues(alpha: isDark ? 0.10 : 0.12),
           borderRadius: BorderRadius.circular(10),
         ),

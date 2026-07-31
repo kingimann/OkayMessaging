@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../theme/app_theme.dart';
 import 'package:flutter/services.dart';
 
 import '../models/community.dart';
@@ -295,7 +296,7 @@ class CommunitySettingsScreen extends StatelessWidget {
               child: Text(community.description,
                   textAlign: TextAlign.center,
                   style:
-                      TextStyle(color: Colors.grey.shade600, fontSize: 13.5)),
+                      TextStyle(color: AppColors.subtle(context), fontSize: 13.5)),
             ),
           const SizedBox(height: 16),
           InfoSection(children: [
@@ -355,7 +356,7 @@ class CommunitySettingsScreen extends StatelessWidget {
                 fontSize: 12,
                 fontWeight: FontWeight.w700,
                 letterSpacing: 0.6,
-                color: Colors.grey.shade500)),
+                color: AppColors.subtle(context))),
       );
 
   Widget _iconChoice(BuildContext context,
@@ -407,7 +408,7 @@ class CommunitySettingsScreen extends StatelessWidget {
                     'Limits how often members can send channel messages. '
                     'Admins are exempt.',
                     style: TextStyle(
-                        fontSize: 12.5, color: Colors.grey.shade600)),
+                        fontSize: 12.5, color: AppColors.subtle(context))),
               ),
             ),
             for (final s in slowModeChoices)
@@ -459,7 +460,7 @@ class CommunitySettingsScreen extends StatelessWidget {
                     'Controls who may share this server\'s invite. People '
                     'already here stay either way.',
                     style: TextStyle(
-                        fontSize: 12.5, color: Colors.grey.shade600)),
+                        fontSize: 12.5, color: AppColors.subtle(context))),
               ),
             ),
             for (final (policy, label, detail) in const [
@@ -541,7 +542,7 @@ class CommunitySettingsScreen extends StatelessWidget {
                     padding: const EdgeInsets.all(24),
                     child: Center(
                       child: Text('Nobody is banned from this server.',
-                          style: TextStyle(color: Colors.grey.shade500)),
+                          style: TextStyle(color: AppColors.subtle(context))),
                     ),
                   ),
                 for (final m in banned)
@@ -664,11 +665,11 @@ class _WordFilterSheetState extends State<_WordFilterSheet> {
                       'Messages and posts containing a filtered word are '
                       'blocked before they send. Admins are exempt.',
                       style: TextStyle(
-                          fontSize: 12.5, color: Colors.grey.shade600)),
+                          fontSize: 12.5, color: AppColors.subtle(context))),
                   const SizedBox(height: 14),
                   if (words.isEmpty)
                     Text('No filtered words yet.',
-                        style: TextStyle(color: Colors.grey.shade500))
+                        style: TextStyle(color: AppColors.subtle(context)))
                   else
                     Wrap(
                       spacing: 8,

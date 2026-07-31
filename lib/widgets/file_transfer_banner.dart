@@ -110,7 +110,7 @@ class _FileTransferBannerState extends State<FileTransferBanner> {
               value: s.status == 'offering' ? null : s.progress,
               minHeight: 5,
               backgroundColor: Colors.grey.withValues(alpha: 0.25),
-              color: AppColors.tealGreenDark,
+              color: AppColors.accentOn(context),
             ),
           ),
         ],

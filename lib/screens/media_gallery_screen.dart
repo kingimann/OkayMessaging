@@ -156,8 +156,8 @@ class _LinksList extends StatelessWidget {
         itemBuilder: (context, i) {
           return ListTile(
             leading: CircleAvatar(
-              backgroundColor: AppColors.tealGreenDark.withValues(alpha: 0.15),
-              child: const Icon(Icons.link, color: AppColors.tealGreenDark),
+              backgroundColor: AppColors.accentOn(context).withValues(alpha: 0.15),
+              child: Icon(Icons.link, color: AppColors.accentOn(context)),
             ),
             title: Text(links[i].text, maxLines: 2, overflow: TextOverflow.ellipsis),
             subtitle: Text(

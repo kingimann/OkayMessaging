@@ -1,4 +1,5 @@
 import 'dart:async';
+import '../theme/app_theme.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -950,7 +951,7 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
                                     fontWeight: FontWeight.w600)
                                 : TextStyle(
                                     fontSize: 13,
-                                    color: Colors.grey.shade600),
+                                    color: AppColors.subtle(context)),
                           ),
                         ],
                       ),
@@ -1178,7 +1179,7 @@ class _FavoritesRow extends StatelessWidget {
                     style: TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.w700,
-                        color: Colors.grey.shade600)),
+                        color: AppColors.subtle(context))),
               ),
               SizedBox(
                 height: 82,

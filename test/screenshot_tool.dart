@@ -227,6 +227,13 @@ void main() {
     await shot('dark_drawer');
     await t.tap(find.text('Wallet'));
     await shot('dark_wallet');
+    await t.pageBack();
+    await t.pumpAndSettle();
+
+    // A conversation, which is where most of the hard-coded accents were —
+    // the pinned banner, the jump-to-message highlight, the date pill.
+    await t.tap(find.text('Bob Carter'));
+    await shot('dark_chat');
     AppState.themeMode.value = ThemeMode.light;
   });
 }

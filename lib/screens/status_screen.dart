@@ -1,4 +1,5 @@
 import 'dart:async';
+import '../theme/app_theme.dart';
 
 import 'package:flutter/material.dart';
 
@@ -85,14 +86,14 @@ class StatusScreen extends StatelessWidget {
                           fontSize: 12,
                           fontWeight: FontWeight.w700,
                           letterSpacing: 0.6,
-                          color: Colors.grey.shade500)),
+                          color: AppColors.subtle(context))),
                 ),
                 if (others.isEmpty)
                   Padding(
                     padding: const EdgeInsets.symmetric(
                         horizontal: 16, vertical: 20),
                     child: Text('No recent updates',
-                        style: TextStyle(color: Colors.grey.shade500)),
+                        style: TextStyle(color: AppColors.subtle(context))),
                   )
                 else
                   for (final t in others)

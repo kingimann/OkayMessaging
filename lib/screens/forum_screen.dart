@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../theme/app_theme.dart';
 
 import '../app_state.dart';
 import '../models/community.dart';
@@ -206,7 +207,7 @@ class _ForumChannelScreenState extends State<ForumChannelScreen> {
                       .withValues(alpha: 0.4),
                   child: Text(channel.topic,
                       style:
-                          TextStyle(fontSize: 13, color: Colors.grey.shade600)),
+                          TextStyle(fontSize: 13, color: AppColors.subtle(context))),
                 ),
               SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
@@ -255,7 +256,7 @@ class _ForumChannelScreenState extends State<ForumChannelScreen> {
                                 size: 48, color: Colors.grey.shade400),
                             const SizedBox(height: 10),
                             Text('No posts yet — start the discussion',
-                                style: TextStyle(color: Colors.grey.shade500)),
+                                style: TextStyle(color: AppColors.subtle(context))),
                           ],
                         ),
                       )
@@ -335,13 +336,13 @@ class _PostCard extends StatelessWidget {
                           ],
                           if (post.locked) ...[
                             Icon(Icons.lock,
-                                size: 13, color: Colors.grey.shade600),
+                                size: 13, color: AppColors.subtle(context)),
                             const SizedBox(width: 3),
                             Text('Locked',
                                 style: TextStyle(
                                     fontSize: 11,
                                     fontWeight: FontWeight.w700,
-                                    color: Colors.grey.shade600)),
+                                    color: AppColors.subtle(context))),
                             const SizedBox(width: 8),
                           ],
                           if (post.tag.isNotEmpty)
@@ -359,7 +360,7 @@ class _PostCard extends StatelessWidget {
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
-                              fontSize: 13.5, color: Colors.grey.shade600)),
+                              fontSize: 13.5, color: AppColors.subtle(context))),
                     ],
                     const SizedBox(height: 8),
                     Row(
@@ -371,14 +372,14 @@ class _PostCard extends StatelessWidget {
                             '  ·  ${DateFormatter.callLabel(post.time)}'
                             '${post.edited ? ' · edited' : ''}',
                             style: TextStyle(
-                                fontSize: 12, color: Colors.grey.shade500)),
+                                fontSize: 12, color: AppColors.subtle(context))),
                         const Spacer(),
                         Icon(Icons.mode_comment_outlined,
-                            size: 15, color: Colors.grey.shade500),
+                            size: 15, color: AppColors.subtle(context)),
                         const SizedBox(width: 4),
                         Text('${post.comments.length}',
                             style: TextStyle(
-                                fontSize: 12, color: Colors.grey.shade500)),
+                                fontSize: 12, color: AppColors.subtle(context))),
                         if (isMineAuthor(post.authorId) ||
                             CommunityStore.instance.canModerate(communityId))
                           _PostMenu(
@@ -450,7 +451,7 @@ class _PostMenu extends StatelessWidget {
   Widget build(BuildContext context) {
     final mod = CommunityStore.instance.canModerate(communityId);
     return PopupMenuButton<String>(
-      icon: Icon(Icons.more_horiz, size: 18, color: Colors.grey.shade500),
+      icon: Icon(Icons.more_horiz, size: 18, color: AppColors.subtle(context)),
       padding: EdgeInsets.zero,
       onSelected: (v) async {
         if (v == 'pin') {
@@ -678,7 +679,7 @@ class _ForumPostScreenState extends State<ForumPostScreen> {
                                   '${post.edited ? ' · edited' : ''}',
                                   style: TextStyle(
                                       fontSize: 12,
-                                      color: Colors.grey.shade500)),
+                                      color: AppColors.subtle(context))),
                               if (post.body.isNotEmpty) ...[
                                 const SizedBox(height: 10),
                                 // Links in the body open like they do in chat.
@@ -725,7 +726,7 @@ class _ForumPostScreenState extends State<ForumPostScreen> {
                         padding: const EdgeInsets.symmetric(vertical: 20),
                         child: Center(
                           child: Text('No comments yet — be the first',
-                              style: TextStyle(color: Colors.grey.shade500)),
+                              style: TextStyle(color: AppColors.subtle(context))),
                         ),
                       )
                     else
@@ -773,11 +774,11 @@ class _ForumPostScreenState extends State<ForumPostScreen> {
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Icon(Icons.lock_outline,
-                            size: 18, color: Colors.grey.shade600),
+                            size: 18, color: AppColors.subtle(context)),
                         const SizedBox(width: 8),
                         Text('This thread is locked',
                             style: TextStyle(
-                                color: Colors.grey.shade600, fontSize: 13.5)),
+                                color: AppColors.subtle(context), fontSize: 13.5)),
                       ],
                     ),
                   ),
@@ -898,7 +899,7 @@ class _CommentTile extends StatelessWidget {
                           style: TextStyle(
                               fontSize: 12,
                               fontWeight: FontWeight.w600,
-                              color: Colors.grey.shade600)),
+                              color: AppColors.subtle(context))),
                     ),
                     if (onEdit != null)
                       InkWell(
@@ -906,14 +907,14 @@ class _CommentTile extends StatelessWidget {
                         child: Padding(
                           padding: const EdgeInsets.only(right: 10),
                           child: Icon(Icons.edit_outlined,
-                              size: 16, color: Colors.grey.shade500),
+                              size: 16, color: AppColors.subtle(context)),
                         ),
                       ),
                     if (onDelete != null)
                       InkWell(
                         onTap: onDelete,
                         child: Icon(Icons.delete_outline,
-                            size: 17, color: Colors.grey.shade500),
+                            size: 17, color: AppColors.subtle(context)),
                       ),
                   ],
                 ),
@@ -928,13 +929,13 @@ class _CommentTile extends StatelessWidget {
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Icon(Icons.reply,
-                              size: 14, color: Colors.grey.shade500),
+                              size: 14, color: AppColors.subtle(context)),
                           const SizedBox(width: 4),
                           Text('Reply',
                               style: TextStyle(
                                   fontSize: 12,
                                   fontWeight: FontWeight.w600,
-                                  color: Colors.grey.shade500)),
+                                  color: AppColors.subtle(context))),
                         ],
                       ),
                     ),
@@ -1062,7 +1063,7 @@ class _CreateForumPostScreenState extends State<CreateForumPostScreen> {
                   fontSize: 11.5,
                   fontWeight: FontWeight.w700,
                   letterSpacing: 0.6,
-                  color: Colors.grey.shade500)),
+                  color: AppColors.subtle(context))),
           const SizedBox(height: 8),
           Wrap(
             spacing: 8,

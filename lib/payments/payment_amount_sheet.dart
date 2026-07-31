@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../theme/app_theme.dart';
 
 import '../util/phone_format.dart';
 import 'storage_economics.dart';
@@ -88,7 +89,7 @@ class _PaymentAmountSheetState extends State<PaymentAmountSheet> {
     final style = TextStyle(
       fontSize: bold ? 15 : 13.5,
       fontWeight: bold ? FontWeight.w700 : FontWeight.w500,
-      color: muted ? Colors.grey.shade600 : null,
+      color: muted ? AppColors.subtle(context) : null,
     );
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -284,7 +285,7 @@ class _PaymentAmountSheetState extends State<PaymentAmountSheet> {
                             'receives the full amount. Money goes straight to '
                             'them — we never hold it.',
                             style: TextStyle(
-                                fontSize: 11.5, color: Colors.grey.shade600),
+                                fontSize: 11.5, color: AppColors.subtle(context)),
                           ),
                         ],
                       ),
@@ -321,7 +322,7 @@ class _PaymentAmountSheetState extends State<PaymentAmountSheet> {
                                 'Reversing it through my bank will block me from '
                                 'sending money here.',
                                 style: TextStyle(
-                                    fontSize: 12, color: Colors.grey.shade700),
+                                    fontSize: 12, color: AppColors.subtle(context)),
                               ),
                             ),
                           ],
@@ -360,11 +361,11 @@ class _PaymentAmountSheetState extends State<PaymentAmountSheet> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(Icons.lock, size: 13, color: Colors.grey.shade500),
+                      Icon(Icons.lock, size: 13, color: AppColors.subtle(context)),
                       const SizedBox(width: 5),
                       Text('Secured by Stripe',
                           style: TextStyle(
-                              color: Colors.grey.shade500, fontSize: 12)),
+                              color: AppColors.subtle(context), fontSize: 12)),
                     ],
                   ),
                 ],

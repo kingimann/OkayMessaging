@@ -173,7 +173,7 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
                             style: const TextStyle(fontWeight: FontWeight.w600)),
                         subtitle: Text(c.about,
                             maxLines: 1, overflow: TextOverflow.ellipsis),
-                        activeColor: AppColors.tealGreenDark,
+                        activeColor: AppColors.accentOn(context),
                         controlAffinity: ListTileControlAffinity.trailing,
                       ),
                   ],
@@ -265,7 +265,7 @@ class _NoContactsYet extends StatelessWidget {
               'Start a chat with someone first — everyone you talk to shows up '
               'here as a participant you can add.',
               textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 13.5, color: Colors.grey.shade600),
+              style: TextStyle(fontSize: 13.5, color: AppColors.subtle(context)),
             ),
           ],
         ),

@@ -245,7 +245,7 @@ class _PollOption extends StatelessWidget {
                 widthFactor: total == 0 ? 0.0 : fraction.clamp(0.02, 1.0),
                 child: Container(
                   decoration: BoxDecoration(
-                    color: AppColors.tealGreenDark
+                    color: AppColors.accentOn(context)
                         .withValues(alpha: selected ? 0.30 : 0.16),
                     borderRadius: BorderRadius.circular(10),
                   ),
@@ -255,17 +255,17 @@ class _PollOption extends StatelessWidget {
             Container(
               decoration: BoxDecoration(
                 border: Border.all(
-                    color: AppColors.tealGreenDark.withValues(alpha: 0.4)),
+                    color: AppColors.accentOn(context).withValues(alpha: 0.4)),
                 borderRadius: BorderRadius.circular(10),
               ),
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
               child: Row(
                 children: [
                   if (selected)
-                    const Padding(
-                      padding: EdgeInsets.only(right: 6),
+                    Padding(
+                      padding: const EdgeInsets.only(right: 6),
                       child: Icon(Icons.check_circle,
-                          size: 16, color: AppColors.tealGreenDark),
+                          size: 16, color: AppColors.accentOn(context)),
                     ),
                   Expanded(
                     child: Text(label,

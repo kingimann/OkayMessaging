@@ -168,6 +168,9 @@ class GroupInfoScreen extends StatelessWidget {
           group.avatarColor.replaceFirst('#', 'ff'),
           radix: 16));
     } catch (_) {
+      // A fixed fallback, not a theme colour: this paints an avatar
+      // circle with initials on it, whose contrast is against the circle
+      // rather than against whatever is behind it.
       return AppColors.tealGreenDark;
     }
   }
@@ -282,7 +285,7 @@ class _AboutCard extends StatelessWidget {
                   style: TextStyle(
                       fontSize: 12.5,
                       fontWeight: FontWeight.w700,
-                      color: Colors.grey.shade500)),
+                      color: AppColors.subtle(context))),
               const SizedBox(height: 6),
               Text(text, style: const TextStyle(fontSize: 15, height: 1.35)),
             ],
@@ -302,12 +305,12 @@ class _EncryptionNote extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 4),
       child: Row(
         children: [
-          Icon(Icons.lock_outline, size: 16, color: Colors.grey.shade500),
+          Icon(Icons.lock_outline, size: 16, color: AppColors.subtle(context)),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
               'Messages are end-to-end encrypted and stay on members\' devices.',
-              style: TextStyle(fontSize: 12.5, color: Colors.grey.shade600),
+              style: TextStyle(fontSize: 12.5, color: AppColors.subtle(context)),
             ),
           ),
         ],
@@ -338,12 +341,12 @@ class _MemberTile extends StatelessWidget {
           ? Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
               decoration: BoxDecoration(
-                color: AppColors.tealGreenDark.withValues(alpha: 0.14),
+                color: AppColors.accentOn(context).withValues(alpha: 0.14),
                 borderRadius: BorderRadius.circular(6),
               ),
-              child: const Text('Group admin',
+              child: Text('Group admin',
                   style:
-                      TextStyle(fontSize: 12, color: AppColors.tealGreenDark)),
+                      TextStyle(fontSize: 12, color: AppColors.accentOn(context))),
             )
           : null,
     );
@@ -411,8 +414,8 @@ class _TonalAction extends StatelessWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return Material(
       color: isDark
-          ? AppColors.tealGreenDark.withValues(alpha: 0.22)
-          : AppColors.tealGreenDark.withValues(alpha: 0.12),
+          ? AppColors.accentOn(context).withValues(alpha: 0.22)
+          : AppColors.accentOn(context).withValues(alpha: 0.12),
       borderRadius: BorderRadius.circular(14),
       child: InkWell(
         borderRadius: BorderRadius.circular(14),
@@ -424,12 +427,12 @@ class _TonalAction extends StatelessWidget {
           padding: const EdgeInsets.symmetric(vertical: 12),
           child: Column(
             children: [
-              Icon(icon, color: AppColors.tealGreenDark, size: 22),
+              Icon(icon, color: AppColors.accentOn(context), size: 22),
               const SizedBox(height: 4),
               Text(
                 label,
-                style: const TextStyle(
-                  color: AppColors.tealGreenDark,
+                style: TextStyle(
+                  color: AppColors.accentOn(context),
                   fontSize: 12.5,
                   fontWeight: FontWeight.w600,
                 ),

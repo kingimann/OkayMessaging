@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../theme/app_theme.dart';
 import 'package:flutter/services.dart';
 
 import '../payments/connect_fields.dart';
@@ -317,7 +318,7 @@ class _NativeOnboardingScreenState extends State<NativeOnboardingScreen> {
                 'account has nothing in it — no details submitted, no payouts '
                 'enabled — and it stays visible in the Stripe dashboard.',
                 textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 12.5, color: Colors.grey.shade600),
+                style: TextStyle(fontSize: 12.5, color: AppColors.subtle(context)),
               ),
               const SizedBox(height: 18),
               // The offer, first: this screen used to be a dead end whose only
@@ -369,7 +370,7 @@ class _NativeOnboardingScreenState extends State<NativeOnboardingScreen> {
             'Stripe needs these to pay you out. They go straight to Stripe — '
             'your bank number and ID number are sent to Stripe from this '
             'device and never through this app\'s server.',
-            style: TextStyle(color: Colors.grey.shade600, fontSize: 13.5),
+            style: TextStyle(color: AppColors.subtle(context), fontSize: 13.5),
           ),
           // An empty half-made account was thrown away to get here. Said once,
           // because a payment account quietly changing underneath somebody is
@@ -380,7 +381,7 @@ class _NativeOnboardingScreenState extends State<NativeOnboardingScreen> {
               'An unfinished payment account from an earlier attempt was '
               'discarded — it had nothing in it — so this can be completed '
               'here instead of on Stripe\'s website.',
-              style: TextStyle(fontSize: 12.5, color: Colors.grey.shade600),
+              style: TextStyle(fontSize: 12.5, color: AppColors.subtle(context)),
             ),
           ],
           const SizedBox(height: 18),
@@ -539,7 +540,7 @@ class _NativeOnboardingScreenState extends State<NativeOnboardingScreen> {
           Text(
             'Sent straight to Stripe from this device. This app\'s server '
             'never receives it.',
-            style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+            style: TextStyle(fontSize: 12, color: AppColors.subtle(context)),
           ),
         ];
       case ConnectField.ssnLast4:
@@ -592,7 +593,7 @@ class _NativeOnboardingScreenState extends State<NativeOnboardingScreen> {
           Text(
             'A driving licence or passport. Sent from this device straight to '
             'Stripe — this app\'s server never receives the image.',
-            style: TextStyle(fontSize: 12.5, color: Colors.grey.shade600),
+            style: TextStyle(fontSize: 12.5, color: AppColors.subtle(context)),
           ),
           const SizedBox(height: 10),
           Row(
@@ -637,7 +638,7 @@ class _NativeOnboardingScreenState extends State<NativeOnboardingScreen> {
           Text(
             'Stripe asks for this to verify the account. It is the number this '
             'app already knows you by.',
-            style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+            style: TextStyle(fontSize: 12, color: AppColors.subtle(context)),
           ),
         ];
       case ConnectField.title:
@@ -648,7 +649,7 @@ class _NativeOnboardingScreenState extends State<NativeOnboardingScreen> {
           Text(
             'Stripe asks what your role is in relation to the account. For '
             'somebody receiving their own money, "Owner" is the answer.',
-            style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+            style: TextStyle(fontSize: 12, color: AppColors.subtle(context)),
           ),
         ];
     }

@@ -77,7 +77,7 @@ class _IdentityCheckScreenState extends State<IdentityCheckScreen> {
                 child: Text(
                   'Verifying your identity needs the mobile app.',
                   textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.grey.shade600),
+                  style: TextStyle(color: AppColors.subtle(context)),
                 ),
               ),
             )

@@ -471,7 +471,7 @@ class _CallScreenState extends State<CallScreen>
             _CallControl(
               icon: Icons.voicemail,
               label: 'Voicemail',
-              background: AppColors.tealGreenDark,
+              background: AppColors.accentOn(context),
               size: 68,
               onTap: _recordVoicemail,
             ),

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../theme/app_theme.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 import '../app_state.dart';
@@ -45,7 +46,7 @@ class MyQrScreen extends StatelessWidget {
                 ),
                 if (me.handle.isNotEmpty)
                   Text(me.handle,
-                      style: TextStyle(color: Colors.grey.shade600)),
+                      style: TextStyle(color: AppColors.subtle(context))),
                 const SizedBox(height: 24),
                 // QR codes scan best as dark-on-white, so keep the card white
                 // in both themes.
@@ -81,7 +82,7 @@ class MyQrScreen extends StatelessWidget {
                 Text(
                   'Scan this code with OkayMessenger to add ${me.name}.',
                   textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.grey.shade600, height: 1.4),
+                  style: TextStyle(color: AppColors.subtle(context), height: 1.4),
                 ),
               ],
             ),

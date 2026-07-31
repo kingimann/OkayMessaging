@@ -575,8 +575,8 @@ class _ReplyPreview extends StatelessWidget {
       decoration: BoxDecoration(
         color: isDark ? AppColors.darkAppBar : Colors.white,
         borderRadius: BorderRadius.circular(8),
-        border: const Border(
-          left: BorderSide(color: AppColors.tealGreenDark, width: 4),
+        border: Border(
+          left: BorderSide(color: AppColors.accentOn(context), width: 4),
         ),
       ),
       child: Row(
@@ -588,8 +588,8 @@ class _ReplyPreview extends StatelessWidget {
               children: [
                 Text(
                   reply.isMe ? 'You' : reply.senderName,
-                  style: const TextStyle(
-                    color: AppColors.tealGreenDark,
+                  style: TextStyle(
+                    color: AppColors.accentOn(context),
                     fontWeight: FontWeight.w600,
                     fontSize: 13,
                   ),

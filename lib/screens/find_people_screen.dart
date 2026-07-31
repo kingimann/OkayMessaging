@@ -1,4 +1,5 @@
 import 'dart:async';
+import '../theme/app_theme.dart';
 
 import 'package:flutter/material.dart';
 
@@ -202,7 +203,7 @@ class _FindPeopleScreenState extends State<FindPeopleScreen> {
             const SizedBox(height: 8),
             Text(body,
                 textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.grey.shade600, fontSize: 14)),
+                style: TextStyle(color: AppColors.subtle(context), fontSize: 14)),
           ],
         ),
       ),

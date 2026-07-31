@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import '../theme/app_theme.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 
@@ -133,7 +134,7 @@ class _PermissionsScreenState extends State<PermissionsScreen>
                     isThreeLine: true,
                     trailing: Text('On use',
                         style: TextStyle(
-                            color: Colors.grey.shade500, fontSize: 12.5)),
+                            color: AppColors.subtle(context), fontSize: 12.5)),
                   ),
                 if (!kIsWeb)
                   Padding(
@@ -154,7 +155,7 @@ class _PermissionsScreenState extends State<PermissionsScreen>
                       'On the web, camera, microphone and location are granted '
                       'through your browser when you first use each feature.',
                       style:
-                          TextStyle(color: Colors.grey.shade600, fontSize: 13),
+                          TextStyle(color: AppColors.subtle(context), fontSize: 13),
                     ),
                   ),
               ],

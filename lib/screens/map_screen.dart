@@ -1,4 +1,5 @@
 import 'dart:async';
+import '../theme/app_theme.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -117,7 +118,7 @@ class _MapScreenState extends State<MapScreen> {
                     ),
                     const SizedBox(width: 6),
                   ],
-                  Text(subtitle, style: TextStyle(color: Colors.grey.shade600)),
+                  Text(subtitle, style: TextStyle(color: AppColors.subtle(context))),
                 ],
               ),
               const SizedBox(height: 16),
@@ -313,7 +314,7 @@ class _MapScreenState extends State<MapScreen> {
                             'when they turn on live location sharing.',
                             style: TextStyle(
                                 fontSize: 13.5,
-                                color: Colors.grey.shade600),
+                                color: AppColors.subtle(context)),
                           ),
                         ),
                       ),

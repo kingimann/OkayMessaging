@@ -168,7 +168,7 @@ class _CommunitiesTabState extends State<CommunitiesTab> {
                         child: Center(
                           child: Text('No servers match your search.',
                               style:
-                                  TextStyle(color: Colors.grey.shade600)),
+                                  TextStyle(color: AppColors.subtle(context))),
                         ),
                       ),
                     for (final c in communities) _CommunityCard(community: c),
@@ -338,8 +338,8 @@ class _CommunityCard extends StatelessWidget {
                         runSpacing: 4,
                         crossAxisAlignment: WrapCrossAlignment.center,
                         children: [
-                          _meta(Icons.tag, '$channels'),
-                          _meta(Icons.people_alt_outlined, '$members'),
+                          _meta(context, Icons.tag, '$channels'),
+                          _meta(context, Icons.people_alt_outlined, '$members'),
                           if (online > 0)
                             Row(
                               mainAxisSize: MainAxisSize.min,
@@ -378,7 +378,7 @@ class _CommunityCard extends StatelessWidget {
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
-                                fontSize: 12.5, color: Colors.grey.shade600)),
+                                fontSize: 12.5, color: AppColors.subtle(context))),
                       ],
                     ],
                   ),
@@ -396,13 +396,14 @@ class _CommunityCard extends StatelessWidget {
     );
   }
 
-  Widget _meta(IconData icon, String label) => Row(
+  Widget _meta(BuildContext context, IconData icon, String label) => Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 15, color: Colors.grey.shade500),
+          Icon(icon, size: 15, color: AppColors.subtle(context)),
           const SizedBox(width: 4),
           Text(label,
-              style: TextStyle(fontSize: 12.5, color: Colors.grey.shade600)),
+              style:
+                  TextStyle(fontSize: 12.5, color: AppColors.subtle(context))),
         ],
       );
 }
@@ -458,7 +459,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
               const SizedBox(height: 6),
               Text('Anyone with this link can join the server.',
                   style:
-                      TextStyle(fontSize: 13, color: Colors.grey.shade600)),
+                      TextStyle(fontSize: 13, color: AppColors.subtle(context))),
               const SizedBox(height: 16),
               Container(
                 width: double.infinity,
@@ -498,7 +499,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
               const SizedBox(height: 10),
               Text('Or share the code  $code',
                   style:
-                      TextStyle(fontSize: 12.5, color: Colors.grey.shade600)),
+                      TextStyle(fontSize: 12.5, color: AppColors.subtle(context))),
               const SizedBox(height: 12),
               // The invite that actually works end-to-end: a card in a chat
               // the other person can join with one tap.
@@ -793,7 +794,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                     const SizedBox(width: 6),
                     Text('$onlineCount online · ${community.members.length} members',
                         style: TextStyle(
-                            fontSize: 12.5, color: Colors.grey.shade600)),
+                            fontSize: 12.5, color: AppColors.subtle(context))),
                     if (voiceHere > 0) ...[
                       const SizedBox(width: 10),
                       Icon(Icons.volume_up_rounded,
@@ -852,7 +853,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                   padding: const EdgeInsets.fromLTRB(16, 2, 16, 4),
                   child: Text(community.description,
                       style: TextStyle(
-                          fontSize: 13.5, color: Colors.grey.shade700)),
+                          fontSize: 13.5, color: AppColors.subtle(context))),
                 ),
               // The server's X-style feed lives above the channel list.
               ListenableBuilder(
@@ -915,7 +916,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                               style: TextStyle(
                                   fontSize: 11.5,
                                   fontWeight: FontWeight.w600,
-                                  color: Colors.grey.shade500)),
+                                  color: AppColors.subtle(context))),
                         ],
                       ],
                     ),
@@ -951,7 +952,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                         if (muted) ...[
                           const SizedBox(width: 6),
                           Icon(Icons.notifications_off,
-                              size: 14, color: Colors.grey.shade500),
+                              size: 14, color: AppColors.subtle(context)),
                         ],
                         if (mentions > 0) ...[
                           const SizedBox(width: 8),
@@ -1015,7 +1016,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                             size: 14,
                             color: o.muted
                                 ? Colors.red.shade300
-                                : Colors.grey.shade500,
+                                : AppColors.subtle(context),
                           ),
                           const SizedBox(width: 6),
                           Flexible(
@@ -1025,7 +1026,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
                                   fontSize: 13,
-                                  color: Colors.grey.shade600,
+                                  color: AppColors.subtle(context),
                                   fontWeight: o.isMe
                                       ? FontWeight.w600
                                       : FontWeight.w400),
@@ -1191,7 +1192,7 @@ class _VoiceChannelScreenState extends State<VoiceChannelScreen> {
                 size: 56, color: Colors.grey.shade400),
             const SizedBox(height: 12),
             Text('No one is in ${channel.name}',
-                style: TextStyle(color: Colors.grey.shade500)),
+                style: TextStyle(color: AppColors.subtle(context))),
             const SizedBox(height: 4),
             Text('Join to start the conversation',
                 style: TextStyle(color: Colors.grey.shade400, fontSize: 12.5)),
@@ -1308,7 +1309,7 @@ class _VoiceChannelScreenState extends State<VoiceChannelScreen> {
                     icon: _muted ? Icons.mic_off : Icons.mic,
                     label: _muted ? 'Unmute' : 'Mute',
                     color:
-                        _muted ? Colors.grey.shade700 : AppColors.tealGreenDark,
+                        _muted ? AppColors.subtle(context) : AppColors.accentOn(context),
                     onTap: () {
                       final nowMuted = !_muted;
                       if (!nowMuted) _deafened = false;
@@ -1319,7 +1320,7 @@ class _VoiceChannelScreenState extends State<VoiceChannelScreen> {
                   _voiceButton(
                     icon: _deafened ? Icons.headset_off : Icons.headset_mic,
                     label: 'Deafen',
-                    color: _deafened ? Colors.red : Colors.grey.shade700,
+                    color: _deafened ? Colors.red : AppColors.subtle(context),
                     onTap: () {
                       _deafened = !_deafened;
                       // Deafening also mutes you, à la Discord.
@@ -1330,7 +1331,7 @@ class _VoiceChannelScreenState extends State<VoiceChannelScreen> {
                   _voiceButton(
                     icon: _video ? Icons.videocam : Icons.videocam_off,
                     label: 'Video',
-                    color: _video ? AppColors.tealGreenDark : Colors.grey.shade700,
+                    color: _video ? AppColors.accentOn(context) : AppColors.subtle(context),
                     onTap: () => _voice.setLocalState(video: !_video),
                   ),
                   _voiceButton(
@@ -1339,7 +1340,7 @@ class _VoiceChannelScreenState extends State<VoiceChannelScreen> {
                         : Icons.screen_share,
                     label: 'Screen',
                     color:
-                        _screen ? AppColors.tealGreenDark : Colors.grey.shade700,
+                        _screen ? AppColors.accentOn(context) : AppColors.subtle(context),
                     onTap: () => _voice.setLocalState(screen: !_screen),
                   ),
                   _voiceButton(
@@ -1395,7 +1396,7 @@ class _VoiceChannelScreenState extends State<VoiceChannelScreen> {
           if (label != null) ...[
             const SizedBox(height: 6),
             Text(label,
-                style: TextStyle(fontSize: 11.5, color: Colors.grey.shade600)),
+                style: TextStyle(fontSize: 11.5, color: AppColors.subtle(context))),
           ],
         ],
       );
@@ -1890,7 +1891,7 @@ class _ChannelScreenState extends State<ChannelScreen> {
                       .withValues(alpha: 0.4),
                   child: Text(channel.topic,
                       style: TextStyle(
-                          fontSize: 13, color: Colors.grey.shade600)),
+                          fontSize: 13, color: AppColors.subtle(context))),
                 ),
               if (channel.pinnedMessages.isNotEmpty && !_searching)
                 _PinnedBar(
@@ -1908,7 +1909,7 @@ class _ChannelScreenState extends State<ChannelScreen> {
                                 ? 'No messages match "${_search.text.trim()}"'
                                 : 'This is the start of #${channel.name}',
                             textAlign: TextAlign.center,
-                            style: TextStyle(color: Colors.grey.shade500)),
+                            style: TextStyle(color: AppColors.subtle(context))),
                       )
                     : ListView.builder(
                         controller: _scroll,
@@ -2018,12 +2019,12 @@ class _ChannelScreenState extends State<ChannelScreen> {
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Icon(_composerLock(comm, channel)!.$1,
-                            size: 18, color: Colors.grey.shade600),
+                            size: 18, color: AppColors.subtle(context)),
                         const SizedBox(width: 8),
                         Flexible(
                           child: Text(_composerLock(comm, channel)!.$2,
                               style: TextStyle(
-                                  color: Colors.grey.shade600,
+                                  color: AppColors.subtle(context),
                                   fontSize: 13.5)),
                         ),
                       ],
@@ -2105,7 +2106,7 @@ class _ChannelScreenState extends State<ChannelScreen> {
                                   style: TextStyle(
                                       fontSize: 12.5,
                                       fontStyle: FontStyle.italic,
-                                      color: Colors.grey.shade600)),
+                                      color: AppColors.subtle(context))),
                             ),
                           ],
                         ),
@@ -2402,7 +2403,7 @@ class _MembersSheetState extends State<_MembersSheet> {
               padding: const EdgeInsets.symmetric(vertical: 28),
               child: Center(
                 child: Text('No members match "${_search.text.trim()}"',
-                    style: TextStyle(color: Colors.grey.shade500)),
+                    style: TextStyle(color: AppColors.subtle(context))),
               ),
             ),
           for (final m in members)
@@ -2468,7 +2469,7 @@ class _MembersSheetState extends State<_MembersSheet> {
                     style: TextStyle(
                         color: m.online
                             ? const Color(0xFF43B581)
-                            : Colors.grey.shade500,
+                            : AppColors.subtle(context),
                         fontSize: 12.5));
               }),
               trailing: Row(
@@ -2602,7 +2603,7 @@ class _RoleBadge extends StatelessWidget {
   Widget build(BuildContext context) {
     final color = switch (role) {
       MemberRole.owner => const Color(0xFFF1C40F), // gold
-      MemberRole.admin => AppColors.tealGreenDark,
+      MemberRole.admin => AppColors.accentOn(context),
       MemberRole.moderator => const Color(0xFF3F7FBF), // blue
       MemberRole.member => Colors.grey,
     };
@@ -2733,7 +2734,7 @@ class _DateSeparator extends StatelessWidget {
               style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
-                  color: Colors.grey.shade600)),
+                  color: AppColors.subtle(context))),
         ),
       ),
     );
@@ -2919,7 +2920,7 @@ class _ChannelBubble extends StatelessWidget {
                 const Spacer(),
                 Text(DateFormatter.messageTime(message.time),
                     style:
-                        TextStyle(fontSize: 11, color: Colors.grey.shade500)),
+                        TextStyle(fontSize: 11, color: AppColors.subtle(context))),
               ],
             ),
             const SizedBox(height: 8),
@@ -2963,7 +2964,7 @@ class _ChannelBubble extends StatelessWidget {
                 color: message.isMe
                     ? (isDark
                         ? AppColors.outgoingBubbleDark
-                        : AppColors.tealGreenDark)
+                        : AppColors.accentOn(context))
                     : (isDark
                         ? AppColors.incomingBubbleDark
                         : AppColors.incomingBubbleLight),
@@ -3043,7 +3044,7 @@ class _ChannelBubble extends StatelessWidget {
                       textColor: onBubble,
                       linkColor: message.isMe
                           ? (isDark ? Colors.tealAccent : Colors.white)
-                          : AppColors.tealGreenDark,
+                          : AppColors.accentOn(context),
                     ),
                   const SizedBox(height: 2),
                   Row(
@@ -3189,7 +3190,7 @@ Future<(String, ChannelType)?> _promptNewChannel(BuildContext context) {
                     fontSize: 11.5,
                     fontWeight: FontWeight.w700,
                     letterSpacing: 0.6,
-                    color: Colors.grey.shade500,
+                    color: AppColors.subtle(context),
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -3210,7 +3211,7 @@ Future<(String, ChannelType)?> _promptNewChannel(BuildContext context) {
                     fontSize: 11.5,
                     fontWeight: FontWeight.w700,
                     letterSpacing: 0.6,
-                    color: Colors.grey.shade500,
+                    color: AppColors.subtle(context),
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -3241,7 +3242,7 @@ Future<(String, ChannelType)?> _promptNewChannel(BuildContext context) {
                       ? 'Voice channels keep the name you type.'
                       : 'Spaces become dashes — it\'ll show up as '
                           '#${name.isEmpty ? 'new-channel' : name}.',
-                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                  style: TextStyle(fontSize: 12, color: AppColors.subtle(context)),
                 ),
               ],
             ),
@@ -3313,7 +3314,7 @@ class _ChannelTypeOption extends StatelessWidget {
               children: [
                 Icon(icon,
                     size: 20,
-                    color: selected ? scheme.primary : Colors.grey.shade500),
+                    color: selected ? scheme.primary : AppColors.subtle(context)),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
@@ -3327,7 +3328,7 @@ class _ChannelTypeOption extends StatelessWidget {
                           )),
                       Text(description,
                           style: TextStyle(
-                              fontSize: 12.5, color: Colors.grey.shade600)),
+                              fontSize: 12.5, color: AppColors.subtle(context))),
                     ],
                   ),
                 ),

@@ -368,7 +368,7 @@ class _ConnectOnboardingScreenState extends State<ConnectOnboardingScreen> {
               const SizedBox(height: 8),
               Text('You will come back here when it is done.',
                   style:
-                      TextStyle(fontSize: 12.5, color: Colors.grey.shade600)),
+                      TextStyle(fontSize: 12.5, color: AppColors.subtle(context))),
             ],
           ),
         ),
@@ -446,7 +446,7 @@ class _ConnectOnboardingScreenState extends State<ConnectOnboardingScreen> {
               Text(message,
                   textAlign: TextAlign.center,
                   style:
-                      TextStyle(color: Colors.grey.shade600, fontSize: 13.5)),
+                      TextStyle(color: AppColors.subtle(context), fontSize: 13.5)),
               const SizedBox(height: 16),
               FilledButton(
                 onPressed: _retry,

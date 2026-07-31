@@ -92,7 +92,7 @@ class _Swatch extends StatelessWidget {
           color: color ?? Theme.of(context).scaffoldBackgroundColor,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: selected ? AppColors.tealGreenDark : Colors.black12,
+            color: selected ? AppColors.accentOn(context) : Colors.black12,
             width: selected ? 3 : 1,
           ),
         ),
@@ -101,7 +101,7 @@ class _Swatch extends StatelessWidget {
             ? const Text('Default',
                 style: TextStyle(fontWeight: FontWeight.w600))
             : (selected
-                ? const Icon(Icons.check, color: AppColors.tealGreenDark)
+                ? Icon(Icons.check, color: AppColors.accentOn(context))
                 : null),
       ),
     );

@@ -540,8 +540,8 @@ class _ReplyQuote extends StatelessWidget {
       decoration: BoxDecoration(
         color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.06),
         borderRadius: BorderRadius.circular(4),
-        border: const Border(
-          left: BorderSide(color: AppColors.tealGreenDark, width: 3),
+        border: Border(
+          left: BorderSide(color: AppColors.accentOn(context), width: 3),
         ),
       ),
       child: Column(
@@ -550,8 +550,8 @@ class _ReplyQuote extends StatelessWidget {
         children: [
           Text(
             reply.isMe ? 'You' : reply.senderName,
-            style: const TextStyle(
-              color: AppColors.tealGreenDark,
+            style: TextStyle(
+              color: AppColors.accentOn(context),
               fontWeight: FontWeight.w600,
               fontSize: 12.5,
             ),
@@ -1109,7 +1109,7 @@ class _VoiceContentState extends State<_VoiceContent> {
             onTap: () => setState(() => _playing = !_playing),
             child: Icon(
               _playing ? Icons.pause : Icons.play_arrow,
-              color: AppColors.tealGreenDark,
+              color: AppColors.accentOn(context),
               size: 30,
             ),
           ),

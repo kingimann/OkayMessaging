@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../theme/app_theme.dart';
 
 import '../app_state.dart';
 import '../widgets/info_section.dart';
@@ -250,7 +251,7 @@ class _TextSizeTile extends StatelessWidget {
                           TextStyle(fontSize: 16, fontWeight: FontWeight.w500)),
                   const Spacer(),
                   Text('${(scale * 100).round()}%',
-                      style: TextStyle(color: Colors.grey.shade500)),
+                      style: TextStyle(color: AppColors.subtle(context))),
                 ],
               ),
               Align(

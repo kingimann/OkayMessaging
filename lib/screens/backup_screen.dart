@@ -1,4 +1,5 @@
 import 'package:file_picker/file_picker.dart';
+import '../theme/app_theme.dart';
 import 'package:flutter/material.dart';
 
 import '../state/backup_service.dart';
@@ -109,7 +110,7 @@ class BackupScreen extends StatelessWidget {
               'Create an encrypted backup of your chats and servers and keep it '
               'in the cloud. Your backup is locked with a passphrase only you '
               'know — neither Okay nor the cloud provider can read it.',
-              style: TextStyle(color: Colors.grey.shade600, fontSize: 13.5),
+              style: TextStyle(color: AppColors.subtle(context), fontSize: 13.5),
             ),
           ),
           const _ProviderRow(),
@@ -156,14 +157,14 @@ class BackupScreen extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(20, 14, 20, 8),
             child: Row(
               children: [
-                Icon(Icons.lock_outline, size: 15, color: Colors.grey.shade500),
+                Icon(Icons.lock_outline, size: 15, color: AppColors.subtle(context)),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
                     'End-to-end encrypted with AES-256. If you lose the '
                     'passphrase, the backup can\'t be recovered.',
                     style:
-                        TextStyle(color: Colors.grey.shade500, fontSize: 12),
+                        TextStyle(color: AppColors.subtle(context), fontSize: 12),
                   ),
                 ),
               ],

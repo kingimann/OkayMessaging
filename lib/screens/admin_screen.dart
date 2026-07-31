@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../theme/app_theme.dart';
 
 import '../models/platform_role.dart';
 import '../state/account_service.dart';
@@ -128,7 +129,7 @@ class _AdminScreenState extends State<AdminScreen> {
                         : 'You can time out accounts. Bans and suspensions '
                             'need an admin.',
                     style: TextStyle(
-                        fontSize: 12.5, color: Colors.grey.shade600),
+                        fontSize: 12.5, color: AppColors.subtle(context)),
                   ),
                   const SizedBox(height: 6),
                   // The limit that matters most, said up front rather than
@@ -139,7 +140,7 @@ class _AdminScreenState extends State<AdminScreen> {
                     'have no server copy, so nobody here can read or delete '
                     'them.',
                     style: TextStyle(
-                        fontSize: 12, color: Colors.grey.shade600),
+                        fontSize: 12, color: AppColors.subtle(context)),
                   ),
                 ],
               ),
@@ -177,7 +178,7 @@ class _AdminScreenState extends State<AdminScreen> {
                         ? 'No account attached'
                         : AccountService.maskPhone(r.targetPhone),
                     style: TextStyle(
-                        fontSize: 12.5, color: Colors.grey.shade600),
+                        fontSize: 12.5, color: AppColors.subtle(context)),
                   ),
                 ),
                 if (r.targetPhone.isNotEmpty)
@@ -240,7 +241,7 @@ class _AdminScreenState extends State<AdminScreen> {
             const SizedBox(height: 12),
             Text(text,
                 textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.grey.shade600)),
+                style: TextStyle(color: AppColors.subtle(context))),
           ],
         ),
       );
@@ -354,7 +355,7 @@ class _SanctionSheetState extends State<_SanctionSheet> {
                 'Removes access to the app. It does not touch conversations — '
                 'those are encrypted and have no server copy.',
                 style:
-                    TextStyle(fontSize: 12.5, color: Colors.grey.shade600)),
+                    TextStyle(fontSize: 12.5, color: AppColors.subtle(context))),
             const SizedBox(height: 14),
             TextField(
               controller: _phone,
@@ -397,7 +398,7 @@ class _SanctionSheetState extends State<_SanctionSheet> {
                 padding: const EdgeInsets.only(top: 10),
                 child: Text('A ban is permanent until an admin lifts it.',
                     style: TextStyle(
-                        fontSize: 12.5, color: Colors.grey.shade600)),
+                        fontSize: 12.5, color: AppColors.subtle(context))),
               ),
             const SizedBox(height: 12),
             TextField(

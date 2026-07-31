@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../theme/app_theme.dart';
 
 import '../models/community.dart';
 import '../state/community_store.dart';
@@ -219,7 +220,7 @@ class _CreateServerScreenState extends State<CreateServerScreen> {
                 'Limits how often members can send messages. '
                 'Moderators are exempt.',
                 style:
-                    TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                    TextStyle(fontSize: 12, color: AppColors.subtle(context))),
           ),
           const SizedBox(height: 20),
           Container(
@@ -231,7 +232,7 @@ class _CreateServerScreenState extends State<CreateServerScreen> {
             child: Row(
               children: [
                 Icon(Icons.lock_outline,
-                    size: 20, color: Colors.grey.shade600),
+                    size: 20, color: AppColors.subtle(context)),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(
@@ -239,7 +240,7 @@ class _CreateServerScreenState extends State<CreateServerScreen> {
                     'own key, shared only through invites. People who join '
                     'later never receive earlier messages.',
                     style: TextStyle(
-                        color: Colors.grey.shade600, fontSize: 12.5),
+                        color: AppColors.subtle(context), fontSize: 12.5),
                   ),
                 ),
               ],
@@ -264,7 +265,7 @@ class _CreateServerScreenState extends State<CreateServerScreen> {
                 fontSize: 12,
                 fontWeight: FontWeight.w700,
                 letterSpacing: 0.6,
-                color: Colors.grey.shade500)),
+                color: AppColors.subtle(context))),
       );
 
   // A Material, not a decorated Container: the tiles inside paint their ink

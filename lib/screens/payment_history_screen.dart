@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../theme/app_theme.dart';
 
 import '../payments/payment_service.dart';
 import '../util/phone_format.dart';
@@ -59,7 +60,7 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
           const SizedBox(height: 12),
           Center(
             child: Text(message,
-                style: TextStyle(color: Colors.grey.shade600)),
+                style: TextStyle(color: AppColors.subtle(context))),
           ),
         ],
       );
@@ -95,7 +96,7 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
       title: Text(formatPhoneForDisplay(t.otherPhone)),
       subtitle: Text(
         t.at == null ? label : '$label · ${_when(t.at!)}',
-        style: TextStyle(fontSize: 12.5, color: Colors.grey.shade600),
+        style: TextStyle(fontSize: 12.5, color: AppColors.subtle(context)),
       ),
       trailing: Text(
         // Only a completed send actually left the account, so only that

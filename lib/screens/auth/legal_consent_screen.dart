@@ -50,7 +50,7 @@ class LegalConsentScreen extends StatelessWidget {
                         'our servers.',
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                    fontSize: 14.5, height: 1.45, color: Colors.grey.shade600),
+                    fontSize: 14.5, height: 1.45, color: AppColors.subtle(context)),
               ),
               const SizedBox(height: 26),
               _DocTile(
@@ -71,7 +71,7 @@ class LegalConsentScreen extends StatelessWidget {
                 'By continuing you agree to the Terms of Service and '
                 'Privacy Policy.',
                 textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 12.5, color: Colors.grey.shade500),
+                style: TextStyle(fontSize: 12.5, color: AppColors.subtle(context)),
               ),
               const SizedBox(height: 12),
               FilledButton(

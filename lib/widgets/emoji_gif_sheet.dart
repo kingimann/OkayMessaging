@@ -63,8 +63,8 @@ class _EmojiGifSheetState extends State<_EmojiGifSheet>
           if (widget.allowGif)
             TabBar(
               controller: _tabs,
-              labelColor: AppColors.tealGreenDark,
-              indicatorColor: AppColors.tealGreenDark,
+              labelColor: AppColors.accentOn(context),
+              indicatorColor: AppColors.accentOn(context),
               tabs: const [
                 Tab(text: 'Emoji'),
                 Tab(text: 'GIF'),

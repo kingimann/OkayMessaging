@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../theme/app_theme.dart';
 import 'package:flutter/services.dart';
 
 import '../state/account_email.dart';
@@ -38,7 +39,7 @@ class TwoStepScreen extends StatelessWidget {
                                 'to sign in on this device.'
                             : 'Add an extra PIN that\'s required whenever you '
                                 'sign in — protection beyond your phone number.',
-                        style: TextStyle(color: Colors.grey.shade700),
+                        style: TextStyle(color: AppColors.subtle(context)),
                       ),
                     ),
                   ],

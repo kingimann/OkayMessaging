@@ -106,7 +106,7 @@ class _DialerScreenState extends State<DialerScreen> {
                       style: TextStyle(
                         fontSize: _number.isEmpty ? 20 : 32,
                         fontWeight: FontWeight.w600,
-                        color: _number.isEmpty ? Colors.grey.shade500 : null,
+                        color: _number.isEmpty ? AppColors.subtle(context) : null,
                         fontFeatures: const [FontFeature.tabularFigures()],
                       ),
                     ),
@@ -144,7 +144,7 @@ class _DialerScreenState extends State<DialerScreen> {
                   : 'People on OkayMessenger ring here — everyone else '
                       'rings through your phone.',
               textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 11.5, color: Colors.grey.shade500),
+              style: TextStyle(fontSize: 11.5, color: AppColors.subtle(context)),
             ),
             const SizedBox(height: 10),
             Row(
@@ -244,7 +244,7 @@ class _DialKey extends StatelessWidget {
                       style: TextStyle(
                           fontSize: 9.5,
                           letterSpacing: 1.2,
-                          color: Colors.grey.shade500)),
+                          color: AppColors.subtle(context))),
               ],
             ),
           ),

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../theme/app_theme.dart';
 import 'package:flutter/services.dart';
 
 import '../app_state.dart';
@@ -419,7 +420,7 @@ class _BlockedCountBadge extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Text('${blocked.length}',
-                style: TextStyle(color: Colors.grey.shade500)),
+                style: TextStyle(color: AppColors.subtle(context))),
             const SizedBox(width: 4),
             const Icon(Icons.chevron_right, color: Colors.grey),
           ],

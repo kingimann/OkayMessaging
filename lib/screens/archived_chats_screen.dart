@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../theme/app_theme.dart';
 
 import '../models/chat.dart';
 import '../state/chat_store.dart';
@@ -67,7 +68,7 @@ class ArchivedChatsScreen extends StatelessWidget {
                     child: Text(
                       'Swipe a chat left, or long-press it, to archive it here.',
                       textAlign: TextAlign.center,
-                      style: TextStyle(color: Colors.grey.shade600),
+                      style: TextStyle(color: AppColors.subtle(context)),
                     ),
                   ),
                 ],

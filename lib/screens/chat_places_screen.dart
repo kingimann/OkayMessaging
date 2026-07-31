@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../theme/app_theme.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 
@@ -77,7 +78,7 @@ class _ChatPlacesScreenState extends State<ChatPlacesScreen> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Icon(Icons.place_outlined,
-                        size: 56, color: Colors.grey.shade500),
+                        size: 56, color: AppColors.subtle(context)),
                     const SizedBox(height: 12),
                     Text(
                       'No places shared in this chat yet',
@@ -85,14 +86,14 @@ class _ChatPlacesScreenState extends State<ChatPlacesScreen> {
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.w600,
-                        color: Colors.grey.shade600,
+                        color: AppColors.subtle(context),
                       ),
                     ),
                     const SizedBox(height: 6),
                     Text(
                       'Locations either of you share will show up here.',
                       textAlign: TextAlign.center,
-                      style: TextStyle(color: Colors.grey.shade500),
+                      style: TextStyle(color: AppColors.subtle(context)),
                     ),
                   ],
                 ),
@@ -182,7 +183,7 @@ class _ChatPlacesScreenState extends State<ChatPlacesScreen> {
                   const SizedBox(height: 2),
                   Text(
                     'Shared by $who · ${DateFormatter.messageTime(m.time)}',
-                    style: TextStyle(color: Colors.grey.shade600),
+                    style: TextStyle(color: AppColors.subtle(context)),
                   ),
                   const SizedBox(height: 10),
                   FilledButton.icon(

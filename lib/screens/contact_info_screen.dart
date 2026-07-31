@@ -114,8 +114,8 @@ class ContactInfoScreen extends StatelessWidget {
             Center(
               child: Text(
                 user.handle,
-                style: const TextStyle(
-                  color: AppColors.tealGreenDark,
+                style: TextStyle(
+                  color: AppColors.accentOn(context),
                   fontSize: 15,
                   fontWeight: FontWeight.w600,
                 ),
@@ -127,7 +127,7 @@ class ContactInfoScreen extends StatelessWidget {
             Center(
               child: Text(
                 user.pronouns.trim(),
-                style: TextStyle(color: Colors.grey.shade500, fontSize: 13),
+                style: TextStyle(color: AppColors.subtle(context), fontSize: 13),
               ),
             ),
           ],
@@ -187,7 +187,7 @@ class ContactInfoScreen extends StatelessWidget {
             Center(
               child: Text(
                 user.phone,
-                style: TextStyle(color: Colors.grey.shade600, fontSize: 15),
+                style: TextStyle(color: AppColors.subtle(context), fontSize: 15),
               ),
             ),
           ],
@@ -383,7 +383,7 @@ class ContactInfoScreen extends StatelessWidget {
                     const SizedBox(height: 4),
                     Text('Choose a reason. Reports are confidential.',
                         style: TextStyle(
-                            color: Colors.grey.shade600, fontSize: 13)),
+                            color: AppColors.subtle(context), fontSize: 13)),
                   ],
                 ),
               ),
@@ -483,8 +483,8 @@ class _TonalAction extends StatelessWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return Material(
       color: isDark
-          ? AppColors.tealGreenDark.withValues(alpha: 0.22)
-          : AppColors.tealGreenDark.withValues(alpha: 0.12),
+          ? AppColors.accentOn(context).withValues(alpha: 0.22)
+          : AppColors.accentOn(context).withValues(alpha: 0.12),
       borderRadius: BorderRadius.circular(14),
       child: InkWell(
         borderRadius: BorderRadius.circular(14),
@@ -493,12 +493,12 @@ class _TonalAction extends StatelessWidget {
           padding: const EdgeInsets.symmetric(vertical: 12),
           child: Column(
             children: [
-              Icon(icon, color: AppColors.tealGreenDark, size: 22),
+              Icon(icon, color: AppColors.accentOn(context), size: 22),
               const SizedBox(height: 4),
               Text(
                 label,
-                style: const TextStyle(
-                  color: AppColors.tealGreenDark,
+                style: TextStyle(
+                  color: AppColors.accentOn(context),
                   fontSize: 12.5,
                   fontWeight: FontWeight.w600,
                 ),

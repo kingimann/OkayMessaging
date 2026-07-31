@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../theme/app_theme.dart';
 
 import '../legal/legal_content.dart';
 
@@ -24,7 +25,7 @@ class LegalScreen extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
         children: [
           Text(legalLastUpdated,
-              style: TextStyle(color: Colors.grey.shade500, fontSize: 12.5)),
+              style: TextStyle(color: AppColors.subtle(context), fontSize: 12.5)),
           const SizedBox(height: 16),
           for (final s in sections) ...[
             Text(s.title,

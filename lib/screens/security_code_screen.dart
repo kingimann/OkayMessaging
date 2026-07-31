@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../theme/app_theme.dart';
 import 'package:flutter/services.dart';
 
 import '../crypto/e2e.dart';
@@ -29,7 +30,7 @@ class SecurityCodeScreen extends StatelessWidget {
           Center(child: UserAvatar(user: contact, radius: 40)),
           const SizedBox(height: 14),
           Center(
-            child: Icon(Icons.lock, size: 22, color: Colors.grey.shade600),
+            child: Icon(Icons.lock, size: 22, color: AppColors.subtle(context)),
           ),
           const SizedBox(height: 12),
           Center(
@@ -38,7 +39,7 @@ class SecurityCodeScreen extends StatelessWidget {
               'encrypted with AES-256-GCM. Compare this code on both devices '
               'to verify — if they match, no one else can read this chat.',
               textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.grey.shade600, height: 1.4),
+              style: TextStyle(color: AppColors.subtle(context), height: 1.4),
             ),
           ),
           const SizedBox(height: 26),

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../theme/app_theme.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../models/chat.dart';
@@ -127,7 +128,7 @@ class _ContactsOnAppScreenState extends State<ContactsOnAppScreen> {
               'See which of your contacts already use OkayMessenger so you can '
               'message and call them right away.',
               textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.grey.shade600, fontSize: 15),
+              style: TextStyle(color: AppColors.subtle(context), fontSize: 15),
             ),
             const SizedBox(height: 20),
             _PrivacyNote(),
@@ -192,7 +193,7 @@ class _ContactsOnAppScreenState extends State<ContactsOnAppScreen> {
                       'Only the contacts you shared were checked — '
                       'share more in Settings.',
                       style: TextStyle(
-                          fontSize: 12.5, color: Colors.grey.shade600),
+                          fontSize: 12.5, color: AppColors.subtle(context)),
                     ),
                   ),
                 ),
@@ -321,7 +322,7 @@ class _ContactsOnAppScreenState extends State<ContactsOnAppScreen> {
             const SizedBox(height: 8),
             Text(body,
                 textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.grey.shade600, fontSize: 14)),
+                style: TextStyle(color: AppColors.subtle(context), fontSize: 14)),
             // "Nobody's here yet" is an invitation problem, not a retry
             // problem — so the primary action is inviting, via the OS share
             // sheet, and syncing again is the secondary one.
@@ -366,13 +367,13 @@ class _PrivacyNote extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Icon(Icons.lock_outline, size: 20, color: Colors.grey.shade600),
+          Icon(Icons.lock_outline, size: 20, color: AppColors.subtle(context)),
           const SizedBox(width: 12),
           Expanded(
             child: Text(
               'Your contacts are never uploaded. Only encrypted hashes of phone '
               'numbers are checked against the directory.',
-              style: TextStyle(color: Colors.grey.shade600, fontSize: 12.5),
+              style: TextStyle(color: AppColors.subtle(context), fontSize: 12.5),
             ),
           ),
         ],

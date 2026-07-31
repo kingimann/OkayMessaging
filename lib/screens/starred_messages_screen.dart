@@ -48,8 +48,8 @@ class StarredMessagesScreen extends StatelessWidget {
                   ),
                   subtitle: Text(entry.message.text,
                       maxLines: 2, overflow: TextOverflow.ellipsis),
-                  trailing: const Icon(Icons.star,
-                      size: 16, color: AppColors.tealGreenDark),
+                  trailing: Icon(Icons.star,
+                      size: 16, color: AppColors.accentOn(context)),
                   onTap: () {},
                 );
               },

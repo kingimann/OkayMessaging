@@ -150,7 +150,7 @@ class _EditGroupScreenState extends State<EditGroupScreen> {
                         shape: BoxShape.circle,
                         border: Border.all(
                           color: _color == hex
-                              ? AppColors.tealGreenDark
+                              ? AppColors.accentOn(context)
                               : Colors.transparent,
                           width: 3,
                         ),
@@ -197,8 +197,8 @@ class _EditGroupScreenState extends State<EditGroupScreen> {
           InfoSection(
             children: [
               InfoTile(
-                leading: const Icon(Icons.person_add_alt,
-                    color: AppColors.tealGreenDark),
+                leading: Icon(Icons.person_add_alt,
+                    color: AppColors.accentOn(context)),
                 title: 'Add participants',
                 onTap: _addMembers,
               ),
@@ -232,6 +232,8 @@ class _EditGroupScreenState extends State<EditGroupScreen> {
     try {
       return Color(int.parse(hex.replaceFirst('#', 'ff'), radix: 16));
     } catch (_) {
+      // Same as group_info: an avatar swatch, judged against its own
+      // initials, not against the page behind it.
       return AppColors.tealGreenDark;
     }
   }
@@ -290,7 +292,7 @@ class _AddMembersSheetState extends State<_AddMembersSheet> {
                       secondary: UserAvatar(user: c, radius: 21),
                       title: Text(c.name,
                           style: const TextStyle(fontWeight: FontWeight.w600)),
-                      activeColor: AppColors.tealGreenDark,
+                      activeColor: AppColors.accentOn(context),
                       controlAffinity: ListTileControlAffinity.trailing,
                     ),
                 ],

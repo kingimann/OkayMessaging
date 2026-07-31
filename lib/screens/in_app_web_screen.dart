@@ -86,7 +86,7 @@ class _InAppWebScreenState extends State<InAppWebScreen> {
                 padding: const EdgeInsets.all(32),
                 child: Text('Opening pages needs the mobile app.',
                     textAlign: TextAlign.center,
-                    style: TextStyle(color: Colors.grey.shade600)),
+                    style: TextStyle(color: AppColors.subtle(context))),
               ),
             )
           : _error != null
@@ -101,7 +101,7 @@ class _InAppWebScreenState extends State<InAppWebScreen> {
                         const SizedBox(height: 14),
                         Text(_error!,
                             textAlign: TextAlign.center,
-                            style: TextStyle(color: Colors.grey.shade600)),
+                            style: TextStyle(color: AppColors.subtle(context))),
                         const SizedBox(height: 18),
                         OutlinedButton(
                           onPressed: () => setState(() => _error = null),

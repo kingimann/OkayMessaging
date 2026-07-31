@@ -384,7 +384,7 @@ class _EmojiPicker extends StatelessWidget {
         cell(
           active: selected.isEmpty,
           onTap: () => onSelected(''),
-          child: Icon(Icons.block, color: Colors.grey.shade500, size: 20),
+          child: Icon(Icons.block, color: AppColors.subtle(context), size: 20),
         ),
         for (final e in choices)
           cell(

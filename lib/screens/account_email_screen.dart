@@ -212,7 +212,7 @@ class _WhyCard extends StatelessWidget {
                         'in if you lose that number — and a recovery address '
                         'for two-step verification.',
                 style: TextStyle(
-                    fontSize: 13.5, color: Colors.grey.shade600, height: 1.35),
+                    fontSize: 13.5, color: AppColors.subtle(context), height: 1.35),
               ),
             ],
           ),
@@ -265,14 +265,14 @@ class _PrivacyNote extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(Icons.shield_outlined, size: 16, color: Colors.grey.shade500),
+          Icon(Icons.shield_outlined, size: 16, color: AppColors.subtle(context)),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
               'Your email is never shown to your contacts and never added to '
               'the people directory. It stays on this device and in your '
               'encrypted backup.',
-              style: TextStyle(fontSize: 12.5, color: Colors.grey.shade600),
+              style: TextStyle(fontSize: 12.5, color: AppColors.subtle(context)),
             ),
           ),
         ],

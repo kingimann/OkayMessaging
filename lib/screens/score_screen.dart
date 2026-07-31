@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart' hide Badge;
 
 import '../app_state.dart';
+import '../theme/app_theme.dart';
 import '../models/chat.dart';
 import '../state/chat_store.dart';
 import '../state/identity_verification.dart';
@@ -63,7 +64,7 @@ class ScoreScreen extends StatelessWidget {
                 Text(
                   'Tap an earned badge to feature it on your profile, or any '
                   'badge to see what it takes.',
-                  style: TextStyle(color: Colors.grey.shade600, fontSize: 12.5),
+                  style: TextStyle(color: AppColors.subtle(context), fontSize: 12.5),
                 ),
                 const SizedBox(height: 12),
                 GridView.count(
@@ -137,7 +138,7 @@ class _StreaksSection extends StatelessWidget {
             Text(
                 'A streak grows on each day you and someone both send at '
                 'least one message. Miss a day and it lapses.',
-                style: TextStyle(color: Colors.grey.shade600, fontSize: 12.5)),
+                style: TextStyle(color: AppColors.subtle(context), fontSize: 12.5)),
             const SizedBox(height: 6),
             if (top.isEmpty)
               Padding(
@@ -157,7 +158,7 @@ class _StreaksSection extends StatelessWidget {
                               : 'No streaks yet. Once you and someone else '
                                   'both message on the same day, a flame '
                                   'appears here and in the chat.',
-                          style: TextStyle(color: Colors.grey.shade500)),
+                          style: TextStyle(color: AppColors.subtle(context))),
                     ),
                   ],
                 ),
@@ -214,7 +215,7 @@ class _StreakRow extends StatelessWidget {
             child: Text('$rank',
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                    fontWeight: FontWeight.w700, color: Colors.grey.shade500)),
+                    fontWeight: FontWeight.w700, color: AppColors.subtle(context))),
           ),
           UserAvatar(user: chat.contact, radius: 20),
         ],
@@ -377,7 +378,7 @@ class _StatsRow extends StatelessWidget {
           ),
           child: Column(
             children: [
-              Icon(icon, size: 18, color: Colors.grey.shade600),
+              Icon(icon, size: 18, color: AppColors.subtle(context)),
               const SizedBox(height: 4),
               Text(value,
                   style: const TextStyle(
@@ -387,7 +388,7 @@ class _StatsRow extends StatelessWidget {
                   textAlign: TextAlign.center,
                   maxLines: 2,
                   style:
-                      TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+                      TextStyle(fontSize: 11, color: AppColors.subtle(context))),
             ],
           ),
         ),
@@ -431,7 +432,7 @@ class _NextBadgeCard extends StatelessWidget {
                           : '$left more ${left == 1 ? 'point' : 'points'} '
                               '(${badge.description.toLowerCase()})',
                       style: TextStyle(
-                          fontSize: 12.5, color: Colors.grey.shade600)),
+                          fontSize: 12.5, color: AppColors.subtle(context))),
                   const SizedBox(height: 8),
                   ClipRRect(
                     borderRadius: BorderRadius.circular(8),
@@ -494,7 +495,7 @@ class _EarningRules extends StatelessWidget {
                   'Your score is kept on this device and only travels to '
                   'people you message, the same way your name does.',
                   style:
-                      TextStyle(fontSize: 11.5, color: Colors.grey.shade600)),
+                      TextStyle(fontSize: 11.5, color: AppColors.subtle(context))),
             ),
           ),
         ],
@@ -525,7 +526,7 @@ void _explainBadge(BuildContext context, Badge badge, ScoreStore store) {
             const SizedBox(height: 6),
             Text(badge.description,
                 textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.grey.shade600)),
+                style: TextStyle(color: AppColors.subtle(context))),
             if (left != null && left > 0) ...[
               const SizedBox(height: 14),
               ClipRRect(
@@ -538,7 +539,7 @@ void _explainBadge(BuildContext context, Badge badge, ScoreStore store) {
               const SizedBox(height: 8),
               Text('${store.points} / $target points',
                   style: TextStyle(
-                      fontSize: 12.5, color: Colors.grey.shade600)),
+                      fontSize: 12.5, color: AppColors.subtle(context))),
             ],
           ],
         ),
@@ -574,7 +575,7 @@ class _VerifiedRow extends StatelessWidget {
                 // No "remove": the badge reflects a completed ID check, so
                 // it isn't the device's to switch off.
                 Icon(Icons.lock_outline,
-                    size: 16, color: Colors.grey.shade500),
+                    size: 16, color: AppColors.subtle(context)),
               ],
             ),
           );
@@ -779,7 +780,7 @@ class _BadgeCard extends StatelessWidget {
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                          fontSize: 11.5, color: Colors.grey.shade500),
+                          fontSize: 11.5, color: AppColors.subtle(context)),
                     ),
                     // A points badge shows how close it is. A locked square
                     // that only says "reach 250 points" gives no sense of
@@ -796,7 +797,7 @@ class _BadgeCard extends StatelessWidget {
                       const SizedBox(height: 3),
                       Text('$points / ${badge.threshold}',
                           style: TextStyle(
-                              fontSize: 10.5, color: Colors.grey.shade500)),
+                              fontSize: 10.5, color: AppColors.subtle(context))),
                     ],
                   ],
                 ),

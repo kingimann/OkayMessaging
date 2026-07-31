@@ -117,7 +117,7 @@ class _ForwardScreenState extends State<ForwardScreen> {
             title: Text(chat.contact.name,
                 style: const TextStyle(fontWeight: FontWeight.w600)),
             trailing: selected
-                ? const Icon(Icons.check_circle, color: AppColors.tealGreenDark)
+                ? Icon(Icons.check_circle, color: AppColors.accentOn(context))
                 : const Icon(Icons.circle_outlined, color: Colors.grey),
             onTap: () => setState(() {
               if (!_selected.remove(chat.id)) _selected.add(chat.id);

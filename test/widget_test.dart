@@ -18075,43 +18075,38 @@ void main() {
       }
     });
 
-    test('the screens people actually look at ask the theme, not the palette',
-        () {
-      // Everywhere secondary text appears on a surface that changes with the
-      // theme. Not a blanket ban: a grey drawn on a fixed-colour background —
-      // a photo, a coloured banner — is a different question, and those files
-      // are not in this list.
-      for (final path in [
-        'lib/widgets/empty_state.dart',
-        'lib/widgets/app_dialogs.dart',
-        'lib/widgets/sanction_notice.dart',
-        'lib/screens/public_feed_screen.dart',
-        'lib/screens/profile_screen.dart',
-        'lib/screens/home_screen.dart',
-        'lib/screens/wallet_screen.dart',
-        'lib/screens/payment_controls_screen.dart',
-        'lib/screens/cloud_sync_screen.dart',
-        'lib/screens/chat_search_delegate.dart',
-        'lib/tabs/chats_tab.dart',
-        'lib/tabs/calls_tab.dart',
-        'lib/tabs/activity_tab.dart',
-      ]) {
-        final src = File(path).readAsStringSync();
-        for (final grey in [
+    test('nothing outside the theme picks a colour the theme should pick', () {
+      // The whole of lib/, not a list of files that goes stale. There were
+      // 300 fixed greys and 67 hard-coded light accents; what is left is
+      // named below, with the reason, and nothing else may join them.
+      const allowed = {
+        // The themes' own definitions. A light-only grey inside AppTheme.light
+        // is not a bug — that theme knows which one it is.
+        'lib/theme/app_theme.dart',
+        // Avatar swatch fallbacks: a colour painted BEHIND initials, judged
+        // against the initials rather than against the page.
+        'lib/screens/group_info_screen.dart',
+        'lib/screens/edit_group_screen.dart',
+      };
+      final offenders = <String>[];
+      for (final f in Directory('lib').listSync(recursive: true)) {
+        if (f is! File || !f.path.endsWith('.dart')) continue;
+        if (allowed.contains(f.path)) continue;
+        final src = f.readAsStringSync();
+        for (final banned in [
           'Colors.grey.shade500',
           'Colors.grey.shade600',
           'Colors.grey.shade700',
+          // The trap app_theme.dart documents in so many words: "hard-coding
+          // it paints a near-black button onto a near-black screen".
+          'AppColors.tealGreenDark',
         ]) {
-          expect(src.contains(grey), isFalse,
-              reason: '$path uses $grey, which fails one of the two themes');
+          if (src.contains(banned)) offenders.add('${f.path} → $banned');
         }
-        // The trap app_theme.dart documents in so many words — "hard-coding it
-        // paints a near-black button onto a near-black screen" — and which the
-        // wallet's own empty state had fallen into: a 48-point icon in
-        // #0F1419, centred on a #121212 background.
-        expect(src.contains('AppColors.tealGreenDark'), isFalse,
-            reason: '$path paints with the LIGHT accent, whatever the theme');
       }
+      expect(offenders, isEmpty,
+          reason: 'these pick a fixed colour where the theme has one:\n'
+              '${offenders.join('\n')}');
     });
 
     testWidgets('the same screen is readable in both themes', (t) async {
