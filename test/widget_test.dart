@@ -12,6 +12,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../tool/paste_functions.dart';
 import 'package:okay_messaging/payments/iap_entitlement.dart';
 import 'package:okay_messaging/utils/date_formatter.dart';
+import 'package:okay_messaging/state/notes_store.dart';
 import 'package:okay_messaging/state/bookmark_store.dart';
 import 'package:okay_messaging/state/feed_mute_store.dart';
 import 'package:okay_messaging/state/voice_presence_store.dart';
@@ -28,6 +29,7 @@ import 'package:okay_messaging/models/feed_notification.dart';
 import 'package:okay_messaging/util/phone_format.dart';
 import 'package:okay_messaging/legal/legal_content.dart';
 import 'package:okay_messaging/models/call.dart' as callmodel;
+import 'package:okay_messaging/screens/notes_screen.dart';
 import 'package:okay_messaging/screens/auth/phone_login_screen.dart';
 import 'package:okay_messaging/screens/blocked_contacts_screen.dart';
 import 'package:okay_messaging/screens/call_screen.dart';
@@ -8608,8 +8610,15 @@ void main() {
       // find: Marketplace, Servers, Wallet, Settings.
       expect(find.text('Maps'), findsOneWidget);
       expect(find.text('Marketplace'), findsOneWidget);
+      expect(find.text('Notes'), findsOneWidget);
       expect(find.text('Servers'), findsOneWidget);
       expect(find.text('Wallet'), findsOneWidget);
+      // Below the fold on the 600-tall view this runs at, and a ListView does
+      // not build what it has not reached. It is reachable on a phone; it is
+      // reached here the same way.
+      await tester.scrollUntilVisible(find.text('Settings'), 120,
+          scrollable: find.descendant(
+              of: find.byType(Drawer), matching: find.byType(Scrollable)));
       expect(find.text('Settings'), findsOneWidget);
       expect(find.text('People'), findsNothing);
       expect(find.text('Starred messages'), findsNothing);
@@ -18041,6 +18050,217 @@ void main() {
           reason: 'still under the conversation with the keyboard up');
       expect(composer.bottom, closeTo(844 - 336, 24),
           reason: 'it rides the top of the keyboard');
+    });
+  });
+
+  group('Notes', () {
+    setUp(() async {
+      SharedPreferences.setMockInitialValues({});
+      NotesStore.instance.resetForTest();
+      await NotesStore.instance.load();
+    });
+    tearDown(NotesStore.instance.resetForTest);
+
+    test('the first line is the title, and the rest is the preview', () {
+      Note n(String body) => Note(
+          id: 'x',
+          body: body,
+          createdAt: DateTime(2026),
+          updatedAt: DateTime(2026));
+
+      expect(n('Milk\nEggs\nBread').title, 'Milk');
+      expect(n('Milk\nEggs\nBread').preview, 'Eggs Bread');
+      // Leading blank lines are somebody hitting return, not a title.
+      expect(n('\n\n  Shopping\nMilk').title, 'Shopping');
+      expect(n('\n\n  Shopping\nMilk').preview, 'Milk');
+      // One line is all title and no preview, rather than a repeat of itself.
+      expect(n('Just this').title, 'Just this');
+      expect(n('Just this').preview, '');
+      expect(n('   ').title, '');
+      expect(n('   ').isEmpty, isTrue);
+      // A wall of text does not become the whole row.
+      expect(n('x' * 200).title.length, lessThanOrEqualTo(81));
+      expect(n('t\n${'y' * 400}').preview.length, lessThanOrEqualTo(141));
+    });
+
+    test('an empty note is never saved, and emptying one deletes it',
+        () async {
+      final store = NotesStore.instance;
+      expect(await store.save(body: '   '), isNull,
+          reason: 'a blank row is a thing to tidy up later');
+      expect(store.count, 0);
+
+      final note = await store.save(body: 'Something');
+      expect(note, isNotNull);
+      expect(store.count, 1);
+
+      expect(await store.save(id: note!.id, body: ''), isNull);
+      expect(store.count, 0, reason: 'emptying it deletes it');
+    });
+
+    test('pinned first, then most recently edited', () async {
+      final store = NotesStore.instance;
+      final a = await store.save(body: 'first');
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      final b = await store.save(body: 'second');
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      await store.save(body: 'third');
+
+      expect([for (final n in store.notes) n.title], ['third', 'second', 'first']);
+
+      // Editing moves it to the top: the list is what you were last doing.
+      await store.save(id: a!.id, body: 'first, edited');
+      expect(store.notes.first.title, 'first, edited');
+
+      // A pin outranks recency, which is the whole point of one.
+      expect(await store.togglePin(b!.id), isTrue);
+      expect(store.notes.first.title, 'second');
+      expect(await store.togglePin(b.id), isFalse);
+      expect(store.notes.first.title, 'first, edited');
+    });
+
+    test('search looks at the whole note, not just the title', () async {
+      final store = NotesStore.instance;
+      await store.save(body: 'Shopping\nOat milk\nBread');
+      await store.save(body: 'Standup\nShip the poll work');
+
+      expect([for (final n in store.search('shopping')) n.title], ['Shopping']);
+      expect([for (final n in store.search('OAT')) n.title], ['Shopping'],
+          reason: 'case is not the point');
+      expect([for (final n in store.search('poll')) n.title], ['Standup'],
+          reason: 'a word only in the body still finds it');
+      expect(store.search('   ').length, 2, reason: 'empty is everything');
+      expect(store.search('nothinghere'), isEmpty);
+    });
+
+    test('a restored backup keeps the newer edit of each note', () async {
+      final store = NotesStore.instance;
+      final mine = await store.save(body: 'mine, edited on this device');
+      final exported = store.exportNotes();
+
+      // The same note, edited more recently somewhere else, plus one this
+      // device has never seen.
+      store.hydrateNotes([
+        {
+          ...exported.first,
+          'body': 'mine, edited later elsewhere',
+          'updatedAt': mine!.updatedAt
+              .add(const Duration(minutes: 1))
+              .toUtc()
+              .toIso8601String(),
+        },
+        {
+          'id': 'nt_other',
+          'body': 'written on the other device',
+          'createdAt': DateTime(2026).toUtc().toIso8601String(),
+          'updatedAt': DateTime(2026).toUtc().toIso8601String(),
+        },
+      ]);
+      expect(store.count, 2);
+      expect(store.byId(mine.id)!.body, 'mine, edited later elsewhere');
+
+      // And the other way round: an OLDER copy does not overwrite this one.
+      store.hydrateNotes([
+        {
+          ...exported.first,
+          'body': 'stale',
+          'updatedAt': mine.updatedAt
+              .subtract(const Duration(days: 1))
+              .toUtc()
+              .toIso8601String(),
+        },
+      ]);
+      expect(store.byId(mine.id)!.body, 'mine, edited later elsewhere',
+          reason: 'restoring must not throw away newer local work');
+    });
+
+    test('notes ride the encrypted backup, and never a table of their own',
+        () {
+      // Same trade as everything else here: sealed before it leaves, or it
+      // does not leave. There is no notes table anywhere in the SQL.
+      final sync = File('lib/state/cloud_sync.dart').readAsStringSync();
+      expect(sync.contains("'notes': NotesStore.instance.exportNotes()"), isTrue);
+      expect(sync.contains('hydrateNotes'), isTrue);
+
+      // `.from(` was the first thing tried here and it matched
+      // `Map<String, dynamic>.from(row)` — the import is the honest check.
+      final store = File('lib/state/notes_store.dart').readAsStringSync();
+      expect(store.contains('supabase'), isFalse,
+          reason: 'a note never goes to a table');
+      expect(store.contains('Supabase'), isFalse);
+      // A TABLE, not the word — "PRIVACY NOTE" in a comment is not a schema.
+      // The first version of this check matched those and failed for it.
+      final table = RegExp(r'(create table[^;]*|public\.)notes\b',
+          caseSensitive: false);
+      for (final f in [
+        ...Directory('docs').listSync(),
+        File('supabase/schema.sql'),
+      ]) {
+        if (f is File && f.path.endsWith('.sql')) {
+          expect(table.hasMatch(f.readAsStringSync()), isFalse,
+              reason: '${f.path} has a notes table');
+        }
+      }
+    });
+
+    testWidgets('writing one, finding it, and emptying it', (t) async {
+      t.view.physicalSize = const Size(390, 844);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.resetPhysicalSize);
+
+      await t.pumpWidget(const MaterialApp(home: NotesScreen()));
+      await t.pumpAndSettle();
+      expect(find.text('No notes yet'), findsOneWidget);
+
+      await t.tap(find.widgetWithText(FilledButton, 'Write one'));
+      await t.pumpAndSettle();
+      await t.enterText(find.byType(TextField).first, 'Shopping\nOat milk');
+      // Saved on the way out, not behind a button: a note you have to
+      // remember to save is a note you lose.
+      await t.pageBack();
+      await t.pumpAndSettle();
+
+      expect(find.text('Shopping'), findsOneWidget);
+      expect(find.text('Oat milk'), findsOneWidget);
+      expect(NotesStore.instance.count, 1);
+
+      // Search narrows the list.
+      await t.tap(find.byTooltip('Search notes'));
+      await t.pumpAndSettle();
+      await t.enterText(find.byType(TextField).first, 'zzz');
+      await t.pumpAndSettle();
+      expect(find.text('Nothing matches'), findsOneWidget);
+      await t.tap(find.byTooltip('Stop searching'));
+      await t.pumpAndSettle();
+      expect(find.text('Shopping'), findsOneWidget);
+
+      // Emptying it deletes it rather than leaving a blank row.
+      await t.tap(find.text('Shopping'));
+      await t.pumpAndSettle();
+      await t.enterText(find.byType(TextField).first, '');
+      await t.pageBack();
+      await t.pumpAndSettle();
+      expect(NotesStore.instance.count, 0);
+      expect(find.text('No notes yet'), findsOneWidget);
+    });
+
+    testWidgets('Notes is in the sidebar, with the rest of the apps',
+        (t) async {
+      t.view.physicalSize = const Size(390, 844);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.resetPhysicalSize);
+      await t.pumpWidget(const OkayMessagingApp());
+      await t.pumpAndSettle();
+      await t.tap(find.byTooltip('Open navigation menu'));
+      await t.pumpAndSettle();
+      expect(find.text('Notes'), findsOneWidget);
+      await t.tap(find.text('Notes'));
+      await t.pumpAndSettle();
+      expect(find.text('No notes yet'), findsOneWidget);
+      // And it can be left again.
+      await t.pageBack();
+      await t.pumpAndSettle();
+      expect(find.byTooltip('Open navigation menu'), findsOneWidget);
     });
   });
 

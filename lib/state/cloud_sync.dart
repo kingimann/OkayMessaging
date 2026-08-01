@@ -17,6 +17,7 @@ import 'feed_store.dart';
 import 'follow_store.dart';
 import 'saved_places_store.dart';
 import 'score_store.dart';
+import 'notes_store.dart';
 import 'storage_store.dart';
 
 /// Isolate tasks: PBKDF2 is ~120k HMAC rounds and AES chews through the
@@ -222,6 +223,7 @@ class CloudSync extends ChangeNotifier {
         'communities': CommunityStore.instance.toJsonList(),
         'score': ScoreStore.instance.toJson(),
         'accountEmail': AccountEmail.instance.toJson(),
+        'notes': NotesStore.instance.exportNotes(),
       };
 
   /// Applies a decrypted payload back onto the local stores.
@@ -246,6 +248,8 @@ class CloudSync extends ChangeNotifier {
     if (accountEmail is Map) {
       AccountEmail.instance.hydrate(Map<String, dynamic>.from(accountEmail));
     }
+    final notes = payload['notes'];
+    if (notes is List) NotesStore.instance.hydrateNotes(notes);
   }
 
   /// Pulls the server's copy back down, but only when sync is actually set

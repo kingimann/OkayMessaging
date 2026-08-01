@@ -27,6 +27,8 @@ import 'package:okay_messaging/state/legal_consent.dart';
 import 'package:okay_messaging/state/session.dart';
 import 'package:okay_messaging/state/public_feed_store.dart';
 import 'package:okay_messaging/screens/home_screen.dart';
+import 'package:okay_messaging/screens/notes_screen.dart';
+import 'package:okay_messaging/state/notes_store.dart';
 import 'package:okay_messaging/screens/public_feed_screen.dart';
 import 'package:okay_messaging/theme/app_theme.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -234,6 +236,21 @@ void main() {
     // the pinned banner, the jump-to-message highlight, the date pill.
     await t.tap(find.text('Bob Carter'));
     await shot('dark_chat');
+    await t.pageBack();
+    await t.pumpAndSettle();
     AppState.themeMode.value = ThemeMode.light;
+
+    // Notes, with something in them.
+    await NotesStore.instance.load();
+    await NotesStore.instance.save(body: 'Shipping list\nPolls on the server '
+        'feed\nSwipe between tabs (maybe)\nA notes section');
+    await NotesStore.instance.save(body: 'Call the bank about the card');
+    final pinned = await NotesStore.instance.save(
+        body: 'Passphrase hint\nThe one with the two words and the year');
+    await NotesStore.instance.togglePin(pinned!.id);
+    await t.pumpWidget(const MaterialApp(home: NotesScreen()));
+    await shot('notes');
+    await t.tap(find.text('Shipping list'));
+    await shot('note_editor');
   });
 }

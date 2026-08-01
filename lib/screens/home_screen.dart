@@ -18,6 +18,7 @@ import 'chat_search_delegate.dart';
 import 'communities.dart';
 import 'explore_map_screen.dart';
 import 'new_chat_screen.dart';
+import 'notes_screen.dart';
 import 'marketplace_screen.dart';
 import 'public_feed_screen.dart';
 import 'settings_screen.dart';
@@ -554,6 +555,12 @@ class _AppSideBar extends StatelessWidget {
                   Navigator.of(context).pop();
                   onSelectTab(1);
                 },
+              ),
+              ListTile(
+                leading: const Icon(Icons.sticky_note_2_outlined),
+                title: const Text('Notes'),
+                subtitle: const Text('Write things down, kept on this device'),
+                onTap: () => _go(context, const NotesScreen()),
               ),
               ListTile(
                 leading: const Icon(Icons.account_balance_wallet_outlined),
