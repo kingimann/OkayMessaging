@@ -7113,20 +7113,25 @@ void main() {
       await tester.pump();
       expect(find.text('1'), findsWidgets);
 
-      // Open the thread and reply — the reply shows under the post.
+      // Replying opens a composer titled with who is being answered — the
+      // same gesture and the same screen the public timeline has. It used to
+      // navigate into the thread and put a chat bar at the bottom of it.
+      final posted = FeedStore.instance.postsFor('c1').single;
       await tester.tap(find.byTooltip('Reply'));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 300));
-      expect(find.text('Post'), findsWidgets); // thread screen title
-      await tester.enterText(find.byType(TextField).last, 'And a reply');
-      await tester.tap(find.byTooltip('Send reply'));
-      await tester.pump();
-      expect(find.text('And a reply'), findsOneWidget);
-
-      // Back on the timeline the reply lives in the thread, not inline —
-      // and there is no For you / Following split, just one timeline.
-      await tester.pageBack();
       await tester.pumpAndSettle();
+      expect(find.textContaining('Reply to '), findsOneWidget);
+      expect(find.text('Post'), findsNothing,
+          reason: 'the button says what it does');
+      await tester.enterText(find.byType(TextField).last, 'And a reply');
+      await tester.pump();
+      await tester.tap(find.widgetWithText(FilledButton, 'Reply'));
+      await tester.pumpAndSettle();
+      expect(FeedStore.instance.repliesTo(posted.id).map((p) => p.text),
+          ['And a reply']);
+      // ignore: avoid_print
+
+      // The reply lives in the thread, not inline — and there is no
+      // For you / Following split, just one timeline.
       expect(find.text('First post from me!'), findsOneWidget);
       expect(find.text('And a reply'), findsNothing); // threaded, not inline
       expect(find.text('For you'), findsNothing);
@@ -18571,6 +18576,103 @@ void main() {
       expect(seen['server-live'], seen['public-live']);
       expect(seen['server-live'],
           ['#polls', '@ada', 'https://okaymessaging.com/x']);
+    });
+
+    testWidgets('answering a post is the same gesture on either timeline',
+        (t) async {
+      // The server feed used to navigate INTO the thread and pin a chat-style
+      // bar with a send button to the bottom of it; the public one has always
+      // opened a composer. Same act, two screens, depending which feed you
+      // happened to be looking at.
+      SharedPreferences.setMockInitialValues({});
+      AppState.resetForTest();
+      Session.instance.signInForTest();
+      FeedStore.instance.resetForTest();
+      CommunityStore.instance.resetForTest();
+      FeedStore.instance.addRemote(FeedPost(
+        id: 'sp1',
+        communityId: 'c1',
+        authorName: 'Ada Lovelace',
+        authorUsername: 'ada',
+        time: DateTime.now(),
+        text: 'The post being answered',
+      ));
+
+      await t.pumpWidget(const MaterialApp(
+          home: FeedScreen(communityId: 'c1', communityName: 'HQ')));
+      await t.pumpAndSettle();
+
+      await t.tap(find.byTooltip('Reply'));
+      await t.pumpAndSettle();
+      expect(find.byType(FeedComposerScreen), findsOneWidget);
+      expect(find.text('Reply to Ada Lovelace'), findsOneWidget);
+      expect(find.widgetWithText(FilledButton, 'Reply'), findsOneWidget,
+          reason: 'the button says what it does');
+      // And no chat bar anywhere: the thread had a live field with a send
+      // icon, which is a conversation's shape, not a timeline's.
+      expect(find.byTooltip('Send reply'), findsNothing);
+
+      // What is typed and abandoned survives, keyed to that post.
+      await t.enterText(find.byType(TextField).last, 'half a thought');
+      await t.pump();
+      expect(FeedDrafts.instance.read(FeedDrafts.replyKey('sp1')),
+          'half a thought');
+
+      // Sending closes it and asks nothing. The composer guards its draft
+      // against a mis-tap, so a reply popped with words still in the field
+      // is met with "Discard reply?" — about the reply that was just sent.
+      await t.tap(find.widgetWithText(FilledButton, 'Reply'));
+      await t.pumpAndSettle();
+      expect(find.byType(FeedComposerScreen), findsNothing);
+      expect(find.textContaining('Discard'), findsNothing,
+          reason: 'a sent reply is not a draft to rescue');
+      expect(FeedDrafts.instance.read(FeedDrafts.replyKey('sp1')), '');
+      expect(FeedStore.instance.repliesTo('sp1').map((p) => p.text),
+          ['half a thought']);
+    });
+
+    testWidgets('a reply passes the server word filter, like any other post',
+        (t) async {
+      // It did not: the pinned bar called straight through to the store, so
+      // the one kind of post that skipped a server's own rules was a reply.
+      SharedPreferences.setMockInitialValues({});
+      AppState.resetForTest();
+      Session.instance.signInForTest();
+      FeedStore.instance.resetForTest();
+      CommunityStore.instance.resetForTest();
+      // Joined as a plain member: owners moderate, and the filter exempts
+      // moderators, so a server the tester made could never trip it.
+      final server = CommunityStore.instance.joinFromInvite(
+          {'id': 'srv_filtered', 'name': 'HQ', 'members': []},
+          myDigits: '15550000000',
+          myName: 'Me')!;
+      CommunityStore.instance.addBannedWord(server.id, 'banned');
+      FeedStore.instance.addRemote(FeedPost(
+        id: 'sp2',
+        communityId: server.id,
+        authorName: 'Ada',
+        authorUsername: 'ada',
+        time: DateTime.now(),
+        text: 'The post being answered',
+      ));
+
+      await t.pumpWidget(MaterialApp(
+          home: FeedScreen(communityId: server.id, communityName: 'HQ')));
+      await t.pumpAndSettle();
+      await t.tap(find.byTooltip('Reply'));
+      await t.pumpAndSettle();
+
+      await t.enterText(find.byType(TextField).last, 'this is banned words');
+      await t.pump();
+      await t.tap(find.widgetWithText(FilledButton, 'Reply'));
+      await t.pumpAndSettle();
+
+      expect(FeedStore.instance.repliesTo('sp2'), isEmpty,
+          reason: 'the filter let a reply through');
+      expect(find.textContaining('word filter'), findsOneWidget);
+      // Still open, with what was written intact — a refusal is not a
+      // reason to throw somebody's words away.
+      expect(find.byType(FeedComposerScreen), findsOneWidget);
     });
 
     test('both feeds draw the same actions, from the same widget', () {

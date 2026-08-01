@@ -7,6 +7,7 @@ import '../state/community_store.dart';
 import '../state/feed_drafts.dart';
 import '../state/feed_store.dart';
 import '../state/platform_moderation.dart';
+import '../theme/app_theme.dart';
 import '../state/session.dart' as local;
 import '../state/follow_store.dart';
 import '../util/file_moderation.dart';
@@ -358,7 +359,10 @@ class _FeedScreenState extends State<FeedScreen> {
         post: post,
         onLike: () => FeedStore.instance.toggleLike(post.id),
         onRepost: () => _repostOptions(post),
-        onReply: () => _openThread(post),
+        // The same gesture as the public timeline: a composer titled with
+        // who is being answered, rather than a trip into the thread to
+        // find a bar at the bottom of it.
+        onReply: () => openFeedReply(context, post),
         onAuthor: () => _authorSheet(post),
         onMore: () => _postOptions(post),
         // Tags filter the timeline in place; mentions open the person.
@@ -811,6 +815,98 @@ class _PostCard extends StatelessWidget {
   }
 }
 
+/// Opens the reply composer for [post] — the same screen a new post gets,
+/// titled with who is being answered.
+///
+/// ONE PATH, from the timeline and from inside a thread, because the two used
+/// to be different things: tapping reply on the timeline navigated into the
+/// thread, and the thread pinned a chat-style pill to the bottom of the
+/// screen. The public timeline has always opened a composer, so answering a
+/// post meant two different gestures and two different screens depending on
+/// which feed you were looking at.
+///
+/// The draft is kept per post, so backing out of a half-written reply and
+/// coming back finds it — the same key the public composer uses.
+void openFeedReply(BuildContext context, FeedPost post) {
+  Navigator.of(context).push<void>(MaterialPageRoute(
+    fullscreenDialog: true,
+    builder: (_) => _FeedReplyComposer(post: post),
+  ));
+}
+
+/// The reply composer, owning the controller it writes into.
+///
+/// A StatefulWidget rather than a controller made at the call site: a route
+/// keeps building for the length of its exit animation, so a controller
+/// disposed the moment `push` returns is used after disposal — which is an
+/// assertion, a red frame, and the screen underneath torn down with it.
+/// State.dispose runs when the route is actually gone.
+class _FeedReplyComposer extends StatefulWidget {
+  const _FeedReplyComposer({required this.post});
+
+  final FeedPost post;
+
+  @override
+  State<_FeedReplyComposer> createState() => _FeedReplyComposerState();
+}
+
+class _FeedReplyComposerState extends State<_FeedReplyComposer> {
+  late final TextEditingController _text;
+
+  String get _key => FeedDrafts.replyKey(widget.post.id);
+
+  @override
+  void initState() {
+    super.initState();
+    // Kept per post, so backing out of a half-written reply and coming back
+    // finds it — the same key the public composer uses.
+    _text = TextEditingController(text: FeedDrafts.instance.read(_key));
+    _text.addListener(_save);
+  }
+
+  void _save() => FeedDrafts.instance.write(_key, _text.text);
+
+  @override
+  void dispose() {
+    _text.removeListener(_save);
+    _text.dispose();
+    super.dispose();
+  }
+
+  void _send() {
+    final text = _text.text.trim();
+    if (text.isEmpty) return;
+    // A reply is a post, so the server's word filter applies to it. It did
+    // not before: the pinned bar called through to the store with nothing in
+    // between.
+    final hit =
+        CommunityStore.instance.filterHit(widget.post.communityId, text);
+    if (hit != null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('"$hit" is blocked by this server\'s word filter')));
+      return;
+    }
+    FeedStore.instance.reply(widget.post.id, text);
+    _text.removeListener(_save);
+    FeedDrafts.instance.clear(_key);
+    Navigator.of(context).pop();
+  }
+
+  @override
+  Widget build(BuildContext context) => FeedComposerScreen(
+        controller: _text,
+        replyingToName: widget.post.authorName.trim().isEmpty
+            ? '@${widget.post.authorUsername}'
+            : widget.post.authorName,
+        mentionCandidates: (prefix) => mentionMatches(prefix, [
+          ...FeedStore.instance.usernamesFor(widget.post.communityId),
+          for (final c in ChatStore.instance.allChats)
+            if (c.contact.username.isNotEmpty) c.contact.username,
+        ]),
+        onPost: _send,
+      );
+}
+
 /// A post opened as a thread: the post up top, its replies below, and a
 /// reply composer pinned to the bottom.
 class FeedPostScreen extends StatefulWidget {
@@ -822,22 +918,6 @@ class FeedPostScreen extends StatefulWidget {
 }
 
 class _FeedPostScreenState extends State<FeedPostScreen> {
-  final TextEditingController _reply = TextEditingController();
-
-  @override
-  void dispose() {
-    _reply.dispose();
-    super.dispose();
-  }
-
-  void _send() {
-    final text = _reply.text.trim();
-    if (text.isEmpty) return;
-    FeedStore.instance.reply(widget.postId, text);
-    _reply.clear();
-    FocusScope.of(context).unfocus();
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -903,7 +983,7 @@ class _FeedPostScreenState extends State<FeedPostScreen> {
                         onLike: () => FeedStore.instance.toggleLike(post.id),
                         onRepost: () =>
                             FeedStore.instance.toggleRepost(post.id),
-                        onReply: () {},
+                        onReply: () => openFeedReply(context, post),
                         onMore: () => showFeedPostOptions(
                           context,
                           post,
@@ -964,10 +1044,7 @@ class _FeedPostScreenState extends State<FeedPostScreen> {
                               onLike: () => FeedStore.instance.toggleLike(r.id),
                               onRepost: () =>
                                   FeedStore.instance.toggleRepost(r.id),
-                              onReply: () => Navigator.of(context).push(
-                                  MaterialPageRoute(
-                                      builder: (_) =>
-                                          FeedPostScreen(postId: r.id))),
+                              onReply: () => openFeedReply(context, r),
                               onMention: (u) =>
                                   showPersonSheet(context, username: u),
                             ),
@@ -979,37 +1056,29 @@ class _FeedPostScreenState extends State<FeedPostScreen> {
                   ),
                 ),
               ),
+              // A tap here opens the same composer the reply icon does, so
+              // there is one way to answer a post and it looks the same
+              // wherever it is started. It used to be a live text field with
+              // a send button — a chat bar on a timeline.
               SafeArea(
                 top: false,
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 12, 10),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          controller: _reply,
-                          minLines: 1,
-                          maxLines: 3,
-                          onSubmitted: (_) => _send(),
-                          decoration: InputDecoration(
-                            hintText: 'Reply to @${post.authorUsername}',
-                            filled: true,
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(24),
-                              borderSide: BorderSide.none,
-                            ),
-                            contentPadding: const EdgeInsets.symmetric(
-                                horizontal: 16, vertical: 8),
-                          ),
+                child: InkWell(
+                  onTap: () => openFeedReply(context, post),
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
+                    child: Row(
+                      children: [
+                        const FeedAvatar(
+                            username: 'you', name: 'You', radius: 16),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text('Post your reply',
+                              style: TextStyle(
+                                  fontSize: 15,
+                                  color: AppColors.subtle(context))),
                         ),
-                      ),
-                      const SizedBox(width: 8),
-                      IconButton.filled(
-                        icon: const Icon(Icons.send, size: 18),
-                        tooltip: 'Send reply',
-                        onPressed: _send,
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -1130,6 +1199,16 @@ class FeedComposerScreen extends StatefulWidget {
   /// Usernames matching the @prefix being typed, for tag-a-person chips.
   final List<String> Function(String prefix)? mentionCandidates;
 
+  /// Who is being answered, when this is a reply rather than a new post.
+  ///
+  /// Null for a new post. Set, it turns the screen into the reply composer
+  /// the public timeline has had all along — titled with the person, with
+  /// "Reply" on the button — instead of the chat-style bar the server feed
+  /// used to pin to the bottom of a thread.
+  final String? replyingToName;
+
+  bool get isReply => replyingToName != null;
+
   /// The longest a post may be.
   static const int maxLength = 280;
 
@@ -1141,6 +1220,7 @@ class FeedComposerScreen extends StatefulWidget {
     this.onCreatePoll,
     this.onAttachPhoto,
     this.mentionCandidates,
+    this.replyingToName,
   });
 
   @override
@@ -1181,7 +1261,7 @@ class _FeedComposerScreenState extends State<FeedComposerScreen> {
     final discard = await showAppConfirmDialog(
       context,
       icon: Icons.delete_outline,
-      title: 'Discard post?',
+      title: widget.isReply ? 'Discard reply?' : 'Discard post?',
       message: 'What you have written will be lost.',
       confirmLabel: 'Discard',
       destructive: true,
@@ -1218,6 +1298,10 @@ class _FeedComposerScreenState extends State<FeedComposerScreen> {
               child: const Text('Cancel'),
             ),
           ),
+          titleSpacing: 0,
+          title: widget.isReply
+              ? Text('Reply to ${widget.replyingToName}')
+              : null,
           actions: [
             ValueListenableBuilder<TextEditingValue>(
               valueListenable: widget.controller,
@@ -1234,7 +1318,7 @@ class _FeedComposerScreenState extends State<FeedComposerScreen> {
                       shape: const StadiumBorder(),
                       padding: const EdgeInsets.symmetric(horizontal: 20),
                     ),
-                    child: const Text('Post'),
+                    child: Text(widget.isReply ? 'Reply' : 'Post'),
                   ),
                 );
               },
