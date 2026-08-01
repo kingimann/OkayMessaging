@@ -246,23 +246,17 @@ class _ScoreCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final store = ScoreStore.instance;
     final next = store.nextLevelAt;
+    final scheme = Theme.of(context).colorScheme;
+    // Neutral, like every other card in the app. This was a violet gradient
+    // with a coloured shadow under it — the last saturated slab left, and the
+    // loudest thing on any screen here. The flame keeps the colour; the ring
+    // takes the accent, which is what the accent is for.
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.fromLTRB(20, 22, 20, 20),
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFF7A5CFF), Color(0xFF5B3CE0)],
-        ),
+        color: scheme.surfaceContainerHighest.withValues(alpha: 0.5),
         borderRadius: BorderRadius.circular(22),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF5B3CE0).withValues(alpha: 0.32),
-            blurRadius: 18,
-            offset: const Offset(0, 8),
-          ),
-        ],
       ),
       child: Column(
         children: [
@@ -284,8 +278,9 @@ class _ScoreCard extends StatelessWidget {
                       value: value,
                       strokeWidth: 9,
                       strokeCap: StrokeCap.round,
-                      backgroundColor: Colors.white.withValues(alpha: 0.22),
-                      valueColor: const AlwaysStoppedAnimation(Colors.white),
+                      backgroundColor:
+                          scheme.onSurface.withValues(alpha: 0.12),
+                      valueColor: AlwaysStoppedAnimation(scheme.primary),
                     ),
                   ),
                 ),
@@ -293,19 +288,18 @@ class _ScoreCard extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     const Icon(Icons.local_fire_department,
-                        color: Colors.white, size: 22),
+                        color: Color(0xFF7A5CFF), size: 22),
                     Text(
                       '$points',
                       style: const TextStyle(
-                        color: Colors.white,
                         fontSize: 40,
                         fontWeight: FontWeight.w800,
                         height: 1.05,
                       ),
                     ),
-                    const Text('Okay Score',
+                    Text('Okay Score',
                         style: TextStyle(
-                            color: Colors.white70,
+                            color: AppColors.subtle(context),
                             fontSize: 11.5,
                             fontWeight: FontWeight.w600)),
                   ],
@@ -317,12 +311,12 @@ class _ScoreCard extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
             decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.22),
+              color: scheme.primary,
               borderRadius: BorderRadius.circular(20),
             ),
             child: Text('Level ${store.level} · ${store.levelTitle}',
-                style: const TextStyle(
-                    color: Colors.white,
+                style: TextStyle(
+                    color: scheme.onPrimary,
                     fontWeight: FontWeight.w700,
                     fontSize: 13)),
           ),
@@ -332,7 +326,8 @@ class _ScoreCard extends StatelessWidget {
                 ? 'Top level — nothing left to climb'
                 : '${next - points} points to '
                     '${ScoreStore.levelTitles[store.level]}',
-            style: const TextStyle(color: Colors.white70, fontSize: 12.5),
+            style: TextStyle(
+                color: AppColors.subtle(context), fontSize: 12.5),
           ),
         ],
       ),

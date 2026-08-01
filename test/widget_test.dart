@@ -18432,6 +18432,48 @@ void main() {
           reason: 'white on the accent is white on white in dark mode');
     });
 
+    testWidgets('no screen in the app is a slab of one colour', (t) async {
+      // The sweep, applied to the screens that had a big coloured block on
+      // them. Each one shipped as a gradient somebody liked in isolation, and
+      // together they were four different loud colours in an app whose whole
+      // identity is black and white.
+      t.view.physicalSize = const Size(430, 2600);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.resetPhysicalSize);
+      SharedPreferences.setMockInitialValues({});
+      ScoreStore.instance.resetForTest();
+      addTearDown(ScoreStore.instance.resetForTest);
+      ScoreStore.instance.award(117);
+
+      for (final (name, screen) in <(String, Widget)>[
+        ('Okay Score', const ScoreScreen()),
+        ('Settings', const SettingsScreen()),
+        ('Cloud storage', const CloudSyncScreen()),
+      ]) {
+        await t.pumpWidget(
+            MaterialApp(theme: AppTheme.dark, home: screen));
+        await t.pumpAndSettle();
+
+        for (final box in t.widgetList<Container>(find.byType(Container))) {
+          final decoration = box.decoration;
+          if (decoration is! BoxDecoration) continue;
+          // A gradient across a whole card is the shape this keeps coming
+          // back in.
+          expect(decoration.gradient, isNull,
+              reason: '$name has a gradient block on it again');
+          final colour = decoration.color;
+          if (colour == null || colour.a < 0.5) continue;
+          final rect = t.getRect(find.byWidget(box));
+          // Small things may be as loud as they like — the flame on the score
+          // card is the point of it. A block is what this is about.
+          if (rect.width < 120 || rect.height < 60) continue;
+          expect(HSLColor.fromColor(colour).saturation, lessThan(0.25),
+              reason: '$name draws a saturated block '
+                  '${rect.width.round()}x${rect.height.round()}');
+        }
+      }
+    });
+
     test('the tip row is a row, not a billboard', () {
       // A full-bleed violet gradient in the middle of Settings, in an app
       // that is greyscale everywhere else. The heart keeps the colour.
