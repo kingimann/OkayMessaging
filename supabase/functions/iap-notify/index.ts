@@ -1,3 +1,9 @@
+// supabase: verify_jwt = false
+//
+// APPLE SENDS NO AUTHORIZATION HEADER either — same failure as
+// payments-webhook, and quieter: a dropped renewal notice is a subscription
+// that bills and stops working, with nothing on fire to notice.
+//
 // App Store Server Notifications V2 — Apple POSTs here whenever a
 // subscription renews, lapses, is cancelled, or gets refunded.
 //

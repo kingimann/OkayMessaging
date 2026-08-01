@@ -4,6 +4,46 @@ Each `.ts` file here is a self-contained copy of one Edge Function — same
 logic as `supabase/functions/`, with the shared helper inlined where one was
 needed, so it pastes straight into the Supabase Dashboard editor.
 
+## First, the setting that silently breaks two of them
+
+**`payments-webhook` and `iap-notify` must have "Enforce JWT verification"
+OFF.** Everything else here keeps it on.
+
+Stripe and Apple do not log in. They authenticate by signing the request body,
+which both functions verify themselves. Supabase checks a JWT at the *gateway*,
+before the function runs, so with the setting on every delivery is answered:
+
+```json
+{"code":"UNAUTHORIZED_NO_AUTH_HEADER","message":"Missing authorization header"}
+```
+
+**Nothing is logged when this happens** — the function never executes, so
+there is nothing to see in its logs, and the deployment looks healthy. It
+surfaced once as a "Stripe webhook delivery issues" email a week later, after
+38 dropped events and four days before Stripe would have disabled the
+endpoint. `iap-notify` failing the same way is quieter still: a subscription
+renews, Apple's notice is refused, and the entitlement silently stops.
+
+Check both from anywhere, with **no** auth header — that is what the two
+senders do:
+
+```bash
+for f in payments-webhook iap-notify; do
+  curl -s -o /dev/null -w "$f %{http_code}\n" -X POST \
+    https://trbdqucphtsstnrwwfnw.supabase.co/functions/v1/$f \
+    -H "Content-Type: application/json" -d '{}'
+done
+```
+
+**400 is correct** — the function ran and refused an unsigned body. **401**
+means the toggle is still on. **404** means it is not deployed.
+
+The repo records the requirement in `supabase/config.toml`, which
+`supabase functions deploy` reads — but **the dashboard does not**, so a
+paste deploy leaves the toggle at its default and it has to be turned off by
+hand each time: open the function → Details → turn off "Enforce JWT
+verification".
+
 ## Steps (repeat for each of the five files)
 
 1. Open **supabase.com/dashboard** → your project → **Edge Functions**.

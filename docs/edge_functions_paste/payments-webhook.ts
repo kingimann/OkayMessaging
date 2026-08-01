@@ -215,6 +215,15 @@ function judgeCard(
     : { ok: false, reason: "name_mismatch" };
 }
 
+// supabase: verify_jwt = false
+//
+// STRIPE SENDS NO AUTHORIZATION HEADER. It authenticates with the
+// stripe-signature header, checked below. Supabase's gateway verifies a JWT
+// before the function runs unless that is turned off, so with it on every
+// delivery is answered 401 UNAUTHORIZED_NO_AUTH_HEADER and this file never
+// executes — which is silent, because the failure is upstream of any log it
+// writes. Stripe retries for a week and then disables the endpoint.
+//
 // Stripe webhook: keeps our payment metadata in sync with the source of truth.
 // Handles payment success/failure, connected-account KYC updates, and payouts
 // to the receiver's bank. Configure the endpoint in the Stripe Dashboard and

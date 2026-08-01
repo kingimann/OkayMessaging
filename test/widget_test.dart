@@ -18392,6 +18392,71 @@ void main() {
     });
   });
 
+  group('Functions that no signed-in user calls', () {
+    /// Functions whose source declares they must run without the gateway's
+    /// JWT check, found by their marker rather than by a list here — a third
+    /// webhook added later is caught the moment it carries the marker.
+    List<String> markedFunctions() => [
+          for (final dir in Directory('supabase/functions')
+              .listSync()
+              .whereType<Directory>())
+            if (File('${dir.path}/index.ts').existsSync() &&
+                File('${dir.path}/index.ts')
+                    .readAsStringSync()
+                    .contains('// supabase: verify_jwt = false'))
+              dir.path.split('/').last
+        ]..sort();
+
+    test('the ones Stripe and Apple POST to are declared JWT-free', () {
+      // THIS COST A WEEK OF STRIPE DELIVERIES. Supabase verifies a JWT at the
+      // gateway by default; Stripe and Apple authenticate by signing the
+      // body and send no Authorization header, so every delivery was answered
+      // 401 before the function ran — invisible from inside, because the
+      // function never executed to log anything.
+      final marked = markedFunctions();
+      expect(marked, ['iap-notify', 'payments-webhook'],
+          reason: 'a function that a third party POSTs to needs the marker');
+
+      final config = File('supabase/config.toml').readAsStringSync();
+      for (final name in marked) {
+        expect(config.contains('[functions.$name]\nverify_jwt = false'), isTrue,
+            reason: 'config.toml does not turn JWT verification off for '
+                '$name, so a CLI deploy would put it back');
+      }
+    });
+
+    test('and nothing else is', () {
+      // The other direction. Every function the app itself calls SHOULD be
+      // behind the gateway's check; turning it off for one of those would
+      // open it to anyone with the URL.
+      final config = File('supabase/config.toml').readAsStringSync();
+      final off = RegExp(r'\[functions\.([a-z0-9-]+)\]\s*\nverify_jwt = false')
+          .allMatches(config)
+          .map((m) => m.group(1)!)
+          .toList()
+        ..sort();
+      expect(off, markedFunctions(),
+          reason: 'config.toml exempts a function whose source does not ask '
+              'to be exempt');
+    });
+
+    test('a signed body is checked before anything is done with it', () {
+      // The exemption is only safe because these verify the sender
+      // themselves. If that ever stops being true, the open endpoint is the
+      // whole attack.
+      expect(
+          File('supabase/functions/payments-webhook/index.ts')
+              .readAsStringSync()
+              .contains('stripe.webhooks.constructEventAsync'),
+          isTrue);
+      expect(
+          File('supabase/functions/iap-notify/index.ts')
+              .readAsStringSync()
+              .contains('verifyAppleJws'),
+          isTrue);
+    });
+  });
+
   group('A notification when the app is closed', () {
     test('a push carries which conversation it is for, in a form the app '
         'already knows how to open', () {

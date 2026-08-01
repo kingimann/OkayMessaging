@@ -1,0 +1,23 @@
+# Supabase project config.
+#
+# WHAT THIS FILE IS ACTUALLY FOR, here: the two functions that must be
+# deployed with JWT verification OFF. Everything else in this project is
+# called by the app with a signed-in user's token, and the gateway checking
+# that token is exactly right. Stripe and Apple do not have one — they
+# authenticate by signing the body, which those functions verify themselves —
+# so the gateway answers their POSTs 401 before the function runs.
+#
+# That failure is invisible from inside: the function never executes, so it
+# logs nothing. It surfaces a week later as "Stripe webhook delivery issues",
+# or never, as subscriptions that renew and quietly stop working.
+#
+# `supabase functions deploy` reads this. THE DASHBOARD DOES NOT — pasting a
+# function there leaves the toggle at its default, so after a paste deploy the
+# setting has to be turned off by hand in the function's own settings.
+project_id = "trbdqucphtsstnrwwfnw"
+
+[functions.payments-webhook]
+verify_jwt = false
+
+[functions.iap-notify]
+verify_jwt = false
