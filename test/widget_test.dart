@@ -26,6 +26,8 @@ import 'package:okay_messaging/main.dart';
 import 'package:okay_messaging/state/callkit_bridge.dart';
 import 'package:okay_messaging/state/incoming_links.dart';
 import 'package:okay_messaging/models/feed_notification.dart';
+import 'package:okay_messaging/screens/new_chat_screen.dart';
+import 'package:okay_messaging/util/account_code.dart';
 import 'package:okay_messaging/util/phone_format.dart';
 import 'package:okay_messaging/legal/legal_content.dart';
 import 'package:okay_messaging/models/call.dart' as callmodel;
@@ -20059,6 +20061,187 @@ void main() {
       expect(router.accept(beacon), MeshAction.deliverAndRelay);
       expect(router.forwarded(beacon)!.kind, MeshPacket.kindServer,
           reason: 'a relayed packet keeps what it is');
+    });
+  });
+
+  group('An account with no phone number', () {
+    setUp(() async {
+      SharedPreferences.setMockInitialValues({});
+      ChatStore.instance.reset();
+      // The session is a singleton, and an earlier group may have left one
+      // signed in — which is exactly what one of these asserts is not true.
+      await Session.instance.signOut();
+    });
+
+    test('a code can never be mistaken for somebody\'s phone number', () {
+      // This is the property that matters. Everything downstream addresses by
+      // digits — the relay listens on inbox_<digits>, the mesh addresses a
+      // packet by them — so a code that collided with a real number would
+      // route somebody's messages to a stranger.
+      for (var i = 0; i < 200; i++) {
+        final code = AccountCode.mint();
+        expect(code.length, AccountCode.length);
+        expect(AccountCode.isCode(code), isTrue);
+        expect(int.tryParse(code), isNotNull, reason: 'digits only');
+        expect(code.startsWith('0'), isTrue,
+            reason: 'no international number starts with a zero');
+      }
+      // Real numbers, in the shapes this app sees them.
+      for (final number in [
+        '+14386386261',
+        '14386386261',
+        '4386386261',
+        '+447700900123',
+        '+861380013800',
+        '',
+      ]) {
+        expect(AccountCode.isCode(number), isFalse, reason: number);
+      }
+    });
+
+    test('a code survives being read off one phone and typed into another',
+        () {
+      // Which is the whole point of it, and nobody types twelve digits
+      // without putting spaces in.
+      const code = '001234567890';
+      expect(AccountCode.pretty(code), '0012 3456 7890');
+      for (final typed in [
+        '001234567890',
+        '0012 3456 7890',
+        '0012-3456-7890',
+        '  0012 3456 7890  ',
+      ]) {
+        expect(AccountCode.normalize(typed), code, reason: typed);
+      }
+      // And a number is left well alone, so the caller falls through to
+      // treating it as one.
+      expect(AccountCode.normalize('+14386386261'), isNull);
+      expect(AccountCode.normalize('not a code'), isNull);
+      // A '+' means a number was meant, whatever follows it.
+      expect(AccountCode.isCode('+001234567890'), isFalse);
+    });
+
+    test('two codes minted on two phones do not collide', () {
+      final seen = <String>{};
+      for (var i = 0; i < 500; i++) {
+        seen.add(AccountCode.mint());
+      }
+      expect(seen.length, 500);
+    });
+
+    test('signing in without a number still gives a reachable identity',
+        () async {
+      await Session.instance.signInWithoutNumber(name: 'Ada', username: 'ada');
+      addTearDown(Session.instance.signOut);
+      final me = Session.instance.user.value!;
+      expect(me.name, 'Ada');
+      expect(me.username, 'ada');
+      expect(Session.instance.isNumberless, isTrue);
+      // Reachable: the relay addresses an inbox by digits, and this has them.
+      expect(RelayService.digits(me.phone), me.phone);
+      expect(RelayService.inboxChannel(me.phone), 'inbox_${me.phone}');
+      // And the mesh can address a packet to it.
+      expect(MeshPacket.fits({'to': me.phone}), isTrue);
+    });
+
+    test('an account with a real number is not called numberless', () async {
+      await Session.instance.signIn(phone: '+14386386261', name: 'Ada');
+      addTearDown(Session.instance.signOut);
+      expect(Session.instance.isNumberless, isFalse);
+    });
+
+    testWidgets('the way in is offered, and needs a name rather than a number',
+        (t) async {
+      t.view.physicalSize = const Size(500, 1600);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.resetPhysicalSize);
+      await t.pumpWidget(const MaterialApp(home: PhoneLoginScreen()));
+      await t.pumpAndSettle();
+      // Signing out leaves a "welcome back" shortcut in front of the form.
+      if (find.text('Use a different account').evaluate().isNotEmpty) {
+        await t.tap(find.text('Use a different account'));
+        await t.pumpAndSettle();
+      }
+
+      // A name is what other people see, so it is the one thing asked for.
+      // Cleared explicitly: the field is prefilled from the last account, so
+      // without this the empty-name branch is never reached and the test
+      // proves nothing about it.
+      await t.enterText(find.byType(TextFormField).first, '');
+      await t.tap(find.text('Continue without a phone number'));
+      await t.pump();
+      expect(Session.instance.isSignedIn, isFalse);
+      expect(find.textContaining('Enter a name'), findsOneWidget);
+
+      await t.enterText(find.byType(TextFormField).first, 'Ada');
+      await t.tap(find.text('Continue without a phone number'));
+      // pump, not pumpAndSettle: signing in leaves the button spinning until
+      // the auth gate swaps the screen out, and there is no gate here.
+      await t.pump();
+      await t.pump(const Duration(milliseconds: 100));
+      addTearDown(Session.instance.signOut);
+      expect(Session.instance.isSignedIn, isTrue);
+      expect(Session.instance.isNumberless, isTrue,
+          reason: 'no number was typed, so none was invented');
+    });
+
+    testWidgets('the code is on screen where it can be read to somebody',
+        (t) async {
+      // A QR is no use at all when the other phone is the one you are
+      // holding, and an account with no number has nothing to look up.
+      const code = '001234567890';
+      AppState.profile.value = const AppUser(
+          id: code, name: 'Ada', avatarColor: '#2E7D32', phone: code);
+      addTearDown(AppState.resetForTest);
+
+      t.view.physicalSize = const Size(500, 1600);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.resetPhysicalSize);
+      await t.pumpWidget(const MaterialApp(home: MyQrScreen()));
+      await t.pumpAndSettle();
+      expect(find.text('YOUR CODE'), findsOneWidget);
+      expect(find.text('0012 3456 7890'), findsOneWidget);
+      expect(find.text('Copy code'), findsOneWidget);
+    });
+
+    testWidgets('somebody with a real number is shown no code', (t) async {
+      AppState.profile.value = const AppUser(
+          id: '+14386386261',
+          name: 'Ada',
+          avatarColor: '#2E7D32',
+          phone: '+14386386261');
+      addTearDown(AppState.resetForTest);
+      await t.pumpWidget(const MaterialApp(home: MyQrScreen()));
+      await t.pumpAndSettle();
+      expect(find.text('YOUR CODE'), findsNothing);
+    });
+
+    testWidgets('a chat started from a typed code reaches the right inbox',
+        (t) async {
+      t.view.physicalSize = const Size(500, 1400);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.resetPhysicalSize);
+      await t.pumpWidget(const MaterialApp(home: NewChatScreen()));
+      await t.pumpAndSettle();
+
+      await t.tap(find.text('Chat with a number or code'));
+      await t.pumpAndSettle();
+      expect(find.text('Start'), findsOneWidget, reason: 'the prompt opened');
+      final field = find.byType(TextField);
+      expect(field, findsOneWidget,
+          reason: 'one field, so .last is unambiguous: ${field.evaluate()}');
+      // Typed the way somebody reads it aloud, spaces and all.
+      await t.enterText(field, '0012 3456 7890');
+      await t.pumpAndSettle();
+      await t.tap(find.text('Start'));
+      await t.pumpAndSettle();
+
+      final chat = ChatStore.instance.chats
+          .where((c) => c.contact.phone == '001234567890');
+      expect(chat, isNotEmpty,
+          reason: 'the spaces have to come out or this is a different inbox');
+      expect(chat.first.contact.name, '0012 3456 7890',
+          reason: 'shown grouped, addressed bare');
     });
   });
 }

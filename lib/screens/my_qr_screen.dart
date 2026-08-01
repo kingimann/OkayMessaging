@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+
+import '../util/account_code.dart';
 import '../theme/app_theme.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
@@ -84,6 +87,47 @@ class MyQrScreen extends StatelessWidget {
                   textAlign: TextAlign.center,
                   style: TextStyle(color: AppColors.subtle(context), height: 1.4),
                 ),
+                // An account with no number behind it has nothing anybody can
+                // look up, so the code has to be somewhere it can be read off
+                // this screen and typed into another phone. A QR is no use at
+                // all when the other phone is the one you are holding.
+                if (AccountCode.isCode(me.phone)) ...[
+                  const SizedBox(height: 20),
+                  Text('YOUR CODE',
+                      style: TextStyle(
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.8,
+                          color: AppColors.subtle(context))),
+                  const SizedBox(height: 6),
+                  SelectableText(
+                    AccountCode.pretty(me.phone),
+                    style: const TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 1.5),
+                  ),
+                  const SizedBox(height: 8),
+                  TextButton.icon(
+                    icon: const Icon(Icons.copy, size: 17),
+                    label: const Text('Copy code'),
+                    onPressed: () {
+                      Clipboard.setData(ClipboardData(text: me.phone));
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Code copied')),
+                      );
+                    },
+                  ),
+                  Text(
+                    'You have no phone number on this account, so this is how '
+                    'people reach you. Anyone with it can start a chat.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                        fontSize: 13,
+                        height: 1.4,
+                        color: AppColors.subtle(context)),
+                  ),
+                ],
               ],
             ),
           ),

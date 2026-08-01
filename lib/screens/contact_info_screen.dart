@@ -12,6 +12,7 @@ import '../state/follow_store.dart';
 import '../state/platform_moderation.dart';
 import '../state/session.dart' as local;
 import '../theme/app_theme.dart';
+import '../util/account_code.dart';
 import '../util/file_saver.dart';
 import '../utils/chat_transcript.dart';
 import '../widgets/app_dialogs.dart';
@@ -185,8 +186,13 @@ class ContactInfoScreen extends StatelessWidget {
           if (user.phone.isNotEmpty) ...[
             const SizedBox(height: 4),
             Center(
+              // Grouped and labelled when it is a code rather than a number.
+              // Twelve bare digits under somebody's name reads as a phone
+              // number that has gone wrong.
               child: Text(
-                user.phone,
+                AccountCode.isCode(user.phone)
+                    ? 'Code ${AccountCode.pretty(user.phone)}'
+                    : user.phone,
                 style: TextStyle(color: AppColors.subtle(context), fontSize: 15),
               ),
             ),

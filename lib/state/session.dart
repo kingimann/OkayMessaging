@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../app_state.dart';
+import '../util/account_code.dart';
 import '../models/user.dart';
 
 /// The signed-in identity, keyed by phone number and stored **only on this
@@ -63,6 +64,29 @@ class Session {
     await _prefs!.setString(_key, jsonEncode(me.toJson()));
     user.value = me;
     AppState.profile.value = me;
+  }
+
+  /// Signs in with no phone number at all.
+  ///
+  /// For anyone who does not want to hand over a number, and for the ordinary
+  /// case of putting the app on a second device to try it. What they get
+  /// instead is an [AccountCode] — a digit string that cannot be mistaken for
+  /// a real number — which is what the relay listens on and what the mesh
+  /// addresses, so everything downstream works unchanged.
+  ///
+  /// The consequence, said rather than discovered: nobody can find you from
+  /// their contacts, because there is no number of yours in anybody's phone.
+  /// They reach you by your code or your username, and that is all.
+  Future<void> signInWithoutNumber({
+    required String name,
+    String username = '',
+  }) =>
+      signIn(phone: AccountCode.mint(), name: name, username: username);
+
+  /// Whether the signed-in account has no phone number behind it.
+  bool get isNumberless {
+    final phone = user.value?.phone ?? '';
+    return phone.isNotEmpty && AccountCode.isCode(phone);
   }
 
   /// Lowercases and strips a leading '@' / invalid characters from a username.

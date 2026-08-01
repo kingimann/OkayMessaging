@@ -6,6 +6,7 @@ import '../data/mock_data.dart';
 import '../models/chat.dart';
 import '../models/user.dart';
 import '../state/chat_store.dart';
+import '../util/account_code.dart';
 import '../state/contacts_sync.dart';
 import '../widgets/app_dialogs.dart';
 import '../widgets/pull_to_refresh.dart';
@@ -45,13 +46,20 @@ class NewChatScreen extends StatelessWidget {
     final result = await showAppTextPrompt(
       context,
       icon: Icons.dialpad,
-      title: 'Chat with a number',
-      hint: '+1 555 0199',
+      title: 'Chat with a number or code',
+      hint: '+1 555 0199  ·  0012 3456 7890',
       confirmLabel: 'Start',
       keyboardType: TextInputType.phone,
     );
-    final number = result?.trim();
-    if (number == null || number.isEmpty || !context.mounted) return;
+    final typed = result?.trim();
+    if (typed == null || typed.isEmpty || !context.mounted) return;
+
+    // An account with no phone number is reached by its code. Normalising it
+    // to bare digits matters: somebody reading one off another phone types
+    // the spaces in, and "0012 3456 7890" addressed verbatim is a different
+    // inbox from "001234567890".
+    final code = AccountCode.normalize(typed);
+    final number = code ?? typed;
 
     final store = ChatStore.instance;
     final existing = store.chatWithContact(number);
@@ -61,7 +69,7 @@ class NewChatScreen extends StatelessWidget {
     } else {
       final contact = AppUser(
         id: number,
-        name: number,
+        name: code == null ? number : AccountCode.pretty(number),
         avatarColor: '#64B5F6',
         about: 'Available',
         phone: number,
@@ -131,7 +139,7 @@ class NewChatScreen extends StatelessWidget {
               ),
             _ActionTile(
               icon: Icons.dialpad,
-              label: 'Chat with a number',
+              label: 'Chat with a number or code',
               onTap: () => _startByNumber(context),
             ),
             _ActionTile(

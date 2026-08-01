@@ -764,7 +764,32 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
         _phoneRow(onSubmit: _continueLocal),
         const SizedBox(height: 24),
         _cta('Continue', _continueLocal),
+        const SizedBox(height: 6),
+        TextButton(
+          onPressed: _busy ? null : _continueWithoutNumber,
+          child: Text('Continue without a phone number',
+              style: TextStyle(color: AppColors.subtle(context))),
+        ),
       ];
+
+  /// Signs in with no number at all — a name, and a code instead.
+  ///
+  /// The phone field is skipped rather than validated, so the form's own
+  /// "enter a valid number" never fires on a path that deliberately has none.
+  Future<void> _continueWithoutNumber() async {
+    final name = _name.text.trim();
+    if (name.isEmpty) {
+      setState(() => _error = 'Enter a name so people know who you are.');
+      return;
+    }
+    if (!await _passTwoStep()) return;
+    setState(() => _busy = true);
+    await Session.instance.signInWithoutNumber(
+      name: name,
+      username: _username.text.trim(),
+    );
+    // The auth gate reacts to the new session and shows the home screen.
+  }
 
   // Verified step 1: name + phone → Send code.
   List<Widget> _phoneFields({required VoidCallback onSubmit, required String cta}) =>
