@@ -58,8 +58,15 @@ class _CollapsibleTextState extends State<CollapsibleText> {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, box) {
+        // MEASURE IN THE FONT IT IS DRAWN IN. The style handed in carries a
+        // size and a line height and no family, because the family comes from
+        // the ambient DefaultTextStyle — which is what Text.rich merges
+        // against when it draws. Measuring the bare style measured a
+        // different typeface from the one on screen, so the same body folded
+        // on one timeline and not the other.
+        final style = DefaultTextStyle.of(context).style.merge(widget.style);
         final painter = TextPainter(
-          text: TextSpan(text: widget.text, style: widget.style),
+          text: TextSpan(text: widget.text, style: style),
           maxLines: widget.maxLines,
           textDirection: Directionality.of(context),
           textScaler: MediaQuery.textScalerOf(context),

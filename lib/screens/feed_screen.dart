@@ -1,4 +1,3 @@
-import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -16,14 +15,12 @@ import '../widgets/app_dialogs.dart';
 import '../widgets/chat_photo.dart';
 import '../widgets/emoji_gif_sheet.dart';
 import '../widgets/feed_post_actions.dart';
-import '../widgets/collapsible_text.dart';
+import '../widgets/feed_post_parts.dart';
 import '../widgets/poll_widgets.dart';
 import '../widgets/pull_to_refresh.dart';
-import '../widgets/verified_badge.dart';
 import 'chat_screen.dart';
 import 'forward_screen.dart';
 import 'people_screen.dart';
-import 'in_app_web_screen.dart';
 
 /// Splits post text into styled spans: @mentions, #tags, and links pop in
 /// the accent colour. Pure, so it's easy to test.
@@ -43,6 +40,13 @@ List<TextSpan> feedSpans(String text, TextStyle base, TextStyle accent) {
   }
   return spans.isEmpty ? [TextSpan(text: text, style: base)] : spans;
 }
+
+/// A hashtag without its leading hash. Pure.
+///
+/// The store keeps tags with the hash on ("#polls") because that is how they
+/// appear in a post; the shared trending row takes them bare and adds it back.
+String bareTag(String tag) =>
+    tag.startsWith('#') ? tag.substring(1) : tag;
 
 /// The @mention being typed at the end of [text] (without the '@'), or null
 /// when the text doesn't end in one. Pure.
@@ -436,7 +440,7 @@ class _FeedScreenState extends State<FeedScreen> {
               _searching = !_searching;
             }),
           ),
-          if (!_searching) ...[
+          if (!_searching)
             IconButton(
               icon: const Icon(Icons.person_add_alt),
               tooltip: 'Add and follow people',
@@ -444,14 +448,14 @@ class _FeedScreenState extends State<FeedScreen> {
                 MaterialPageRoute(builder: (_) => const PeopleScreen()),
               ),
             ),
-            // Composing lives up here now — the timeline keeps the screen.
-            IconButton(
-              icon: const Icon(Icons.edit_outlined),
-              tooltip: 'New post',
-              onPressed: _openComposer,
-            ),
-          ],
         ],
+      ),
+      // Writing a post is the same button in the same corner as the public
+      // timeline's, rather than a pencil hidden among the app bar's icons.
+      floatingActionButton: FloatingActionButton(
+        onPressed: _openComposer,
+        tooltip: 'New post',
+        child: const Icon(Icons.edit_outlined),
       ),
       body: ListenableBuilder(
         listenable: FeedStore.instance,
@@ -477,55 +481,28 @@ class _FeedScreenState extends State<FeedScreen> {
                 // in the corner. The timeline has exactly one of these on at
                 // a time, and a tab says that where a chip only implies it.
                 if (all.isNotEmpty) ...[
-                  Row(
-                    children: [
-                      _FeedTab(
-                        label: 'Latest',
-                        selected: !_top && !_savedOnly,
-                        onTap: () => setState(() {
-                          _top = false;
-                          _savedOnly = false;
-                        }),
-                      ),
-                      _FeedTab(
-                        label: 'Top',
-                        selected: _top && !_savedOnly,
-                        onTap: () => setState(() {
-                          _top = true;
-                          _savedOnly = false;
-                        }),
-                      ),
-                      _FeedTab(
-                        label: 'Saved',
-                        selected: _savedOnly,
-                        onTap: () => setState(() => _savedOnly = true),
-                      ),
-                    ],
+                  FeedTabStrip(
+                    labels: const ['Latest', 'Top', 'Saved'],
+                    active: _savedOnly ? 2 : (_top ? 1 : 0),
+                    onPick: (i) => setState(() {
+                      _savedOnly = i == 2;
+                      _top = i == 1;
+                    }),
                   ),
-                  const Divider(height: 1),
-                  // Trending: what the server is talking about, as one-tap
-                  // filters. Its own row — a scrolling strip of hashtags
-                  // inside the tab row would have hidden the tabs.
-                  if (tags.isNotEmpty)
-                    SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      padding: const EdgeInsets.fromLTRB(12, 8, 12, 2),
-                      child: Row(
-                        children: [
-                          for (final (tag, n) in tags)
-                            Padding(
-                              padding: const EdgeInsets.only(right: 8),
-                              child: FilterChip(
-                                label: Text(n > 1 ? '$tag · $n' : tag),
-                                selected: _tag == tag,
-                                visualDensity: VisualDensity.compact,
-                                onSelected: (_) => setState(
-                                    () => _tag = _tag == tag ? '' : tag),
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
+                  // What the server is talking about, and whatever is
+                  // narrowing the timeline right now — the same row, in the
+                  // same place, as the public one.
+                  FeedTrendingBar(
+                    tags: [for (final (tag, n) in tags) (bareTag(tag), n)],
+                    tag: bareTag(_tag),
+                    query: _searching ? _search.text.trim() : '',
+                    onTag: (t) =>
+                        setState(() => _tag = t.isEmpty ? '' : '#$t'),
+                    onClearQuery: () => setState(() {
+                      _search.clear();
+                      _searching = false;
+                    }),
+                  ),
                 ],
                 if (posts.isEmpty)
                   Padding(
@@ -534,8 +511,7 @@ class _FeedScreenState extends State<FeedScreen> {
                       child: Text(
                         _searching && _search.text.trim().isNotEmpty
                             ? 'No posts match "${_search.text.trim()}"'
-                            : 'No posts yet. Tap the pencil up top to say '
-                                'something!',
+                            : 'No posts yet. Tap the pencil to say something!',
                         textAlign: TextAlign.center,
                         style: TextStyle(
                             color:
@@ -550,6 +526,7 @@ class _FeedScreenState extends State<FeedScreen> {
                     _postTile(post),
                   const Divider(height: 1),
                 ],
+                if (posts.isNotEmpty) const FeedEndOfList(),
                 const SizedBox(height: 24),
               ],
             ),
@@ -754,97 +731,44 @@ class _PostCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final grey = Theme.of(context).colorScheme.onSurfaceVariant;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 12, 6),
+      padding: FeedPostMetrics.tilePadding,
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          GestureDetector(
-            onTap: onAuthor,
-            child: _FeedAvatar(
-                name: post.authorName, username: post.authorUsername),
-          ),
-          const SizedBox(width: 12),
+          FeedAvatar(
+              username: post.authorUsername,
+              name: post.authorName,
+              onTap: onAuthor),
+          const SizedBox(width: FeedPostMetrics.gutter),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                if (post.pinned)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 2),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.push_pin,
-                            size: 12, color: Color(0xFF43B581)),
-                        const SizedBox(width: 4),
-                        Text('Pinned',
-                            style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w700,
-                                color: Colors.green.shade700)),
-                      ],
-                    ),
-                  ),
-                Row(
-                  children: [
-                    Flexible(
-                      child: GestureDetector(
-                        onTap: onAuthor,
-                        child: Text(post.authorName,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                                fontWeight: FontWeight.w700, fontSize: 15)),
-                      ),
-                    ),
-                    if (post.authorVerified) ...[
-                      const SizedBox(width: 3),
-                      const VerifiedBadge(size: 14),
-                    ],
-                    const SizedBox(width: 6),
-                    Flexible(
-                      child: Text(
-                          '@${post.authorUsername} · ${feedAge(post.time)}'
-                          '${post.edited ? ' · edited' : ''}',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(color: grey, fontSize: 13.5)),
-                    ),
-                    const Spacer(),
-                    // The same affordance the public timeline has. This menu
-                    // was on a long-press and nothing else — the one gesture
-                    // nobody finds by looking, holding everything from
-                    // bookmark to report.
-                    if (onMore != null)
-                      GestureDetector(
-                        onTap: onMore,
-                        behavior: HitTestBehavior.opaque,
-                        child: Padding(
-                          padding: const EdgeInsets.only(left: 8),
-                          child: Icon(Icons.more_horiz, size: 18, color: grey),
-                        ),
-                      ),
-                  ],
+                FeedPostHeader(
+                  name: post.authorName,
+                  username: post.authorUsername,
+                  time: post.time,
+                  verified: post.authorVerified,
+                  edited: post.edited,
+                  pinned: post.pinned,
+                  onAuthor: onAuthor,
+                  // This menu was on a long-press and nothing else — the one
+                  // gesture nobody finds by looking, holding everything from
+                  // bookmark to report.
+                  onMore: onMore,
                 ),
-                const SizedBox(height: 3),
-                if (post.text.isNotEmpty)
-                  _FeedRichText(
-                    collapseAt: 10,
+                if (post.text.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  FeedBodyText(
                     text: post.text,
-                    base: const TextStyle(fontSize: 15.5, height: 1.35),
-                    accent: TextStyle(
-                      fontSize: 15.5,
-                      height: 1.35,
-                      fontWeight: FontWeight.w600,
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
                     onTag: onTag,
                     onMention: onMention,
                   ),
+                ],
                 if (post.isPoll)
                   Padding(
-                    padding: const EdgeInsets.only(top: 6, right: 8),
+                    padding: const EdgeInsets.only(top: 10, right: 8),
                     child: PollBody(
                       question: post.pollQuestion,
                       options: post.pollOptions,
@@ -857,8 +781,18 @@ class _PostCard extends StatelessWidget {
                   ),
                 if (post.gifUrl != null) ...[
                   const SizedBox(height: 8),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(14),
+                  FeedPostImage(
+                    // A picture opens full size on the public timeline; it did
+                    // nothing here, so the same tap on the same-looking post
+                    // meant two different things.
+                    onOpen: () =>
+                        Navigator.of(context).push(MaterialPageRoute(
+                      builder: (_) => FeedPhotoScreen(
+                          url: post.gifUrl!,
+                          by: post.authorName.isEmpty
+                              ? '@${post.authorUsername}'
+                              : post.authorName),
+                    )),
                     // ChatPhoto also decodes attached photos (data: URIs),
                     // not just GIF links.
                     child: ChatPhoto(
@@ -868,94 +802,27 @@ class _PostCard extends StatelessWidget {
                     ),
                   ),
                 ],
-                const SizedBox(height: 8),
-                // The three conversation actions sit together on the left,
-                // save and share against the right edge. Spreading all five
-                // evenly across the row made every one of them equally far
-                // from the thumb and equally important, which they are not:
-                // reply, repost and like are what a timeline is for.
-                Row(
-                  children: [
-                    Expanded(
-                      // The same strip the public timeline uses, rather than
-                      // three actions inside a 240-point box with a bookmark
-                      // and a share bolted on the end. Four evenly spread is
-                      // the shape both feeds have now; bookmark moved into the
-                      // post's own menu, where the public feed already kept it.
-                      child: FeedPostActions(
-                        replyCount: post.replies,
-                        repostCount: post.reposts,
-                        likeCount: post.likes,
-                        liked: post.liked,
-                        reposted: post.reposted,
-                        onReply: onReply,
-                        onRepost: onRepost,
-                        onLike: onLike,
-                        onShare: () {
-                          Clipboard.setData(ClipboardData(text: post.text));
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Post copied.')),
-                          );
-                        },
-                      ),
-                    ),
-                  ],
+                const SizedBox(height: 2),
+                FeedPostActions(
+                  replyCount: post.replies,
+                  repostCount: post.reposts,
+                  likeCount: post.likes,
+                  liked: post.liked,
+                  reposted: post.reposted,
+                  onReply: onReply,
+                  onRepost: onRepost,
+                  onLike: onLike,
+                  onShare: () {
+                    Clipboard.setData(ClipboardData(text: post.text));
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Post copied.')),
+                    );
+                  },
                 ),
               ],
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-/// One timeline tab: a label with a short bar under the selected one.
-///
-/// The bar is centred on the label rather than filling the segment, which is
-/// what keeps three tabs reading as a row of choices instead of three
-/// buttons welded together.
-class _FeedTab extends StatelessWidget {
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-  const _FeedTab(
-      {required this.label, required this.selected, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Expanded(
-      child: InkWell(
-        onTap: onTap,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(4, 13, 4, 11),
-              child: Text(
-                label,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 14.5,
-                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                  color: selected ? scheme.onSurface : scheme.onSurfaceVariant,
-                ),
-              ),
-            ),
-            // Always laid out, only painted when selected — otherwise the
-            // labels would shift by three pixels every time a tab changed.
-            Container(
-              height: 3,
-              width: 44,
-              decoration: BoxDecoration(
-                color: selected ? scheme.primary : Colors.transparent,
-                borderRadius:
-                    const BorderRadius.vertical(top: Radius.circular(2)),
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }
@@ -1172,39 +1039,6 @@ class _FeedPostScreenState extends State<FeedPostScreen> {
 }
 
 /// A small initials avatar coloured stably from the username.
-class _FeedAvatar extends StatelessWidget {
-  final String name;
-  final String username;
-
-  const _FeedAvatar({required this.name, required this.username});
-
-  @override
-  Widget build(BuildContext context) {
-    var h = 0;
-    for (final c in username.codeUnits) {
-      h = (h * 31 + c) & 0x7fffffff;
-    }
-    final color = Colors.primaries[h % Colors.primaries.length].shade600;
-    final initials = name.isEmpty
-        ? '?'
-        : name
-            .trim()
-            .split(RegExp(r'\s+'))
-            .take(2)
-            .map((w) => w[0].toUpperCase())
-            .join();
-    return CircleAvatar(
-      radius: 19,
-      backgroundColor: color,
-      child: Text(initials,
-          style: const TextStyle(
-              color: Colors.white,
-              fontSize: 13.5,
-              fontWeight: FontWeight.w700)),
-    );
-  }
-}
-
 /// The profile sheet for any @username — post authors and text mentions
 /// alike: follow/unfollow them, or jump to your chat.
 void showPersonSheet(BuildContext context,
@@ -1226,7 +1060,7 @@ void showPersonSheet(BuildContext context,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            _FeedAvatar(name: displayName, username: username),
+            FeedAvatar(username: username, name: displayName),
             const SizedBox(height: 8),
             Text(displayName,
                 style:
@@ -1286,111 +1120,6 @@ void showPersonSheet(BuildContext context,
       ),
     ),
   );
-}
-
-/// Post text with live #hashtags, @mentions, and links: tags filter the
-/// timeline, mentions open the person, links open the browser.
-class _FeedRichText extends StatefulWidget {
-  final String text;
-  final TextStyle base;
-  final TextStyle accent;
-  final ValueChanged<String>? onTag;
-  final ValueChanged<String>? onMention;
-
-  /// Clips the body to this many lines, with a "Show more" under it. Null
-  /// for the places a post is the whole screen — a thread, a quoted card —
-  /// where there is nothing under it to protect.
-  final int? collapseAt;
-
-  const _FeedRichText({
-    required this.text,
-    required this.base,
-    required this.accent,
-    this.onTag,
-    this.onMention,
-    this.collapseAt,
-  });
-
-  @override
-  State<_FeedRichText> createState() => _FeedRichTextState();
-}
-
-class _FeedRichTextState extends State<_FeedRichText> {
-  final List<TapGestureRecognizer> _recognizers = [];
-
-  void _clearRecognizers() {
-    for (final r in _recognizers) {
-      r.dispose();
-    }
-    _recognizers.clear();
-  }
-
-  @override
-  void dispose() {
-    _clearRecognizers();
-    super.dispose();
-  }
-
-  TapGestureRecognizer? _recognizerFor(String token) {
-    VoidCallback? action;
-    if (token.startsWith('#') && widget.onTag != null) {
-      action = () => widget.onTag!(token);
-    } else if (token.startsWith('@') && widget.onMention != null) {
-      action = () => widget.onMention!(token.substring(1));
-    } else if (token.startsWith('http')) {
-      // On one of the app's own screens, never handed to a browser. The
-      // helper also refuses anything that isn't http(s), which matters here
-      // because a post's text is whatever somebody typed.
-      action = () => InAppWebScreen.open(context, token);
-    }
-    if (action == null) return null;
-    final r = TapGestureRecognizer()..onTap = action;
-    _recognizers.add(r);
-    return r;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final collapseAt = widget.collapseAt;
-    if (collapseAt == null) return _rich(context, null);
-    return CollapsibleText(
-      text: widget.text,
-      style: widget.base,
-      maxLines: collapseAt,
-      builder: _rich,
-    );
-  }
-
-  Widget _rich(BuildContext context, int? maxLines) {
-    _clearRecognizers();
-    final pattern = RegExp(r'(@[A-Za-z0-9_]+|#[A-Za-z0-9_]+|https?://\S+)');
-    final spans = <TextSpan>[];
-    var last = 0;
-    for (final m in pattern.allMatches(widget.text)) {
-      if (m.start > last) {
-        spans.add(TextSpan(
-            text: widget.text.substring(last, m.start), style: widget.base));
-      }
-      final token = m.group(0)!;
-      spans.add(TextSpan(
-          text: token,
-          style: widget.accent,
-          recognizer: _recognizerFor(token)));
-      last = m.end;
-    }
-    if (last < widget.text.length) {
-      spans
-          .add(TextSpan(text: widget.text.substring(last), style: widget.base));
-    }
-    return Text.rich(
-      TextSpan(
-          children: spans.isEmpty
-              ? [TextSpan(text: widget.text, style: widget.base)]
-              : spans),
-      maxLines: maxLines,
-      overflow: maxLines == null ? TextOverflow.clip : TextOverflow.ellipsis,
-    );
-  }
 }
 
 /// Writing a post, on its own screen.
@@ -1538,7 +1267,7 @@ class _FeedComposerScreenState extends State<FeedComposerScreen> {
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const _FeedAvatar(name: 'You', username: 'you'),
+                      const FeedAvatar(username: 'you', name: 'You'),
                       const SizedBox(width: 12),
                       Expanded(
                         child: TextField(

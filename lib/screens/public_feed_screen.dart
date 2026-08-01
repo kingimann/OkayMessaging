@@ -1,4 +1,3 @@
-import 'package:flutter/gestures.dart';
 import '../theme/app_theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -22,8 +21,8 @@ import '../util/photo_prep.dart';
 import '../utils/date_formatter.dart';
 import '../widgets/sanction_notice.dart';
 import '../widgets/user_avatar.dart';
-import '../widgets/collapsible_text.dart';
 import '../widgets/feed_post_actions.dart';
+import '../widgets/feed_post_parts.dart';
 import '../widgets/verified_badge.dart';
 import 'edit_profile_screen.dart';
 import 'feed_screen.dart' show FeedPostScreen;
@@ -33,58 +32,6 @@ import 'people_screen.dart';
 import 'profile_screen.dart';
 import 'score_screen.dart';
 import 'in_app_web_screen.dart';
-
-/// The colour behind somebody's avatar, derived from their handle.
-///
-/// Deterministic on purpose: a profile that looked different every time it
-/// opened would read as a different profile. Generated rather than uploaded
-/// because there is nowhere to put a banner image, and a flat grey bar looks
-/// like something failed to load.
-Color publicProfileBannerSeed(String username, ColorScheme scheme) {
-  if (username.isEmpty) return scheme.primary;
-  var hash = 0;
-  for (final unit in username.codeUnits) {
-    hash = (hash * 31 + unit) & 0x7fffffff;
-  }
-  return HSLColor.fromAHSL(1, (hash % 360).toDouble(), 0.45, 0.42).toColor();
-}
-
-/// The account behind a public handle, when this device happens to know it:
-/// you, or somebody there is a chat with.
-///
-/// WHY IT MATTERS. Everywhere else in this app a person is drawn by UserAvatar,
-/// with the colour they picked and the emoji they set. The feed drew its own
-/// circle from a hash of the handle — so somebody's own face on the newsfeed was
-/// a different colour from their face in chats, in calls and on the contact
-/// list. One person looked like two.
-///
-/// Nobody else can be resolved, and that is not a gap to paper over: a stranger
-/// on a public feed is a handle and a name, and a generated circle is the honest
-/// way to draw one.
-AppUser? knownUserFor(String username) {
-  final handle = username.trim().toLowerCase();
-  if (handle.isEmpty) return null;
-  final me = AppState.profile.value;
-  if (me.username.toLowerCase() == handle) return me;
-  for (final chat in ChatStore.instance.chats) {
-    if (chat.contact.username.toLowerCase() == handle) return chat.contact;
-  }
-  return null;
-}
-
-/// The colour behind a handle: the one they picked when this device knows
-/// them, and a stable generated one otherwise, so the same person is the same
-/// colour everywhere they appear.
-Color profileAccentFor(String username, ColorScheme scheme) {
-  final known = knownUserFor(username);
-  if (known != null) {
-    var hex = known.avatarColor.replaceFirst('#', '');
-    if (hex.length == 6) hex = 'FF$hex';
-    final value = int.tryParse(hex, radix: 16);
-    if (value != null) return Color(value);
-  }
-  return publicProfileBannerSeed(username, scheme);
-}
 
 /// Opens somebody's profile. One helper, so a tap on an avatar, a name, an
 /// @mention and the "more" sheet all land in the same place.
@@ -176,7 +123,7 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
                         openPublicProfile(context, me.username, name: me.name),
                     child: CircleAvatar(
                       radius: 16,
-                      backgroundColor: publicProfileBannerSeed(
+                      backgroundColor: feedHandleSeed(
                               me.username, Theme.of(context).colorScheme)
                           .withValues(alpha: 0.25),
                       child: Text(
@@ -411,7 +358,7 @@ class MutedAccountsScreen extends StatelessWidget {
                 final username = muted[i];
                 return ListTile(
                   leading: CircleAvatar(
-                    backgroundColor: publicProfileBannerSeed(
+                    backgroundColor: feedHandleSeed(
                             username, Theme.of(context).colorScheme)
                         .withValues(alpha: 0.25),
                     child: Text(
@@ -552,37 +499,6 @@ class _BookmarksScreenState extends State<BookmarksScreen> {
 ///
 /// Pinch to zoom, and the app bar keeps a way back — a photo that opens with no
 /// way out is the reason people learn to distrust tapping them.
-class _PhotoScreen extends StatelessWidget {
-  final String url;
-  final String by;
-  const _PhotoScreen({required this.url, required this.by});
-
-  @override
-  Widget build(BuildContext context) => Scaffold(
-        backgroundColor: Colors.black,
-        appBar: AppBar(
-          backgroundColor: Colors.black,
-          foregroundColor: Colors.white,
-          title: Text(by, style: const TextStyle(fontSize: 15)),
-        ),
-        body: Center(
-          child: InteractiveViewer(
-            maxScale: 5,
-            child: Image.network(
-              url,
-              fit: BoxFit.contain,
-              errorBuilder: (_, __, ___) => const Text(
-                  'That photo could not be loaded.',
-                  style: TextStyle(color: Colors.white70)),
-              loadingBuilder: (context, child, progress) => progress == null
-                  ? child
-                  : const CircularProgressIndicator(color: Colors.white),
-            ),
-          ),
-        ),
-      );
-}
-
 /// Somebody's profile: who they are, and everything they have posted.
 ///
 /// Laid out like the profiles people already know — a banner, an avatar
@@ -733,7 +649,7 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
               SliverPersistentHeader(
                 pinned: true,
                 delegate: _PinnedTabs(
-                  child: _TabStrip(
+                  child: FeedTabStrip(
                     labels: [for (final t in _tabs) t.label],
                     icons: [for (final t in _tabs) t.icon],
                     active: _tabs.indexOf(_tab),
@@ -1250,126 +1166,6 @@ class _PinnedTabs extends SliverPersistentHeaderDelegate {
   bool shouldRebuild(_PinnedTabs old) => old.child != child;
 }
 
-/// The tab row used by both the timeline and a profile: even columns, bold
-/// label, short underline under the active one. One widget so the two cannot
-/// drift into looking like different apps.
-class _TabStrip extends StatelessWidget {
-  final List<String> labels;
-
-  /// One glyph per label, or null to draw the words.
-  ///
-  /// The profile's four tabs are icons — four words across a phone leave
-  /// "Servers" nearly touching its neighbours. The feed's filters stay as
-  /// words: there are two of them, they have all the room they need, and
-  /// "Following" is not a thing with an obvious picture.
-  final List<IconData>? icons;
-
-  final int active;
-  final ValueChanged<int> onPick;
-  const _TabStrip(
-      {required this.labels,
-      required this.active,
-      required this.onPick,
-      this.icons});
-
-  /// The underline's own size, shared by the widget that draws it and the sums
-  /// that place it.
-  static const double _markWidth = 44;
-  static const double _markHeight = 3;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return LayoutBuilder(
-      builder: (context, box) {
-        // Even columns, so where the mark belongs is arithmetic rather than
-        // something to measure.
-        final cell = box.maxWidth / labels.length;
-        return Column(
-          children: [
-            Stack(
-              children: [
-                Row(
-                  children: [
-                    for (var i = 0; i < labels.length; i++)
-                      Expanded(
-                        // Named either way. An icon strip carries no words, so
-                        // without this a screen reader announces four buttons
-                        // called nothing — and "replies" and "posts" are two
-                        // speech bubbles to anyone guessing.
-                        child: Semantics(
-                          label: labels[i],
-                          selected: i == active,
-                          button: true,
-                          child: Tooltip(
-                            message: labels[i],
-                            child: InkWell(
-                              onTap: () => onPick(i),
-                              child: Padding(
-                                padding: const EdgeInsets.fromLTRB(
-                                    4, 12, 4, 12 + _markHeight + 8),
-                                child: Center(
-                                  child: icons != null
-                                      ? Icon(
-                                          icons![i],
-                                          size: 21,
-                                          color: i == active
-                                              ? scheme.onSurface
-                                              : AppColors.subtle(context),
-                                        )
-                                      // The weight changes with the tab, so a
-                                      // strip of words is laid out for the
-                                      // bold one either way — columns that
-                                      // shift as you tap read as the whole
-                                      // row moving.
-                                      : Text(
-                                          labels[i],
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: TextStyle(
-                                            fontWeight: i == active
-                                                ? FontWeight.w700
-                                                : FontWeight.w500,
-                                            color: i == active
-                                                ? scheme.onSurface
-                                                : AppColors.subtle(context),
-                                          ),
-                                        ),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-                // ONE mark that travels, rather than one per tab appearing and
-                // disappearing. It is the thing that says which tab you are on,
-                // and watching it move is what tells you the tap landed.
-                AnimatedPositioned(
-                  duration: const Duration(milliseconds: 220),
-                  curve: Curves.easeOutCubic,
-                  bottom: 0,
-                  left: cell * active + (cell - _markWidth) / 2,
-                  child: Container(
-                    height: _markHeight,
-                    width: _markWidth,
-                    decoration: BoxDecoration(
-                      color: scheme.primary,
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const Divider(height: 1),
-          ],
-        );
-      },
-    );
-  }
-}
-
 /// One post, plus its like / reply / more actions.
 class _PostTile extends StatelessWidget {
   final PublicPost post;
@@ -1388,88 +1184,33 @@ class _PostTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final author = knownUserFor(post.authorUsername);
-    final initial =
-        (post.authorName.isEmpty ? '?' : post.authorName[0]).toUpperCase();
     return InkWell(
       onTap: onOpen,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(14, 12, 8, 6),
+        padding: FeedPostMetrics.tilePadding,
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            GestureDetector(
+            FeedAvatar(
+              username: post.authorUsername,
+              name: post.authorName,
               onTap: () => openPublicProfile(context, post.authorUsername,
                   name: post.authorName),
-              child: author != null
-                  ? UserAvatar(user: author, radius: 20)
-                  : CircleAvatar(
-                      radius: 20,
-                      backgroundColor:
-                          profileAccentFor(post.authorUsername, scheme)
-                              .withValues(alpha: 0.22),
-                      child: Text(initial,
-                          style: const TextStyle(fontWeight: FontWeight.w700)),
-                    ),
             ),
-            const SizedBox(width: 12),
+            const SizedBox(width: FeedPostMetrics.gutter),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Row(
-                          children: [
-                            Flexible(
-                              child: GestureDetector(
-                                onTap: () => openPublicProfile(
-                                    context, post.authorUsername,
-                                    name: post.authorName),
-                                child: Text(
-                                    post.authorName.isEmpty
-                                        ? '@${post.authorUsername}'
-                                        : post.authorName,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                        fontWeight: FontWeight.w700)),
-                              ),
-                            ),
-                            if (post.authorVerified) ...[
-                              const SizedBox(width: 4),
-                              const VerifiedBadge(size: 14),
-                            ],
-                            if (post.authorUsername.isNotEmpty) ...[
-                              const SizedBox(width: 6),
-                              Flexible(
-                                child: Text('@${post.authorUsername}',
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                        fontSize: 12.5,
-                                        color: AppColors.subtle(context))),
-                              ),
-                            ],
-                            const SizedBox(width: 6),
-                            Text('· ${DateFormatter.postAge(post.createdAt)}',
-                                style: TextStyle(
-                                    fontSize: 12, color: AppColors.subtle(context))),
-                          ],
-                        ),
-                      ),
-                      GestureDetector(
-                        onTap: () => _more(context),
-                        behavior: HitTestBehavior.opaque,
-                        child: Padding(
-                          padding: const EdgeInsets.only(left: 8, bottom: 2),
-                          child: Icon(Icons.more_horiz,
-                              size: 17, color: AppColors.subtle(context)),
-                        ),
-                      ),
-                    ],
+                  FeedPostHeader(
+                    name: post.authorName,
+                    username: post.authorUsername,
+                    time: post.createdAt,
+                    verified: post.authorVerified,
+                    onAuthor: () => openPublicProfile(
+                        context, post.authorUsername,
+                        name: post.authorName),
+                    onMore: () => _more(context),
                   ),
                   // What this is a reply to. Only when the parent is loaded —
                   // a wrong handle here would be worse than no line at all.
@@ -1488,35 +1229,38 @@ class _PostTile extends StatelessWidget {
                   // post below carries the content.
                   if (post.body.isNotEmpty) ...[
                     const SizedBox(height: 4),
-                    _Body(text: post.body, collapse: collapseLongBody),
+                    FeedBodyText(
+                      text: post.body,
+                      collapse: collapseLongBody,
+                      onTag: (t) =>
+                          PublicFeedStore.instance.setTag(t.substring(1)),
+                      onMention: (u) => openPublicProfile(context, u),
+                    ),
                   ],
                   if (post.hasImage) ...[
                     const SizedBox(height: 8),
-                    GestureDetector(
-                      onTap: () => Navigator.of(context).push(MaterialPageRoute(
-                        builder: (_) => _PhotoScreen(
+                    FeedPostImage(
+                      onOpen: () => Navigator.of(context).push(MaterialPageRoute(
+                        builder: (_) => FeedPhotoScreen(
                             url: PublicFeedStore.imageUrlFor(post) ?? '',
                             by: post.authorName.isEmpty
                                 ? '@${post.authorUsername}'
                                 : post.authorName),
                       )),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(12),
-                        child: Image.network(
-                          PublicFeedStore.imageUrlFor(post) ?? '',
-                          fit: BoxFit.cover,
-                          // A broken image should be absent, not a grey box
-                          // with an icon in the middle of somebody's post.
-                          errorBuilder: (_, __, ___) => const SizedBox.shrink(),
-                          loadingBuilder: (context, child, progress) =>
-                              progress == null
-                                  ? child
-                                  : const SizedBox(
-                                      height: 160,
-                                      child: Center(
-                                          child: CircularProgressIndicator(
-                                              strokeWidth: 2))),
-                        ),
+                      child: Image.network(
+                        PublicFeedStore.imageUrlFor(post) ?? '',
+                        fit: BoxFit.cover,
+                        // A broken image should be absent, not a grey box
+                        // with an icon in the middle of somebody's post.
+                        errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                        loadingBuilder: (context, child, progress) =>
+                            progress == null
+                                ? child
+                                : const SizedBox(
+                                    height: 160,
+                                    child: Center(
+                                        child: CircularProgressIndicator(
+                                            strokeWidth: 2))),
                       ),
                     ),
                   ],
@@ -2404,65 +2148,18 @@ class _FilterBar extends StatelessWidget {
         // Tabs across the top, not chips. Chips read as removable filters;
         // these are the timeline you are on, which is a different thing, and
         // the underline is what says so.
-        _TabStrip(
+        FeedTabStrip(
           labels: [for (final f in FeedFilter.values) f.label],
           active: FeedFilter.values.indexOf(store.filter),
           onPick: (i) => store.setFilter(FeedFilter.values[i]),
         ),
-        // What is currently narrowing the feed, and how to drop it. A filter
-        // you can't see is a feed that looks broken.
-        if (store.tag.isNotEmpty || store.query.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
-            child: Wrap(
-              spacing: 8,
-              children: [
-                if (store.tag.isNotEmpty)
-                  InputChip(
-                    label: Text('#${store.tag}'),
-                    onDeleted: () => store.setTag(''),
-                  ),
-                if (store.query.isNotEmpty)
-                  InputChip(
-                    label: Text('"${store.query}"'),
-                    onDeleted: () => store.search(''),
-                  ),
-              ],
-            ),
-          )
-        // Trending only when nothing is already narrowing things, or the row
-        // becomes a way to lose track of what you're looking at.
-        else if (tags.isNotEmpty)
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.fromLTRB(14, 8, 14, 8),
-            child: Row(
-              children: [
-                Text('TRENDING',
-                    style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: 0.6,
-                        color: AppColors.subtle(context))),
-                const SizedBox(width: 12),
-                for (final (tag, count) in tags) ...[
-                  GestureDetector(
-                    onTap: () => store.setTag(tag),
-                    child: Text('#$tag',
-                        style: TextStyle(
-                            fontSize: 13.5,
-                            fontWeight: FontWeight.w600,
-                            color: Theme.of(context).colorScheme.primary)),
-                  ),
-                  const SizedBox(width: 4),
-                  Text('$count',
-                      style: TextStyle(
-                          fontSize: 11.5, color: AppColors.subtle(context))),
-                  const SizedBox(width: 14),
-                ],
-              ],
-            ),
-          ),
+        FeedTrendingBar(
+          tags: tags,
+          tag: store.tag,
+          query: store.query,
+          onTag: store.setTag,
+          onClearQuery: () => store.search(''),
+        ),
         if (store.filter == FeedFilter.following && store.posts.isEmpty)
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
@@ -2489,15 +2186,7 @@ class _Footer extends StatelessWidget {
         child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
       );
     }
-    if (store.reachedEnd) {
-      return Padding(
-        padding: const EdgeInsets.all(24),
-        child: Center(
-          child: Text('That\'s everything.',
-              style: TextStyle(fontSize: 12.5, color: AppColors.subtle(context))),
-        ),
-      );
-    }
+    if (store.reachedEnd) return const FeedEndOfList();
     return Padding(
       padding: const EdgeInsets.all(16),
       child: Center(
@@ -2660,58 +2349,6 @@ class _Result extends StatelessWidget {
 }
 
 /// Post text with tappable #hashtags and @mentions.
-class _Body extends StatelessWidget {
-  final String text;
-  final bool collapse;
-  const _Body({required this.text, this.collapse = true});
-
-  static const _base = TextStyle(fontSize: 15);
-
-  @override
-  Widget build(BuildContext context) => collapse
-      ? CollapsibleText(
-          text: text,
-          style: _base,
-          builder: _rich,
-        )
-      : _rich(context, null);
-
-  Widget _rich(BuildContext context, int? maxLines) {
-    final accent = Theme.of(context).colorScheme.primary;
-    const base = _base;
-    final spans = <InlineSpan>[];
-    final pattern = RegExp(r'(#[A-Za-z0-9_]{1,40}|@[A-Za-z0-9_.]{2,})');
-    var last = 0;
-    for (final m in pattern.allMatches(text)) {
-      if (m.start > last) {
-        spans.add(TextSpan(text: text.substring(last, m.start), style: base));
-      }
-      final token = m.group(0)!;
-      spans.add(TextSpan(
-        text: token,
-        style: base.copyWith(color: accent, fontWeight: FontWeight.w600),
-        recognizer: TapGestureRecognizer()
-          ..onTap = () {
-            if (token.startsWith('#')) {
-              PublicFeedStore.instance.setTag(token.substring(1));
-            } else {
-              openPublicProfile(context, token.substring(1));
-            }
-          },
-      ));
-      last = m.end;
-    }
-    if (last < text.length) {
-      spans.add(TextSpan(text: text.substring(last), style: base));
-    }
-    return Text.rich(
-      TextSpan(children: spans),
-      maxLines: maxLines,
-      overflow: maxLines == null ? TextOverflow.clip : TextOverflow.ellipsis,
-    );
-  }
-}
-
 /// The post a repost repeats, shown inline. Only what is already loaded — a
 /// quoted post from further back reads as unavailable rather than fetching one
 /// row at a time while somebody scrolls.

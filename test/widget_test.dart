@@ -63,6 +63,7 @@ import 'package:okay_messaging/screens/public_feed_screen.dart';
 import 'package:okay_messaging/state/public_feed_store.dart';
 import 'package:okay_messaging/state/smart_replies.dart';
 import 'package:okay_messaging/widgets/feed_post_actions.dart';
+import 'package:okay_messaging/widgets/feed_post_parts.dart';
 import 'package:okay_messaging/widgets/streak_chip.dart';
 import 'package:okay_messaging/widgets/sanction_notice.dart';
 import 'package:okay_messaging/screens/forum_screen.dart';
@@ -5928,23 +5929,21 @@ void main() {
           reason: 'the tabs should be spread across the row, not huddled');
 
       // Exactly one is on at a time. Saved used to be a filter you could
-      // combine with Top, which left two of the three looking selected.
-      Color? barOf(String label) {
-        final container = tester.widget<Container>(find.descendant(
-            of: find.ancestor(
-                of: find.text(label), matching: find.byType(Column)).first,
-            matching: find.byType(Container)));
-        return (container.decoration as BoxDecoration?)?.color;
-      }
+      // combine with Top, which left two of the three looking selected —
+      // there is ONE mark now, and it travels, so two cannot be lit at once.
+      expect(find.byKey(FeedTabStrip.markKey), findsOneWidget);
+      double markOff(String label) =>
+          (tester.getCenter(find.byKey(FeedTabStrip.markKey)).dx -
+                  tester.getCenter(find.text(label)).dx)
+              .abs();
 
-      expect(barOf('Latest'), isNot(Colors.transparent));
-      expect(barOf('Top'), Colors.transparent);
+      expect(markOff('Latest'), lessThan(4));
+      expect(markOff('Top'), greaterThan(width * 0.2));
 
       await tester.tap(find.text('Saved'));
       await tester.pumpAndSettle();
-      expect(barOf('Saved'), isNot(Colors.transparent));
-      expect(barOf('Latest'), Colors.transparent);
-      expect(barOf('Top'), Colors.transparent);
+      expect(markOff('Saved'), lessThan(4));
+      expect(markOff('Latest'), greaterThan(width * 0.2));
     });
 
     testWidgets('the composer gets the whole screen, not one squeezed line',
@@ -13758,10 +13757,10 @@ void main() {
       // A banner colour has to be stable, or somebody's profile looks like a
       // different profile every time it opens.
       const scheme = ColorScheme.light();
-      expect(publicProfileBannerSeed('sam', scheme),
-          publicProfileBannerSeed('sam', scheme));
-      expect(publicProfileBannerSeed('sam', scheme),
-          isNot(publicProfileBannerSeed('kim', scheme)));
+      expect(feedHandleSeed('sam', scheme),
+          feedHandleSeed('sam', scheme));
+      expect(feedHandleSeed('sam', scheme),
+          isNot(feedHandleSeed('kim', scheme)));
     });
 
     test('a view that predates reposts still gives a timeline', () {
@@ -15040,7 +15039,7 @@ void main() {
       expect(knownUserFor('stranger'), isNull);
       const scheme = ColorScheme.light();
       expect(profileAccentFor('stranger', scheme),
-          publicProfileBannerSeed('stranger', scheme));
+          feedHandleSeed('stranger', scheme));
       expect(knownUserFor(''), isNull);
 
       PublicFeedStore.debugProfileOverride = (username) async => [];
@@ -15596,10 +15595,22 @@ void main() {
           src.contains(
               "uri.scheme != 'http' && uri.scheme != 'https'"),
           isTrue);
-      // Feed links go through it rather than launching.
-      final feed = File('lib/screens/feed_screen.dart').readAsStringSync();
-      expect(feed.contains('InAppWebScreen.open(context, token)'), isTrue);
-      expect(feed.contains('url_launcher'), isFalse);
+      // Feed links go through it rather than launching — and there is one
+      // body renderer for both timelines, so this cannot be true of one feed
+      // and not the other. It used to be: a URL was tappable on a server feed
+      // and dead text on the public one.
+      final parts =
+          File('lib/widgets/feed_post_parts.dart').readAsStringSync();
+      expect(parts.contains('InAppWebScreen.open(context, token)'), isTrue);
+      expect(parts.contains('url_launcher'), isFalse);
+      for (final path in [
+        'lib/screens/feed_screen.dart',
+        'lib/screens/public_feed_screen.dart',
+      ]) {
+        final src = File(path).readAsStringSync();
+        expect(src.contains('FeedBodyText('), isTrue, reason: path);
+        expect(src.contains('url_launcher'), isFalse, reason: path);
+      }
     });
   });
 
@@ -18256,6 +18267,93 @@ void main() {
   });
 
   group('The two timelines are one timeline', () {
+    /// Every accented, tappable run in a rendered [FeedBodyText] — the
+    /// #tags, @mentions and links that are live rather than just words.
+    List<String> liveTokens(WidgetTester t) {
+      final text = t.widget<Text>(find
+          .descendant(of: find.byType(FeedBodyText), matching: find.byType(Text))
+          .first);
+      final out = <String>[];
+      text.textSpan?.visitChildren((span) {
+        if (span is TextSpan && span.recognizer != null && span.text != null) {
+          out.add(span.text!);
+        }
+        return true;
+      });
+      return out;
+    }
+
+    testWidgets('the same post reads the same on either timeline', (t) async {
+      // The two drifted for a long time: different avatars for the same
+      // person, "40d" against "22 Jun", a name that fit on one and truncated
+      // on the other, a URL live on one and dead text on the other.
+      SharedPreferences.setMockInitialValues({});
+      AppState.resetForTest();
+      Session.instance.signInForTest();
+      ChatStore.instance.reset();
+      FeedStore.instance.resetForTest();
+      PublicFeedStore.instance.resetForTest();
+
+      final when = DateTime.now().subtract(const Duration(days: 40));
+      const body = 'Notes on #polls for @ada — https://okaymessaging.com/x';
+
+      FeedStore.instance.addRemote(FeedPost(
+        id: 'srv1',
+        communityId: 'c1',
+        authorName: 'Ada Lovelace',
+        authorUsername: 'ada',
+        time: when,
+        text: body,
+      ));
+      PublicFeedStore.debugLoadOverride = () async => [
+            PublicPost(
+              id: 'pub1',
+              authorUsername: 'ada',
+              authorName: 'Ada Lovelace',
+              body: body,
+              createdAt: when,
+            ),
+          ];
+      addTearDown(() => PublicFeedStore.debugLoadOverride = null);
+
+      final seen = <String, List<String>>{};
+      for (final (name, screen) in <(String, Widget)>[
+        ('server', const FeedScreen(communityId: 'c1', communityName: 'HQ')),
+        ('public', const PublicFeedScreen()),
+      ]) {
+        await t.pumpWidget(MaterialApp(home: screen));
+        await t.pumpAndSettle();
+
+        // Drawn from the shared parts, not each screen's own copy.
+        expect(find.byType(FeedAvatar), findsWidgets, reason: name);
+        expect(find.byType(FeedPostHeader), findsWidgets, reason: name);
+        expect(find.byType(FeedBodyText), findsWidgets, reason: name);
+        expect(find.byType(FeedPostActions), findsWidgets, reason: name);
+
+        // The whole name, not "Ada Lovel…" — the handle gives way first.
+        expect(find.text('Ada Lovelace'), findsOneWidget, reason: name);
+        seen['$name-age'] = [
+          for (final w in t
+              .widgetList<Text>(find.descendant(
+                  of: find.byType(FeedPostHeader), matching: find.byType(Text)))
+              .toList())
+            if (w.data != null && w.data!.startsWith('· ')) w.data!
+        ];
+        seen['$name-live'] = liveTokens(t);
+      }
+
+      // One age format. A post from six weeks ago said "40d" on a server feed
+      // and "22 Jun" on the public one.
+      expect(seen['server-age'], seen['public-age']);
+      expect(seen['server-age']!.single, contains('·'));
+
+      // And the same three things are tappable in the body, including the
+      // link, which the public feed used to render as plain text.
+      expect(seen['server-live'], seen['public-live']);
+      expect(seen['server-live'],
+          ['#polls', '@ada', 'https://okaymessaging.com/x']);
+    });
+
     test('both feeds draw the same actions, from the same widget', () {
       // There were two implementations of the same row. The public feed spread
       // four evenly across the post's width; a server feed put three inside a
@@ -18331,7 +18429,14 @@ void main() {
       // all, so a post you had opened was one you could no longer bookmark,
       // mute or report.
       final server = File('lib/screens/feed_screen.dart').readAsStringSync();
-      expect(server.contains('Icons.more_horiz'), isTrue,
+      // The icon itself lives in the header both feeds draw, so a post's menu
+      // is in the same corner of the same row wherever the post is.
+      expect(
+          File('lib/widgets/feed_post_parts.dart')
+              .readAsStringSync()
+              .contains('Icons.more_horiz'),
+          isTrue);
+      expect(server.contains('onMore: onMore'), isTrue,
           reason: 'the server feed has no visible way into the post menu');
       expect(server.contains('void showFeedPostOptions('), isTrue,
           reason: 'the thread screen needs the same menu, so it is shared');
@@ -20828,6 +20933,44 @@ void main() {
           reason: 'a different post starts folded');
     });
 
+    testWidgets('a body is measured in the font it is drawn in', (t) async {
+      // The style handed in carries a size and no family, because the family
+      // — and the letter spacing, and the rest — come from the ambient
+      // DefaultTextStyle, which is what Text.rich merges against when it
+      // draws. Measuring the bare style measured a different typeface from
+      // the one on screen, so the SAME body folded on one timeline and not
+      // the other: the server feed showed "Show more" under five lines.
+      Widget frame(double spacing) => MaterialApp(
+            home: Scaffold(
+              body: DefaultTextStyle(
+                style: TextStyle(fontSize: 15, letterSpacing: spacing),
+                child: SizedBox(
+                  width: 300,
+                  child: CollapsibleText(
+                    text: 'One short line of a post, and then a second.',
+                    style: const TextStyle(fontSize: 15),
+                    maxLines: 4,
+                    builder: (context, maxLines) => Text(
+                        'One short line of a post, and then a second.',
+                        maxLines: maxLines),
+                  ),
+                ),
+              ),
+            ),
+          );
+
+      await t.pumpWidget(frame(0));
+      await t.pumpAndSettle();
+      expect(find.text('Show more'), findsNothing,
+          reason: 'it fits, so there is nothing to unfold');
+
+      // Same text, same passed style, ambient type that makes it far wider.
+      await t.pumpWidget(frame(20));
+      await t.pumpAndSettle();
+      expect(find.text('Show more'), findsOneWidget,
+          reason: 'it no longer fits, and the measurement has to know that');
+    });
+
     test('both feeds fold through the same widget', () {
       // Two feeds that drifted apart is the thing this is here to stop; they
       // render their bodies through different tag-highlighting widgets, so
@@ -20837,8 +20980,13 @@ void main() {
         'lib/screens/public_feed_screen.dart',
       ]) {
         final src = File(path).readAsStringSync();
-        expect(src.contains('CollapsibleText'), isTrue, reason: path);
+        expect(src.contains('FeedBodyText('), isTrue, reason: path);
       }
+      expect(
+          File('lib/widgets/feed_post_parts.dart')
+              .readAsStringSync()
+              .contains('CollapsibleText('),
+          isTrue);
     });
 
     // --- A draft survives leaving -----------------------------------------
