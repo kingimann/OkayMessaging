@@ -567,14 +567,29 @@ class CommunityStore extends ChangeNotifier {
   /// Rewrites the text of the local user's own channel message, keeping the
   /// original wording so "edited" isn't a black box.
   void editChannelMessage(String communityId, String channelId,
-      String messageId, String newText) {
+          String messageId, String newText) =>
+      _editChannelMessage(communityId, channelId, messageId, newText,
+          mine: true);
+
+  /// Applies an edit its author made on their own device. The local path
+  /// insists on [Message.isMe] so nobody rewrites somebody else's words; the
+  /// same guard would throw away every relayed edit, since a message from
+  /// another member is never `isMe` here.
+  void applyRemoteChannelEdit(String communityId, String channelId,
+          String messageId, String newText) =>
+      _editChannelMessage(communityId, channelId, messageId, newText,
+          mine: false);
+
+  void _editChannelMessage(String communityId, String channelId,
+      String messageId, String newText,
+      {required bool mine}) {
     final community = byId(communityId);
     final text = newText.trim();
     if (community == null || text.isEmpty) return;
     final channels = community.channels.map((ch) {
       if (ch.id != channelId) return ch;
       final msgs = ch.messages.map((m) {
-        if (m.id != messageId || !m.isMe || m.text == text) return m;
+        if (m.id != messageId || m.isMe != mine || m.text == text) return m;
         return m.copyWith(
             text: text, edited: true, originalText: m.originalText ?? m.text);
       }).toList();
@@ -583,41 +598,86 @@ class CommunityStore extends ChangeNotifier {
     _replace(community.copyWith(channels: channels));
   }
 
-  /// Pins a channel message, or unpins it if it already is.
-  void togglePinChannelMessage(
+  /// Pins or unpins, and reports which it did — a pin banner every member
+  /// sees has to converge, and a toggle relayed as a toggle cannot.
+  bool togglePinChannelMessage(
       String communityId, String channelId, String messageId) {
+    final channel = byId(communityId)
+        ?.channels
+        .cast<Channel?>()
+        .firstWhere((c) => c?.id == channelId, orElse: () => null);
+    final pinned = !(channel?.pinnedMessageIds.contains(messageId) ?? false);
+    setChannelMessagePinned(communityId, channelId, messageId,
+        pinned: pinned);
+    return pinned;
+  }
+
+  void setChannelMessagePinned(
+      String communityId, String channelId, String messageId,
+      {required bool pinned}) {
     final community = byId(communityId);
     if (community == null) return;
     final channels = community.channels.map((ch) {
       if (ch.id != channelId) return ch;
-      final pins = ch.pinnedMessageIds.contains(messageId)
-          ? ch.pinnedMessageIds.where((id) => id != messageId).toList()
-          : [...ch.pinnedMessageIds, messageId];
+      if (pinned == ch.pinnedMessageIds.contains(messageId)) return ch;
+      final pins = pinned
+          ? [...ch.pinnedMessageIds, messageId]
+          : ch.pinnedMessageIds.where((id) => id != messageId).toList();
       return ch.copyWith(pinnedMessageIds: pins);
     }).toList();
     _replace(community.copyWith(channels: channels));
   }
 
-  /// Toggles an emoji reaction on a channel message.
-  void toggleChannelReaction(String communityId, String channelId,
+  /// Toggles an emoji reaction on a channel message, and reports whether it is
+  /// now on — the caller needs to know which way it went to tell the other
+  /// members, because a toggle applied twice on two devices cancels itself.
+  bool toggleChannelReaction(String communityId, String channelId,
       String messageId, String emoji) {
+    final on = !(messageInChannel(communityId, channelId, messageId)
+            ?.reactions
+            .contains(emoji) ??
+        false);
+    setChannelReaction(communityId, channelId, messageId, emoji, add: on);
+    return on;
+  }
+
+  /// Sets an emoji reaction on or off, whoever asked for it. The remote half
+  /// of [toggleChannelReaction]; same shape as the 1:1 chat's
+  /// `setReactionState`, and lossy the same way — the model holds a set of
+  /// emoji, not who reacted, so two people's 👍 is one 👍.
+  void setChannelReaction(String communityId, String channelId,
+      String messageId, String emoji,
+      {required bool add}) {
     final community = byId(communityId);
     if (community == null) return;
     final channels = community.channels.map((ch) {
       if (ch.id != channelId) return ch;
       final msgs = ch.messages.map((m) {
         if (m.id != messageId) return m;
+        if (add == m.reactions.contains(emoji)) return m;
         final reactions = [...m.reactions];
-        if (reactions.contains(emoji)) {
-          reactions.remove(emoji);
-        } else {
+        if (add) {
           reactions.add(emoji);
+        } else {
+          reactions.remove(emoji);
         }
         return m.copyWith(reactions: reactions);
       }).toList();
       return ch.copyWith(messages: msgs);
     }).toList();
     _replace(community.copyWith(channels: channels));
+  }
+
+  /// One channel message, or null when the server, channel or message is gone.
+  Message? messageInChannel(
+      String communityId, String channelId, String messageId) {
+    final channel = byId(communityId)
+        ?.channels
+        .cast<Channel?>()
+        .firstWhere((c) => c?.id == channelId, orElse: () => null);
+    return channel?.messages
+        .cast<Message?>()
+        .firstWhere((m) => m?.id == messageId, orElse: () => null);
   }
 
   /// Records the local user's vote on a poll message in a channel, moving it
@@ -1013,6 +1073,30 @@ class CommunityStore extends ChangeNotifier {
   bool canSendMessages(String communityId) =>
       canModerate(communityId) ||
       (byId(communityId)?.membersCanMessage ?? true);
+
+  /// Whether a message may be sent into one specific channel: the server has
+  /// to allow it, the channel has to be one that takes messages at all, and an
+  /// announcement channel only takes them from an owner or admin.
+  ///
+  /// The channel composer decides the same thing inline; this exists so
+  /// somewhere that is *not* the channel — forwarding, say — can offer only
+  /// the channels that would actually accept the message, rather than
+  /// swallowing it silently.
+  bool canSendToChannel(String communityId, String channelId) {
+    if (!canSendMessages(communityId)) return false;
+    final channel = byId(communityId)
+        ?.channels
+        .cast<Channel?>()
+        .firstWhere((c) => c?.id == channelId, orElse: () => null);
+    if (channel == null) return false;
+    if (channel.type == ChannelType.voice ||
+        channel.type == ChannelType.forum) {
+      return false;
+    }
+    if (channel.type != ChannelType.announcement) return true;
+    final role = myRole(communityId);
+    return role == MemberRole.owner || role == MemberRole.admin;
+  }
 
   /// Whether the local user may share this server's invite, per its policy.
   bool canInvite(String communityId) {

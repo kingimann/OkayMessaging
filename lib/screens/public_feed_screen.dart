@@ -24,6 +24,7 @@ import '../widgets/feed_post_actions.dart';
 import '../widgets/verified_badge.dart';
 import 'edit_profile_screen.dart';
 import 'feed_screen.dart' show FeedPostScreen;
+import 'forward_screen.dart';
 import 'my_qr_screen.dart';
 import 'people_screen.dart';
 import 'profile_screen.dart';
@@ -1659,123 +1660,144 @@ class _PostTile extends StatelessWidget {
     showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
+      // Bookmark, mute, forward, copy, report — with subtitles they no
+      // longer fit the default half-height sheet, and what falls off the
+      // bottom is silently unreachable.
+      isScrollControlled: true,
       builder: (sheetContext) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListenableBuilder(
-              listenable: BookmarkStore.instance,
-              builder: (context, _) {
-                final saved = BookmarkStore.instance.contains(post.id);
-                return ListTile(
-                  leading: Icon(saved ? Icons.bookmark : Icons.bookmark_border),
-                  title: Text(saved ? 'Remove bookmark' : 'Bookmark'),
-                  subtitle: const Text('Kept on this device only'),
-                  onTap: () async {
-                    Navigator.of(sheetContext).pop();
-                    final now = await BookmarkStore.instance.toggle(post.id);
-                    if (!context.mounted) return;
-                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                        content:
-                            Text(now ? 'Bookmarked.' : 'Bookmark removed.')));
-                  },
-                );
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.copy),
-              title: const Text('Copy text'),
-              onTap: () {
-                Clipboard.setData(ClipboardData(text: post.body));
-                Navigator.of(sheetContext).pop();
-              },
-            ),
-            if (post.authorUsername.isNotEmpty)
-              ListTile(
-                leading: const Icon(Icons.person_outline),
-                title: Text('@${post.authorUsername}'),
-                onTap: () {
-                  Navigator.of(sheetContext).pop();
-                  openPublicProfile(context, post.authorUsername,
-                      name: post.authorName);
-                },
-              ),
-            // The public feed is the one surface with a real moderator behind
-            // it — a world-readable table, a reports queue, and people with
-            // the power to act on it. It was also the only surface with no way
-            // to report anything.
-            if (!post.mine)
-              ListTile(
-                leading: const Icon(Icons.flag_outlined),
-                title: const Text('Report post'),
-                subtitle: const Text('Sends it to the moderators'),
-                onTap: () {
-                  Navigator.of(sheetContext).pop();
-                  _reportPost(context, post);
-                },
-              ),
-            if (!post.mine && post.authorUsername.isNotEmpty)
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
               ListenableBuilder(
-                listenable: FeedMuteStore.instance,
+                listenable: BookmarkStore.instance,
                 builder: (context, _) {
-                  final muted =
-                      FeedMuteStore.instance.isMuted(post.authorUsername);
+                  final saved = BookmarkStore.instance.contains(post.id);
                   return ListTile(
-                    leading: Icon(muted
-                        ? Icons.volume_up_outlined
-                        : Icons.volume_off_outlined),
-                    title: Text(muted
-                        ? 'Unmute @${post.authorUsername}'
-                        : 'Mute @${post.authorUsername}'),
-                    subtitle: Text(muted
-                        ? 'Their posts come back to your timeline'
-                        : 'Hides their posts from your timeline, on this '
-                            'device. They are not told.'),
+                    leading: Icon(saved ? Icons.bookmark : Icons.bookmark_border),
+                    title: Text(saved ? 'Remove bookmark' : 'Bookmark'),
+                    subtitle: const Text('Kept on this device only'),
                     onTap: () async {
                       Navigator.of(sheetContext).pop();
-                      final now = await FeedMuteStore.instance
-                          .toggle(post.authorUsername);
+                      final now = await BookmarkStore.instance.toggle(post.id);
                       if (!context.mounted) return;
                       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                          content: Text(now
-                              ? 'Muted @${post.authorUsername}.'
-                              : 'Unmuted @${post.authorUsername}.')));
+                          content:
+                              Text(now ? 'Bookmarked.' : 'Bookmark removed.')));
                     },
                   );
                 },
               ),
-            if (post.mine)
               ListTile(
-                leading: const Icon(Icons.delete_outline, color: Colors.red),
-                title: const Text('Delete post',
-                    style: TextStyle(color: Colors.red)),
-                onTap: () async {
-                  Navigator.of(sheetContext).pop();
-                  try {
-                    await PublicFeedStore.instance.delete(post.id);
-                  } catch (e) {
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context)
-                          .showSnackBar(SnackBar(content: Text('$e')));
-                    }
-                  }
-                },
-              )
-            else
-              ListTile(
-                leading: const Icon(Icons.flag_outlined),
-                title: const Text('Report'),
-                subtitle: const Text('Sends it to the app\'s moderators'),
+                leading: const Icon(Icons.copy),
+                title: const Text('Copy text'),
                 onTap: () {
+                  Clipboard.setData(ClipboardData(text: post.body));
                   Navigator.of(sheetContext).pop();
-                  showReportSheet(
-                    context,
-                    context_: 'newsfeed post: ${post.body}',
-                    targetHandle: post.authorUsername,
-                  );
                 },
               ),
-          ],
+              if (post.authorUsername.isNotEmpty)
+                ListTile(
+                  leading: const Icon(Icons.person_outline),
+                  title: Text('@${post.authorUsername}'),
+                  onTap: () {
+                    Navigator.of(sheetContext).pop();
+                    openPublicProfile(context, post.authorUsername,
+                        name: post.authorName);
+                  },
+                ),
+              // A post that interests somebody is a post they want to send to
+              // somebody. Copying the text and pasting it into a chat was the
+              // only way, on both feeds.
+              if (post.body.trim().isNotEmpty)
+                ListTile(
+                  leading: const Icon(Icons.forward),
+                  title: const Text('Forward'),
+                  subtitle: const Text('To a chat or a server channel, '
+                      'encrypted like any other message'),
+                  onTap: () {
+                    Navigator.of(sheetContext).pop();
+                    Navigator.of(context).push(MaterialPageRoute(
+                        builder: (_) => ForwardScreen(text: post.body)));
+                  },
+                ),
+              // The public feed is the one surface with a real moderator behind
+              // it — a world-readable table, a reports queue, and people with
+              // the power to act on it. It was also the only surface with no way
+              // to report anything.
+              if (!post.mine)
+                ListTile(
+                  leading: const Icon(Icons.flag_outlined),
+                  title: const Text('Report post'),
+                  subtitle: const Text('Sends it to the moderators'),
+                  onTap: () {
+                    Navigator.of(sheetContext).pop();
+                    _reportPost(context, post);
+                  },
+                ),
+              if (!post.mine && post.authorUsername.isNotEmpty)
+                ListenableBuilder(
+                  listenable: FeedMuteStore.instance,
+                  builder: (context, _) {
+                    final muted =
+                        FeedMuteStore.instance.isMuted(post.authorUsername);
+                    return ListTile(
+                      leading: Icon(muted
+                          ? Icons.volume_up_outlined
+                          : Icons.volume_off_outlined),
+                      title: Text(muted
+                          ? 'Unmute @${post.authorUsername}'
+                          : 'Mute @${post.authorUsername}'),
+                      subtitle: Text(muted
+                          ? 'Their posts come back to your timeline'
+                          : 'Hides their posts from your timeline, on this '
+                              'device. They are not told.'),
+                      onTap: () async {
+                        Navigator.of(sheetContext).pop();
+                        final now = await FeedMuteStore.instance
+                            .toggle(post.authorUsername);
+                        if (!context.mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                            content: Text(now
+                                ? 'Muted @${post.authorUsername}.'
+                                : 'Unmuted @${post.authorUsername}.')));
+                      },
+                    );
+                  },
+                ),
+              if (post.mine)
+                ListTile(
+                  leading: const Icon(Icons.delete_outline, color: Colors.red),
+                  title: const Text('Delete post',
+                      style: TextStyle(color: Colors.red)),
+                  onTap: () async {
+                    Navigator.of(sheetContext).pop();
+                    try {
+                      await PublicFeedStore.instance.delete(post.id);
+                    } catch (e) {
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context)
+                            .showSnackBar(SnackBar(content: Text('$e')));
+                      }
+                    }
+                  },
+                )
+              else
+                ListTile(
+                  leading: const Icon(Icons.flag_outlined),
+                  title: const Text('Report'),
+                  subtitle: const Text('Sends it to the app\'s moderators'),
+                  onTap: () {
+                    Navigator.of(sheetContext).pop();
+                    showReportSheet(
+                      context,
+                      context_: 'newsfeed post: ${post.body}',
+                      targetHandle: post.authorUsername,
+                    );
+                  },
+                ),
+            ],
+          ),
         ),
       ),
     );

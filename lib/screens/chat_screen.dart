@@ -1162,18 +1162,25 @@ class _ChatScreenState extends State<ChatScreen> {
                     _startReply(message);
                   },
                 ),
-                ListTile(
-                  leading: const Icon(Icons.shortcut),
-                  title: const Text('Forward'),
-                  onTap: () {
-                    Navigator.of(sheetContext).pop();
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => ForwardScreen(text: message.text),
-                      ),
-                    );
-                  },
-                ),
+                // A photo forwards as a photo. It used to forward
+                // `message.text`, which for a picture sent without a caption
+                // is an empty bubble at the other end.
+                if (message.isImage || message.text.trim().isNotEmpty)
+                  ListTile(
+                    leading: const Icon(Icons.shortcut),
+                    title: const Text('Forward'),
+                    onTap: () {
+                      Navigator.of(sheetContext).pop();
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => ForwardScreen(
+                              text: message.text,
+                              imageUrl:
+                                  message.isImage ? message.imageUrl : null),
+                        ),
+                      );
+                    },
+                  ),
                 ListTile(
                   leading: const Icon(Icons.check_circle_outline),
                   title: const Text('Select'),
@@ -1209,17 +1216,18 @@ class _ChatScreenState extends State<ChatScreen> {
                       _editMessage(message);
                     },
                   ),
-                ListTile(
-                  leading: const Icon(Icons.copy),
-                  title: const Text('Copy'),
-                  onTap: () {
-                    Clipboard.setData(ClipboardData(text: message.text));
-                    Navigator.of(sheetContext).pop();
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Message copied')),
-                    );
-                  },
-                ),
+                if (message.text.trim().isNotEmpty)
+                  ListTile(
+                    leading: const Icon(Icons.copy),
+                    title: const Text('Copy'),
+                    onTap: () {
+                      Clipboard.setData(ClipboardData(text: message.text));
+                      Navigator.of(sheetContext).pop();
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Message copied')),
+                      );
+                    },
+                  ),
                 ListTile(
                   leading: Icon(_store.isStarred(_chatId, message.id)
                       ? Icons.star

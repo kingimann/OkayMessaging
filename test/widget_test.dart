@@ -18869,4 +18869,499 @@ void main() {
       expect(find.text('Can we do Friday?'), findsNothing);
     });
   });
+
+  group('A channel is not a one-way street', () {
+    // Posting was the only channel action that ever left the device. Deleting,
+    // editing, reacting and pinning all stopped at the phone that did them —
+    // so "Delete" removed a message for its author and nobody else, and a
+    // moderator had no way to remove anyone else's at all.
+
+    /// A server whose creator is the owner, with one text channel holding one
+    /// message from somebody else.
+    (Community, Channel) seedServer({String name = 'Guild'}) {
+      final community = CommunityStore.instance.createCommunity(name);
+      final channel = CommunityStore.instance
+          .byId(community.id)!
+          .channels
+          .firstWhere((c) => c.type == ChannelType.text);
+      return (CommunityStore.instance.byId(community.id)!, channel);
+    }
+
+    setUp(() {
+      SharedPreferences.setMockInitialValues({});
+      CommunityStore.instance.resetForTest();
+    });
+    tearDown(CommunityStore.instance.resetForTest);
+
+    test('a toggle reports which way it went, because a relay cannot guess',
+        () {
+      final (community, channel) = seedServer();
+      CommunityStore.instance.postMessage(
+          community.id,
+          channel.id,
+          Message(
+              id: 'm1',
+              text: 'hello',
+              time: DateTime.now(),
+              isMe: true,
+              status: MessageStatus.sent));
+
+      final store = CommunityStore.instance;
+      expect(store.toggleChannelReaction(community.id, channel.id, 'm1', '👍'),
+          isTrue,
+          reason: 'a reaction that was not there is now on');
+      expect(store.toggleChannelReaction(community.id, channel.id, 'm1', '👍'),
+          isFalse);
+      expect(store.togglePinChannelMessage(community.id, channel.id, 'm1'),
+          isTrue);
+      expect(store.togglePinChannelMessage(community.id, channel.id, 'm1'),
+          isFalse);
+    });
+
+    test('setting a reaction is idempotent, so two arrivals are one reaction',
+        () {
+      final (community, channel) = seedServer();
+      final store = CommunityStore.instance;
+      store.postMessage(
+          community.id,
+          channel.id,
+          Message(
+              id: 'm1',
+              text: 'hi',
+              time: DateTime.now(),
+              isMe: false,
+              status: MessageStatus.delivered));
+
+      store.setChannelReaction(community.id, channel.id, 'm1', '🔥', add: true);
+      store.setChannelReaction(community.id, channel.id, 'm1', '🔥', add: true);
+      expect(store.messageInChannel(community.id, channel.id, 'm1')!.reactions,
+          ['🔥'],
+          reason: 'a redelivered event must not double the emoji');
+
+      store.setChannelReaction(community.id, channel.id, 'm1', '🔥',
+          add: false);
+      store.setChannelReaction(community.id, channel.id, 'm1', '🔥',
+          add: false);
+      expect(store.messageInChannel(community.id, channel.id, 'm1')!.reactions,
+          isEmpty);
+    });
+
+    test('a relayed edit rewrites somebody else\'s message; a local one cannot',
+        () {
+      final (community, channel) = seedServer();
+      final store = CommunityStore.instance;
+      store.postMessage(
+          community.id,
+          channel.id,
+          Message(
+              id: 'theirs',
+              text: 'original',
+              time: DateTime.now(),
+              isMe: false,
+              status: MessageStatus.delivered,
+              senderName: 'Ada'));
+
+      // The local path refuses: nobody rewrites another member's words from
+      // their own device.
+      store.editChannelMessage(community.id, channel.id, 'theirs', 'tampered');
+      expect(store.messageInChannel(community.id, channel.id, 'theirs')!.text,
+          'original');
+
+      // The relayed path is the author's own edit arriving here, so it lands.
+      store.applyRemoteChannelEdit(
+          community.id, channel.id, 'theirs', 'second thoughts');
+      final edited =
+          store.messageInChannel(community.id, channel.id, 'theirs')!;
+      expect(edited.text, 'second thoughts');
+      expect(edited.edited, isTrue);
+      expect(edited.originalText, 'original');
+    });
+
+    test('a received chdel/chedt/chrxn/chpin actually changes the channel',
+        () {
+      // Through the real routing — a switch with no case for an event is
+      // exactly the bug this is here to catch.
+      final (community, channel) = seedServer();
+      final store = CommunityStore.instance;
+      final secret = store.byId(community.id)!.secretBytes!;
+      store.postMessage(
+          community.id,
+          channel.id,
+          Message(
+              id: 'm1',
+              text: 'first',
+              time: DateTime.now(),
+              isMe: false,
+              status: MessageStatus.delivered,
+              senderName: 'Ada'));
+
+      Map<String, dynamic> sealed(Map<String, dynamic> body) => {
+            'from': '+15550102222',
+            'communityId': community.id,
+            'data': E2eCrypto.encrypt(secret, jsonEncode(body)),
+          };
+      void deliver(String event, Map<String, dynamic> body) =>
+          RelayService.instance
+              .debugApplyCommunityEvent(event, sealed(body), '+15550101111');
+
+      deliver('chrxn', {
+        'channelId': channel.id,
+        'id': 'm1',
+        'emoji': '🎉',
+        'add': true,
+      });
+      expect(store.messageInChannel(community.id, channel.id, 'm1')!.reactions,
+          ['🎉']);
+
+      deliver('chedt', {
+        'channelId': channel.id,
+        'id': 'm1',
+        'text': 'first, actually',
+      });
+      expect(store.messageInChannel(community.id, channel.id, 'm1')!.text,
+          'first, actually');
+
+      deliver('chpin', {
+        'channelId': channel.id,
+        'id': 'm1',
+        'pinned': true,
+      });
+      expect(
+          store
+              .byId(community.id)!
+              .channels
+              .firstWhere((c) => c.id == channel.id)
+              .pinnedMessageIds,
+          contains('m1'));
+
+      deliver('chdel', {'channelId': channel.id, 'id': 'm1'});
+      expect(store.messageInChannel(community.id, channel.id, 'm1'), isNull);
+      expect(
+          store
+              .byId(community.id)!
+              .channels
+              .firstWhere((c) => c.id == channel.id)
+              .pinnedMessageIds,
+          isEmpty,
+          reason: 'a deleted message must not stay on the pin banner');
+    });
+
+    testWidgets('a moderator can remove a message that is not theirs',
+        (tester) async {
+      final (community, channel) = seedServer();
+      CommunityStore.instance.postMessage(
+          community.id,
+          channel.id,
+          Message(
+              id: 'theirs',
+              text: 'off topic',
+              time: DateTime.now(),
+              isMe: false,
+              status: MessageStatus.delivered,
+              senderName: 'Ada'));
+
+      await tester.pumpWidget(MaterialApp(
+        home: ChannelScreen(
+            communityId: community.id, channelId: channel.id),
+      ));
+      await tester.pump();
+
+      await tester.longPress(find.text('off topic'));
+      await tester.pumpAndSettle();
+      expect(find.text('Remove message'), findsOneWidget);
+      await tester.tap(find.text('Remove message'));
+      await tester.pumpAndSettle();
+      expect(
+          CommunityStore.instance
+              .messageInChannel(community.id, channel.id, 'theirs'),
+          isNull);
+    });
+
+    test('every channel-message change goes out, not just into the store', () {
+      // The store is deliberately pure — it changes the device and nothing
+      // else. That is why the screen has to be the one that also relays, and
+      // why a call going straight to the store is the regression to catch:
+      // it works perfectly on the phone that made it and nowhere else.
+      final src = File('lib/screens/communities.dart').readAsStringSync();
+      for (final direct in [
+        'CommunityStore.instance.deleteChannelMessage(',
+        'CommunityStore.instance.editChannelMessage(',
+        'CommunityStore.instance.toggleChannelReaction(',
+        'CommunityStore.instance.togglePinChannelMessage(',
+      ]) {
+        expect(src.contains(direct), isFalse,
+            reason: '\$direct changes this device only — use the helper that '
+                'also tells the rest of the server');
+      }
+      for (final (helper, sender) in [
+        ('void channelDelete(', 'sendChannelMessageDeleted('),
+        ('void channelEdit(', 'sendChannelMessageEdited('),
+        ('void channelReact(', 'sendChannelReaction('),
+        ('void channelPin(', 'sendChannelPin('),
+      ]) {
+        expect(src.contains(helper), isTrue, reason: helper);
+        expect(src.contains(sender), isTrue, reason: sender);
+      }
+    });
+
+    testWidgets('a plain member gets neither remove nor pin', (tester) async {
+      final store = CommunityStore.instance;
+      final owner = store.createCommunity('Guild');
+      final invite = store.exportInvite(owner.id,
+          myDigits: '15550101111', myName: 'Ada')!;
+      store.deleteCommunity(owner.id);
+      final joined = store.joinFromInvite(
+          Map<String, dynamic>.from(invite),
+          myDigits: '15550102222',
+          myName: 'Bob')!;
+      final channel =
+          joined.channels.firstWhere((c) => c.type == ChannelType.text);
+      expect(store.canModerate(joined.id), isFalse);
+      store.postMessage(
+          joined.id,
+          channel.id,
+          Message(
+              id: 'theirs',
+              text: 'off topic',
+              time: DateTime.now(),
+              isMe: false,
+              status: MessageStatus.delivered,
+              senderName: 'Ada'));
+
+      await tester.pumpWidget(MaterialApp(
+        home: ChannelScreen(communityId: joined.id, channelId: channel.id),
+      ));
+      await tester.pump();
+      await tester.longPress(find.text('off topic'));
+      await tester.pumpAndSettle();
+      expect(find.text('Remove message'), findsNothing);
+      expect(find.text('Delete'), findsNothing);
+      // A pin is on a banner every member sees; it was offered to everyone,
+      // and the store took it.
+      expect(find.text('Pin'), findsNothing);
+      // What a member can still do with somebody else's message.
+      expect(find.text('Forward'), findsOneWidget);
+      expect(find.text('Reply'), findsOneWidget);
+    });
+  });
+
+  group('Forwarding, in every direction', () {
+    setUp(() {
+      SharedPreferences.setMockInitialValues({});
+      CommunityStore.instance.resetForTest();
+      ChatStore.instance.reset();
+    });
+    tearDown(CommunityStore.instance.resetForTest);
+
+    testWidgets('a channel message can leave the channel it was posted to',
+        (tester) async {
+      final community = CommunityStore.instance.createCommunity('Guild');
+      final channel = CommunityStore.instance
+          .byId(community.id)!
+          .channels
+          .firstWhere((c) => c.type == ChannelType.text);
+      CommunityStore.instance.postMessage(
+          community.id,
+          channel.id,
+          Message(
+              id: 'm1',
+              text: 'worth passing on',
+              time: DateTime.now(),
+              isMe: true,
+              status: MessageStatus.sent));
+
+      await tester.pumpWidget(MaterialApp(
+        home: ChannelScreen(
+            communityId: community.id, channelId: channel.id),
+      ));
+      await tester.pump();
+      await tester.longPress(find.text('worth passing on'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Forward'));
+      await tester.pumpAndSettle();
+      expect(find.byType(ForwardScreen), findsOneWidget);
+    });
+
+    testWidgets('a forward can land in a channel, not only a chat',
+        (tester) async {
+      final community = CommunityStore.instance.createCommunity('Guild');
+      // A name no seeded demo server also uses — the picker lists every
+      // channel of every server, and 'general' is not one of a kind.
+      CommunityStore.instance.addChannel(community.id, 'handoff');
+      final channel = CommunityStore.instance
+          .byId(community.id)!
+          .channels
+          .firstWhere((c) => c.name == 'handoff');
+
+      await tester.pumpWidget(const MaterialApp(
+        home: ForwardScreen(text: 'from somewhere else'),
+      ));
+      await tester.pumpAndSettle();
+
+      expect(find.text('CHANNELS'), findsOneWidget);
+      await tester.scrollUntilVisible(find.text('handoff'), 200);
+      await tester.tap(find.text('handoff'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byIcon(Icons.send));
+      await tester.pumpAndSettle();
+
+      final landed = CommunityStore.instance
+          .byId(community.id)!
+          .channels
+          .firstWhere((c) => c.id == channel.id)
+          .messages;
+      expect(landed.map((m) => m.text), contains('from somewhere else'));
+      expect(landed.last.forwarded, isTrue);
+    });
+
+    testWidgets('a photo forwards as a photo, not as its missing caption',
+        (tester) async {
+      final community = CommunityStore.instance.createCommunity('Guild');
+      CommunityStore.instance.addChannel(community.id, 'handoff');
+      final channel = CommunityStore.instance
+          .byId(community.id)!
+          .channels
+          .firstWhere((c) => c.name == 'handoff');
+
+      await tester.pumpWidget(const MaterialApp(
+        home: ForwardScreen(text: '', imageUrl: 'data:image/png;base64,AAAA'),
+      ));
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(find.text('handoff'), 200);
+      await tester.tap(find.text('handoff'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byIcon(Icons.send));
+      await tester.pumpAndSettle();
+
+      final landed = CommunityStore.instance
+          .byId(community.id)!
+          .channels
+          .firstWhere((c) => c.id == channel.id)
+          .messages
+          .last;
+      expect(landed.isImage, isTrue,
+          reason: 'a forwarded photo that arrives as empty text is lost');
+      expect(landed.imageUrl, 'data:image/png;base64,AAAA');
+    });
+
+    test('nothing offers to forward a message with nothing in it', () {
+      // A photo has no caption to send and a voice note has no text at all;
+      // both used to offer Forward, and both forwarded an empty bubble.
+      for (final path in [
+        'lib/screens/chat_screen.dart',
+        'lib/screens/communities.dart',
+      ]) {
+        final src = File(path).readAsStringSync();
+        expect(src.contains('message.isImage || message.text.trim().isNotEmpty'),
+            isTrue,
+            reason: '\$path offers Forward on a message with no content');
+      }
+    });
+
+    test('only channels that would take the message are offered', () {
+      final store = CommunityStore.instance;
+      final community = store.createCommunity('Guild');
+      final channels = store.byId(community.id)!.channels;
+      final text = channels.firstWhere((c) => c.type == ChannelType.text);
+      final voice = channels.firstWhere((c) => c.type == ChannelType.voice);
+      expect(store.canSendToChannel(community.id, text.id), isTrue);
+      expect(store.canSendToChannel(community.id, voice.id), isFalse,
+          reason: 'a voice channel has nowhere to put a message');
+      expect(store.canSendToChannel(community.id, 'no-such-channel'), isFalse);
+
+      // An announcement channel takes messages from an owner or admin only.
+      store.addChannel(community.id, 'News', type: ChannelType.announcement);
+      final news = store
+          .byId(community.id)!
+          .channels
+          .firstWhere((c) => c.type == ChannelType.announcement);
+      expect(store.canSendToChannel(community.id, news.id), isTrue,
+          reason: 'the owner may post to their own announcements');
+
+      // A broadcast-only server silences plain members everywhere.
+      final quiet = store.createCommunity('News only');
+      final quietInvite = store.exportInvite(quiet.id,
+          myDigits: '15550101111', myName: 'Ada')!;
+      quietInvite['membersCanMessage'] = false;
+      store.deleteCommunity(quiet.id);
+      final joined = store.joinFromInvite(
+          Map<String, dynamic>.from(quietInvite),
+          myDigits: '15550102222',
+          myName: 'Bob')!;
+      for (final ch in joined.channels) {
+        expect(store.canSendToChannel(joined.id, ch.id), isFalse);
+      }
+    });
+
+    testWidgets('a location is offered chats only — a channel cannot draw it',
+        (tester) async {
+      CommunityStore.instance.createCommunity('Guild');
+      await tester.pumpWidget(const MaterialApp(
+        home: ForwardScreen(
+            text: '',
+            place: (lat: 51.5, lng: -0.12, label: 'The bridge')),
+      ));
+      await tester.pumpAndSettle();
+      expect(find.text('CHANNELS'), findsNothing);
+      expect(find.text('Send to...'), findsOneWidget);
+    });
+
+    testWidgets('the public feed can send a post onward', (tester) async {
+      PublicFeedStore.debugLoadOverride = () async => [
+            PublicPost(
+              id: 'p1',
+              authorUsername: 'ada',
+              authorName: 'Ada Lovelace',
+              body: 'a thought worth passing on',
+              createdAt: DateTime.now(),
+            ),
+          ];
+      addTearDown(() => PublicFeedStore.debugLoadOverride = null);
+      await tester.pumpWidget(const MaterialApp(home: PublicFeedScreen()));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byIcon(Icons.more_horiz).first);
+      await tester.pumpAndSettle();
+      expect(find.text('Forward'), findsOneWidget);
+      await tester.tap(find.text('Forward'));
+      await tester.pumpAndSettle();
+      expect(find.byType(ForwardScreen), findsOneWidget);
+    });
+
+    testWidgets('the server feed can send a post onward too', (tester) async {
+      // Both feeds share one menu function; this drives the server one
+      // directly, since it is the same sheet the thread screen opens.
+      final post = FeedPost(
+        id: 'f1',
+        communityId: 'c1',
+        authorName: 'Ada Lovelace',
+        authorUsername: 'ada',
+        time: DateTime.now(),
+        text: 'a thought worth passing on',
+      );
+      await tester.pumpWidget(MaterialApp(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: Center(
+              child: TextButton(
+                onPressed: () => showFeedPostOptions(
+                  context,
+                  post,
+                  communityId: 'c1',
+                  onOpenThread: (_) {},
+                  onEdit: (_) async {},
+                ),
+                child: const Text('menu'),
+              ),
+            ),
+          ),
+        ),
+      ));
+      await tester.tap(find.text('menu'));
+      await tester.pumpAndSettle();
+      expect(find.text('Forward'), findsOneWidget);
+      await tester.tap(find.text('Forward'));
+      await tester.pumpAndSettle();
+      expect(find.byType(ForwardScreen), findsOneWidget);
+    });
+  });
 }

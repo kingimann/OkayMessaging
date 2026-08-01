@@ -636,7 +636,8 @@ class RelayService {
             case 'gupd':
               applyGroupUpdate(payload, myPhone: me);
             case 'chmsg' || 'chjoin' || 'chupd' || 'fpost' || 'fdel' ||
-                  'flike' || 'fvote':
+                  'flike' || 'fvote' || 'chdel' || 'chedt' || 'chrxn' ||
+                  'chpin':
               _applyCommunityEvent(event, payload, me);
           }
         } catch (_) {
@@ -925,6 +926,26 @@ class RelayService {
               Map<String, dynamic>.from(payload), me),
         )
         .onBroadcast(
+          event: 'chdel',
+          callback: (payload) => _applyCommunityEvent('chdel',
+              Map<String, dynamic>.from(payload), me),
+        )
+        .onBroadcast(
+          event: 'chedt',
+          callback: (payload) => _applyCommunityEvent('chedt',
+              Map<String, dynamic>.from(payload), me),
+        )
+        .onBroadcast(
+          event: 'chrxn',
+          callback: (payload) => _applyCommunityEvent('chrxn',
+              Map<String, dynamic>.from(payload), me),
+        )
+        .onBroadcast(
+          event: 'chpin',
+          callback: (payload) => _applyCommunityEvent('chpin',
+              Map<String, dynamic>.from(payload), me),
+        )
+        .onBroadcast(
           event: 'chjoin',
           callback: (payload) => _applyCommunityEvent('chjoin',
               Map<String, dynamic>.from(payload), me),
@@ -972,6 +993,14 @@ class RelayService {
   /// Routes one sealed community event ([event] = chmsg/chjoin/chupd) into
   /// the store — shared by the live bus and the offline mailbox, so the
   /// dedup/merge semantics are identical either way.
+  /// Feeds one sealed community event through the real routing, so a test can
+  /// check what a *received* chdel/chedt/chrxn/chpin actually does to the
+  /// store rather than trusting that the switch has a case for it.
+  @visibleForTesting
+  void debugApplyCommunityEvent(
+          String event, Map<String, dynamic> payload, String me) =>
+      _applyCommunityEvent(event, payload, me);
+
   void _applyCommunityEvent(
       String event, Map<String, dynamic> payload, String me) {
     _onCommunityEvent(payload, me, (cid, body) {
@@ -999,6 +1028,30 @@ class RelayService {
               pollVotes: msg.pollVotes,
             ),
           );
+        case 'chdel':
+          final id = body['id'];
+          if (id is! String) return;
+          CommunityStore.instance.deleteChannelMessage(
+              cid, body['channelId'] as String? ?? '', id);
+        case 'chedt':
+          final id = body['id'];
+          final text = body['text'];
+          if (id is! String || text is! String) return;
+          CommunityStore.instance.applyRemoteChannelEdit(
+              cid, body['channelId'] as String? ?? '', id, text);
+        case 'chrxn':
+          final id = body['id'];
+          final emoji = body['emoji'];
+          if (id is! String || emoji is! String) return;
+          CommunityStore.instance.setChannelReaction(
+              cid, body['channelId'] as String? ?? '', id, emoji,
+              add: body['add'] as bool? ?? true);
+        case 'chpin':
+          final id = body['id'];
+          if (id is! String) return;
+          CommunityStore.instance.setChannelMessagePinned(
+              cid, body['channelId'] as String? ?? '', id,
+              pinned: body['pinned'] as bool? ?? true);
         case 'chjoin':
           final rawMember = body['member'];
           if (rawMember is! Map) return;
@@ -1177,6 +1230,49 @@ class RelayService {
         'channelId': channelId,
         'senderName': senderName,
         'message': message.toJson(),
+      });
+
+  /// Removes a channel message on every member's device.
+  ///
+  /// Without this, "Delete" deleted it here and nowhere else: the author saw
+  /// it go and everyone else kept reading it. The local tombstone only stops
+  /// a mailbox replay putting it back on *this* device.
+  Future<void> sendChannelMessageDeleted(
+          String communityId, String channelId, String messageId) =>
+      _sendCommunityEvent('chdel', communityId, {
+        'channelId': channelId,
+        'id': messageId,
+      });
+
+  /// Rewrites a channel message on every member's device.
+  Future<void> sendChannelMessageEdited(String communityId, String channelId,
+          String messageId, String text) =>
+      _sendCommunityEvent('chedt', communityId, {
+        'channelId': channelId,
+        'id': messageId,
+        'text': text,
+      });
+
+  /// Adds or removes an emoji reaction for everyone. Carries which way it
+  /// went rather than "toggle", so two devices cannot cancel each other out.
+  Future<void> sendChannelReaction(
+          String communityId, String channelId, String messageId, String emoji,
+          {required bool add}) =>
+      _sendCommunityEvent('chrxn', communityId, {
+        'channelId': channelId,
+        'id': messageId,
+        'emoji': emoji,
+        'add': add,
+      });
+
+  /// Moves the channel's pin banner for everyone.
+  Future<void> sendChannelPin(
+          String communityId, String channelId, String messageId,
+          {required bool pinned}) =>
+      _sendCommunityEvent('chpin', communityId, {
+        'channelId': channelId,
+        'id': messageId,
+        'pinned': pinned,
       });
 
   /// Announces that this device's user joined the server.

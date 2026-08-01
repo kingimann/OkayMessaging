@@ -1940,9 +1940,11 @@ class _ChannelScreenState extends State<ChannelScreen> {
                                 channel.pinnedMessageIds.contains(m.id),
                             grouped: grouped,
                             onReply: () => setState(() => _replyTo = m),
-                            onQuickReact: () => CommunityStore.instance
-                                .toggleChannelReaction(widget.communityId,
-                                    widget.channelId, m.id, '❤️'),
+                            onQuickReact: () => channelReact(
+                                widget.communityId,
+                                widget.channelId,
+                                m.id,
+                                '❤️'),
                             onVote: m.isPoll
                                 ? (opt) => _votePoll(m, opt)
                                 : null,
@@ -2241,8 +2243,7 @@ class _ChannelScreenState extends State<ChannelScreen> {
                   icon: const Icon(Icons.close, size: 18),
                   tooltip: 'Unpin',
                   onPressed: () {
-                    CommunityStore.instance.togglePinChannelMessage(
-                        widget.communityId, widget.channelId, m.id);
+                    channelPin(widget.communityId, widget.channelId, m.id);
                     Navigator.pop(sheetContext);
                   },
                 ),
@@ -2741,6 +2742,54 @@ class _DateSeparator extends StatelessWidget {
   }
 }
 
+// Changing a channel message, locally and for everyone else.
+//
+// All four of these used to stop at this device: you deleted your message and
+// every other member kept reading it, you edited it and only you saw the new
+// words, you reacted and nobody knew, a moderator pinned and the banner moved
+// on one phone. Posting was the only channel action that ever left the device.
+//
+// Each sends the *result* rather than "toggle" — a toggle applied on two
+// devices cancels itself out, which is how a pin ends up on for half a server.
+
+void channelReact(String communityId, String channelId, String messageId,
+    String emoji) {
+  final on = CommunityStore.instance
+      .toggleChannelReaction(communityId, channelId, messageId, emoji);
+  if (RelayConfig.isEnabled) {
+    RelayService.instance
+        .sendChannelReaction(communityId, channelId, messageId, emoji, add: on);
+  }
+}
+
+void channelEdit(String communityId, String channelId, String messageId,
+    String text) {
+  CommunityStore.instance
+      .editChannelMessage(communityId, channelId, messageId, text);
+  if (RelayConfig.isEnabled) {
+    RelayService.instance
+        .sendChannelMessageEdited(communityId, channelId, messageId, text);
+  }
+}
+
+void channelPin(String communityId, String channelId, String messageId) {
+  final pinned = CommunityStore.instance
+      .togglePinChannelMessage(communityId, channelId, messageId);
+  if (RelayConfig.isEnabled) {
+    RelayService.instance.sendChannelPin(communityId, channelId, messageId,
+        pinned: pinned);
+  }
+}
+
+void channelDelete(String communityId, String channelId, String messageId) {
+  CommunityStore.instance
+      .deleteChannelMessage(communityId, channelId, messageId);
+  if (RelayConfig.isEnabled) {
+    RelayService.instance
+        .sendChannelMessageDeleted(communityId, channelId, messageId);
+  }
+}
+
 class _ChannelBubble extends StatelessWidget {
   final Message message;
   final String communityId;
@@ -2770,8 +2819,8 @@ class _ChannelBubble extends StatelessWidget {
 
   static const _quickEmojis = ['👍', '❤️', '😂', '🎉', '🔥', '👏'];
 
-  void _react(String emoji) => CommunityStore.instance
-      .toggleChannelReaction(communityId, channelId, message.id, emoji);
+  void _react(String emoji) =>
+      channelReact(communityId, channelId, message.id, emoji);
 
   Future<void> _edit(BuildContext context) async {
     final text = await showAppTextPrompt(
@@ -2783,106 +2832,140 @@ class _ChannelBubble extends StatelessWidget {
       capitalization: TextCapitalization.sentences,
     );
     if (text == null || text.trim().isEmpty) return;
-    CommunityStore.instance
-        .editChannelMessage(communityId, channelId, message.id, text);
+    channelEdit(communityId, channelId, message.id, text);
   }
 
   Future<void> _showActions(BuildContext context) async {
     await showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
+      // Scrollable and free of the half-height default: react, reply, pin,
+      // edit, forward, copy and delete do not fit a short screen, and the
+      // ones that fall off the bottom are the ones you came for.
+      isScrollControlled: true,
       builder: (sheetContext) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Quick reactions row.
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              child: Wrap(
-                alignment: WrapAlignment.center,
-                children: [
-                  for (final e in _quickEmojis)
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Quick reactions row.
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                child: Wrap(
+                  alignment: WrapAlignment.center,
+                  children: [
+                    for (final e in _quickEmojis)
+                      InkWell(
+                        borderRadius: BorderRadius.circular(24),
+                        onTap: () {
+                          _react(e);
+                          Navigator.pop(sheetContext);
+                        },
+                        child: Padding(
+                          padding: const EdgeInsets.all(8),
+                          child: Text(e, style: const TextStyle(fontSize: 26)),
+                        ),
+                      ),
+                    // Any emoji, like the 1:1 chat's reaction picker.
                     InkWell(
                       borderRadius: BorderRadius.circular(24),
-                      onTap: () {
-                        _react(e);
+                      onTap: () async {
                         Navigator.pop(sheetContext);
+                        final picked = await showEmojiGifSheet(context);
+                        final emoji = picked?.emoji;
+                        if (emoji != null) _react(emoji);
                       },
-                      child: Padding(
-                        padding: const EdgeInsets.all(8),
-                        child: Text(e, style: const TextStyle(fontSize: 26)),
+                      child: const Padding(
+                        padding: EdgeInsets.all(8),
+                        child: Icon(Icons.add_reaction_outlined, size: 26),
                       ),
                     ),
-                  // Any emoji, like the 1:1 chat's reaction picker.
-                  InkWell(
-                    borderRadius: BorderRadius.circular(24),
-                    onTap: () async {
-                      Navigator.pop(sheetContext);
-                      final picked = await showEmojiGifSheet(context);
-                      final emoji = picked?.emoji;
-                      if (emoji != null) _react(emoji);
-                    },
-                    child: const Padding(
-                      padding: EdgeInsets.all(8),
-                      child: Icon(Icons.add_reaction_outlined, size: 26),
-                    ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-            const Divider(height: 1),
-            if (onReply != null)
-              ListTile(
-                leading: const Icon(Icons.reply),
-                title: const Text('Reply'),
-                onTap: () {
-                  Navigator.pop(sheetContext);
-                  onReply!();
-                },
-              ),
-            ListTile(
-              leading: Icon(
-                  pinned ? Icons.push_pin : Icons.push_pin_outlined),
-              title: Text(pinned ? 'Unpin' : 'Pin'),
-              onTap: () {
-                CommunityStore.instance.togglePinChannelMessage(
-                    communityId, channelId, message.id);
-                Navigator.pop(sheetContext);
-              },
-            ),
-            if (message.isMe && !message.isPoll && !message.isImage)
-              ListTile(
-                leading: const Icon(Icons.edit_outlined),
-                title: const Text('Edit'),
-                onTap: () {
-                  Navigator.pop(sheetContext);
-                  _edit(context);
-                },
-              ),
-            if (!message.isPoll && !message.isImage)
-              ListTile(
-                leading: const Icon(Icons.copy),
-                title: const Text('Copy text'),
-                onTap: () {
-                  Clipboard.setData(ClipboardData(text: message.text));
-                  Navigator.pop(sheetContext);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Copied')),
-                  );
-                },
-              ),
-            if (message.isMe)
-              ListTile(
-                leading: const Icon(Icons.delete_outline, color: Colors.red),
-                title: const Text('Delete',
-                    style: TextStyle(color: Colors.red)),
-                onTap: () {
-                  CommunityStore.instance.deleteChannelMessage(
-                      communityId, channelId, message.id);
-                  Navigator.pop(sheetContext);
-                },
-              ),
-          ],
+              const Divider(height: 1),
+              if (onReply != null)
+                ListTile(
+                  leading: const Icon(Icons.reply),
+                  title: const Text('Reply'),
+                  onTap: () {
+                    Navigator.pop(sheetContext);
+                    onReply!();
+                  },
+                ),
+              // A channel pin is on a banner every member sees, so it is a
+              // moderator's call. It used to be offered to everyone, and the
+              // store took it — one member could pin over another's pin.
+              if (CommunityStore.instance.canModerate(communityId))
+                ListTile(
+                  leading: Icon(
+                      pinned ? Icons.push_pin : Icons.push_pin_outlined),
+                  title: Text(pinned ? 'Unpin' : 'Pin'),
+                  onTap: () {
+                    channelPin(communityId, channelId, message.id);
+                    Navigator.pop(sheetContext);
+                  },
+                ),
+              if (message.isMe && !message.isPoll && !message.isImage)
+                ListTile(
+                  leading: const Icon(Icons.edit_outlined),
+                  title: const Text('Edit'),
+                  onTap: () {
+                    Navigator.pop(sheetContext);
+                    _edit(context);
+                  },
+                ),
+              // A message you cannot move is a message trapped in the channel
+              // it was posted to. A 1:1 chat has had this the whole time; a
+              // channel had reply, react, pin, edit, copy, delete — and no way
+              // to pass anything on. A poll is the one thing left behind:
+              // forwarding it as text would lose the vote it exists for.
+              if (!message.isPoll &&
+                  (message.isImage || message.text.trim().isNotEmpty))
+                ListTile(
+                  leading: const Icon(Icons.forward),
+                  title: const Text('Forward'),
+                  onTap: () {
+                    Navigator.of(sheetContext).pop();
+                    Navigator.of(context).push(MaterialPageRoute(
+                        builder: (_) => ForwardScreen(
+                            text: message.text,
+                            imageUrl:
+                                message.isImage ? message.imageUrl : null)));
+                  },
+                ),
+              if (message.text.trim().isNotEmpty)
+                ListTile(
+                  leading: const Icon(Icons.copy),
+                  title: const Text('Copy text'),
+                  onTap: () {
+                    Clipboard.setData(ClipboardData(text: message.text));
+                    Navigator.pop(sheetContext);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Copied')),
+                    );
+                  },
+                ),
+              // Moderators are told they can "delete/pin messages, mute, kick,
+              // ban" — but the only delete wired up was your own, so the one
+              // thing moderation is actually for could not be done from the
+              // message itself.
+              if (message.isMe ||
+                  CommunityStore.instance.canModerate(communityId))
+                ListTile(
+                  leading: const Icon(Icons.delete_outline, color: Colors.red),
+                  title: Text(message.isMe ? 'Delete' : 'Remove message',
+                      style: const TextStyle(color: Colors.red)),
+                  subtitle: message.isMe
+                      ? null
+                      : const Text('Deletes it for everyone in the channel'),
+                  onTap: () {
+                    channelDelete(communityId, channelId, message.id);
+                    Navigator.pop(sheetContext);
+                  },
+                ),
+            ],
+          ),
         ),
       ),
     );

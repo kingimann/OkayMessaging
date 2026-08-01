@@ -19,6 +19,7 @@ import '../widgets/poll_widgets.dart';
 import '../widgets/pull_to_refresh.dart';
 import '../widgets/verified_badge.dart';
 import 'chat_screen.dart';
+import 'forward_screen.dart';
 import 'people_screen.dart';
 import 'in_app_web_screen.dart';
 
@@ -589,6 +590,18 @@ void showFeedPostOptions(
                 );
               },
             ),
+            if (post.text.trim().isNotEmpty)
+              ListTile(
+                leading: const Icon(Icons.forward),
+                title: const Text('Forward'),
+                subtitle: const Text('To a chat or a server channel, '
+                    'encrypted like any other message'),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  Navigator.of(context).push(MaterialPageRoute(
+                      builder: (_) => ForwardScreen(text: post.text)));
+                },
+              ),
             ListTile(
               leading: const Icon(Icons.copy),
               title: const Text('Copy text'),
