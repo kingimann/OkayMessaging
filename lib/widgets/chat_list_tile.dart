@@ -5,7 +5,6 @@ import '../models/message.dart';
 import '../state/chat_store.dart';
 import '../relay/relay_service.dart';
 import '../state/streak_store.dart';
-import '../theme/app_theme.dart';
 import '../utils/date_formatter.dart';
 import 'message_status_icon.dart';
 import 'streak_chip.dart';
@@ -75,10 +74,17 @@ class ChatListTile extends StatelessWidget {
                         last == null
                             ? ''
                             : DateFormatter.chatListLabel(last.time),
+                        // Unread is emphasis, so it takes the accent — which
+                        // in this palette is near-black in light and
+                        // near-white in dark. It used to take a fixed grey
+                        // (#536471) that is 3.2:1 on the dark background, so
+                        // the row asking to be read was the dimmest one on
+                        // the screen.
                         style: TextStyle(
                           fontSize: 12,
-                          color:
-                              hasUnread ? AppColors.lightGreen : subtitleColor,
+                          color: hasUnread
+                              ? Theme.of(context).colorScheme.primary
+                              : subtitleColor,
                           fontWeight:
                               hasUnread ? FontWeight.w600 : FontWeight.normal,
                         ),
@@ -110,11 +116,11 @@ class ChatListTile extends StatelessWidget {
                             if (digits.isNotEmpty &&
                                 RelayService.instance.typingFromDigits ==
                                     digits) {
-                              return const Text(
+                              return Text(
                                 'typing…',
                                 style: TextStyle(
                                   fontSize: 14.5,
-                                  color: AppColors.lightGreen,
+                                  color: Theme.of(context).colorScheme.primary,
                                   fontWeight: FontWeight.w600,
                                 ),
                               );
@@ -159,8 +165,8 @@ class ChatListTile extends StatelessWidget {
                         const SizedBox(width: 6),
                         Container(
                           padding: const EdgeInsets.all(6),
-                          decoration: const BoxDecoration(
-                            color: AppColors.lightGreen,
+                          decoration: BoxDecoration(
+                            color: Theme.of(context).colorScheme.primary,
                             shape: BoxShape.circle,
                           ),
                           constraints: const BoxConstraints(
@@ -170,8 +176,8 @@ class ChatListTile extends StatelessWidget {
                           child: Text(
                             '${chat.unreadCount}',
                             textAlign: TextAlign.center,
-                            style: const TextStyle(
-                              color: Colors.white,
+                            style: TextStyle(
+                              color: Theme.of(context).colorScheme.onPrimary,
                               fontSize: 12,
                               fontWeight: FontWeight.bold,
                             ),

@@ -82,6 +82,22 @@ class AppTheme {
       primary: AppColors.tealGreen,
       secondary: AppColors.accent,
       surface: AppColors.lightSurface,
+      // Neutral containers. `fromSeed` builds these from a tonal palette and
+      // bumps the chroma while it does — from a seed that is very nearly
+      // black it still handed back #CDE5FF, #D4E4F6 and #EDDCFF, all at full
+      // saturation. Nobody chose those, and every widget that reaches for a
+      // container colour got one: the onboarding card on the chat list, the
+      // selected filter chip on Alerts, the storage card. Saturated blocks
+      // scattered through an app whose identity is black and white.
+      //
+      // errorContainer keeps its red on purpose — that one is saying
+      // something.
+      primaryContainer: const Color(0xFFE9EDEF),
+      onPrimaryContainer: const Color(0xFF11181C),
+      secondaryContainer: const Color(0xFFE9EDEF),
+      onSecondaryContainer: const Color(0xFF11181C),
+      tertiaryContainer: const Color(0xFFEFF2F3),
+      onTertiaryContainer: const Color(0xFF11181C),
     );
     return base.copyWith(
       colorScheme: scheme,
@@ -167,9 +183,26 @@ class AppTheme {
         shape:
             RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
       ),
+      // A selected chip takes the accent, like every other selected thing
+      // here — the nav pill, a filled button. It used to fall through to the
+      // scheme's `secondaryContainer`, which is how the filter row on Alerts
+      // ended up with one teal chip in it; with that neutralised, selected
+      // and unselected became the same grey and the row stopped saying which
+      // filter was on.
       chipTheme: base.chipTheme.copyWith(
         side: BorderSide.none,
         backgroundColor: const Color(0xFFEFF2F3),
+        selectedColor: AppColors.tealGreen,
+        labelStyle: const TextStyle(
+            fontFamily: 'Roboto',
+            fontSize: 13.5,
+            fontWeight: FontWeight.w600,
+            color: Color(0xFF11181C)),
+        secondaryLabelStyle: const TextStyle(
+            fontFamily: 'Roboto',
+            fontSize: 13.5,
+            fontWeight: FontWeight.w600,
+            color: Colors.white),
       ),
       snackBarTheme: SnackBarThemeData(
         behavior: SnackBarBehavior.floating,
@@ -202,6 +235,15 @@ class AppTheme {
       secondary: darkInk,
       onSecondary: Colors.black,
       surface: AppColors.darkSurface,
+      // See the light theme: `fromSeed` gave these #004E5C, #334A50 and
+      // #3E4565 — a teal, a teal and a violet, at full chroma, on a screen
+      // that is otherwise greyscale.
+      primaryContainer: const Color(0xFF2A2E34),
+      onPrimaryContainer: const Color(0xFFE7E9EA),
+      secondaryContainer: const Color(0xFF2A2E34),
+      onSecondaryContainer: const Color(0xFFE7E9EA),
+      tertiaryContainer: const Color(0xFF262A30),
+      onTertiaryContainer: const Color(0xFFE7E9EA),
     );
     return base.copyWith(
       colorScheme: scheme,
@@ -284,9 +326,21 @@ class AppTheme {
         shape:
             RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
       ),
+      // See the light theme.
       chipTheme: base.chipTheme.copyWith(
         side: BorderSide.none,
         backgroundColor: const Color(0xFF2A2E34),
+        selectedColor: darkInk,
+        labelStyle: const TextStyle(
+            fontFamily: 'Roboto',
+            fontSize: 13.5,
+            fontWeight: FontWeight.w600,
+            color: Color(0xFFE7E9EA)),
+        secondaryLabelStyle: const TextStyle(
+            fontFamily: 'Roboto',
+            fontSize: 13.5,
+            fontWeight: FontWeight.w600,
+            color: Colors.black),
       ),
       snackBarTheme: SnackBarThemeData(
         behavior: SnackBarBehavior.floating,

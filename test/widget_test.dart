@@ -18333,6 +18333,107 @@ void main() {
       return (hi + 0.05) / (lo + 0.05);
     }
 
+    test('nothing in either scheme is a colour nobody chose', () {
+      // ColorScheme.fromSeed builds the container tones from a tonal palette
+      // and raises the chroma while it does. From a seed that is very nearly
+      // black it still handed back #CDE5FF, #D4E4F6 and #EDDCFF in light and
+      // #004E5C, #334A50 and #3E4565 in dark — all at full saturation. Every
+      // widget that asked for a container colour got one, which is how a
+      // greyscale app ended up with a teal card on its first screen, a teal
+      // chip on Alerts and a teal panel in Cloud storage.
+      for (final (name, scheme) in [
+        ('light', AppTheme.light.colorScheme),
+        ('dark', AppTheme.dark.colorScheme),
+      ]) {
+        for (final (label, colour) in [
+          ('primaryContainer', scheme.primaryContainer),
+          ('secondaryContainer', scheme.secondaryContainer),
+          ('tertiaryContainer', scheme.tertiaryContainer),
+        ]) {
+          expect(HSLColor.fromColor(colour).saturation, lessThan(0.25),
+              reason: '$name $label is saturated');
+          // And readable, since things get written on them.
+          final on = switch (label) {
+            'primaryContainer' => scheme.onPrimaryContainer,
+            'secondaryContainer' => scheme.onSecondaryContainer,
+            _ => scheme.onTertiaryContainer,
+          };
+          expect(ratio(on, colour), greaterThan(4.5),
+              reason: '$name $label cannot be written on');
+        }
+        // Error keeps its red. That one is saying something.
+        expect(HSLColor.fromColor(scheme.errorContainer).saturation,
+            greaterThan(0.5),
+            reason: '$name lost the one colour that carries meaning');
+      }
+    });
+
+    test('a selected chip does not look like an unselected one', () {
+      // With the container tones neutralised, a selected chip fell through to
+      // the same grey as an unselected one and the filter row stopped saying
+      // which filter was on.
+      for (final (name, theme) in [
+        ('light', AppTheme.light),
+        ('dark', AppTheme.dark),
+      ]) {
+        final chip = theme.chipTheme;
+        expect(chip.selectedColor, isNotNull, reason: name);
+        expect(chip.selectedColor, isNot(chip.backgroundColor), reason: name);
+        expect(ratio(chip.selectedColor!, chip.backgroundColor!),
+            greaterThan(3.0),
+            reason: '$name: selected and unselected are the same to look at');
+        // And the label flips with it.
+        expect(ratio(chip.secondaryLabelStyle!.color!, chip.selectedColor!),
+            greaterThan(4.5),
+            reason: '$name: the selected label is unreadable on its own chip');
+        expect(ratio(chip.labelStyle!.color!, chip.backgroundColor!),
+            greaterThan(4.5),
+            reason: '$name: the unselected label is unreadable on its chip');
+      }
+    });
+
+    testWidgets('an unread chat is the loudest row, not the quietest',
+        (t) async {
+      // The timestamp and the count on an unread row were painted in a fixed
+      // #536471, which is 3.2:1 on the dark background — so the row asking to
+      // be read was the dimmest one on the screen. The badge on Alerts was
+      // worse: the accent, which flips to near-white in dark, with white
+      // written on it.
+      for (final (name, theme) in [
+        ('light', AppTheme.light),
+        ('dark', AppTheme.dark),
+      ]) {
+        final scheme = theme.colorScheme;
+        expect(ratio(scheme.primary, scheme.surface), greaterThan(4.5),
+            reason: '$name: an unread row does not stand out');
+        expect(ratio(scheme.onPrimary, scheme.primary), greaterThan(4.5),
+            reason: '$name: the count on the badge cannot be read');
+      }
+
+      // And nothing on the row hard-codes a colour that only works in one of
+      // them.
+      final src = File('lib/widgets/chat_list_tile.dart').readAsStringSync();
+      expect(src.contains('AppColors.lightGreen'), isFalse,
+          reason: 'a fixed grey cannot pass both themes');
+      final alerts = File('lib/tabs/activity_tab.dart').readAsStringSync();
+      expect(alerts.contains('color: Colors.white,\n'), isFalse,
+          reason: 'white on the accent is white on white in dark mode');
+    });
+
+    test('the tip row is a row, not a billboard', () {
+      // A full-bleed violet gradient in the middle of Settings, in an app
+      // that is greyscale everywhere else. The heart keeps the colour.
+      final src = File('lib/screens/settings_screen.dart').readAsStringSync();
+      final upsell = src.substring(src.indexOf('class _ProUpsell'),
+          src.indexOf('class _ProfileCard'));
+      expect(upsell.contains('LinearGradient'), isFalse,
+          reason: 'the tip jar is a gradient slab again');
+      expect(upsell.contains('color: Colors.white'), isFalse,
+          reason: 'text on it should take the theme, not assume a dark slab');
+      expect(upsell.contains('Icons.favorite'), isTrue,
+          reason: 'the heart is what makes it findable');
+    });
+
     test('no fixed grey can pass both themes, which is why subtle exists', () {
       // The measurement the sweep came out of. Each of the two greys the app
       // reached for fails in one theme, and not the same one — so there is no

@@ -442,52 +442,61 @@ class _ScorePill extends StatelessWidget {
 }
 
 /// A tappable banner inviting people to support the developer.
+/// The tip jar, as a row of settings rather than a billboard.
+///
+/// This was a full-bleed violet gradient — the loudest thing in Settings, in
+/// an app that is greyscale everywhere else, and the sort of block a reader
+/// learns to scroll past because it looks like an advert. The heart keeps the
+/// colour; nothing else needs it.
 class _ProUpsell extends StatelessWidget {
+  static const Color _accent = Color(0xFF7A5CFF);
+
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
       child: Material(
+        color: scheme.surfaceContainerHighest.withValues(alpha: 0.5),
         borderRadius: BorderRadius.circular(16),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: () => Navigator.of(context).push(
             MaterialPageRoute(builder: (_) => const OkayProScreen()),
           ),
-          child: Ink(
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                begin: Alignment.centerLeft,
-                end: Alignment.centerRight,
-                colors: [Color(0xFF7A5CFF), Color(0xFF5B3CE0)],
-              ),
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-              child: Row(
-                children: [
-                  Icon(Icons.favorite, color: Colors.white),
-                  SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Support the developer',
-                            style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 15.5,
-                                fontWeight: FontWeight.w700)),
-                        SizedBox(height: 2),
-                        Text('Leave a tip to help keep OkayMessenger going',
-                            style: TextStyle(
-                                color: Colors.white70, fontSize: 12.5)),
-                      ],
-                    ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            child: Row(
+              children: [
+                Container(
+                  width: 36,
+                  height: 36,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: _accent.withValues(alpha: 0.16),
+                    borderRadius: BorderRadius.circular(10),
                   ),
-                  Icon(Icons.chevron_right, color: Colors.white70),
-                ],
-              ),
+                  child: const Icon(Icons.favorite, size: 19, color: _accent),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('Support the developer',
+                          style: TextStyle(
+                              fontSize: 15.5, fontWeight: FontWeight.w700)),
+                      const SizedBox(height: 2),
+                      Text('Leave a tip to help keep OkayMessenger going',
+                          style: TextStyle(
+                              fontSize: 12.5,
+                              color: AppColors.subtle(context))),
+                    ],
+                  ),
+                ),
+                Icon(Icons.chevron_right,
+                    size: 20, color: AppColors.subtle(context)),
+              ],
             ),
           ),
         ),
@@ -525,13 +534,23 @@ class _ProfileCard extends StatelessWidget {
                 );
               },
             ),
-            subtitle: Text(
-              [
-                if (me.handle.isNotEmpty) me.handle,
-                if (me.about.isNotEmpty) me.about,
-              ].join(' · '),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
+            // The handle on its own line and the bio under it. Joined with a
+            // dot and wrapped over two lines, the pair broke mid-word — "@iman
+            // · Building / OkayMessenger — pr…" — which reads as text that ran
+            // out rather than as two facts about an account.
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (me.handle.isNotEmpty)
+                  Text(me.handle,
+                      maxLines: 1, overflow: TextOverflow.ellipsis),
+                if (me.about.isNotEmpty)
+                  Text(me.about,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(color: AppColors.subtle(context))),
+              ],
             ),
             trailing: Row(
               mainAxisSize: MainAxisSize.min,

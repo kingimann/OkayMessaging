@@ -142,10 +142,16 @@ class _ActivityTabState extends State<ActivityTab> {
                                           Theme.of(context).colorScheme.primary,
                                       borderRadius: BorderRadius.circular(12),
                                     ),
+                                    // onPrimary, not white. In the dark theme
+                                    // the accent flips to near-white, so a
+                                    // white numeral on it was an unread count
+                                    // you could not read.
                                     child: Text(
                                       '${chat.unreadCount}',
-                                      style: const TextStyle(
-                                          color: Colors.white,
+                                      style: TextStyle(
+                                          color: Theme.of(context)
+                                              .colorScheme
+                                              .onPrimary,
                                           fontSize: 12,
                                           fontWeight: FontWeight.w700),
                                     ),
