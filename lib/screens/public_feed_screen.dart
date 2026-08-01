@@ -260,17 +260,16 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
                                       if (i == posts.length) {
                                         return _Footer(store: _store);
                                       }
-                                      return _PostTile(
+                                      return _Entry(
                                         post: posts[i],
-                                        onReply: () => _compose(
-                                            replyTo: posts[i].id,
-                                            replyingToName:
-                                                posts[i].authorName),
-                                        onOpen: () =>
+                                        onReply: (target) => _compose(
+                                            replyTo: target.id,
+                                            replyingToName: target.authorName),
+                                        onOpen: (target) =>
                                             Navigator.of(context).push(
                                           MaterialPageRoute(
                                             builder: (_) => PublicThreadScreen(
-                                                postId: posts[i].id),
+                                                postId: target.id),
                                           ),
                                         ),
                                       );
@@ -477,16 +476,16 @@ class _BookmarksScreenState extends State<BookmarksScreen> {
                         return ListView.separated(
                           itemCount: shown.length,
                           separatorBuilder: (_, __) => const Divider(height: 1),
-                          itemBuilder: (context, i) => _PostTile(
+                          itemBuilder: (context, i) => _Entry(
                             post: shown[i],
-                            onReply: () => Navigator.of(context).push(
+                            onReply: (target) => Navigator.of(context).push(
                                 MaterialPageRoute(
                                     builder: (_) => PublicThreadScreen(
-                                        postId: shown[i].id))),
-                            onOpen: () => Navigator.of(context).push(
+                                        postId: target.id))),
+                            onOpen: (target) => Navigator.of(context).push(
                                 MaterialPageRoute(
                                     builder: (_) => PublicThreadScreen(
-                                        postId: shown[i].id))),
+                                        postId: target.id))),
                           ),
                         );
                       },
@@ -693,14 +692,16 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
                 SliverList.separated(
                   itemCount: tabPosts.length,
                   separatorBuilder: (_, __) => const Divider(height: 1),
-                  itemBuilder: (context, i) => _PostTile(
+                  itemBuilder: (context, i) => _Entry(
                     post: tabPosts[i],
-                    onReply: () => Navigator.of(context).push(MaterialPageRoute(
-                        builder: (_) =>
-                            PublicThreadScreen(postId: tabPosts[i].id))),
-                    onOpen: () => Navigator.of(context).push(MaterialPageRoute(
-                        builder: (_) =>
-                            PublicThreadScreen(postId: tabPosts[i].id))),
+                    onReply: (target) => Navigator.of(context).push(
+                        MaterialPageRoute(
+                            builder: (_) =>
+                                PublicThreadScreen(postId: target.id))),
+                    onOpen: (target) => Navigator.of(context).push(
+                        MaterialPageRoute(
+                            builder: (_) =>
+                                PublicThreadScreen(postId: target.id))),
                   ),
                 ),
               const SliverToBoxAdapter(child: SizedBox(height: 40)),
@@ -1166,6 +1167,66 @@ class _PinnedTabs extends SliverPersistentHeaderDelegate {
   bool shouldRebuild(_PinnedTabs old) => old.child != child;
 }
 
+/// One row of a timeline: a post, or somebody's repeat of one.
+///
+/// A PLAIN REPOST HAS NOTHING OF ITS OWN TO SAY, so it is drawn as the
+/// original with a line above it naming who passed it on — the shape every
+/// timeline uses, and the one a server feed here already used. Drawn the way
+/// it was, as a post by the reposter with an empty body and the original in a
+/// quote box, it read as somebody posting nothing.
+///
+/// A QUOTE is the opposite and keeps the shape it had: the quoter wrote
+/// something, so it is their post with the original embedded beneath.
+///
+/// The actions belong to the post they are drawn on. Liking a repeat of
+/// somebody's post likes THAT post, which is the only reading that makes a
+/// count mean anything.
+class _Entry extends StatelessWidget {
+  const _Entry({
+    required this.post,
+    required this.onReply,
+    required this.onOpen,
+    this.collapseLongBody = true,
+  });
+
+  final PublicPost post;
+  final void Function(PublicPost target) onReply;
+  final void Function(PublicPost target) onOpen;
+  final bool collapseLongBody;
+
+  @override
+  Widget build(BuildContext context) {
+    // Only when the original is loaded. A header over a post that is not
+    // there would be worse than the row it replaces.
+    final original = post.isPlainRepost
+        ? PublicFeedStore.instance.byId(post.repostOf!)
+        : null;
+    if (original == null) {
+      return _PostTile(
+        post: post,
+        onReply: () => onReply(post),
+        onOpen: () => onOpen(post),
+        collapseLongBody: collapseLongBody,
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        FeedRepostHeader(
+            by: post.authorName.trim().isEmpty
+                ? '@${post.authorUsername}'
+                : post.authorName),
+        _PostTile(
+          post: original,
+          onReply: () => onReply(original),
+          onOpen: () => onOpen(original),
+          collapseLongBody: collapseLongBody,
+        ),
+      ],
+    );
+  }
+}
+
 /// One post, plus its like / reply / more actions.
 class _PostTile extends StatelessWidget {
   final PublicPost post;
@@ -1510,12 +1571,12 @@ class PublicThreadScreen extends StatelessWidget {
           return ListView(
             padding: const EdgeInsets.only(bottom: 24),
             children: [
-              _PostTile(
+              _Entry(
                 post: post,
                 collapseLongBody: false,
-                onReply: () => _openComposer(context,
-                    replyTo: post.id, replyingToName: post.authorName),
-                onOpen: () {},
+                onReply: (target) => _openComposer(context,
+                    replyTo: target.id, replyingToName: target.authorName),
+                onOpen: (_) {},
               ),
               const Divider(height: 1),
               if (replies.isEmpty)
@@ -2208,6 +2269,10 @@ class _Footer extends StatelessWidget {
 class _Poll extends StatelessWidget {
   const _Poll({required this.post});
 
+  /// One answer's height, whether it is still a button or already a bar.
+  /// Comfortably a tap target, and the same either way so nothing reflows.
+  static const double optionHeight = 44;
+
   final PublicPost post;
 
   @override
@@ -2233,12 +2298,20 @@ class _Poll extends StatelessWidget {
                     onPressed: () => PublicFeedStore.instance.vote(post.id, i),
                     style: OutlinedButton.styleFrom(
                       foregroundColor: accent,
-                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      // THE SAME HEIGHT AS THE RESULT IT TURNS INTO. Voting
+                      // used to shrink a three-option poll by thirty points,
+                      // so the timeline jumped under the thumb that had just
+                      // tapped — and an unvoted poll took more room than the
+                      // post it belonged to. Not smaller than this: it is a
+                      // target, and shrinkWrap means the button IS its box.
+                      minimumSize: const Size.fromHeight(_Poll.optionHeight),
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(10)),
                     ),
                     child: Text(post.pollOptions[i],
-                        maxLines: 2, overflow: TextOverflow.ellipsis),
+                        maxLines: 1, overflow: TextOverflow.ellipsis),
                   ),
           ),
         Text(
@@ -2289,7 +2362,7 @@ class _Result extends StatelessWidget {
       builder: (context, box) => Stack(
         children: [
           Container(
-            height: 38,
+            height: _Poll.optionHeight,
             decoration: BoxDecoration(
               color: Theme.of(context)
                   .colorScheme
@@ -2304,7 +2377,7 @@ class _Result extends StatelessWidget {
           AnimatedContainer(
             duration: const Duration(milliseconds: 350),
             curve: Curves.easeOutCubic,
-            height: 38,
+            height: _Poll.optionHeight,
             width: box.maxWidth * share.clamp(0.0, 1.0),
             decoration: BoxDecoration(
               color: accent.withValues(alpha: leading ? 0.22 : 0.12),
@@ -2312,7 +2385,7 @@ class _Result extends StatelessWidget {
             ),
           ),
           SizedBox(
-            height: 38,
+            height: _Poll.optionHeight,
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12),
               child: Row(

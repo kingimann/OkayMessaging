@@ -349,6 +349,51 @@ class _FeedBodyTextState extends State<FeedBodyText> {
   }
 }
 
+/// "Somebody reposted", above the post they repeated.
+///
+/// A plain repeat has nothing of its own to say, so it is drawn as the
+/// ORIGINAL post with a line above it naming who passed it on. Drawing it as
+/// a post by the reposter with an empty body and the original in a quote box
+/// — which the public timeline did — reads as somebody posting nothing.
+///
+/// Indented to the post's own text column, so the line belongs to the post
+/// under it rather than floating at the edge of the screen.
+class FeedRepostHeader extends StatelessWidget {
+  const FeedRepostHeader({super.key, required this.by});
+
+  /// Who passed it on, already resolved to a name or a handle.
+  final String by;
+
+  @override
+  Widget build(BuildContext context) {
+    final subtle = AppColors.subtle(context);
+    return Padding(
+      padding: EdgeInsets.fromLTRB(
+          FeedPostMetrics.tilePadding.left +
+              FeedPostMetrics.avatarRadius * 2 +
+              FeedPostMetrics.gutter,
+          8,
+          16,
+          0),
+      child: Row(
+        children: [
+          Icon(Icons.repeat, size: 14, color: subtle),
+          const SizedBox(width: 6),
+          Flexible(
+            child: Text('$by reposted',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w600,
+                    color: subtle)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 /// A picture attached to a post, full width and tappable.
 ///
 /// [child] is the thumbnail, because the two feeds decode their images

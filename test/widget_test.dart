@@ -13549,6 +13549,125 @@ void main() {
           likeCount: likes,
         );
 
+    testWidgets('a plain repost is drawn as the post it repeats', (t) async {
+      // It used to render as a post BY the reposter with an empty body and
+      // the original in a quote box — which reads as somebody posting
+      // nothing. A repeat has nothing of its own to say; the line above it
+      // says who passed it on.
+      final now = DateTime(2026, 8, 1, 12);
+      PublicFeedStore.debugLoadOverride = () async => [
+            PublicPost(
+              id: 'rp',
+              authorUsername: 'grace',
+              authorName: 'Grace Hopper',
+              body: '',
+              createdAt: now,
+              repostOf: 'orig',
+            ),
+            PublicPost(
+              id: 'orig',
+              authorUsername: 'ada',
+              authorName: 'Ada Lovelace',
+              body: 'The original words.',
+              createdAt: now.subtract(const Duration(hours: 1)),
+              likeCount: 9,
+            ),
+          ];
+      addTearDown(() => PublicFeedStore.debugLoadOverride = null);
+
+      await t.pumpWidget(const MaterialApp(home: PublicFeedScreen()));
+      await t.pumpAndSettle();
+
+      expect(find.byType(FeedRepostHeader), findsOneWidget);
+      expect(find.text('Grace Hopper reposted'), findsOneWidget);
+      // The row under the header is Ada's post, not an empty one of Grace's.
+      final header = find.byType(FeedRepostHeader);
+      expect(
+          find.descendant(
+              of: find.ancestor(of: header, matching: find.byType(Column)).first,
+              matching: find.text('The original words.')),
+          findsOneWidget);
+      // And the counts are the original's, because that is what a repeat
+      // points at.
+      expect(find.text('9'), findsWidgets);
+    });
+
+    testWidgets('a repost of something not loaded still draws a row',
+        (t) async {
+      // A header over a post that is not there would be worse than the row it
+      // replaces.
+      PublicFeedStore.debugLoadOverride = () async => [
+            PublicPost(
+              id: 'rp',
+              authorUsername: 'grace',
+              authorName: 'Grace Hopper',
+              body: '',
+              createdAt: DateTime(2026, 8, 1),
+              repostOf: 'gone',
+            ),
+          ];
+      addTearDown(() => PublicFeedStore.debugLoadOverride = null);
+
+      await t.pumpWidget(const MaterialApp(home: PublicFeedScreen()));
+      await t.pumpAndSettle();
+      expect(find.byType(FeedRepostHeader), findsNothing);
+      expect(find.textContaining('isn\'t loaded'), findsOneWidget);
+    });
+
+    testWidgets('voting does not move the poll under the thumb', (t) async {
+      // Answering used to shrink a three-option poll by thirty points,
+      // because a button and the bar it becomes were different heights — so
+      // the timeline jumped under the finger that had just tapped.
+      // Relative to the real clock: a fixed date makes "still open" depend on
+      // what day the suite happens to run, and a closed poll draws bars.
+      final now = DateTime.now();
+      PublicFeedStore.debugLoadOverride = () async => [
+            PublicPost(
+              id: 'open',
+              authorUsername: 'ada',
+              authorName: 'Ada',
+              body: 'Not answered yet',
+              createdAt: now,
+              pollOptions: const ['Tabs', 'Spaces'],
+              pollClosesAt: now.add(const Duration(hours: 5)),
+              pollVotes: const [3, 4],
+            ),
+            PublicPost(
+              id: 'voted',
+              authorUsername: 'ada',
+              authorName: 'Ada',
+              body: 'Answered',
+              createdAt: now,
+              pollOptions: const ['Tabs', 'Spaces'],
+              pollClosesAt: now.add(const Duration(hours: 5)),
+              pollVotes: const [3, 4],
+              myVote: 0,
+            ),
+          ];
+      addTearDown(() => PublicFeedStore.debugLoadOverride = null);
+
+      await t.pumpWidget(const MaterialApp(home: PublicFeedScreen()));
+      await t.pumpAndSettle();
+
+      // "Tabs" appears twice: once as a button to press, once as a bar.
+      // The gap between one answer and the next IS the answer's height, and
+      // it needs no guessing about which box in the tree owns it.
+      expect(find.text('Tabs'), findsNWidgets(2));
+      expect(find.text('Spaces'), findsNWidgets(2));
+      // One poll is still answerable and one is not, or this compares two
+      // copies of the same thing and proves nothing.
+      expect(find.byType(OutlinedButton), findsNWidgets(2),
+          reason: 'exactly one of the two polls should still be buttons');
+      double pitch(int poll) =>
+          t.getCenter(find.text('Spaces').at(poll)).dy -
+          t.getCenter(find.text('Tabs').at(poll)).dy;
+
+      expect(pitch(0), pitch(1),
+          reason: 'the answer and the bar it turns into are different heights');
+      expect(pitch(0), greaterThan(44),
+          reason: 'an answer is a target, and 44 is the floor');
+    });
+
     test('length is validated before the database has to refuse it', () {
       expect(PublicFeedStore.validate(''), isNotNull);
       expect(PublicFeedStore.validate('   '), isNotNull);

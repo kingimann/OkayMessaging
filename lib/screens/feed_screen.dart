@@ -378,24 +378,7 @@ class _FeedScreenState extends State<FeedScreen> {
     if (FeedStore.isQuote(entry)) return _quoteTile(entry);
     final original = FeedStore.instance.postById(entry.repostOfId!);
     final grey = Theme.of(context).colorScheme.onSurfaceVariant;
-    final header = Padding(
-      padding: const EdgeInsets.fromLTRB(48, 8, 16, 0),
-      child: Row(
-        children: [
-          Icon(Icons.repeat, size: 14, color: grey),
-          const SizedBox(width: 6),
-          Flexible(
-            child: Text(
-              '${entry.authorName} reposted',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                  fontSize: 12.5, fontWeight: FontWeight.w600, color: grey),
-            ),
-          ),
-        ],
-      ),
-    );
+    final header = FeedRepostHeader(by: entry.authorName);
     if (original == null) {
       // The original hasn't reached this device (or was deleted).
       return Column(
