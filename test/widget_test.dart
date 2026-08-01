@@ -32,7 +32,8 @@ import 'package:okay_messaging/util/phone_format.dart';
 import 'package:okay_messaging/legal/legal_content.dart';
 import 'package:okay_messaging/models/call.dart' as callmodel;
 import 'package:okay_messaging/screens/notes_screen.dart';
-import 'package:okay_messaging/screens/auth/phone_login_screen.dart';
+import 'package:okay_messaging/screens/auth/phone_login_screen.dart'
+    show PhoneLoginScreen, debugVerifiedModeOverride;
 import 'package:okay_messaging/screens/blocked_contacts_screen.dart';
 import 'package:okay_messaging/screens/call_screen.dart';
 import 'package:okay_messaging/screens/communities.dart';
@@ -20148,6 +20149,29 @@ void main() {
       await Session.instance.signIn(phone: '+14386386261', name: 'Ada');
       addTearDown(Session.instance.signOut);
       expect(Session.instance.isNumberless, isFalse);
+    });
+
+    testWidgets('the way in is offered whichever sign-in this build uses',
+        (t) async {
+      // The iOS build sets REQUIRE_OTP, so it shows the verified form — and
+      // the numberless button shipped on the local form only, which meant it
+      // did not exist on a phone. The mode comes from a compile-time define,
+      // so the branch is only reachable in a test through this override.
+      addTearDown(() => debugVerifiedModeOverride = null);
+      for (final verified in [false, true]) {
+        debugVerifiedModeOverride = verified;
+        await t.pumpWidget(MaterialApp(
+            key: ValueKey(verified), home: const PhoneLoginScreen()));
+        await t.pumpAndSettle();
+        if (find.text('Use a different account').evaluate().isNotEmpty) {
+          await t.tap(find.text('Use a different account'));
+          await t.pumpAndSettle();
+        }
+        expect(find.text('Continue without a phone number'), findsOneWidget,
+            reason: verified
+                ? 'missing on the form the iOS build actually shows'
+                : 'missing on the local form');
+      }
     });
 
     testWidgets('the way in is offered, and needs a name rather than a number',

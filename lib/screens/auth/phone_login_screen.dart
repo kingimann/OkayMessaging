@@ -28,6 +28,18 @@ class PhoneLoginScreen extends StatefulWidget {
 
 enum _Step { phone, identifier, code, emailCode, username }
 
+/// Whether this build asks for a real, SMS-verified number.
+///
+/// Reads [AccountService.isEnabled], which comes from compile-time defines and
+/// therefore cannot be varied inside a test — so the branch that decides which
+/// sign-in form appears was untestable, and shipped with the numberless option
+/// on the local form only. The iOS build sets REQUIRE_OTP, so on a phone that
+/// button did not exist.
+@visibleForTesting
+bool? debugVerifiedModeOverride;
+
+bool get _verifiedMode => debugVerifiedModeOverride ?? AccountService.isEnabled;
+
 class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
   final _formKey = GlobalKey<FormState>();
   final _name = TextEditingController();
@@ -540,7 +552,7 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
         Session.instance.lastAccount != null &&
         _step == _Step.phone;
     if (welcome) return 'Welcome back — pick up where you left off';
-    if (!AccountService.isEnabled) {
+    if (!_verifiedMode) {
       return 'Enter your phone number to get started';
     }
     switch (_step) {
@@ -570,7 +582,7 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
     if (_showWelcomeBack && last != null && _step == _Step.phone) {
       return _welcomeBack(last);
     }
-    if (!AccountService.isEnabled) return _localFields();
+    if (!_verifiedMode) return _localFields();
     switch (_step) {
       case _Step.phone:
         return _phoneFields(onSubmit: _sendCode, cta: 'Send code');
@@ -808,6 +820,14 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
                     _step = _Step.identifier;
                   }),
           child: Text('Sign in with username or email',
+              style: TextStyle(color: AppColors.subtle(context))),
+        ),
+        // Also here, and not only on the local form. A build that verifies
+        // numbers is still a build somebody may not want to give one to, and
+        // there is nothing to verify about an account that has none.
+        TextButton(
+          onPressed: _busy ? null : _continueWithoutNumber,
+          child: Text('Continue without a phone number',
               style: TextStyle(color: AppColors.subtle(context))),
         ),
       ];
