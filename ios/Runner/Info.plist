@@ -76,6 +76,8 @@
 		</array>
 		<key>LSRequiresIPhoneOS</key>
 		<true/>
+		<key>NSBluetoothAlwaysUsageDescription</key>
+		<string>OkayMessenger uses Bluetooth to send messages directly to people near you when there is no internet, and to pass on messages for others. Everything it carries is already encrypted — this device cannot read what it relays.</string>
 		<key>UIBackgroundModes</key>
 		<array>
 			<string>audio</string>

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import 'package:flutter/services.dart';
 
+import '../mesh/mesh_service.dart';
 import '../app_state.dart';
 import '../state/account_service.dart';
 import '../state/app_lock.dart';
@@ -55,6 +56,8 @@ class PrivacySettingsScreen extends StatelessWidget {
               notifier: AppState.groupAddAudience,
             ),
           ]),
+          settingsSectionLabel(context, 'Nearby'),
+          const InfoSection(children: [_MeshTile()]),
           settingsSectionLabel(context, 'Messaging'),
           InfoSection(children: [
             _buildContactsOnlyTile(),
@@ -531,5 +534,66 @@ class _ReachabilityTilesState extends State<_ReachabilityTiles> {
         ),
       ],
     );
+  }
+}
+
+/// Bluetooth mesh: messages to people near you when there is no internet.
+///
+/// Off by default, and it says what it costs. Turning it on means this phone
+/// carries other people's messages as well as its own — which is the deal that
+/// makes a mesh work, and not one to make on somebody's behalf without telling
+/// them. What it cannot do is read any of them: a message is sealed before it
+/// reaches the radio, exactly as it is before it reaches the server.
+class _MeshTile extends StatefulWidget {
+  const _MeshTile();
+
+  @override
+  State<_MeshTile> createState() => _MeshTileState();
+}
+
+class _MeshTileState extends State<_MeshTile> {
+  bool? _available;
+
+  @override
+  void initState() {
+    super.initState();
+    MeshService.instance.available.then((ok) {
+      if (mounted) setState(() => _available = ok);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Nothing at all rather than a switch that cannot move. Most devices
+    // running this — every browser, for a start — have no peripheral role to
+    // offer, and a disabled toggle is a promise the app cannot keep.
+    if (_available == false) return const SizedBox.shrink();
+    return ListenableBuilder(
+      listenable: MeshService.instance,
+      builder: (context, _) {
+        final mesh = MeshService.instance;
+        return SwitchListTile(
+          secondary: Icon(mesh.enabled
+              ? Icons.bluetooth_connected
+              : Icons.bluetooth_outlined),
+          title: const Text('Message people nearby'),
+          subtitle: Text(_subtitle(mesh)),
+          value: mesh.enabled,
+          shape: kSettingsTileShape,
+          onChanged: _available == null ? null : mesh.setEnabled,
+        );
+      },
+    );
+  }
+
+  String _subtitle(MeshService mesh) {
+    if (!mesh.enabled) {
+      return 'Off. Turn on to send and receive over Bluetooth with no '
+          'internet — your phone also passes on other people\'s messages, '
+          'sealed, without being able to read them.';
+    }
+    if (!mesh.running) return 'Starting…';
+    if (mesh.peers == 0) return 'On. No one nearby yet.';
+    return 'On. ${mesh.peers} ${mesh.peers == 1 ? 'phone' : 'phones'} nearby.';
   }
 }

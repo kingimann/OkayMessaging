@@ -10,6 +10,7 @@ import 'crypto/key_exchange.dart';
 import 'payments/iap_entitlement.dart';
 import 'payments/payment_service.dart';
 import 'relay/relay_config.dart';
+import 'mesh/mesh_service.dart';
 import 'relay/relay_service.dart';
 import 'models/chat.dart';
 import 'models/user.dart';
@@ -102,6 +103,9 @@ Future<void> main() async {
   await _boot('notes', NotesStore.instance.load);
   await _boot('feed', FeedStore.instance.load);
   await _boot('storage', StorageStore.instance.load);
+  // Reads the saved setting and brings the radio up if it was on. Off by
+  // default, so on nearly every launch this does nothing at all.
+  await _boot('mesh', MeshService.instance.load);
   // StoreKit replays renewals that happened while the app was closed, so this
   // has to be listening before the purchase stream opens.
   IapEntitlement.instance.start();

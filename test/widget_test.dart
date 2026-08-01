@@ -118,6 +118,10 @@ import 'package:okay_messaging/screens/status_screen.dart';
 import 'package:okay_messaging/state/status_store.dart';
 import 'package:okay_messaging/state/chat_store.dart';
 import 'package:okay_messaging/state/gif_service.dart';
+import 'package:okay_messaging/mesh/mesh_chunks.dart';
+import 'package:okay_messaging/mesh/mesh_packet.dart';
+import 'package:okay_messaging/mesh/mesh_router.dart';
+import 'package:okay_messaging/mesh/mesh_service.dart';
 import 'package:okay_messaging/state/legal_consent.dart';
 import 'package:okay_messaging/state/crash_reporter.dart';
 import 'package:okay_messaging/widgets/empty_state.dart';
@@ -19506,5 +19510,297 @@ void main() {
       }
     });
 
+  });
+
+  group('Messages over Bluetooth', () {
+    Map<String, dynamic> sealed({String body = 'ciphertext'}) =>
+        {'v': 2, 'id': 'm1', 'from': '+15550101111', 'enc': body};
+
+    setUp(() {
+      SharedPreferences.setMockInitialValues({});
+      MeshService.instance.resetForTest();
+    });
+    tearDown(() {
+      MeshService.instance.resetForTest();
+      MeshService.debugAvailableOverride = null;
+      MeshService.debugSendOverride = null;
+    });
+
+    test('a packet carries only what a router needs, and never opens the rest',
+        () {
+      final packet = MeshPacket(
+          id: 'm1', to: '15550102222', ttl: 5, payload: sealed());
+      final wire = jsonDecode(packet.encode()) as Map<String, dynamic>;
+      // Addressing and hop count in the clear, because routing needs them.
+      expect(wire['to'], '15550102222');
+      expect(wire['ttl'], 5);
+      // And the body untouched — a relay must not be able to read it, so
+      // nothing here may transform, re-encrypt, or inspect it.
+      expect(wire['p'], sealed());
+      final back = MeshPacket.decode(packet.encode())!;
+      expect(back.payload, sealed());
+    });
+
+    test('anything off the air that is not exactly right is refused', () {
+      String wire(Map<String, dynamic> over) => jsonEncode({
+            'v': 1,
+            'id': 'm1',
+            'to': '1555',
+            'ttl': 3,
+            'p': sealed(),
+            ...over,
+          });
+      expect(MeshPacket.decode(wire(const {})), isNotNull);
+      // Everything here arrived from a device nobody vouched for.
+      expect(MeshPacket.decode('not json'), isNull);
+      expect(MeshPacket.decode(wire(const {'v': 2})), isNull,
+          reason: 'a version this cannot parse is not a packet to guess at');
+      expect(MeshPacket.decode(wire(const {'id': ''})), isNull);
+      expect(MeshPacket.decode(wire(const {'p': 'a string'})), isNull);
+      // A hop count above the ceiling is REFUSED, not clamped — clamping
+      // would let one sender hand every phone in range a packet with a
+      // lifetime of its choosing.
+      expect(MeshPacket.decode(wire({'ttl': MeshPacket.maxTtl + 1})), isNull);
+      expect(MeshPacket.decode(wire(const {'ttl': -1})), isNull);
+      // And nothing enormous, whatever it claims to be.
+      expect(MeshPacket.decode('x' * (MeshPacket.maxBytes + 1)), isNull);
+    });
+
+    test('a photo does not go by Bluetooth, and a sentence does', () {
+      // A radio that moves a few KB a second is a minute a hop for a photo.
+      expect(MeshPacket.fits({'enc': 'x' * 200}), isTrue);
+      expect(MeshPacket.fits({'enc': 'x' * 140000}), isFalse,
+          reason: 'this app caps a photo at 140k base64 — it must not mesh');
+    });
+
+    test('a flood stops', () {
+      // The whole safety property: without dedup, three phones in a ring hand
+      // the same packet round for as long as they are in range.
+      final router = MeshRouter(myDigits: '15550102222');
+      final packet = MeshPacket(
+          id: 'm1', to: '15550102222', ttl: 3, payload: sealed());
+      expect(router.accept(packet), MeshAction.deliverAndRelay);
+      expect(router.accept(packet), MeshAction.drop,
+          reason: 'the second time round it must stop');
+      expect(router.accept(packet.withTtl(2)), MeshAction.drop,
+          reason: 'and the same message at a different hop count is the same '
+              'message');
+    });
+
+    test('a packet dies when it runs out of hops', () {
+      final router = MeshRouter(myDigits: '15550109999');
+      final far = MeshPacket(
+          id: 'm1', to: '15550102222', ttl: 0, payload: sealed());
+      expect(router.accept(far), MeshAction.drop);
+      expect(router.forwarded(far), isNull);
+
+      // One with hops left is passed on, one hop shorter, and the original is
+      // not touched — it may still be needed to deliver.
+      final near = MeshPacket(
+          id: 'm2', to: '15550102222', ttl: 3, payload: sealed());
+      expect(router.accept(near), MeshAction.relay);
+      expect(router.forwarded(near)!.ttl, 2);
+      expect(near.ttl, 3);
+    });
+
+    test('a phone carries a stranger\'s message but does not open it', () {
+      final router = MeshRouter(myDigits: '15550109999');
+      final theirs = MeshPacket(
+          id: 'm1', to: '15550102222', ttl: 3, payload: sealed());
+      expect(router.accept(theirs), MeshAction.relay,
+          reason: 'not addressed here — carry it, do not deliver it');
+    });
+
+    test('your own message coming back is not a message you received', () {
+      final router = MeshRouter(myDigits: '15550101111', memory: 4);
+      router.noteSent('m1');
+      // A neighbour relays it straight back: the seen-set catches that.
+      final echo = MeshPacket(
+          id: 'm1', to: '15550101111', ttl: 4, payload: sealed());
+      expect(router.accept(echo), MeshAction.drop);
+
+      // The case that needs its own record: a busy room pushes the send out
+      // of the seen-set, and the echo arrives after that. Without a separate
+      // memory of what this phone originated, its own message is delivered
+      // back to it as an incoming one.
+      for (var i = 0; i < 20; i++) {
+        router.accept(MeshPacket(
+            id: 'other$i', to: '15550109999', ttl: 2, payload: sealed()));
+      }
+      expect(router.hasSeen('m1'), isFalse, reason: 'aged out, as designed');
+      expect(router.accept(echo), MeshAction.drop,
+          reason: 'this phone sent it — it is not a message it received');
+    });
+
+    test('a message for you is delivered and still passed on', () {
+      // A group message is addressed to each member separately, so the phone
+      // behind this one may not have heard its own copy yet.
+      final router = MeshRouter(myDigits: '15550102222');
+      final mine = MeshPacket(
+          id: 'm1', to: '15550102222', ttl: 2, payload: sealed());
+      expect(router.accept(mine), MeshAction.deliverAndRelay);
+
+      final last = MeshPacket(
+          id: 'm2', to: '15550102222', ttl: 0, payload: sealed());
+      expect(router.accept(last), MeshAction.deliver,
+          reason: 'nothing left to relay with, but still ours to open');
+    });
+
+    test('what it remembers is bounded', () {
+      final router = MeshRouter(myDigits: '1', memory: 4);
+      for (var i = 0; i < 50; i++) {
+        router.accept(MeshPacket(
+            id: 'm$i', to: '2', ttl: 2, payload: sealed()));
+      }
+      expect(router.rememberedCount, lessThanOrEqualTo(4),
+          reason: 'a phone left running must not grow a list forever');
+      expect(router.hasSeen('m49'), isTrue);
+      expect(router.hasSeen('m0'), isFalse, reason: 'oldest out first');
+    });
+
+    test('a packet survives being cut up and put back together', () {
+      final packet = MeshPacket(
+          id: 'm1', to: '15550102222', ttl: 5, payload: sealed(body: 'y' * 900));
+      final raw = packet.encode();
+      final frames = MeshChunks.split(raw);
+      expect(frames.length, greaterThan(1), reason: 'this needs chunking');
+
+      final reassembler = MeshReassembler();
+      String? whole;
+      for (final f in frames) {
+        whole = reassembler.add(f) ?? whole;
+      }
+      expect(whole, raw);
+      expect(MeshPacket.decode(whole!)!.payload, packet.payload);
+      expect(reassembler.pendingCount, 0, reason: 'nothing left half-done');
+    });
+
+    test('two senders at once do not fill each other\'s buffer', () {
+      // Two neighbours mid-packet at the same moment is the ordinary case in
+      // a room, not an edge one.
+      final a = MeshPacket(id: 'a', to: '1', ttl: 5, payload: sealed(body: 'a' * 600));
+      final b = MeshPacket(id: 'b', to: '2', ttl: 5, payload: sealed(body: 'b' * 600));
+      final fa = MeshChunks.split(a.encode());
+      final fb = MeshChunks.split(b.encode());
+      final reassembler = MeshReassembler();
+
+      final done = <String>[];
+      // Interleaved, the way two radios actually arrive.
+      for (var i = 0; i < (fa.length > fb.length ? fa.length : fb.length); i++) {
+        if (i < fa.length) {
+          final w = reassembler.add(fa[i]);
+          if (w != null) done.add(w);
+        }
+        if (i < fb.length) {
+          final w = reassembler.add(fb[i]);
+          if (w != null) done.add(w);
+        }
+      }
+      expect(done, containsAll([a.encode(), b.encode()]));
+    });
+
+    test('a frame that is nonsense, repeated, or lost breaks nothing', () {
+      final packet = MeshPacket(
+          id: 'm1', to: '1', ttl: 5, payload: sealed(body: 'z' * 400));
+      final frames = MeshChunks.split(packet.encode());
+      final reassembler = MeshReassembler();
+
+      for (final junk in ['', 'nocolons', 'a:b:c:d', 'id:99:2:x', 'id:0:0:x']) {
+        expect(reassembler.add(junk), isNull, reason: junk);
+      }
+      // Two packets whose frame ids collide, disagreeing about how long the
+      // packet is. The half-filled buffer is no longer trustworthy, so it has
+      // to be thrown away rather than partly overwritten — otherwise the
+      // pieces of two different messages get joined into one.
+      expect(reassembler.add('dup:0:3:aaa'), isNull);
+      expect(reassembler.add('dup:0:2:bbb'), isNull, reason: 'length changed');
+      expect(reassembler.add('dup:1:2:ccc'), isNull,
+          reason: 'the poisoned buffer was dropped, so this starts over');
+      expect(reassembler.add('dup:0:2:bbb'), 'bbbccc');
+      // A frame arriving twice is not a second packet.
+      String? whole;
+      for (final f in [...frames, ...frames]) {
+        whole = reassembler.add(f) ?? whole;
+      }
+      expect(whole, packet.encode());
+
+      // And one lost frame means no packet, rather than a broken one.
+      final short = MeshReassembler();
+      for (final f in frames.take(frames.length - 1)) {
+        expect(short.add(f), isNull);
+      }
+    });
+
+    test('a peer that never finishes cannot grow the buffer forever', () {
+      final reassembler = MeshReassembler(maxPending: 3);
+      for (var i = 0; i < 40; i++) {
+        // First frame of a ten-frame packet that never arrives.
+        reassembler.add('id$i:0:10:fragment');
+      }
+      expect(reassembler.pendingCount, lessThanOrEqualTo(4));
+    });
+
+    testWidgets('the toggle is off until asked, and says what it costs',
+        (t) async {
+      MeshService.debugAvailableOverride = true;
+      await t.pumpWidget(
+          const MaterialApp(home: PrivacySettingsScreen()));
+      await t.pumpAndSettle();
+
+      await t.scrollUntilVisible(find.text('Message people nearby'), 200);
+      final tile = t.widget<SwitchListTile>(find.ancestor(
+          of: find.text('Message people nearby'),
+          matching: find.byType(SwitchListTile)));
+      expect(tile.value, isFalse, reason: 'a radio does not start uninvited');
+      // The deal is stated: this phone carries other people's messages.
+      expect(find.textContaining('passes on other people'), findsOneWidget);
+      expect(find.textContaining('without being able to read them'),
+          findsOneWidget);
+    });
+
+    testWidgets('a device that cannot mesh is not offered a switch',
+        (t) async {
+      // Every browser, for a start — Safari has no Web Bluetooth at all, and
+      // no platform gives a page the peripheral role.
+      MeshService.debugAvailableOverride = false;
+      await t.pumpWidget(
+          const MaterialApp(home: PrivacySettingsScreen()));
+      await t.pumpAndSettle();
+      // Scroll PAST where the tile would be first. A ListView only builds what
+      // it can show, so asserting findsNothing on an unscrolled screen proves
+      // nothing at all — it passes just as happily when the tile is there.
+      await t.scrollUntilVisible(
+          find.text('Only my contacts can message me'), 200);
+      expect(find.text('Message people nearby'), findsNothing,
+          reason: 'a dead switch is a promise the app cannot keep');
+    });
+
+    test('sending puts framed packets on the air and remembers them', () async {
+      final sent = <String>[];
+      MeshService.debugSendOverride = sent.add;
+      final mesh = MeshService.instance;
+
+      expect(await mesh.send('15550102222', sealed(), messageId: 'm1'), isTrue);
+      expect(sent, isNotEmpty);
+      final rebuilt = MeshReassembler();
+      String? whole;
+      for (final f in sent) {
+        whole = rebuilt.add(f) ?? whole;
+      }
+      final packet = MeshPacket.decode(whole!)!;
+      expect(packet.to, '15550102222');
+      expect(packet.ttl, MeshPacket.maxTtl, reason: 'a fresh packet is full');
+      // And it knows it sent this, so the echo off a neighbour is not
+      // delivered back to the sender as an incoming message.
+      expect(mesh.router.accept(packet), MeshAction.drop);
+    });
+
+    test('an envelope too big for the radio is refused, not attempted',
+        () async {
+      MeshService.debugSendOverride = (_) {};
+      final ok = await MeshService.instance
+          .send('15550102222', {'enc': 'x' * 140000}, messageId: 'big');
+      expect(ok, isFalse);
+    });
   });
 }

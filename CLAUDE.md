@@ -207,4 +207,14 @@ copies of the Edge Functions), `docs/supabase_setup.sql`.
   deployed. There's no server-side auth (`REQUIRE_OTP` off), so the gate is
   client-side and the key (phone-derived, or a user passphrase) is what makes
   restoring on a new device possible at all.
+- **Bluetooth mesh** (`lib/mesh/`, `ios/Runner/Mesh.swift`): messages to people
+  nearby with no internet, off by default behind Privacy & security → "Message
+  people nearby". The routing, framing and reassembly are pure Dart and covered
+  by tests; **the Swift has never been compiled or run** — there is no Xcode on
+  the Linux box these sessions run on, so the first real check is a Codemagic
+  build, and the first proof it works is two phones in a room. Text only
+  (`MeshPacket.maxBytes`, because a photo is a minute a hop) and foreground only
+  (no Bluetooth `UIBackgroundModes` — adding `bluetooth-central` and
+  `bluetooth-peripheral` turns background on with no code change, at the cost of
+  slow overflow-area discovery and questions at App Review).
 - Check `git log` for what actually shipped most recently.

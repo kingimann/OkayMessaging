@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -6,6 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart' hide Session;
 
 import '../app_state.dart';
 import '../crypto/e2e.dart';
+import '../mesh/mesh_service.dart';
 import '../crypto/key_exchange.dart';
 import '../models/chat.dart';
 import '../models/community.dart';
@@ -1782,6 +1784,18 @@ class RelayService {
     // the next time their app opens — the store-and-forward every messenger
     // relies on, holding only ciphertext the server can't read.
     _mailboxPut(contactPhone, payload);
+    // And put it on the air, if the user turned the mesh on. Unconditionally
+    // rather than only when offline: "am I online" is a question no device
+    // answers reliably, and the recipient dedups by message id whichever way
+    // it arrives — so trying both costs a duplicate that is already handled,
+    // where guessing wrong costs the message.
+    // Not awaited — a radio must not hold up the internet path — and its
+    // errors are swallowed here rather than left as an unhandled async
+    // failure, which in a messenger is a crash report for a message that got
+    // through fine by the other route.
+    unawaited(MeshService.instance
+        .send(digits(contactPhone), payload, messageId: message.id)
+        .catchError((_) => false));
   }
 
   /// Fans [message] out to every member of [group] with a real phone number.

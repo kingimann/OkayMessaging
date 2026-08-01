@@ -8,6 +8,10 @@ import UserNotifications
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
   private var pushChannel: FlutterMethodChannel?
 
+  /// Held for the app's lifetime: the mesh owns the two CoreBluetooth
+  /// managers, and a released Mesh takes the radio down with it.
+  private var mesh: Mesh?
+
   // Incoming im: links (default-messaging-app taps). A link can arrive at
   // cold launch before Dart is up, so buffer it until Dart asks.
   static var linkChannel: FlutterMethodChannel?
@@ -83,6 +87,12 @@ import UserNotifications
     let replyMessenger = engineBridge.pluginRegistry
       .registrar(forPlugin: "OkaySmartReplies")!.messenger()
     SmartReplies.register(with: replyMessenger)
+    // Bluetooth mesh. Registering only wires the channel — no radio starts and
+    // no permission is asked for until Dart calls "start", which happens only
+    // if the user turned the mesh on.
+    let meshMessenger = engineBridge.pluginRegistry
+      .registrar(forPlugin: "OkayMesh")!.messenger()
+    mesh = Mesh.register(with: meshMessenger)
     // Minimal push bridge (no third-party plugin): Dart calls "register",
     // we ask iOS for permission + an APNs token and send it back as hex.
     let messenger = engineBridge.pluginRegistry.registrar(forPlugin: "OkayPush")!.messenger()
