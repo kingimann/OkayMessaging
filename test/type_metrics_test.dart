@@ -28,17 +28,68 @@ import 'package:okay_messaging/state/public_feed_store.dart';
 import 'package:okay_messaging/state/storage_store.dart';
 import 'package:okay_messaging/theme/app_theme.dart';
 
+/// Where this Flutter keeps the Roboto it ships, or null if it can't be found.
+///
+/// ASKED, NOT ASSUMED. This was the literal path on the machine it was written
+/// on — `/opt/flutter/bin/cache/artifacts/material_fonts` — which is nowhere
+/// on the macOS runner that builds the iOS release, so every test in this file
+/// threw before it measured anything and the build went red.
+Directory? _materialFonts() {
+  final candidates = <String>[
+    if (Platform.environment['FLUTTER_ROOT'] case final root?
+        when root.isNotEmpty)
+      '$root/bin/cache/artifacts/material_fonts',
+    // flutter_tester runs from
+    // <flutter>/bin/cache/artifacts/engine/<host>/flutter_tester, so the
+    // fonts are a sibling of `engine` two levels up.
+    '${File(Platform.resolvedExecutable).parent.parent.parent.path}'
+        '/material_fonts',
+  ];
+  for (final path in candidates) {
+    final dir = Directory(path);
+    if (File('${dir.path}/Roboto-Regular.ttf').existsSync()) return dir;
+  }
+  return null;
+}
+
+/// Loads the real Roboto, and says whether the type being measured is now the
+/// type that ships.
+///
 /// The bytes are read SYNCHRONOUSLY on purpose: a testWidgets body runs in
 /// fake async, so a real File future never completes and the run hangs with no
 /// output and no error.
-Future<void> loadRealFonts() async {
-  const dir = '/opt/flutter/bin/cache/artifacts/material_fonts';
+Future<bool> loadRealFonts() async {
+  final dir = _materialFonts();
+  if (dir == null) return false;
   final loader = FontLoader('Roboto');
   for (final f in ['Roboto-Regular.ttf', 'Roboto-Medium.ttf']) {
-    loader.addFont(
-        Future.value(ByteData.sublistView(File('$dir/$f').readAsBytesSync())));
+    loader.addFont(Future.value(
+        ByteData.sublistView(File('${dir.path}/$f').readAsBytesSync())));
   }
   await loader.load();
+  // Proving it, rather than trusting the path: the test font draws every
+  // glyph as the same square, so under it 'iiiiiiiiii' and 'MMMMMMMMMM' are
+  // exactly as wide as each other. Under real Roboto they are not close.
+  return _width('iiiiiiiiii') < _width('MMMMMMMMMM') * 0.75;
+}
+
+double _width(String text) {
+  final painter = TextPainter(
+    text: TextSpan(
+        text: text,
+        style: const TextStyle(fontFamily: 'Roboto', fontSize: 20)),
+    textDirection: TextDirection.ltr,
+  )..layout();
+  return painter.width;
+}
+
+/// Skips the running test when this machine has no real type to measure with.
+/// A skip is visible in the output; a measurement taken in the test font would
+/// silently be an answer about a font the app does not ship.
+bool _needsRealType(bool loaded) {
+  if (loaded) return false;
+  markTestSkipped('no material_fonts on this machine — nothing to measure');
+  return true;
 }
 
 void main() {
@@ -60,7 +111,7 @@ void main() {
     // screenful spent on decoration, with the tab strip pushed almost to the
     // fold. Real type, because this is a measurement and the test font is
     // twice the width of the one that ships.
-    await loadRealFonts();
+    if (_needsRealType(await loadRealFonts())) return;
     t.view.physicalSize = const Size(390, 844);
     t.view.devicePixelRatio = 1.0;
     addTearDown(t.view.resetPhysicalSize);
@@ -108,7 +159,7 @@ void main() {
     // Flexible after it, the two Expandeds split the free space between them
     // and "Edit profile" was cropped to "Edit …" on a 390pt phone with room
     // to spare.
-    await loadRealFonts();
+    if (_needsRealType(await loadRealFonts())) return;
     for (final width in [320.0, 390.0, 430.0]) {
       t.view.physicalSize = Size(width, 900);
       t.view.devicePixelRatio = 1.0;
@@ -134,7 +185,7 @@ void main() {
   });
 
   testWidgets('the three verification chips fit on one line', (t) async {
-    await loadRealFonts();
+    if (_needsRealType(await loadRealFonts())) return;
     // Filled pills at 13pt with 13 points of side padding do not fit a
     // 390pt phone, so the row wrapped and the middle of every profile had
     // two ragged lines of grey lozenges in it.
@@ -166,7 +217,7 @@ void main() {
       (t) async {
     // Four different left edges ran down this screen: the note was inset by
     // an icon, the headings by 4, the body copy by 4, and the cards by 0.
-    await loadRealFonts();
+    if (_needsRealType(await loadRealFonts())) return;
     t.view.physicalSize = const Size(390, 1200);
     t.view.devicePixelRatio = 1.0;
     addTearDown(t.view.resetPhysicalSize);
