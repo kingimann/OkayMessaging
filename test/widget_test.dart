@@ -20244,4 +20244,45 @@ void main() {
           reason: 'shown grouped, addressed bare');
     });
   });
+
+  group('The iOS target compiles what is in the folder', () {
+    test('every Swift file is in the Xcode target, not just on disk', () {
+      // Xcode compiles what its project file lists, not what is in the
+      // directory. Mesh.swift was written, committed, and pushed, and the
+      // build failed with "Cannot find type 'Mesh' in scope" — the file was
+      // there and nothing was compiling it. Nothing in the Dart gates can
+      // notice that, which is why it is checked here.
+      final project =
+          File('ios/Runner.xcodeproj/project.pbxproj').readAsStringSync();
+      final sources = project.substring(
+          project.indexOf('/* Sources */'),
+          project.indexOf('/* End PBXSourcesBuildPhase section */'));
+
+      final swiftFiles = Directory('ios/Runner')
+          .listSync()
+          .whereType<File>()
+          .map((f) => f.uri.pathSegments.last)
+          .where((n) => n.endsWith('.swift'))
+          .toList();
+      expect(swiftFiles, isNotEmpty, reason: 'the folder should have some');
+
+      for (final name in swiftFiles) {
+        expect(project.contains('path = $name;'), isTrue,
+            reason: '$name has no file reference in the project');
+        expect(sources.contains('$name in Sources'), isTrue,
+            reason: '$name is on disk but nothing compiles it');
+      }
+    });
+
+    test('the Bluetooth permission string is there, or the app is killed', () {
+      // CoreBluetooth is one of the frameworks iOS terminates you for touching
+      // without a usage description — not a warning, not a denied permission,
+      // a crash the moment the mesh starts.
+      final plist = File('ios/Runner/Info.plist').readAsStringSync();
+      expect(plist.contains('NSBluetoothAlwaysUsageDescription'), isTrue);
+      final swift = File('ios/Runner/Mesh.swift').readAsStringSync();
+      expect(swift.contains('CBCentralManager('), isTrue,
+          reason: 'the string is only needed because this is here');
+    });
+  });
 }
