@@ -10,6 +10,7 @@ import '../theme/app_theme.dart';
 import '../util/file_moderation.dart';
 import '../util/photo_prep.dart';
 import '../widgets/empty_state.dart';
+import '../widgets/verified_gate.dart';
 
 /// Send a photo, a video or a file to somebody standing next to you.
 ///
@@ -127,6 +128,18 @@ class _NearbyShareScreenState extends State<NearbyShareScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Wrapped here rather than at the button that opens this, so every way
+    // in is covered.
+    return VerifiedGate(
+      title: 'Send nearby',
+      reason: 'This offers files to strangers in the room, straight from your '
+          'phone to theirs. Verifying your ID means the name they see is one '
+          'somebody stood behind.',
+      child: _guarded(context),
+    );
+  }
+
+  Widget _guarded(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Send to someone nearby'),

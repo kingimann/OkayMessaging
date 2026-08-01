@@ -170,6 +170,26 @@ suite, because there is no Xcode here and `flutter analyze` never looks at
 Swift. The test *newer iOS APIs are guarded* now scans `ios/Runner/*.swift`
 for the known offenders; add to its list rather than rediscovering this.
 
+## Verified-only features
+
+The **marketplace, wallet and Send nearby** are behind
+`IdentityVerification.allowsTrusted` — the Stripe Identity check, the same
+one that earns the blue check. The gate is inside each screen
+(`VerifiedGate`), not on the drawer row that opens it, because a row is one
+way in of several; sending money from a chat carries the same check for the
+same reason.
+
+Two things that look like bugs and are not:
+
+- **It is off wherever verification is impossible.** `identity-start` is an
+  Edge Function, so a build with no relay could never unlock the door the
+  gate closes — the whole suite runs that way, which is why the gated branch
+  needs `IdentityVerification.debugGateOverride` to be reachable at all.
+- **The verdict is stored on the device.** It lives on the server, but Send
+  nearby's entire point is working with no network; an offline launch would
+  otherwise read a verified account as unverified. `refresh()` still
+  overwrites it, including downgrades.
+
 ## Open items (verify before assuming)
 
 - **Push notifications**: all code is in place (register on sign-in, token

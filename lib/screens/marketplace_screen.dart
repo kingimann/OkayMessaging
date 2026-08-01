@@ -22,6 +22,7 @@ import '../widgets/sanction_notice.dart';
 import '../widgets/verified_badge.dart';
 import 'chat_screen.dart';
 import 'feed_screen.dart' show showPersonSheet, feedSpans;
+import '../widgets/verified_gate.dart';
 
 /// The most photos one listing may carry. Each photo is its own relay
 /// message near the payload cap, and each is a mailbox row for every offline
@@ -381,6 +382,18 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Wrapped here rather than at the button that opens this, so every way
+    // in is covered.
+    return VerifiedGate(
+      title: 'Marketplace',
+      reason: 'Money and strangers meet here: somebody buying from you is '
+          'trusting a name they have never met. Verifying your ID is what '
+          'makes that name answerable.',
+      child: _guarded(context),
+    );
+  }
+
+  Widget _guarded(BuildContext context) {
     final hasFilter = _category.isNotEmpty ||
         _mineOnly ||
         _savedOnly ||

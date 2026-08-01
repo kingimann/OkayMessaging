@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../relay/relay_config.dart';
@@ -67,7 +68,46 @@ class IdentityVerification extends ChangeNotifier {
   IdentityStatus _status = IdentityStatus.none;
   IdentityStatus get status => _status;
 
+  static const _key = 'identity_status_v1';
+
   bool get isVerified => _status == IdentityStatus.verified;
+
+  /// Whether the parts of the app that involve money or strangers are open to
+  /// this account: the marketplace, the wallet, and handing things to people
+  /// nearby.
+  ///
+  /// A BUILD WITH NO SERVER CANNOT VERIFY ANYBODY — identity-start is an Edge
+  /// Function — so gating there would lock a door with no key: the web
+  /// preview and the test builds would simply lose three features with no way
+  /// to earn them back. The gate applies where verification is possible.
+  bool get allowsTrusted =>
+      !(debugGateOverride ?? RelayConfig.isEnabled) || isVerified;
+
+  /// Test hook: stands in for [RelayConfig.isEnabled], which is a
+  /// compile-time define and therefore cannot be varied inside a test — so
+  /// without this the gated branch is the one branch no test can reach, on a
+  /// suite that runs entirely with the relay off.
+  @visibleForTesting
+  static bool? debugGateOverride;
+
+  /// Reads the last known verdict off this device.
+  ///
+  /// KEPT LOCALLY ON PURPOSE. The verdict lives on the server, and asking for
+  /// it needs a network — but "send this to the person next to you" is the
+  /// one feature whose whole point is working without one. Launched on a
+  /// plane, an account that verified last week would otherwise read as
+  /// unverified and lose the feature exactly when it is wanted.
+  ///
+  /// The server is still the authority: [refresh] overwrites this the moment
+  /// it can reach one, including downgrading a verdict that was withdrawn.
+  Future<void> load() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      _apply(_statusFrom(prefs.getString(_key)));
+    } catch (_) {
+      // No prefs (tests) — the server answer stands on its own.
+    }
+  }
 
   /// True while Stripe is still deciding — worth telling the user rather than
   /// showing "not verified" at someone who just finished the flow.
@@ -130,6 +170,9 @@ class IdentityVerification extends ChangeNotifier {
     if (_status == next) return;
     _status = next;
     notifyListeners();
+    SharedPreferences.getInstance()
+        .then((p) => p.setString(_key, next.name))
+        .catchError((_) => false);
   }
 
   Future<Map<String, dynamic>?> _invoke(
@@ -151,6 +194,7 @@ class IdentityVerification extends ChangeNotifier {
   @visibleForTesting
   void resetForTest() {
     _status = IdentityStatus.none;
+    debugGateOverride = null;
     notifyListeners();
   }
 

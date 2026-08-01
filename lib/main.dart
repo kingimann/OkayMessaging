@@ -126,6 +126,9 @@ Future<void> main() async {
       AppState.setVerified(verified);
     }
   });
+  // The stored verdict first, so a launch with no network still knows where
+  // the account stands; the server's answer overwrites it when it arrives.
+  await IdentityVerification.instance.load();
   unawaited(IdentityVerification.instance.refresh());
   // App-wide role and sanction. Fire-and-forget: a device that can't reach the
   // server shows no moderation tools and enforces no sanction locally — the

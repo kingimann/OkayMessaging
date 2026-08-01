@@ -52,6 +52,8 @@ import 'location_map_screen.dart';
 import 'location_picker_screen.dart';
 import 'media_gallery_screen.dart';
 import 'wallpaper_screen.dart';
+import '../state/identity_verification.dart';
+import 'score_screen.dart';
 
 /// The conversation screen for a single [Chat], backed by [ChatStore].
 class ChatScreen extends StatefulWidget {
@@ -1776,6 +1778,20 @@ class _ChatScreenState extends State<ChatScreen> {
     }
     if (!svc.canSendOnThisDevice) {
       _showComingSoon(context, 'Sending money (use the mobile app)');
+      return;
+    }
+    // The same gate the Wallet screen is behind. Sending money from a chat is
+    // the wallet's own capability reached another way, so guarding one screen
+    // and not this would be guarding the door and leaving the window.
+    if (!IdentityVerification.instance.allowsTrusted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: const Text('Verify your ID to send money.'),
+        action: SnackBarAction(
+          label: 'Verify',
+          onPressed: () => Navigator.of(context)
+              .push(MaterialPageRoute(builder: (_) => const ScoreScreen())),
+        ),
+      ));
       return;
     }
     // Not even in test mode: there is no second party in your own notes, so

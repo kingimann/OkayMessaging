@@ -70,6 +70,7 @@ import 'package:okay_messaging/widgets/sanction_notice.dart';
 import 'package:okay_messaging/screens/forum_screen.dart';
 import 'package:okay_messaging/screens/location_picker_screen.dart';
 import 'package:okay_messaging/screens/marketplace_screen.dart';
+import 'package:okay_messaging/screens/nearby_share_screen.dart';
 import 'package:okay_messaging/widgets/verified_badge.dart';
 import 'package:okay_messaging/screens/map_screen.dart';
 import 'package:okay_messaging/screens/maps_settings_screen.dart';
@@ -18684,6 +18685,106 @@ void main() {
     test('digits are what a push is addressed by', () {
       expect(PushService.digitsOf('+1 (555) 010-2222'), '15550102222');
       expect(PushService.digitsOf(''), '');
+    });
+  });
+
+  group('Money and strangers need a verified account', () {
+    setUp(() {
+      SharedPreferences.setMockInitialValues({});
+      IdentityVerification.instance.resetForTest();
+      Session.instance.signInForTest();
+    });
+    tearDown(IdentityVerification.instance.resetForTest);
+
+    /// The three screens the gate stands in front of, and the words each one
+    /// puts on the door.
+    const gated = [
+      ('Marketplace', MarketplaceScreen()),
+      ('Wallet', WalletScreen()),
+      ('Send nearby', NearbyShareScreen()),
+    ];
+
+    testWidgets('an unverified account is stopped at all three', (t) async {
+      IdentityVerification.debugGateOverride = true;
+      for (final (title, screen) in gated) {
+        await t.pumpWidget(MaterialApp(key: ValueKey(title), home: screen));
+        await t.pumpAndSettle();
+        expect(find.text('$title needs a verified account'), findsOneWidget,
+            reason: '$title let an unverified account straight in');
+        expect(find.text('Get verified'), findsOneWidget, reason: title);
+      }
+    });
+
+    testWidgets('and let in once the check has passed', (t) async {
+      IdentityVerification.debugGateOverride = true;
+      IdentityVerification.instance.debugSetStatus(IdentityStatus.verified);
+      for (final (title, screen) in gated) {
+        await t.pumpWidget(MaterialApp(key: ValueKey(title), home: screen));
+        await t.pumpAndSettle();
+        expect(find.text('$title needs a verified account'), findsNothing,
+            reason: '$title still gated a verified account');
+      }
+    });
+
+    testWidgets('a check still being read says so, and does not ask again',
+        (t) async {
+      // Sending somebody back round a flow they have just finished is how an
+      // app reads as broken.
+      IdentityVerification.debugGateOverride = true;
+      IdentityVerification.instance.debugSetStatus(IdentityStatus.processing);
+      await t.pumpWidget(const MaterialApp(home: WalletScreen()));
+      await t.pumpAndSettle();
+      expect(find.textContaining('still being read'), findsOneWidget);
+      expect(find.text('Get verified'), findsNothing);
+    });
+
+    testWidgets('a build with no server does not lock a door with no key',
+        (t) async {
+      // identity-start is an Edge Function. Where there is none, nobody can
+      // ever verify — so gating would take three features away for good.
+      IdentityVerification.debugGateOverride = false;
+      for (final (title, screen) in gated) {
+        await t.pumpWidget(MaterialApp(key: ValueKey(title), home: screen));
+        await t.pumpAndSettle();
+        expect(find.text('$title needs a verified account'), findsNothing,
+            reason: '$title gated a build that cannot verify anybody');
+      }
+    });
+
+    test('the gate is on the screens, not on the buttons that open them', () {
+      // A drawer row is one way in; a deep link, a listing in a chat and a
+      // share sheet are others, and a gate on the row is a gate on one.
+      for (final path in [
+        'lib/screens/marketplace_screen.dart',
+        'lib/screens/wallet_screen.dart',
+        'lib/screens/nearby_share_screen.dart',
+      ]) {
+        expect(File(path).readAsStringSync().contains('VerifiedGate('), isTrue,
+            reason: path);
+      }
+      // Sending money from a chat is the wallet's own capability reached
+      // another way — guarding one screen and not this is guarding the door
+      // and leaving the window.
+      expect(
+          File('lib/screens/chat_screen.dart')
+              .readAsStringSync()
+              .contains('IdentityVerification.instance.allowsTrusted'),
+          isTrue);
+    });
+
+    test('the verdict survives a launch with no network', () async {
+      // It lives on the server and asking needs one — but "send this to the
+      // person next to you" is the feature whose whole point is not having
+      // one.
+      SharedPreferences.setMockInitialValues({});
+      IdentityVerification.instance.debugSetStatus(IdentityStatus.verified);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      IdentityVerification.instance.resetForTest();
+      expect(IdentityVerification.instance.isVerified, isFalse);
+      await IdentityVerification.instance.load();
+      expect(IdentityVerification.instance.isVerified, isTrue,
+          reason: 'a verified account read as unverified offline');
     });
   });
 

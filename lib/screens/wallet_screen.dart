@@ -8,6 +8,7 @@ import 'payment_history_screen.dart';
 import '../widgets/app_dialogs.dart';
 import '../theme/app_theme.dart';
 import '../widgets/pull_to_refresh.dart';
+import '../widgets/verified_gate.dart';
 
 /// The receiver's wallet: set up payments (Stripe Express KYC), see the
 /// connected-account balance, and track automatic payouts to the bank. The
@@ -100,6 +101,18 @@ class _WalletScreenState extends State<WalletScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Wrapped here rather than at the button that opens this, so every way
+    // in is covered.
+    return VerifiedGate(
+      title: 'Wallet',
+      reason: 'This moves real money to and from real people. A card is charged '
+          'and a bank account is paid out, and both need to belong to '
+          'somebody the app can actually name.',
+      child: _guarded(context),
+    );
+  }
+
+  Widget _guarded(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Wallet'),

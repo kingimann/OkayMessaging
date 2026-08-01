@@ -30,6 +30,7 @@ import 'starred_messages_screen.dart';
 import '../app_state.dart';
 import '../util/build_info.dart';
 import '../widgets/user_avatar.dart';
+import '../state/identity_verification.dart';
 
 /// The top-level screen: a modern pill bottom bar switching between Chats and
 /// Calls, with a compose FAB.
@@ -546,6 +547,7 @@ class _AppSideBar extends StatelessWidget {
               ListTile(
                 leading: const Icon(Icons.storefront_outlined),
                 title: const Text('Marketplace'),
+                trailing: const _VerifiedOnlyHint(),
                 subtitle: const Text('Buy and sell with your servers'),
                 onTap: () => _go(context, const MarketplaceScreen()),
               ),
@@ -573,6 +575,7 @@ class _AppSideBar extends StatelessWidget {
               ListTile(
                 leading: const Icon(Icons.wifi_tethering),
                 title: const Text('Send nearby'),
+                trailing: const _VerifiedOnlyHint(),
                 // One line on the narrowest phone still sold — the drawer
                 // test taps every destination, and a second line here pushes
                 // the last one off the bottom.
@@ -583,6 +586,7 @@ class _AppSideBar extends StatelessWidget {
               ListTile(
                 leading: const Icon(Icons.account_balance_wallet_outlined),
                 title: const Text('Wallet'),
+                trailing: const _VerifiedOnlyHint(),
                 subtitle: const Text('Send and receive money'),
                 onTap: () => _go(context, const WalletScreen()),
               ),
@@ -739,4 +743,24 @@ class _IconWithBadge extends StatelessWidget {
       ],
     );
   }
+}
+
+/// A quiet padlock on the drawer rows that lead somewhere verified-only, so
+/// the gate is not a surprise at the end of a tap. Nothing at all once the
+/// account is verified, or on a build where verification is impossible.
+class _VerifiedOnlyHint extends StatelessWidget {
+  const _VerifiedOnlyHint();
+
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(
+        listenable: IdentityVerification.instance,
+        builder: (context, _) =>
+            IdentityVerification.instance.allowsTrusted
+                ? const SizedBox.shrink()
+                : Tooltip(
+                    message: 'Needs a verified account',
+                    child: Icon(Icons.lock_outline,
+                        size: 17, color: AppColors.subtle(context)),
+                  ),
+      );
 }
