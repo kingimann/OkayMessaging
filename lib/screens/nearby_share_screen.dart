@@ -318,6 +318,7 @@ class _TransferRow extends StatelessWidget {
         'Receiving — ${(transfer.progress * 100).round()}%',
       TransferState.done => 'Sent',
       TransferState.declined => '${transfer.peerName} said no',
+      TransferState.cancelled => 'Stopped',
       TransferState.failed => 'Did not finish',
     };
     final moving = transfer.state == TransferState.sending ||
@@ -330,9 +331,23 @@ class _TransferRow extends StatelessWidget {
           Text('${transfer.fileName} · ${transfer.peerName}',
               style: const TextStyle(fontWeight: FontWeight.w600)),
           const SizedBox(height: 2),
-          Text(subtitle,
-              style:
-                  TextStyle(fontSize: 12.5, color: AppColors.subtle(context))),
+          Row(
+            children: [
+              Expanded(
+                child: Text(subtitle,
+                    style: TextStyle(
+                        fontSize: 12.5, color: AppColors.subtle(context))),
+              ),
+              if (moving)
+                TextButton(
+                  onPressed: () => NearbyShare.instance.cancel(transfer.id),
+                  style: TextButton.styleFrom(
+                      visualDensity: VisualDensity.compact,
+                      padding: const EdgeInsets.symmetric(horizontal: 8)),
+                  child: const Text('Stop'),
+                ),
+            ],
+          ),
           if (moving) ...[
             const SizedBox(height: 6),
             ClipRRect(

@@ -240,7 +240,13 @@ copies of the Edge Functions), `docs/supabase_setup.sql`.
   base64 text, so the receiver's peak memory is several times the file; raising
   it means moving bytes through the channel on both sides, in Swift as well as
   Dart. A picture arrives as a picture in the chat; a video or file is written
-  with `saveIncomingFile` and the chat gets a line naming it.
+  with `saveIncomingFile` and the chat gets a line naming it. **Either end can
+  stop one** (`NearbyShare.cancel`) — a "no" arriving mid-transfer used to be
+  ignored, so a receiver who changed their mind watched the video arrive
+  anyway. What is moving shows as a pill over whatever screen you are on
+  (`NearbyTransferBanner` in `NearbyOfferHost`), because the transfer list
+  lives on the screen you would have *sent* from, which is exactly the screen
+  a receiver is not on.
 - **The fast link** (`lib/mesh/nearby_fast.dart`, `ios/Runner/NearbyFast.swift`):
   the second transport, MultipeerConnectivity — Bluetooth discovery, then a
   direct Wi-Fi link, which is the supported half of what AirDrop does. A photo

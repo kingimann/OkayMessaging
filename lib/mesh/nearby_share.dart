@@ -188,6 +188,24 @@ class NearbyShare extends ChangeNotifier {
     await _send(t.peerDigits, MeshPacket.kindAnswer, {'id': id, 'ok': false});
   }
 
+  /// Stops a transfer that is already moving, from either end.
+  ///
+  /// A photo went in a second and there was nothing to stop. A video over
+  /// Bluetooth is minutes, and a transfer nobody can call off is one that
+  /// holds two radios hostage until it finishes.
+  ///
+  /// The far end is told either way: the sender stops pumping because
+  /// [_pump] checks the state before every packet, and the receiver throws
+  /// away what it has rather than keeping a third of a file.
+  Future<void> cancel(String id) async {
+    final t = _transfers[id];
+    if (t == null || t.isFinished) return;
+    _outgoing.remove(id);
+    _incoming.remove(id);
+    _update(t.copyWith(state: TransferState.cancelled));
+    await _send(t.peerDigits, MeshPacket.kindAnswer, {'id': id, 'ok': false});
+  }
+
   // --- The wire ------------------------------------------------------------
 
   /// One direct packet, off the air. Every field is checked: this arrived
@@ -238,12 +256,22 @@ class NearbyShare extends ChangeNotifier {
     final id = packet.payload['id'];
     if (id is! String) return;
     final t = _transfers[id];
-    if (t == null || t.state != TransferState.offered) return;
+    if (t == null || t.isFinished) return;
     if (packet.payload['ok'] != true) {
+      // A "no" ARRIVING MID-TRANSFER is somebody cancelling, and it has to be
+      // acted on: this used to be ignored unless the transfer was still
+      // waiting to start, so a receiver who changed their mind about a video
+      // watched it arrive anyway. [_pump] checks the state before every
+      // packet, so setting it here is what stops the sending.
+      final stopped = t.state == TransferState.offered
+          ? TransferState.declined
+          : TransferState.cancelled;
       _outgoing.remove(id);
-      _update(t.copyWith(state: TransferState.declined));
+      _incoming.remove(id);
+      _update(t.copyWith(state: stopped));
       return;
     }
+    if (t.state != TransferState.offered) return;
     _update(t.copyWith(state: TransferState.sending));
     _pump(id);
   }
@@ -391,6 +419,12 @@ class NearbyShare extends ChangeNotifier {
     _transfers.removeWhere((_, t) => t.isFinished);
     if (_transfers.length != before) notifyListeners();
   }
+
+  /// How many part-finished files are being held in memory. Test-visible
+  /// because "it stopped" and "it stopped AND let go of six megabytes of
+  /// video" look identical from outside and are not the same thing.
+  @visibleForTesting
+  int get heldBuffers => _incoming.length;
 
   @visibleForTesting
   void resetForTest() {

@@ -15,6 +15,12 @@ enum TransferState {
   done,
   declined,
 
+  /// Stopped by one of the two people, at either end, after it had started.
+  /// Not the same fact as [declined] — nobody refused it, somebody changed
+  /// their mind — and a 12 MB video is long enough that they need to be able
+  /// to.
+  cancelled,
+
   /// The other phone stopped answering, or the file arrived broken.
   failed,
 }
@@ -88,7 +94,12 @@ class NearbyTransfer {
   bool get isFinished =>
       state == TransferState.done ||
       state == TransferState.declined ||
+      state == TransferState.cancelled ||
       state == TransferState.failed;
+
+  /// Moving right now, in either direction.
+  bool get isMoving =>
+      state == TransferState.sending || state == TransferState.receiving;
 
   NearbyTransfer copyWith({
     TransferState? state,

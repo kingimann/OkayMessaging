@@ -21482,6 +21482,8 @@ void main() {
             kind: kind,
             payload: payload);
 
+    var sentId = '';
+
     Uint8List mp4() => Uint8List.fromList([
           0, 0, 0, 24, 0x66, 0x74, 0x79, 0x70, // ....ftyp
           0x69, 0x73, 0x6F, 0x6D, // isom — a movie brand, not a HEIC one
@@ -21634,6 +21636,126 @@ void main() {
         '',
       ]) {
         expect(NearbyShare.bytesOfDataUri(bad), isNull, reason: bad);
+      }
+    });
+
+    test('either end can stop a transfer that is already moving', () async {
+      final sent = <(String, String, Map<String, dynamic>)>[];
+      NearbyShare.debugSendOverride = (to, kind, p) async {
+        sent.add((to, kind, p));
+        return true;
+      };
+
+      // Receiving: accepted, then thought better of it.
+      NearbyShare.instance.handle(asPacket(MeshPacket.kindOffer, {
+        'id': 'r1',
+        'n': 'Clip.mp4',
+        'c': 40,
+        'k': 'video',
+        'd': '15550102222',
+      }));
+      await NearbyShare.instance.accept('r1');
+      expect(NearbyShare.instance.byId('r1')!.state, TransferState.receiving);
+      await NearbyShare.instance.cancel('r1');
+      expect(NearbyShare.instance.byId('r1')!.state, TransferState.cancelled);
+      // The other end is told, or it keeps pushing at a phone that stopped
+      // listening.
+      final no = sent.lastWhere((e) => e.$2 == MeshPacket.kindAnswer);
+      expect(no.$3['ok'], false);
+      // And what had arrived is LET GO OF, not merely ignored — a cancelled
+      // 12 MB video whose slices stay in a map is a cancel that freed
+      // nothing.
+      expect(NearbyShare.instance.heldBuffers, 0);
+      NearbyShare.instance.handle(asPacket(MeshPacket.kindChunk,
+          {'id': 'r1', 'i': 0, 'c': 40, 'p': 'xxxx'}));
+      expect(NearbyShare.instance.byId('r1')!.received, 0);
+      expect(NearbyShare.instance.heldBuffers, 0);
+    });
+
+    test('a change of mind mid-transfer actually stops the sending', () async {
+      final sent = <(String, String, Map<String, dynamic>)>[];
+      NearbyShare.debugSendOverride = (to, kind, p) async {
+        sent.add((to, kind, p));
+        // The receiver says no partway through, exactly as it would arrive.
+        if (p['i'] == 2) {
+          NearbyShare.instance.handle(asPacket(
+              MeshPacket.kindAnswer, {'id': sentId, 'ok': false}));
+        }
+        return true;
+      };
+      final data = 'data:image/png;base64,${'Z' * 30000}';
+      final t = (await NearbyShare.instance
+          .offer(ada(), data, fileName: 'Big.png', kind: 'image'))!;
+      sentId = t.id;
+      NearbyShare.instance.handle(
+          asPacket(MeshPacket.kindAnswer, {'id': t.id, 'ok': true}));
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(NearbyShare.instance.byId(t.id)!.state, TransferState.cancelled,
+          reason: 'a no arriving mid-transfer used to be ignored entirely');
+      final chunks = sent.where((e) => e.$2 == MeshPacket.kindChunk).length;
+      expect(chunks, lessThan(t.totalChunks),
+          reason: 'it kept sending after they said stop');
+    });
+
+    testWidgets('what is moving is visible wherever you are', (t) async {
+      // The transfer list lives on the screen you would have SENT from, which
+      // is exactly the screen a receiver is not on. Accepting a video used to
+      // be the last thing that happened on screen.
+      NearbyShare.debugSendOverride = (to, kind, p) async => true;
+      await t.pumpWidget(const MaterialApp(
+          home: NearbyOfferHost(child: Scaffold(body: Text('home')))));
+      // Settle the route transition first — a half-open route absorbs
+      // pointers, so a tap on the banner lands on nothing.
+      await t.pumpAndSettle();
+      expect(find.byType(NearbyTransferBanner), findsOneWidget);
+      expect(find.textContaining('Clip.mp4'), findsNothing);
+
+      NearbyShare.instance.handle(asPacket(MeshPacket.kindOffer, {
+        'id': 'b1',
+        'n': 'Clip.mp4',
+        'c': 10,
+        'k': 'video',
+        'd': '15550102222',
+      }));
+      await t.pumpAndSettle();
+      // Through the dialog, as a person would — its barrier is part of the
+      // screen the banner has to appear on.
+      await t.tap(find.text('Accept'));
+      await t.pumpAndSettle();
+      NearbyShare.instance.handle(asPacket(
+          MeshPacket.kindChunk, {'id': 'b1', 'i': 0, 'c': 10, 'p': 'aaaa'}));
+      await t.pump();
+
+      expect(find.textContaining('Clip.mp4 · Receiving 10%'), findsOneWidget);
+      // And a way out of it from right there.
+      await t.tap(find.text('Stop'));
+      await t.pump();
+      expect(NearbyShare.instance.byId('b1')!.state, TransferState.cancelled);
+      expect(find.textContaining('Stopped'), findsOneWidget);
+    });
+
+    test('what the banner says about a transfer', () {
+      NearbyTransfer at(TransferState state, {int received = 0}) =>
+          NearbyTransfer(
+              id: 'x',
+              peerDigits: '1',
+              peerName: 'Ada',
+              fileName: 'Clip.mp4',
+              totalChunks: 4,
+              state: state,
+              received: received);
+      expect(
+          NearbyTransferBanner.statusLine(
+              at(TransferState.receiving, received: 1)),
+          'Receiving 25%');
+      expect(NearbyTransferBanner.statusLine(at(TransferState.done)), 'Done');
+      expect(NearbyTransferBanner.statusLine(at(TransferState.cancelled)),
+          'Stopped');
+      // Every state says something — an unhandled one would be a blank pill.
+      for (final state in TransferState.values) {
+        expect(NearbyTransferBanner.statusLine(at(state)), isNotEmpty,
+            reason: '$state');
       }
     });
 
