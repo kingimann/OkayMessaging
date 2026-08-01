@@ -5,6 +5,7 @@ import '../theme/app_theme.dart';
 import '../widgets/app_dialogs.dart';
 import '../widgets/info_section.dart';
 import '../widgets/pull_to_refresh.dart';
+import '../state/account_service.dart';
 
 /// Add, change or remove the email on the account. The phone number is the
 /// identity; the email is the second way back in if that number is lost.
@@ -35,6 +36,8 @@ class _AccountEmailScreenState extends State<AccountEmailScreen> {
     _controller.dispose();
     super.dispose();
   }
+
+  void _setBusy(bool value) => setState(() => _busy = value);
 
   Future<void> _save() async {
     final entered = _controller.text.trim();
@@ -158,6 +161,10 @@ class _AccountEmailScreenState extends State<AccountEmailScreen> {
                           style: TextStyle(color: Colors.red)),
                     ),
                   ),
+                if (store.isSet) ...[
+                  const SizedBox(height: 22),
+                  _PasswordSection(busy: _busy, onBusy: _setBusy),
+                ],
                 const SizedBox(height: 18),
                 const _PrivacyNote(),
               ],
@@ -277,6 +284,127 @@ class _PrivacyNote extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+
+/// A password on the account, so the email is a way back in on its own.
+///
+/// WHY IT LIVES HERE. A password with no address to go with it is a
+/// credential with no username, and the address is what this screen is for.
+/// Setting one needs a live session, which means signing in the ordinary way
+/// first — the password is a second door into an account that exists, not a
+/// way to make one.
+class _PasswordSection extends StatefulWidget {
+  const _PasswordSection({required this.busy, required this.onBusy});
+
+  final bool busy;
+  final ValueChanged<bool> onBusy;
+
+  @override
+  State<_PasswordSection> createState() => _PasswordSectionState();
+}
+
+class _PasswordSectionState extends State<_PasswordSection> {
+  final _password = TextEditingController();
+  bool _show = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _password.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    final problem = AccountService.passwordProblem(_password.text);
+    if (problem != null) {
+      setState(() => _error = problem);
+      return;
+    }
+    setState(() => _error = null);
+    widget.onBusy(true);
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await AccountService.instance.setPassword(_password.text);
+      _password.clear();
+      messenger.showSnackBar(const SnackBar(
+          content: Text('Password saved — you can sign in with your email '
+              'and it from now on.')));
+    } catch (e) {
+      // Said, not swallowed: a password somebody believes they set and did
+      // not is a locked door they will walk into later.
+      messenger.showSnackBar(SnackBar(content: Text('Could not save it: $e')));
+    } finally {
+      widget.onBusy(false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+          child: Text(
+            AccountService.instance.hasPassword
+                ? 'Change your password'
+                : 'Set a password',
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
+          child: Text(
+            'With one set you can sign in with this email and a password '
+            'instead of waiting for a code.',
+            style: TextStyle(
+                fontSize: 13, height: 1.4, color: AppColors.subtle(context)),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: TextField(
+            controller: _password,
+            obscureText: !_show,
+            autocorrect: false,
+            enableSuggestions: false,
+            enabled: !widget.busy,
+            autofillHints: const [AutofillHints.newPassword],
+            onSubmitted: (_) => _save(),
+            decoration: InputDecoration(
+              labelText: 'New password',
+              errorText: _error,
+              helperText:
+                  'At least ${AccountService.minPasswordLength} characters',
+              prefixIcon: const Icon(Icons.lock_outline),
+              suffixIcon: IconButton(
+                icon: Icon(_show
+                    ? Icons.visibility_off_outlined
+                    : Icons.visibility_outlined),
+                tooltip: _show ? 'Hide password' : 'Show password',
+                onPressed: () => setState(() => _show = !_show),
+              ),
+              border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14)),
+            ),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
+          child: FilledButton(
+            style: FilledButton.styleFrom(
+              minimumSize: const Size.fromHeight(50),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(26)),
+            ),
+            onPressed: widget.busy ? null : _save,
+            child: const Text('Save password'),
+          ),
+        ),
+      ],
     );
   }
 }

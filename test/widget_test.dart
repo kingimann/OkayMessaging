@@ -18688,6 +18688,112 @@ void main() {
     });
   });
 
+  group('Signing in with an email and a password', () {
+    test('a password is checked before a round trip, and only for length', () {
+      // Composition rules push people towards Password1! — length is the one
+      // that helps. Supabase enforces its own minimum on top.
+      expect(AccountService.passwordProblem(''), 'Enter a password.');
+      expect(AccountService.passwordProblem('short'),
+          contains('${AccountService.minPasswordLength} characters'));
+      expect(AccountService.passwordProblem('a' * AccountService.minPasswordLength),
+          isNull);
+      expect(AccountService.passwordProblem('a whole passphrase here'), isNull);
+    });
+
+    testWidgets('the password field appears once an address is typed',
+        (t) async {
+      // Not behind a "get a code" round trip: somebody who has a password
+      // should not have to ask for a code to find the box for it.
+      t.view.physicalSize = const Size(500, 1600);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.resetPhysicalSize);
+      addTearDown(() => debugVerifiedModeOverride = null);
+      debugVerifiedModeOverride = true;
+
+      await t.pumpWidget(const MaterialApp(home: PhoneLoginScreen()));
+      await t.pumpAndSettle();
+      if (find.text('Use a different account').evaluate().isNotEmpty) {
+        await t.tap(find.text('Use a different account'));
+        await t.pumpAndSettle();
+      }
+      await t.tap(find.text('Sign in').first);
+      await t.pumpAndSettle();
+      await t.tap(find.text('Sign in with username or email'));
+      await t.pumpAndSettle();
+
+      expect(find.widgetWithText(TextFormField, 'Password'), findsNothing,
+          reason: 'a handle has no password here');
+      await t.enterText(
+          find.widgetWithText(TextFormField, 'Username or email'), 'ada_l');
+      await t.pumpAndSettle();
+      expect(find.widgetWithText(TextFormField, 'Password'), findsNothing);
+
+      await t.enterText(find.widgetWithText(TextFormField, 'Username or email'),
+          'ada@example.com');
+      await t.pumpAndSettle();
+      expect(find.widgetWithText(TextFormField, 'Password'), findsOneWidget);
+      // Empty is still allowed — that is the code route, and it says so.
+      expect(find.textContaining('code by email instead'), findsOneWidget);
+    });
+
+    testWidgets('the password is hidden until you ask to see it', (t) async {
+      t.view.physicalSize = const Size(500, 1600);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.resetPhysicalSize);
+      addTearDown(() => debugVerifiedModeOverride = null);
+      debugVerifiedModeOverride = true;
+
+      await t.pumpWidget(const MaterialApp(home: PhoneLoginScreen()));
+      await t.pumpAndSettle();
+      if (find.text('Use a different account').evaluate().isNotEmpty) {
+        await t.tap(find.text('Use a different account'));
+        await t.pumpAndSettle();
+      }
+      await t.tap(find.text('Sign in').first);
+      await t.pumpAndSettle();
+      await t.tap(find.text('Sign in with username or email'));
+      await t.pumpAndSettle();
+      await t.enterText(find.widgetWithText(TextFormField, 'Username or email'),
+          'ada@example.com');
+      await t.pumpAndSettle();
+
+      TextField field() => t.widget<TextField>(find.descendant(
+          of: find.widgetWithText(TextFormField, 'Password'),
+          matching: find.byType(TextField)));
+      expect(field().obscureText, isTrue);
+      await t.tap(find.byTooltip('Show password'));
+      await t.pumpAndSettle();
+      expect(field().obscureText, isFalse,
+          reason: 'a field nobody can read back is one they mistype');
+    });
+
+    test('an email on no phone account is refused, not half signed in', () {
+      // Messaging identity here IS the number. A session with none is
+      // discarded rather than carried into the app — the same contract the
+      // emailed-code route has had.
+      final src = File('lib/state/account_service.dart').readAsStringSync();
+      final body = src.substring(src.indexOf('Future<String?> signInWithPassword'));
+      final end = body.indexOf('\n  /// ');
+      final fn = end == -1 ? body : body.substring(0, end);
+      expect(fn.contains('auth.signOut()'), isTrue,
+          reason: 'a phone-less session is left signed in');
+      expect(fn.contains('return null'), isTrue);
+    });
+
+    test('a password can only be set on an account that exists', () {
+      // updateUser needs a live session, which is the point: this is a second
+      // door into an account, not a way to make one.
+      final src = File('lib/state/account_service.dart').readAsStringSync();
+      expect(src.contains('auth.updateUser(UserAttributes(password:'), isTrue);
+      // And the place it is offered is the one that holds the address.
+      final screen =
+          File('lib/screens/account_email_screen.dart').readAsStringSync();
+      expect(screen.contains('AccountService.instance.setPassword'), isTrue);
+      expect(screen.contains('if (store.isSet) ...['), isTrue,
+          reason: 'a password with no address is a credential with no name');
+    });
+  });
+
   group('Money and strangers need a verified account', () {
     setUp(() {
       SharedPreferences.setMockInitialValues({});

@@ -56,6 +56,12 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
   final _phone = TextEditingController();
   final _code = TextEditingController();
   final _identifier = TextEditingController();
+  final _password = TextEditingController();
+
+  /// Whether the password is shown as typed. Off by default, and a way to
+  /// look at it — a field somebody cannot read back is a field they mistype
+  /// and blame the account for.
+  bool _showPassword = false;
 
   /// A phone resolved from a username login — used in place of the typed
   /// number, and shown masked so signing in with a username doesn't print
@@ -216,6 +222,7 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
 
   @override
   void dispose() {
+    _password.dispose();
     _resendTimer?.cancel();
     _identifier.dispose();
     _name.dispose();
@@ -344,6 +351,23 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
     final raw = _identifier.text.trim();
     switch (AccountService.loginIdentifierKind(raw)) {
       case 'email':
+        // A password if one was typed, a code if not. Both end in the same
+        // place — a session on the account, whose phone IS the identity here.
+        final password = _password.text;
+        if (password.isNotEmpty) {
+          await _run(() async {
+            final phone =
+                await AccountService.instance.signInWithPassword(raw, password);
+            if (!mounted) return;
+            if (phone == null) {
+              setState(() => _error = _noPhoneOnAccount);
+              return;
+            }
+            _password.clear();
+            await _finishIdentifierSignIn(phone);
+          });
+          return;
+        }
         await _run(() async {
           await AccountService.instance.sendEmailCode(raw);
           if (!mounted) return;
@@ -390,23 +414,37 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
           .verifyEmailCode(_emailLogin, _code.text);
       if (!mounted) return;
       if (phone == null) {
-        setState(() => _error =
-            'That email isn\'t attached to a phone account, and the phone '
-            'number is the account. Sign in with your number once, then add '
-            'the email in Settings.');
+        setState(() => _error = _noPhoneOnAccount);
         return;
       }
-      _identifierPhone = phone;
-      final existing = await AccountService.instance.usernameForPhone(phone);
-      if (!mounted) return;
-      if (!await _passTwoStep()) return;
-      await Session.instance.signIn(
-        phone: phone,
-        name: _signInName,
-        username: existing ?? '',
-      );
+      await _finishIdentifierSignIn(phone);
     });
   }
+
+  /// What both email routes end in: the account behind the address, signed
+  /// into under the phone that IS its identity here.
+  Future<void> _finishIdentifierSignIn(String phone) async {
+    _identifierPhone = phone;
+    final existing = await AccountService.instance.usernameForPhone(phone);
+    if (!mounted) return;
+    if (!await _passTwoStep()) return;
+    await Session.instance.signIn(
+      phone: phone,
+      name: _signInName,
+      username: existing ?? '',
+    );
+  }
+
+  /// Said the same way wherever an email turns out to belong to no phone
+  /// account, because it is the same fact and the same way out of it.
+  static const String _noPhoneOnAccount =
+      'That email isn\'t attached to a phone account, and the phone number '
+      'is the account. Sign in with your number once, then add the email — '
+      'and a password — in Settings.';
+
+  /// Whether what has been typed looks like an address rather than a handle.
+  bool get _emailTyped =>
+      AccountService.loginIdentifierKind(_identifier.text) == 'email';
 
   /// Registering without a username is allowed — it only means nobody can
   /// find you by handle until you claim one in your profile. Sign-in itself
@@ -910,9 +948,34 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
           autocorrect: false,
           decoration: _dec('Username or email',
               icon: Icons.person_search_outlined,
-              helper: 'The code still goes to your phone or inbox'),
+              helper: 'A password, or a code to your phone or inbox'),
           onFieldSubmitted: (_) => _continueIdentifier(),
+          // The password field appears as soon as what is typed looks like an
+          // address, so somebody who has one is not made to ask for a code
+          // first and find the password box on the other side of it.
+          onChanged: (_) => setState(() {}),
         ),
+        if (_emailTyped) ...[
+          const SizedBox(height: 14),
+          TextFormField(
+            controller: _password,
+            obscureText: !_showPassword,
+            autocorrect: false,
+            enableSuggestions: false,
+            autofillHints: const [AutofillHints.password],
+            decoration: _dec('Password', icon: Icons.lock_outline).copyWith(
+              suffixIcon: IconButton(
+                icon: Icon(_showPassword
+                    ? Icons.visibility_off_outlined
+                    : Icons.visibility_outlined),
+                tooltip: _showPassword ? 'Hide password' : 'Show password',
+                onPressed: () => setState(() => _showPassword = !_showPassword),
+              ),
+              helperText: 'Leave it empty to get a code by email instead',
+            ),
+            onFieldSubmitted: (_) => _continueIdentifier(),
+          ),
+        ],
         const SizedBox(height: 24),
         _cta('Continue', _continueIdentifier),
         const SizedBox(height: 6),

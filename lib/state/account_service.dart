@@ -322,6 +322,70 @@ class AccountService {
   Future<void> sendEmailCode(String email) => _client.auth
       .signInWithOtp(email: email.trim(), shouldCreateUser: false);
 
+  /// The reason [password] is not good enough, or null when it is. Pure, so
+  /// the rule is checked before a round trip rather than by reading a server
+  /// error back to somebody.
+  ///
+  /// Eight characters and nothing else. Composition rules — a capital, a
+  /// digit, a symbol — push people towards Password1! and are worse than
+  /// length; Supabase enforces its own minimum on top of this.
+  static String? passwordProblem(String password) {
+    if (password.isEmpty) return 'Enter a password.';
+    if (password.length < minPasswordLength) {
+      return 'At least $minPasswordLength characters.';
+    }
+    return null;
+  }
+
+  static const int minPasswordLength = 8;
+
+  /// Sets (or replaces) the password on the signed-in account.
+  ///
+  /// Needs a live Supabase session, which means a build that verifies numbers
+  /// and somebody who has just signed in — the password is a second way back
+  /// into an account that already exists, not a way to make one.
+  Future<void> setPassword(String password) =>
+      _client.auth.updateUser(UserAttributes(password: password));
+
+  /// Signs in with an email and a password, returning the E.164 phone of the
+  /// account behind them — or null when that account carries no phone.
+  ///
+  /// SAME CONTRACT AS [verifyEmailCode], and for the same reason: messaging
+  /// identity here is the number, so a session with none is a half sign-in
+  /// and is discarded rather than carried into the app.
+  Future<String?> signInWithPassword(String email, String password) async {
+    final res = await _client.auth.signInWithPassword(
+      email: email.trim(),
+      password: password,
+    );
+    final phone = res.user?.phone ?? '';
+    if (phone.isEmpty) {
+      try {
+        await _client.auth.signOut();
+      } catch (_) {}
+      return null;
+    }
+    return phone;
+  }
+
+  /// Whether this account already has a password set on it.
+  ///
+  /// Supabase does not expose the hash, and there is no flag for it — what it
+  /// does expose is which providers are on the identity. 'email' appears once
+  /// an email credential exists.
+  /// False wherever there is no Supabase to ask — a build with no relay, and
+  /// every test. Reading [_client] there throws, and a getter used to choose
+  /// a label must not be able to take a screen down.
+  bool get hasPassword {
+    if (!RelayConfig.isEnabled) return false;
+    try {
+      final identities = _client.auth.currentUser?.identities ?? const [];
+      return identities.any((i) => i.provider == 'email');
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// Verifies the emailed [code] and returns the E.164 phone of the account
   /// the email belongs to — or null when that account carries no phone, in
   /// which case the caller must not proceed (messaging identity IS the
