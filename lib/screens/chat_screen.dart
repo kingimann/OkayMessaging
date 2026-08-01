@@ -25,6 +25,7 @@ import '../widgets/app_dialogs.dart';
 import '../widgets/poll_widgets.dart';
 import '../relay/relay_service.dart';
 import '../state/chat_store.dart';
+import '../state/push_service.dart';
 import '../state/file_transfer.dart';
 import '../state/scheduler.dart';
 import '../theme/app_theme.dart';
@@ -129,6 +130,9 @@ class _ChatScreenState extends State<ChatScreen> {
     _scrollController.addListener(_onScroll);
     _store.addListener(_refreshSuggestions);
     _refreshSuggestions();
+    // A push for the conversation you are reading should not draw a banner
+    // over the message the app has already put on screen.
+    PushService.instance.setOpenChat(widget.chat.contact.phone);
     // When opened from search, jump to the matched message once it's laid out.
     if (widget.initialMessageId != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -263,6 +267,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   void dispose() {
+    PushService.instance.setOpenChat(null);
     _store.removeListener(_refreshSuggestions);
     if (RelayConfig.isEnabled) {
       RelayService.instance.typingPing.removeListener(_onTypingPing);

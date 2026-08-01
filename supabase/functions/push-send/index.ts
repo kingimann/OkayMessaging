@@ -3,7 +3,14 @@
 // with the app closed. Message CONTENT is never included beyond what the
 // sender chooses to show (title/body) — payloads stay minimal by design.
 //
-// POST { toPhone, title, body, badge? } -> { sent: boolean }
+// POST { toPhone, title, body, badge?, fromPhone? } -> { sent: boolean }
+//
+// fromPhone rides along as a `from` key beside `aps` so tapping the alert can
+// open THAT conversation rather than dumping the person on the chat list. It
+// is the sender's number, and it does reach Apple — as the sender's name in
+// the title already does. That is the cost of a notification you can act on,
+// and it is a choice rather than an accident: a client that would rather not
+// simply omits it, and the tap opens the app.
 //
 // Secrets required:
 //   APNS_P8        contents of the .p8 auth key from developer.apple.com
@@ -51,8 +58,10 @@ Deno.serve(async (req) => {
   const { data: caller } = await admin.auth.getUser(auth);
   if (!caller?.user) return Response.json({ error: "unauthorized" }, { status: 401 });
 
-  const { toPhone, title, body, badge } = await req.json().catch(() => ({}));
+  const { toPhone, title, body, badge, fromPhone } =
+    await req.json().catch(() => ({}));
   const digits = String(toPhone ?? "").replace(/\D/g, "");
+  const from = String(fromPhone ?? "").replace(/\D/g, "");
   if (!digits || !title) return Response.json({ error: "bad request" }, { status: 400 });
 
   const { data: row } = await admin.from("push_tokens")
@@ -69,8 +78,14 @@ Deno.serve(async (req) => {
       "apns-push-type": "alert",
       "apns-priority": "10",
     },
-    body: JSON.stringify({ aps: { alert: { title, body: body ?? "" },
-      sound: "default", ...(badge != null ? { badge } : {}) } }),
+    body: JSON.stringify({
+      aps: {
+        alert: { title, body: body ?? "" },
+        sound: "default",
+        ...(badge != null ? { badge } : {}),
+      },
+      ...(from ? { from } : {}),
+    }),
   });
   return Response.json({ sent: res.ok });
 });

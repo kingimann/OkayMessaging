@@ -61,6 +61,7 @@ import 'package:okay_messaging/screens/payment_controls_screen.dart';
 import 'package:okay_messaging/screens/payment_diagnostics_screen.dart';
 import 'package:okay_messaging/screens/public_feed_screen.dart';
 import 'package:okay_messaging/state/public_feed_store.dart';
+import 'package:okay_messaging/state/push_service.dart';
 import 'package:okay_messaging/state/smart_replies.dart';
 import 'package:okay_messaging/widgets/feed_post_actions.dart';
 import 'package:okay_messaging/widgets/feed_post_parts.dart';
@@ -18263,6 +18264,104 @@ void main() {
       await t.pageBack();
       await t.pumpAndSettle();
       expect(find.byTooltip('Open navigation menu'), findsOneWidget);
+    });
+  });
+
+  group('A notification when the app is closed', () {
+    test('a push carries which conversation it is for, in a form the app '
+        'already knows how to open', () {
+      // The two halves of a tap: Swift builds a URL from the payload, Dart
+      // parses it. They are in different languages and neither compiles the
+      // other, so the format is asserted rather than assumed.
+      final swift = File('ios/Runner/AppDelegate.swift').readAsStringSync();
+      final template = RegExp(r'URL\(string: "(im:[^"]+)"\)')
+          .firstMatch(swift)
+          ?.group(1);
+      expect(template, isNotNull,
+          reason: 'the tap handler no longer builds an im: URL');
+      final url = template!.replaceAll(r'\(digits)', '15550102222');
+      expect(IncomingLinks.imPhone(url), '+15550102222',
+          reason: 'a tap would open nothing');
+
+      // And the payload the function sends actually has that field in it.
+      final fn = File('supabase/functions/push-send/index.ts').readAsStringSync();
+      expect(fn.contains('...(from ? { from } : {})'), isTrue);
+      expect(
+          File('lib/state/push_service.dart')
+              .readAsStringSync()
+              .contains("'fromPhone':"),
+          isTrue);
+    });
+
+    test('a push never carries the message', () {
+      // The whole point of this app is that a message body is unreadable off
+      // the device. A notification is the one place it would be trivially
+      // easy to hand Apple the plaintext.
+      final relay = File('lib/relay/relay_service.dart').readAsStringSync();
+      final call = RegExp(r'PushService\.instance\.notify\((.*?)\);', dotAll: true)
+          .firstMatch(relay)
+          ?.group(1);
+      expect(call, isNotNull);
+      expect(call!.contains('message.text'), isFalse,
+          reason: 'the message body would go to Apple in clear text');
+      expect(call.contains('message.'), isFalse,
+          reason: 'nothing off the message belongs in a push payload');
+
+      // The function forwards a title and a body it is given and nothing it
+      // reads out of the database — there is no message table to read.
+      final fn = File('supabase/functions/push-send/index.ts').readAsStringSync();
+      expect(fn.contains('.from("push_tokens")'), isTrue);
+      expect(RegExp(r'\.from\("(?!push_tokens)').hasMatch(fn), isFalse,
+          reason: 'push-send reads one table, and it holds device tokens');
+    });
+
+    test('a push that lands while the app is open is shown, except in the '
+        'chat it belongs to', () {
+      // iOS shows NOTHING for a foreground push unless the app says
+      // otherwise, so without this somebody on another tab got no hint at all.
+      final swift = File('ios/Runner/AppDelegate.swift').readAsStringSync();
+      expect(swift.contains('UNUserNotificationCenter.current().delegate = self'),
+          isTrue, reason: 'no delegate means no taps and no foreground alerts');
+      expect(swift.contains('willPresent notification'), isTrue);
+      expect(swift.contains('completionHandler([.banner, .sound, .badge])'),
+          isTrue);
+      expect(swift.contains('from == openChatDigits'), isTrue,
+          reason: 'a banner over the message you are reading is noise');
+      expect(swift.contains('didReceive response'), isTrue);
+      expect(swift.contains('AppDelegate.deliverLink(url)'), isTrue,
+          reason: 'a tap should land in the chat, not wherever the app was');
+
+      // And Dart keeps the native side told which chat that is.
+      final chat = File('lib/screens/chat_screen.dart').readAsStringSync();
+      expect(chat.contains('PushService.instance.setOpenChat(widget.chat.contact.phone)'),
+          isTrue);
+      expect(chat.contains('PushService.instance.setOpenChat(null)'), isTrue,
+          reason: 'a stale open chat silences the next banner');
+    });
+
+    test('a device token is only ever readable by the device that made it',
+        () {
+      // Every token in this table is a way to ring somebody's phone. The
+      // policy is the row, and the row is only ever yours.
+      final sql = File('supabase/schema.sql').readAsStringSync();
+      for (final policy in [
+        'push_tokens_read_own',
+        'push_tokens_upsert_own',
+        'push_tokens_update_own',
+      ]) {
+        expect(sql.contains(policy), isTrue, reason: policy);
+      }
+      expect(
+          RegExp(r"create policy push_tokens_read_own[\s\S]*?"
+                  r"using \(phone = \(auth\.jwt\(\) ->> 'phone'\)\)")
+              .hasMatch(sql),
+          isTrue,
+          reason: 'the read policy no longer scopes to your own number');
+    });
+
+    test('digits are what a push is addressed by', () {
+      expect(PushService.digitsOf('+1 (555) 010-2222'), '15550102222');
+      expect(PushService.digitsOf(''), '');
     });
   });
 

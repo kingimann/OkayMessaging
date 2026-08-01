@@ -46,14 +46,40 @@ class PushService {
 
   /// Fire-and-forget: asks the server to push a wake-up alert to [toPhone].
   /// Kept content-minimal (sender name + generic body) by design.
+  ///
+  /// The sender's own number rides along so a tap opens THAT conversation
+  /// instead of the chat list. It reaches Apple, as the sender's name in the
+  /// title already does — see the note in the Edge Function.
   Future<void> notify(String toPhone, {required String title, String? body}) async {
     if (!RelayConfig.isEnabled) return;
+    final me = Session.instance.user.value;
     try {
       await Supabase.instance.client.functions.invoke('push-send', body: {
         'toPhone': toPhone,
         'title': title,
         'body': body ?? 'New message',
+        'fromPhone': digitsOf(me?.phone ?? ''),
       });
     } catch (_) {}
+  }
+
+  /// Digits only, the form a push payload and an inbox are addressed by.
+  static String digitsOf(String phone) => phone.replaceAll(RegExp(r'\D'), '');
+
+  /// Tells iOS which conversation is on screen, so a push for it does not
+  /// draw a banner over the message the app has already shown.
+  ///
+  /// Foreground alerts are suppressed entirely without this, which is why it
+  /// exists: iOS shows nothing at all for a push that arrives while the app
+  /// is open unless the app says otherwise, so somebody looking at the
+  /// Servers tab got no hint that a message had come in.
+  Future<void> setOpenChat(String? phone) async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.iOS) return;
+    try {
+      await _channel.invokeMethod<void>(
+          'openChat', phone == null ? '' : digitsOf(phone));
+    } catch (_) {
+      // No native side (simulator, older binary) — banners stay as they are.
+    }
   }
 }

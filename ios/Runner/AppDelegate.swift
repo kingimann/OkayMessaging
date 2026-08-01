@@ -8,6 +8,11 @@ import UserNotifications
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
   private var pushChannel: FlutterMethodChannel?
 
+  /// Digits of the conversation on screen right now, or nil. Dart keeps this
+  /// up to date so a push for the chat you are already reading does not draw
+  /// a banner over the message the app has already put there.
+  private var openChatDigits: String?
+
   /// Held for the app's lifetime: the mesh owns the two CoreBluetooth
   /// managers, and a released Mesh takes the radio down with it.
   private var mesh: Mesh?
@@ -108,8 +113,13 @@ import UserNotifications
     let messenger = engineBridge.pluginRegistry.registrar(forPlugin: "OkayPush")!.messenger()
     let channel = FlutterMethodChannel(name: "okay/push", binaryMessenger: messenger)
     pushChannel = channel
-    channel.setMethodCallHandler { call, result in
-      if call.method == "register" {
+    // Taps and foreground arrivals come back through here. Set before the
+    // first push can land, and before the permission prompt, so a launch from
+    // a notification is not raced by the delegate being assigned late.
+    UNUserNotificationCenter.current().delegate = self
+    channel.setMethodCallHandler { [weak self] call, result in
+      switch call.method {
+      case "register":
         UNUserNotificationCenter.current().requestAuthorization(
           options: [.alert, .badge, .sound]) { granted, _ in
           DispatchQueue.main.async {
@@ -117,10 +127,24 @@ import UserNotifications
             result(granted)
           }
         }
-      } else {
+      case "openChat":
+        let digits = (call.arguments as? String) ?? ""
+        self?.openChatDigits = digits.isEmpty ? nil : digits
+        result(nil)
+      default:
         result(FlutterMethodNotImplemented)
       }
     }
+  }
+
+  /// The conversation a push belongs to, as the im: URL the app already knows
+  /// how to open — the same path a default-messaging-app tap arrives on, so
+  /// there is one way into a chat from outside rather than two.
+  private static func chatLink(from payload: [AnyHashable: Any]) -> URL? {
+    guard let from = payload["from"] as? String else { return nil }
+    let digits = from.filter(\.isNumber)
+    guard !digits.isEmpty else { return nil }
+    return URL(string: "im:+\(digits)")
   }
 
   override func application(
@@ -131,6 +155,48 @@ import UserNotifications
     pushChannel?.invokeMethod("token", arguments: hex)
     super.application(application,
         didRegisterForRemoteNotificationsWithDeviceToken: deviceToken)
+  }
+}
+
+extension AppDelegate {
+  /// A push that lands while the app is open.
+  ///
+  /// Without this iOS shows NOTHING for one — the default is to assume the
+  /// app is already telling the user — so somebody on the Servers tab got no
+  /// hint that a message had arrived. It is shown unless the chat it belongs
+  /// to is the one on screen, where the message itself is already visible and
+  /// a banner over it is noise.
+  override func userNotificationCenter(
+    _ center: UNUserNotificationCenter,
+    willPresent notification: UNNotification,
+    withCompletionHandler completionHandler:
+      @escaping (UNNotificationPresentationOptions) -> Void
+  ) {
+    let payload = notification.request.content.userInfo
+    if let from = payload["from"] as? String,
+       !from.isEmpty, from == openChatDigits {
+      completionHandler([])
+      return
+    }
+    completionHandler([.banner, .sound, .badge])
+  }
+
+  /// A tap on the alert, from the lock screen or anywhere else.
+  ///
+  /// Lands in the conversation rather than wherever the app happened to be —
+  /// through the same im: path a default-messaging-app tap uses, which also
+  /// means a tap at cold launch is buffered until Dart asks for it.
+  override func userNotificationCenter(
+    _ center: UNUserNotificationCenter,
+    didReceive response: UNNotificationResponse,
+    withCompletionHandler completionHandler: @escaping () -> Void
+  ) {
+    if response.actionIdentifier == UNNotificationDefaultActionIdentifier,
+       let url = AppDelegate.chatLink(
+        from: response.notification.request.content.userInfo) {
+      AppDelegate.deliverLink(url)
+    }
+    completionHandler()
   }
 }
 
