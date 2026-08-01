@@ -76,13 +76,13 @@ class ProfileVerificationRow extends StatelessWidget {
           // Centred, these three chips were the only thing on the profile that
           // did not start at the same margin, which reads as a stray block.
           alignment: WrapAlignment.start,
-          spacing: 8,
-          runSpacing: 8,
+          spacing: 6,
+          runSpacing: 6,
           children: [
             _chip(
               context,
               icon: Icons.sms_outlined,
-              label: phoneVerified ? 'Phone verified' : 'Phone unverified',
+              label: phoneVerified ? 'Phone verified' : 'Verify phone',
               done: phoneVerified,
               onTap: null, // nothing to do from here; sign-in decides it
             ),
@@ -92,8 +92,8 @@ class ProfileVerificationRow extends StatelessWidget {
               label: !email.isSet
                   ? 'Add email'
                   : email.isVerified
-                      ? 'Email confirmed'
-                      : 'Email unconfirmed',
+                      ? 'Email verified'
+                      : 'Confirm email',
               done: email.isSet && email.isVerified,
               onTap: () => Navigator.of(context).push(MaterialPageRoute(
                   builder: (_) => const AccountEmailScreen())),
@@ -101,11 +101,14 @@ class ProfileVerificationRow extends StatelessWidget {
             _chip(
               context,
               icon: Icons.verified_outlined,
+              // Short enough that all three fit one line on a 390pt phone.
+              // "Get the blue check" is what the score screen calls it, but
+              // spelled out here it pushed the third chip onto a second row.
               label: identity.isVerified
                   ? 'ID verified'
                   : identity.isPending
-                      ? 'ID check pending'
-                      : 'Get the blue check',
+                      ? 'ID pending'
+                      : 'Get verified',
               done: identity.isVerified,
               onTap: () => Navigator.of(context)
                   .push(MaterialPageRoute(builder: (_) => const ScoreScreen())),
@@ -116,6 +119,13 @@ class ProfileVerificationRow extends StatelessWidget {
     );
   }
 
+  /// One state, as small as it can be and still be read.
+  ///
+  /// These were filled pills at 13pt with 13 points of side padding, and three
+  /// of them do not fit a 390pt phone — so the row wrapped, and a profile had
+  /// two ragged lines of grey lozenges in the middle of it. Smaller type, less
+  /// padding, and an outline instead of a fill: they sit on one line and read
+  /// as status rather than as three more buttons.
   Widget _chip(
     BuildContext context, {
     required IconData icon,
@@ -123,27 +133,27 @@ class ProfileVerificationRow extends StatelessWidget {
     required bool done,
     VoidCallback? onTap,
   }) {
-    final scheme = Theme.of(context).colorScheme;
-    final fg = done ? const Color(0xFF12B76A) : scheme.onSurfaceVariant;
+    final fg = done ? const Color(0xFF12B76A) : AppColors.subtle(context);
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(20),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
         decoration: BoxDecoration(
-          color: done
-              ? const Color(0xFF12B76A).withValues(alpha: 0.10)
-              : scheme.surfaceContainerHighest.withValues(alpha: 0.6),
           borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+              color: done
+                  ? const Color(0xFF12B76A).withValues(alpha: 0.45)
+                  : Theme.of(context).dividerColor),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(done ? Icons.check_circle : icon, size: 16, color: fg),
-            const SizedBox(width: 6),
+            Icon(done ? Icons.check_circle : icon, size: 13, color: fg),
+            const SizedBox(width: 5),
             Text(label,
                 style: TextStyle(
-                    fontSize: 13, fontWeight: FontWeight.w600, color: fg)),
+                    fontSize: 11.5, fontWeight: FontWeight.w600, color: fg)),
           ],
         ),
       ),

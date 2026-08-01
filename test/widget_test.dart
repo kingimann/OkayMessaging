@@ -100,6 +100,7 @@ import 'package:okay_messaging/state/call_media.dart';
 import 'package:okay_messaging/util/ringtone.dart';
 import 'package:okay_messaging/state/call_service.dart';
 import 'package:okay_messaging/screens/cloud_sync_count.dart';
+import 'package:okay_messaging/screens/cloud_sync_screen.dart';
 import 'package:okay_messaging/state/cloud_sync.dart';
 import 'package:okay_messaging/state/community_store.dart';
 import 'package:okay_messaging/state/file_transfer.dart';
@@ -7020,15 +7021,15 @@ void main() {
       await tester.pump();
 
       // Local mode, nothing attached: honest about all three.
-      expect(find.text('Phone unverified'), findsOneWidget);
+      expect(find.text('Verify phone'), findsOneWidget);
       expect(find.text('Add email'), findsOneWidget);
-      expect(find.text('Get the blue check'), findsOneWidget);
+      expect(find.text('Get verified'), findsOneWidget);
 
       // States change, chips follow.
       await AccountEmail.instance.setEmail('ada@example.com');
       IdentityVerification.instance.debugSetStatus(IdentityStatus.verified);
       await tester.pump();
-      expect(find.text('Email unconfirmed'), findsOneWidget,
+      expect(find.text('Confirm email'), findsOneWidget,
           reason: 'attached but never confirmed must not read as confirmed');
       expect(find.text('ID verified'), findsOneWidget);
     });
@@ -14915,7 +14916,7 @@ void main() {
       // The chip itself, not its label — the label sits inside the chip's own
       // padding and behind its icon, about 30 pixels in.
       final chips = t.getRect(find.ancestor(
-          of: find.text('Phone unverified'), matching: find.byType(InkWell)));
+          of: find.text('Verify phone'), matching: find.byType(InkWell)));
       expect(chips.left, closeTo(name.left, 1.0),
           reason: 'the chips share the margin everything else uses');
 
@@ -15183,69 +15184,39 @@ void main() {
           reason: 'a stranger\'s avatar is not a door to your own settings');
     });
 
-    testWidgets('a profile wears the account colour from the bar down',
-        (t) async {
-      t.view.physicalSize = const Size(500, 1400);
+    testWidgets('a profile has no colour banner to look at', (t) async {
+      // There used to be one: a ninety-two point gradient mixed from the
+      // handle, standing in for a cover photo there is nowhere to upload. It
+      // was the loudest thing on the screen, the only saturated block in an
+      // app whose whole identity is black and white, and it pushed the name,
+      // the bio and the counts below the fold on a phone.
+      t.view.physicalSize = const Size(390, 844);
       t.view.devicePixelRatio = 1.0;
       addTearDown(t.view.resetPhysicalSize);
       SharedPreferences.setMockInitialValues({});
       addTearDown(PublicFeedStore.instance.resetForTest);
       PublicFeedStore.debugProfileOverride = (username) async => [];
 
-      await t.pumpWidget(const MaterialApp(
-          home: PublicProfileScreen(username: 'sam', name: 'Sam')));
+      await t.pumpWidget(MaterialApp(
+          theme: AppTheme.dark,
+          home: const PublicProfileScreen(username: 'sam', name: 'Sam')));
       await t.pumpAndSettle();
 
-      final scheme = Theme.of(t.element(find.byType(PublicProfileScreen)))
-          .colorScheme;
-      final (bannerTop, bannerBottom) =
-          profileBannerColours(profileAccentFor('sam', scheme));
+      // The bar is the theme's, not the account's.
       final bar = t.widget<SliverAppBar>(find.byType(SliverAppBar));
-      // A default grey bar above a coloured banner drew a seam across the top
-      // of every profile. The bar continues the banner: same colour, exactly
-      // where the banner starts.
-      expect(bar.backgroundColor, bannerTop);
-      expect(bar.foregroundColor, onProfileAccent(bannerTop));
-      expect(bannerTop, isNot(bannerBottom), reason: 'it is a gradient');
-    });
+      expect(bar.backgroundColor, isNull);
+      expect(bar.foregroundColor, isNull);
 
-    test('an avatar is never the colour of the banner behind it', () {
-      // The banner used to be painted in the account's accent — which is also
-      // the colour of its avatar. A green disc on a green field with a
-      // three-pixel ring between them is not a portrait.
-      for (final accent in [
-        const Color(0xFF2E7D32),
-        const Color(0xFFFFF176),
-        const Color(0xFF075E54),
-        const Color(0xFF11161C),
-      ]) {
-        final (top, bottom) = profileBannerColours(accent);
-        for (final banner in [top, bottom]) {
-          // Either way round — a near-black accent gets a banner lighter than
-          // itself, because there is nothing darker to give it.
-          final ratio = (accent.computeLuminance() + 0.05) /
-              (banner.computeLuminance() + 0.05);
-          expect(ratio < 1 ? 1 / ratio : ratio, greaterThan(1.35),
-              reason: 'the face disappears into the banner behind it');
+      // And nothing on the screen paints a gradient across its full width.
+      final width = t.view.physicalSize.width / t.view.devicePixelRatio;
+      for (final box in t.widgetList<DecoratedBox>(find.byType(DecoratedBox))) {
+        final decoration = box.decoration;
+        if (decoration is! BoxDecoration || decoration.gradient == null) {
+          continue;
         }
-      }
-    });
-
-    test('the app bar text is readable on any accent it can be given', () {
-      // An account's accent is whatever avatar colour its owner picked, and
-      // this app lets somebody pick pale yellow.
-      for (final accent in [
-        const Color(0xFFFFF176), // pale yellow
-        const Color(0xFF11161C), // near black
-        const Color(0xFF075E54), // the app's own green
-        const Color(0xFFFFFFFF),
-      ]) {
-        final on = onProfileAccent(accent);
-        final ratio = (accent.computeLuminance() + 0.05) /
-            (on.computeLuminance() + 0.05);
-        final contrast = ratio < 1 ? 1 / ratio : ratio;
-        expect(contrast, greaterThan(4.5),
-            reason: 'unreadable on ${accent.toARGB32().toRadixString(16)}');
+        final rect = t.getRect(find.byWidget(box));
+        expect(rect.width, lessThan(width),
+            reason: 'a full-width gradient is the banner, back again');
       }
     });
 
@@ -19363,5 +19334,76 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byType(ForwardScreen), findsOneWidget);
     });
+  });
+
+  group('Cloud storage, read at a glance', () {
+    setUp(() {
+      SharedPreferences.setMockInitialValues({});
+      StorageStore.instance.resetForTest();
+    });
+    tearDown(StorageStore.instance.resetForTest);
+
+    testWidgets('with no plan it says so, and shows no meter of nothing',
+        (t) async {
+      t.view.physicalSize = const Size(390, 900);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.resetPhysicalSize);
+
+      await t.pumpWidget(
+          MaterialApp(theme: AppTheme.dark, home: const CloudSyncScreen()));
+      await t.pump();
+
+      // The card used to title itself from `plan.name`, which is already the
+      // word "No plan" — so the heading read "No plan plan".
+      expect(find.text('No storage plan'), findsOneWidget);
+      expect(find.textContaining('plan plan'), findsNothing);
+
+      // And it used to draw an empty bar over "0 B of 0 B used · 0 B free",
+      // which is three numbers that say nothing about anything.
+      expect(find.byType(LinearProgressIndicator), findsNothing);
+      expect(find.textContaining('0 B of'), findsNothing);
+      expect(find.textContaining('Chat backup is off'), findsOneWidget);
+    });
+
+    testWidgets('with a plan the meter comes back and names the size',
+        (t) async {
+      t.view.physicalSize = const Size(390, 900);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.resetPhysicalSize);
+      StorageStore.instance.debugSubscribe(30);
+
+      await t.pumpWidget(
+          MaterialApp(theme: AppTheme.dark, home: const CloudSyncScreen()));
+      await t.pump();
+
+      expect(find.text('30 GB of storage'), findsOneWidget);
+      expect(find.byType(LinearProgressIndicator), findsOneWidget);
+      expect(find.textContaining('used ·'), findsOneWidget);
+    });
+
+    testWidgets('nothing on it is painted in a colour the app does not use',
+        (t) async {
+      // The usage card was `primaryContainer`, which the dark theme renders as
+      // a teal slab — the one saturated block on a screen in an app whose
+      // whole identity is black and white.
+      t.view.physicalSize = const Size(390, 900);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.resetPhysicalSize);
+
+      await t.pumpWidget(
+          MaterialApp(theme: AppTheme.dark, home: const CloudSyncScreen()));
+      await t.pump();
+
+      for (final box in t.widgetList<Container>(find.byType(Container))) {
+        final decoration = box.decoration;
+        if (decoration is! BoxDecoration) continue;
+        final colour = decoration.color;
+        if (colour == null || colour.a == 0) continue;
+        final saturation = HSLColor.fromColor(colour).saturation;
+        expect(saturation, lessThan(0.25),
+            reason: 'a saturated block on a black-and-white screen');
+      }
+    });
+
   });
 }

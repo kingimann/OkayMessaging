@@ -69,9 +69,9 @@ AppUser? knownUserFor(String username) {
   return null;
 }
 
-/// The colour behind a handle: the one they picked when this device knows them,
-/// and a stable generated one otherwise — so a profile's banner matches the
-/// avatar sitting on it rather than clashing with it.
+/// The colour behind a handle: the one they picked when this device knows
+/// them, and a stable generated one otherwise, so the same person is the same
+/// colour everywhere they appear.
 Color profileAccentFor(String username, ColorScheme scheme) {
   final known = knownUserFor(username);
   if (known != null) {
@@ -82,34 +82,6 @@ Color profileAccentFor(String username, ColorScheme scheme) {
   }
   return publicProfileBannerSeed(username, scheme);
 }
-
-/// The banner's two colours, from the account's accent.
-///
-/// DARKER THAN THE ACCENT, and that is the whole point. An account's accent is
-/// the colour of its avatar, so a banner painted in it put a green disc on a
-/// green field with a three-pixel ring between them and called that a portrait.
-/// Sunk a couple of stops, the banner is a backdrop and the face is on it.
-(Color, Color) profileBannerColours(Color accent) {
-  final hsl = HSLColor.fromColor(accent);
-  final l = hsl.lightness;
-  // Sunk below the accent — except where there is no room below it. An accent
-  // that is already nearly black cannot be darkened into anything, so there the
-  // banner rises instead and the face is the dark thing on it.
-  final (top, bottom) = l < 0.30
-      ? (l + 0.20, l + 0.34)
-      : ((l * 0.66).clamp(0.10, 0.44), (l * 0.44).clamp(0.06, 0.30));
-  Color at(double lightness) =>
-      hsl.withLightness(lightness.clamp(0.0, 1.0)).toColor();
-  return (at(top), at(bottom));
-}
-
-/// Black or white, whichever can be read on [accent].
-///
-/// The generated banner colours all sit at the same lightness and would take
-/// white every time, but an account's accent can also be the avatar colour its
-/// owner picked — and this app lets somebody pick a pale yellow.
-Color onProfileAccent(Color accent) =>
-    accent.computeLuminance() > 0.55 ? const Color(0xFF11161C) : Colors.white;
 
 /// Opens somebody's profile. One helper, so a tap on an avatar, a name, an
 /// @mention and the "more" sheet all land in the same place.
@@ -711,8 +683,6 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
     final tabPosts = posts == null
         ? const <PublicPost>[]
         : PublicFeedStore.profileTab(posts, _tab);
-    final (bannerTop, _) = profileBannerColours(
-        profileAccentFor(widget.username, Theme.of(context).colorScheme));
     return Scaffold(
       body: ListenableBuilder(
         listenable: PublicFeedStore.instance,
@@ -728,19 +698,13 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
               if (!widget.embedded)
                 SliverAppBar(
                   pinned: true,
-                  // The bar wears the account's own colour, so the top of the
-                  // screen is one block of it running down into the banner.
-                  // A default grey bar above a coloured banner drew a seam
-                  // across the top of every profile.
-                  backgroundColor: bannerTop,
-                  foregroundColor: onProfileAccent(bannerTop),
                   elevation: 0,
                   scrolledUnderElevation: 0,
                   title: Text(_displayName,
                       style: const TextStyle(fontWeight: FontWeight.w700)),
                 ),
               SliverToBoxAdapter(
-                child: _BannerAndAvatar(
+                child: _AvatarRow(
                   username: widget.username,
                   displayName: _displayName,
                   isMe: _isMe,
@@ -939,51 +903,23 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
       );
 }
 
-/// The banner behind the avatar. Generated from the handle rather than
-/// uploaded: there is nowhere to put a banner image, and a flat grey bar looks
-/// like something failed to load.
-class _Banner extends StatelessWidget {
-  final String username;
-  const _Banner({required this.username});
-
-  @override
-  Widget build(BuildContext context) {
-    final (top, bottom) = profileBannerColours(
-        profileAccentFor(username, Theme.of(context).colorScheme));
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          // Opaque, not the accent at 55% alpha: an alpha stop takes its second
-          // colour from whatever is behind it, so the same account's banner was
-          // a different gradient in light mode and in dark.
-          colors: [top, bottom],
-        ),
-      ),
-    );
-  }
-}
-
-/// The banner with the avatar sitting over its lower edge.
+/// The avatar, with whatever this profile lets you do about it beside it.
 ///
-/// ONE WIDGET, because the overlap cannot work across two slivers. The avatar
-/// used to be pushed up out of the header sliver with Transform.translate, and a
-/// sliver clips at its own bounds — so the top of somebody's head was cut off by
-/// the banner rather than sitting over it. This box is tall enough to hold both,
-/// and nothing is drawn outside it.
-class _BannerAndAvatar extends StatelessWidget {
+/// There used to be a generated colour banner above this — a gradient mixed
+/// from the handle, ninety-two points tall, standing in for a cover photo
+/// there is nowhere to upload. It was the loudest thing on the screen and the
+/// only saturated colour in an app whose whole identity is black and white,
+/// and it pushed the name, the bio and the counts down below the fold. What
+/// replaced it is the face and the buttons on one line, which is the
+/// information the banner was decorating.
+class _AvatarRow extends StatelessWidget {
   final String username;
   final String displayName;
   final bool isMe;
 
-  const _BannerAndAvatar(
+  const _AvatarRow(
       {required this.username, required this.displayName, required this.isMe});
 
-  // Tall enough to read as a banner, short enough not to be the biggest thing
-  // on the screen. At 118 it was a slab of flat colour with nothing in it,
-  // above a profile that then had to scroll to show a single post.
-  static const double _bannerHeight = 92;
   static const double _avatarRadius = 36;
 
   @override
@@ -994,62 +930,39 @@ class _BannerAndAvatar extends StatelessWidget {
         (displayName.isEmpty ? '?' : displayName.replaceFirst('@', ''))
             .substring(0, 1)
             .toUpperCase();
-    return SizedBox(
-      // Banner, plus the half of the avatar that hangs below it, plus room for
-      // the buttons beside it.
-      height: _bannerHeight + _avatarRadius + 14,
-      child: Stack(
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 14, 12, 0),
+      child: Row(
         children: [
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            height: _bannerHeight,
-            child: _Banner(username: username),
+          // Tapping your own face to change it is where people look first,
+          // and it costs nothing to put the door there as well as on the
+          // button. Somebody else's avatar is not a control.
+          GestureDetector(
+            onTap: isMe
+                ? () => Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => const EditProfileScreen()))
+                : null,
+            child: known != null
+                ? UserAvatar(user: known, radius: _avatarRadius)
+                : CircleAvatar(
+                    radius: _avatarRadius,
+                    backgroundColor: scheme.surfaceContainerHighest,
+                    child: Text(initial,
+                        style: const TextStyle(
+                            fontSize: 28, fontWeight: FontWeight.w700)),
+                  ),
           ),
-          Positioned(
-            left: 16,
-            top: _bannerHeight - _avatarRadius,
-            // Tapping your own face to change it is where people look first,
-            // and it costs nothing to put the door there as well as on the
-            // button. Somebody else's avatar is not a control.
-            child: GestureDetector(
-              onTap: isMe
-                  ? () => Navigator.of(context).push(MaterialPageRoute(
-                      builder: (_) => const EditProfileScreen()))
-                  : null,
-              child: Container(
-                padding: const EdgeInsets.all(3),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).scaffoldBackgroundColor,
-                  shape: BoxShape.circle,
-                  // Sitting on the banner's own colour, the ring alone reads as
-                  // a hole cut in it. A soft shadow puts the face in front.
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.18),
-                      blurRadius: 10,
-                      offset: const Offset(0, 3),
-                    ),
-                  ],
-                ),
-                child: known != null
-                    ? UserAvatar(user: known, radius: _avatarRadius)
-                    : CircleAvatar(
-                        radius: _avatarRadius,
-                        backgroundColor: profileAccentFor(username, scheme)
-                            .withValues(alpha: 0.25),
-                        child: Text(initial,
-                            style: const TextStyle(
-                                fontSize: 28, fontWeight: FontWeight.w700)),
-                      ),
-              ),
+          const SizedBox(width: 12),
+          // Expanded-and-aligned rather than a Spacer with a Flexible after
+          // it: a Spacer is an Expanded too, so the two of them split the
+          // free space and the button was cropped to "Edit …" on a phone with
+          // room to spare. This hands the whole remainder to the buttons and
+          // lets them use as much of it as they need.
+          Expanded(
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: _ProfileActions(username: username, isMe: isMe),
             ),
-          ),
-          Positioned(
-            right: 12,
-            top: _bannerHeight + 8,
-            child: _ProfileActions(username: username, isMe: isMe),
           ),
         ],
       ),
@@ -1110,122 +1023,117 @@ class _Header extends StatelessWidget {
     final about = known?.about ?? '';
     final pronouns = known?.pronouns ?? '';
     final link = known?.link ?? '';
-    // Room to breathe. Everything below used to sit in 4-to-8-point gaps with
-    // a 4-point top inset, so the name, the handle, the status, the counts and
-    // the badges read as one dense block rather than as five different things.
+    // One margin and one rhythm. Every block below is 16 from the edge and 14
+    // from the one above it — the gaps used to run 3, 8, 10, 12, 14 and 16
+    // down a single column, which is what makes a screen look unfinished even
+    // when nothing on it is wrong.
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          Row(
             children: [
-              Row(
-                children: [
-                  Flexible(
-                    child: Text(displayName,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                            fontSize: 23,
-                            fontWeight: FontWeight.w800,
-                            height: 1.15)),
-                  ),
-                  if (verified) ...[
-                    const SizedBox(width: 6),
-                    const VerifiedBadge(size: 17),
-                  ],
-                ],
+              Flexible(
+                child: Text(displayName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.w800,
+                        height: 1.2)),
               ),
-              const SizedBox(height: 3),
-              Row(
-                children: [
-                  Text('@$username',
-                      style: TextStyle(
-                          fontSize: 15, color: AppColors.subtle(context))),
-                  if (pronouns.isNotEmpty) ...[
-                    const SizedBox(width: 8),
-                    Text(pronouns,
-                        style: TextStyle(
-                            fontSize: 13, color: AppColors.subtle(context))),
-                  ],
-                ],
-              ),
-              // Only for somebody this device actually knows. There is no
-              // directory of bios to read, and a placeholder line here would
-              // be an invented one.
-              if (about.isNotEmpty) ...[
-                const SizedBox(height: 14),
-                Text(about,
-                    style: const TextStyle(fontSize: 15, height: 1.4)),
-              ],
-              if (link.isNotEmpty) ...[
-                const SizedBox(height: 10),
-                InkWell(
-                  onTap: () => InAppWebScreen.open(context, link),
-                  child: Row(
-                    children: [
-                      Icon(Icons.link, size: 15, color: scheme.primary),
-                      const SizedBox(width: 4),
-                      Flexible(
-                        child: Text(link,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                                fontSize: 13.5, color: scheme.primary)),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-              const SizedBox(height: 16),
-              // ONE row of counts. There were two — "1 post 0 following"
-              // above a second row repeating Following beside Servers and
-              // Okay Score — which is the sort of thing that makes somebody
-              // check whether the two numbers disagree.
-              ListenableBuilder(
-                listenable: Listenable.merge(
-                    [FollowStore.instance, CommunityStore.instance]),
-                builder: (context, _) => Wrap(
-                  spacing: 20,
-                  runSpacing: 10,
-                  children: [
-                    // Real, from the server, and the only count that means
-                    // anything on somebody else's profile.
-                    ProfileStat(
-                        value: postCount == null ? '—' : '$postCount',
-                        label: postCount == 1 ? 'Post' : 'Posts',
-                        onTap: null),
-                    if (isMe) ...[
-                      ProfileStat(
-                          value: '${FollowStore.instance.followingCount}',
-                          label: 'Following',
-                          onTap: () => Navigator.of(context).push(
-                              MaterialPageRoute(
-                                  builder: (_) => const PeopleScreen()))),
-                      ProfileStat(
-                          value:
-                              '${CommunityStore.instance.communities.length}',
-                          label: 'Servers',
-                          onTap: null),
-                    ],
-                  ],
-                ),
-              ),
-              // Okay Score used to be the fourth count. Four do not fit a
-              // 390pt phone, so the row broke three-and-one, which reads as a
-              // mistake rather than a layout. It is also the only one of the
-              // four that is a whole screen of its own, so a row with somewhere
-              // to go suits it better than a number in a huddle.
-              if (isMe) ...[
-                const SizedBox(height: 12),
-                _ScoreRow(
-                    onTap: () => Navigator.of(context).push(
-                        MaterialPageRoute(builder: (_) => const ScoreScreen()))),
+              if (verified) ...[
+                const SizedBox(width: 6),
+                const VerifiedBadge(size: 17),
               ],
             ],
           ),
+          const SizedBox(height: 2),
+          Row(
+            children: [
+              Text('@$username',
+                  style: TextStyle(
+                      fontSize: 14.5, color: AppColors.subtle(context))),
+              if (pronouns.isNotEmpty) ...[
+                Text(' · ',
+                    style: TextStyle(
+                        fontSize: 14.5, color: AppColors.subtle(context))),
+                Text(pronouns,
+                    style: TextStyle(
+                        fontSize: 14.5, color: AppColors.subtle(context))),
+              ],
+            ],
+          ),
+          // Only for somebody this device actually knows. There is no
+          // directory of bios to read, and a placeholder line here would be an
+          // invented one.
+          if (about.isNotEmpty) ...[
+            const SizedBox(height: 14),
+            Text(about, style: const TextStyle(fontSize: 15, height: 1.4)),
+          ],
+          if (link.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            InkWell(
+              onTap: () => InAppWebScreen.open(context, link),
+              child: Row(
+                children: [
+                  Icon(Icons.link, size: 15, color: scheme.primary),
+                  const SizedBox(width: 4),
+                  Flexible(
+                    child: Text(link,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style:
+                            TextStyle(fontSize: 13.5, color: scheme.primary)),
+                  ),
+                ],
+              ),
+            ),
+          ],
+          const SizedBox(height: 14),
+          // ONE row of counts. There were two — "1 post 0 following" above a
+          // second row repeating Following beside Servers and Okay Score —
+          // which is the sort of thing that makes somebody check whether the
+          // two numbers disagree.
+          ListenableBuilder(
+            listenable: Listenable.merge(
+                [FollowStore.instance, CommunityStore.instance]),
+            builder: (context, _) => Wrap(
+              spacing: 20,
+              runSpacing: 10,
+              children: [
+                // Real, from the server, and the only count that means
+                // anything on somebody else's profile.
+                ProfileStat(
+                    value: postCount == null ? '—' : '$postCount',
+                    label: postCount == 1 ? 'Post' : 'Posts',
+                    onTap: null),
+                if (isMe) ...[
+                  ProfileStat(
+                      value: '${FollowStore.instance.followingCount}',
+                      label: 'Following',
+                      onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                          builder: (_) => const PeopleScreen()))),
+                  ProfileStat(
+                      value: '${CommunityStore.instance.communities.length}',
+                      label: 'Servers',
+                      onTap: null),
+                ],
+              ],
+            ),
+          ),
+          // Okay Score used to be the fourth count. Four do not fit a 390pt
+          // phone, so the row broke three-and-one, which reads as a mistake
+          // rather than a layout. It is also the only one of the four that is
+          // a whole screen of its own, so a row with somewhere to go suits it
+          // better than a number in a huddle.
+          if (isMe) ...[
+            const SizedBox(height: 14),
+            _ScoreRow(
+                onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const ScoreScreen()))),
+          ],
         ],
       ),
     );
@@ -1234,6 +1142,10 @@ class _Header extends StatelessWidget {
 
 /// The Okay Score, given a row of its own — a number, what it is, and a way
 /// in. It is the one profile stat with a screen behind it.
+///
+/// No box around it any more. An outlined full-width rectangle in the middle
+/// of a profile reads as a text field waiting to be filled in, and it was the
+/// heaviest element on a screen whose other rows are just text.
 class _ScoreRow extends StatelessWidget {
   const _ScoreRow({required this.onTap});
 
@@ -1244,18 +1156,13 @@ class _ScoreRow extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(14),
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(14, 10, 10, 10),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: Theme.of(context).dividerColor),
-        ),
+      borderRadius: BorderRadius.circular(10),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
         child: Row(
           children: [
-            Icon(Icons.local_fire_department,
-                size: 20, color: scheme.primary),
-            const SizedBox(width: 10),
+            Icon(Icons.local_fire_department, size: 19, color: scheme.primary),
+            const SizedBox(width: 8),
             ValueListenableBuilder<AppUser>(
               valueListenable: AppState.profile,
               builder: (context, me, _) => Text('${me.score}',
@@ -1264,9 +1171,11 @@ class _ScoreRow extends StatelessWidget {
             ),
             const SizedBox(width: 6),
             Text('Okay Score',
-                style: TextStyle(fontSize: 14.5, color: AppColors.subtle(context))),
+                style: TextStyle(
+                    fontSize: 14.5, color: AppColors.subtle(context))),
             const Spacer(),
-            Icon(Icons.chevron_right, color: AppColors.subtle(context)),
+            Icon(Icons.chevron_right,
+                size: 20, color: AppColors.subtle(context)),
           ],
         ),
       ),
@@ -1285,10 +1194,13 @@ class _ProfileActions extends StatelessWidget {
       return Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          OutlinedButton(
-            onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const EditProfileScreen())),
-            child: const Text('Edit profile'),
+          Flexible(
+            child: OutlinedButton(
+              onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const EditProfileScreen())),
+              child: const Text('Edit profile',
+                  maxLines: 1, overflow: TextOverflow.ellipsis),
+            ),
           ),
           const SizedBox(width: 8),
           IconButton(
@@ -1304,15 +1216,12 @@ class _ProfileActions extends StatelessWidget {
       listenable: FollowStore.instance,
       builder: (context, _) {
         final following = FollowStore.instance.isFollowing(username);
+        void toggle() => FollowStore.instance.toggle(username);
+        final text = Text(following ? 'Following' : 'Follow',
+            maxLines: 1, overflow: TextOverflow.ellipsis);
         return following
-            ? OutlinedButton(
-                onPressed: () => FollowStore.instance.toggle(username),
-                child: const Text('Following'),
-              )
-            : FilledButton(
-                onPressed: () => FollowStore.instance.toggle(username),
-                child: const Text('Follow'),
-              );
+            ? OutlinedButton(onPressed: toggle, child: text)
+            : FilledButton(onPressed: toggle, child: text);
       },
     );
   }

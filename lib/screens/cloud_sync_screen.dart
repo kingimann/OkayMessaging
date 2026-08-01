@@ -130,15 +130,19 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
         builder: (context, _) {
           final sync = CloudSync.instance;
           final storage = StorageStore.instance;
+          // ONE left edge. The note was inset by an icon, the section
+          // headings by 4, the body copy by 4 and the cards by 0 — four
+          // different left edges down one screen, which is most of why it
+          // read as untidy.
           return ListView(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
             children: [
               _communalNote(context),
-              const SizedBox(height: 12),
-              _usageCard(context, storage),
               const SizedBox(height: 16),
+              _usageCard(context, storage),
+              const SizedBox(height: 24),
               _plansSection(context, storage),
-              const SizedBox(height: 20),
+              const SizedBox(height: 28),
               _chatBackupSection(context, sync, storage),
             ],
           );
@@ -147,48 +151,75 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
     );
   }
 
-  Widget _communalNote(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Row(
-      children: [
-        Icon(Icons.groups_2_outlined, size: 18, color: scheme.onSurfaceVariant),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Text(
-            'Your servers, posts and follows sync automatically for everyone — '
-            'free, and never counted against your storage. This is just your '
-            'chat backup.',
-            style: TextStyle(fontSize: 12.5, color: scheme.onSurfaceVariant),
-          ),
-        ),
-      ],
-    );
-  }
+  /// A section heading, in the one style this screen uses for all of them.
+  Widget _sectionHeading(BuildContext context, String text) => Padding(
+        padding: const EdgeInsets.only(bottom: 6),
+        child: Text(text.toUpperCase(),
+            style: TextStyle(
+                fontSize: 11.5,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.8,
+                color: AppColors.subtle(context))),
+      );
+
+  Widget _communalNote(BuildContext context) => Text(
+        'Servers, posts and follows sync for everyone, free, and never count '
+        'against your storage. This page is only about your chat backup.',
+        style: TextStyle(
+            fontSize: 13, height: 1.35, color: AppColors.subtle(context)),
+      );
 
   Widget _usageCard(BuildContext context, StorageStore storage) {
     final scheme = Theme.of(context).colorScheme;
-    return Card(
-      color: scheme.primaryContainer.withValues(alpha: 0.4),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(Icons.cloud_outlined, color: scheme.primary),
-                const SizedBox(width: 8),
-                Text('${storage.plan.name} plan',
+    // Two different things, and they were drawn as one. With no plan there is
+    // no quota, so the meter read "0 B of 0 B used · 0 B free" under an empty
+    // bar — three numbers that say nothing, above a heading that said "No plan
+    // plan" because the name already contained the word.
+    final none = !storage.isPaid;
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        // Neutral. This was `primaryContainer`, which in the dark theme is a
+        // teal slab — the only saturated block on a screen in an app that is
+        // otherwise black and white.
+        color: scheme.surfaceContainerHighest.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(none ? Icons.cloud_off_outlined : Icons.cloud_done_outlined,
+                  size: 20, color: AppColors.subtle(context)),
+              const SizedBox(width: 8),
+              // Flexible: the title and the countdown share one line, and
+              // "100 GB of storage" beside "30 days left" is wider than a
+              // small phone at a large text size.
+              Flexible(
+                child: Text(
+                    none
+                        ? 'No storage plan'
+                        : '${storage.plan.name} of storage',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
                         fontSize: 16, fontWeight: FontWeight.w700)),
-                const Spacer(),
-                if (storage.isPaid)
-                  Text('${storage.daysLeft} days left',
-                      style: TextStyle(
-                          fontSize: 12.5, color: scheme.onSurfaceVariant)),
+              ),
+              if (storage.isPaid) ...[
+                const SizedBox(width: 8),
+                Text('${storage.daysLeft} days left',
+                    style: TextStyle(
+                        fontSize: 12.5, color: AppColors.subtle(context))),
               ],
-            ),
-            const SizedBox(height: 12),
+            ],
+          ),
+          const SizedBox(height: 8),
+          if (none)
+            Text('Chat backup is off. Pick a size below to turn it on.',
+                style: TextStyle(
+                    fontSize: 13, color: AppColors.subtle(context)))
+          else ...[
             ClipRRect(
               borderRadius: BorderRadius.circular(6),
               child: LinearProgressIndicator(
@@ -200,19 +231,19 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
                     : (storage.nearLimit ? const Color(0xFFF0A020) : null),
               ),
             ),
-            const SizedBox(height: 6),
+            const SizedBox(height: 8),
             Text(
               '${storage.usedLabel} of ${storage.quotaLabel} used · '
               '${storage.availableLabel} free',
               style:
-                  TextStyle(fontSize: 12.5, color: scheme.onSurfaceVariant),
+                  TextStyle(fontSize: 12.5, color: AppColors.subtle(context)),
             ),
-            if (storage.isFull || storage.nearLimit) ...[
-              const SizedBox(height: 10),
-              _limitBanner(context, storage),
-            ],
           ],
-        ),
+          if (storage.isFull || storage.nearLimit) ...[
+            const SizedBox(height: 12),
+            _limitBanner(context, storage),
+          ],
+        ],
       ),
     );
   }
@@ -272,89 +303,85 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Padding(
-          padding: const EdgeInsets.only(left: 4, bottom: 2),
-          child: Text('NEED MORE SPACE?',
-              style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 0.6,
-                  color: AppColors.subtle(context))),
+        _sectionHeading(context, 'Need more space?'),
+        Text(
+          'Up to ${StorageStore.maxGb} GB. The App Store sells fixed sizes, '
+          'so the slider steps in ${StorageStore.stepGb} GB.',
+          style: TextStyle(
+              fontSize: 13, height: 1.35, color: AppColors.subtle(context)),
         ),
-        Padding(
-          padding: const EdgeInsets.only(left: 4, bottom: 4),
-          child: Text(
-            'Choose how much you want — up to ${StorageStore.maxGb} GB. '
-            'The App Store sells fixed sizes, so the slider steps in '
-            '${StorageStore.stepGb} GB.',
-            style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+        const SizedBox(height: 10),
+        // The same surface and the same 16 as the card above it. A Card
+        // carries its own 4-point margin, so the two blocks on this screen
+        // started two points apart — small enough to look like a mistake
+        // rather than a decision.
+        Container(
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
+          decoration: BoxDecoration(
+            color: scheme.surfaceContainerHighest.withValues(alpha: 0.5),
+            borderRadius: BorderRadius.circular(14),
           ),
-        ),
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.baseline,
-                  textBaseline: TextBaseline.alphabetic,
-                  children: [
-                    Text('$picked GB',
-                        style: const TextStyle(
-                            fontSize: 26, fontWeight: FontWeight.w800)),
-                    const Spacer(),
-                    Text(plan.priceLabel,
-                        style: TextStyle(
-                            fontSize: 17,
-                            fontWeight: FontWeight.w700,
-                            color: scheme.primary)),
-                  ],
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.baseline,
+                textBaseline: TextBaseline.alphabetic,
+                children: [
+                  Text('$picked GB',
+                      style: const TextStyle(
+                          fontSize: 26, fontWeight: FontWeight.w800)),
+                  const Spacer(),
+                  Text(plan.priceLabel,
+                      style: TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w700,
+                          color: scheme.primary)),
+                ],
+              ),
+              Slider(
+                value: picked.toDouble(),
+                min: sizes.first.toDouble(),
+                max: sizes.last.toDouble(),
+                divisions: sizes.length - 1,
+                label: '$picked GB',
+                onChanged: _busy
+                    ? null
+                    : (v) => setState(() => _pickedGb =
+                        (v / StorageStore.stepGb).round() *
+                            StorageStore.stepGb),
+              ),
+              Row(
+                children: [
+                  Text('${sizes.first} GB',
+                      style: TextStyle(
+                          fontSize: 11.5, color: scheme.onSurfaceVariant)),
+                  const Spacer(),
+                  Text('${sizes.last} GB',
+                      style: TextStyle(
+                          fontSize: 11.5, color: scheme.onSurfaceVariant)),
+                ],
+              ),
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: _busy ? null : () => _buyGb(picked),
+                  icon: _busy
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2))
+                      : Icon(isCurrent ? Icons.refresh : Icons.cloud_done,
+                          size: 18),
+                  label: Text(_busy
+                      ? 'Processing…'
+                      : isCurrent
+                          ? 'Renew $picked GB — ${plan.priceLabel}'
+                          : 'Get $picked GB — ${plan.priceLabel}'),
                 ),
-                Slider(
-                  value: picked.toDouble(),
-                  min: sizes.first.toDouble(),
-                  max: sizes.last.toDouble(),
-                  divisions: sizes.length - 1,
-                  label: '$picked GB',
-                  onChanged: _busy
-                      ? null
-                      : (v) => setState(() => _pickedGb =
-                          (v / StorageStore.stepGb).round() *
-                              StorageStore.stepGb),
-                ),
-                Row(
-                  children: [
-                    Text('${sizes.first} GB',
-                        style: TextStyle(
-                            fontSize: 11.5, color: scheme.onSurfaceVariant)),
-                    const Spacer(),
-                    Text('${sizes.last} GB',
-                        style: TextStyle(
-                            fontSize: 11.5, color: scheme.onSurfaceVariant)),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                SizedBox(
-                  width: double.infinity,
-                  child: FilledButton.icon(
-                    onPressed: _busy ? null : () => _buyGb(picked),
-                    icon: _busy
-                        ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2))
-                        : Icon(isCurrent ? Icons.refresh : Icons.cloud_done,
-                            size: 18),
-                    label: Text(_busy
-                        ? 'Processing…'
-                        : isCurrent
-                            ? 'Renew $picked GB — ${plan.priceLabel}'
-                            : 'Get $picked GB — ${plan.priceLabel}'),
-                  ),
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
         if (storage.isPaid)
@@ -375,22 +402,15 @@ class _CloudSyncScreenState extends State<CloudSyncScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Padding(
-          padding: const EdgeInsets.only(left: 4, bottom: 6),
-          child: Text('CHAT BACKUP',
-              style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 0.6,
-                  color: AppColors.subtle(context))),
-        ),
+        _sectionHeading(context, 'Chat backup'),
         Text(
           'Your chats are encrypted with a key only you hold before they ever '
           'leave the device. Lose the key and nobody — not even us — can '
           'recover the backup.',
-          style: TextStyle(fontSize: 13, color: scheme.onSurfaceVariant),
+          style: TextStyle(
+              fontSize: 13, height: 1.35, color: AppColors.subtle(context)),
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 14),
         TextField(
           controller: _pass,
           obscureText: _obscure,
