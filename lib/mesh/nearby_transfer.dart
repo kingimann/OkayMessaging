@@ -36,6 +36,7 @@ class NearbyTransfer {
     required this.state,
     this.received = 0,
     this.sent = 0,
+    this.fast = false,
   });
 
   final String id;
@@ -54,6 +55,14 @@ class NearbyTransfer {
 
   /// Chunks out, for one going the other way.
   final int sent;
+
+  /// Whether this was sized for the fast link rather than for Bluetooth.
+  ///
+  /// Decided once, when the offer goes out, because the number of chunks is
+  /// in the offer and the far end counts them. Only the sender ever looks at
+  /// it — a receiver reassembles slices in index order and never needs to
+  /// know how big they were.
+  final bool fast;
 
   /// How far along, 0..1. Zero rather than a division by zero for a transfer
   /// that has not been sized yet.
@@ -83,6 +92,7 @@ class NearbyTransfer {
         state: state ?? this.state,
         received: received ?? this.received,
         sent: sent ?? this.sent,
+        fast: fast,
       );
 }
 
@@ -100,6 +110,16 @@ class TransferChunks {
   /// decoder, which would fail the whole transfer at the last step.
   static const int perPacket = 3000;
 
+  /// Characters of file per message on the fast link.
+  ///
+  /// MultipeerConnectivity has no four-kilobyte ceiling — it is a Wi-Fi link,
+  /// not an LE characteristic — so this is sized for a progress bar that moves
+  /// rather than for a radio. A capped photo becomes a handful of messages
+  /// that land in about a second.
+  static const int perPacketFast = 32000;
+
+  static int sizeFor(bool fast) => fast ? perPacketFast : perPacket;
+
   /// The largest file this will carry, in characters of encoded data.
   ///
   /// A photo is capped at 140,000 by PhotoPrep, so this clears it with room.
@@ -108,13 +128,19 @@ class TransferChunks {
   /// meant for heart-rate monitors.
   static const int maxLength = 200000;
 
-  static int chunkCount(String data) => (data.length / perPacket).ceil();
+  static int chunkCount(String data, {bool fast = false}) =>
+      (data.length / sizeFor(fast)).ceil();
+
+  /// The most chunks any honest transfer can claim. Worked out at the smaller
+  /// size, so it covers both paths.
+  static int get maxChunks => (maxLength / perPacket).ceil();
 
   /// The [index]th slice, or empty when past the end.
-  static String slice(String data, int index) {
-    final start = index * perPacket;
+  static String slice(String data, int index, {bool fast = false}) {
+    final size = sizeFor(fast);
+    final start = index * size;
     if (start >= data.length) return '';
-    final end = start + perPacket;
+    final end = start + size;
     return data.substring(start, end > data.length ? data.length : end);
   }
 }

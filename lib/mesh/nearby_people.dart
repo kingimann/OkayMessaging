@@ -28,7 +28,7 @@ enum Findable {
         Findable.contacts =>
           'Only people you already have a chat with can see you here',
         Findable.everyone =>
-          'Anyone in Bluetooth range can see your name and send you things',
+          'Anyone nearby can see your name and send you things',
       };
 }
 

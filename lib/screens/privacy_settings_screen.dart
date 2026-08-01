@@ -739,6 +739,19 @@ class _MeshFindableTile extends StatelessWidget {
                 subtitle: Text(option.detail),
                 onTap: () => Navigator.of(sheetContext).pop(option),
               ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 6, 20, 16),
+              child: Text(
+                'Being findable uses Bluetooth, and a direct link between the '
+                'two phones for anything large — iOS asks for local network '
+                'access the first time. Nothing goes through a server either '
+                'way.',
+                style: TextStyle(
+                    fontSize: 12.5,
+                    height: 1.35,
+                    color: AppColors.subtle(sheetContext)),
+              ),
+            ),
           ],
         ),
       ),

@@ -13,6 +13,7 @@ import '../state/chat_store.dart';
 import '../state/community_store.dart';
 import '../state/score_store.dart';
 import '../state/session.dart';
+import 'nearby_fast.dart';
 import 'nearby_people.dart';
 import 'nearby_servers.dart';
 import 'nearby_share.dart';
@@ -155,6 +156,9 @@ class MeshService extends ChangeNotifier {
     notifyListeners();
     (await SharedPreferences.getInstance())
         .setString(_findableKey, how.name);
+    // Hiding has to stop the fast link advertising too, or a name is still
+    // answerable on the other transport.
+    await NearbyFast.instance.syncWith(running: _running, findable: how);
     if (how != Findable.off) _helloOnce();
   }
 
@@ -189,6 +193,10 @@ class MeshService extends ChangeNotifier {
       _running = true;
       _startBeacon();
       notifyListeners();
+      // The fast link rides alongside, not instead: it is the same feature,
+      // and a transfer picks whichever of the two is up when it starts.
+      unawaited(NearbyFast.instance
+          .syncWith(running: true, findable: _findable));
     } on PlatformException {
       _running = false;
       notifyListeners();
@@ -210,6 +218,8 @@ class MeshService extends ChangeNotifier {
     NearbyServers.instance.clear();
     NearbyPeople.instance.clear();
     notifyListeners();
+    await NearbyFast.instance
+        .syncWith(running: false, findable: _findable);
     try {
       await _channel.invokeMethod<void>('stop');
     } on PlatformException {

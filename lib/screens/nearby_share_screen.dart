@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../mesh/mesh_service.dart';
+import '../mesh/nearby_fast.dart';
 import '../mesh/nearby_people.dart';
 import '../mesh/nearby_share.dart';
 import '../mesh/nearby_transfer.dart';
@@ -83,8 +84,12 @@ class _NearbyShareScreenState extends State<NearbyShareScreen> {
         ],
       ),
       body: ListenableBuilder(
-        listenable: Listenable.merge(
-            [NearbyPeople.instance, MeshService.instance, NearbyShare.instance]),
+        listenable: Listenable.merge([
+          NearbyPeople.instance,
+          MeshService.instance,
+          NearbyShare.instance,
+          NearbyFast.instance,
+        ]),
         builder: (context, _) {
           final mesh = MeshService.instance;
           if (!mesh.enabled) {
@@ -182,7 +187,12 @@ class _PersonRow extends StatelessWidget {
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: const TextStyle(fontWeight: FontWeight.w600)),
-      subtitle: const Text('Nearby'),
+      // Worth saying which way it will go: one is about a second and one is
+      // half a minute of standing still, and that changes what somebody does
+      // next.
+      subtitle: Text(NearbyFast.instance.hasPeer(person.digits)
+          ? 'Nearby · quick'
+          : 'Nearby · over Bluetooth'),
       trailing: FilledButton(
         onPressed: enabled ? onSend : null,
         child: const Text('Send'),

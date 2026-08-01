@@ -78,6 +78,13 @@
 		<true/>
 		<key>NSBluetoothAlwaysUsageDescription</key>
 		<string>OkayMessenger uses Bluetooth to send messages directly to people near you when there is no internet, and to pass on messages for others. Everything it carries is already encrypted — this device cannot read what it relays.</string>
+		<key>NSLocalNetworkUsageDescription</key>
+		<string>OkayMessenger uses the local network to send photos directly to a person standing next to you, over a link between the two devices. Nothing is uploaded and no server is involved.</string>
+		<key>NSBonjourServices</key>
+		<array>
+			<string>_okay-nearby._tcp</string>
+			<string>_okay-nearby._udp</string>
+		</array>
 		<key>UIBackgroundModes</key>
 		<array>
 			<string>audio</string>

@@ -6,6 +6,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show RenderParagraph;
+import 'package:flutter/services.dart' show MethodCall, MethodChannel;
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -126,6 +127,7 @@ import 'package:okay_messaging/state/status_store.dart';
 import 'package:okay_messaging/state/chat_store.dart';
 import 'package:okay_messaging/state/gif_service.dart';
 import 'package:okay_messaging/mesh/mesh_chunks.dart';
+import 'package:okay_messaging/mesh/nearby_fast.dart';
 import 'package:okay_messaging/mesh/nearby_people.dart';
 import 'package:okay_messaging/mesh/nearby_servers.dart';
 import 'package:okay_messaging/mesh/nearby_share.dart';
@@ -21190,6 +21192,297 @@ void main() {
       await t.tap(find.text('No thanks'));
       await t.pumpAndSettle();
       expect(NearbyShare.instance.byId('t9')!.state, TransferState.declined);
+    });
+  });
+
+  group('The fast link between two phones', () {
+    const channel = MethodChannel('okay/nearbyfast');
+    late List<MethodCall> platform;
+
+    setUp(() {
+      SharedPreferences.setMockInitialValues({});
+      MeshService.instance.resetForTest();
+      NearbyShare.instance.resetForTest();
+      NearbyFast.instance.resetForTest();
+      NearbyPeople.instance.clear();
+      ChatStore.instance.reset();
+      Session.instance.signInForTest();
+      AppState.resetForTest();
+      platform = [];
+      NearbyFast.debugAvailableOverride = true;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+        platform.add(call);
+        return call.method == 'send' ? true : null;
+      });
+    });
+
+    tearDown(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null);
+      NearbyFast.debugAvailableOverride = null;
+      NearbyFast.debugSendOverride = null;
+      NearbyFast.instance.resetForTest();
+      NearbyShare.instance.resetForTest();
+      NearbyShare.debugSendOverride = null;
+      MeshService.instance.resetForTest();
+      MeshService.debugSendOverride = null;
+    });
+
+    /// The digits [Session.signInForTest] signs in as.
+    const me = '15550100';
+
+    NearbyPerson ada() => NearbyPerson(
+        digits: '15550102222',
+        name: 'Ada',
+        avatarColor: '#2E7D32',
+        heardAt: DateTime.now());
+
+    String hello(String digits, String name) =>
+        jsonEncode({'k': 'hi', 'd': digits, 'n': name});
+
+    /// Brings the link up with one peer already connected and named.
+    Future<void> linkTo(String token, String digits, String name) async {
+      NearbyFast.instance.debugMarkRunning();
+      await NearbyFast.instance.notePeers([token]);
+      NearbyFast.instance.noteBody(token, hello(digits, name));
+    }
+
+    test('nothing about you is in the air before a link exists', () async {
+      await NearbyFast.instance.start(advertise: true);
+      final start = platform.singleWhere((c) => c.method == 'start');
+      final token = (start.arguments as Map)['token'] as String;
+
+      expect(token, matches(RegExp(r'^[0-9a-f]{16}$')));
+      expect(token.contains(me), isFalse,
+          reason: 'a phone number is not an advertising name');
+      expect(jsonEncode(start.arguments).contains('You'), isFalse,
+          reason: 'nor is a name');
+
+      // And it is different next time, so it is not a handle that follows
+      // somebody between rooms.
+      await NearbyFast.instance.stop();
+      platform.clear();
+      await NearbyFast.instance.start(advertise: true);
+      final second = (platform.singleWhere((c) => c.method == 'start')
+          .arguments as Map)['token'] as String;
+      expect(second, isNot(token));
+    });
+
+    test('a peer cannot be addressed until it says who it is', () async {
+      final sent = <(String, String)>[];
+      NearbyFast.debugSendOverride = (to, body) => sent.add((to, body));
+      NearbyFast.instance.debugMarkRunning();
+
+      await NearbyFast.instance.notePeers(['tok-ada']);
+      expect(NearbyFast.instance.hasPeer('15550102222'), isFalse,
+          reason: 'a token is not a person');
+      expect(await NearbyFast.instance.send('15550102222', MeshPacket.kindOffer,
+              const {'id': 'x'}),
+          isFalse);
+
+      NearbyFast.instance.noteBody('tok-ada', hello('15550102222', 'Ada'));
+      expect(NearbyFast.instance.hasPeer('15550102222'), isTrue);
+      expect(NearbyFast.instance.peerDigits, ['15550102222']);
+    });
+
+    test('a hello from a token with no link is ignored', () {
+      NearbyFast.instance.debugMarkRunning();
+      NearbyFast.instance.noteBody('never-linked', hello('15550109999', 'Mal'));
+      expect(NearbyFast.instance.hasPeer('15550109999'), isFalse);
+    });
+
+    test('a hello has to look like a person, or it is dropped', () async {
+      NearbyFast.instance.debugMarkRunning();
+      await NearbyFast.instance.notePeers(['tok']);
+      for (final body in [
+        jsonEncode({'k': 'hi', 'd': '', 'n': 'A'}),
+        jsonEncode({'k': 'hi', 'd': 'not-digits', 'n': 'A'}),
+        jsonEncode({'k': 'hi', 'd': 12345, 'n': 'A'}),
+        jsonEncode({'k': 'hi', 'd': '1' * 60, 'n': 'A'}),
+        jsonEncode({'k': 'something-else', 'd': '15550102222'}),
+        'not json at all',
+      ]) {
+        expect(NearbyFast.instance.noteBody('tok', body), isFalse,
+            reason: 'accepted $body');
+      }
+      expect(NearbyFast.instance.peerDigits, isEmpty);
+    });
+
+    test('hiding stops the fast link volunteering who you are', () async {
+      final sent = <(String, String)>[];
+      NearbyFast.debugSendOverride = (to, body) => sent.add((to, body));
+
+      NearbyFast.instance.debugMarkRunning(advertising: false);
+      await NearbyFast.instance.notePeers(['tok']);
+      expect(sent, isEmpty,
+          reason: 'somebody who is not findable is not findable here either');
+
+      NearbyFast.instance.resetForTest();
+      NearbyFast.instance.debugMarkRunning(advertising: true);
+      await NearbyFast.instance.notePeers(['tok']);
+      expect(sent.single.$2.contains(me), isTrue);
+    });
+
+    test('a peer leaving takes its route with it', () async {
+      await linkTo('tok-ada', '15550102222', 'Ada');
+      expect(NearbyFast.instance.hasPeer('15550102222'), isTrue);
+      await NearbyFast.instance.notePeers([]);
+      expect(NearbyFast.instance.hasPeer('15550102222'), isFalse,
+          reason: 'a route to somebody who walked out is a transfer that '
+              'hangs');
+    });
+
+    test('a packet meant for somebody else is not opened', () async {
+      await linkTo('tok-ada', '15550102222', 'Ada');
+      NearbyFast.instance.noteBody(
+          'tok-ada',
+          jsonEncode({
+            'k': 'pkt',
+            'kind': MeshPacket.kindOffer,
+            'to': '15550109999',
+            'p': {'id': 't1', 'n': 'Photo', 'c': 1, 'd': '15550102222'},
+          }));
+      expect(NearbyShare.instance.transfers, isEmpty);
+    });
+
+    test('only a transfer may cross the fast link', () async {
+      await linkTo('tok-ada', '15550102222', 'Ada');
+      for (final kind in [
+        MeshPacket.kindMessage,
+        MeshPacket.kindCommunity,
+        MeshPacket.kindHello,
+        MeshPacket.kindServer,
+        'made-up',
+      ]) {
+        expect(
+            NearbyFast.instance.noteBody(
+                'tok-ada',
+                jsonEncode({
+                  'k': 'pkt',
+                  'kind': kind,
+                  'to': me,
+                  'p': {'id': 't1', 'n': 'Photo', 'c': 1, 'd': '15550102222'},
+                })),
+            isFalse,
+            reason: '$kind crossed a link that carries files only');
+      }
+      expect(NearbyShare.instance.transfers, isEmpty,
+          reason: 'this carries files, not the message bus');
+
+      // The kinds it is for do get through.
+      expect(
+          NearbyFast.instance.noteBody(
+              'tok-ada',
+              jsonEncode({
+                'k': 'pkt',
+                'kind': MeshPacket.kindOffer,
+                'to': me,
+                'p': {'id': 't1', 'n': 'Photo', 'c': 1, 'd': '15550102222'},
+              })),
+          isTrue);
+      expect(NearbyShare.instance.pendingIncoming?.id, 't1');
+    });
+
+    test('a transfer over the fast link is cut into far bigger pieces',
+        () async {
+      final data = 'data:image/png;base64,${'D' * 90000}';
+      NearbyShare.debugSendOverride = (to, kind, p) async => true;
+
+      final slow =
+          (await NearbyShare.instance.offer(ada(), data, fileName: 'Photo'))!;
+      expect(slow.fast, isFalse);
+
+      NearbyShare.instance.resetForTest();
+      await linkTo('tok-ada', '15550102222', 'Ada');
+      final fast =
+          (await NearbyShare.instance.offer(ada(), data, fileName: 'Photo'))!;
+      expect(fast.fast, isTrue);
+      expect(fast.totalChunks, lessThan(slow.totalChunks ~/ 5),
+          reason: 'the four-kilobyte ceiling is a Bluetooth ceiling');
+    });
+
+    test('a file sent in big pieces still rebuilds exactly', () async {
+      final sent = <(String, String, Map<String, dynamic>)>[];
+      NearbyShare.debugSendOverride = (to, kind, p) async {
+        sent.add((to, kind, p));
+        return true;
+      };
+      await linkTo('tok-ada', '15550102222', 'Ada');
+      final data = 'data:image/png;base64,${'E' * 90000}';
+      final t =
+          (await NearbyShare.instance.offer(ada(), data, fileName: 'Photo'))!;
+      NearbyShare.instance.handle(MeshPacket(
+          id: 'a1',
+          to: me,
+          ttl: 0,
+          kind: MeshPacket.kindAnswer,
+          payload: {'id': t.id, 'ok': true}));
+      await Future<void>.delayed(Duration.zero);
+
+      final chunks = sent.where((e) => e.$2 == MeshPacket.kindChunk).toList();
+      expect(chunks, hasLength(t.totalChunks));
+      final assembler = TransferAssembler(t.totalChunks);
+      for (final c in chunks) {
+        assembler.add(c.$3['i'] as int, c.$3['p'] as String);
+      }
+      expect(assembler.assemble(), data);
+    });
+
+    test('the fast link is used when it is there, Bluetooth when it is not',
+        () async {
+      final fast = <(String, String)>[];
+      final bluetooth = <String>[];
+      NearbyFast.debugSendOverride = (to, body) => fast.add((to, body));
+      MeshService.debugSendOverride = bluetooth.add;
+
+      // Nobody linked: it goes over the radio.
+      await NearbyShare.instance
+          .offer(ada(), 'data:image/png;base64,AAAA', fileName: 'Photo');
+      expect(fast, isEmpty);
+      expect(bluetooth, isNotEmpty);
+
+      // Linked: it goes over the link, and not over the radio.
+      NearbyShare.instance.resetForTest();
+      bluetooth.clear();
+      await linkTo('tok-ada', '15550102222', 'Ada');
+      fast.clear();
+      await NearbyShare.instance
+          .offer(ada(), 'data:image/png;base64,AAAA', fileName: 'Photo');
+      expect(fast, hasLength(1));
+      expect(bluetooth, isEmpty);
+    });
+
+    test('a link that refuses a packet falls back to Bluetooth', () async {
+      final bluetooth = <String>[];
+      MeshService.debugSendOverride = bluetooth.add;
+      await linkTo('tok-ada', '15550102222', 'Ada');
+      // The route is known, but the platform says no — a peer that dropped
+      // between the peer list and the send.
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async => false);
+
+      await NearbyShare.instance
+          .offer(ada(), 'data:image/png;base64,AAAA', fileName: 'Photo');
+      expect(bluetooth, isNotEmpty,
+          reason: 'a transfer does not fail because the quick way did');
+    });
+
+    test('the Bonjour service the app browses is the one it declares', () {
+      // iOS 14 and later refuses to browse a service that is not listed in
+      // NSBonjourServices, silently — the peer list just stays empty.
+      final swift = File('ios/Runner/NearbyFast.swift').readAsStringSync();
+      final type = RegExp(r'serviceType = "([a-z0-9-]+)"')
+          .firstMatch(swift)!
+          .group(1)!;
+      final plist = File('ios/Runner/Info.plist').readAsStringSync();
+      for (final proto in ['tcp', 'udp']) {
+        expect(plist.contains('<string>_$type._$proto</string>'), isTrue,
+            reason: 'Info.plist does not declare _$type._$proto');
+      }
+      expect(plist.contains('NSLocalNetworkUsageDescription'), isTrue,
+          reason: 'iOS shows this before the first browse, and refuses '
+              'without it');
     });
   });
 }

@@ -228,8 +228,24 @@ copies of the Edge Functions), `docs/supabase_setup.sql`.
   answers AirDrop gives), an offer says what is coming, and nothing moves until
   the other person accepts. A transfer is **direct**: `MeshPacket.directOnly`
   means it is never relayed, because flooding 100 KB through every phone in the
-  room to deliver one photo would pin four radios. It is **slow** — BLE moves a
-  few KB/s, so a photo is tens of seconds; real AirDrop discovers over Bluetooth
-  and transfers over peer-to-peer Wi-Fi, which on iOS means MultipeerConnectivity
-  and a second native transport, not a setting.
+  room to deliver one photo would pin four radios.
+- **The fast link** (`lib/mesh/nearby_fast.dart`, `ios/Runner/NearbyFast.swift`):
+  the second transport, MultipeerConnectivity — Bluetooth discovery, then a
+  direct Wi-Fi link, which is the supported half of what AirDrop does. A photo
+  goes in about a second instead of tens of seconds. It rides alongside the mesh
+  and is never required: `NearbyShare._send` asks `NearbyFast.hasPeer` and falls
+  back to `MeshService.sendDirect`, and the chunk size is decided **once**, at
+  offer time (`NearbyTransfer.fast`), because the count is in the offer and the
+  far end counts to it. What goes in the air before a link exists is a **random
+  token minted per run** and nothing else; who you are crosses the encrypted
+  link, and only when findable ≠ off — the same condition the BLE hello goes out
+  under, but not in the clear. Only `MeshPacket.directOnly` kinds may cross it:
+  it carries files, not the message bus. Needs `NSLocalNetworkUsageDescription`
+  + `NSBonjourServices` (`_okay-nearby._tcp/._udp`, asserted by a test to match
+  the Swift `serviceType`) and triggers iOS's Local Network prompt on first
+  browse. **Never compiled** — same caveat as `Mesh.swift`, and the two land on
+  the same Codemagic run.
+  A third-party app **cannot** appear in or receive from the real AirDrop
+  sheet; AWDL is private with no public API. This is the same choreography and
+  the same speed, between two copies of this app.
 - Check `git log` for what actually shipped most recently.

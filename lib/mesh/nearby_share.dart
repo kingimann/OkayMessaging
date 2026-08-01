@@ -10,6 +10,7 @@ import '../state/session.dart';
 import '../state/score_store.dart';
 import 'mesh_packet.dart';
 import 'mesh_service.dart';
+import 'nearby_fast.dart';
 import 'nearby_people.dart';
 import 'nearby_transfer.dart';
 
@@ -20,13 +21,13 @@ import 'nearby_transfer.dart';
 /// until the other person says yes; and what moves goes to them and stops
 /// rather than through everybody in the room.
 ///
-/// WHAT THIS IS NOT: fast. Real AirDrop discovers over Bluetooth and then
-/// transfers over peer-to-peer Wi-Fi at tens of megabytes a second. Only
-/// Bluetooth LE is wired up here, which moves a few kilobytes a second, so a
-/// photo is tens of seconds of two phones held near each other. That is the
-/// honest ceiling of a radio designed for heart-rate monitors; getting past
-/// it means MultipeerConnectivity, which is a different native transport
-/// rather than a setting.
+/// TWO TRANSPORTS, PICKED PER TRANSFER. Real AirDrop discovers over Bluetooth
+/// and then moves the file over a direct Wi-Fi link. [NearbyFast] is the
+/// supported half of that — Apple's MultipeerConnectivity — and when it has a
+/// link to the person being sent to, a photo takes about a second. When it
+/// does not, which is often, the same transfer goes over Bluetooth LE at a few
+/// kilobytes a second and takes tens of seconds. Nothing above this file knows
+/// which happened.
 class NearbyShare extends ChangeNotifier {
   NearbyShare._();
 
@@ -64,9 +65,18 @@ class NearbyShare extends ChangeNotifier {
   static Future<bool> Function(String to, String kind, Map<String, dynamic> p)?
       debugSendOverride;
 
-  Future<bool> _send(String to, String kind, Map<String, dynamic> payload) {
+  /// One packet to one person, by whichever transport is up.
+  ///
+  /// The fast link first, because it is a hundred times quicker; Bluetooth
+  /// when there is no link, or when the link refuses it. The far end cannot
+  /// tell the difference — both arrive at [handle] as the same packet.
+  Future<bool> _send(String to, String kind, Map<String, dynamic> payload) async {
     final override = debugSendOverride;
     if (override != null) return override(to, kind, payload);
+    if (NearbyFast.instance.hasPeer(to) &&
+        await NearbyFast.instance.send(to, kind, payload)) {
+      return true;
+    }
     return MeshService.instance.sendDirect(to, kind, payload);
   }
 
@@ -83,7 +93,12 @@ class NearbyShare extends ChangeNotifier {
       return null;
     }
     final id = MeshPacket.randomId();
-    final total = TransferChunks.chunkCount(dataUri);
+    // Sized once, here, because the count goes in the offer and the far end
+    // counts to it. If the fast link drops after this the transfer fails
+    // rather than silently reshaping itself — a receiver waiting on forty
+    // slices cannot be told mid-flight that it is now four hundred.
+    final fast = NearbyFast.instance.hasPeer(person.digits);
+    final total = TransferChunks.chunkCount(dataUri, fast: fast);
     final transfer = NearbyTransfer(
       id: id,
       peerDigits: person.digits,
@@ -91,6 +106,7 @@ class NearbyShare extends ChangeNotifier {
       fileName: fileName,
       totalChunks: total,
       state: TransferState.offered,
+      fast: fast,
     );
     _transfers[id] = transfer;
     _outgoing[id] = dataUri;
@@ -155,9 +171,7 @@ class NearbyShare extends ChangeNotifier {
     if (chunks is! int || chunks < 1) return;
     // A "file" claiming more chunks than the ceiling allows is refused before
     // any buffer is made for it.
-    if (chunks > (TransferChunks.maxLength / TransferChunks.perPacket).ceil()) {
-      return;
-    }
+    if (chunks > TransferChunks.maxChunks) return;
     final from = packet.payload['d'] as String? ?? '';
     final peer = NearbyPeople.instance.byDigits(from);
     _update(NearbyTransfer(
@@ -198,7 +212,7 @@ class NearbyShare extends ChangeNotifier {
         'id': id,
         'i': i,
         'c': total,
-        'p': TransferChunks.slice(data, i),
+        'p': TransferChunks.slice(data, i, fast: start.fast),
       });
       final current = _transfers[id];
       // Declined or cancelled mid-flight — stop rather than finish sending to

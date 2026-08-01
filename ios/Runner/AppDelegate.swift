@@ -12,6 +12,10 @@ import UserNotifications
   /// managers, and a released Mesh takes the radio down with it.
   private var mesh: Mesh?
 
+  /// Held for the same reason: the fast nearby transport owns an MCSession
+  /// and its advertiser and browser, none of which survive it being released.
+  private var nearbyFast: NearbyFast?
+
   // Incoming im: links (default-messaging-app taps). A link can arrive at
   // cold launch before Dart is up, so buffer it until Dart asks.
   static var linkChannel: FlutterMethodChannel?
@@ -93,6 +97,12 @@ import UserNotifications
     let meshMessenger = engineBridge.pluginRegistry
       .registrar(forPlugin: "OkayMesh")!.messenger()
     mesh = Mesh.register(with: meshMessenger)
+    // The fast nearby transport, for handing a file to somebody in the room.
+    // Same shape: registering wires a channel and nothing else — no radio,
+    // no Bonjour, and no Local Network prompt until Dart calls "start".
+    let fastMessenger = engineBridge.pluginRegistry
+      .registrar(forPlugin: "OkayNearbyFast")!.messenger()
+    nearbyFast = NearbyFast.register(with: fastMessenger)
     // Minimal push bridge (no third-party plugin): Dart calls "register",
     // we ask iOS for permission + an APNs token and send it back as hex.
     let messenger = engineBridge.pluginRegistry.registrar(forPlugin: "OkayPush")!.messenger()
