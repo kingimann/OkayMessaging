@@ -160,6 +160,16 @@ copies of the Edge Functions), `docs/supabase_setup.sql`.
 - Be honest about what needs the user's own action (Apple portal, Supabase
   secrets) versus what you completed.
 
+## iOS API availability — the mistake that keeps costing builds
+
+The app targets **iOS 13.0** (`IPHONEOS_DEPLOYMENT_TARGET`, and `Podfile`).
+Anything newer needs `if #available(iOS 14.0, *)` with a fallback. This has
+failed the archive twice — `CXProviderConfiguration()` and
+`UNNotificationPresentationOptions.banner` — both minutes after a green
+suite, because there is no Xcode here and `flutter analyze` never looks at
+Swift. The test *newer iOS APIs are guarded* now scans `ios/Runner/*.swift`
+for the known offenders; add to its list rather than rediscovering this.
+
 ## Open items (verify before assuming)
 
 - **Push notifications**: all code is in place (register on sign-in, token

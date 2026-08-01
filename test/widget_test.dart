@@ -22042,6 +22042,48 @@ void main() {
           reason: 'a transfer does not fail because the quick way did');
     });
 
+    test('newer iOS APIs are guarded, because the app still ships to 13', () {
+      // TWICE NOW. CXProviderConfiguration() and then
+      // UNNotificationPresentationOptions.banner — both iOS 14, both compile
+      // fine to read, both failed the archive on Codemagic minutes after a
+      // green suite. There is no Xcode here, so this is the only place the
+      // mistake can be caught before a build.
+      final pbx =
+          File('ios/Runner.xcodeproj/project.pbxproj').readAsStringSync();
+      final target = RegExp(r'IPHONEOS_DEPLOYMENT_TARGET = ([0-9.]+);')
+          .firstMatch(pbx)!
+          .group(1)!;
+      final major = int.parse(target.split('.').first);
+      if (major >= 14) return; // the guards stop being necessary
+
+      // Symbols that do not exist below iOS 14. Not exhaustive — it is the
+      // list of ones this codebase has actually reached for.
+      const needsFourteen = ['.banner', '.list', 'CXProviderConfiguration()'];
+
+      for (final file in Directory('ios/Runner')
+          .listSync()
+          .whereType<File>()
+          .where((f) => f.path.endsWith('.swift'))) {
+        // Comments talk about these on purpose; only real code counts.
+        final lines = [
+          for (final line in file.readAsLinesSync())
+            line.contains('//') ? line.substring(0, line.indexOf('//')) : line
+        ];
+        for (var i = 0; i < lines.length; i++) {
+          for (final symbol in needsFourteen) {
+            if (!lines[i].contains(symbol)) continue;
+            final from = i - 10 < 0 ? 0 : i - 10;
+            final guarded = lines
+                .sublist(from, i)
+                .any((l) => l.contains('#available(iOS 14'));
+            expect(guarded, isTrue,
+                reason: '${file.path}:${i + 1} uses $symbol with no '
+                    '#available(iOS 14) above it, and the target is $target');
+          }
+        }
+      }
+    });
+
     test('the Bonjour service the app browses is the one it declares', () {
       // iOS 14 and later refuses to browse a service that is not listed in
       // NSBonjourServices, silently — the peer list just stays empty.

@@ -178,7 +178,14 @@ extension AppDelegate {
       completionHandler([])
       return
     }
-    completionHandler([.banner, .sound, .badge])
+    // .banner is iOS 14; .alert is what says the same thing before that, and
+    // this app still ships to iOS 13. Deprecated on 14+, which is why the
+    // newer name is used where it exists rather than everywhere.
+    if #available(iOS 14.0, *) {
+      completionHandler([.banner, .sound, .badge])
+    } else {
+      completionHandler([.alert, .sound, .badge])
+    }
   }
 
   /// A tap on the alert, from the lock screen or anywhere else.
