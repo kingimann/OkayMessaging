@@ -15,7 +15,9 @@ import 'package:okay_messaging/payments/iap_entitlement.dart';
 import 'package:okay_messaging/utils/date_formatter.dart';
 import 'package:okay_messaging/state/notes_store.dart';
 import 'package:okay_messaging/state/bookmark_store.dart';
+import 'package:okay_messaging/state/feed_drafts.dart';
 import 'package:okay_messaging/state/feed_mute_store.dart';
+import 'package:okay_messaging/widgets/collapsible_text.dart';
 import 'package:okay_messaging/state/voice_presence_store.dart';
 import 'package:okay_messaging/state/channel_typing_store.dart';
 import 'package:okay_messaging/state/identity_verification.dart';
@@ -20704,6 +20706,212 @@ void main() {
       await t.tap(find.text('Share my Okay Score'));
       await t.pumpAndSettle();
       expect(AppState.shareScore.value, isFalse);
+    });
+  });
+
+  group('Both timelines, with more in them', () {
+    setUp(() {
+      SharedPreferences.setMockInitialValues({});
+      FeedDrafts.instance.resetForTest();
+      FeedStore.instance.resetForTest();
+      PublicFeedStore.instance.resetForTest();
+    });
+    tearDown(() {
+      FeedDrafts.instance.resetForTest();
+      FeedStore.instance.resetForTest();
+      PublicFeedStore.instance.resetForTest();
+      PublicFeedStore.debugLoadOverride = null;
+    });
+
+    // --- A long post folds -------------------------------------------------
+
+    testWidgets('a wall of text folds, and opens when asked', (t) async {
+      t.view.physicalSize = const Size(390, 900);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.resetPhysicalSize);
+      final long = List.generate(40, (i) => 'Line $i of a very long post.')
+          .join('\n');
+
+      var maxLinesSeen = -1;
+      // In a scroll view, as it is in both timelines — opened out, the text
+      // is taller than the screen, which is the point of folding it.
+      await t.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: SingleChildScrollView(
+            child: CollapsibleText(
+              text: long,
+              style: const TextStyle(fontSize: 15),
+              builder: (context, maxLines) {
+                maxLinesSeen = maxLines ?? -1;
+                return Text(long, maxLines: maxLines);
+              },
+            ),
+          ),
+        ),
+      ));
+      await t.pumpAndSettle();
+
+      expect(maxLinesSeen, 10, reason: 'folded to ten lines');
+      expect(find.text('Show more'), findsOneWidget);
+
+      await t.tap(find.text('Show more'));
+      await t.pumpAndSettle();
+      expect(maxLinesSeen, -1, reason: 'all of it now');
+      expect(find.text('Show less'), findsOneWidget);
+    });
+
+    testWidgets('a short post is not folded, and offers nothing to open',
+        (t) async {
+      t.view.physicalSize = const Size(390, 900);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.resetPhysicalSize);
+      const short = 'Two words.';
+      int? seen = 99;
+      await t.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: CollapsibleText(
+            text: short,
+            style: const TextStyle(fontSize: 15),
+            builder: (context, maxLines) {
+              seen = maxLines;
+              return const Text(short);
+            },
+          ),
+        ),
+      ));
+      await t.pumpAndSettle();
+      expect(seen, isNull, reason: 'nothing to clip');
+      expect(find.text('Show more'), findsNothing,
+          reason: 'a button under every short post is noise');
+    });
+
+    testWidgets('a recycled row does not inherit the last post\'s state',
+        (t) async {
+      // A list reuses its widgets. Without resetting, scrolling an opened
+      // post off screen leaves the next one that lands in that slot opened
+      // too — which reads as the app deciding what you wanted to read.
+      t.view.physicalSize = const Size(390, 900);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.resetPhysicalSize);
+      final long = List.generate(40, (i) => 'Line $i.').join('\n');
+      final other = List.generate(40, (i) => 'Other $i.').join('\n');
+
+      Widget frame(String text) => MaterialApp(
+            home: Scaffold(
+              body: SingleChildScrollView(
+                child: CollapsibleText(
+                  key: const ValueKey('same-slot'),
+                  text: text,
+                  style: const TextStyle(fontSize: 15),
+                  builder: (context, maxLines) =>
+                      Text(text, maxLines: maxLines),
+                ),
+              ),
+            ),
+          );
+
+      await t.pumpWidget(frame(long));
+      await t.pumpAndSettle();
+      await t.tap(find.text('Show more'));
+      await t.pumpAndSettle();
+      expect(find.text('Show less'), findsOneWidget);
+
+      await t.pumpWidget(frame(other));
+      await t.pumpAndSettle();
+      expect(find.text('Show more'), findsOneWidget,
+          reason: 'a different post starts folded');
+    });
+
+    test('both feeds fold through the same widget', () {
+      // Two feeds that drifted apart is the thing this is here to stop; they
+      // render their bodies through different tag-highlighting widgets, so
+      // without one shared piece the fold would only ever be on one of them.
+      for (final path in [
+        'lib/screens/feed_screen.dart',
+        'lib/screens/public_feed_screen.dart',
+      ]) {
+        final src = File(path).readAsStringSync();
+        expect(src.contains('CollapsibleText'), isTrue, reason: path);
+      }
+    });
+
+    // --- A draft survives leaving -----------------------------------------
+
+    test('what you typed and did not post is still there', () {
+      final drafts = FeedDrafts.instance;
+      expect(drafts.read(FeedDrafts.publicKey), '');
+
+      drafts.write(FeedDrafts.publicKey, 'half a thought');
+      expect(drafts.read(FeedDrafts.publicKey), 'half a thought');
+      expect(drafts.has(FeedDrafts.publicKey), isTrue);
+
+      // Emptying the box is not a draft to tidy up later.
+      drafts.write(FeedDrafts.publicKey, '   ');
+      expect(drafts.has(FeedDrafts.publicKey), isFalse);
+    });
+
+    test('a reply draft does not turn up in somebody else\'s box', () {
+      final drafts = FeedDrafts.instance;
+      drafts.write(FeedDrafts.replyKey('p1'), 'to Ada');
+      drafts.write(FeedDrafts.replyKey('p2'), 'to Grace');
+      drafts.write(FeedDrafts.serverKey('c1'), 'to the server');
+      drafts.write(FeedDrafts.publicKey, 'to everyone');
+
+      expect(drafts.read(FeedDrafts.replyKey('p1')), 'to Ada');
+      expect(drafts.read(FeedDrafts.replyKey('p2')), 'to Grace');
+      expect(drafts.read(FeedDrafts.serverKey('c1')), 'to the server');
+      expect(drafts.read(FeedDrafts.publicKey), 'to everyone');
+      expect(drafts.read(FeedDrafts.serverKey('c2')), '');
+    });
+
+    test('abandoned drafts do not pile up forever', () {
+      final drafts = FeedDrafts.instance;
+      for (var i = 0; i < FeedDrafts.maxDrafts + 30; i++) {
+        drafts.write(FeedDrafts.replyKey('p$i'), 'draft $i');
+      }
+      expect(drafts.count, FeedDrafts.maxDrafts);
+      // Oldest out first: the newest is kept, the first is gone.
+      expect(drafts.has(FeedDrafts.replyKey('p0')), isFalse);
+      expect(
+          drafts.read(
+              FeedDrafts.replyKey('p${FeedDrafts.maxDrafts + 29}')),
+          'draft ${FeedDrafts.maxDrafts + 29}');
+    });
+
+    testWidgets('the public composer opens with what you left in it',
+        (t) async {
+      t.view.physicalSize = const Size(430, 1000);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.resetPhysicalSize);
+      PublicFeedStore.debugLoadOverride = () async => [];
+      FeedDrafts.instance.write(FeedDrafts.publicKey, 'left half-written');
+
+      await t.pumpWidget(const MaterialApp(home: PublicFeedScreen()));
+      await t.pumpAndSettle();
+      await t.tap(find.byTooltip('New post'));
+      await t.pumpAndSettle();
+
+      expect(find.text('left half-written'), findsOneWidget,
+          reason: 'backing out of a composer should not cost you the text');
+
+      // And typing more keeps it.
+      await t.enterText(find.byType(TextField).first, 'left half-written more');
+      await t.pump();
+      expect(FeedDrafts.instance.read(FeedDrafts.publicKey),
+          'left half-written more');
+    });
+
+    test('both composers keep a draft', () {
+      for (final path in [
+        'lib/screens/feed_screen.dart',
+        'lib/screens/public_feed_screen.dart',
+      ]) {
+        final src = File(path).readAsStringSync();
+        expect(src.contains('FeedDrafts.instance.read('), isTrue,
+            reason: '$path opens without what was left in it');
+        expect(src.contains('FeedDrafts.instance.clear('), isTrue,
+            reason: '$path keeps the draft after posting it');
+      }
     });
   });
 }

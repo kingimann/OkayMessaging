@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import '../app_state.dart';
 import '../state/chat_store.dart';
 import '../state/community_store.dart';
+import '../state/feed_drafts.dart';
 import '../state/feed_store.dart';
 import '../state/platform_moderation.dart';
 import '../state/session.dart' as local;
@@ -15,6 +16,7 @@ import '../widgets/app_dialogs.dart';
 import '../widgets/chat_photo.dart';
 import '../widgets/emoji_gif_sheet.dart';
 import '../widgets/feed_post_actions.dart';
+import '../widgets/collapsible_text.dart';
 import '../widgets/poll_widgets.dart';
 import '../widgets/pull_to_refresh.dart';
 import '../widgets/verified_badge.dart';
@@ -96,8 +98,20 @@ class _FeedScreenState extends State<FeedScreen> {
   final TextEditingController _search = TextEditingController();
   bool _searching = false;
 
+  String get _draftKey => FeedDrafts.serverKey(widget.communityId);
+
+  @override
+  void initState() {
+    super.initState();
+    _composer.text = FeedDrafts.instance.read(_draftKey);
+    _composer.addListener(_saveDraft);
+  }
+
+  void _saveDraft() => FeedDrafts.instance.write(_draftKey, _composer.text);
+
   @override
   void dispose() {
+    _composer.removeListener(_saveDraft);
     _composer.dispose();
     _search.dispose();
     super.dispose();
@@ -115,6 +129,7 @@ class _FeedScreenState extends State<FeedScreen> {
     }
     FeedStore.instance.add(widget.communityId, text, gifUrl: gifUrl);
     _composer.clear();
+    FeedDrafts.instance.clear(_draftKey);
     FocusScope.of(context).unfocus();
   }
 
@@ -815,6 +830,7 @@ class _PostCard extends StatelessWidget {
                 const SizedBox(height: 3),
                 if (post.text.isNotEmpty)
                   _FeedRichText(
+                    collapseAt: 10,
                     text: post.text,
                     base: const TextStyle(fontSize: 15.5, height: 1.35),
                     accent: TextStyle(
@@ -1281,12 +1297,18 @@ class _FeedRichText extends StatefulWidget {
   final ValueChanged<String>? onTag;
   final ValueChanged<String>? onMention;
 
+  /// Clips the body to this many lines, with a "Show more" under it. Null
+  /// for the places a post is the whole screen — a thread, a quoted card —
+  /// where there is nothing under it to protect.
+  final int? collapseAt;
+
   const _FeedRichText({
     required this.text,
     required this.base,
     required this.accent,
     this.onTag,
     this.onMention,
+    this.collapseAt,
   });
 
   @override
@@ -1329,6 +1351,17 @@ class _FeedRichTextState extends State<_FeedRichText> {
 
   @override
   Widget build(BuildContext context) {
+    final collapseAt = widget.collapseAt;
+    if (collapseAt == null) return _rich(context, null);
+    return CollapsibleText(
+      text: widget.text,
+      style: widget.base,
+      maxLines: collapseAt,
+      builder: _rich,
+    );
+  }
+
+  Widget _rich(BuildContext context, int? maxLines) {
     _clearRecognizers();
     final pattern = RegExp(r'(@[A-Za-z0-9_]+|#[A-Za-z0-9_]+|https?://\S+)');
     final spans = <TextSpan>[];
@@ -1349,10 +1382,14 @@ class _FeedRichTextState extends State<_FeedRichText> {
       spans
           .add(TextSpan(text: widget.text.substring(last), style: widget.base));
     }
-    return Text.rich(TextSpan(
-        children: spans.isEmpty
-            ? [TextSpan(text: widget.text, style: widget.base)]
-            : spans));
+    return Text.rich(
+      TextSpan(
+          children: spans.isEmpty
+              ? [TextSpan(text: widget.text, style: widget.base)]
+              : spans),
+      maxLines: maxLines,
+      overflow: maxLines == null ? TextOverflow.clip : TextOverflow.ellipsis,
+    );
   }
 }
 

@@ -11,6 +11,7 @@ import 'payments/iap_entitlement.dart';
 import 'payments/payment_service.dart';
 import 'relay/relay_config.dart';
 import 'mesh/mesh_service.dart';
+import 'state/feed_drafts.dart';
 import 'relay/relay_service.dart';
 import 'models/chat.dart';
 import 'models/user.dart';
@@ -102,6 +103,7 @@ Future<void> main() async {
   await _boot('feed mutes', FeedMuteStore.instance.load);
   await _boot('notes', NotesStore.instance.load);
   await _boot('feed', FeedStore.instance.load);
+  await _boot('drafts', FeedDrafts.instance.load);
   await _boot('storage', StorageStore.instance.load);
   // Reads the saved setting and brings the radio up if it was on. Off by
   // default, so on nearly every launch this does nothing at all.

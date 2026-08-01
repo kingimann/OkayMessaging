@@ -14,6 +14,7 @@ import '../state/bookmark_store.dart';
 import '../state/community_store.dart';
 import '../state/feed_mute_store.dart';
 import '../state/feed_store.dart';
+import '../state/feed_drafts.dart';
 import '../state/public_feed_store.dart';
 import '../state/score_store.dart';
 import '../util/file_moderation.dart';
@@ -21,6 +22,7 @@ import '../util/photo_prep.dart';
 import '../utils/date_formatter.dart';
 import '../widgets/sanction_notice.dart';
 import '../widgets/user_avatar.dart';
+import '../widgets/collapsible_text.dart';
 import '../widgets/feed_post_actions.dart';
 import '../widgets/verified_badge.dart';
 import 'edit_profile_screen.dart';
@@ -1374,8 +1376,15 @@ class _PostTile extends StatelessWidget {
   final VoidCallback onReply;
   final VoidCallback onOpen;
 
+  /// Whether a long body folds to a "Show more". False where the post is the
+  /// whole screen — a thread — because there is nothing under it to protect.
+  final bool collapseLongBody;
+
   const _PostTile(
-      {required this.post, required this.onReply, required this.onOpen});
+      {required this.post,
+      required this.onReply,
+      required this.onOpen,
+      this.collapseLongBody = true});
 
   @override
   Widget build(BuildContext context) {
@@ -1479,7 +1488,7 @@ class _PostTile extends StatelessWidget {
                   // post below carries the content.
                   if (post.body.isNotEmpty) ...[
                     const SizedBox(height: 4),
-                    _Body(text: post.body),
+                    _Body(text: post.body, collapse: collapseLongBody),
                   ],
                   if (post.hasImage) ...[
                     const SizedBox(height: 8),
@@ -1759,6 +1768,7 @@ class PublicThreadScreen extends StatelessWidget {
             children: [
               _PostTile(
                 post: post,
+                collapseLongBody: false,
                 onReply: () => _openComposer(context,
                     replyTo: post.id, replyingToName: post.authorName),
                 onOpen: () {},
@@ -1904,6 +1914,21 @@ class _ComposerState extends State<_Composer> {
   bool _sending = false;
   Uint8List? _image;
 
+  /// Which box this is: a reply is kept apart from the main composer, so a
+  /// half-written reply to one person does not appear in the box for another.
+  String get _draftKey => widget.replyTo == null
+      ? FeedDrafts.publicKey
+      : FeedDrafts.replyKey(widget.replyTo!);
+
+  @override
+  void initState() {
+    super.initState();
+    _text.text = FeedDrafts.instance.read(_draftKey);
+    _text.addListener(_saveDraft);
+  }
+
+  void _saveDraft() => FeedDrafts.instance.write(_draftKey, _text.text);
+
   final _focus = FocusNode();
 
   /// Non-null once a poll is being written. Two answer fields to start with,
@@ -1986,6 +2011,11 @@ class _ComposerState extends State<_Composer> {
           image: _image,
           pollOptions: [for (final c in _pollFields ?? const []) c.text],
           pollRunsFor: _isPoll ? _pollRunsFor : null);
+      // Cleared only once it is actually posted. A send that throws leaves
+      // the draft exactly where it was, which is the whole point of having
+      // one.
+      _text.removeListener(_saveDraft);
+      FeedDrafts.instance.clear(_draftKey);
       if (mounted) Navigator.of(context).pop();
     } catch (e) {
       if (!mounted) return;
@@ -2632,12 +2662,23 @@ class _Result extends StatelessWidget {
 /// Post text with tappable #hashtags and @mentions.
 class _Body extends StatelessWidget {
   final String text;
-  const _Body({required this.text});
+  final bool collapse;
+  const _Body({required this.text, this.collapse = true});
+
+  static const _base = TextStyle(fontSize: 15);
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => collapse
+      ? CollapsibleText(
+          text: text,
+          style: _base,
+          builder: _rich,
+        )
+      : _rich(context, null);
+
+  Widget _rich(BuildContext context, int? maxLines) {
     final accent = Theme.of(context).colorScheme.primary;
-    const base = TextStyle(fontSize: 15);
+    const base = _base;
     final spans = <InlineSpan>[];
     final pattern = RegExp(r'(#[A-Za-z0-9_]{1,40}|@[A-Za-z0-9_.]{2,})');
     var last = 0;
@@ -2663,7 +2704,11 @@ class _Body extends StatelessWidget {
     if (last < text.length) {
       spans.add(TextSpan(text: text.substring(last), style: base));
     }
-    return Text.rich(TextSpan(children: spans));
+    return Text.rich(
+      TextSpan(children: spans),
+      maxLines: maxLines,
+      overflow: maxLines == null ? TextOverflow.clip : TextOverflow.ellipsis,
+    );
   }
 }
 
