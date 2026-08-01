@@ -225,10 +225,22 @@ copies of the Edge Functions), `docs/supabase_setup.sql`.
 - **Send nearby** (`lib/mesh/nearby_share.dart`, drawer → Send nearby): AirDrop's
   shape on the same radio — you appear to people around you only if you say so
   (Privacy & security → "Who can send me things", off by default, the same three
-  answers AirDrop gives), an offer says what is coming, and nothing moves until
-  the other person accepts. A transfer is **direct**: `MeshPacket.directOnly`
-  means it is never relayed, because flooding 100 KB through every phone in the
-  room to deliver one photo would pin four radios.
+  answers AirDrop gives), an offer says what is coming and how big, and nothing
+  moves until the other person accepts. A transfer is **direct**:
+  `MeshPacket.directOnly` means it is never relayed, because flooding 100 KB
+  through every phone in the room to deliver one photo would pin four radios.
+  **Photos, videos and files** all go (`lib/mesh/nearby_pick.dart`). Video is
+  allowed *here and nowhere else*: `FileModeration.inspectNearby` exists
+  because the block everywhere else ("Videos can't be uploaded") is a statement
+  about what the app will store, and this path stores nothing — executables,
+  scripts and blocked hashes are still refused. **The ceiling is the
+  transport**, not a constant: `TransferChunks.limitFor(fast)` gives 200 K
+  characters over BLE (a photo) and 16 M over the fast link (~12 MB, a short
+  video). That ceiling is the *pipeline*, not the link — everything moves as
+  base64 text, so the receiver's peak memory is several times the file; raising
+  it means moving bytes through the channel on both sides, in Swift as well as
+  Dart. A picture arrives as a picture in the chat; a video or file is written
+  with `saveIncomingFile` and the chat gets a line naming it.
 - **The fast link** (`lib/mesh/nearby_fast.dart`, `ios/Runner/NearbyFast.swift`):
   the second transport, MultipeerConnectivity — Bluetooth discovery, then a
   direct Wi-Fi link, which is the supported half of what AirDrop does. A photo

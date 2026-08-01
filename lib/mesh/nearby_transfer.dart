@@ -37,6 +37,8 @@ class NearbyTransfer {
     this.received = 0,
     this.sent = 0,
     this.fast = false,
+    this.kind = 'file',
+    this.bytes = 0,
   });
 
   final String id;
@@ -55,6 +57,17 @@ class NearbyTransfer {
 
   /// Chunks out, for one going the other way.
   final int sent;
+
+  /// What the far end should do with it once it is whole: 'image' to show,
+  /// 'video' to play, 'file' to save. Off the air and therefore a claim, not
+  /// a fact — [FileModeration] sniffs the bytes at the sender and the
+  /// receiver decides what to do from this, so the worst a lie achieves is a
+  /// file that lands in the wrong place.
+  final String kind;
+
+  /// Size of the original file, for saying so before it is accepted. A person
+  /// deciding whether to take a 40 MB video needs to be told it is 40 MB.
+  final int bytes;
 
   /// Whether this was sized for the fast link rather than for Bluetooth.
   ///
@@ -93,6 +106,8 @@ class NearbyTransfer {
         received: received ?? this.received,
         sent: sent ?? this.sent,
         fast: fast,
+        kind: kind,
+        bytes: bytes,
       );
 }
 
@@ -120,20 +135,44 @@ class TransferChunks {
 
   static int sizeFor(bool fast) => fast ? perPacketFast : perPacket;
 
-  /// The largest file this will carry, in characters of encoded data.
+  /// The largest file Bluetooth will carry, in characters of encoded data.
   ///
   /// A photo is capped at 140,000 by PhotoPrep, so this clears it with room.
-  /// Bluetooth LE moves a few kilobytes a second: this is tens of seconds of
-  /// two phones held near each other, which is the honest ceiling for a radio
-  /// meant for heart-rate monitors.
+  /// LE moves a few kilobytes a second: this is already tens of seconds of two
+  /// phones held near each other, which is the honest ceiling for a radio
+  /// meant for heart-rate monitors. A video does not go this way.
   static const int maxLength = 200000;
+
+  /// The largest file the fast link will carry, in characters of encoded data
+  /// — about 12 MB of file, which is a short video or any ordinary document.
+  ///
+  /// NOT the link's limit. MultipeerConnectivity over Wi-Fi would carry far
+  /// more; this pipeline is the constraint, because it moves base64 TEXT. A
+  /// string of n characters is 2n bytes of memory in Dart, the receiver holds
+  /// every slice and then builds the whole thing again to assemble it, so the
+  /// peak is several times the file. Raising this means moving bytes instead
+  /// of text through the channel, on both sides, in Swift as well as Dart —
+  /// not changing this number.
+  static const int maxLengthFast = 16000000;
+
+  /// The ceiling for a transfer going by [fast] or not, in characters.
+  static int limitFor(bool fast) => fast ? maxLengthFast : maxLength;
+
+  /// The same ceiling in bytes of original file, which is what a person picks
+  /// and what a size cap should be stated in. Base64 is four characters per
+  /// three bytes, and a data: URI adds a short prefix.
+  static int fileLimitFor(bool fast) => limitFor(fast) ~/ 4 * 3;
 
   static int chunkCount(String data, {bool fast = false}) =>
       (data.length / sizeFor(fast)).ceil();
 
-  /// The most chunks any honest transfer can claim. Worked out at the smaller
-  /// size, so it covers both paths.
-  static int get maxChunks => (maxLength / perPacket).ceil();
+  /// The most chunks any honest transfer can claim.
+  ///
+  /// Worked out from the LARGER ceiling at the LARGER packet size, which is
+  /// the only pair that can actually occur together — a fast transfer is cut
+  /// into fast-sized pieces. Using the small ceiling here would have refused
+  /// every honest video as a liar.
+  static int get maxChunks => (maxLengthFast / perPacketFast).ceil();
 
   /// The [index]th slice, or empty when past the end.
   static String slice(String data, int index, {bool fast = false}) {

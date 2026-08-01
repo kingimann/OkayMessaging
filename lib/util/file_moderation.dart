@@ -218,6 +218,54 @@ class FileModeration {
         'That file type isn’t allowed.', kind);
   }
 
+  /// Inspects a file destined for the **nearby** path: one phone handing
+  /// something to another phone in the room.
+  ///
+  /// VIDEO PASSES HERE AND NOWHERE ELSE, and the difference is not a
+  /// loosening. Every other path ends at a server — a relay message, a
+  /// storage bucket, a listing — and "Videos can't be uploaded" is a
+  /// statement about what this app is willing to store and pay for. Nothing
+  /// is uploaded here: the bytes cross a Bluetooth link or a direct Wi-Fi
+  /// link between two devices that both agreed, and no server ever sees them.
+  /// The reason for the block does not exist on this path.
+  ///
+  /// What still applies is what was never about storage: executables and
+  /// scripts are refused, blocked hashes are refused, and [limit] caps the
+  /// size — which the caller sets from the transport, because a radio meant
+  /// for heart-rate monitors and a Wi-Fi link are not the same offer.
+  static ModerationVerdict inspectNearby(Uint8List bytes, {required int limit}) {
+    if (bytes.isEmpty) {
+      return const ModerationVerdict.blocked('That file is empty.', 'unknown');
+    }
+    if (bytes.length > limit) {
+      return ModerationVerdict.blocked(
+          'That file is too large to hand over (max ${_mb(limit)}).',
+          'oversize');
+    }
+    if (_blockedHashes.contains(hashOf(bytes))) {
+      return const ModerationVerdict.blocked(
+          'That file isn’t allowed.', 'blocked');
+    }
+    final kind = sniff(bytes);
+    if (kind == 'executable' || kind == 'script') {
+      return const ModerationVerdict.blocked(
+          'Executable files can’t be sent.', 'executable');
+    }
+    if (kind == 'unknown') {
+      return const ModerationVerdict.blocked(
+          'That file type isn’t allowed.', 'unknown');
+    }
+    return ModerationVerdict.ok(kind);
+  }
+
+  /// What a receiving device should DO with a file of this kind: show it,
+  /// play it, or save it. Pure.
+  static String handlingFor(String kind) {
+    if (allowedImageKinds.contains(kind)) return 'image';
+    if (kind == 'video') return 'video';
+    return 'file';
+  }
+
   static String _mb(int bytes) => '${(bytes / (1024 * 1024)).round()} MB';
 
   @visibleForTesting

@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
 
 import '../app_state.dart';
@@ -8,6 +10,7 @@ import '../relay/relay_service.dart';
 import '../state/chat_store.dart';
 import '../state/session.dart';
 import '../state/score_store.dart';
+import '../util/file_saver.dart';
 import 'mesh_packet.dart';
 import 'mesh_service.dart';
 import 'nearby_fast.dart';
@@ -32,6 +35,32 @@ class NearbyShare extends ChangeNotifier {
   NearbyShare._();
 
   static final NearbyShare instance = NearbyShare._();
+
+  /// What a transfer may say it is. Anything else is handled as a file.
+  static const Set<String> kinds = {'image', 'video', 'file'};
+
+  /// A file name off the air is a stranger's text, and it becomes a path.
+  /// Bounded, stripped of anything that could climb out of a directory, and
+  /// never empty.
+  static String _safeName(String raw, String kind) {
+    final cleaned = raw
+        .trim()
+        .replaceAll(RegExp(r'[/\\\x00-\x1f]'), '')
+        // Runs of dots collapse to one. A single pass over ".." leaves "..."
+        // as "..", which is still the parent directory — the traversal this
+        // is here to stop.
+        .replaceAll(RegExp(r'\.{2,}'), '.');
+    // A name of nothing but dots is not a name; it is a directory entry that
+    // File() would happily try to write to.
+    if (cleaned.isEmpty || cleaned.replaceAll('.', '').isEmpty) {
+      return switch (kind) {
+        'image' => 'Photo',
+        'video' => 'Video',
+        _ => 'File',
+      };
+    }
+    return cleaned.length > 60 ? cleaned.substring(0, 60) : cleaned;
+  }
 
   /// Transfers in flight or just finished, newest first.
   final Map<String, NearbyTransfer> _transfers = {};
@@ -83,21 +112,30 @@ class NearbyShare extends ChangeNotifier {
   // --- Sending -------------------------------------------------------------
 
   /// Offers [dataUri] to [person]. Nothing of the file moves yet — an offer
-  /// carries a name and a size, so somebody can refuse it without having
-  /// received it first.
+  /// carries a name, a kind and a size, so somebody can refuse a 12 MB video
+  /// without having received it first.
   ///
-  /// Returns the transfer, or null when the file is too big for this radio.
+  /// [kind] is 'image', 'video' or 'file' — what the far end should do with
+  /// it once it is whole. [bytes] is the size of the original file, for
+  /// saying so on the other person's screen.
+  ///
+  /// Returns the transfer, or null when it is too big for the way it would
+  /// have to go. THAT DEPENDS ON THE TRANSPORT, which is why the check is
+  /// here and not at the picker: a video is an ordinary thing to hand over a
+  /// direct Wi-Fi link and an impossible thing to push through Bluetooth LE.
   Future<NearbyTransfer?> offer(NearbyPerson person, String dataUri,
-      {required String fileName}) async {
-    if (dataUri.isEmpty || dataUri.length > TransferChunks.maxLength) {
-      return null;
-    }
-    final id = MeshPacket.randomId();
+      {required String fileName,
+      String kind = 'file',
+      int bytes = 0}) async {
     // Sized once, here, because the count goes in the offer and the far end
     // counts to it. If the fast link drops after this the transfer fails
     // rather than silently reshaping itself — a receiver waiting on forty
     // slices cannot be told mid-flight that it is now four hundred.
     final fast = NearbyFast.instance.hasPeer(person.digits);
+    if (dataUri.isEmpty || dataUri.length > TransferChunks.limitFor(fast)) {
+      return null;
+    }
+    final id = MeshPacket.randomId();
     final total = TransferChunks.chunkCount(dataUri, fast: fast);
     final transfer = NearbyTransfer(
       id: id,
@@ -107,6 +145,8 @@ class NearbyShare extends ChangeNotifier {
       totalChunks: total,
       state: TransferState.offered,
       fast: fast,
+      kind: kind,
+      bytes: bytes,
     );
     _transfers[id] = transfer;
     _outgoing[id] = dataUri;
@@ -120,7 +160,8 @@ class NearbyShare extends ChangeNotifier {
       'id': id,
       'n': fileName,
       'c': total,
-      'b': dataUri.length,
+      'b': bytes,
+      'k': kind,
       'd': RelayService.digits(me?.phone ?? ''),
       'w': AppState.profile.value.name,
     });
@@ -174,15 +215,22 @@ class NearbyShare extends ChangeNotifier {
     if (chunks > TransferChunks.maxChunks) return;
     final from = packet.payload['d'] as String? ?? '';
     final peer = NearbyPeople.instance.byDigits(from);
+    // A kind off the air is a claim. Anything unrecognised is treated as a
+    // plain file, which is the handling that assumes the least.
+    final claimed = packet.payload['k'];
+    final kind = (claimed is String && kinds.contains(claimed))
+        ? claimed
+        : 'file';
+    final size = packet.payload['b'];
     _update(NearbyTransfer(
       id: id,
       peerDigits: from,
       peerName: peer?.name ?? (packet.payload['w'] as String? ?? 'Someone'),
-      fileName: name.trim().isEmpty
-          ? 'Photo'
-          : (name.length > 60 ? name.substring(0, 60) : name.trim()),
+      fileName: _safeName(name, kind),
       totalChunks: chunks,
       state: TransferState.incoming,
+      kind: kind,
+      bytes: size is int && size >= 0 ? size : 0,
     ));
   }
 
@@ -253,17 +301,23 @@ class NearbyShare extends ChangeNotifier {
       _update(current.copyWith(state: TransferState.failed));
       return;
     }
-    _deliver(current, whole);
+    unawaited(_deliver(current, whole));
     _update(current.copyWith(state: TransferState.done));
     ScoreStore.instance.recordFlag('shared_nearby');
   }
 
   /// Puts what arrived into the chat with whoever sent it.
   ///
-  /// Not a separate inbox: a photo somebody handed you is a photo from them,
-  /// and putting it in the conversation means the gallery, the search and the
+  /// Not a separate inbox: something somebody handed you came FROM them, and
+  /// putting it in the conversation means the gallery, the search and the
   /// backup already know what to do with it.
-  void _deliver(NearbyTransfer t, String dataUri) {
+  ///
+  /// A picture goes in as a picture. A video or a file is written to disk —
+  /// the same [saveIncomingFile] the WebRTC document path uses — and the chat
+  /// gets a line saying what arrived and where it went, because a 12 MB video
+  /// held as a base64 string inside a message is a chat store nobody can
+  /// load twice.
+  Future<void> _deliver(NearbyTransfer t, String dataUri) async {
     final store = ChatStore.instance;
     var chat = store.chatWithContact(t.peerDigits);
     if (chat == null) {
@@ -279,19 +333,50 @@ class NearbyShare extends ChangeNotifier {
       store.upsert(chat);
     }
     final now = DateTime.now();
+    if (t.kind == 'image') {
+      store.addMessage(
+        chat.id,
+        Message(
+          id: 'near_${t.id}',
+          text: '',
+          time: now,
+          isMe: false,
+          status: MessageStatus.delivered,
+          isImage: true,
+          imageUrl: dataUri,
+          imageSeed: now.microsecondsSinceEpoch % 6,
+        ),
+      );
+      return;
+    }
+    final bytes = bytesOfDataUri(dataUri);
+    final where = bytes == null ? null : await saveIncomingFile(t.fileName, bytes);
+    final icon = t.kind == 'video' ? '🎞' : '📎';
     store.addMessage(
       chat.id,
       Message(
         id: 'near_${t.id}',
-        text: '',
+        text: where == null
+            ? '$icon ${t.fileName} — couldn\'t be saved'
+            : '$icon ${t.fileName}\n$where',
         time: now,
         isMe: false,
         status: MessageStatus.delivered,
-        isImage: true,
-        imageUrl: dataUri,
-        imageSeed: now.microsecondsSinceEpoch % 6,
       ),
     );
+  }
+
+  /// The bytes inside a `data:<type>;base64,…` URI, or null when it is not
+  /// one or the payload will not decode. Pure.
+  static Uint8List? bytesOfDataUri(String uri) {
+    final comma = uri.indexOf(',');
+    if (!uri.startsWith('data:') || comma < 0) return null;
+    if (!uri.substring(0, comma).contains(';base64')) return null;
+    try {
+      return base64Decode(uri.substring(comma + 1));
+    } catch (_) {
+      return null;
+    }
   }
 
   void _update(NearbyTransfer t) {

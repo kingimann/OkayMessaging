@@ -131,6 +131,7 @@ import 'package:okay_messaging/state/gif_service.dart';
 import 'package:okay_messaging/mesh/mesh_chunks.dart';
 import 'package:okay_messaging/mesh/nearby_fast.dart';
 import 'package:okay_messaging/mesh/nearby_people.dart';
+import 'package:okay_messaging/mesh/nearby_pick.dart';
 import 'package:okay_messaging/mesh/nearby_servers.dart';
 import 'package:okay_messaging/mesh/nearby_share.dart';
 import 'package:okay_messaging/mesh/nearby_transfer.dart';
@@ -21301,6 +21302,7 @@ void main() {
         'id': 't1',
         'n': 'Photo',
         'c': 1,
+        'k': 'image',
         'd': '15550102222',
         'w': 'Ada',
       }));
@@ -21427,8 +21429,10 @@ void main() {
 
       NearbyShare.instance.handle(asPacket(MeshPacket.kindOffer, {
         'id': 't9',
-        'n': 'Photo',
+        'n': 'Holiday.jpg',
         'c': 1,
+        'k': 'image',
+        'b': 240000,
         'd': '15550102222',
         'w': 'Ada',
       }));
@@ -21436,9 +21440,210 @@ void main() {
 
       expect(find.textContaining('Ada wants to send you a photo'),
           findsOneWidget);
+      // What it is and how big, because "a file" is not enough to say yes to.
+      expect(find.textContaining('Holiday.jpg · 234 KB'), findsOneWidget);
       await t.tap(find.text('No thanks'));
       await t.pumpAndSettle();
       expect(NearbyShare.instance.byId('t9')!.state, TransferState.declined);
+    });
+  });
+
+  group('Handing over a file or a video', () {
+    setUp(() {
+      SharedPreferences.setMockInitialValues({});
+      MeshService.instance.resetForTest();
+      NearbyShare.instance.resetForTest();
+      NearbyFast.instance.resetForTest();
+      NearbyPeople.instance.clear();
+      ChatStore.instance.reset();
+      FileModeration.resetForTest();
+      Session.instance.signInForTest();
+    });
+    tearDown(() {
+      NearbyShare.instance.resetForTest();
+      NearbyShare.debugSendOverride = null;
+      NearbyFast.instance.resetForTest();
+      MeshService.instance.resetForTest();
+      MeshService.debugSendOverride = null;
+      FileModeration.resetForTest();
+    });
+
+    NearbyPerson ada() => NearbyPerson(
+        digits: '15550102222',
+        name: 'Ada',
+        avatarColor: '#2E7D32',
+        heardAt: DateTime.now());
+
+    MeshPacket asPacket(String kind, Map<String, dynamic> payload) =>
+        MeshPacket(
+            id: MeshPacket.randomId(),
+            to: '15550100',
+            ttl: 0,
+            kind: kind,
+            payload: payload);
+
+    Uint8List mp4() => Uint8List.fromList([
+          0, 0, 0, 24, 0x66, 0x74, 0x79, 0x70, // ....ftyp
+          0x69, 0x73, 0x6F, 0x6D, // isom — a movie brand, not a HEIC one
+          ...List<int>.filled(64, 7),
+        ]);
+
+    test('a video may be handed over, and still may not be uploaded', () {
+      // The block everywhere else is a statement about what this app is
+      // willing to STORE. Nothing is stored here — the bytes cross a link
+      // between two devices that both agreed — so the reason for it does not
+      // exist on this path.
+      final video = mp4();
+      expect(FileModeration.sniff(video), 'video');
+      expect(FileModeration.inspectImage(video).allowed, isFalse);
+      expect(FileModeration.inspectFile(video).allowed, isFalse);
+      expect(
+          FileModeration.inspectNearby(video, limit: 1 << 20).allowed, isTrue,
+          reason: 'a video handed to the phone next to you uploads nothing');
+
+      // What was never about storage still applies.
+      final exe = Uint8List.fromList([0x4D, 0x5A, 1, 2, 3, 4, 5, 6]);
+      expect(FileModeration.inspectNearby(exe, limit: 1 << 20).allowed, isFalse);
+      final script = Uint8List.fromList([0x23, 0x21, 0x2F, 0x62, 0x69, 0x6E]);
+      expect(
+          FileModeration.inspectNearby(script, limit: 1 << 20).allowed, isFalse);
+      FileModeration.blockHash(FileModeration.hashOf(video));
+      expect(
+          FileModeration.inspectNearby(video, limit: 1 << 20).allowed, isFalse,
+          reason: 'a blocked hash is blocked on every path');
+    });
+
+    test('the ceiling is the transport, not a number somebody picked', () async {
+      NearbyShare.debugSendOverride = (to, kind, p) async => true;
+      // Bigger than Bluetooth will carry, well inside the fast link.
+      final big = 'data:video/mp4;base64,${'A' * 400000}';
+
+      expect(await NearbyShare.instance.offer(ada(), big, fileName: 'Clip.mp4'),
+          isNull,
+          reason: 'a minute a hop is not a transfer, it is a hostage');
+
+      NearbyFast.instance.debugMarkRunning();
+      await NearbyFast.instance.notePeers(['tok-ada']);
+      NearbyFast.instance.noteBody('tok-ada',
+          jsonEncode({'k': 'hi', 'd': '15550102222', 'n': 'Ada'}));
+
+      final t = await NearbyShare.instance
+          .offer(ada(), big, fileName: 'Clip.mp4', kind: 'video');
+      expect(t, isNotNull, reason: 'the fast link can carry this');
+      expect(t!.fast, isTrue);
+      expect(t.kind, 'video');
+      // And the count it claims is one the far end will accept.
+      expect(t.totalChunks, lessThanOrEqualTo(TransferChunks.maxChunks));
+    });
+
+    test('what arrives is handled by what it says it is', () async {
+      NearbyShare.debugSendOverride = (to, kind, p) async => true;
+
+      Future<void> receive(String id, String kind, String name,
+          String data) async {
+        NearbyShare.instance.handle(asPacket(MeshPacket.kindOffer, {
+          'id': id,
+          'n': name,
+          'c': 1,
+          'k': kind,
+          'd': '15550102222',
+          'w': 'Ada',
+        }));
+        await NearbyShare.instance.accept(id);
+        NearbyShare.instance.handle(asPacket(
+            MeshPacket.kindChunk, {'id': id, 'i': 0, 'c': 1, 'p': data}));
+        // Delivery writes to disk before it puts a line in the chat, so this
+        // waits for the event loop rather than one microtask.
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      }
+
+      await receive('i1', 'image', 'Holiday.jpg',
+          'data:image/png;base64,iVBORw0KGgo=');
+      await receive('v1', 'video', 'Clip.mp4',
+          NearbyPick.dataUriFor(mp4(), 'video'));
+
+      final chat = ChatStore.instance.chatWithContact('15550102222')!;
+      final image = chat.messages.firstWhere((m) => m.id == 'near_i1');
+      expect(image.isImage, isTrue, reason: 'a picture is shown as a picture');
+      expect(image.imageUrl, startsWith('data:image/'));
+
+      final video = chat.messages.firstWhere((m) => m.id == 'near_v1');
+      expect(video.isImage, isFalse,
+          reason: 'a 12 MB video inside a message is a chat store nobody '
+              'can load twice');
+      expect(video.text, contains('Clip.mp4'));
+      expect(video.text, contains('🎞'));
+    });
+
+    test('a file name off the air cannot become a path', () {
+      NearbyShare.debugSendOverride = (to, kind, p) async => true;
+      // It gets written to disk under this name.
+      NearbyShare.instance.handle(asPacket(MeshPacket.kindOffer, {
+        'id': 'p1',
+        'n': '../../../Library/Preferences/x.plist',
+        'c': 1,
+        'k': 'file',
+        'd': '15550102222',
+      }));
+      final name = NearbyShare.instance.byId('p1')!.fileName;
+      expect(name.contains('/'), isFalse);
+      expect(name.contains('..'), isFalse);
+
+      // And a name of nothing usable still gets one.
+      NearbyShare.instance.handle(asPacket(MeshPacket.kindOffer, {
+        'id': 'p2',
+        'n': '...',
+        'c': 1,
+        'k': 'video',
+        'd': '15550102222',
+      }));
+      expect(NearbyShare.instance.byId('p2')!.fileName, 'Video');
+    });
+
+    test('a kind off the air is a claim, and an unknown one is just a file',
+        () {
+      NearbyShare.debugSendOverride = (to, kind, p) async => true;
+      for (final (id, claimed) in [
+        ('k1', 'executable'),
+        ('k2', ''),
+        ('k3', 42),
+      ]) {
+        NearbyShare.instance.handle(asPacket(MeshPacket.kindOffer, {
+          'id': id,
+          'n': 'thing',
+          'c': 1,
+          'k': claimed,
+          'd': '15550102222',
+        }));
+        expect(NearbyShare.instance.byId(id)!.kind, 'file',
+            reason: 'claimed $claimed');
+      }
+    });
+
+    test('bytes survive the trip through a data URI', () {
+      final original = mp4();
+      final uri = NearbyPick.dataUriFor(original, 'video');
+      expect(uri, startsWith('data:video/mp4;base64,'));
+      expect(NearbyShare.bytesOfDataUri(uri), original);
+
+      // And anything that is not one is refused rather than half-decoded.
+      for (final bad in [
+        'https://example.com/x.mp4',
+        'data:video/mp4,not-base64-at-all',
+        'data:video/mp4;base64,!!!!',
+        '',
+      ]) {
+        expect(NearbyShare.bytesOfDataUri(bad), isNull, reason: bad);
+      }
+    });
+
+    test('a picture is still shrunk to fit, so it goes either way', () {
+      // The photo path resizes into the relay's budget; the file path does
+      // not touch the bytes. Both exist on the screen on purpose — a photo
+      // has to survive a Bluetooth-only room.
+      final src = File('lib/screens/nearby_share_screen.dart').readAsStringSync();
+      expect(src.contains('PhotoPrep.pickPhoto()'), isTrue);
+      expect(src.contains('NearbyPick.pick(limit: _limit)'), isTrue);
     });
   });
 
