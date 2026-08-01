@@ -222,4 +222,14 @@ copies of the Edge Functions), `docs/supabase_setup.sql`.
   invite **encrypted to the key they asked with** — never in the clear, because
   the invite contains the server secret and a plaintext reply would hand it to
   everyone within earshot. The server's own invite policy still applies.
+- **Send nearby** (`lib/mesh/nearby_share.dart`, drawer → Send nearby): AirDrop's
+  shape on the same radio — you appear to people around you only if you say so
+  (Privacy & security → "Who can send me things", off by default, the same three
+  answers AirDrop gives), an offer says what is coming, and nothing moves until
+  the other person accepts. A transfer is **direct**: `MeshPacket.directOnly`
+  means it is never relayed, because flooding 100 KB through every phone in the
+  room to deliver one photo would pin four radios. It is **slow** — BLE moves a
+  few KB/s, so a photo is tens of seconds; real AirDrop discovers over Bluetooth
+  and transfers over peer-to-peer Wi-Fi, which on iOS means MultipeerConnectivity
+  and a second native transport, not a setting.
 - Check `git log` for what actually shipped most recently.
