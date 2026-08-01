@@ -3,6 +3,7 @@ import '../theme/app_theme.dart';
 import 'package:flutter/services.dart';
 
 import '../mesh/mesh_service.dart';
+import '../mesh/nearby_people.dart';
 import '../app_state.dart';
 import '../state/account_service.dart';
 import '../state/app_lock.dart';
@@ -64,6 +65,7 @@ class PrivacySettingsScreen extends StatelessWidget {
           settingsSectionLabel(context, 'Nearby'),
           const InfoSection(children: [
             _MeshTile(),
+            _MeshFindableTile(),
             _MeshRelayTile(),
             _MeshDiscoverTile(),
           ]),
@@ -690,4 +692,57 @@ class _MeshDiscoverTile extends StatelessWidget {
           );
         },
       );
+}
+
+/// Who can see you when somebody near you looks for a person to send to.
+///
+/// AirDrop's own question, and the same three answers, because they are the
+/// right three: being findable puts your name in the air for everyone in
+/// range, which is fine in a friend's kitchen and not on a train.
+class _MeshFindableTile extends StatelessWidget {
+  const _MeshFindableTile();
+
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(
+        listenable: MeshService.instance,
+        builder: (context, _) {
+          final mesh = MeshService.instance;
+          if (!mesh.enabled) return const SizedBox.shrink();
+          return InfoTile(
+            leading: Icon(mesh.findable == Findable.off
+                ? Icons.visibility_off_outlined
+                : Icons.wifi_tethering),
+            title: 'Who can send me things',
+            subtitle: mesh.findable.detail,
+            onTap: () => _pick(context, mesh),
+          );
+        },
+      );
+
+  Future<void> _pick(BuildContext context, MeshService mesh) async {
+    final chosen = await showModalBottomSheet<Findable>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // ListTile with its own tick rather than RadioListTile: the
+            // radio's group API is deprecated in this Flutter, and a sheet
+            // that closes on the tap has no group to manage anyway.
+            for (final option in Findable.values)
+              ListTile(
+                leading: Icon(mesh.findable == option
+                    ? Icons.radio_button_checked
+                    : Icons.radio_button_unchecked),
+                title: Text(option.label),
+                subtitle: Text(option.detail),
+                onTap: () => Navigator.of(sheetContext).pop(option),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (chosen != null) await mesh.setFindable(chosen);
+  }
 }

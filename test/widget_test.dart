@@ -126,7 +126,11 @@ import 'package:okay_messaging/state/status_store.dart';
 import 'package:okay_messaging/state/chat_store.dart';
 import 'package:okay_messaging/state/gif_service.dart';
 import 'package:okay_messaging/mesh/mesh_chunks.dart';
+import 'package:okay_messaging/mesh/nearby_people.dart';
 import 'package:okay_messaging/mesh/nearby_servers.dart';
+import 'package:okay_messaging/mesh/nearby_share.dart';
+import 'package:okay_messaging/mesh/nearby_transfer.dart';
+import 'package:okay_messaging/widgets/nearby_offer_host.dart';
 import 'package:okay_messaging/mesh/mesh_packet.dart';
 import 'package:okay_messaging/mesh/mesh_router.dart';
 import 'package:okay_messaging/mesh/mesh_service.dart';
@@ -20912,6 +20916,280 @@ void main() {
         expect(src.contains('FeedDrafts.instance.clear('), isTrue,
             reason: '$path keeps the draft after posting it');
       }
+    });
+  });
+
+  group('Handing a photo to somebody in the room', () {
+    setUp(() {
+      SharedPreferences.setMockInitialValues({});
+      MeshService.instance.resetForTest();
+      NearbyShare.instance.resetForTest();
+      NearbyPeople.instance.clear();
+      ChatStore.instance.reset();
+      ScoreStore.instance.resetForTest();
+      Session.instance.signInForTest();
+    });
+    tearDown(() {
+      MeshService.instance.resetForTest();
+      NearbyShare.instance.resetForTest();
+      NearbyPeople.instance.clear();
+      ScoreStore.instance.resetForTest();
+      NearbyShare.debugSendOverride = null;
+      MeshService.debugSendOverride = null;
+      MeshService.debugAvailableOverride = null;
+    });
+
+    NearbyPerson ada() => NearbyPerson(
+        digits: '15550102222',
+        name: 'Ada',
+        avatarColor: '#2E7D32',
+        heardAt: DateTime.now());
+
+    /// A stand-in for the radio: records what went out, and lets a test play
+    /// the other phone.
+    List<(String, String, Map<String, dynamic>)> wireTap() {
+      final sent = <(String, String, Map<String, dynamic>)>[];
+      NearbyShare.debugSendOverride = (to, kind, payload) async {
+        sent.add((to, kind, payload));
+        return true;
+      };
+      return sent;
+    }
+
+    MeshPacket asPacket(String kind, Map<String, dynamic> payload) =>
+        MeshPacket(
+            id: MeshPacket.randomId(),
+            to: '15550101111',
+            ttl: 0,
+            kind: kind,
+            payload: payload);
+
+    test('a file is never passed on through anybody else', () {
+      // The whole reason this is separate from the message path. A message
+      // floods because nobody knows the way; a photo is a hundred kilobytes
+      // going to one person who agreed to receive it, and relaying that
+      // through every phone in the room would pin four radios.
+      final router = MeshRouter(myDigits: '15550109999');
+      for (final kind in MeshPacket.directOnly) {
+        final notMine = MeshPacket(
+            id: 'x$kind',
+            to: '15550102222',
+            ttl: 5,
+            kind: kind,
+            payload: const {'id': 't1'});
+        expect(router.accept(notMine), MeshAction.drop,
+            reason: '$kind was relayed');
+      }
+      // Addressed here, it is delivered — and still not relayed.
+      const mine = MeshPacket(
+          id: 'mine',
+          to: '15550109999',
+          ttl: 5,
+          kind: MeshPacket.kindChunk,
+          payload: {'id': 't1'});
+      expect(router.accept(mine), MeshAction.deliver);
+    });
+
+    test('an offer carries who it is from, or it cannot be answered', () async {
+      final sent = wireTap();
+      await NearbyShare.instance
+          .offer(ada(), 'data:image/png;base64,${'A' * 200}', fileName: 'Photo');
+      final (to, kind, payload) = sent.single;
+      expect(to, '15550102222');
+      expect(kind, MeshPacket.kindOffer);
+      expect(payload['d'], isNotEmpty,
+          reason: 'a packet says who it is FOR, not who it is from');
+      expect(payload['c'], greaterThan(0), reason: 'how many chunks');
+      // And none of the photo itself: an offer is a question.
+      expect(jsonEncode(payload).contains('A' * 100), isFalse);
+    });
+
+    test('nothing moves until the far end says yes', () async {
+      final sent = wireTap();
+      final data = 'data:image/png;base64,${'B' * 7000}';
+      final t = (await NearbyShare.instance
+          .offer(ada(), data, fileName: 'Photo'))!;
+      expect(t.state, TransferState.offered);
+      expect(sent.where((e) => e.$2 == MeshPacket.kindChunk), isEmpty);
+
+      // They say no.
+      NearbyShare.instance.handle(
+          asPacket(MeshPacket.kindAnswer, {'id': t.id, 'ok': false}));
+      expect(NearbyShare.instance.byId(t.id)!.state, TransferState.declined);
+      expect(sent.where((e) => e.$2 == MeshPacket.kindChunk), isEmpty,
+          reason: 'not one byte to somebody who refused');
+    });
+
+    test('yes sends every chunk, and the far end can rebuild it', () async {
+      final sent = wireTap();
+      final data = 'data:image/png;base64,${'C' * 7000}';
+      final t = (await NearbyShare.instance
+          .offer(ada(), data, fileName: 'Photo'))!;
+      expect(t.totalChunks, greaterThan(1), reason: 'this needs chunking');
+
+      NearbyShare.instance.handle(
+          asPacket(MeshPacket.kindAnswer, {'id': t.id, 'ok': true}));
+      await Future<void>.delayed(Duration.zero);
+
+      final chunks =
+          sent.where((e) => e.$2 == MeshPacket.kindChunk).toList();
+      expect(chunks.length, t.totalChunks);
+      expect(NearbyShare.instance.byId(t.id)!.state, TransferState.done);
+
+      final assembler = TransferAssembler(t.totalChunks);
+      for (final c in chunks) {
+        assembler.add(c.$3['i'] as int, c.$3['p'] as String);
+      }
+      expect(assembler.assemble(), data,
+          reason: 'what arrives has to be what was sent');
+    });
+
+    test('a photo that arrives lands in the chat with whoever sent it',
+        () async {
+      wireTap();
+      const data = 'data:image/png;base64,ABCD';
+      NearbyShare.instance.handle(asPacket(MeshPacket.kindOffer, {
+        'id': 't1',
+        'n': 'Photo',
+        'c': 1,
+        'd': '15550102222',
+        'w': 'Ada',
+      }));
+      final pending = NearbyShare.instance.pendingIncoming!;
+      expect(pending.peerName, 'Ada');
+
+      await NearbyShare.instance.accept('t1');
+      NearbyShare.instance.handle(asPacket(
+          MeshPacket.kindChunk, {'id': 't1', 'i': 0, 'c': 1, 'p': data}));
+
+      expect(NearbyShare.instance.byId('t1')!.state, TransferState.done);
+      final chat = ChatStore.instance.chatWithContact('15550102222');
+      expect(chat, isNotNull, reason: 'a photo from somebody is from them');
+      expect(chat!.messages.last.isImage, isTrue);
+      expect(chat.messages.last.imageUrl, data);
+      expect(ScoreStore.instance.isEarned('handoff'), isTrue);
+    });
+
+    test('an offer off the air is not trusted about anything', () {
+      wireTap();
+      for (final bad in <Map<String, dynamic>>[
+        {'n': 'Photo', 'c': 1},
+        {'id': '', 'n': 'Photo', 'c': 1},
+        {'id': 'a', 'n': 'Photo', 'c': 0},
+        {'id': 'b', 'n': 'Photo', 'c': -1},
+        // More chunks than the ceiling allows, before a buffer is made.
+        {'id': 'c', 'n': 'Photo', 'c': 100000},
+      ]) {
+        NearbyShare.instance.handle(asPacket(MeshPacket.kindOffer, bad));
+      }
+      expect(NearbyShare.instance.pendingIncoming, isNull);
+      expect(NearbyShare.instance.transfers, isEmpty);
+    });
+
+    test('chunks for something never accepted are ignored', () {
+      wireTap();
+      NearbyShare.instance.handle(asPacket(MeshPacket.kindChunk,
+          {'id': 'never-offered', 'i': 0, 'c': 1, 'p': 'x'}));
+      expect(NearbyShare.instance.transfers, isEmpty,
+          reason: 'a chunk cannot conjure a transfer nobody agreed to');
+    });
+
+    test('a file too big for this radio is refused at the sender', () async {
+      wireTap();
+      final huge = 'x' * (TransferChunks.maxLength + 1);
+      expect(await NearbyShare.instance.offer(ada(), huge, fileName: 'Big'),
+          isNull);
+    });
+
+    test('chunks out of order still rebuild the file', () {
+      // Packets do not necessarily land in the order they were sent.
+      final assembler = TransferAssembler(3);
+      expect(assembler.add(2, 'ccc'), isTrue);
+      expect(assembler.add(0, 'aaa'), isTrue);
+      expect(assembler.assemble(), isNull, reason: 'one still missing');
+      expect(assembler.add(1, 'bbb'), isTrue);
+      expect(assembler.assemble(), 'aaabbbccc');
+      // A retried chunk is not a second copy.
+      expect(assembler.add(1, 'zzz'), isFalse);
+      expect(assembler.add(9, 'out of range'), isFalse);
+    });
+
+    test('who can see you is off until you say otherwise', () async {
+      expect(MeshService.instance.findable, Findable.off);
+      final sent = <String>[];
+      MeshService.debugSendOverride = sent.add;
+      MeshService.instance.debugHelloNow();
+      expect(sent, isEmpty, reason: 'a name in the air is a decision');
+
+      await MeshService.instance.setFindable(Findable.everyone);
+      sent.clear();
+      MeshService.instance.debugHelloNow();
+      expect(sent, isNotEmpty);
+    });
+
+    test('a hello from a stranger is ignored on "people I chat with"',
+        () async {
+      await MeshService.instance.setFindable(Findable.contacts);
+      const stranger = MeshPacket(
+          id: 'h1',
+          to: '',
+          ttl: 3,
+          kind: MeshPacket.kindHello,
+          payload: {'d': '15550109999', 'n': 'A Stranger'});
+      MeshService.instance.debugDeliver(stranger);
+      expect(NearbyPeople.instance.people, isEmpty,
+          reason: 'enforced here as well as at the sender — a modified app '
+              'that announces itself to everyone still cannot make you list '
+              'it');
+
+      // Somebody already in a chat is listed.
+      ChatStore.instance.upsert(const Chat(
+        id: 'chat_15550108888',
+        contact: AppUser(
+            id: '15550108888',
+            name: 'Ada',
+            avatarColor: '#2E7D32',
+            phone: '15550108888'),
+        messages: [],
+      ));
+      MeshService.instance.debugDeliver(const MeshPacket(
+          id: 'h2',
+          to: '',
+          ttl: 3,
+          kind: MeshPacket.kindHello,
+          payload: {'d': '15550108888', 'n': 'Ada'}));
+      expect(NearbyPeople.instance.people.map((p) => p.name), ['Ada']);
+    });
+
+    test('who was nearby stops being nearby', () {
+      final now = DateTime(2026, 8, 1, 12);
+      NearbyPeople.instance.heard(NearbyPerson(
+          digits: '1', name: 'Ada', avatarColor: '#fff', heardAt: now));
+      expect(NearbyPeople.instance.people, hasLength(1));
+      NearbyPeople.instance.expire(now.add(NearbyPeople.linger * 2));
+      expect(NearbyPeople.instance.people, isEmpty);
+    });
+
+    testWidgets('nothing lands without being asked about first', (t) async {
+      wireTap();
+      await t.pumpWidget(const MaterialApp(
+          home: NearbyOfferHost(child: Scaffold(body: Text('home')))));
+      await t.pumpAndSettle();
+
+      NearbyShare.instance.handle(asPacket(MeshPacket.kindOffer, {
+        'id': 't9',
+        'n': 'Photo',
+        'c': 1,
+        'd': '15550102222',
+        'w': 'Ada',
+      }));
+      await t.pumpAndSettle();
+
+      expect(find.textContaining('Ada wants to send you a photo'),
+          findsOneWidget);
+      await t.tap(find.text('No thanks'));
+      await t.pumpAndSettle();
+      expect(NearbyShare.instance.byId('t9')!.state, TransferState.declined);
     });
   });
 }

@@ -77,6 +77,14 @@ class MeshRouter {
     // neighbours are members. Open it and pass it on — whether it turns out to
     // mean anything here is for the handler to decide, not the router, which
     // holds no keys and should not.
+    // A file transfer goes to the person who agreed to receive it and stops
+    // there. Flooding a hundred kilobytes through every phone in the room to
+    // deliver one photo would pin four radios for one person's picture.
+    if (packet.isDirect) {
+      final mine = myDigits.isNotEmpty && packet.to == myDigits;
+      return mine ? MeshAction.deliver : MeshAction.drop;
+    }
+
     final forMe = packet.isBroadcast ||
         (myDigits.isNotEmpty && packet.to == myDigits);
     if (forMe) {

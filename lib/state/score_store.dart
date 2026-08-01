@@ -59,6 +59,12 @@ class ScoreStore extends ChangeNotifier {
   /// The full badge catalog, ordered from easiest to rarest.
   static const List<Badge> catalog = [
     Badge(
+        id: 'handoff',
+        emoji: '📨',
+        label: 'Hand it over',
+        description: 'Send a photo straight to somebody standing next to you',
+        flag: 'shared_nearby'),
+    Badge(
         id: 'nearby',
         emoji: '📡',
         label: 'Off the grid',

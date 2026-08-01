@@ -18,6 +18,8 @@ import 'chat_search_delegate.dart';
 import 'communities.dart';
 import 'explore_map_screen.dart';
 import 'new_chat_screen.dart';
+import '../widgets/nearby_offer_host.dart';
+import 'nearby_share_screen.dart';
 import 'notes_screen.dart';
 import 'marketplace_screen.dart';
 import 'public_feed_screen.dart';
@@ -105,7 +107,12 @@ class _HomeScreenState extends State<HomeScreen>
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final onChats = _index == 0;
-    return PopScope(
+    // Nothing arrives on this phone without being asked about first — the
+    // whole reason to model this on AirDrop rather than simply accepting what
+    // is sent. Hosted here so the question is asked wherever you happen to
+    // be, not only on the screen you would have sent from.
+    return NearbyOfferHost(
+      child: PopScope(
       // Back from any other tab returns to Chats before it leaves the app.
       // Without this, Android's back gesture and the browser's back button
       // both closed the app from a tab nobody had navigated *to* — the tab
@@ -252,6 +259,7 @@ class _HomeScreenState extends State<HomeScreen>
             onSelect: _onSelectTab,
           ),
         ),
+      ),
       ),
     );
   }
@@ -561,6 +569,13 @@ class _AppSideBar extends StatelessWidget {
                 title: const Text('Notes'),
                 subtitle: const Text('Write things down, kept on this device'),
                 onTap: () => _go(context, const NotesScreen()),
+              ),
+              ListTile(
+                leading: const Icon(Icons.wifi_tethering),
+                title: const Text('Send nearby'),
+                subtitle:
+                    const Text('A photo straight to somebody in the room'),
+                onTap: () => _go(context, const NearbyShareScreen()),
               ),
               ListTile(
                 leading: const Icon(Icons.account_balance_wallet_outlined),

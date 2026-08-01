@@ -43,13 +43,43 @@ class MeshPacket {
   /// neighbours is a member, and a non-member cannot decrypt it anyway.
   static const String kindCommunity = 'chn';
 
+  /// "I am here, and this is what to call me." Broadcast, and only while the
+  /// user has made themselves findable — the AirDrop question, answered the
+  /// AirDrop way.
+  static const String kindHello = 'who';
+
+  /// "I would like to send you this." Carries a name, a size and a kind, and
+  /// nothing of the file itself.
+  static const String kindOffer = 'off';
+
+  /// The answer to an offer: yes, or no.
+  static const String kindAnswer = 'ans';
+
+  /// One numbered slice of a file being sent.
+  static const String kindChunk = 'dat';
+
   static const Set<String> kinds = {
     kindMessage,
     kindServer,
     kindAskInvite,
     kindInvite,
     kindCommunity,
+    kindHello,
+    kindOffer,
+    kindAnswer,
+    kindChunk,
   };
+
+  /// Kinds that are never passed on, whatever their hop count.
+  ///
+  /// A FILE IS NOT FLOODED. Messages travel by flooding because nobody knows
+  /// the way — but a transfer is a hundred kilobytes going to one person who
+  /// agreed to receive it, and relaying that through every phone in the room
+  /// would pin four radios to deliver one photo. These go one hop, to the
+  /// device they are addressed to, or nowhere.
+  static const Set<String> directOnly = {kindOffer, kindAnswer, kindChunk};
+
+  bool get isDirect => directOnly.contains(kind);
 
   /// Wire format version. A phone that meets a packet it cannot parse should
   /// drop it rather than guess, so this is checked before anything else.

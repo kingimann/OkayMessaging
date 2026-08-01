@@ -9,10 +9,13 @@ import '../crypto/e2e.dart';
 import '../crypto/key_exchange.dart';
 import '../app_state.dart';
 import '../relay/relay_service.dart';
+import '../state/chat_store.dart';
 import '../state/community_store.dart';
 import '../state/score_store.dart';
 import '../state/session.dart';
+import 'nearby_people.dart';
 import 'nearby_servers.dart';
+import 'nearby_share.dart';
 import 'mesh_chunks.dart';
 import 'mesh_packet.dart';
 import 'mesh_router.dart';
@@ -51,6 +54,7 @@ class MeshService extends ChangeNotifier {
 
   static const _enabledKey = 'mesh_enabled_v1';
   static const _relayKey = 'mesh_relay_v1';
+  static const _findableKey = 'mesh_findable_v1';
   static const _discoverKey = 'mesh_discover_v1';
 
   final MeshRouter router = MeshRouter();
@@ -59,6 +63,7 @@ class MeshService extends ChangeNotifier {
   bool _enabled = false;
   bool _relayForOthers = true;
   bool _findServers = true;
+  Findable _findable = Findable.off;
   bool _running = false;
   bool? _available;
   int _peers = 0;
@@ -82,6 +87,13 @@ class MeshService extends ChangeNotifier {
   /// a different thing from telling strangers about yours, and somebody may
   /// want one without the other.
   bool get findServers => _findServers;
+
+  /// Who can see this phone when they look for somebody to send a file to.
+  ///
+  /// Off by default. Being findable means putting your name in the air for
+  /// everyone in range, which is fine in a friend's kitchen and not fine on a
+  /// train — the same question AirDrop asks, for the same reason.
+  Findable get findable => _findable;
 
   /// Whether the radio is actually up right now.
   bool get running => _running;
@@ -121,6 +133,9 @@ class MeshService extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     _enabled = prefs.getBool(_enabledKey) ?? false;
     _relayForOthers = prefs.getBool(_relayKey) ?? true;
+    _findable = Findable.values.firstWhere(
+        (f) => f.name == prefs.getString(_findableKey),
+        orElse: () => Findable.off);
     _findServers = prefs.getBool(_discoverKey) ?? true;
     notifyListeners();
     if (_enabled) await start();
@@ -131,6 +146,16 @@ class MeshService extends ChangeNotifier {
     _relayForOthers = on;
     notifyListeners();
     (await SharedPreferences.getInstance()).setBool(_relayKey, on);
+  }
+
+  Future<void> setFindable(Findable how) async {
+    if (_findable == how) return;
+    _findable = how;
+    if (how == Findable.off) NearbyPeople.instance.clear();
+    notifyListeners();
+    (await SharedPreferences.getInstance())
+        .setString(_findableKey, how.name);
+    if (how != Findable.off) _helloOnce();
   }
 
   Future<void> setFindServers(bool on) async {
@@ -183,6 +208,7 @@ class MeshService extends ChangeNotifier {
     _beacon = null;
     _reassemblers.clear();
     NearbyServers.instance.clear();
+    NearbyPeople.instance.clear();
     notifyListeners();
     try {
       await _channel.invokeMethod<void>('stop');
@@ -216,11 +242,46 @@ class MeshService extends ChangeNotifier {
   /// arrived.
   void _startBeacon() {
     _beacon?.cancel();
-    _beacon = Timer.periodic(NearbyServers.beaconInterval, (_) {
-      NearbyServers.instance.expire(DateTime.now());
-      _beaconOnce();
+    // The hello goes out more often than the server beacon: picking somebody
+    // to send a file to is done while standing there waiting for their name
+    // to appear, and ten seconds of nothing reads as broken.
+    _beacon = Timer.periodic(NearbyPeople.helloInterval, (_) {
+      final now = DateTime.now();
+      NearbyServers.instance.expire(now);
+      NearbyPeople.instance.expire(now);
+      _helloOnce();
+      if (_sinceServerBeacon++ * NearbyPeople.helloInterval.inSeconds >=
+          NearbyServers.beaconInterval.inSeconds) {
+        _sinceServerBeacon = 0;
+        _beaconOnce();
+      }
     });
+    _helloOnce();
     _beaconOnce();
+  }
+
+  int _sinceServerBeacon = 0;
+
+  /// Says who this phone is, if its owner has said that is alright.
+  void _helloOnce() {
+    if (!_running && debugSendOverride == null) return;
+    if (_findable == Findable.off) return;
+    final me = Session.instance.user.value;
+    if (me == null) return;
+    final digits = RelayService.digits(me.phone);
+    if (digits.isEmpty) return;
+    final profile = AppState.profile.value;
+    _transmit(MeshPacket(
+      id: MeshPacket.randomId(),
+      to: '',
+      ttl: MeshPacket.maxTtl,
+      kind: MeshPacket.kindHello,
+      payload: {
+        'd': digits,
+        'n': profile.name.isEmpty ? 'Someone' : profile.name,
+        'c': profile.avatarColor,
+      },
+    ));
   }
 
   void _beaconOnce() {
@@ -446,6 +507,27 @@ class MeshService extends ChangeNotifier {
         _answerInvite(packet.payload);
       case MeshPacket.kindInvite:
         _takeInvite(packet.payload);
+      case MeshPacket.kindHello:
+        // Only from somebody this phone would answer. "People I chat with"
+        // is enforced HERE as well as at the sender: a modified app that
+        // announces itself to everyone still cannot make you list it.
+        final person =
+            NearbyPerson.fromWire(packet.payload, DateTime.now());
+        if (person == null) return;
+        if (person.digits ==
+            RelayService.digits(Session.instance.user.value?.phone ?? '')) {
+          return; // your own hello, off a neighbour
+        }
+        if (_findable == Findable.off) return;
+        if (_findable == Findable.contacts &&
+            ChatStore.instance.chatWithContact(person.digits) == null) {
+          return;
+        }
+        NearbyPeople.instance.heard(person);
+      case MeshPacket.kindOffer:
+      case MeshPacket.kindAnswer:
+      case MeshPacket.kindChunk:
+        NearbyShare.instance.handle(packet);
       case MeshPacket.kindCommunity:
         // Same routing the community bus uses, which fails quietly for a
         // server this phone is not in: it cannot decrypt what it is not a
@@ -480,8 +562,30 @@ class MeshService extends ChangeNotifier {
     _beacon?.cancel();
     _beacon = null;
     _pendingInvites.clear();
+    _findable = Findable.off;
+    _sinceServerBeacon = 0;
     NearbyServers.instance.clear();
+    NearbyPeople.instance.clear();
   }
+
+  /// Puts a direct packet on the air for one person. Never relayed by
+  /// anybody: [MeshPacket.directOnly] sees to that at the far end, and a hop
+  /// count of zero sees to it here.
+  Future<bool> sendDirect(
+      String toDigits, String kind, Map<String, dynamic> payload) {
+    if (!_running && debugSendOverride == null) return Future.value(false);
+    return _transmit(MeshPacket(
+      id: MeshPacket.randomId(),
+      to: toDigits,
+      ttl: 0,
+      kind: kind,
+      payload: payload,
+    ));
+  }
+
+  /// Test hook: say hello without waiting for the timer.
+  @visibleForTesting
+  void debugHelloNow() => _helloOnce();
 
   /// Test hook: one round of beacons, without waiting for the timer.
   @visibleForTesting
