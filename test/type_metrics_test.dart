@@ -61,12 +61,20 @@ Directory? _materialFonts() {
 Future<bool> loadRealFonts() async {
   final dir = _materialFonts();
   if (dir == null) return false;
-  final loader = FontLoader('Roboto');
-  for (final f in ['Roboto-Regular.ttf', 'Roboto-Medium.ttf']) {
-    loader.addFont(Future.value(
-        ByteData.sublistView(File('${dir.path}/$f').readAsBytesSync())));
+  try {
+    final loader = FontLoader('Roboto');
+    for (final f in ['Roboto-Regular.ttf', 'Roboto-Medium.ttf']) {
+      // Only what is there. A cache missing one weight should leave these
+      // tests unable to measure, not throw out of a build.
+      final file = File('${dir.path}/$f');
+      if (!file.existsSync()) continue;
+      loader.addFont(
+          Future.value(ByteData.sublistView(file.readAsBytesSync())));
+    }
+    await loader.load();
+  } catch (_) {
+    return false;
   }
-  await loader.load();
   // Proving it, rather than trusting the path: the test font draws every
   // glyph as the same square, so under it 'iiiiiiiiii' and 'MMMMMMMMMM' are
   // exactly as wide as each other. Under real Roboto they are not close.
@@ -145,13 +153,17 @@ void main() {
       find.text('Okay Score'),
       find.text('Verify phone'),
     ]) {
-      expect(t.getRect(finder).bottom, lessThan(tabs.top),
-          reason: 'this belongs above the tabs, not under them');
+      final bottom = t.getRect(finder).bottom;
+      expect(bottom, lessThan(tabs.top),
+          reason: 'this ends at $bottom, under the tabs at ${tabs.top}');
     }
-    // And the strip itself is well clear of the fold. Putting a 92pt banner
-    // back would land it around 560.
-    expect(tabs.bottom, lessThan(500.0),
-        reason: 'the header is eating the screen again');
+    // And the strip itself is well clear of the fold. It measures about 466
+    // here; putting the 92pt banner back would land it near 570 — so the line
+    // is drawn with room for a platform to lay type out slightly differently,
+    // and none for the banner to come back.
+    expect(tabs.bottom, lessThan(520.0),
+        reason: 'the tab strip is at ${tabs.bottom} — the header is eating '
+            'the screen again');
   });
 
   testWidgets('the profile buttons are not cropped on a phone', (t) async {
@@ -210,7 +222,7 @@ void main() {
         t.getRect(find.byWidget(chip)).top.round()
     };
     expect(tops.length, 1,
-        reason: 'the chips are on ${tops.length} lines, not one');
+        reason: 'the chips are on ${tops.length} lines, not one — tops $tops');
   });
 
   testWidgets('everything on the screen starts at the same left edge',
@@ -253,7 +265,8 @@ void main() {
     expect(cards, 2, reason: 'the usage card and the plan card');
     for (final left in lefts) {
       expect(left, closeTo(16.0, 0.5),
-          reason: 'this block starts at $left, not the screen margin');
+          reason: 'this block starts at $left, not the screen margin — all '
+              'of them: $lefts');
     }
   });
 }
