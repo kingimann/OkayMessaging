@@ -1138,7 +1138,11 @@ void main() {
     // handle yet, and sign-in never depended on it.
     await tester.enterText(
         find.widgetWithText(TextFormField, 'Phone number'), '5550123');
-    await tester.tap(find.text('Continue'));
+    // The form scrolls; the button is below the fold on a short screen.
+    await tester.ensureVisible(
+        find.widgetWithText(FilledButton, 'Create account'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Create account'));
     await tester.pumpAndSettle();
 
     expect(find.byType(PhoneLoginScreen), findsNothing);
@@ -1164,7 +1168,11 @@ void main() {
         find.widgetWithText(TextFormField, 'Username (optional)'), 'AdaL');
     await tester.enterText(
         find.widgetWithText(TextFormField, 'Phone number'), '5550123');
-    await tester.tap(find.text('Continue'));
+    // The form scrolls; the button is below the fold on a short screen.
+    await tester.ensureVisible(
+        find.widgetWithText(FilledButton, 'Create account'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Create account'));
     await tester.pumpAndSettle();
 
     // Now signed in with a normalized username.
@@ -11938,8 +11946,16 @@ void main() {
       await tester.tap(find.text('Use a different account'));
       await tester.pumpAndSettle();
 
-      // The full form is back, warm-started with the remembered details.
+      // The form is back, on the half a device that remembers an account
+      // opens to — signing in, with the number already filled.
       expect(find.text('Continue as Ada'), findsNothing);
+      expect(find.widgetWithText(FilledButton, 'Sign in'), findsOneWidget);
+      expect(find.widgetWithText(TextFormField, '555 0100'), findsOneWidget);
+
+      // And the name is still warm on the other half, for somebody who is
+      // making a second account rather than returning to the first.
+      await tester.tap(find.text('Create account').first);
+      await tester.pumpAndSettle();
       expect(find.widgetWithText(TextFormField, 'Ada Lovelace'),
           findsOneWidget);
     });
@@ -13611,6 +13627,50 @@ void main() {
       expect(find.text('Hi'), findsNothing,
           reason: 'the post it hangs under is a screen back');
       expect(find.text('No replies yet.'), findsOneWidget);
+    });
+
+    testWidgets('both threads answer from the same bar', (t) async {
+      // The one on a server's thread is what this was modelled on. The public
+      // thread had nothing at all — the only way to answer was the reply icon
+      // on the post, which opens a whole screen for one line.
+      SharedPreferences.setMockInitialValues({});
+      AppState.resetForTest();
+      Session.instance.signInForTest();
+      FeedStore.instance.resetForTest();
+      CommunityStore.instance.resetForTest();
+      FeedStore.instance.addRemote(FeedPost(
+        id: 'tp1',
+        communityId: 'c1',
+        authorName: 'Ada Lovelace',
+        authorUsername: 'ada',
+        time: DateTime.now(),
+        text: 'The post being answered',
+      ));
+
+      await t.pumpWidget(
+          const MaterialApp(home: FeedPostScreen(postId: 'tp1')));
+      await t.pumpAndSettle();
+
+      expect(find.widgetWithText(TextField, 'Reply to @ada'), findsOneWidget);
+      await t.enterText(find.byType(TextField).last, 'straight back');
+      await t.tap(find.byTooltip('Send reply'));
+      await t.pumpAndSettle();
+
+      expect(FeedStore.instance.repliesTo('tp1').map((p) => p.text),
+          ['straight back']);
+      // Emptied, or the next reply starts with the last one still in it.
+      expect(find.text('straight back'), findsOneWidget,
+          reason: 'the reply itself, not a field still holding it');
+    });
+
+    test('one bar, so the two threads cannot drift again', () {
+      for (final path in [
+        'lib/screens/public_feed_screen.dart',
+        'lib/screens/feed_screen.dart',
+      ]) {
+        expect(File(path).readAsStringSync().contains('FeedReplyBar('), isTrue,
+            reason: '$path has no quick reply on its thread');
+      }
     });
 
     test('both composers show the post being answered', () {
@@ -18750,8 +18810,8 @@ void main() {
       expect(find.text('The post being answered'), findsOneWidget);
       expect(find.text('Replying to @ada'), findsOneWidget);
       expect(find.widgetWithText(TextField, 'Post your reply'), findsOneWidget);
-      // And no chat bar anywhere: the thread had a live field with a send
-      // icon, which is a conversation's shape, not a timeline's.
+      // Not on the timeline: the quick field belongs on a thread, where the
+      // next thing somebody does is answer the post they are looking at.
       expect(find.byTooltip('Send reply'), findsNothing);
 
       // What is typed and abandoned survives, keyed to that post.
@@ -20773,6 +20833,81 @@ void main() {
       expect(Session.instance.isNumberless, isFalse);
     });
 
+    testWidgets('signing in does not ask you to invent a name', (t) async {
+      // It was one form that always asked. A name is a sign-UP field: the
+      // account already has one, and the directory hands it back with the
+      // username the moment the code checks out — so asking is asking
+      // somebody to retype what the server is about to tell us.
+      t.view.physicalSize = const Size(500, 1600);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.resetPhysicalSize);
+      addTearDown(() => debugVerifiedModeOverride = null);
+      debugVerifiedModeOverride = true;
+
+      await t.pumpWidget(const MaterialApp(home: PhoneLoginScreen()));
+      await t.pumpAndSettle();
+      final remembered =
+          find.text('Use a different account').evaluate().isNotEmpty;
+      if (remembered) {
+        await t.tap(find.text('Use a different account'));
+        await t.pumpAndSettle();
+      }
+      if (remembered) {
+        // A device that has an account on it opens on the half that uses it.
+        expect(find.widgetWithText(FilledButton, 'Send code'), findsOneWidget,
+            reason: 'a remembered account should start on Sign in');
+      }
+
+      await t.tap(find.text('Sign in').first);
+      await t.pumpAndSettle();
+      expect(find.widgetWithText(TextFormField, 'Your name'), findsNothing,
+          reason: 'signing in should not ask for a name');
+      expect(find.text('Send code'), findsOneWidget);
+      // The way in for somebody who has a handle but not their number to
+      // hand — a sign-IN route, so it belongs here.
+      expect(find.text('Sign in with username or email'), findsOneWidget);
+      expect(find.text('Continue without a phone number'), findsNothing,
+          reason: 'making a new account is not a way to sign in to an old one');
+
+      await t.tap(find.text('Create account').first);
+      await t.pumpAndSettle();
+      expect(find.widgetWithText(TextFormField, 'Your name'), findsOneWidget,
+          reason: 'a new account needs a name');
+      expect(find.text('Create account'), findsWidgets);
+      expect(find.text('Sign in with username or email'), findsNothing);
+      expect(find.text('Continue without a phone number'), findsOneWidget);
+    });
+
+    testWidgets('the local form splits the same way', (t) async {
+      // The build without SMS verification is the web one, and it had the
+      // same single form. The split has to hold on both or the two builds
+      // ask for different things.
+      t.view.physicalSize = const Size(500, 1600);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.resetPhysicalSize);
+      addTearDown(() => debugVerifiedModeOverride = null);
+      debugVerifiedModeOverride = false;
+
+      await t.pumpWidget(const MaterialApp(home: PhoneLoginScreen()));
+      await t.pumpAndSettle();
+      if (find.text('Use a different account').evaluate().isNotEmpty) {
+        await t.tap(find.text('Use a different account'));
+        await t.pumpAndSettle();
+      }
+
+      await t.tap(find.text('Sign in').first); // the tab, not the button
+      await t.pumpAndSettle();
+      expect(find.widgetWithText(TextFormField, 'Your name'), findsNothing);
+      // The button, not the tab of the same name: what the form will do.
+      expect(find.widgetWithText(FilledButton, 'Sign in'), findsOneWidget);
+
+      await t.tap(find.text('Create account').first);
+      await t.pumpAndSettle();
+      expect(find.widgetWithText(TextFormField, 'Your name'), findsOneWidget);
+      expect(
+          find.widgetWithText(FilledButton, 'Create account'), findsOneWidget);
+    });
+
     testWidgets('the way in is offered whichever sign-in this build uses',
         (t) async {
       // The iOS build sets REQUIRE_OTP, so it shows the verified form — and
@@ -20789,6 +20924,10 @@ void main() {
           await t.tap(find.text('Use a different account'));
           await t.pumpAndSettle();
         }
+        // Making an account with no number is a way to MAKE one, so it lives
+        // under Create account rather than under Sign in.
+        await t.tap(find.text('Create account'));
+        await t.pumpAndSettle();
         expect(find.text('Continue without a phone number'), findsOneWidget,
             reason: verified
                 ? 'missing on the form the iOS build actually shows'
@@ -20808,6 +20947,8 @@ void main() {
         await t.tap(find.text('Use a different account'));
         await t.pumpAndSettle();
       }
+      await t.tap(find.text('Create account'));
+      await t.pumpAndSettle();
 
       // A name is what other people see, so it is the one thing asked for.
       // Cleared explicitly: the field is prefilled from the last account, so

@@ -28,6 +28,15 @@ class PhoneLoginScreen extends StatefulWidget {
 
 enum _Step { phone, identifier, code, emailCode, username }
 
+/// Which of the two things somebody is here to do.
+///
+/// They were one form. It always asked for a name — which is a sign-UP field —
+/// so somebody coming back on a new phone was asked to invent one, and
+/// somebody making an account was never told that is what was happening. The
+/// steps after this were already split (a number the directory knows signs
+/// straight in; a new one picks a username); only the front door was not.
+enum _Mode { signIn, signUp }
+
 /// Whether this build asks for a real, SMS-verified number.
 ///
 /// Reads [AccountService.isEnabled], which comes from compile-time defines and
@@ -62,6 +71,13 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
   String _dialCode = '+1';
   bool _busy = false;
   _Step _step = _Step.phone;
+
+  /// Signing in when this device remembers an account, creating one when it
+  /// does not — which is what each of those people actually came to do.
+  late _Mode _mode;
+
+  bool get _signingUp => _mode == _Mode.signUp;
+
   String? _error;
 
   /// Shown while a remembered account exists — a one-tap way back in for
@@ -72,6 +88,7 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
   void initState() {
     super.initState();
     final last = Session.instance.lastAccount;
+    _mode = last == null ? _Mode.signUp : _Mode.signIn;
     if (last != null) {
       _showWelcomeBack = true;
       // Prefill everything, so even "use a different account" starts warm.
@@ -306,7 +323,17 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
         );
         return;
       }
-      setState(() => _step = _Step.username);
+      // The number checks out but the directory has nobody under it, so
+      // there is no account to sign in TO. That is not a failure — it is the
+      // other thing this screen does — but it has to be said, and a new
+      // account needs a name that signing in never asked for.
+      setState(() {
+        if (!_signingUp) {
+          _mode = _Mode.signUp;
+          _error = 'No account on that number yet — setting one up.';
+        }
+        _step = _Step.username;
+      });
     });
   }
 
@@ -553,11 +580,15 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
         _step == _Step.phone;
     if (welcome) return 'Welcome back — pick up where you left off';
     if (!_verifiedMode) {
-      return 'Enter your phone number to get started';
+      return _signingUp
+          ? 'Your number and your name — that is the whole account'
+          : 'Sign in with the number on your account';
     }
     switch (_step) {
       case _Step.phone:
-        return 'Enter your phone number to get started';
+        return _signingUp
+            ? 'We will text a code to confirm the number is yours'
+            : 'Sign in with the number on your account';
       case _Step.identifier:
         return 'Sign in with the username or email on your account';
       case _Step.code:
@@ -582,10 +613,15 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
     if (_showWelcomeBack && last != null && _step == _Step.phone) {
       return _welcomeBack(last);
     }
-    if (!_verifiedMode) return _localFields();
+    if (!_verifiedMode) return [_modeSwitch(), ..._localFields()];
     switch (_step) {
       case _Step.phone:
-        return _phoneFields(onSubmit: _sendCode, cta: 'Send code');
+        return [
+          _modeSwitch(),
+          ..._phoneFields(
+              onSubmit: _sendCode,
+              cta: _signingUp ? 'Create account' : 'Send code'),
+        ];
       case _Step.identifier:
         return _identifierFields();
       case _Step.code:
@@ -767,21 +803,45 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
         ),
       ];
 
-  // Local instant flow: name + username + phone + Continue.
+  /// Sign in | Create account. Two words that say which of the two things
+  /// this screen is doing, and which fields it therefore needs.
+  Widget _modeSwitch() => Padding(
+        padding: const EdgeInsets.only(bottom: 22),
+        child: SegmentedButton<_Mode>(
+          segments: const [
+            ButtonSegment(value: _Mode.signIn, label: Text('Sign in')),
+            ButtonSegment(value: _Mode.signUp, label: Text('Create account')),
+          ],
+          selected: {_mode},
+          showSelectedIcon: false,
+          onSelectionChanged: _busy
+              ? null
+              : (picked) => setState(() {
+                    _mode = picked.first;
+                    _error = null;
+                  }),
+        ),
+      );
+
+  // Local instant flow: phone, plus who you are when it is a new account.
   List<Widget> _localFields() => [
-        _nameField(),
-        const SizedBox(height: 14),
-        _usernameField(),
-        const SizedBox(height: 14),
+        if (_signingUp) ...[
+          _nameField(),
+          const SizedBox(height: 14),
+          _usernameField(),
+          const SizedBox(height: 14),
+        ],
         _phoneRow(onSubmit: _continueLocal),
         const SizedBox(height: 24),
-        _cta('Continue', _continueLocal),
-        const SizedBox(height: 6),
-        TextButton(
-          onPressed: _busy ? null : _continueWithoutNumber,
-          child: Text('Continue without a phone number',
-              style: TextStyle(color: AppColors.subtle(context))),
-        ),
+        _cta(_signingUp ? 'Create account' : 'Sign in', _continueLocal),
+        if (_signingUp) ...[
+          const SizedBox(height: 6),
+          TextButton(
+            onPressed: _busy ? null : _continueWithoutNumber,
+            child: Text('Continue without a phone number',
+                style: TextStyle(color: AppColors.subtle(context))),
+          ),
+        ],
       ];
 
   /// Signs in with no number at all — a name, and a code instead.
@@ -803,33 +863,42 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
     // The auth gate reacts to the new session and shows the home screen.
   }
 
-  // Verified step 1: name + phone → Send code.
+  // Verified step 1: a number, and who you are when it is a new account.
+  //
+  // SIGNING IN DOES NOT ASK FOR A NAME. The account already has one — the
+  // directory hands it back with the username once the code checks out — so
+  // asking is asking somebody to retype what the server is about to tell us.
   List<Widget> _phoneFields({required VoidCallback onSubmit, required String cta}) =>
       [
-        _nameField(),
-        const SizedBox(height: 14),
+        if (_signingUp) ...[
+          _nameField(),
+          const SizedBox(height: 14),
+        ],
         _phoneRow(onSubmit: onSubmit),
         const SizedBox(height: 24),
         _cta(cta, onSubmit),
         const SizedBox(height: 6),
-        TextButton(
-          onPressed: _busy
-              ? null
-              : () => setState(() {
-                    _error = null;
-                    _step = _Step.identifier;
-                  }),
-          child: Text('Sign in with username or email',
-              style: TextStyle(color: AppColors.subtle(context))),
-        ),
-        // Also here, and not only on the local form. A build that verifies
-        // numbers is still a build somebody may not want to give one to, and
-        // there is nothing to verify about an account that has none.
-        TextButton(
-          onPressed: _busy ? null : _continueWithoutNumber,
-          child: Text('Continue without a phone number',
-              style: TextStyle(color: AppColors.subtle(context))),
-        ),
+        if (!_signingUp)
+          TextButton(
+            onPressed: _busy
+                ? null
+                : () => setState(() {
+                      _error = null;
+                      _step = _Step.identifier;
+                    }),
+            child: Text('Sign in with username or email',
+                style: TextStyle(color: AppColors.subtle(context))),
+          ),
+        // A build that verifies numbers is still a build somebody may not
+        // want to give one to, and there is nothing to verify about an
+        // account that has none. It is a way to CREATE one, so it lives with
+        // the other one of those.
+        if (_signingUp)
+          TextButton(
+            onPressed: _busy ? null : _continueWithoutNumber,
+            child: Text('Continue without a phone number',
+                style: TextStyle(color: AppColors.subtle(context))),
+          ),
       ];
 
   // Verified step 1b: one field that takes @username or email.
@@ -980,6 +1049,13 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
   // Verified step 3: username → Continue, or skip it. A handle helps people
   // find you; requiring one helped nobody.
   List<Widget> _usernameFields() => [
+        // Only when there isn't one. Signing in never asks for a name — so
+        // arriving here from that path, on a number with no account, is the
+        // one moment it has to be asked for.
+        if (_signInName.trim().isEmpty) ...[
+          _nameField(),
+          const SizedBox(height: 14),
+        ],
         _usernameField(),
         const SizedBox(height: 24),
         _cta('Continue', _claimAndFinish),

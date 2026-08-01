@@ -1568,7 +1568,10 @@ class PublicThreadScreen extends StatelessWidget {
             return const Center(child: Text('This post was removed.'));
           }
           final replies = PublicFeedStore.instance.repliesTo(postId);
-          return ListView(
+          return Column(
+            children: [
+              Expanded(
+                child: ListView(
             padding: const EdgeInsets.only(bottom: 24),
             children: [
               _Entry(
@@ -1611,6 +1614,28 @@ class PublicThreadScreen extends StatelessWidget {
                   ),
                   const Divider(height: 1),
                 ],
+            ],
+                ),
+              ),
+              // The same bar a server's thread has, because it is the same
+              // screen doing the same job: the next thing somebody does here
+              // is almost always say something back.
+              FeedReplyBar(
+                handle: post.authorUsername,
+                onSend: (text) async {
+                  try {
+                    await PublicFeedStore.instance
+                        .post(text, replyTo: post.id);
+                    return true;
+                  } catch (e) {
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context)
+                          .showSnackBar(SnackBar(content: Text('$e')));
+                    }
+                    return false;
+                  }
+                },
+              ),
             ],
           );
         },

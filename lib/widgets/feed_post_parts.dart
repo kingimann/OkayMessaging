@@ -421,6 +421,91 @@ class FeedPostImage extends StatelessWidget {
       );
 }
 
+/// The quick reply pinned to the bottom of a thread.
+///
+/// A thread is the one screen where the next thing somebody does is almost
+/// always "say something back", so the field is already there. The reply
+/// button on a post still opens the full composer — that is for answering a
+/// particular comment, and for anything longer than a line.
+///
+/// [onSend] returns whether it was accepted. A server's word filter can
+/// refuse one, and a refusal must leave what was typed where it is.
+class FeedReplyBar extends StatefulWidget {
+  const FeedReplyBar({super.key, required this.handle, required this.onSend});
+
+  /// Whose post is being answered, without the at.
+  final String handle;
+
+  final Future<bool> Function(String text) onSend;
+
+  @override
+  State<FeedReplyBar> createState() => _FeedReplyBarState();
+}
+
+class _FeedReplyBarState extends State<FeedReplyBar> {
+  final TextEditingController _text = TextEditingController();
+  bool _sending = false;
+
+  @override
+  void dispose() {
+    _text.dispose();
+    super.dispose();
+  }
+
+  Future<void> _send() async {
+    final text = _text.text.trim();
+    if (text.isEmpty || _sending) return;
+    setState(() => _sending = true);
+    final ok = await widget.onSend(text);
+    if (!mounted) return;
+    setState(() => _sending = false);
+    if (!ok) return;
+    _text.clear();
+    if (mounted) FocusScope.of(context).unfocus();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 8, 12, 10),
+        child: Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _text,
+                minLines: 1,
+                maxLines: 3,
+                textCapitalization: TextCapitalization.sentences,
+                onSubmitted: (_) => _send(),
+                decoration: InputDecoration(
+                  hintText: widget.handle.isEmpty
+                      ? 'Post your reply'
+                      : 'Reply to @${widget.handle}',
+                  filled: true,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(24),
+                    borderSide: BorderSide.none,
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 16, vertical: 8),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            IconButton.filled(
+              icon: const Icon(Icons.send, size: 18),
+              tooltip: 'Send reply',
+              onPressed: _sending ? null : _send,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 /// A photo on its own, black background, pinch to zoom.
 class FeedPhotoScreen extends StatelessWidget {
   const FeedPhotoScreen({super.key, required this.url, required this.by});

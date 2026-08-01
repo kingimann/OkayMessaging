@@ -1123,31 +1123,25 @@ class _FeedPostScreenState extends State<FeedPostScreen> {
                   ),
                 ),
               ),
-              // A tap here opens the same composer the reply icon does, so
-              // there is one way to answer a post and it looks the same
-              // wherever it is started. It used to be a live text field with
-              // a send button — a chat bar on a timeline.
-              SafeArea(
-                top: false,
-                child: InkWell(
-                  onTap: () => openFeedReply(context, post),
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
-                    child: Row(
-                      children: [
-                        const FeedAvatar(
-                            username: 'you', name: 'You', radius: 16),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Text('Post your reply',
-                              style: TextStyle(
-                                  fontSize: 15,
-                                  color: AppColors.subtle(context))),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
+              // The field is already there, because on a thread the next thing
+              // somebody does is almost always say something back. The reply
+              // button on a post still opens the full composer — that is for
+              // answering a particular comment, and for anything longer.
+              FeedReplyBar(
+                handle: post.authorUsername,
+                onSend: (text) async {
+                  // A reply is a post, so the server's word filter applies.
+                  final hit = CommunityStore.instance
+                      .filterHit(post.communityId, text);
+                  if (hit != null) {
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                        content: Text(
+                            '"$hit" is blocked by this server\'s word filter')));
+                    return false;
+                  }
+                  FeedStore.instance.reply(post.id, text);
+                  return true;
+                },
               ),
             ],
           );
