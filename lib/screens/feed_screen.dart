@@ -834,6 +834,72 @@ void openFeedReply(BuildContext context, FeedPost post) {
   ));
 }
 
+/// The post being answered, above the composer.
+///
+/// Plain rather than in a quote box: a quote card says "this is coming along
+/// with what I write", which is what a quote post does. This is context — the
+/// thing being talked back to — so it is the post itself, with a line running
+/// down from it to the person answering.
+class _ReplyingToPost extends StatelessWidget {
+  const _ReplyingToPost({required this.post});
+
+  final FeedPost post;
+
+  @override
+  Widget build(BuildContext context) {
+    final subtle = AppColors.subtle(context);
+    return IntrinsicHeight(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Column(
+            children: [
+              FeedAvatar(
+                  username: post.authorUsername, name: post.authorName),
+              Expanded(
+                child: Container(
+                  width: 2,
+                  margin: const EdgeInsets.symmetric(vertical: 4),
+                  color: subtle.withValues(alpha: 0.3),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(width: FeedPostMetrics.gutter),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  FeedPostHeader(
+                    name: post.authorName,
+                    username: post.authorUsername,
+                    time: post.time,
+                    verified: post.authorVerified,
+                  ),
+                  if (post.text.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(post.text,
+                        maxLines: 4,
+                        overflow: TextOverflow.ellipsis,
+                        style: FeedPostMetrics.body),
+                  ],
+                  const SizedBox(height: 8),
+                  Text(
+                      'Replying to @'
+                      '${post.authorUsername.isEmpty ? 'them' : post.authorUsername}',
+                      style: TextStyle(fontSize: 13.5, color: subtle)),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 /// The reply composer, owning the controller it writes into.
 ///
 /// A StatefulWidget rather than a controller made at the call site: a route
@@ -898,6 +964,7 @@ class _FeedReplyComposerState extends State<_FeedReplyComposer> {
         replyingToName: widget.post.authorName.trim().isEmpty
             ? '@${widget.post.authorUsername}'
             : widget.post.authorName,
+        replyingTo: widget.post,
         mentionCandidates: (prefix) => mentionMatches(prefix, [
           ...FeedStore.instance.usernamesFor(widget.post.communityId),
           for (final c in ChatStore.instance.allChats)
@@ -1199,6 +1266,9 @@ class FeedComposerScreen extends StatefulWidget {
   /// Usernames matching the @prefix being typed, for tag-a-person chips.
   final List<String> Function(String prefix)? mentionCandidates;
 
+  /// The post being answered, drawn above the field. Null for a new post.
+  final FeedPost? replyingTo;
+
   /// Who is being answered, when this is a reply rather than a new post.
   ///
   /// Null for a new post. Set, it turns the screen into the reply composer
@@ -1221,6 +1291,7 @@ class FeedComposerScreen extends StatefulWidget {
     this.onAttachPhoto,
     this.mentionCandidates,
     this.replyingToName,
+    this.replyingTo,
   });
 
   @override
@@ -1331,7 +1402,17 @@ class _FeedComposerScreenState extends State<FeedComposerScreen> {
               Expanded(
                 child: SingleChildScrollView(
                   padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-                  child: Row(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // WHAT IS BEING ANSWERED, above what you are writing —
+                      // a reply written blind to the post it answers is one
+                      // written from memory.
+                      if (widget.replyingTo case final FeedPost parent) ...[
+                        _ReplyingToPost(post: parent),
+                        const SizedBox(height: 4),
+                      ],
+                      Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const FeedAvatar(username: 'you', name: 'You'),
@@ -1354,7 +1435,11 @@ class _FeedComposerScreenState extends State<FeedComposerScreen> {
                           // autofocused, which drew a rounded box around an
                           // empty composer the moment it opened.
                           decoration: InputDecoration(
-                            hintText: "What's happening?",
+                            // What a reply is called, where a reply is being
+                            // written.
+                            hintText: widget.isReply
+                                ? 'Post your reply'
+                                : "What's happening?",
                             hintStyle: TextStyle(
                               fontSize: 19,
                               color: scheme.onSurfaceVariant,
@@ -1371,6 +1456,8 @@ class _FeedComposerScreenState extends State<FeedComposerScreen> {
                           ),
                         ),
                       ),
+                    ],
+                  ),
                     ],
                   ),
                 ),

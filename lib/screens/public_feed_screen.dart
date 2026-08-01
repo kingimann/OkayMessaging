@@ -1588,11 +1588,29 @@ class PublicThreadScreen extends StatelessWidget {
                   ),
                 )
               else
-                for (final r in replies)
-                  Padding(
-                    padding: const EdgeInsets.only(left: 20),
-                    child: _PostTile(post: r, onReply: () {}, onOpen: () {}),
+                // A REPLY IS A POST. Its own reply button opens the composer
+                // for it and tapping it opens its thread — both were wired to
+                // empty callbacks, so answering somebody's comment did
+                // nothing at all and there was no way to reach the
+                // conversation under it.
+                //
+                // Flush and divided, like the timeline, rather than indented:
+                // an indent implies a tree that keeps going, and the next
+                // level down is a tap away on its own screen.
+                for (final r in replies) ...[
+                  _Entry(
+                    post: r,
+                    onReply: (target) => _openComposer(context,
+                        replyTo: target.id,
+                        replyingToName: target.authorName),
+                    onOpen: (target) => Navigator.of(context).push(
+                      MaterialPageRoute(
+                          builder: (_) =>
+                              PublicThreadScreen(postId: target.id)),
+                    ),
                   ),
+                  const Divider(height: 1),
+                ],
             ],
           );
         },
@@ -1696,6 +1714,80 @@ Future<void> _openComposer(BuildContext context,
       builder: (_) => _Composer(
           replyTo: replyTo, replyingToName: replyingToName, quoteOf: quoteOf),
     ));
+
+/// The post being answered, above the composer.
+///
+/// Plain rather than in a quote box: a quote card says "this is being carried
+/// along with what I write", which is what a quote post does. This is
+/// context — the thing you are talking back to — so it is drawn as the post
+/// it is, with a line running down from it to your own avatar.
+class _ReplyingTo extends StatelessWidget {
+  const _ReplyingTo({required this.postId});
+
+  final String postId;
+
+  @override
+  Widget build(BuildContext context) {
+    final post = PublicFeedStore.instance.byId(postId);
+    // Only what is loaded. A blank card claiming to be somebody's post is
+    // worse than starting straight at the field.
+    if (post == null) return const SizedBox.shrink();
+    final subtle = AppColors.subtle(context);
+    return IntrinsicHeight(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Column(
+            children: [
+              FeedAvatar(
+                  username: post.authorUsername,
+                  name: post.authorName,
+                  radius: 20),
+              // The thread line, joining what is being answered to the person
+              // answering it.
+              Expanded(
+                child: Container(
+                  width: 2,
+                  margin: const EdgeInsets.symmetric(vertical: 4),
+                  color: subtle.withValues(alpha: 0.3),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(width: FeedPostMetrics.gutter),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  FeedPostHeader(
+                    name: post.authorName,
+                    username: post.authorUsername,
+                    time: post.createdAt,
+                    verified: post.authorVerified,
+                  ),
+                  if (post.body.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(post.body,
+                        maxLines: 4,
+                        overflow: TextOverflow.ellipsis,
+                        style: FeedPostMetrics.body),
+                  ],
+                  const SizedBox(height: 8),
+                  Text(
+                      'Replying to '
+                      '@${post.authorUsername.isEmpty ? 'them' : post.authorUsername}',
+                      style: TextStyle(fontSize: 13.5, color: subtle)),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
 
 /// The composer. Says out loud that a post here is public, because this is the
 /// one place in the app where that is true.
@@ -1893,7 +1985,17 @@ class _ComposerState extends State<_Composer> {
                 onTap: _focus.requestFocus,
                 child: SingleChildScrollView(
                   padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-                  child: Row(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // WHAT IS BEING ANSWERED, above what you are writing.
+                      // A title alone says who; a reply written blind to the
+                      // post it answers is one written from memory.
+                      if (widget.replyTo != null) ...[
+                        _ReplyingTo(postId: widget.replyTo!),
+                        const SizedBox(height: 4),
+                      ],
+                      Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       // Your own face beside what you are writing, so a post
@@ -1927,8 +2029,12 @@ class _ComposerState extends State<_Composer> {
                               // take precedence over `border` whenever they are
                               // set. This shipped as a pill around
                               // "What's happening?" for exactly that reason.
-                              decoration: const InputDecoration(
-                                hintText: 'What\'s happening?',
+                              decoration: InputDecoration(
+                                // What a reply is called, where a reply is
+                                // being written.
+                                hintText: widget.replyTo == null
+                                    ? 'What\'s happening?'
+                                    : 'Post your reply',
                                 filled: false,
                                 border: InputBorder.none,
                                 enabledBorder: InputBorder.none,
@@ -2007,6 +2113,8 @@ class _ComposerState extends State<_Composer> {
                           ],
                         ),
                       ),
+                    ],
+                  ),
                     ],
                   ),
                 ),

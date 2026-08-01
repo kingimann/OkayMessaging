@@ -13554,6 +13554,78 @@ void main() {
           likeCount: likes,
         );
 
+    testWidgets('a comment can be answered, and opened', (t) async {
+      // Both were wired to empty callbacks. Tapping reply on somebody's
+      // comment did nothing at all, and tapping the comment did nothing
+      // either — so a thread was somewhere you could read and not speak.
+      final now = DateTime.now();
+      PublicFeedStore.debugLoadOverride = () async => [
+            PublicPost(
+              id: 'root',
+              authorUsername: 'iman',
+              authorName: 'Iman',
+              body: 'Hi',
+              createdAt: now.subtract(const Duration(days: 2)),
+              replyCount: 1,
+            ),
+            PublicPost(
+              id: 'r1',
+              authorUsername: 'ada',
+              authorName: 'Ada Lovelace',
+              body: 'Hi back',
+              createdAt: now.subtract(const Duration(minutes: 45)),
+              replyTo: 'root',
+            ),
+          ];
+      addTearDown(() => PublicFeedStore.debugLoadOverride = null);
+
+      // In through the timeline, because that is what loads the store — and
+      // it is how somebody reaches a thread anyway.
+      await t.pumpWidget(const MaterialApp(home: PublicFeedScreen()));
+      await t.pumpAndSettle();
+      await t.tap(find.text('Hi'));
+      await t.pumpAndSettle();
+      expect(find.byType(PublicThreadScreen), findsOneWidget);
+      expect(find.text('Hi back'), findsOneWidget);
+
+      // The comment's own reply button opens the composer for the COMMENT,
+      // not for the post it hangs under.
+      await t.tap(find.byTooltip('Reply').last);
+      await t.pumpAndSettle();
+      expect(find.text('Reply to Ada Lovelace'), findsOneWidget);
+      // With the comment itself above the field — a reply written blind to
+      // what it answers is one written from memory. The thread underneath is
+      // offstage, so this is the composer's own copy of it.
+      expect(find.text('Hi back'), findsOneWidget);
+      expect(find.text('Replying to @ada'), findsWidgets);
+      expect(find.widgetWithText(TextField, 'Post your reply'), findsOneWidget);
+
+      await t.tap(find.byTooltip('Cancel'));
+      await t.pumpAndSettle();
+
+      // And the comment opens as its own thread — the conversation under a
+      // comment was unreachable, which is where a thread actually goes.
+      await t.tap(find.text('Hi back'));
+      await t.pumpAndSettle();
+      expect(find.text('Hi back'), findsOneWidget, reason: 'now the root');
+      expect(find.text('Hi'), findsNothing,
+          reason: 'the post it hangs under is a screen back');
+      expect(find.text('No replies yet.'), findsOneWidget);
+    });
+
+    test('both composers show the post being answered', () {
+      // One shape for the two, so a reply looks the same wherever it starts.
+      for (final path in [
+        'lib/screens/public_feed_screen.dart',
+        'lib/screens/feed_screen.dart',
+      ]) {
+        final src = File(path).readAsStringSync();
+        expect(src.contains("'Post your reply'"), isTrue, reason: path);
+        expect(RegExp(r'class _ReplyingTo').hasMatch(src), isTrue,
+            reason: '$path draws no preview of what is being answered');
+      }
+    });
+
     testWidgets('a plain repost is drawn as the post it repeats', (t) async {
       // It used to render as a post BY the reposter with an empty body and
       // the original in a quote box — which reads as somebody posting
@@ -18673,6 +18745,11 @@ void main() {
       expect(find.text('Reply to Ada Lovelace'), findsOneWidget);
       expect(find.widgetWithText(FilledButton, 'Reply'), findsOneWidget,
           reason: 'the button says what it does');
+      // The post being answered, above the field. The timeline underneath is
+      // offstage, so this is the composer's own copy of it.
+      expect(find.text('The post being answered'), findsOneWidget);
+      expect(find.text('Replying to @ada'), findsOneWidget);
+      expect(find.widgetWithText(TextField, 'Post your reply'), findsOneWidget);
       // And no chat bar anywhere: the thread had a live field with a send
       // icon, which is a conversation's shape, not a timeline's.
       expect(find.byTooltip('Send reply'), findsNothing);
