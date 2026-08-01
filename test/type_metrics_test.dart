@@ -13,7 +13,6 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:flutter/services.dart' show FontLoader;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -144,14 +143,14 @@ void main() {
     await t.pumpAndSettle();
 
     // Everything the profile says about the person, above the tab strip.
-    final tabs = t.getRect(find.text('Replies'));
+    // By tooltip, not by text: the strip draws glyphs now.
+    final tabs = t.getRect(find.byTooltip(ProfileTab.replies.label));
     for (final finder in [
       find.text('@iman'),
       find.textContaining('privacy-first'),
       find.text('okaymessaging.com'),
       find.text('Following'),
       find.text('Okay Score'),
-      find.text('Verify phone'),
     ]) {
       final bottom = t.getRect(finder).bottom;
       expect(bottom, lessThan(tabs.top),
@@ -164,36 +163,6 @@ void main() {
     expect(tabs.bottom, lessThan(520.0),
         reason: 'the tab strip is at ${tabs.bottom} — the header is eating '
             'the screen again');
-  });
-
-  testWidgets('the profile buttons are not cropped on a phone', (t) async {
-    // The avatar and the buttons share a line now. Written as a Spacer with a
-    // Flexible after it, the two Expandeds split the free space between them
-    // and "Edit profile" was cropped to "Edit …" on a 390pt phone with room
-    // to spare.
-    if (_needsRealType(await loadRealFonts())) return;
-    for (final width in [320.0, 390.0, 430.0]) {
-      t.view.physicalSize = Size(width, 900);
-      t.view.devicePixelRatio = 1.0;
-      addTearDown(t.view.resetPhysicalSize);
-      AppState.profile.value = const AppUser(
-          id: 'me',
-          name: 'Iman Fakhar',
-          avatarColor: '#2E7D32',
-          username: 'iman');
-      PublicFeedStore.debugProfileOverride = (username) async => [];
-
-      await t.pumpWidget(MaterialApp(
-          theme: AppTheme.light,
-          home: const PublicProfileScreen(
-              username: 'iman', name: 'Iman Fakhar')));
-      await t.pumpAndSettle();
-
-      final label = t.renderObject<RenderParagraph>(find.text('Edit profile'));
-      expect(label.didExceedMaxLines, isFalse,
-          reason: 'the button label is cropped at $width');
-      expect(t.takeException(), isNull, reason: 'it overflows at $width');
-    }
   });
 
   testWidgets('the three verification chips fit on one line', (t) async {

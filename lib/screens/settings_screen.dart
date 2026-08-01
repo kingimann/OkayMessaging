@@ -26,6 +26,7 @@ import 'my_qr_screen.dart';
 import 'okay_pro_screen.dart';
 import 'permissions_screen.dart';
 import 'privacy_settings_screen.dart';
+import 'profile_screen.dart';
 import 'score_screen.dart';
 import 'settings_widgets.dart';
 import 'wallet_screen.dart';
@@ -56,6 +57,15 @@ class SettingsView extends StatelessWidget {
       children: [
         const SizedBox(height: 6),
         _ProfileCard(),
+        // What this account has proven: the phone behind sign-in, the email
+        // that can recover it, the ID behind the blue check. These lived on
+        // the profile, where they were three settings rows in a profile's
+        // clothes — what they say is about the account rather than about the
+        // person, and each is a door into a settings screen anyway.
+        const Padding(
+          padding: EdgeInsets.fromLTRB(16, 10, 16, 4),
+          child: ProfileVerificationRow(),
+        ),
         _ProUpsell(),
 
         settingsSectionLabel(context, 'Preferences'),
@@ -270,7 +280,17 @@ class SettingsView extends StatelessWidget {
               leading: const Icon(Icons.logout, color: Colors.red),
               title: 'Sign out',
               titleColor: Colors.red,
-              onTap: () => Session.instance.signOut(),
+              // Back to the root as well as out of the session. The auth gate
+              // swaps its own child the moment the session clears — but this
+              // screen was PUSHED on top of that gate, and so was whatever
+              // opened it, so the login screen appeared underneath a stack of
+              // routes nobody had closed. It looked like sign-out did nothing
+              // until the app was killed and reopened.
+              onTap: () async {
+                final navigator = Navigator.of(context);
+                await Session.instance.signOut();
+                navigator.popUntil((route) => route.isFirst);
+              },
             ),
           ],
         ),

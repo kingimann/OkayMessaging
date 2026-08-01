@@ -27,6 +27,8 @@ class Persistence {
   static const _kShareLiveLocation = 'share_live_location';
   static const _kChats = 'chats_v1';
   static const _kShareLastSeen = 'share_last_seen';
+  static const _kShareScore = 'share_score';
+  static const _kShareStreak = 'share_streak';
   static const _kReadReceipts = 'send_read_receipts';
   static const _kTypingIndicators = 'send_typing_indicators';
   static const _kSilenceUnknown = 'silence_unknown_callers';
@@ -115,6 +117,8 @@ class Persistence {
       } catch (_) {}
     }
 
+    AppState.shareScore.value = prefs.getBool(_kShareScore) ?? true;
+    AppState.shareStreak.value = prefs.getBool(_kShareStreak) ?? true;
     if (prefs.containsKey(_kShareLastSeen)) {
       AppState.shareLastSeen.value = prefs.getBool(_kShareLastSeen) ?? true;
     }
@@ -186,6 +190,8 @@ class Persistence {
     AppState.defaultTravelMode.addListener(_saveTravelMode);
     AppState.shareLiveLocation.addListener(_saveShareLiveLocation);
     AppState.shareLastSeen.addListener(_saveShareLastSeen);
+    AppState.shareScore.addListener(_saveShareScore);
+    AppState.shareStreak.addListener(_saveShareStreak);
     AppState.sendReadReceipts.addListener(_saveReadReceipts);
     AppState.sendTypingIndicators.addListener(_saveTypingIndicators);
     AppState.silenceUnknownCallers.addListener(_saveSilenceUnknown);
@@ -254,6 +260,14 @@ class Persistence {
 
   static void _saveShareLastSeen() {
     _prefs?.setBool(_kShareLastSeen, AppState.shareLastSeen.value);
+  }
+
+  static void _saveShareScore() {
+    _prefs?.setBool(_kShareScore, AppState.shareScore.value);
+  }
+
+  static void _saveShareStreak() {
+    _prefs?.setBool(_kShareStreak, AppState.shareStreak.value);
   }
 
   static void _saveReadReceipts() {

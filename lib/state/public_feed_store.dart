@@ -1,6 +1,7 @@
 import 'dart:math';
 
-import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+import 'dart:typed_data';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../app_state.dart';
@@ -218,6 +219,20 @@ enum ProfileTab {
   /// profile: a server's feed is encrypted with that server's key, so there is
   /// no such thing as seeing a stranger's server posts.
   servers;
+
+  /// The glyph the strip draws. Four words across a phone left each column
+  /// about eighty points wide and "Servers" nearly touching its neighbours;
+  /// an icon says the same thing in a third of the room, which is why every
+  /// timeline that has ever had four tabs uses them.
+  IconData get icon => switch (this) {
+        // Not a speech bubble: that is the Chats pill in the bar underneath,
+        // and the same glyph twice on one screen meaning two different things
+        // is worse than a word.
+        ProfileTab.posts => Icons.article_outlined,
+        ProfileTab.replies => Icons.reply_outlined,
+        ProfileTab.media => Icons.image_outlined,
+        ProfileTab.servers => Icons.workspaces_outline,
+      };
 
   String get label => switch (this) {
         ProfileTab.posts => 'Posts',

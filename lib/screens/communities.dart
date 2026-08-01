@@ -108,7 +108,6 @@ class CommunitiesTab extends StatefulWidget {
 }
 
 class _CommunitiesTabState extends State<CommunitiesTab> {
-  final TextEditingController _search = TextEditingController();
 
   /// Pulls the server's copy of the communities back down, then rebuilds.
   Future<void> _refresh() => PullToRefresh.refreshApp(
@@ -116,7 +115,6 @@ class _CommunitiesTabState extends State<CommunitiesTab> {
 
   @override
   void dispose() {
-    _search.dispose();
     super.dispose();
   }
 
@@ -131,7 +129,9 @@ class _CommunitiesTabState extends State<CommunitiesTab> {
       ]),
       builder: (context, _) {
         final all = CommunityStore.instance.communities;
-        final communities = filterCommunities(all, _search.text);
+        // Unfiltered here. filterCommunities is still what the app bar's
+        // search uses; this list shows everything.
+        final communities = all;
         return RefreshIndicator(
           onRefresh: _refresh,
           child: all.isEmpty
@@ -147,31 +147,11 @@ class _CommunitiesTabState extends State<CommunitiesTab> {
                   physics: const AlwaysScrollableScrollPhysics(),
                   padding: const EdgeInsets.fromLTRB(12, 12, 12, 96),
                   children: [
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(2, 0, 2, 10),
-                      child: TextField(
-                        controller: _search,
-                        onChanged: (_) => setState(() {}),
-                        decoration: InputDecoration(
-                          hintText: 'Search servers',
-                          prefixIcon: const Icon(Icons.search),
-                          suffixIcon: _search.text.isEmpty
-                              ? null
-                              : IconButton(
-                                  icon: const Icon(Icons.close),
-                                  tooltip: 'Clear server search',
-                                  onPressed: () =>
-                                      setState(() => _search.clear()),
-                                ),
-                          isDense: true,
-                          filled: true,
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(24),
-                            borderSide: BorderSide.none,
-                          ),
-                        ),
-                      ),
-                    ),
+                    // The in-list search field is gone: the tab's app bar
+                    // already has a search button, and two ways to search one
+                    // list is one too many — the field also took a row of
+                    // every screen, including the ones with two servers on
+                    // them. The filter itself stays, driven from the app bar.
                     if (communities.isEmpty)
                       Padding(
                         padding: const EdgeInsets.all(24),

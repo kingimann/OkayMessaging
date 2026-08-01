@@ -10,6 +10,7 @@ import '../crypto/key_exchange.dart';
 import '../app_state.dart';
 import '../relay/relay_service.dart';
 import '../state/community_store.dart';
+import '../state/score_store.dart';
 import '../state/session.dart';
 import 'nearby_servers.dart';
 import 'mesh_chunks.dart';
@@ -49,11 +50,15 @@ class MeshService extends ChangeNotifier {
   static const MethodChannel _channel = MethodChannel('okay/mesh');
 
   static const _enabledKey = 'mesh_enabled_v1';
+  static const _relayKey = 'mesh_relay_v1';
+  static const _discoverKey = 'mesh_discover_v1';
 
   final MeshRouter router = MeshRouter();
   final Map<String, MeshReassembler> _reassemblers = {};
 
   bool _enabled = false;
+  bool _relayForOthers = true;
+  bool _findServers = true;
   bool _running = false;
   bool? _available;
   int _peers = 0;
@@ -63,6 +68,20 @@ class MeshService extends ChangeNotifier {
   /// and a messenger that quietly starts broadcasting is not one this app
   /// wants to be.
   bool get enabled => _enabled;
+
+  /// Whether this phone passes on messages that are not its own.
+  ///
+  /// On by default, because a mesh where nobody relays is a mesh of one hop —
+  /// but it is somebody's battery and somebody's radio, so it is theirs to
+  /// turn off. Turning it off does not stop this phone sending or receiving.
+  bool get relayForOthers => _relayForOthers;
+
+  /// Whether this phone listens for servers being announced nearby.
+  ///
+  /// Separate from announcing your own: hearing about a stranger's server is
+  /// a different thing from telling strangers about yours, and somebody may
+  /// want one without the other.
+  bool get findServers => _findServers;
 
   /// Whether the radio is actually up right now.
   bool get running => _running;
@@ -97,12 +116,29 @@ class MeshService extends ChangeNotifier {
     }
   }
 
-  /// Reads the saved setting and starts the radio if it was on.
+  /// Reads the saved settings and starts the radio if it was on.
   Future<void> load() async {
     final prefs = await SharedPreferences.getInstance();
     _enabled = prefs.getBool(_enabledKey) ?? false;
+    _relayForOthers = prefs.getBool(_relayKey) ?? true;
+    _findServers = prefs.getBool(_discoverKey) ?? true;
     notifyListeners();
     if (_enabled) await start();
+  }
+
+  Future<void> setRelayForOthers(bool on) async {
+    if (_relayForOthers == on) return;
+    _relayForOthers = on;
+    notifyListeners();
+    (await SharedPreferences.getInstance()).setBool(_relayKey, on);
+  }
+
+  Future<void> setFindServers(bool on) async {
+    if (_findServers == on) return;
+    _findServers = on;
+    if (!on) NearbyServers.instance.clear();
+    notifyListeners();
+    (await SharedPreferences.getInstance()).setBool(_discoverKey, on);
   }
 
   /// Turns the mesh on or off and remembers the choice.
@@ -129,6 +165,11 @@ class MeshService extends ChangeNotifier {
       _startBeacon();
       notifyListeners();
     } on PlatformException {
+      _running = false;
+      notifyListeners();
+    } on MissingPluginException {
+      // A build without the native side — the web, or an iOS binary older
+      // than the plugin. Not an error to report, just a radio there isn't.
       _running = false;
       notifyListeners();
     }
@@ -162,6 +203,7 @@ class MeshService extends ChangeNotifier {
     final packet = MeshPacket(
         id: messageId, to: toDigits, ttl: MeshPacket.maxTtl, payload: payload);
     router.noteSent(messageId);
+    ScoreStore.instance.recordFlag('sent_mesh');
     return _transmit(packet);
   }
 
@@ -393,6 +435,7 @@ class MeshService extends ChangeNotifier {
         RelayService.applyIncoming(packet.payload,
             myPhone: Session.instance.user.value?.phone ?? '');
       case MeshPacket.kindServer:
+        if (!_findServers) return;
         final server =
             NearbyServer.fromWire(packet.payload, DateTime.now());
         // Not one we are already in — that is a server, not a nearby one.
@@ -413,8 +456,15 @@ class MeshService extends ChangeNotifier {
   }
 
   void _relay(MeshPacket packet) {
+    // Somebody else's traffic, and they said no. Their own messages still go
+    // out and still arrive — this only stops the carrying.
+    if (!_relayForOthers) return;
     final onward = router.forwarded(packet);
-    if (onward != null) _transmit(onward);
+    if (onward == null) return;
+    // Carrying somebody else's message is the thing that makes a mesh a mesh,
+    // and the one contribution nobody would otherwise notice making.
+    if (!packet.isBroadcast) ScoreStore.instance.recordFlag('relayed_mesh');
+    _transmit(onward);
   }
 
   @visibleForTesting
@@ -422,6 +472,8 @@ class MeshService extends ChangeNotifier {
     router.reset();
     _reassemblers.clear();
     _enabled = false;
+    _relayForOthers = true;
+    _findServers = true;
     _running = false;
     _available = null;
     _peers = 0;
@@ -439,7 +491,14 @@ class MeshService extends ChangeNotifier {
   @visibleForTesting
   void debugAnswerInvite(Map<String, dynamic> body) => _answerInvite(body);
 
-  /// Test hook: hand a packet to the delivery path, as if it had been heard.
+  /// Test hook: hand a packet straight to the delivery path, skipping the
+  /// router — for checking what a packet DOES once it has been accepted.
   @visibleForTesting
   void debugDeliver(MeshPacket packet) => _deliver(packet);
+
+  /// Test hook: the whole path a heard packet takes — router first, then
+  /// deliver and/or relay. This is what actually happens off the air, and the
+  /// only way to see whether something was passed on.
+  @visibleForTesting
+  void debugReceive(MeshPacket packet) => _handle(packet);
 }

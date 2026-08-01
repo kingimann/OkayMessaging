@@ -1796,8 +1796,10 @@ class RelayService {
       fromPronouns: about.isEmpty ? '' : me.pronouns,
       fromLink: about.isEmpty ? '' : me.link,
       fromVerified: me.verified,
-      fromScore: ScoreStore.instance.points,
-      fromStreak: streak,
+      // Withheld rather than zeroed at the far end: a field that never
+      // leaves is a field nobody has to be trusted with.
+      fromScore: AppState.shareScore.value ? ScoreStore.instance.points : 0,
+      fromStreak: AppState.shareStreak.value ? streak : 0,
       toPhone: contactPhone,
       groupId: group?.id ?? '',
       groupName: group?.contact.name ?? '',

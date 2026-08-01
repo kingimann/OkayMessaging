@@ -9,6 +9,7 @@ import '../relay/relay_config.dart';
 import '../relay/relay_service.dart';
 import '../state/chat_store.dart';
 import '../state/community_store.dart';
+import '../state/score_store.dart';
 import '../theme/app_theme.dart';
 import '../widgets/user_avatar.dart';
 
@@ -152,6 +153,9 @@ class _ForwardScreenState extends State<ForwardScreen> {
           senderName: AppState.profile.value.name,
         );
       }
+    }
+    if (_selected.isNotEmpty || _selectedChannels.isNotEmpty) {
+      ScoreStore.instance.recordFlag('forwarded');
     }
     final verb = widget.place != null || widget.invite != null
         ? 'Sent to'

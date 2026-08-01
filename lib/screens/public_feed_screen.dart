@@ -15,6 +15,7 @@ import '../state/community_store.dart';
 import '../state/feed_mute_store.dart';
 import '../state/feed_store.dart';
 import '../state/public_feed_store.dart';
+import '../state/score_store.dart';
 import '../util/file_moderation.dart';
 import '../util/photo_prep.dart';
 import '../utils/date_formatter.dart';
@@ -720,21 +721,10 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
                   postCount: posts?.length,
                 ),
               ),
-              // What this account has proven, at a glance: the phone behind
-              // sign-in, the email that can recover it, the ID behind the blue
-              // check. Each chip goes where its state is changed, so
-              // "unconfirmed" is a door and not a verdict. Yours only — a
-              // stranger's verification state is not somebody's to inspect.
-              if (_isMe)
-                const SliverToBoxAdapter(
-                  child: Padding(
-                    // The same 16 the name, bio and counts use, with real air
-                    // above and below: these are their own section, not a
-                    // continuation of the counts.
-                    padding: EdgeInsets.fromLTRB(16, 2, 16, 14),
-                    child: ProfileVerificationRow(),
-                  ),
-                ),
+              // The verification chips used to sit here. They are three
+              // settings rows wearing a profile's clothes — what they say is
+              // about your account rather than about you, and each one is a
+              // door into Settings anyway. They live in Settings now.
               // Pinned, so scrolling a long profile does not take the tabs
               // away with it. Switching from Posts to Media otherwise means
               // scrolling back to the top to find the control you just used.
@@ -743,6 +733,7 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
                 delegate: _PinnedTabs(
                   child: _TabStrip(
                     labels: [for (final t in _tabs) t.label],
+                    icons: [for (final t in _tabs) t.icon],
                     active: _tabs.indexOf(_tab),
                     onPick: (i) => setState(() => _tab = _tabs[i]),
                   ),
@@ -1163,9 +1154,13 @@ class _ScoreRow extends StatelessWidget {
           children: [
             Icon(Icons.local_fire_department, size: 19, color: scheme.primary),
             const SizedBox(width: 8),
-            ValueListenableBuilder<AppUser>(
-              valueListenable: AppState.profile,
-              builder: (context, me, _) => Text('${me.score}',
+            // From ScoreStore, which is where the number lives. It used to
+            // read AppUser.score, a field nothing ever writes on your own
+            // profile — it is populated from the wire for a CONTACT, so your
+            // own always read zero however much you had earned.
+            ListenableBuilder(
+              listenable: ScoreStore.instance,
+              builder: (context, _) => Text('${ScoreStore.instance.points}',
                   style: const TextStyle(
                       fontSize: 16, fontWeight: FontWeight.w800)),
             ),
@@ -1191,25 +1186,15 @@ class _ProfileActions extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (isMe) {
-      return Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Flexible(
-            child: OutlinedButton(
-              onPressed: () => Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const EditProfileScreen())),
-              child: const Text('Edit profile',
-                  maxLines: 1, overflow: TextOverflow.ellipsis),
-            ),
-          ),
-          const SizedBox(width: 8),
-          IconButton(
-            tooltip: 'Share your profile',
-            icon: const Icon(Icons.qr_code),
-            onPressed: () => Navigator.of(context)
-                .push(MaterialPageRoute(builder: (_) => const MyQrScreen())),
-          ),
-        ],
+      // No "Edit profile" button. Tapping your own face already opens the
+      // editor and is where people reach for first, and Settings has a row
+      // for it — three doors to one screen, one of them taking the widest
+      // thing on the header.
+      return IconButton(
+        tooltip: 'Share your profile',
+        icon: const Icon(Icons.qr_code),
+        onPressed: () => Navigator.of(context)
+            .push(MaterialPageRoute(builder: (_) => const MyQrScreen())),
       );
     }
     return ListenableBuilder(
@@ -1236,12 +1221,14 @@ class _PinnedTabs extends SliverPersistentHeaderDelegate {
   final Widget child;
   const _PinnedTabs({required this.child});
 
-  // The strip's own height: 12 padding, the label, 8, the 3-pixel underline,
-  // 12 padding, and the hairline divider. Guessed at 49, then 53; both clipped
-  // it. A pinned header cannot measure its child, so this is a number that has
-  // to be right — the test asserts nothing overflows, and it reports by how
-  // much when it does.
-  static const double _height = 56;
+  // The strip's own height: 12 padding, the glyph or the label, 8, the
+  // 3-pixel underline, 12 padding, and the hairline divider. Guessed at 49,
+  // then 53; both clipped it. A pinned header cannot measure its child, so
+  // this is a number that has to be right — the test asserts nothing
+  // overflows, and it reports by how much when it does. Went to 57 when the
+  // profile's tabs became 21-point icons, which are a pixel taller than the
+  // line of text they replaced.
+  static const double _height = 57;
 
   @override
   double get minExtent => _height;
@@ -1266,10 +1253,22 @@ class _PinnedTabs extends SliverPersistentHeaderDelegate {
 /// drift into looking like different apps.
 class _TabStrip extends StatelessWidget {
   final List<String> labels;
+
+  /// One glyph per label, or null to draw the words.
+  ///
+  /// The profile's four tabs are icons — four words across a phone leave
+  /// "Servers" nearly touching its neighbours. The feed's filters stay as
+  /// words: there are two of them, they have all the room they need, and
+  /// "Following" is not a thing with an obvious picture.
+  final List<IconData>? icons;
+
   final int active;
   final ValueChanged<int> onPick;
   const _TabStrip(
-      {required this.labels, required this.active, required this.onPick});
+      {required this.labels,
+      required this.active,
+      required this.onPick,
+      this.icons});
 
   /// The underline's own size, shared by the widget that draws it and the sums
   /// that place it.
@@ -1292,27 +1291,48 @@ class _TabStrip extends StatelessWidget {
                   children: [
                     for (var i = 0; i < labels.length; i++)
                       Expanded(
-                        child: InkWell(
-                          onTap: () => onPick(i),
-                          child: Padding(
-                            padding: const EdgeInsets.fromLTRB(
-                                4, 12, 4, 12 + _markHeight + 8),
-                            child: Center(
-                              // The weight changes with the tab, so the label
-                              // is laid out for the bold one either way — a
-                              // strip whose columns shift as you tap between
-                              // them reads as the whole row moving.
-                              child: Text(
-                                labels[i],
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  fontWeight: i == active
-                                      ? FontWeight.w700
-                                      : FontWeight.w500,
-                                  color: i == active
-                                      ? scheme.onSurface
-                                      : AppColors.subtle(context),
+                        // Named either way. An icon strip carries no words, so
+                        // without this a screen reader announces four buttons
+                        // called nothing — and "replies" and "posts" are two
+                        // speech bubbles to anyone guessing.
+                        child: Semantics(
+                          label: labels[i],
+                          selected: i == active,
+                          button: true,
+                          child: Tooltip(
+                            message: labels[i],
+                            child: InkWell(
+                              onTap: () => onPick(i),
+                              child: Padding(
+                                padding: const EdgeInsets.fromLTRB(
+                                    4, 12, 4, 12 + _markHeight + 8),
+                                child: Center(
+                                  child: icons != null
+                                      ? Icon(
+                                          icons![i],
+                                          size: 21,
+                                          color: i == active
+                                              ? scheme.onSurface
+                                              : AppColors.subtle(context),
+                                        )
+                                      // The weight changes with the tab, so a
+                                      // strip of words is laid out for the
+                                      // bold one either way — columns that
+                                      // shift as you tap read as the whole
+                                      // row moving.
+                                      : Text(
+                                          labels[i],
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            fontWeight: i == active
+                                                ? FontWeight.w700
+                                                : FontWeight.w500,
+                                            color: i == active
+                                                ? scheme.onSurface
+                                                : AppColors.subtle(context),
+                                          ),
+                                        ),
                                 ),
                               ),
                             ),

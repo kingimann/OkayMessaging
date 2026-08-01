@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -56,6 +58,24 @@ class ScoreStore extends ChangeNotifier {
 
   /// The full badge catalog, ordered from easiest to rarest.
   static const List<Badge> catalog = [
+    Badge(
+        id: 'nearby',
+        emoji: '📡',
+        label: 'Off the grid',
+        description: 'Send a message over Bluetooth, with no internet',
+        flag: 'sent_mesh'),
+    Badge(
+        id: 'relay',
+        emoji: '🔗',
+        label: 'Good neighbour',
+        description: 'Carry somebody else\'s message to them',
+        flag: 'relayed_mesh'),
+    Badge(
+        id: 'forwarder',
+        emoji: '↪️',
+        label: 'Passed it on',
+        description: 'Forward a message to a chat or a channel',
+        flag: 'forwarded'),
     Badge(
         id: 'starter',
         emoji: '🌱',
@@ -260,7 +280,23 @@ class ScoreStore extends ChangeNotifier {
       ..clear()
       ..addAll(prefs.getStringList(_kFlags) ?? const []);
     _featured = prefs.getString(_kFeatured);
+    _history = _decodeHistory(prefs.getString(_kHistory));
+    _trimHistory();
     notifyListeners();
+  }
+
+  static Map<String, int> _decodeHistory(String? raw) {
+    if (raw == null || raw.isEmpty) return {};
+    try {
+      final json = jsonDecode(raw);
+      if (json is! Map) return {};
+      return {
+        for (final e in json.entries)
+          if (e.key is String && e.value is int) e.key as String: e.value as int
+      };
+    } catch (_) {
+      return {};
+    }
   }
 
   /// Points for opening the app on a new day (checked once at startup).
@@ -279,12 +315,58 @@ class ScoreStore extends ChangeNotifier {
     award(pointsPerDailyCheckIn);
   }
 
+  /// Points earned per day, keyed `yyyy-mm-dd`, for the last [historyDays].
+  ///
+  /// A single running total says nothing about whether you are going up. This
+  /// is what the score screen draws, and it is bounded rather than kept
+  /// forever — a fortnight is as far back as "am I using this more or less"
+  /// is a question anyone asks.
+  static const int historyDays = 14;
+  static const _kHistory = 'okay_score_history';
+  Map<String, int> _history = {};
+
+  Map<String, int> get history => Map.unmodifiable(_history);
+
+  static String dayKey(DateTime day) =>
+      '${day.year.toString().padLeft(4, '0')}-'
+      '${day.month.toString().padLeft(2, '0')}-'
+      '${day.day.toString().padLeft(2, '0')}';
+
+  /// Points earned on each of the last [historyDays] days, oldest first, with
+  /// zeros for days nothing happened. A chart with gaps in it is a chart that
+  /// lies about how long the gap was.
+  List<int> recentDays({DateTime? now}) {
+    final today = now ?? DateTime.now();
+    return [
+      for (var i = historyDays - 1; i >= 0; i--)
+        _history[dayKey(today.subtract(Duration(days: i)))] ?? 0
+    ];
+  }
+
+  /// Points earned in the last seven days.
+  int get thisWeek =>
+      recentDays().sublist(historyDays - 7).fold(0, (a, b) => a + b);
+
   /// Adds [delta] points (ignoring non-positive deltas) and persists.
-  void award(int delta) {
+  void award(int delta, {DateTime? now}) {
     if (delta <= 0) return;
     _points += delta;
+    final key = dayKey(now ?? DateTime.now());
+    _history[key] = (_history[key] ?? 0) + delta;
+    _trimHistory(now: now);
     _persist();
     notifyListeners();
+  }
+
+  /// Drops days that have fallen out of the window, so a device left running
+  /// for a year does not carry a year of them.
+  void _trimHistory({DateTime? now}) {
+    final today = now ?? DateTime.now();
+    final keep = {
+      for (var i = 0; i < historyDays; i++)
+        dayKey(today.subtract(Duration(days: i)))
+    };
+    _history.removeWhere((k, _) => !keep.contains(k));
   }
 
   /// Records a one-off achievement [flag] (e.g. 'made_call', 'verified').
@@ -337,6 +419,7 @@ class ScoreStore extends ChangeNotifier {
   void _persist() {
     _prefs?.setInt(_kPoints, _points);
     _prefs?.setStringList(_kFlags, _flags.toList());
+    _prefs?.setString(_kHistory, jsonEncode(_history));
     if (_featured == null) {
       _prefs?.remove(_kFeatured);
     } else {
@@ -349,6 +432,7 @@ class ScoreStore extends ChangeNotifier {
     _points = 0;
     _flags.clear();
     _featured = null;
+    _history = {};
     _prefs = null;
     notifyListeners();
   }

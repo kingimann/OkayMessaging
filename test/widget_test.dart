@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'dart:convert';
 import 'dart:io';
@@ -34,6 +35,7 @@ import 'package:okay_messaging/models/call.dart' as callmodel;
 import 'package:okay_messaging/screens/notes_screen.dart';
 import 'package:okay_messaging/screens/auth/phone_login_screen.dart'
     show PhoneLoginScreen, debugVerifiedModeOverride;
+import 'package:okay_messaging/screens/profile_screen.dart';
 import 'package:okay_messaging/screens/blocked_contacts_screen.dart';
 import 'package:okay_messaging/screens/call_screen.dart';
 import 'package:okay_messaging/screens/communities.dart';
@@ -144,6 +146,7 @@ import 'package:okay_messaging/tabs/calls_tab.dart';
 import 'package:okay_messaging/screens/starred_messages_screen.dart';
 import 'package:okay_messaging/widgets/emoji_data.dart';
 import 'package:okay_messaging/screens/edit_group_screen.dart';
+import 'package:okay_messaging/screens/edit_profile_screen.dart';
 import 'package:okay_messaging/screens/group_info_screen.dart';
 import 'package:okay_messaging/state/live_location_store.dart';
 import 'package:okay_messaging/state/saved_places_store.dart';
@@ -457,8 +460,8 @@ void main() {
     await tester.tap(find.byIcon(Icons.person_outline));
     await tester.pumpAndSettle();
 
-    // The You tab is a social profile now; edit opens from its button.
-    await tester.tap(find.text('Edit profile'));
+    // The edit button is gone; your own avatar is the door.
+    await tester.tap(find.byType(CircleAvatar).first);
     await tester.pumpAndSettle();
 
     await tester.enterText(find.byType(TextField).first, 'Ada Lovelace');
@@ -2998,7 +3001,7 @@ void main() {
 
     await tester.tap(find.byIcon(Icons.person_outline));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Edit profile'));
+    await tester.tap(find.byType(CircleAvatar).first);
     await tester.pumpAndSettle();
 
     // Colour and emoji now live behind the avatar's "Change look" sheet.
@@ -3933,7 +3936,8 @@ void main() {
       StreakStore.instance.resetForTest();
       ChatStore.instance.reset();
       ScoreStore.instance.award(60);
-      tester.view.physicalSize = const Size(500, 2400);
+      // Taller than it was: the fortnight chart went in above the rules.
+      tester.view.physicalSize = const Size(500, 2800);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.reset);
 
@@ -7007,8 +7011,10 @@ void main() {
       expect(find.byType(VerifiedBadge), findsWidgets);
     });
 
-    testWidgets('the profile says what the account has proven',
-        (tester) async {
+    testWidgets('Settings says what the account has proven', (tester) async {
+      tester.view.physicalSize = const Size(430, 1400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
       AccountEmail.instance.resetForTest();
       IdentityVerification.instance.resetForTest();
       addTearDown(() {
@@ -7016,16 +7022,14 @@ void main() {
         IdentityVerification.instance.resetForTest();
       });
 
-      // What an account has proven is shown on your OWN profile — it is the
-      // door to changing each of those things, and a stranger's verification
-      // state is not somebody else's business to inspect.
+      // These were on the profile, where they were three settings rows in a
+      // profile's clothes. Each is a door to changing one of those things,
+      // which is what Settings is.
       final prevProfile = AppState.profile.value;
       addTearDown(() => AppState.profile.value = prevProfile);
       AppState.profile.value = const AppUser(
           id: 'me', name: 'Me', avatarColor: '#000000', username: 'me');
-      await tester.pumpWidget(const MaterialApp(
-          home: Scaffold(
-              body: PublicProfileScreen(username: 'me', embedded: true))));
+      await tester.pumpWidget(const MaterialApp(home: SettingsScreen()));
       await tester.pump();
 
       // Local mode, nothing attached: honest about all three.
@@ -8572,22 +8576,19 @@ void main() {
       expect(CommunityStore.instance.unreadInChannel(live()), 0);
     });
 
-    testWidgets('the servers tab search filters the list', (tester) async {
+    testWidgets('the servers tab lists every server, unfiltered', (tester) async {
+      // The in-list search field is gone — the tab's app bar already has a
+      // search button, and two ways to search one list is one too many. What
+      // filterCommunities does is still covered by its own test.
       await tester.pumpWidget(
           const MaterialApp(home: Scaffold(body: CommunitiesTab())));
       await tester.pump();
 
-      final firstName = CommunityStore.instance.communities.first.name;
-      expect(find.text(firstName), findsWidgets);
-
-      await tester.enterText(
-          find.byType(TextField).first, 'zzz-no-such-server');
-      await tester.pump();
-      expect(find.text('No servers match your search.'), findsOneWidget);
-
-      await tester.tap(find.byTooltip('Clear server search'));
-      await tester.pump();
-      expect(find.text(firstName), findsWidgets);
+      for (final community in CommunityStore.instance.communities) {
+        expect(find.text(community.name), findsWidgets,
+            reason: community.name);
+      }
+      expect(find.byType(TextField), findsNothing);
     });
 
     testWidgets('the chat list shows a live typing indicator',
@@ -13697,7 +13698,7 @@ void main() {
       // Capitalised now: it is one stat among the others rather than a
       // sentence fragment, since the two rows of counts became one.
       expect(find.text('3'), findsWidgets);
-      expect(find.text('Posts'), findsWidgets);
+      expect(find.byTooltip('Posts'), findsWidgets);
 
       // No follower count anywhere. This app knows who YOU follow, on your own
       // device; it does not know who follows anybody, and there is no table
@@ -13705,12 +13706,12 @@ void main() {
       expect(find.textContaining('follower'), findsNothing);
       expect(find.textContaining('Follower'), findsNothing);
 
-      await t.tap(find.text('Replies'));
+      await t.tap(find.byTooltip('Replies'));
       await t.pumpAndSettle();
       expect(find.text('a reply'), findsOneWidget);
       expect(find.text('a top-level post'), findsNothing);
 
-      await t.tap(find.text('Media'));
+      await t.tap(find.byTooltip('Media'));
       await t.pumpAndSettle();
       // A grid of the photos themselves: the caption is not what somebody
       // opened this tab to look at, so it is in the post it belongs to.
@@ -14900,8 +14901,11 @@ void main() {
       // somebody to check whether the two numbers disagree.
       expect(find.text('Following'), findsOneWidget);
       expect(find.text('following'), findsNothing);
-      expect(find.text('Posts'), findsOneWidget);
-      expect(find.text('post'), findsNothing);
+      // The count reads "Post" with one of them; the tab that used to say
+      // "Posts" beside it is a glyph now, so there is only ever one of each.
+      expect(find.text('Post'), findsOneWidget);
+      expect(find.byTooltip('Posts'), findsOneWidget);
+      expect(find.text('posts'), findsNothing);
       // Okay Score used to be a fourth count in the same row. Four do not fit
       // a 390pt phone, so the row broke three-and-one; it has a row of its own
       // now, with somewhere to go, which is what it was all along.
@@ -14917,16 +14921,12 @@ void main() {
       expect(find.byIcon(Icons.chevron_right), findsWidgets,
           reason: 'and it says it goes somewhere');
 
-      // Everything down the left edge starts at the same margin. The
-      // verification chips were centred while the name, bio and counts were
-      // left-aligned, which reads as a stray block rather than a row.
+      // Everything down the left edge starts at the same margin. The score
+      // row is the one that used to be a boxed rectangle sitting apart from
+      // the rest.
       final name = t.getRect(find.text('Iman').first);
-      // The chip itself, not its label — the label sits inside the chip's own
-      // padding and behind its icon, about 30 pixels in.
-      final chips = t.getRect(find.ancestor(
-          of: find.text('Verify phone'), matching: find.byType(InkWell)));
-      expect(chips.left, closeTo(name.left, 1.0),
-          reason: 'the chips share the margin everything else uses');
+      expect(scoreRow.left, closeTo(name.left, 1.0),
+          reason: 'the score row shares the margin everything else uses');
 
       // The header has to leave room for the thing the profile is for. This
       // was 520 while the header was packed into 4-to-8-point gaps; opening it
@@ -14936,7 +14936,7 @@ void main() {
       // tall, so the tabs have to end far enough up that the first lines of a
       // post are under them without a scroll. Tightening this back below 520
       // means taking the air out again.
-      final tabs = t.getRect(find.text('Replies'));
+      final tabs = t.getRect(find.byTooltip('Replies'));
       expect(tabs.bottom, lessThan(600.0),
           reason: 'a post is visible without scrolling on a 667pt phone');
 
@@ -14973,7 +14973,7 @@ void main() {
               body: PublicProfileScreen(username: 'iman', embedded: true))));
       await t.pumpAndSettle();
 
-      final before = t.getRect(find.text('Media'));
+      final before = t.getRect(find.byTooltip('Media'));
       expect(before.top, greaterThan(200.0),
           reason: 'the tabs start below the header');
 
@@ -14984,9 +14984,9 @@ void main() {
 
       // Switching from Posts to Media otherwise means scrolling back to the
       // top to find the control you just used.
-      expect(find.text('Media'), findsOneWidget,
+      expect(find.byTooltip('Media'), findsOneWidget,
           reason: 'the tabs are still on screen after scrolling');
-      final after = t.getRect(find.text('Media'));
+      final after = t.getRect(find.byTooltip('Media'));
       expect(after.top, lessThan(60.0),
           reason: 'pinned at the top, not carried down the page');
       expect(after.top, greaterThanOrEqualTo(0.0));
@@ -14994,7 +14994,7 @@ void main() {
           reason: 'and it really did scroll');
 
       // Still usable where it stopped.
-      await t.tap(find.text('Media'));
+      await t.tap(find.byTooltip('Media'));
       await t.pumpAndSettle();
       expect(find.text('No photos yet'), findsOneWidget);
     });
@@ -15164,11 +15164,13 @@ void main() {
       await t.pumpAndSettle();
       expect(find.byType(PublicProfileScreen), findsOneWidget);
       // The parts only you can act on are there, and nowhere else.
-      expect(find.text('Edit profile'), findsOneWidget);
       expect(find.byTooltip('Share your profile'), findsOneWidget);
-      // Twice on your own: the count in the stats row, and the tab that lists
-      // them. Neither appears on anybody else's.
-      expect(find.text('Servers'), findsNWidgets(2),
+      // Once in the counts, and once more as a tab — which is a glyph now, so
+      // it is found by the name the tooltip gives it. Neither appears on
+      // anybody else's.
+      expect(find.text('Servers'), findsOneWidget,
+          reason: 'your own server count');
+      expect(find.byTooltip('Servers'), findsOneWidget,
           reason: 'your own server posts, which nobody else could be shown');
       await t.pageBack();
       await t.pumpAndSettle();
@@ -15177,9 +15179,8 @@ void main() {
       await t.tap(find.text('Sam').first);
       await t.pumpAndSettle();
       expect(find.byType(PublicProfileScreen), findsOneWidget);
-      expect(find.text('Edit profile'), findsNothing);
       expect(find.byTooltip('Share your profile'), findsNothing);
-      expect(find.text('Servers'), findsNothing,
+      expect(find.byTooltip('Servers'), findsNothing,
           reason: 'a server feed is encrypted per server; there is nothing to '
               'show and pretending otherwise would be a lie');
       expect(find.text('Follow'), findsOneWidget);
@@ -15188,7 +15189,7 @@ void main() {
       // picture, not a control — tapping it must not open your editor.
       await t.tap(find.byType(CircleAvatar).first);
       await t.pumpAndSettle();
-      expect(find.text('Edit profile'), findsNothing,
+      expect(find.byType(EditProfileScreen), findsNothing,
           reason: 'a stranger\'s avatar is not a door to your own settings');
     });
 
@@ -15249,7 +15250,7 @@ void main() {
       await t.pumpWidget(const MaterialApp(
           home: PublicProfileScreen(username: 'sam', name: 'Sam')));
       await t.pumpAndSettle();
-      await t.tap(find.text('Media'));
+      await t.tap(find.byTooltip('Media'));
       await t.pumpAndSettle();
 
       // Three across, so the photos are the tab rather than captions with a
@@ -15278,14 +15279,14 @@ void main() {
       await t.pumpAndSettle();
       expect(find.text('No posts yet'), findsOneWidget);
 
-      await t.tap(find.text('Media'));
+      await t.tap(find.byTooltip('Media'));
       await t.pumpAndSettle();
       // Each tab names itself. They all used to read "No posts yet.", so an
       // empty Media tab looked like the profile had failed to load.
       expect(find.text('No photos yet'), findsOneWidget);
       expect(find.textContaining('Posts with a picture'), findsOneWidget);
 
-      await t.tap(find.text('Replies'));
+      await t.tap(find.byTooltip('Replies'));
       await t.pumpAndSettle();
       expect(find.text('No replies yet'), findsOneWidget);
     });
@@ -15309,12 +15310,15 @@ void main() {
       final onPosts = t.getRect(mark).center.dx;
       expect(onPosts, lessThan(500 / 3), reason: 'Posts is the first tab');
 
-      await t.tap(find.text('Media'));
+      await t.tap(find.byTooltip('Media'));
       await t.pumpAndSettle();
       // The tab's own column, not the label: the label sits centred inside it
       // and would agree by accident if the mark were nailed to the left edge.
+      // Descendant, not ancestor: the tooltip that names the tab now wraps
+      // the tappable area rather than sitting inside it.
       final cell = t.getRect(find
-          .ancestor(of: find.text('Media'), matching: find.byType(InkWell))
+          .descendant(
+              of: find.byTooltip('Media'), matching: find.byType(InkWell))
           .first);
       final onMedia = t.getRect(mark).center.dx;
       expect(onMedia, closeTo(cell.center.dx, 2));
@@ -20307,6 +20311,357 @@ void main() {
       final swift = File('ios/Runner/Mesh.swift').readAsStringSync();
       expect(swift.contains('CBCentralManager('), isTrue,
           reason: 'the string is only needed because this is here');
+    });
+  });
+
+  group('The profile says less and shows it better', () {
+    setUp(() {
+      SharedPreferences.setMockInitialValues({});
+      ScoreStore.instance.resetForTest();
+      PublicFeedStore.debugProfileOverride = (u) async => [];
+    });
+    tearDown(() {
+      ScoreStore.instance.resetForTest();
+      PublicFeedStore.instance.resetForTest();
+      AppState.resetForTest();
+    });
+
+    Future<void> openProfile(WidgetTester t) async {
+      t.view.physicalSize = const Size(430, 1000);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.resetPhysicalSize);
+      AppState.profile.value = const AppUser(
+          id: 'me', name: 'Ada', avatarColor: '#2E7D32', username: 'ada');
+      await t.pumpWidget(const MaterialApp(
+          home: PublicProfileScreen(username: 'ada', name: 'Ada')));
+      await t.pumpAndSettle();
+    }
+
+    testWidgets('the score is the one you actually have', (t) async {
+      // It read AppUser.score, which nothing writes on your own profile —
+      // that field is filled from the wire for a CONTACT. However much you
+      // had earned, your own profile said 0.
+      ScoreStore.instance.award(137);
+      await openProfile(t);
+      expect(find.text('137'), findsOneWidget);
+      expect(find.text('Okay Score'), findsOneWidget);
+    });
+
+    testWidgets('no Edit profile button, and no verification chips',
+        (t) async {
+      await openProfile(t);
+      // Your own face already opens the editor, and Settings has a row for
+      // it — the button was a third door taking the widest thing on the
+      // header.
+      expect(find.text('Edit profile'), findsNothing);
+      expect(find.byTooltip('Share your profile'), findsOneWidget);
+      // The chips are three settings rows in a profile's clothes.
+      for (final chip in ['Verify phone', 'Add email', 'Get verified']) {
+        expect(find.text(chip), findsNothing, reason: chip);
+      }
+    });
+
+    testWidgets('the tabs are glyphs, and still say what they are',
+        (t) async {
+      await openProfile(t);
+      for (final tab in ProfileTab.values) {
+        // Nothing is nameless: a strip of unlabelled icons is four buttons
+        // called nothing to anyone using a screen reader.
+        final strip = find.byTooltip(tab.label);
+        expect(strip, findsOneWidget, reason: tab.label);
+        // The tab itself draws a glyph and no words. Scoped to the tab
+        // rather than the screen: "Posts" and "Servers" are also counts in
+        // the header, and asserting on the whole screen catches those.
+        expect(
+            find.descendant(of: strip, matching: find.byType(Text)), findsNothing,
+            reason: '${tab.label} still draws its word');
+        expect(find.descendant(of: strip, matching: find.byIcon(tab.icon)),
+            findsOneWidget,
+            reason: '${tab.label} has no glyph');
+      }
+    });
+
+    testWidgets('the verification chips are in Settings now', (t) async {
+      t.view.physicalSize = const Size(430, 1200);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.resetPhysicalSize);
+      AccountEmail.instance.resetForTest();
+      addTearDown(AccountEmail.instance.resetForTest);
+      await t.pumpWidget(const MaterialApp(home: SettingsScreen()));
+      await t.pumpAndSettle();
+      expect(find.byType(ProfileVerificationRow), findsOneWidget);
+    });
+
+    testWidgets('the servers list has no search field of its own', (t) async {
+      // The tab's app bar already has a search button; two ways to search one
+      // list is one too many, and the field took a row of every screen.
+      SharedPreferences.setMockInitialValues({});
+      CommunityStore.instance.resetForTest();
+      addTearDown(CommunityStore.instance.resetForTest);
+      await t.pumpWidget(const MaterialApp(
+          home: Scaffold(body: CommunitiesTab())));
+      await t.pumpAndSettle();
+      expect(find.widgetWithText(TextField, 'Search servers'), findsNothing);
+      expect(find.byType(TextField), findsNothing);
+    });
+  });
+
+  group('Okay Score, with a shape to it', () {
+    setUp(() {
+      SharedPreferences.setMockInitialValues({});
+      ScoreStore.instance.resetForTest();
+    });
+    tearDown(ScoreStore.instance.resetForTest);
+
+    test('points are remembered by the day they were earned', () {
+      final store = ScoreStore.instance;
+      final today = DateTime(2026, 8, 1);
+      store.award(10, now: today.subtract(const Duration(days: 3)));
+      store.award(5, now: today.subtract(const Duration(days: 3)));
+      store.award(7, now: today);
+
+      final days = store.recentDays(now: today);
+      expect(days.length, ScoreStore.historyDays);
+      expect(days.last, 7, reason: 'today is the last column');
+      expect(days[ScoreStore.historyDays - 4], 15, reason: 'summed per day');
+      // Zeros for days nothing happened — a chart with the gaps missing lies
+      // about how long the gap was.
+      expect(days[ScoreStore.historyDays - 2], 0);
+      expect(days.fold(0, (a, b) => a + b), 22);
+      expect(store.points, 22);
+    });
+
+    test('the history does not grow forever', () {
+      final store = ScoreStore.instance;
+      final today = DateTime(2026, 8, 1);
+      for (var i = 0; i < 100; i++) {
+        store.award(1, now: today.subtract(Duration(days: i)));
+      }
+      expect(store.history.length, lessThanOrEqualTo(ScoreStore.historyDays),
+          reason: 'a device left running must not carry a year of days');
+      // And the total is untouched by forgetting the shape of it.
+      expect(store.points, 100);
+    });
+
+    test('this week is the last seven days, not everything', () {
+      final store = ScoreStore.instance;
+      final today = DateTime(2026, 8, 1);
+      store.award(50, now: today.subtract(const Duration(days: 10)));
+      store.award(3, now: today.subtract(const Duration(days: 2)));
+      store.award(4, now: today);
+      expect(store.thisWeek, 7);
+      expect(store.points, 57);
+    });
+
+    test('the new badges exist and are earned by doing the thing', () {
+      final store = ScoreStore.instance;
+      for (final id in ['nearby', 'relay', 'forwarder']) {
+        final badge = ScoreStore.badgeById(id);
+        expect(badge, isNotNull, reason: id);
+        expect(store.isEarned(id), isFalse, reason: id);
+      }
+      store.recordFlag('sent_mesh');
+      store.recordFlag('relayed_mesh');
+      store.recordFlag('forwarded');
+      for (final id in ['nearby', 'relay', 'forwarder']) {
+        expect(store.isEarned(id), isTrue, reason: id);
+      }
+    });
+
+    testWidgets('the score screen draws the fortnight', (t) async {
+      t.view.physicalSize = const Size(430, 1400);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.resetPhysicalSize);
+      await t.pumpWidget(const MaterialApp(home: ScoreScreen()));
+      await t.pumpAndSettle();
+      expect(find.text('Last two weeks'), findsOneWidget);
+      // Nothing yet rather than fourteen empty columns, which look like a
+      // chart that failed to load.
+      expect(find.text('Nothing yet this fortnight.'), findsOneWidget);
+
+      ScoreStore.instance.award(12);
+      await t.pumpAndSettle();
+      expect(find.text('Nothing yet this fortnight.'), findsNothing);
+      expect(find.textContaining('12 this week'), findsOneWidget);
+    });
+  });
+
+  group('More to decide about Bluetooth and what leaves with a message', () {
+    setUp(() {
+      SharedPreferences.setMockInitialValues({});
+      MeshService.instance.resetForTest();
+      ScoreStore.instance.resetForTest();
+    });
+    tearDown(() {
+      MeshService.instance.resetForTest();
+      ScoreStore.instance.resetForTest();
+      AppState.resetForTest();
+      MeshService.debugSendOverride = null;
+      MeshService.debugAvailableOverride = null;
+    });
+
+    test('a phone that will not relay still sends and receives', () {
+      final sent = <String>[];
+      MeshService.debugSendOverride = sent.add;
+      final mesh = MeshService.instance;
+
+      // Somebody else's packet, passing through.
+      const theirs = MeshPacket(
+          id: 'm1', to: '15550109999', ttl: 3, payload: {'enc': 'x'});
+      mesh.debugReceive(theirs);
+      expect(sent, isNotEmpty, reason: 'relaying is on by default');
+
+      sent.clear();
+      mesh.setRelayForOthers(false);
+      mesh.router.reset();
+      mesh.debugReceive(theirs);
+      expect(sent, isEmpty, reason: 'their traffic stops here now');
+    });
+
+    test('turning off nearby discovery empties the list and keeps it empty',
+        () {
+      final mesh = MeshService.instance;
+      const beacon = MeshPacket(
+          id: 'b1', to: '', ttl: 3, kind: MeshPacket.kindServer,
+          payload: {'id': 'c1', 'name': 'Cafe', 'members': 2});
+      mesh.debugDeliver(beacon);
+      expect(NearbyServers.instance.servers, isNotEmpty);
+
+      mesh.setFindServers(false);
+      expect(NearbyServers.instance.servers, isEmpty,
+          reason: 'what was listed goes when you say stop listening');
+      mesh.router.reset();
+      mesh.debugDeliver(beacon);
+      expect(NearbyServers.instance.servers, isEmpty);
+    });
+
+    test('a withheld score never leaves, rather than being zeroed later',
+        () async {
+      // Round-tripped rather than grepped: the score travels INSIDE the
+      // sealed blob, so looking for it in the JSON on the wire finds nothing
+      // whether it was sent or not — which is a test that passes for the
+      // wrong reason.
+      ChatStore.instance.reset();
+      addTearDown(ChatStore.instance.reset);
+      ScoreStore.instance.award(90);
+
+      Map<String, dynamic> envelope({required bool share}) =>
+          RelayService.encode(
+            message: Message(
+                id: 'm${share ? 1 : 2}',
+                text: 'hi',
+                time: DateTime(2026),
+                isMe: true,
+                status: MessageStatus.sent),
+            fromPhone: '+15550101111',
+            fromName: 'Ada',
+            fromScore: share ? ScoreStore.instance.points : 0,
+            toPhone: '+15550102222',
+          );
+
+      RelayService.applyIncoming(envelope(share: true),
+          myPhone: '+15550102222');
+      final shared = ChatStore.instance.chatWithContact('+15550101111');
+      expect(shared?.contact.score, 90, reason: 'it arrives when shared');
+
+      ChatStore.instance.reset();
+      RelayService.applyIncoming(envelope(share: false),
+          myPhone: '+15550102222');
+      final withheld = ChatStore.instance.chatWithContact('+15550101111');
+      expect(withheld?.contact.score, 0,
+          reason: 'the far end never received a number to ignore');
+    });
+
+    test('the send path is the one that reads the switch', () {
+      // The check has to be at the point the envelope is built, not at the
+      // far end — a field that never leaves is one nobody has to be trusted
+      // with.
+      final src = File('lib/relay/relay_service.dart').readAsStringSync();
+      expect(src.contains('AppState.shareScore.value ? ScoreStore'), isTrue);
+      expect(src.contains('AppState.shareStreak.value ? streak : 0'), isTrue);
+    });
+
+    testWidgets('the Bluetooth switches appear only once it is on',
+        (t) async {
+      t.view.physicalSize = const Size(430, 1600);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.resetPhysicalSize);
+      MeshService.debugAvailableOverride = true;
+
+      await t.pumpWidget(const MaterialApp(home: PrivacySettingsScreen()));
+      await t.pumpAndSettle();
+      await t.scrollUntilVisible(find.text('Message people nearby'), 200);
+      // Nothing to decide about a radio that is off.
+      expect(find.text('Pass on other people\'s messages'), findsNothing);
+      expect(find.text('Find servers nearby'), findsNothing);
+
+      // NOT awaited: turning the mesh on talks to a method channel, and a
+      // channel reply is delivered by the pump — awaiting it inside
+      // testWidgets waits for a message that only pumping can deliver.
+      unawaited(MeshService.instance.setEnabled(true));
+      // pump, not pumpAndSettle: the mesh beacons on a periodic timer while
+      // it is on, and a tree with a repeating timer in it never settles.
+      await t.pump();
+      await t.pump();
+      expect(find.text('Pass on other people\'s messages'), findsOneWidget);
+      expect(find.text('Find servers nearby'), findsOneWidget);
+      unawaited(MeshService.instance.stop());
+      await t.pump();
+    });
+
+    testWidgets('signing out closes the screens above it too', (t) async {
+      // The auth gate swaps its child the moment the session clears — but
+      // Settings is PUSHED on top of that gate, and so is whatever opened
+      // it, so the login screen appeared underneath a stack nobody had
+      // closed. It looked like sign-out did nothing until the app was killed.
+      t.view.physicalSize = const Size(430, 1600);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.resetPhysicalSize);
+      await Session.instance
+          .signIn(phone: '+15550101111', name: 'Ada');
+      addTearDown(Session.instance.signOut);
+
+      await t.pumpWidget(MaterialApp(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: Center(
+              child: TextButton(
+                onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => const SettingsScreen())),
+                child: const Text('open settings'),
+              ),
+            ),
+          ),
+        ),
+      ));
+      await t.tap(find.text('open settings'));
+      await t.pumpAndSettle();
+      expect(find.byType(SettingsScreen), findsOneWidget);
+
+      await t.scrollUntilVisible(find.text('Sign out'), 250);
+      await t.tap(find.text('Sign out'));
+      await t.pumpAndSettle();
+
+      expect(Session.instance.isSignedIn, isFalse);
+      expect(find.byType(SettingsScreen), findsNothing,
+          reason: 'the pushed screens have to come down with the session');
+      expect(find.text('open settings'), findsOneWidget,
+          reason: 'back at the root, where the gate can show sign-in');
+    });
+
+    testWidgets('what rides along with a message can be turned off',
+        (t) async {
+      t.view.physicalSize = const Size(430, 1600);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.resetPhysicalSize);
+      await t.pumpWidget(const MaterialApp(home: PrivacySettingsScreen()));
+      await t.pumpAndSettle();
+      await t.scrollUntilVisible(find.text('Share my Okay Score'), 200);
+      expect(find.text('Share our streak'), findsOneWidget);
+
+      await t.tap(find.text('Share my Okay Score'));
+      await t.pumpAndSettle();
+      expect(AppState.shareScore.value, isFalse);
     });
   });
 }

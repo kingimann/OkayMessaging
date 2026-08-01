@@ -88,6 +88,16 @@ class AppState {
   /// with. When off, peers won't see you as "online".
   static final ValueNotifier<bool> shareLastSeen = ValueNotifier<bool>(true);
 
+  /// Whether your Okay Score rides along on the messages you send.
+  ///
+  /// It does by default — a contact sees your score on their side of the
+  /// chat. It is also a running measure of how much you use this app, sent to
+  /// everyone you talk to, which is not something everyone wants to publish.
+  static final ValueNotifier<bool> shareScore = ValueNotifier<bool>(true);
+
+  /// Whether your streak with somebody rides along the same way.
+  static final ValueNotifier<bool> shareStreak = ValueNotifier<bool>(true);
+
   /// Whether to send read receipts. When off, senders won't see blue ticks
   /// from you (mirroring WhatsApp's read-receipts setting).
   static final ValueNotifier<bool> sendReadReceipts = ValueNotifier<bool>(true);
@@ -203,6 +213,8 @@ class AppState {
     ghostMode.value = false;
     shareLiveLocation.value = false;
     shareLastSeen.value = true;
+    shareScore.value = true;
+    shareStreak.value = true;
     sendReadReceipts.value = true;
     sendTypingIndicators.value = true;
     silenceUnknownCallers.value = false;

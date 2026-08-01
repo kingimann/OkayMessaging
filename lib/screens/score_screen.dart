@@ -55,6 +55,8 @@ class ScoreScreen extends StatelessWidget {
                 const SizedBox(height: 12),
                 const _StatsRow(),
                 const SizedBox(height: 12),
+                const _ActivityChart(),
+                const SizedBox(height: 12),
                 const _NextBadgeCard(),
                 const _VerifiedRow(),
                 const SizedBox(height: 20),
@@ -805,6 +807,117 @@ class _BadgeCard extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// The last two weeks, as a shape.
+///
+/// A running total answers "how much" and nothing else — it goes up and it
+/// never comes down, so after a while it stops meaning anything you can act
+/// on. This is the question people are actually asking when they open the
+/// screen: am I using this more or less than I was.
+class _ActivityChart extends StatelessWidget {
+  const _ActivityChart();
+
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(
+        // Listening for itself rather than relying on the parent. This widget
+        // is const, and Flutter reuses a const instance when its parent
+        // rebuilds — so the chart drawn at launch was the chart you kept,
+        // however many points you earned while looking at it.
+        listenable: ScoreStore.instance,
+        builder: (context, _) => _chart(context),
+      );
+
+  Widget _chart(BuildContext context) {
+    final store = ScoreStore.instance;
+    final days = store.recentDays();
+    final peak = days.fold(0, (a, b) => a > b ? a : b);
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              // Flexible, because the title and the week's total share a line
+              // and a narrow phone at a large text size does not have room
+              // for both at their natural width.
+              const Flexible(
+                child: Text('Last two weeks',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
+              ),
+              const SizedBox(width: 8),
+              Text('${store.thisWeek} this week',
+                  style: TextStyle(
+                      fontSize: 12.5, color: AppColors.subtle(context))),
+            ],
+          ),
+          const SizedBox(height: 12),
+          // Nothing yet rather than a flat line of nothing: fourteen empty
+          // columns look like a chart that failed to load.
+          if (peak == 0)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 10),
+              child: Text('Nothing yet this fortnight.',
+                  style: TextStyle(
+                      fontSize: 13, color: AppColors.subtle(context))),
+            )
+          else
+            SizedBox(
+              height: 56,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  for (var i = 0; i < days.length; i++)
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 2),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            Container(
+                              // A day with points always draws something —
+                              // a bar rounded to zero reads as a day off.
+                              height:
+                                  days[i] == 0 ? 2 : 4 + 52 * days[i] / peak,
+                              decoration: BoxDecoration(
+                                color: days[i] == 0
+                                    ? scheme.onSurface.withValues(alpha: 0.12)
+                                    : scheme.primary.withValues(
+                                        alpha: i == days.length - 1 ? 1 : 0.55),
+                                borderRadius: BorderRadius.circular(3),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Text('14 days ago',
+                  style: TextStyle(
+                      fontSize: 11, color: AppColors.subtle(context))),
+              const Spacer(),
+              Text('Today',
+                  style: TextStyle(
+                      fontSize: 11, color: AppColors.subtle(context))),
+            ],
+          ),
+        ],
       ),
     );
   }

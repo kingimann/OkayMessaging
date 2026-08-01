@@ -56,8 +56,17 @@ class PrivacySettingsScreen extends StatelessWidget {
               notifier: AppState.groupAddAudience,
             ),
           ]),
+          settingsSectionLabel(context, 'What rides along with a message'),
+          InfoSection(children: [
+            _shareScoreTile(),
+            _shareStreakTile(),
+          ]),
           settingsSectionLabel(context, 'Nearby'),
-          const InfoSection(children: [_MeshTile()]),
+          const InfoSection(children: [
+            _MeshTile(),
+            _MeshRelayTile(),
+            _MeshDiscoverTile(),
+          ]),
           settingsSectionLabel(context, 'Messaging'),
           InfoSection(children: [
             _buildContactsOnlyTile(),
@@ -93,6 +102,36 @@ class PrivacySettingsScreen extends StatelessWidget {
       ),
     );
   }
+
+  Widget _shareScoreTile() => ValueListenableBuilder<bool>(
+        valueListenable: AppState.shareScore,
+        builder: (context, on, _) => SwitchListTile(
+          secondary: Icon(on
+              ? Icons.local_fire_department
+              : Icons.local_fire_department_outlined),
+          title: const Text('Share my Okay Score'),
+          subtitle: Text(on
+              ? 'People you message see your score beside your name'
+              : 'Your score stays on this device'),
+          value: on,
+          shape: kSettingsTileShape,
+          onChanged: (v) => AppState.shareScore.value = v,
+        ),
+      );
+
+  Widget _shareStreakTile() => ValueListenableBuilder<bool>(
+        valueListenable: AppState.shareStreak,
+        builder: (context, on, _) => SwitchListTile(
+          secondary: Icon(on ? Icons.bolt : Icons.bolt_outlined),
+          title: const Text('Share our streak'),
+          subtitle: Text(on
+              ? 'The person you\'re chatting with sees the streak too'
+              : 'Streaks are yours to look at only'),
+          value: on,
+          shape: kSettingsTileShape,
+          onChanged: (v) => AppState.shareStreak.value = v,
+        ),
+      );
 
   Widget _buildLastSeenTile() {
     return ValueListenableBuilder<bool>(
@@ -596,4 +635,59 @@ class _MeshTileState extends State<_MeshTile> {
     if (mesh.peers == 0) return 'On. No one nearby yet.';
     return 'On. ${mesh.peers} ${mesh.peers == 1 ? 'phone' : 'phones'} nearby.';
   }
+}
+
+/// Whether this phone carries traffic that is not its own.
+class _MeshRelayTile extends StatelessWidget {
+  const _MeshRelayTile();
+
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(
+        listenable: MeshService.instance,
+        builder: (context, _) {
+          final mesh = MeshService.instance;
+          if (!mesh.enabled) return const SizedBox.shrink();
+          return SwitchListTile(
+            secondary: Icon(mesh.relayForOthers
+                ? Icons.alt_route
+                : Icons.alt_route_outlined),
+            title: const Text('Pass on other people\'s messages'),
+            subtitle: Text(mesh.relayForOthers
+                ? 'Your phone carries messages between people out of range of '
+                    'each other. It cannot read any of them.'
+                : 'Off. You can still send and receive; you just are not a '
+                    'stepping stone for anyone else.'),
+            value: mesh.relayForOthers,
+            shape: kSettingsTileShape,
+            onChanged: mesh.setRelayForOthers,
+          );
+        },
+      );
+}
+
+/// Whether this phone listens for servers being announced nearby.
+class _MeshDiscoverTile extends StatelessWidget {
+  const _MeshDiscoverTile();
+
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(
+        listenable: MeshService.instance,
+        builder: (context, _) {
+          final mesh = MeshService.instance;
+          if (!mesh.enabled) return const SizedBox.shrink();
+          return SwitchListTile(
+            secondary: Icon(mesh.findServers
+                ? Icons.travel_explore
+                : Icons.public_off),
+            title: const Text('Find servers nearby'),
+            subtitle: Text(mesh.findServers
+                ? 'Servers people around you have made findable show up under '
+                    'Servers'
+                : 'Off. Nothing nearby is listed.'),
+            value: mesh.findServers,
+            shape: kSettingsTileShape,
+            onChanged: mesh.setFindServers,
+          );
+        },
+      );
 }
