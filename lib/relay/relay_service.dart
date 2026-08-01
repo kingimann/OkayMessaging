@@ -7,6 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart' hide Session;
 
 import '../app_state.dart';
 import '../crypto/e2e.dart';
+import '../mesh/mesh_packet.dart';
 import '../mesh/mesh_service.dart';
 import '../crypto/key_exchange.dart';
 import '../models/chat.dart';
@@ -995,6 +996,20 @@ class RelayService {
   /// Routes one sealed community event ([event] = chmsg/chjoin/chupd) into
   /// the store — shared by the live bus and the offline mailbox, so the
   /// dedup/merge semantics are identical either way.
+  /// Applies a sealed server event that arrived over Bluetooth rather than the
+  /// internet.
+  ///
+  /// The SAME routing, deliberately. `_onCommunityEvent` looks the server up
+  /// by id and decrypts with its secret, so a phone that is not a member gets
+  /// nothing out of it and no separate membership check is needed — the key it
+  /// does not hold is the check. The event name rides in the payload here,
+  /// because a broadcast has no per-event channel to arrive on.
+  void applyCommunityFromMesh(Map<String, dynamic> payload, String me) {
+    final event = payload['e'];
+    if (event is! String) return;
+    _applyCommunityEvent(event, payload, me);
+  }
+
   /// Feeds one sealed community event through the real routing, so a test can
   /// check what a *received* chdel/chedt/chrxn/chpin actually does to the
   /// store rather than trusting that the switch has a case for it.
@@ -1173,6 +1188,17 @@ class RelayService {
       if (d == null || d == mine) continue;
       _mailboxPut(d, payload, event: event);
     }
+    // And on the air, if the mesh is on. The event name has to travel inside
+    // the payload: a Bluetooth broadcast has no per-event channel to arrive
+    // on, where the Supabase bus subscribes to one name per event.
+    // RANDOM, not a counter. A router dedups by this id, so two phones that
+    // both number their first event "chmsg_c1_0" would each silently drop the
+    // other's — a bug that only shows up with two devices in a room, which is
+    // the hardest place to find one.
+    unawaited(MeshService.instance
+        .sendCommunity({...payload, 'e': event},
+            eventId: MeshPacket.randomId())
+        .catchError((_) => false));
   }
 
   /// Like [_sendCommunityEvent] but broadcast only — nothing is queued into

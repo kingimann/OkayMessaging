@@ -72,7 +72,13 @@ class MeshRouter {
     // This phone's own message, heard back from a neighbour that relayed it.
     if (_mine.contains(packet.id)) return MeshAction.drop;
 
-    final forMe = myDigits.isNotEmpty && packet.to == myDigits;
+    // A broadcast is for everyone: a server beacon, a request for a way in,
+    // a server event nobody can address because no phone knows which of its
+    // neighbours are members. Open it and pass it on — whether it turns out to
+    // mean anything here is for the handler to decide, not the router, which
+    // holds no keys and should not.
+    final forMe = packet.isBroadcast ||
+        (myDigits.isNotEmpty && packet.to == myDigits);
     if (forMe) {
       // Still worth passing on: a group message is addressed to each member
       // separately, and the neighbour behind this one may not have heard it.

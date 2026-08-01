@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math';
 
 /// One hop's worth of a message travelling over Bluetooth instead of the
 /// internet.
@@ -18,7 +19,37 @@ class MeshPacket {
     required this.to,
     required this.ttl,
     required this.payload,
+    this.kind = kindMessage,
   });
+
+  /// A sealed message envelope for one person. [to] is their digits.
+  static const String kindMessage = 'msg';
+
+  /// "This server exists and is looking for people." Broadcast, in the clear,
+  /// and only ever sent for a server whose owner turned that on.
+  static const String kindServer = 'srv';
+
+  /// "Somebody near me is in this server — send me the way in." Broadcast,
+  /// carrying the asker's public key so an answer can be sealed to them.
+  static const String kindAskInvite = 'ask';
+
+  /// The way in, encrypted to whoever asked. Broadcast, because the asker is
+  /// identified by being the only one who can open it — which also means the
+  /// air does not carry a record of who joined what.
+  static const String kindInvite = 'inv';
+
+  /// A server event — a channel message, a structure sync — sealed with that
+  /// server's own secret. Broadcast, because a phone cannot know which of its
+  /// neighbours is a member, and a non-member cannot decrypt it anyway.
+  static const String kindCommunity = 'chn';
+
+  static const Set<String> kinds = {
+    kindMessage,
+    kindServer,
+    kindAskInvite,
+    kindInvite,
+    kindCommunity,
+  };
 
   /// Wire format version. A phone that meets a packet it cannot parse should
   /// drop it rather than guess, so this is checked before anything else.
@@ -55,11 +86,19 @@ class MeshPacket {
   /// The sealed envelope. Opaque here, always.
   final Map<String, dynamic> payload;
 
+  /// What sort of thing this is. Everything but [kindMessage] is a broadcast
+  /// with an empty [to] — a beacon is for anyone, and a server event cannot be
+  /// addressed because no phone knows which of its neighbours are members.
+  final String kind;
+
+  bool get isBroadcast => to.isEmpty;
+
   MeshPacket withTtl(int next) =>
-      MeshPacket(id: id, to: to, ttl: next, payload: payload);
+      MeshPacket(id: id, to: to, ttl: next, payload: payload, kind: kind);
 
   Map<String, dynamic> toJson() => {
         'v': version,
+        'k': kind,
         'id': id,
         'to': to,
         'ttl': ttl,
@@ -89,10 +128,15 @@ class MeshPacket {
       if (to is! String) return null;
       if (ttl is! int || ttl < 0 || ttl > maxTtl) return null;
       if (payload is! Map) return null;
+      // Absent means the original message-only format, which is the one
+      // shipped first — a phone running that build has to stay understandable.
+      final kind = json['k'] ?? kindMessage;
+      if (kind is! String || !kinds.contains(kind)) return null;
       return MeshPacket(
         id: id,
         to: to,
         ttl: ttl,
+        kind: kind,
         payload: Map<String, dynamic>.from(payload),
       );
     } catch (_) {
@@ -108,4 +152,14 @@ class MeshPacket {
           .encode()
           .length <=
       maxBytes;
+
+  /// An id for a packet nobody is going to reply to — a beacon, a request.
+  /// Random rather than derived, so two phones beaconing the same server do
+  /// not silently dedup each other's announcements into one.
+  static String randomId() {
+    final rng = Random.secure();
+    return List<int>.generate(8, (_) => rng.nextInt(256))
+        .map((b) => b.toRadixString(16).padLeft(2, '0'))
+        .join();
+  }
 }

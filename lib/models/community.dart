@@ -430,6 +430,17 @@ class Community {
   /// [invitePolicyModerators], [invitePolicyAdmins].
   final String invitePolicy;
 
+  /// Whether members' phones announce this server to anyone in Bluetooth
+  /// range, and hand out the way in when asked.
+  ///
+  /// OFF UNLESS SOMEBODY SAYS OTHERWISE, and it is a real decision rather than
+  /// a convenience: a beacon puts this server's name in the air for every
+  /// stranger nearby, and answering the request that follows gives them the
+  /// key that decrypts everything in it. That is the right trade for a café
+  /// or a conference and the wrong one for four friends, so it is asked
+  /// rather than assumed.
+  final bool discoverableNearby;
+
   /// Messages and posts containing any of these words are refused.
   final List<String> bannedWords;
 
@@ -454,6 +465,7 @@ class Community {
     this.membersCanPost = true,
     this.membersCanMessage = true,
     this.invitePolicy = invitePolicyEveryone,
+    this.discoverableNearby = false,
     this.bannedWords = const [],
     this.bannedMembers = const [],
     this.mutedIds = const [],
@@ -492,6 +504,7 @@ class Community {
     bool? membersCanCreateChannels,
     bool? membersCanPost,
     bool? membersCanMessage,
+    bool? discoverableNearby,
     String? invitePolicy,
     List<String>? bannedWords,
     List<Member>? bannedMembers,
@@ -511,6 +524,7 @@ class Community {
             membersCanCreateChannels ?? this.membersCanCreateChannels,
         membersCanPost: membersCanPost ?? this.membersCanPost,
         membersCanMessage: membersCanMessage ?? this.membersCanMessage,
+        discoverableNearby: discoverableNearby ?? this.discoverableNearby,
         invitePolicy: invitePolicy ?? this.invitePolicy,
         bannedWords: bannedWords ?? this.bannedWords,
         bannedMembers: bannedMembers ?? this.bannedMembers,
@@ -530,6 +544,7 @@ class Community {
         'membersCanCreateChannels': membersCanCreateChannels,
         'membersCanPost': membersCanPost,
         'membersCanMessage': membersCanMessage,
+        'discoverableNearby': discoverableNearby,
         'invitePolicy': invitePolicy,
         'bannedWords': bannedWords,
         'bannedMembers': bannedMembers.map((m) => m.toJson()).toList(),
@@ -554,6 +569,8 @@ class Community {
             json['membersCanCreateChannels'] as bool? ?? true,
         membersCanPost: json['membersCanPost'] as bool? ?? true,
         membersCanMessage: json['membersCanMessage'] as bool? ?? true,
+        discoverableNearby:
+            json['discoverableNearby'] as bool? ?? false,
         invitePolicy:
             json['invitePolicy'] as String? ?? invitePolicyEveryone,
         bannedWords:

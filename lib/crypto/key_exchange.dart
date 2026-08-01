@@ -1,6 +1,7 @@
 import 'dart:convert';
+
+import 'package:flutter/foundation.dart';
 import 'dart:math';
-import 'dart:typed_data';
 
 import 'package:pointycastle/export.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -67,6 +68,15 @@ class SecureKeyExchange {
     _prefs?.setString(_kPeers, jsonEncode(_peerKeys));
     return true;
   }
+
+  /// A second, independent identity — for tests that need two devices.
+  ///
+  /// The real thing is a singleton because a phone has one identity. Proving
+  /// that an invite sealed to one key cannot be opened by another needs three
+  /// of them in one process.
+  @visibleForTesting
+  factory SecureKeyExchange.freshForTest() =>
+      SecureKeyExchange._()..ensureKeys();
 
   /// This device's public key, base64 of the uncompressed EC point. Null until
   /// [ensureKeys] has run.

@@ -119,6 +119,7 @@ import 'package:okay_messaging/state/status_store.dart';
 import 'package:okay_messaging/state/chat_store.dart';
 import 'package:okay_messaging/state/gif_service.dart';
 import 'package:okay_messaging/mesh/mesh_chunks.dart';
+import 'package:okay_messaging/mesh/nearby_servers.dart';
 import 'package:okay_messaging/mesh/mesh_packet.dart';
 import 'package:okay_messaging/mesh/mesh_router.dart';
 import 'package:okay_messaging/mesh/mesh_service.dart';
@@ -19801,6 +19802,263 @@ void main() {
       final ok = await MeshService.instance
           .send('15550102222', {'enc': 'x' * 140000}, messageId: 'big');
       expect(ok, isFalse);
+    });
+  });
+
+  group('Finding a server in the room', () {
+    setUp(() {
+      SharedPreferences.setMockInitialValues({});
+      CommunityStore.instance.resetForTest();
+      MeshService.instance.resetForTest();
+      NearbyServers.instance.clear();
+      // A phone answering a request needs a number and a key pair — without
+      // either it has nothing to seal an invite with, and says nothing.
+      Session.instance.signInForTest();
+      SecureKeyExchange.instance.ensureKeys();
+    });
+    tearDown(() {
+      CommunityStore.instance.resetForTest();
+      MeshService.instance.resetForTest();
+      NearbyServers.instance.clear();
+      MeshService.debugSendOverride = null;
+      MeshService.debugAvailableOverride = null;
+    });
+
+    /// Everything one phone put on the air, rebuilt into packets.
+    List<MeshPacket> packetsFrom(List<String> frames) {
+      final rebuilt = MeshReassembler();
+      final out = <MeshPacket>[];
+      for (final f in frames) {
+        final whole = rebuilt.add(f);
+        if (whole == null) continue;
+        final packet = MeshPacket.decode(whole);
+        if (packet != null) out.add(packet);
+      }
+      return out;
+    }
+
+    test('a server is announced only when its owner said it could be', () {
+      final air = <String>[];
+      MeshService.debugSendOverride = air.add;
+      final store = CommunityStore.instance;
+      final quiet = store.createCommunity('Private');
+      final open = store.createCommunity('Cafe');
+
+      MeshService.instance.debugBeaconNow();
+      expect(packetsFrom(air), isEmpty,
+          reason: 'being a member is not consent to advertise');
+
+      store.setDiscoverableNearby(open.id, true);
+      air.clear();
+      MeshService.instance.debugBeaconNow();
+      final beacons = packetsFrom(air);
+      expect(beacons.length, 1);
+      expect(beacons.single.kind, MeshPacket.kindServer);
+      expect(beacons.single.payload['name'], 'Cafe');
+      expect(beacons.single.payload['id'], open.id);
+      expect(beacons.single.payload['id'], isNot(quiet.id));
+      // A beacon is public by design, so it carries a name and nothing else.
+      expect(beacons.single.payload.containsKey('secret'), isFalse,
+          reason: 'the key must never be in the clear');
+      expect(beacons.single.payload.containsKey('members'), isTrue);
+      expect(beacons.single.isBroadcast, isTrue);
+    });
+
+    test('the way in is sealed to whoever asked, not shouted at the room', () {
+      // Two devices. One is in the server; the other wants in; a third is
+      // simply within earshot.
+      final store = CommunityStore.instance;
+      final community = store.createCommunity('Cafe');
+      store.setDiscoverableNearby(community.id, true);
+
+      final asker = SecureKeyExchange.freshForTest();
+      final bystander = SecureKeyExchange.freshForTest();
+
+      final air = <String>[];
+      MeshService.debugSendOverride = air.add;
+      // The member answers a request carrying the asker's public key.
+      MeshService.instance.debugAnswerInvite(
+          {'cid': community.id, 'pk': asker.myPublicKey});
+      final replies = packetsFrom(air);
+      expect(replies.length, 1);
+      final reply = replies.single;
+      expect(reply.kind, MeshPacket.kindInvite);
+
+      // Nothing readable is on the air.
+      final blob = reply.payload['blob'] as String;
+      expect(blob.contains('Cafe'), isFalse);
+      expect(blob.contains(store.byId(community.id)!.secret), isFalse);
+
+      // The asker can open it.
+      final theirs = asker.sharedSecretWith(reply.payload['pk'] as String)!;
+      final opened = E2eCrypto.decrypt(theirs, blob);
+      expect(opened, isNotNull);
+      expect(jsonDecode(opened!)['name'], 'Cafe');
+
+      // Somebody else in range cannot, though they heard every byte.
+      final notTheirs =
+          bystander.sharedSecretWith(reply.payload['pk'] as String)!;
+      expect(E2eCrypto.decrypt(notTheirs, blob), isNull,
+          reason: 'a reply everyone can read is a key everyone gets');
+    });
+
+    test('a server that was never opened up does not answer', () {
+      final store = CommunityStore.instance;
+      final community = store.createCommunity('Private');
+      final asker = SecureKeyExchange.freshForTest();
+      final air = <String>[];
+      MeshService.debugSendOverride = air.add;
+
+      MeshService.instance.debugAnswerInvite(
+          {'cid': community.id, 'pk': asker.myPublicKey});
+      expect(air, isEmpty, reason: 'nobody asked for this to be findable');
+
+      // Nor does one this phone is not in at all.
+      MeshService.instance
+          .debugAnswerInvite({'cid': 'someone-elses', 'pk': asker.myPublicKey});
+      expect(air, isEmpty);
+    });
+
+    test('a member who may not invite may not hand out the key either', () {
+      // The server's own invite policy still applies over Bluetooth — it
+      // would be an odd door that admins-only locks on the internet and
+      // leaves open in the room.
+      final store = CommunityStore.instance;
+      final owner =
+          store.createCommunity('Cafe', invitePolicy: invitePolicyAdmins);
+      store.setDiscoverableNearby(owner.id, true);
+      final invite = store.exportInvite(owner.id,
+          myDigits: '15550101111', myName: 'Ada')!;
+      store.deleteCommunity(owner.id);
+      final joined = store.joinFromInvite(Map<String, dynamic>.from(invite),
+          myDigits: '15550102222', myName: 'Bob')!;
+      store.setDiscoverableNearby(joined.id, true);
+      expect(store.canInvite(joined.id), isFalse);
+
+      final air = <String>[];
+      MeshService.debugSendOverride = air.add;
+      MeshService.instance.debugAnswerInvite({
+        'cid': joined.id,
+        'pk': SecureKeyExchange.freshForTest().myPublicKey,
+      });
+      expect(air, isEmpty);
+    });
+
+    test('what is nearby stops being nearby', () {
+      // A beacon is a claim that lasts about as long as being in the room
+      // does. Without expiry, "nearby" becomes "was nearby once", which looks
+      // joinable and is not.
+      final now = DateTime(2026, 8, 1, 12);
+      final directory = NearbyServers.instance;
+      directory.heard(NearbyServer(
+          id: 'c1', name: 'Cafe', color: '#fff', icon: '',
+          members: 3, heardAt: now));
+      expect(directory.servers.length, 1);
+
+      directory.expire(now.add(const Duration(seconds: 30)));
+      expect(directory.servers.length, 1, reason: 'still in the room');
+
+      directory.expire(now.add(NearbyServers.linger * 2));
+      expect(directory.servers, isEmpty);
+    });
+
+    test('several phones in one server make one row, not three', () {
+      final now = DateTime(2026, 8, 1, 12);
+      final directory = NearbyServers.instance;
+      for (var i = 0; i < 3; i++) {
+        directory.heard(NearbyServer(
+            id: 'c1', name: 'Cafe', color: '#fff', icon: '',
+            members: 3, heardAt: now.add(Duration(seconds: i))));
+      }
+      expect(directory.servers.length, 1);
+    });
+
+    test('a beacon off the air is not trusted about anything', () {
+      final now = DateTime(2026, 8, 1, 12);
+      // Nameless, unnamed, or absurd — all from a device nobody vouched for.
+      expect(NearbyServer.fromWire(const {'id': 'c1'}, now), isNull);
+      expect(NearbyServer.fromWire(const {'id': 'c1', 'name': '   '}, now),
+          isNull);
+      expect(NearbyServer.fromWire(const {'name': 'Cafe'}, now), isNull);
+      final huge = NearbyServer.fromWire(
+          {'id': 'c1', 'name': 'x' * 500, 'members': 99999999}, now)!;
+      expect(huge.name.length, lessThanOrEqualTo(60),
+          reason: 'this is drawn in a list');
+      expect(huge.members, 0, reason: 'a nonsense count is no count');
+    });
+
+    testWidgets('a server you are already in is not offered as a stranger',
+        (t) async {
+      final community = CommunityStore.instance.createCommunity('Cafe');
+      MeshService.instance.debugDeliver(MeshPacket(
+        id: 'b1',
+        to: '',
+        ttl: 3,
+        kind: MeshPacket.kindServer,
+        payload: <String, dynamic>{
+          'id': community.id,
+          'name': 'Cafe',
+          'members': 3,
+        },
+      ));
+      expect(NearbyServers.instance.servers, isEmpty,
+          reason: 'that is a server, not a nearby one');
+      await t.pump();
+    });
+
+    testWidgets('a heard server shows up with a way in', (t) async {
+      NearbyServers.instance.heard(NearbyServer(
+          id: 'c_far', name: 'Conference', color: '#7A5CFF', icon: '',
+          members: 12, heardAt: DateTime.now()));
+
+      await t.pumpWidget(const MaterialApp(
+          home: Scaffold(body: CommunitiesTab())));
+      await t.pumpAndSettle();
+
+      expect(find.text('NEARBY'), findsOneWidget);
+      expect(find.text('Conference'), findsOneWidget);
+      expect(find.textContaining('12 members'), findsOneWidget);
+      expect(find.widgetWithText(FilledButton, 'Join'), findsOneWidget);
+    });
+
+    testWidgets('nothing about nearby servers shows when nothing is near',
+        (t) async {
+      await t.pumpWidget(const MaterialApp(
+          home: Scaffold(body: CommunitiesTab())));
+      await t.pumpAndSettle();
+      expect(find.text('NEARBY'), findsNothing,
+          reason: 'an empty section is a section nobody wants');
+    });
+
+    test('a server event goes on the air with its name inside it', () async {
+      // A Bluetooth broadcast has no per-event channel to arrive on, where
+      // the Supabase bus subscribes to one name per event — so the name has
+      // to travel in the payload or the far end cannot route it.
+      final air = <String>[];
+      MeshService.debugSendOverride = air.add;
+      final ok = await MeshService.instance.sendCommunity(
+          {'from': '+15550101111', 'communityId': 'c1', 'data': 'sealed',
+           'e': 'chmsg'},
+          eventId: 'e1');
+      expect(ok, isTrue);
+      final packet = packetsFrom(air).single;
+      expect(packet.kind, MeshPacket.kindCommunity);
+      expect(packet.payload['e'], 'chmsg');
+      expect(packet.payload['data'], 'sealed');
+      expect(packet.isBroadcast, isTrue,
+          reason: 'no phone knows which of its neighbours are members');
+    });
+
+    test('a broadcast is opened by everyone and still passed on', () {
+      // Nobody is addressed, so the old rule — deliver only what is addressed
+      // to me — would have dropped every beacon and every server event.
+      final router = MeshRouter(myDigits: '15550101111');
+      const beacon = MeshPacket(
+          id: 'b1', to: '', ttl: 3, kind: MeshPacket.kindServer,
+          payload: {'id': 'c1', 'name': 'Cafe'});
+      expect(router.accept(beacon), MeshAction.deliverAndRelay);
+      expect(router.forwarded(beacon)!.kind, MeshPacket.kindServer,
+          reason: 'a relayed packet keeps what it is');
     });
   });
 }

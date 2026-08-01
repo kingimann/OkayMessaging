@@ -11,6 +11,8 @@ import '../models/platform_role.dart';
 import '../models/message.dart';
 import '../relay/relay_config.dart';
 import '../relay/relay_service.dart';
+import '../mesh/mesh_service.dart';
+import '../mesh/nearby_servers.dart';
 import '../state/community_store.dart';
 import '../state/platform_moderation.dart';
 import '../state/channel_typing_store.dart';
@@ -121,8 +123,12 @@ class _CommunitiesTabState extends State<CommunitiesTab> {
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: Listenable.merge(
-          [CommunityStore.instance, VoicePresenceStore.instance]),
+      listenable: Listenable.merge([
+        CommunityStore.instance,
+        VoicePresenceStore.instance,
+        NearbyServers.instance,
+        MeshService.instance,
+      ]),
       builder: (context, _) {
         final all = CommunityStore.instance.communities;
         final communities = filterCommunities(all, _search.text);
@@ -131,7 +137,11 @@ class _CommunitiesTabState extends State<CommunitiesTab> {
           child: all.isEmpty
               ? ListView(
                   physics: const AlwaysScrollableScrollPhysics(),
-                  children: const [SizedBox(height: 100), _Empty()],
+                  children: const [
+                    _NearbySection(),
+                    SizedBox(height: 60),
+                    _Empty(),
+                  ],
                 )
               : ListView(
                   physics: const AlwaysScrollableScrollPhysics(),
@@ -172,6 +182,7 @@ class _CommunitiesTabState extends State<CommunitiesTab> {
                         ),
                       ),
                     for (final c in communities) _CommunityCard(community: c),
+                    const _NearbySection(),
                   ],
                 ),
         );
@@ -3186,6 +3197,115 @@ class _ChannelBubble extends StatelessWidget {
       counts[r] = (counts[r] ?? 0) + 1;
     }
     return counts;
+  }
+}
+
+/// Servers somebody in the room is in, heard over Bluetooth.
+///
+/// Only ever servers whose owner turned discovery on — a beacon puts a name in
+/// the air for every stranger nearby, so it is never a side effect of being a
+/// member. Nothing shows here at all when nothing has been heard, which on
+/// almost every screen is the case.
+class _NearbySection extends StatelessWidget {
+  const _NearbySection();
+
+  @override
+  Widget build(BuildContext context) {
+    final nearby = NearbyServers.instance.servers;
+    if (nearby.isEmpty) return const SizedBox.shrink();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(2, 18, 2, 8),
+          child: Row(
+            children: [
+              Icon(Icons.bluetooth_searching,
+                  size: 15, color: AppColors.subtle(context)),
+              const SizedBox(width: 6),
+              Text('NEARBY',
+                  style: TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.8,
+                      color: AppColors.subtle(context))),
+            ],
+          ),
+        ),
+        for (final server in nearby) _NearbyCard(server: server),
+      ],
+    );
+  }
+}
+
+class _NearbyCard extends StatefulWidget {
+  final NearbyServer server;
+  const _NearbyCard({required this.server});
+
+  @override
+  State<_NearbyCard> createState() => _NearbyCardState();
+}
+
+class _NearbyCardState extends State<_NearbyCard> {
+  bool _asking = false;
+
+  /// Asks whoever is near for the way in, then joins when it arrives.
+  ///
+  /// Two steps rather than one because the answer comes off a radio from
+  /// somebody else's phone: it may take a moment, and it may never come at
+  /// all — the person who could answer may have walked out of range between
+  /// their beacon and this tap.
+  Future<void> _join() async {
+    setState(() => _asking = true);
+    final mesh = MeshService.instance;
+    await mesh.requestInvite(widget.server.id);
+    // A handful of seconds: long enough for a neighbour to hear, answer, and
+    // for the reply to make its way back.
+    for (var i = 0; i < 20 && mounted; i++) {
+      if (mesh.hasInviteFor(widget.server.id)) break;
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+    }
+    if (!mounted) return;
+    final joined = mesh.joinNearby(widget.server.id);
+    setState(() => _asking = false);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(joined
+          ? 'Joined ${widget.server.name}.'
+          : 'No one nearby answered. They may have moved out of range.'),
+    ));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final server = widget.server;
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: ListTile(
+        leading: CircleAvatar(
+          backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+          child: Text(
+              server.icon.isNotEmpty
+                  ? server.icon
+                  : (server.name.isEmpty ? '?' : server.name[0].toUpperCase()),
+              style: const TextStyle(fontWeight: FontWeight.w700)),
+        ),
+        title: Text(server.name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontWeight: FontWeight.w600)),
+        // Their claim, said as theirs — the number came off the air from a
+        // phone nobody here has any reason to believe.
+        subtitle: Text('Nearby · ${server.members} '
+            '${server.members == 1 ? 'member' : 'members'}'),
+        trailing: _asking
+            ? const SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2))
+            : FilledButton(onPressed: _join, child: const Text('Join')),
+      ),
+    );
   }
 }
 

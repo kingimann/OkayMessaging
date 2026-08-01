@@ -1,11 +1,17 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../crypto/e2e.dart';
+import '../crypto/key_exchange.dart';
+import '../app_state.dart';
 import '../relay/relay_service.dart';
+import '../state/community_store.dart';
 import '../state/session.dart';
+import 'nearby_servers.dart';
 import 'mesh_chunks.dart';
 import 'mesh_packet.dart';
 import 'mesh_router.dart';
@@ -51,6 +57,7 @@ class MeshService extends ChangeNotifier {
   bool _running = false;
   bool? _available;
   int _peers = 0;
+  Timer? _beacon;
 
   /// Whether the user has turned this on. Off until asked: it runs a radio,
   /// and a messenger that quietly starts broadcasting is not one this app
@@ -119,6 +126,7 @@ class MeshService extends ChangeNotifier {
     try {
       await _channel.invokeMethod<void>('start');
       _running = true;
+      _startBeacon();
       notifyListeners();
     } on PlatformException {
       _running = false;
@@ -130,7 +138,10 @@ class MeshService extends ChangeNotifier {
     if (!_running) return;
     _running = false;
     _peers = 0;
+    _beacon?.cancel();
+    _beacon = null;
     _reassemblers.clear();
+    NearbyServers.instance.clear();
     notifyListeners();
     try {
       await _channel.invokeMethod<void>('stop');
@@ -152,6 +163,163 @@ class MeshService extends ChangeNotifier {
         id: messageId, to: toDigits, ttl: MeshPacket.maxTtl, payload: payload);
     router.noteSent(messageId);
     return _transmit(packet);
+  }
+
+  // --- Servers over the air -----------------------------------------------
+
+  /// Announces the servers this phone is in that were marked discoverable.
+  ///
+  /// Repeated rather than sent once: somebody who walks into the room a minute
+  /// from now has to be able to find you, and there is no way to know they
+  /// arrived.
+  void _startBeacon() {
+    _beacon?.cancel();
+    _beacon = Timer.periodic(NearbyServers.beaconInterval, (_) {
+      NearbyServers.instance.expire(DateTime.now());
+      _beaconOnce();
+    });
+    _beaconOnce();
+  }
+
+  void _beaconOnce() {
+    if (!_running && debugSendOverride == null) return;
+    for (final community in CommunityStore.instance.communities) {
+      if (!community.discoverableNearby) continue;
+      _transmit(MeshPacket(
+        id: MeshPacket.randomId(),
+        to: '',
+        ttl: MeshPacket.maxTtl,
+        kind: MeshPacket.kindServer,
+        payload: {
+          'id': community.id,
+          'name': community.name,
+          'color': community.color,
+          'icon': community.icon,
+          'members': community.members.length,
+        },
+      ));
+    }
+  }
+
+  /// Asks whoever is near for the way into [communityId].
+  ///
+  /// Carries this device's public key, so the answer can be sealed to it. The
+  /// request itself is public — it says somebody here wants into this server,
+  /// which is the same thing the beacon already said exists.
+  Future<bool> requestInvite(String communityId) async {
+    final myKey = SecureKeyExchange.instance.myPublicKey;
+    if (myKey == null) return false;
+    return _transmit(MeshPacket(
+      id: MeshPacket.randomId(),
+      to: '',
+      ttl: MeshPacket.maxTtl,
+      kind: MeshPacket.kindAskInvite,
+      payload: {'cid': communityId, 'pk': myKey},
+    ));
+  }
+
+  /// Answers a request for a way in, if this phone is entitled to give one.
+  ///
+  /// THREE GATES, and all of them matter. The server has to have been marked
+  /// discoverable, this member has to be allowed to invite under the server's
+  /// own policy, and the answer is encrypted to the key that asked — so the
+  /// secret goes to the asker rather than to everyone within range, which is
+  /// what a plaintext reply would mean.
+  void _answerInvite(Map<String, dynamic> body) {
+    final cid = body['cid'];
+    final theirKey = body['pk'];
+    if (cid is! String || theirKey is! String || theirKey.isEmpty) return;
+    final community = CommunityStore.instance.byId(cid);
+    if (community == null || !community.discoverableNearby) return;
+    if (!CommunityStore.instance.canInvite(cid)) return;
+
+    final me = Session.instance.user.value;
+    final myKey = SecureKeyExchange.instance.myPublicKey;
+    if (me == null || myKey == null) return;
+    final shared = SecureKeyExchange.instance.sharedSecretWith(theirKey);
+    if (shared == null) return;
+
+    final invite = CommunityStore.instance.exportInvite(cid,
+        myDigits: RelayService.digits(me.phone),
+        myName: AppState.profile.value.name);
+    if (invite == null) return;
+
+    _transmit(MeshPacket(
+      id: MeshPacket.randomId(),
+      to: '',
+      ttl: MeshPacket.maxTtl,
+      kind: MeshPacket.kindInvite,
+      payload: {
+        'cid': cid,
+        'pk': myKey,
+        'blob': E2eCrypto.encrypt(shared, jsonEncode(invite)),
+      },
+    ));
+  }
+
+  /// Opens an answer, if it was meant for this phone.
+  ///
+  /// Every phone in range hears every reply and tries this; only the one
+  /// holding the other half of the handshake gets anything out of it. That is
+  /// also why a reply is not addressed — the air carries no record of who
+  /// joined what.
+  void _takeInvite(Map<String, dynamic> body) {
+    final cid = body['cid'];
+    final theirKey = body['pk'];
+    final blob = body['blob'];
+    if (cid is! String || theirKey is! String || blob is! String) return;
+    if (CommunityStore.instance.byId(cid) != null) return; // already in it
+    final shared = SecureKeyExchange.instance.sharedSecretWith(theirKey);
+    if (shared == null) return;
+    final plain = E2eCrypto.decrypt(shared, blob);
+    if (plain == null) return; // not for us, which is the usual case
+    try {
+      final snapshot = jsonDecode(plain);
+      if (snapshot is! Map) return;
+      _pendingInvites[cid] = Map<String, dynamic>.from(snapshot);
+      notifyListeners();
+    } catch (_) {}
+  }
+
+  /// Invites that arrived and are waiting for the user to say yes.
+  final Map<String, Map<String, dynamic>> _pendingInvites = {};
+
+  /// Whether the way into [communityId] has arrived.
+  bool hasInviteFor(String communityId) =>
+      _pendingInvites.containsKey(communityId);
+
+  /// Joins a server whose invite arrived over the air. Returns whether it
+  /// worked — false when nothing has answered yet.
+  bool joinNearby(String communityId) {
+    final snapshot = _pendingInvites.remove(communityId);
+    if (snapshot == null) return false;
+    final me = Session.instance.user.value;
+    final joined = CommunityStore.instance.joinFromInvite(
+      snapshot,
+      myDigits: RelayService.digits(me?.phone ?? ''),
+      myName: AppState.profile.value.name,
+    );
+    if (joined == null) return false;
+    NearbyServers.instance.forget(communityId);
+    notifyListeners();
+    return true;
+  }
+
+  /// Puts a sealed server event — a channel message, a structure sync — on the
+  /// air. Broadcast, because no phone knows which of its neighbours are
+  /// members, and a non-member cannot decrypt it anyway.
+  Future<bool> sendCommunity(Map<String, dynamic> payload,
+      {required String eventId}) async {
+    if (!_running && debugSendOverride == null) return false;
+    if (!MeshPacket.fits(payload)) return false;
+    router.noteSent(eventId);
+    return _transmit(MeshPacket(
+      id: eventId,
+      to: '',
+      ttl: MeshPacket.maxTtl,
+      kind: MeshPacket.kindCommunity,
+      payload: payload,
+    ));
   }
 
   Future<bool> _transmit(MeshPacket packet) async {
@@ -217,11 +385,31 @@ class MeshService extends ChangeNotifier {
   }
 
   void _deliver(MeshPacket packet) {
-    // Straight into the path an internet-delivered message takes — same
-    // decrypt, same dedup by message id, same store. A message that arrived
-    // over Bluetooth is not a different kind of message.
-    RelayService.applyIncoming(packet.payload,
-        myPhone: Session.instance.user.value?.phone ?? '');
+    switch (packet.kind) {
+      case MeshPacket.kindMessage:
+        // Straight into the path an internet-delivered message takes — same
+        // decrypt, same dedup by message id, same store. A message that
+        // arrived over Bluetooth is not a different kind of message.
+        RelayService.applyIncoming(packet.payload,
+            myPhone: Session.instance.user.value?.phone ?? '');
+      case MeshPacket.kindServer:
+        final server =
+            NearbyServer.fromWire(packet.payload, DateTime.now());
+        // Not one we are already in — that is a server, not a nearby one.
+        if (server == null) return;
+        if (CommunityStore.instance.byId(server.id) != null) return;
+        NearbyServers.instance.heard(server);
+      case MeshPacket.kindAskInvite:
+        _answerInvite(packet.payload);
+      case MeshPacket.kindInvite:
+        _takeInvite(packet.payload);
+      case MeshPacket.kindCommunity:
+        // Same routing the community bus uses, which fails quietly for a
+        // server this phone is not in: it cannot decrypt what it is not a
+        // member of, and that is the membership check.
+        RelayService.instance.applyCommunityFromMesh(
+            packet.payload, Session.instance.user.value?.phone ?? '');
+    }
   }
 
   void _relay(MeshPacket packet) {
@@ -237,5 +425,21 @@ class MeshService extends ChangeNotifier {
     _running = false;
     _available = null;
     _peers = 0;
+    _beacon?.cancel();
+    _beacon = null;
+    _pendingInvites.clear();
+    NearbyServers.instance.clear();
   }
+
+  /// Test hook: one round of beacons, without waiting for the timer.
+  @visibleForTesting
+  void debugBeaconNow() => _beaconOnce();
+
+  /// Test hook: answer a request for a way in, as a member's phone would.
+  @visibleForTesting
+  void debugAnswerInvite(Map<String, dynamic> body) => _answerInvite(body);
+
+  /// Test hook: hand a packet to the delivery path, as if it had been heard.
+  @visibleForTesting
+  void debugDeliver(MeshPacket packet) => _deliver(packet);
 }

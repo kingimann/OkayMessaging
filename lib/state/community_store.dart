@@ -981,6 +981,17 @@ class CommunityStore extends ChangeNotifier {
     onStructureChanged?.call(communityId);
   }
 
+  /// Turns "anyone nearby can find this and ask to join" on or off.
+  ///
+  /// Not broadcast to the other members as a structure change: whether YOUR
+  /// phone beacons is your decision about your own radio, and one member
+  /// flipping it should not start every other member's phone advertising.
+  void setDiscoverableNearby(String communityId, bool on) {
+    final community = byId(communityId);
+    if (community == null) return;
+    _replace(community.copyWith(discoverableNearby: on));
+  }
+
   void setInvitePolicy(String communityId, String policy) {
     final community = byId(communityId);
     if (community == null) return;

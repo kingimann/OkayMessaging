@@ -187,6 +187,22 @@ class CommunitySettingsScreen extends StatelessWidget {
                   onTap: () => _pickInvitePolicy(context, community),
                 ),
                 InfoTile(
+                  leading: Icon(community.discoverableNearby
+                      ? Icons.bluetooth_searching
+                      : Icons.bluetooth_disabled),
+                  title: 'Findable over Bluetooth',
+                  subtitle: community.discoverableNearby
+                      ? 'Anyone nearby can see this server\'s name and ask to '
+                          'join. Whoever answers hands over the key that '
+                          'decrypts it.'
+                      : 'Off. People nearby cannot see this server exists.',
+                  trailing: Switch(
+                    value: community.discoverableNearby,
+                    onChanged: (v) =>
+                        store.setDiscoverableNearby(communityId, v),
+                  ),
+                ),
+                InfoTile(
                   leading: const Icon(Icons.chat_bubble_outline),
                   title: 'Members can send messages',
                   subtitle: community.membersCanMessage

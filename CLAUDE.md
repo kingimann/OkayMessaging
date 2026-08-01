@@ -216,5 +216,10 @@ copies of the Edge Functions), `docs/supabase_setup.sql`.
   (`MeshPacket.maxBytes`, because a photo is a minute a hop) and foreground only
   (no Bluetooth `UIBackgroundModes` — adding `bluetooth-central` and
   `bluetooth-peripheral` turns background on with no code change, at the cost of
-  slow overflow-area discovery and questions at App Review).
+  slow overflow-area discovery and questions at App Review). Servers ride it
+  too: a server marked **Findable over Bluetooth** (off by default, in its
+  settings) is beaconed to anyone in range, and a stranger who asks gets the
+  invite **encrypted to the key they asked with** — never in the clear, because
+  the invite contains the server secret and a plaintext reply would hand it to
+  everyone within earshot. The server's own invite policy still applies.
 - Check `git log` for what actually shipped most recently.
