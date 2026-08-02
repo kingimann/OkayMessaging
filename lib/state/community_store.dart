@@ -29,6 +29,13 @@ class CommunityStore extends ChangeNotifier {
   /// other members. Remote applies never fire it — no echo storms.
   void Function(String communityId)? onStructureChanged;
 
+  /// Fired when a member is removed (kick, ban, or their own leave), so the
+  /// relay can rotate the server's sender-key epoch — a fresh chain the
+  /// departed member's stored copy can no longer follow. Separate from
+  /// [onStructureChanged] because a channel rename must not churn keys.
+  /// Remote applies never fire it.
+  void Function(String communityId)? onMemberRemoved;
+
   /// How many messages of each channel this device has seen, for unread
   /// badges. Persisted separately from the communities themselves.
   static const _seenKey = 'community_seen_v1';
@@ -1047,6 +1054,7 @@ class CommunityStore extends ChangeNotifier {
           community.mutedIds.where((id) => id != memberId).toList(),
     ));
     onStructureChanged?.call(communityId);
+    onMemberRemoved?.call(communityId);
   }
 
   /// Lifts a ban. The person is not re-added — they can rejoin via invite.
@@ -1156,6 +1164,7 @@ class CommunityStore extends ChangeNotifier {
         .toList();
     _replace(community.copyWith(members: members));
     onStructureChanged?.call(communityId);
+    onMemberRemoved?.call(communityId);
   }
 
   /// Adds a member (used when someone joins via an invite). Banned people

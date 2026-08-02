@@ -103,6 +103,7 @@ import 'package:okay_messaging/screens/score_screen.dart';
 import 'package:okay_messaging/models/chat.dart';
 import 'package:okay_messaging/state/call_log.dart';
 import 'package:okay_messaging/crypto/double_ratchet.dart';
+import 'package:okay_messaging/crypto/sender_key.dart';
 import 'package:okay_messaging/screens/ghost_view_screen.dart';
 import 'package:okay_messaging/screens/media_gallery_screen.dart';
 import 'package:okay_messaging/state/screenshot_watch.dart';
@@ -25089,6 +25090,122 @@ void main() {
       // And the old bespoke ECDH-only ladders are gone from both.
       expect(src.contains("out['sspk'] = s.spk"), isFalse,
           reason: 'the hand-rolled signal seal should be retired');
+    });
+  });
+  group('Signal sender keys (server broadcast)', () {
+    // Three members of one server, each with its own store. 'aaa' sends;
+    // 'bbb' and 'ccc' receive after taking aaa's distribution message.
+    late SenderKeyStore aaa, bbb, ccc;
+    const sid = 'srv1';
+
+    setUp(() {
+      aaa = SenderKeyStore.freshForTest();
+      bbb = SenderKeyStore.freshForTest();
+      ccc = SenderKeyStore.freshForTest();
+    });
+
+    void distribute(SenderKeyStore from, String fromId, List<SenderKeyStore> to) {
+      final skdm = from.mySkdm(sid);
+      for (final t in to) {
+        t.acceptSkdm(sid, fromId, skdm.ck, skdm.n);
+      }
+    }
+
+    test('a broadcast reaches every member who has the sender key', () {
+      distribute(aaa, 'aaa', [bbb, ccc]);
+      final m = aaa.seal(sid, 'hello server');
+      expect(bbb.open(sid, 'aaa', m.n, m.ct), 'hello server');
+      expect(ccc.open(sid, 'aaa', m.n, m.ct), 'hello server');
+    });
+
+    test('a member without the sender key cannot read (must request it)', () {
+      // The race the relay closes with an skreq: ccc never took aaa's SKDM.
+      distribute(aaa, 'aaa', [bbb]);
+      final m = aaa.seal(sid, 'members only');
+      expect(bbb.open(sid, 'aaa', m.n, m.ct), 'members only');
+      expect(ccc.open(sid, 'aaa', m.n, m.ct), isNull);
+    });
+
+    test('each message uses its own key; a replay reads once', () {
+      distribute(aaa, 'aaa', [bbb]);
+      final m1 = aaa.seal(sid, 'one');
+      final m2 = aaa.seal(sid, 'two');
+      expect(m1.ct, isNot(m2.ct));
+      expect(bbb.open(sid, 'aaa', m1.n, m1.ct), 'one');
+      expect(bbb.open(sid, 'aaa', m2.n, m2.ct), 'two');
+      expect(bbb.open(sid, 'aaa', m1.n, m1.ct), isNull,
+          reason: 'the key was deleted on use — forward secrecy at work');
+    });
+
+    test('out-of-order broadcasts are shelved, not lost', () {
+      distribute(aaa, 'aaa', [bbb]);
+      final m1 = aaa.seal(sid, 'first');
+      final m2 = aaa.seal(sid, 'second');
+      final m3 = aaa.seal(sid, 'third');
+      expect(bbb.open(sid, 'aaa', m3.n, m3.ct), 'third');
+      expect(bbb.open(sid, 'aaa', m1.n, m1.ct), 'first');
+      expect(bbb.open(sid, 'aaa', m2.n, m2.ct), 'second');
+    });
+
+    test('a late joiner reads from when they joined, not before', () {
+      distribute(aaa, 'aaa', [bbb]);
+      final before = aaa.seal(sid, 'before ccc');
+      // ccc joins now: takes aaa's CURRENT skdm, which is past `before`.
+      final skdm = aaa.mySkdm(sid);
+      ccc.acceptSkdm(sid, 'aaa', skdm.ck, skdm.n);
+      final after = aaa.seal(sid, 'after ccc');
+      expect(ccc.open(sid, 'aaa', after.n, after.ct), 'after ccc');
+      expect(ccc.open(sid, 'aaa', before.n, before.ct), isNull,
+          reason: 'a joiner must not be handed keys to earlier messages');
+    });
+
+    test('rotation locks out a chain a departed member still holds', () {
+      // ccc was a member and holds aaa's chain…
+      distribute(aaa, 'aaa', [bbb, ccc]);
+      final old = aaa.seal(sid, 'while ccc was in');
+      expect(ccc.open(sid, 'aaa', old.n, old.ct), 'while ccc was in');
+      // …ccc leaves; aaa rotates to a fresh epoch and redistributes to bbb.
+      aaa.rotate(sid);
+      final skdm = aaa.mySkdm(sid);
+      bbb.acceptSkdm(sid, 'aaa', skdm.ck, skdm.n);
+      final fresh = aaa.seal(sid, 'after ccc left');
+      expect(bbb.open(sid, 'aaa', fresh.n, fresh.ct), 'after ccc left');
+      expect(ccc.open(sid, 'aaa', fresh.n, fresh.ct), isNull,
+          reason: 'the departed member\'s old chain reads nothing new');
+    });
+
+    test('a message wound past MAX_SKIP is refused', () {
+      distribute(aaa, 'aaa', [bbb]);
+      final m = aaa.seal(sid, 'x');
+      // Forge an iteration far beyond the bound.
+      expect(bbb.open(sid, 'aaa', SenderKeyStore.maxSkip + 10, m.ct), isNull);
+    });
+
+    test('a tampered server/iteration binding fails the tag', () {
+      distribute(aaa, 'aaa', [bbb]);
+      final m = aaa.seal(sid, 'bound to place');
+      // Right ciphertext, wrong iteration claim → AAD mismatch → null.
+      expect(bbb.open(sid, 'aaa', m.n + 1, m.ct), isNull);
+    });
+
+    test('two senders on one server do not collide', () {
+      distribute(aaa, 'aaa', [ccc]);
+      distribute(bbb, 'bbb', [ccc]);
+      final fromA = aaa.seal(sid, 'from A');
+      final fromB = bbb.seal(sid, 'from B');
+      expect(ccc.open(sid, 'aaa', fromA.n, fromA.ct), 'from A');
+      expect(ccc.open(sid, 'bbb', fromB.n, fromB.ct), 'from B');
+    });
+
+    test('the relay wires it with a shared-secret fallback and rotation', () {
+      final src = File('lib/relay/relay_service.dart').readAsStringSync();
+      expect(src.contains('SenderKeyStore'), isTrue);
+      expect(src.contains("'skc'") || src.contains('skc'), isTrue,
+          reason: 'sender-key ciphertext must ride the community payload');
+      expect(src.contains('skreq') || src.contains('skdm'), isTrue,
+          reason: 'the SKDM race needs a request/deliver path');
+      expect(src.contains('.rotate('), isTrue,
+          reason: 'membership change must rotate the epoch');
     });
   });
   group('private notifications and forced-E2EE backups', () {

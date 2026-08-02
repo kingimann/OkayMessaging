@@ -148,17 +148,40 @@ iOS builds run on **Codemagic** (`codemagic.yaml`, workflow
   message content must never be stored or logged server-side, and the
   mailbox must only ever hold the same sealed envelopes the broadcast
   carries.
-- **Messages ride the Signal Double Ratchet** (`lib/crypto/double_ratchet.dart`,
-  enc 3) wherever the peer's identity key is known, with the static-ECDH
-  path (enc 2) as the floor and the phone-derived key (enc 1) under that.
-  Two documented substitutions from the spec: DH is P-256 (the app's one
-  curve), and the X3DH prekey server is stood in for by the existing in-band
-  exchange — bootstrap trust is the safety number, same as before. Roles are
-  fixed (smaller digits initiates; the responder answers only), which is what
-  prevents the two-Alices race. Sessions persist on-device; an identity-key
-  change buries the session. Eleven tests pin the properties — including the
-  honest healing boundary: a stolen session reads until a post-theft DH
-  enters the root, and nothing after.
+- **Pairwise traffic rides the Signal Double Ratchet**
+  (`lib/crypto/double_ratchet.dart`, enc 3) wherever the peer's identity key
+  is known, with the static-ECDH path (enc 2) as the floor and the
+  phone-derived key (enc 1) under that. This is EVERY pairwise surface, not
+  just message bodies: 1:1 and group chat, call and file signaling (SDP/ICE),
+  group-call metadata and group structural updates all seal through one
+  ladder — `RelayService.sealContent`/`openContent`, the single place the
+  four rungs live, so a surface's encryption is never an accident of which
+  method built its payload. (Call MEDIA stays DTLS-SRTP — WebRTC's own layer,
+  below this.) Two documented substitutions from the spec: DH is P-256 (the
+  app's one curve), and the X3DH prekey server is stood in for by the
+  existing in-band exchange — bootstrap trust is the safety number, same as
+  before. Roles are fixed (smaller digits initiates; the responder answers
+  only), which prevents the two-Alices race. Sessions persist on-device; an
+  identity-key change buries the session. Tests pin the properties —
+  including the honest healing boundary: a stolen session reads until a
+  post-theft DH enters the root, and nothing after.
+- **The server/community broadcast bus rides Signal Sender Keys**
+  (`lib/crypto/sender_key.dart`), because a pairwise ratchet can't key a
+  one-to-many broadcast. Each sender owns a forward-secret symmetric chain
+  (random root, HMAC ratchet, one key per message deleted on use); the chain
+  root reaches members as a distribution message (SKDM) carried over the
+  PAIRWISE ratchet (`sealContent`), never under the server's shared secret —
+  so compromising that secret reveals no past content. Wire fields `skc`/
+  `skn` on the community payload; the shared-secret `data` path remains only
+  as legacy fallback for older builds. A member removal rotates the epoch
+  (`onMemberRemoved` → `rotateServerKey`) so a departed member's chain reads
+  nothing after; a receiver that lacks a sender's chain sends `skreq` and the
+  sender re-delivers the SKDM. **Known limits, stated rather than hidden:**
+  no per-message signatures yet, so member-to-member unforgeability stays at
+  the shared-secret level (parity, not a regression — non-members never get
+  the SKDM); and the multi-device distribution/rotation path is first proven
+  on real devices, like the mesh. The chain core is proven in-process by its
+  tests.
 - The Supabase **publishable** key (`sb_publishable_…`) and the Stripe
   **publishable** key (`pk_live_…`) are client-safe and intentionally inlined
   in build configs. Secret keys (`sk_…`, APNs `.p8`) must never enter the

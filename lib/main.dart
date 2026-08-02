@@ -10,6 +10,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'app_state.dart';
 import 'crypto/double_ratchet.dart';
 import 'crypto/key_exchange.dart';
+import 'crypto/sender_key.dart';
 import 'payments/iap_entitlement.dart';
 import 'payments/payment_service.dart';
 import 'relay/relay_config.dart';
@@ -89,6 +90,7 @@ Future<void> main() async {
   await _boot('persistence', Persistence.init);
   await _boot('keys', SecureKeyExchange.instance.load);
   await _boot('ratchet', DoubleRatchet.instance.load);
+  await _boot('sender keys', SenderKeyStore.instance.load);
   await _boot('lock', AppLock.instance.load);
   await _boot('chat locks', ChatLock.instance.load);
   await _boot('quick replies', QuickReplies.instance.load);
@@ -344,6 +346,13 @@ class _OkayMessagingAppState extends State<OkayMessagingApp>
     CommunityStore.instance.onStructureChanged = (id) {
       if (RelayConfig.isEnabled) {
         RelayService.instance.sendCommunityUpdate(id);
+      }
+    };
+    // A member leaving rotates the server's sender-key epoch, so the copy of
+    // the chain they walked off with reads nothing sent afterward.
+    CommunityStore.instance.onMemberRemoved = (id) {
+      if (RelayConfig.isEnabled) {
+        RelayService.instance.rotateServerKey(id);
       }
     };
   }

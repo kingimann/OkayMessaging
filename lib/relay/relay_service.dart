@@ -12,6 +12,7 @@ import '../mesh/mesh_packet.dart';
 import '../mesh/mesh_service.dart';
 import '../crypto/double_ratchet.dart';
 import '../crypto/key_exchange.dart';
+import '../crypto/sender_key.dart';
 import '../models/chat.dart';
 import '../models/community.dart';
 import '../models/message.dart';
@@ -744,6 +745,10 @@ class RelayService {
               applyMessageEvent(event, payload, myPhone: me);
             case 'gupd':
               applyGroupUpdate(payload, myPhone: me);
+            case 'skdm':
+              applySkdm(payload, myPhone: me);
+            case 'skreq':
+              applySkreq(payload, myPhone: me);
             case 'chmsg' || 'chjoin' || 'chupd' || 'fpost' || 'fdel' ||
                   'flike' || 'fvote' || 'chdel' || 'chedt' || 'chrxn' ||
                   'chpin':
@@ -818,6 +823,16 @@ class RelayService {
               SecureKeyExchange.instance.rememberPeer(from, spk);
             }
           },
+        )
+        .onBroadcast(
+          event: 'skdm',
+          callback: (payload) =>
+              applySkdm(Map<String, dynamic>.from(payload), myPhone: me),
+        )
+        .onBroadcast(
+          event: 'skreq',
+          callback: (payload) =>
+              applySkreq(Map<String, dynamic>.from(payload), myPhone: me),
         )
         .onBroadcast(
           event: 'key',
@@ -1280,11 +1295,35 @@ class RelayService {
       final from = payload['from'] as String?;
       if (from == null || digits(from) == digits(me)) return;
       final cid = payload['communityId'] as String?;
-      final data = payload['data'] as String?;
-      if (cid == null || data == null) return;
-      final secret = CommunityStore.instance.byId(cid)?.secretBytes;
-      if (secret == null) return;
-      final plain = E2eCrypto.decrypt(secret, data);
+      if (cid == null) return;
+      if (CommunityStore.instance.byId(cid)?.secretBytes == null) return;
+
+      String? plain;
+      final skc = payload['skc'] as String?;
+      if (skc != null) {
+        // Sender-key path: forward-secret per-sender chain. If we don't hold
+        // this sender's chain yet, their SKDM hasn't arrived — ask for it and
+        // drop this one message rather than reading it a weaker way.
+        final n = (payload['skn'] as num?)?.toInt() ?? 0;
+        final sender = digits(from);
+        if (!SenderKeyStore.instance.canRead(cid, sender)) {
+          _requestSkdm(cid, sender);
+          return;
+        }
+        plain = SenderKeyStore.instance.open(cid, sender, n, skc);
+        if (plain == null) {
+          // Held the chain but couldn't open (gap past the bound, or a
+          // rotation we missed) — re-request to resync.
+          _requestSkdm(cid, sender);
+          return;
+        }
+      } else {
+        // Legacy shared-secret path, for servers/senders on older builds.
+        final data = payload['data'] as String?;
+        final secret = CommunityStore.instance.byId(cid)?.secretBytes;
+        if (data == null || secret == null) return;
+        plain = E2eCrypto.decrypt(secret, data);
+      }
       if (plain == null) return;
       final body = jsonDecode(plain);
       if (body is! Map) return;
@@ -1307,7 +1346,7 @@ class RelayService {
     final payload = {
       'from': me.phone,
       'communityId': communityId,
-      'data': E2eCrypto.encrypt(secret, jsonEncode(body)),
+      ..._sealCommunity(community, jsonEncode(body)),
     };
     final channel = _feedChannel ??
         _sendChannels.putIfAbsent(
@@ -1353,9 +1392,102 @@ class RelayService {
       await channel.sendBroadcastMessage(event: event, payload: {
         'from': me.phone,
         'communityId': communityId,
-        'data': E2eCrypto.encrypt(secret, jsonEncode(body)),
+        ..._sealCommunity(community, jsonEncode(body)),
       });
     } catch (_) {}
+  }
+
+  /// Seals a community body under this device's Signal sender key for the
+  /// server — a forward-secret per-sender chain, so a member who leaves (and
+  /// the shared server secret they walk off with) reads nothing sent after
+  /// the next rotation. On the FIRST send to a server this device also mints
+  /// and distributes its sender-key distribution message (SKDM) pairwise to
+  /// every reachable member, over the ratchet, so their next receive can open
+  /// this chain.
+  ///
+  /// The shared secret is no longer what protects content — it only gated
+  /// membership before, and the SKDM (which rides the pairwise ratchet, not
+  /// the shared secret) now carries that job. A receiver on an older build
+  /// that does not understand `skc` will miss these, the same version cost
+  /// the pairwise `enc 3` messages carry; it is a branch push, not a live
+  /// fleet.
+  Map<String, dynamic> _sealCommunity(
+      Community community, String plaintext) {
+    final sk = SenderKeyStore.instance;
+    final firstSend = !sk.hasOwn(community.id);
+    final sealed = sk.seal(community.id, plaintext);
+    if (firstSend) _distributeSkdm(community);
+    return {'skc': sealed.ct, 'skn': sealed.n};
+  }
+
+  /// Sends this device's current SKDM for [community] to each reachable
+  /// member (or just [toDigits] when answering an skreq), pairwise-sealed so
+  /// only that member can read the chain key. Members with no resolvable
+  /// inbox (seeds, the local 'me') are skipped — they have no device to reach.
+  void _distributeSkdm(Community community, {String? toDigits}) {
+    final me = Session.instance.user.value;
+    if (me == null) return;
+    final skdm = SenderKeyStore.instance.mySkdm(community.id);
+    final mine = digits(me.phone);
+    final body = jsonEncode(
+        {'communityId': community.id, 'ck': skdm.ck, 'n': skdm.n});
+    for (final m in community.members) {
+      final d = CommunityStore.digitsOfWireId(m.id);
+      if (d == null || d == mine) continue;
+      if (toDigits != null && d != toDigits) continue;
+      unawaited(_sendInboxEvent(d, 'skdm', {
+        'from': me.phone,
+        ...sealContent(me.phone, d, body),
+      }));
+    }
+  }
+
+  /// Rotates a server's sender-key epoch after a member left, then hands the
+  /// fresh SKDM to everyone still in. Wired to CommunityStore.onMemberRemoved.
+  void rotateServerKey(String communityId) {
+    final community = CommunityStore.instance.byId(communityId);
+    if (community == null) return;
+    SenderKeyStore.instance.rotate(communityId);
+    _distributeSkdm(community);
+  }
+
+  /// Applies an inbound SKDM from [from]: opens the pairwise seal, stores the
+  /// sender's chain so their broadcasts can be read.
+  void applySkdm(Map<String, dynamic> payload, {required String myPhone}) {
+    final from = payload['from'] as String?;
+    if (from == null || digits(from) == digits(myPhone)) return;
+    final plain = openContent(from, myPhone, payload);
+    if (plain == null) return;
+    try {
+      final body = jsonDecode(plain) as Map<String, dynamic>;
+      final cid = body['communityId'] as String?;
+      final ck = body['ck'] as String?;
+      final n = (body['n'] as num?)?.toInt();
+      if (cid == null || ck == null || n == null) return;
+      SenderKeyStore.instance.acceptSkdm(cid, digits(from), ck, n);
+    } catch (_) {}
+  }
+
+  /// Answers an skreq: a member saw our sender-key traffic before our SKDM
+  /// reached them, so re-send it to just them.
+  void applySkreq(Map<String, dynamic> payload, {required String myPhone}) {
+    final from = payload['from'] as String?;
+    final cid = payload['communityId'] as String?;
+    if (from == null || cid == null || digits(from) == digits(myPhone)) return;
+    final community = CommunityStore.instance.byId(cid);
+    if (community == null || !SenderKeyStore.instance.hasOwn(cid)) return;
+    _distributeSkdm(community, toDigits: digits(from));
+  }
+
+  /// Asks [senderDigits] to (re)send their SKDM for [communityId] — closes the
+  /// race where a broadcast outran its distribution message.
+  void _requestSkdm(String communityId, String senderDigits) {
+    final me = Session.instance.user.value;
+    if (me == null) return;
+    unawaited(_sendInboxEvent(senderDigits, 'skreq', {
+      'from': me.phone,
+      'communityId': communityId,
+    }));
   }
 
   /// Announces that this device joined or left a voice channel.
