@@ -17,6 +17,15 @@ enum FormFieldKind {
   /// stops being one the moment it is parsed as a number.
   number,
 
+  /// An address, checked for shape (something@something) before it goes out —
+  /// a form is usually asking for it to reach somebody there, and a typo
+  /// found at send time still belongs to the person who made it.
+  email,
+
+  /// A phone number, kept as typed. Same digits-stay-text rule as [number];
+  /// the shape check only insists on enough digits to dial.
+  phone,
+
   /// Pick one of [FormFieldSpec.options].
   choice,
 
@@ -45,6 +54,8 @@ enum FormFieldKind {
 FormFieldKind _kindFrom(String? raw) => switch (raw) {
       'paragraph' => FormFieldKind.paragraph,
       'number' => FormFieldKind.number,
+      'email' => FormFieldKind.email,
+      'phone' => FormFieldKind.phone,
       'choice' => FormFieldKind.choice,
       'chooseMany' => FormFieldKind.chooseMany,
       'dropdown' => FormFieldKind.dropdown,
@@ -203,16 +214,86 @@ class FormResponse {
     return answer == wanted;
   }
 
+  /// What is wrong with [answer]'s shape for this [field], said in a
+  /// sentence — or null when nothing is. An empty answer is never a shape
+  /// problem; whether emptiness is allowed is [FormFieldSpec.required]'s
+  /// question, not this one's.
+  static String? formatProblem(FormFieldSpec field, String answer) {
+    final a = answer.trim();
+    if (a.isEmpty) return null;
+    switch (field.kind) {
+      case FormFieldKind.email:
+        // One @ with something either side. Anything stricter starts
+        // rejecting real addresses, which is worse than missing a typo.
+        if (!RegExp(r'^[^@\s]+@[^@\s]+$').hasMatch(a)) {
+          return 'That does not look like an email address.';
+        }
+        return null;
+      case FormFieldKind.phone:
+        if (a.replaceAll(RegExp(r'\D'), '').length < 6) {
+          return 'That does not look like a phone number.';
+        }
+        return null;
+      default:
+        return null;
+    }
+  }
+
   /// Whether [answers] satisfies [fields] — every required question that is
-  /// actually being asked, answered. Pure, so the send button and the
-  /// receiving end can agree without either trusting the other.
+  /// actually being asked answered, and nothing answered in a shape the
+  /// question refuses. Pure, so the send button and the receiving end can
+  /// agree without either trusting the other.
   static bool isComplete(
       List<FormFieldSpec> fields, List<String> answers) {
     for (var i = 0; i < fields.length; i++) {
-      if (!fields[i].required) continue;
       if (!isShown(fields, answers, i)) continue;
-      if (i >= answers.length || answers[i].trim().isEmpty) return false;
+      final answer = i < answers.length ? answers[i] : '';
+      if (fields[i].required && answer.trim().isEmpty) return false;
+      if (formatProblem(fields[i], answer) != null) return false;
     }
     return true;
+  }
+
+  /// How many people picked each value of question [q] — the sender's
+  /// overview, so twelve answers to "Which days?" do not have to be read as
+  /// twelve cards. Choose-many answers count once per pick. Only the values
+  /// the question offers are counted (all of them, zeroes included, so an
+  /// option nobody picked is a said zero rather than a missing row); an
+  /// answer to a question the person was never shown is not an answer.
+  static Map<String, int> tally(List<FormFieldSpec> fields,
+      List<FormResponse> responses, int q) {
+    if (q < 0 || q >= fields.length) return const {};
+    final counts = {for (final v in fields[q].gateValues) v: 0};
+    for (final r in responses) {
+      if (!isShown(fields, r.answers, q)) continue;
+      final answer = q < r.answers.length ? r.answers[q] : '';
+      final picks = fields[q].kind == FormFieldKind.chooseMany
+          ? answer.split(', ')
+          : [answer];
+      for (final pick in picks) {
+        if (counts.containsKey(pick)) counts[pick] = counts[pick]! + 1;
+      }
+    }
+    return counts;
+  }
+
+  /// The average of a rating question's stars, or null when nobody rated.
+  static double? ratingAverage(List<FormFieldSpec> fields,
+      List<FormResponse> responses, int q) {
+    if (q < 0 ||
+        q >= fields.length ||
+        fields[q].kind != FormFieldKind.rating) {
+      return null;
+    }
+    var sum = 0, n = 0;
+    for (final r in responses) {
+      if (!isShown(fields, r.answers, q)) continue;
+      final answer = q < r.answers.length ? r.answers[q] : '';
+      final stars = int.tryParse(answer.split('/').first);
+      if (stars == null || stars < 1 || stars > 5) continue;
+      sum += stars;
+      n++;
+    }
+    return n == 0 ? null : sum / n;
   }
 }

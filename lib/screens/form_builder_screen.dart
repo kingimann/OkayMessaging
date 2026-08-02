@@ -38,6 +38,63 @@ class _FormBuilderScreenState extends State<FormBuilderScreen> {
       _fields.isNotEmpty &&
       _fields.every((f) => f.isUsable);
 
+  /// Common forms as starting points. Offered only while the form is still
+  /// blank and gone the moment it is not — a suggestion, never content that
+  /// arrives pre-filled unasked.
+  static const _templates = <(String, List<FormFieldSpec>)>[
+    ('RSVP', [
+      FormFieldSpec(
+          label: 'Coming?', kind: FormFieldKind.yesNo, required: true),
+      FormFieldSpec(
+          label: 'How many of you?',
+          kind: FormFieldKind.number,
+          showIfQ: 0,
+          showIfIs: 'Yes'),
+      FormFieldSpec(label: 'Why not?', showIfQ: 0, showIfIs: 'No'),
+    ]),
+    ('Order', [
+      FormFieldSpec(label: 'Your name', required: true),
+      FormFieldSpec(
+          label: 'Size',
+          kind: FormFieldKind.choice,
+          required: true,
+          options: ['S', 'M', 'L']),
+      FormFieldSpec(label: 'Anything else?', kind: FormFieldKind.paragraph),
+    ]),
+    ('Feedback', [
+      FormFieldSpec(
+          label: 'How was it?', kind: FormFieldKind.rating, required: true),
+      FormFieldSpec(
+          label: 'What should change?', kind: FormFieldKind.paragraph),
+    ]),
+    ('Sign-up sheet', [
+      FormFieldSpec(label: 'Your name', required: true),
+      FormFieldSpec(label: 'Email', kind: FormFieldKind.email),
+      FormFieldSpec(
+          label: 'Which days?',
+          kind: FormFieldKind.chooseMany,
+          required: true,
+          options: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']),
+    ]),
+  ];
+
+  bool get _pristine =>
+      _title.text.trim().isEmpty &&
+      _fields.length == 1 &&
+      _fields.first.label.trim().isEmpty;
+
+  void _useTemplate(String title, List<FormFieldSpec> fields) =>
+      setState(() {
+        _title.text = title;
+        _fields
+          ..clear()
+          ..addAll(fields);
+        _ids.clear();
+        for (final _ in fields) {
+          _ids.add(_nextId++);
+        }
+      });
+
   void _send() {
     Navigator.of(context).pop((_title.text.trim(), List.of(_fields)));
   }
@@ -61,6 +118,22 @@ class _FormBuilderScreenState extends State<FormBuilderScreen> {
 
   void _update(int i, FormFieldSpec f) => setState(() {
         _fields[i] = f;
+        _repairConditions();
+      });
+
+  void _duplicate(int i) => setState(() {
+        _fields.insert(i + 1, _fields[i]);
+        _ids.insert(i + 1, _nextId++);
+        // Everything past the insertion moved down one; conditions naming
+        // those questions follow them. The copy's own condition needs no
+        // help: it points backwards past the original, and those indices
+        // did not move.
+        for (var j = 0; j < _fields.length; j++) {
+          final q = _fields[j].showIfQ;
+          if (q != null && q > i) {
+            _fields[j] = _fields[j].copyWith(showIfQ: q + 1);
+          }
+        }
         _repairConditions();
       });
 
@@ -132,6 +205,20 @@ class _FormBuilderScreenState extends State<FormBuilderScreen> {
             'message. Nothing is stored on a server.',
             style: TextStyle(fontSize: 12.5, color: AppColors.subtle(context)),
           ),
+          if (_pristine) ...[
+            const SizedBox(height: 14),
+            Wrap(
+              spacing: 8,
+              runSpacing: 4,
+              children: [
+                for (final (name, fields) in _templates)
+                  ActionChip(
+                    label: Text(name),
+                    onPressed: () => _useTemplate(name, fields),
+                  ),
+              ],
+            ),
+          ],
           const SizedBox(height: 16),
           for (var i = 0; i < _fields.length; i++)
             _FieldEditor(
@@ -143,6 +230,7 @@ class _FormBuilderScreenState extends State<FormBuilderScreen> {
               onMoveUp: i == 0 ? null : () => _move(i, -1),
               onMoveDown:
                   i == _fields.length - 1 ? null : () => _move(i, 1),
+              onDuplicate: () => _duplicate(i),
             ),
           const SizedBox(height: 8),
           OutlinedButton.icon(
@@ -168,6 +256,7 @@ class _FieldEditor extends StatelessWidget {
     required this.onRemove,
     required this.onMoveUp,
     required this.onMoveDown,
+    required this.onDuplicate,
   });
 
   final int index;
@@ -179,6 +268,7 @@ class _FieldEditor extends StatelessWidget {
   final VoidCallback? onRemove;
   final VoidCallback? onMoveUp;
   final VoidCallback? onMoveDown;
+  final VoidCallback onDuplicate;
 
   FormFieldSpec get field => fields[index];
 
@@ -186,6 +276,8 @@ class _FieldEditor extends StatelessWidget {
     FormFieldKind.text: 'Short answer',
     FormFieldKind.paragraph: 'Long answer',
     FormFieldKind.number: 'Number',
+    FormFieldKind.email: 'Email',
+    FormFieldKind.phone: 'Phone',
     FormFieldKind.choice: 'Choose one',
     FormFieldKind.chooseMany: 'Choose many',
     FormFieldKind.dropdown: 'Dropdown',
@@ -336,6 +428,11 @@ class _FieldEditor extends StatelessWidget {
                 ),
                 const Text('Required'),
                 const Spacer(),
+                IconButton(
+                  icon: const Icon(Icons.copy_outlined),
+                  tooltip: 'Duplicate question',
+                  onPressed: onDuplicate,
+                ),
                 IconButton(
                   icon: const Icon(Icons.arrow_upward),
                   tooltip: 'Move up',

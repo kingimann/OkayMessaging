@@ -34,6 +34,18 @@ class _FormFillScreenState extends State<FormFillScreen> {
 
   bool get _complete => FormResponse.isComplete(widget.fields, _answers);
 
+  /// Whether what is holding up the send is a malformed answer rather than a
+  /// missing one — the hint under the form should point at the right thing.
+  bool get _shapeProblem {
+    for (var i = 0; i < widget.fields.length; i++) {
+      if (!FormResponse.isShown(widget.fields, _answers, i)) continue;
+      if (FormResponse.formatProblem(widget.fields[i], _answers[i]) != null) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   void _set(int i, String v) => setState(() {
         _answers[i] = v;
         // Changing an answer can fold later questions away. Their answers go
@@ -84,7 +96,9 @@ class _FormFillScreenState extends State<FormFillScreen> {
               ),
           if (!_complete)
             Text(
-              'Answer the questions marked * to send.',
+              _shapeProblem
+                  ? 'Fix the answers marked in red to send.'
+                  : 'Answer the questions marked * to send.',
               style: TextStyle(
                   fontSize: 13, color: Theme.of(context).colorScheme.error),
             ),
@@ -237,18 +251,85 @@ class _Question extends StatelessWidget {
             ),
           _ => TextFormField(
               initialValue: value,
-              keyboardType: field.kind == FormFieldKind.number
-                  ? TextInputType.number
-                  : TextInputType.multiline,
+              keyboardType: switch (field.kind) {
+                FormFieldKind.number => TextInputType.number,
+                FormFieldKind.email => TextInputType.emailAddress,
+                FormFieldKind.phone => TextInputType.phone,
+                _ => TextInputType.multiline,
+              },
               // Digits stay text: a phone number with a leading zero stops
               // being one the moment it is parsed as a number.
               maxLines: field.kind == FormFieldKind.paragraph ? 4 : 1,
-              decoration:
-                  const InputDecoration(border: OutlineInputBorder()),
+              decoration: InputDecoration(
+                border: const OutlineInputBorder(),
+                // Said while typing, where the typo is still on screen —
+                // the same check the send button runs.
+                errorText: FormResponse.formatProblem(field, value),
+              ),
               onChanged: onChanged,
             ),
         },
       ],
+    );
+  }
+}
+
+/// The closed questions counted up, so twelve answers to "Which days?" do
+/// not have to be read as twelve cards. Free-text questions are left to the
+/// cards below — a tally of sentences is nothing.
+class _Summary extends StatelessWidget {
+  const _Summary({required this.fields, required this.responses});
+
+  final List<FormFieldSpec> fields;
+  final List<FormResponse> responses;
+
+  @override
+  Widget build(BuildContext context) {
+    final lines = <Widget>[];
+    for (var q = 0; q < fields.length; q++) {
+      final String counted;
+      if (fields[q].kind == FormFieldKind.rating) {
+        final avg = FormResponse.ratingAverage(fields, responses, q);
+        if (avg == null) continue;
+        counted = '★ ${avg.toStringAsFixed(1)} average';
+      } else if (fields[q].canGate) {
+        final tally = FormResponse.tally(fields, responses, q);
+        if (tally.isEmpty) continue;
+        counted = [for (final e in tally.entries) '${e.key} ${e.value}']
+            .join(' · ');
+      } else {
+        continue;
+      }
+      lines.add(Padding(
+        padding: const EdgeInsets.only(top: 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(fields[q].label,
+                style: TextStyle(
+                    fontSize: 12.5, color: AppColors.subtle(context))),
+            Text(counted,
+                style: const TextStyle(
+                    fontSize: 14.5, fontWeight: FontWeight.w600)),
+          ],
+        ),
+      ));
+    }
+    if (lines.isEmpty) return const SizedBox.shrink();
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('At a glance',
+                style:
+                    TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
+            ...lines,
+          ],
+        ),
+      ),
     );
   }
 }
@@ -289,9 +370,12 @@ class FormResponsesScreen extends StatelessWidget {
             )
           : ListView.builder(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
-              itemCount: responses.length,
+              itemCount: responses.length + 1,
               itemBuilder: (context, i) {
-                final r = responses[i];
+                if (i == 0) {
+                  return _Summary(fields: fields, responses: responses);
+                }
+                final r = responses[i - 1];
                 return Card(
                   margin: const EdgeInsets.only(bottom: 12),
                   child: Padding(

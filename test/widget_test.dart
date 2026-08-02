@@ -25235,7 +25235,9 @@ void main() {
         ),
       ));
       await t.pumpAndSettle();
-      expect(find.text('Coming?'), findsOneWidget);
+      // In the response card and again in the summary — but never the
+      // question this person was not asked.
+      expect(find.text('Coming?'), findsWidgets);
       expect(find.text('Why not?'), findsNothing);
       expect(find.text('No answer'), findsNothing,
           reason: '"No answer" to a question never asked reads as declining');
@@ -25296,6 +25298,148 @@ void main() {
       expect(sent!.$2.first.showIfQ, isNull,
           reason: 'a condition cannot point at a later question');
       expect(sent!.$2.last.label, 'Coming?');
+    });
+
+    test('the tally says its zeroes and skips the never-asked', () {
+      const f = [
+        FormFieldSpec(label: 'Coming?', kind: FormFieldKind.yesNo),
+        FormFieldSpec(
+            label: 'Course',
+            kind: FormFieldKind.choice,
+            options: ['Meat', 'Veg'],
+            showIfQ: 0,
+            showIfIs: 'Yes'),
+      ];
+      final rs = [
+        FormResponse(
+            from: 'Ada', answers: const ['Yes', 'Meat'], at: DateTime(2026)),
+        // Bo said No, so Bo was never asked the course — a 'Meat' sitting in
+        // the slot (stale, or crafted) is not an answer to it.
+        FormResponse(
+            from: 'Bo', answers: const ['No', 'Meat'], at: DateTime(2026)),
+      ];
+      expect(FormResponse.tally(f, rs, 0), {'Yes': 1, 'No': 1});
+      expect(FormResponse.tally(f, rs, 1), {'Meat': 1, 'Veg': 0},
+          reason: 'an option nobody picked is a said zero, not a gap');
+    });
+
+    test('choose-many picks each count, and stars average', () {
+      const f = [
+        FormFieldSpec(
+            label: 'Days',
+            kind: FormFieldKind.chooseMany,
+            options: ['Mon', 'Tue']),
+        FormFieldSpec(label: 'Service', kind: FormFieldKind.rating),
+      ];
+      final rs = [
+        FormResponse(
+            from: 'Ada', answers: const ['Mon, Tue', '5/5'], at: DateTime(2026)),
+        FormResponse(
+            from: 'Bo', answers: const ['Mon', '4/5'], at: DateTime(2026)),
+      ];
+      expect(FormResponse.tally(f, rs, 0), {'Mon': 2, 'Tue': 1});
+      expect(FormResponse.ratingAverage(f, rs, 1), 4.5);
+      expect(FormResponse.ratingAverage(f, const [], 1), isNull,
+          reason: 'no ratings is no average, not zero stars');
+      expect(FormResponse.ratingAverage(f, rs, 0), isNull,
+          reason: 'only a rating question has one');
+    });
+
+    test('an answer the question refuses holds up the send', () {
+      // Optional does not mean anything goes: an unanswered email question
+      // is a choice, a malformed one is a typo about to go out.
+      const f = [FormFieldSpec(label: 'Email', kind: FormFieldKind.email)];
+      expect(FormResponse.isComplete(f, ['']), isTrue);
+      expect(FormResponse.isComplete(f, ['ada@example.com']), isTrue);
+      expect(FormResponse.isComplete(f, ['ada.example.com']), isFalse);
+      expect(FormResponse.formatProblem(f.first, 'ada.example.com'),
+          contains('email'));
+      const p = [FormFieldSpec(label: 'Phone', kind: FormFieldKind.phone)];
+      expect(FormResponse.isComplete(p, ['+1 555 0100']), isTrue);
+      expect(FormResponse.isComplete(p, ['call me']), isFalse);
+    });
+
+    testWidgets('the sender gets the count without reading every card',
+        (t) async {
+      const f = [
+        FormFieldSpec(
+            label: 'Days',
+            kind: FormFieldKind.chooseMany,
+            options: ['Mon', 'Tue']),
+        FormFieldSpec(label: 'Service', kind: FormFieldKind.rating),
+        FormFieldSpec(label: 'Notes'),
+      ];
+      await t.pumpWidget(MaterialApp(
+        home: FormResponsesScreen(
+          title: 'Shifts',
+          fields: f,
+          responses: [
+            FormResponse(
+                from: 'Ada',
+                answers: const ['Mon, Tue', '5/5', 'fine'],
+                at: DateTime(2026)),
+            FormResponse(
+                from: 'Bo',
+                answers: const ['Mon', '4/5', 'ok'],
+                at: DateTime(2026)),
+          ],
+        ),
+      ));
+      await t.pumpAndSettle();
+      expect(find.text('At a glance'), findsOneWidget);
+      expect(find.text('Mon 2 · Tue 1'), findsOneWidget);
+      expect(find.text('★ 4.5 average'), findsOneWidget);
+      // Free text is left to the cards: a tally of sentences is nothing,
+      // and the cards below still carry every word.
+      expect(find.text('fine'), findsOneWidget);
+    });
+
+    testWidgets(
+        'templates are offered never seeded, and a duplicate keeps its place',
+        (t) async {
+      t.view.physicalSize = const Size(500, 2400);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.resetPhysicalSize);
+      (String, List<FormFieldSpec>)? sent;
+      await t.pumpWidget(MaterialApp(
+        home: Builder(
+          builder: (context) => Center(
+            child: ElevatedButton(
+              onPressed: () async {
+                sent = await Navigator.of(context)
+                    .push<(String, List<FormFieldSpec>)>(MaterialPageRoute(
+                        builder: (_) => const FormBuilderScreen()));
+              },
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      ));
+      await t.tap(find.text('open'));
+      await t.pumpAndSettle();
+
+      // Offered: the chips are there, but the form itself starts blank.
+      expect(find.text('RSVP'), findsOneWidget);
+      expect(find.widgetWithText(TextFormField, 'Question 2'), findsNothing);
+      await t.tap(find.text('RSVP'));
+      await t.pumpAndSettle();
+      // Taking one fills the form, and the offer leaves. The label shows in
+      // its own card and in the two condition dropdowns naming it.
+      expect(find.text('Coming?'), findsWidgets);
+      expect(find.widgetWithText(ActionChip, 'Order'), findsNothing);
+
+      // Duplicate the gating question: the conditions two cards down must
+      // still name the original, not drift onto the copy or off the end.
+      await t.tap(find.byTooltip('Duplicate question').first);
+      await t.pumpAndSettle();
+      await t.tap(find.text('Send'));
+      await t.pumpAndSettle();
+      expect(sent, isNotNull);
+      expect(sent!.$1, 'RSVP');
+      expect(sent!.$2.length, 4);
+      expect(sent!.$2[1].label, 'Coming?');
+      expect(sent!.$2[2].showIfQ, 0);
+      expect(sent!.$2[3].showIfQ, 0);
     });
 
     test('nothing about a form reaches a server in the clear', () {
