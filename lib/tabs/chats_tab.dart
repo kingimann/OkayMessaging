@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import '../widgets/chat_lock_dialogs.dart';
+import '../state/chat_lock.dart';
 
 import '../models/chat.dart';
 import '../app_state.dart';
@@ -56,7 +58,15 @@ class ChatsTab extends StatefulWidget {
 
 class _ChatsTabState extends State<ChatsTab> {
   ChatFilter _filter = ChatFilter.all;
-  void _openChat(Chat chat) {
+  Future<void> _openChat(Chat chat) async {
+    // Asked here rather than inside the chat screen, so the messages are
+    // never built and never painted for a frame behind a dialog.
+    if (!ChatLock.instance.isOpen(chat.id)) {
+      final ok = await askForChatPassword(context, chat.id,
+          chatName: chat.contact.name);
+      if (!ok || !mounted) return;
+    }
+    if (!mounted) return;
     Navigator.of(context)
         .push(MaterialPageRoute(builder: (_) => ChatScreen(chat: chat)));
   }
@@ -71,52 +81,102 @@ class _ChatsTabState extends State<ChatsTab> {
           Navigator.of(sheetContext).pop();
         }
 
+        // Scrollable, because the list grew past the height of a short phone
+        // once locking joined it — a bottom sheet that overflows drops its
+        // last rows off the screen with no way to reach them.
         return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ListTile(
-                leading: Icon(
-                    chat.isPinned ? Icons.push_pin : Icons.push_pin_outlined),
-                title: Text(chat.isPinned ? 'Unpin chat' : 'Pin chat'),
-                onTap: () => act(() => store.togglePin(chat.id)),
-              ),
-              ListTile(
-                leading: Icon(
-                    chat.isFavorite ? Icons.star : Icons.star_border_outlined),
-                title: Text(chat.isFavorite
-                    ? 'Remove from favourites'
-                    : 'Add to favourites'),
-                onTap: () => act(() => store.toggleFavorite(chat.id)),
-              ),
-              ListTile(
-                leading:
-                    Icon(chat.isMuted ? Icons.volume_up : Icons.volume_off),
-                title: Text(chat.isMuted ? 'Unmute' : 'Mute notifications'),
-                onTap: () => act(() => store.toggleMute(chat.id)),
-              ),
-              ListTile(
-                leading: Icon(chat.unreadCount > 0
-                    ? Icons.mark_chat_read
-                    : Icons.mark_chat_unread),
-                title: Text(
-                    chat.unreadCount > 0 ? 'Mark as read' : 'Mark as unread'),
-                onTap: () => act(() => chat.unreadCount > 0
-                    ? store.markRead(chat.id)
-                    : store.markUnread(chat.id)),
-              ),
-              ListTile(
-                leading: const Icon(Icons.archive_outlined),
-                title: const Text('Archive chat'),
-                onTap: () => act(() => store.setArchived(chat.id, true)),
-              ),
-              ListTile(
-                leading: const Icon(Icons.delete_outline, color: Colors.red),
-                title: const Text('Delete chat',
-                    style: TextStyle(color: Colors.red)),
-                onTap: () => act(() => store.deleteChat(chat.id)),
-              ),
-            ],
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ListTile(
+                  leading: Icon(
+                      chat.isPinned ? Icons.push_pin : Icons.push_pin_outlined),
+                  title: Text(chat.isPinned ? 'Unpin chat' : 'Pin chat'),
+                  onTap: () => act(() => store.togglePin(chat.id)),
+                ),
+                ListTile(
+                  leading: Icon(
+                      chat.isFavorite ? Icons.star : Icons.star_border_outlined),
+                  title: Text(chat.isFavorite
+                      ? 'Remove from favourites'
+                      : 'Add to favourites'),
+                  onTap: () => act(() => store.toggleFavorite(chat.id)),
+                ),
+                ListTile(
+                  leading:
+                      Icon(chat.isMuted ? Icons.volume_up : Icons.volume_off),
+                  title: Text(chat.isMuted ? 'Unmute' : 'Mute notifications'),
+                  onTap: () => act(() => store.toggleMute(chat.id)),
+                ),
+                ListTile(
+                  leading: Icon(chat.unreadCount > 0
+                      ? Icons.mark_chat_read
+                      : Icons.mark_chat_unread),
+                  title: Text(
+                      chat.unreadCount > 0 ? 'Mark as read' : 'Mark as unread'),
+                  onTap: () => act(() => chat.unreadCount > 0
+                      ? store.markRead(chat.id)
+                      : store.markUnread(chat.id)),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.archive_outlined),
+                  title: const Text('Archive chat'),
+                  onTap: () => act(() => store.setArchived(chat.id, true)),
+                ),
+                if (ChatLock.instance.isLocked(chat.id) &&
+                    ChatLock.instance.isOpen(chat.id))
+                  ListTile(
+                    leading: Icon(ChatLock.instance.isHidden(chat.id)
+                        ? Icons.visibility_outlined
+                        : Icons.visibility_off_outlined),
+                    title: Text(ChatLock.instance.isHidden(chat.id)
+                        ? 'Show in chat list'
+                        : 'Hide from chat list'),
+                    subtitle: ChatLock.instance.isHidden(chat.id)
+                        ? null
+                        : const Text('Only its password brings it back'),
+                    onTap: () => act(() => ChatLock.instance
+                        .setHidden(chat.id, !ChatLock.instance.isHidden(chat.id))),
+                  ),
+                ListTile(
+                  leading: Icon(ChatLock.instance.isLocked(chat.id)
+                      ? Icons.lock_open_outlined
+                      : Icons.lock_outline),
+                  title: Text(ChatLock.instance.isLocked(chat.id)
+                      ? 'Remove lock'
+                      : 'Lock chat'),
+                  subtitle: ChatLock.instance.isLocked(chat.id)
+                      ? null
+                      : const Text('Its own password, and optionally hidden'),
+                  onTap: () async {
+                    Navigator.of(sheetContext).pop();
+                    if (!mounted) return;
+                    final locked = ChatLock.instance.isLocked(chat.id);
+                    if (locked) {
+                      await askForChatPassword(context, chat.id,
+                          chatName: chat.contact.name, remove: true);
+                    } else {
+                      await askToLockChat(context, chat.id,
+                          chatName: chat.contact.name);
+                    }
+                    if (mounted) setState(() {});
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.delete_outline, color: Colors.red),
+                  title: const Text('Delete chat',
+                      style: TextStyle(color: Colors.red)),
+                  onTap: () => act(() {
+                    store.deleteChat(chat.id);
+                    // Otherwise the lock outlives the conversation, and a chat
+                    // recreated with the same id would arrive already locked
+                    // with a password nobody remembers setting.
+                    ChatLock.instance.forget(chat.id);
+                  }),
+                ),
+              ],
+            ),
           ),
         );
       },

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'chat_lock.dart';
 import 'dart:ui' show Color;
 
 import 'package:flutter/foundation.dart';
@@ -198,15 +199,41 @@ class ChatStore extends ChangeNotifier {
     return list;
   }
 
-  /// Visible (non-archived) conversations, pinned first then most-recent.
-  List<Chat> get chats => _sorted(_chats.where((c) => !c.isArchived));
+  /// Visible (non-archived, non-hidden) conversations, pinned first then
+  /// most-recent.
+  ///
+  /// Hidden chats are filtered HERE rather than in the list that draws them,
+  /// so a screen added later is private by default instead of private only if
+  /// somebody remembered. The ones that must see everything ask for
+  /// [allChats] by name, which reads as the deliberate choice it is.
+  List<Chat> get chats =>
+      _sorted(_chats.where((c) => !c.isArchived && !_concealed(c.id)));
 
-  List<Chat> get archivedChats => _sorted(_chats.where((c) => c.isArchived));
+  /// Archived AND hidden is a real combination, and hiding wins: somebody who
+  /// archived a chat and then hid it did not mean "unless you look here".
+  List<Chat> get archivedChats =>
+      _sorted(_chats.where((c) => c.isArchived && !_concealed(c.id)));
 
-  int get archivedCount => _chats.where((c) => c.isArchived).length;
+  int get archivedCount =>
+      _chats.where((c) => c.isArchived && !_concealed(c.id)).length;
 
-  /// Every conversation regardless of archived state (used by search).
+  /// Every conversation regardless of archived state — including hidden ones.
+  /// Delivery, dedup and the sweeper use this: a hidden chat still receives
+  /// messages, it just is not on a list anywhere until its password is typed.
   List<Chat> get allChats => List.unmodifiable(_chats);
+
+  /// Conversations that exist but are being kept out of every list, hidden
+  /// and not yet opened this session.
+  bool _concealed(String id) => ChatLock.instance.isConcealed(id);
+
+  /// The conversations search may look inside.
+  ///
+  /// A locked chat's messages are exactly what its password protects, so
+  /// search reading them would be a way round the lock that never asks for
+  /// it. The rule lives here rather than in the search screen because the
+  /// next thing to search over would otherwise have to remember it too.
+  List<Chat> get searchableChats =>
+      _chats.where((c) => ChatLock.instance.isOpen(c.id)).toList();
 
   /// The conversation holding [messageId]: the 1:1 chat with [senderId] when
   /// it has the message, else whichever chat does — which is how an event for

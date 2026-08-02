@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'state/chat_lock.dart';
 
 import 'package:flutter/foundation.dart' show kReleaseMode;
 
@@ -85,6 +86,7 @@ Future<void> main() async {
   await _boot('persistence', Persistence.init);
   await _boot('keys', SecureKeyExchange.instance.load);
   await _boot('lock', AppLock.instance.load);
+  await _boot('chat locks', ChatLock.instance.load);
   await _boot('two-step', TwoStepVerification.instance.load);
   await _boot('legal', LegalConsent.instance.load);
   await _boot('email', AccountEmail.instance.load);
@@ -354,6 +356,10 @@ class _OkayMessagingAppState extends State<OkayMessagingApp>
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.hidden) {
       FocusManager.instance.primaryFocus?.unfocus();
+      // A chat opened with its password an hour ago and left there is a chat
+      // the password stopped protecting. Shutting them on the way out is what
+      // makes the lock mean anything after the first unlock.
+      ChatLock.instance.closeAll();
     }
   }
 

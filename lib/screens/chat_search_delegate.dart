@@ -1,4 +1,5 @@
 import 'find_people_screen.dart';
+import '../state/chat_lock.dart';
 import 'package:flutter/material.dart';
 
 import '../data/mock_data.dart';
@@ -142,6 +143,48 @@ class _SearchBody extends StatefulWidget {
 class _SearchBodyState extends State<_SearchBody> {
   _Filter _filter = _Filter.all;
 
+  /// Hidden chats the typed query turned out to be the password for.
+  ///
+  /// This is the ONLY way back to a hidden chat: there is no row, no folder
+  /// and no count anywhere, because any of those would announce that hidden
+  /// chats exist, which is most of what hiding one is for. The search field
+  /// is where somebody types something private already.
+  List<Chat> _revealed = const [];
+  String _revealedFor = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _tryReveal();
+  }
+
+  @override
+  void didUpdateWidget(_SearchBody old) {
+    super.didUpdateWidget(old);
+    if (old.query != widget.query) _tryReveal();
+  }
+
+  /// Tries the query as a password. Short queries are skipped rather than
+  /// derived: a password is at least 4 characters, and running PBKDF2 per
+  /// hidden chat on every keystroke of a real search would burn an isolate
+  /// for nothing.
+  Future<void> _tryReveal() async {
+    final q = widget.query.trim();
+    if (q == _revealedFor) return;
+    _revealedFor = q;
+    if (q.length < 4 || ChatLock.instance.hiddenCount == 0) {
+      if (_revealed.isNotEmpty && mounted) setState(() => _revealed = const []);
+      return;
+    }
+    final ids = await ChatLock.instance.revealHidden(q);
+    if (!mounted || q != _revealedFor) return;
+    setState(() => _revealed = [
+          for (final id in ids)
+            if (ChatStore.instance.chatById(id) != null)
+              ChatStore.instance.chatById(id)!
+        ]);
+  }
+
   bool _show(_Filter f) => _filter == _Filter.all || _filter == f;
 
   // --- Data gathering ----------------------------------------------------
@@ -159,7 +202,7 @@ class _SearchBodyState extends State<_SearchBody> {
       }
     }
 
-    for (final c in ChatStore.instance.allChats) {
+    for (final c in ChatStore.instance.searchableChats) {
       add(c.contact);
     }
     for (final u in MockData.contacts()) {
@@ -170,7 +213,7 @@ class _SearchBodyState extends State<_SearchBody> {
 
   List<_MessageHit> _messages(String q, {bool linksOnly = false}) {
     final hits = <_MessageHit>[];
-    for (final chat in ChatStore.instance.allChats) {
+    for (final chat in ChatStore.instance.searchableChats) {
       for (final m in chat.messages) {
         if (m.text.isEmpty) continue;
         if (linksOnly && !LinkableText.urlPattern.hasMatch(m.text)) continue;
@@ -267,7 +310,8 @@ class _SearchBodyState extends State<_SearchBody> {
         ? _messages(q, linksOnly: true)
         : const <_MessageHit>[];
 
-    final total = people.length +
+    final total = _revealed.length +
+        people.length +
         messages.length +
         posts.length +
         servers.length +
@@ -296,6 +340,11 @@ class _SearchBodyState extends State<_SearchBody> {
           Expanded(
             child: ListView(
               children: [
+                if (_revealed.isNotEmpty) ...[
+                  const _Header('Hidden'),
+                  for (final chat in _revealed)
+                    ChatListTile(chat: chat, onTap: () => _openChat(chat)),
+                ],
                 if (people.isNotEmpty) ...[
                   const _Header('People'),
                   for (final p in people) _PersonTile(user: p, onTap: () => _startChat(p)),

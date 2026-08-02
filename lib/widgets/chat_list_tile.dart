@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import '../theme/app_theme.dart';
+import '../state/chat_lock.dart';
 
 import '../models/chat.dart';
 import '../models/message.dart';
@@ -26,6 +28,37 @@ class ChatListTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // A locked chat's row stays — hiding it is what "hidden" is for, and this
+    // one only has a password on it. What goes is the content: a preview is
+    // the message, and a lock that shows the message it is locking protects
+    // nothing. Same for "typing…", which says who is talking to whom.
+    if (ChatLock.instance.isConcealed(chat.id)) return const SizedBox.shrink();
+    if (!ChatLock.instance.isOpen(chat.id)) return _locked(context);
+    return _open(context);
+  }
+
+  /// The row for a chat whose password has not been entered this session.
+  Widget _locked(BuildContext context) => ListTile(
+        onTap: onTap,
+        onLongPress: onLongPress,
+        leading: CircleAvatar(
+          radius: 26,
+          backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+          child: Icon(Icons.lock_outline,
+              color: AppColors.subtle(context), size: 22),
+        ),
+        title: Text(chat.contact.name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+        subtitle: Text('Locked',
+            style:
+                TextStyle(fontSize: 14.5, color: AppColors.subtle(context))),
+        // No unread badge either: a count is how many things somebody has to
+        // say to you, which is not nothing.
+      );
+
+  Widget _open(BuildContext context) {
     final last = chat.lastMessage;
     final draft = ChatStore.instance.draftFor(chat.id);
     final hasUnread = chat.unreadCount > 0;

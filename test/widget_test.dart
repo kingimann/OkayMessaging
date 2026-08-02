@@ -132,6 +132,8 @@ import 'package:okay_messaging/payments/store_purchases.dart';
 import 'package:okay_messaging/state/backup_service.dart';
 import 'package:okay_messaging/screens/status_screen.dart';
 import 'package:okay_messaging/state/status_store.dart';
+import 'package:okay_messaging/state/chat_lock.dart';
+import 'package:okay_messaging/widgets/chat_list_tile.dart';
 import 'package:okay_messaging/state/chat_store.dart';
 import 'package:okay_messaging/state/gif_service.dart';
 import 'package:okay_messaging/mesh/mesh_chunks.dart';
@@ -24148,6 +24150,253 @@ void main() {
       // behind a gate nobody could pass.
       Session.instance.resetForTest();
       expect(Session.instance.isNumberless, isFalse);
+    });
+  });
+  group('a lock on one chat', () {
+    // Two things, and they are not the same thing. A LOCKED chat still has a
+    // row: you can see who it is with, and not what was said. A HIDDEN one
+    // has no row at all, and the only way back is its password — there is no
+    // folder, no count and nothing in settings, because any of those would
+    // announce that hidden chats exist, which is most of what hiding is for.
+
+    setUp(() {
+      ChatLock.instance.resetForTest();
+      ChatStore.instance.reset();
+      SharedPreferences.setMockInitialValues({});
+    });
+    tearDown(ChatLock.instance.resetForTest);
+
+    Chat chatWith(String id, String name) => Chat(
+          id: id,
+          contact: AppUser(id: name, name: name, avatarColor: '#2E7D32'),
+          messages: [
+            Message(
+                id: '${id}_m1',
+                text: 'the secret',
+                isMe: false,
+                time: DateTime(2026, 1, 1)),
+          ],
+        );
+
+    test('each chat has its own password, and one does not open another',
+        () async {
+      ChatStore.instance.setChats([chatWith('a', 'Ada'), chatWith('b', 'Bo')]);
+      await ChatLock.instance.lock('a', 'alpha1');
+      await ChatLock.instance.lock('b', 'bravo1');
+
+      // The whole point of per-chat: knowing one tells you nothing about the
+      // other, so there is no single answer that opens everything.
+      expect(await ChatLock.instance.verify('a', 'alpha1'), isTrue);
+      expect(await ChatLock.instance.verify('b', 'alpha1'), isFalse);
+      expect(await ChatLock.instance.verify('a', 'bravo1'), isFalse);
+    });
+
+    test('the password is never stored, and two chats never share a hash',
+        () async {
+      ChatStore.instance.setChats([chatWith('a', 'Ada'), chatWith('b', 'Bo')]);
+      await ChatLock.instance.lock('a', 'same-password');
+      await ChatLock.instance.lock('b', 'same-password');
+      final raw =
+          (await SharedPreferences.getInstance()).getString('chat_locks_v1')!;
+      expect(raw.contains('same-password'), isFalse,
+          reason: 'the password itself reached the disk');
+
+      // Per-chat salts: the same password on two chats must not produce the
+      // same stored value, or the file says which locks share an answer.
+      final map = jsonDecode(raw) as Map<String, dynamic>;
+      expect(map['a']['hash'], isNot(map['b']['hash']));
+      expect(map['a']['salt'], isNot(map['b']['salt']));
+    });
+
+    test('locking is not hiding, and the store draws the line', () async {
+      ChatStore.instance.setChats([chatWith('a', 'Ada'), chatWith('b', 'Bo')]);
+      await ChatLock.instance.lock('a', 'alpha1');
+      ChatLock.instance.closeAll();
+
+      // Locked but not hidden: still in the list. Somebody can see there is a
+      // conversation with Ada — that is what "hidden" is a separate answer to.
+      expect(ChatStore.instance.chats.map((c) => c.id), containsAll(['a', 'b']));
+
+      await ChatLock.instance.lock('a', 'alpha1', hidden: true);
+      ChatLock.instance.closeAll();
+      expect(ChatStore.instance.chats.map((c) => c.id), ['b']);
+      // Still there, still receiving — just not on a list.
+      expect(ChatStore.instance.allChats.map((c) => c.id), containsAll(['a', 'b']));
+    });
+
+    test('archiving is not a way round hiding', () async {
+      // Somebody who archived a chat and then hid it did not mean "unless you
+      // look in the archive".
+      ChatStore.instance.setChats([chatWith('a', 'Ada')]);
+      ChatStore.instance.setArchived('a', true);
+      await ChatLock.instance.lock('a', 'alpha1', hidden: true);
+      ChatLock.instance.closeAll();
+      expect(ChatStore.instance.archivedChats, isEmpty);
+      expect(ChatStore.instance.archivedCount, 0);
+    });
+
+    test('a hidden chat comes back only for its own password', () async {
+      ChatStore.instance.setChats(
+          [chatWith('a', 'Ada'), chatWith('b', 'Bo'), chatWith('c', 'Cy')]);
+      await ChatLock.instance.lock('a', 'alpha1', hidden: true);
+      await ChatLock.instance.lock('b', 'bravo1', hidden: true);
+      // Locked but NOT hidden, and it matters below.
+      await ChatLock.instance.lock('c', 'chuck1');
+      ChatLock.instance.closeAll();
+
+      expect(await ChatLock.instance.revealHidden('nope-nope'), isEmpty);
+      expect(await ChatLock.instance.revealHidden(''), isEmpty);
+      expect(ChatStore.instance.chats.map((c) => c.id), ['c'],
+          reason: 'only the chat that was never hidden should be listed');
+
+      expect(await ChatLock.instance.revealHidden('alpha1'), ['a']);
+      expect(ChatStore.instance.chats.map((c) => c.id), containsAll(['a', 'c']));
+      expect(ChatStore.instance.chats.map((c) => c.id), isNot(contains('b')),
+          reason: 'the wrong hidden chat came back too');
+
+      // The search path opens HIDDEN chats only. A locked-but-visible chat
+      // already has a row to tap, and letting its password work here too
+      // would be a second door that skips the row's own prompt.
+      ChatLock.instance.closeAll();
+      expect(await ChatLock.instance.revealHidden('chuck1'), isEmpty);
+      expect(ChatLock.instance.isOpen('c'), isFalse);
+    });
+
+    test('the unlock lasts the session and no longer', () async {
+      ChatStore.instance.setChats([chatWith('a', 'Ada')]);
+      await ChatLock.instance.lock('a', 'alpha1');
+      // Locking opens it: being asked to prove who you are immediately after
+      // setting the password is the lock arguing with the person who set it.
+      expect(ChatLock.instance.isOpen('a'), isTrue);
+
+      ChatLock.instance.closeAll();
+      expect(ChatLock.instance.isOpen('a'), isFalse);
+      expect(await ChatLock.instance.open('a', 'wrong-one'), isFalse);
+      expect(ChatLock.instance.isOpen('a'), isFalse);
+      expect(await ChatLock.instance.open('a', 'alpha1'), isTrue);
+      expect(ChatLock.instance.isOpen('a'), isTrue);
+    });
+
+    test('a chat with no lock is open, so callers ask one question', () {
+      ChatStore.instance.setChats([chatWith('a', 'Ada')]);
+      expect(ChatLock.instance.isLocked('a'), isFalse);
+      expect(ChatLock.instance.isOpen('a'), isTrue);
+      expect(ChatLock.instance.isConcealed('a'), isFalse);
+    });
+
+    test('taking the lock off needs the password', () async {
+      ChatStore.instance.setChats([chatWith('a', 'Ada')]);
+      await ChatLock.instance.lock('a', 'alpha1');
+      expect(await ChatLock.instance.removeLock('a', 'guessing'), isFalse);
+      expect(ChatLock.instance.isLocked('a'), isTrue,
+          reason: '"unlock" must be a use of the lock, not a way past it');
+      expect(await ChatLock.instance.removeLock('a', 'alpha1'), isTrue);
+      expect(ChatLock.instance.isLocked('a'), isFalse);
+    });
+
+    test('hiding an open chat needs no password, and a shut one cannot',
+        () async {
+      // Being asked to prove you may look at the conversation you are looking
+      // at is friction with nothing behind it — the session unlock IS that
+      // proof. Without it, there is nothing to go on.
+      ChatStore.instance.setChats([chatWith('a', 'Ada')]);
+      await ChatLock.instance.lock('a', 'alpha1');
+      expect(await ChatLock.instance.setHidden('a', true), isTrue);
+      expect(ChatLock.instance.isHidden('a'), isTrue);
+
+      ChatLock.instance.closeAll();
+      expect(await ChatLock.instance.setHidden('a', false), isFalse);
+      expect(ChatLock.instance.isHidden('a'), isTrue);
+    });
+
+    test('a deleted chat does not leave a lock behind it', () async {
+      // Otherwise a chat recreated with the same id arrives already locked,
+      // with a password nobody remembers setting.
+      ChatStore.instance.setChats([chatWith('a', 'Ada')]);
+      await ChatLock.instance.lock('a', 'alpha1');
+      await ChatLock.instance.forget('a');
+      expect(ChatLock.instance.isLocked('a'), isFalse);
+      expect(ChatLock.instance.lockedCount, 0);
+    });
+
+    test('unreadable stored state means no locks, never all locks', () async {
+      // A corrupt blob must not be a way to lose every conversation at once.
+      SharedPreferences.setMockInitialValues(
+          {'chat_locks_v1': 'not json at all'});
+      await ChatLock.instance.load();
+      expect(ChatLock.instance.lockedCount, 0);
+      expect(ChatLock.instance.isOpen('anything'), isTrue);
+    });
+
+    testWidgets('a locked row shows who, never what', (t) async {
+      ChatStore.instance.setChats([chatWith('a', 'Ada')]);
+      await ChatLock.instance.lock('a', 'alpha1');
+      ChatLock.instance.closeAll();
+      await t.pumpWidget(MaterialApp(
+          home: Scaffold(
+              body: ChatListTile(
+                  chat: ChatStore.instance.allChats.first, onTap: () {}))));
+      await t.pumpAndSettle();
+      expect(find.text('Ada'), findsOneWidget);
+      expect(find.text('Locked'), findsOneWidget);
+      expect(find.text('the secret'), findsNothing,
+          reason: 'a preview is the message, and it was on the locked row');
+    });
+
+    testWidgets('a hidden row is not drawn at all', (t) async {
+      ChatStore.instance.setChats([chatWith('a', 'Ada')]);
+      await ChatLock.instance.lock('a', 'alpha1', hidden: true);
+      ChatLock.instance.closeAll();
+      await t.pumpWidget(MaterialApp(
+          home: Scaffold(
+              body: ChatListTile(
+                  chat: ChatStore.instance.allChats.first, onTap: () {}))));
+      await t.pumpAndSettle();
+      expect(find.text('Ada'), findsNothing);
+      expect(find.text('Locked'), findsNothing,
+          reason: 'even the word gives away that there is something there');
+    });
+
+    test('search cannot read what the lock is for', () async {
+      // The messages of a locked chat are exactly what the password protects.
+      // Search reading them would be a way round the lock that never asks.
+      ChatStore.instance
+          .setChats([chatWith('a', 'Ada'), chatWith('b', 'Bo')]);
+      expect(ChatStore.instance.searchableChats.map((c) => c.id),
+          containsAll(['a', 'b']));
+
+      await ChatLock.instance.lock('a', 'alpha1');
+      ChatLock.instance.closeAll();
+      expect(ChatStore.instance.searchableChats.map((c) => c.id), ['b']);
+
+      // And it comes back the moment the password is given, because search
+      // over a chat you have open is just search.
+      await ChatLock.instance.open('a', 'alpha1');
+      expect(ChatStore.instance.searchableChats.map((c) => c.id),
+          containsAll(['a', 'b']));
+    });
+
+    test('the search screen goes through that and not round it', () {
+      final src =
+          File('lib/screens/chat_search_delegate.dart').readAsStringSync();
+      expect(src.contains('ChatStore.instance.searchableChats'), isTrue);
+      expect(src.contains('ChatStore.instance.allChats'), isFalse,
+          reason: 'search went back to reading every chat, locked ones too');
+    });
+
+    test('backgrounding shuts every chat that was opened', () {
+      // A chat opened an hour ago and left on the screen is one the password
+      // stopped protecting.
+      //
+      // Comments are stripped first: the earlier version of this test read a
+      // commented-out call as a live one, which is exactly the change it
+      // exists to catch.
+      final live = File('lib/main.dart')
+          .readAsLinesSync()
+          .where((l) => !l.trimLeft().startsWith('//'))
+          .join('\n');
+      final paused = live.substring(live.indexOf('AppLifecycleState.paused'));
+      expect(paused.contains('ChatLock.instance.closeAll()'), isTrue);
     });
   });
 }

@@ -54,10 +54,15 @@ workflows:
     instance_type: linux_x2
     environment:
       flutter: stable
-      # MAPBOX_TOKEN lives in the "test" group in the Codemagic UI. A UI
-      # variable reaches a workflow ONLY when its group is imported here —
-      # without this line $MAPBOX_TOKEN expands to nothing and the build
-      # quietly ships the free basemap.
+      # MAPBOX_TOKEN and KLIPY_API_KEY live in the "test" group in the
+      # Codemagic UI. A UI variable reaches a workflow ONLY when its group is
+      # imported here — without this line they expand to nothing and the build
+      # quietly ships the free basemap and a GIF tab that says it has no key.
+      #
+      # They are in the UI rather than in this file on purpose. Both end up
+      # compiled into the app, so neither is secret from somebody holding the
+      # binary — but a key in git history is public to everybody who ever
+      # clones or scrapes the repo, which is not the same exposure.
       groups:
         - test
     scripts:
@@ -90,6 +95,7 @@ workflows:
             --dart-define=SUPABASE_ANON_KEY=sb_publishable_PrY-Aru0AryWyhHgfD2Tow_uXca1owt \
             --dart-define=STRIPE_PUBLISHABLE_KEY=pk_live_7XicY3iffHhInOt6LERz8uR9003yCOMM3P \
             --dart-define="MAPBOX_TOKEN=$MAPBOX_TOKEN" \
+            --dart-define="KLIPY_API_KEY=$KLIPY_API_KEY" \
             --dart-define=REQUIRE_OTP=true
     artifacts:
       - build/**/outputs/**/*.apk
@@ -205,6 +211,7 @@ workflows:
             --dart-define=SUPABASE_ANON_KEY=sb_publishable_PrY-Aru0AryWyhHgfD2Tow_uXca1owt \
             --dart-define=STRIPE_PUBLISHABLE_KEY=pk_live_7XicY3iffHhInOt6LERz8uR9003yCOMM3P \
             --dart-define="MAPBOX_TOKEN=$MAPBOX_TOKEN" \
+            --dart-define="KLIPY_API_KEY=$KLIPY_API_KEY" \
             --dart-define=REQUIRE_OTP=true \
             --export-options-plist=/Users/builder/export_options.plist
     artifacts:
@@ -280,6 +287,7 @@ workflows:
             --dart-define=SUPABASE_ANON_KEY=sb_publishable_PrY-Aru0AryWyhHgfD2Tow_uXca1owt \
             --dart-define=STRIPE_PUBLISHABLE_KEY=pk_live_7XicY3iffHhInOt6LERz8uR9003yCOMM3P \
             --dart-define="MAPBOX_TOKEN=$MAPBOX_TOKEN" \
+            --dart-define="KLIPY_API_KEY=$KLIPY_API_KEY" \
             --dart-define=REQUIRE_OTP=true
       - name: Zip the .app for download
         script: |

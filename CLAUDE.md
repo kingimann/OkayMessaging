@@ -222,6 +222,36 @@ session either, so letting them through would show a screen that cannot load.
 means a new account, and the gate says so rather than offering a button that
 would sign somebody out. A test asserts chat is not gated.
 
+## Locked and hidden chats
+
+`lib/state/chat_lock.dart`. Two separate things, and the difference matters:
+
+- **Locked** — the row stays in the list. You can see *who* the conversation
+  is with; the preview, the unread count and "typing…" are all replaced with
+  "Locked". Tapping asks for the password.
+- **Hidden** — no row anywhere: not in the list, not in the archive, not in
+  search. The only way back is typing that chat's password into the chat
+  search field. There is deliberately no folder, no count and nothing in
+  Settings, because any of those announce that hidden chats exist.
+
+**Every chat has its own password**, and none of them is the app PIN
+(`AppLock`) — that one keeps a stranger out of the app; this keeps somebody
+already holding your unlocked phone out of one conversation. PBKDF2-HMAC-SHA256
+at 120k rounds over a per-chat random salt, the same derivation the encrypted
+backup uses, run through `compute` because that much arithmetic on the UI
+thread is a frozen screen mid-password (the isolate hop is skipped when
+`debugRounds` is set, or a test spends minutes spawning isolates).
+
+**It is a gate, not a second encryption layer** — the messages sit in the same
+local store as everything else. Say so rather than implying more.
+
+Hidden chats are filtered in `ChatStore.chats`/`archivedChats` rather than in
+the widgets that draw them, and search goes through `ChatStore.searchableChats`
+(which drops locked chats) — so a screen added later is private by default
+instead of private only if somebody remembered. `allChats` still returns
+everything and is what delivery uses: a hidden chat keeps receiving messages.
+`ChatLock.closeAll()` runs on background, so an unlock lasts a session.
+
 ## Verified-only features
 
 The **marketplace, wallet and Okay Drop** are behind

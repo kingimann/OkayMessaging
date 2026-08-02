@@ -65,6 +65,7 @@ jobs:
             --dart-define=STRIPE_PUBLISHABLE_KEY=pk_live_7XicY3iffHhInOt6LERz8uR9003yCOMM3P \
             --dart-define=REQUIRE_OTP=true \
             --dart-define=MAPBOX_TOKEN="${{ secrets.MAPBOX_TOKEN }}" \
+            --dart-define=KLIPY_API_KEY="${{ secrets.KLIPY_API_KEY }}" \
             --dart-define=BUILD_STAMP="${GITHUB_SHA::7} $(date -u +%Y-%m-%d)"
 
       - name: Configure Pages
