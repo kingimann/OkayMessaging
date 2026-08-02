@@ -48,8 +48,10 @@ import '../state/call_service.dart';
 import 'contact_info_screen.dart';
 import 'forward_screen.dart';
 import 'group_info_screen.dart';
+import 'ghost_view_screen.dart';
 import 'image_view_screen.dart';
 import 'location_map_screen.dart';
+import 'media_gallery_screen.dart';
 import '../util/geocoding.dart';
 import 'explore_map_screen.dart';
 import '../state/identity_verification.dart';
@@ -147,6 +149,14 @@ class _ChatScreenState extends State<ChatScreen> {
     _scrollController.addListener(_onScroll);
     _store.addListener(_refreshSuggestions);
     _refreshSuggestions();
+    // Registered here because dispose removes them — for a while it removed
+    // listeners nothing had added, which silently switched off screenshot
+    // announcements and the live blanking of protected chats.
+    ScreenshotWatch.instance.taken.addListener(_onScreenshot);
+    ScreenshotWatch.instance.capturing.addListener(_onCapturing);
+    RelayService.instance.screenshotPing.addListener(_onRemoteScreenshot);
+    RelayService.instance.recordingPing.addListener(_onRemoteRecording);
+    RelayService.instance.ghostShotPing.addListener(_onRemoteGhostShot);
     // A push for the conversation you are reading should not draw a banner
     // over the message the app has already put on screen.
     PushService.instance.setOpenChat(widget.chat.contact.phone);
@@ -290,6 +300,7 @@ class _ChatScreenState extends State<ChatScreen> {
     ScreenshotWatch.instance.capturing.removeListener(_onCapturing);
     RelayService.instance.screenshotPing.removeListener(_onRemoteScreenshot);
     RelayService.instance.recordingPing.removeListener(_onRemoteRecording);
+    RelayService.instance.ghostShotPing.removeListener(_onRemoteGhostShot);
     if (RelayConfig.isEnabled) {
       RelayService.instance.typingPing.removeListener(_onTypingPing);
       RelayService.instance.presencePing.removeListener(_onPresencePing);
@@ -917,6 +928,18 @@ class _ChatScreenState extends State<ChatScreen> {
     _store.noteScreenshot(_chatId, byMe: false);
   }
 
+  /// The far end screenshotted a ghost message from this conversation while
+  /// it was open on their screen.
+  void _onRemoteGhostShot() {
+    if (!mounted) return;
+    final from = RelayService.instance.ghostShotFromDigits;
+    if (from.isEmpty ||
+        from != RelayService.digits(widget.chat.contact.phone)) {
+      return;
+    }
+    _store.noteScreenshot(_chatId, byMe: false, ghost: true);
+  }
+
   void _deliver(Message rawMessage) {
     // Stamped here rather than at each of the eight places a message is
     // built, so a send path added later carries the flag without anybody
@@ -1089,7 +1112,9 @@ class _ChatScreenState extends State<ChatScreen> {
             ? () => _exitSearchToMessage(m.id)
             : (_canOpenImage(m) && !_selectionMode
                 ? () => _openImage(m)
-                : null),
+                : (_canOpenGhost(m) && !_selectionMode
+                    ? () => _openGhost(m)
+                    : null)),
         onDoubleTapDown:
             _selectionMode ? null : (d) => _lastDoubleTapPos = d.globalPosition,
         onDoubleTap: _selectionMode ? null : () => _quickReact(m),
@@ -1758,7 +1783,126 @@ class _ChatScreenState extends State<ChatScreen> {
     return !m.viewOnceOpened;
   }
 
+  /// A ghost text opens like a view-once photo: the sender can re-read what
+  /// they wrote; the recipient gets exactly one viewing.
+  bool _canOpenGhost(Message m) {
+    if (!m.viewOnce || m.isImage) return false;
+    if (m.isMe) return true;
+    return !m.viewOnceOpened;
+  }
+
+  Future<void> _openGhost(Message message) async {
+    // Refused, not blanked-after: opening it during a recording would read
+    // the message into the capture before the viewer could hide anything.
+    if (!message.isMe && ScreenshotWatch.instance.capturing.value) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Ghost messages stay hidden while the screen is '
+              'being recorded or mirrored.')));
+      return;
+    }
+    final consume =
+        message.viewOnce && !message.isMe && !message.viewOnceOpened;
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => GhostViewScreen(
+          text: message.text,
+          senderName: message.isMe ? 'You' : widget.chat.contact.name,
+          onScreenshot: () {
+            _store.noteScreenshot(_chatId, byMe: true, ghost: true);
+            for (final phone in _relayPhones()) {
+              RelayService.instance.sendGhostShotNotice(phone);
+            }
+          },
+        ),
+      ),
+    );
+    if (consume) {
+      _store.markViewOnceOpened(_chatId, message.id);
+      for (final phone in _relayPhones()) {
+        RelayService.instance.sendViewOnceOpened(phone, message.id);
+      }
+    }
+  }
+
+  /// Composes a ghost message: typed in its own sheet rather than the
+  /// composer, so the words never sit in a field that autocorrect, drafts or
+  /// the send button treat as an ordinary message.
+  Future<void> _composeGhost() async {
+    final controller = TextEditingController();
+    final text = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) => Padding(
+        padding: EdgeInsets.only(
+            left: 20,
+            right: 20,
+            bottom: MediaQuery.of(sheetContext).viewInsets.bottom + 20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Text('Ghost message',
+                style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 6),
+            Text(
+              // The promise this feature can actually keep, said up front:
+              // one view, hidden from recordings, screenshots announced —
+              // never "cannot be screenshotted", which iOS does not offer.
+              'Can be read once, then it\'s gone. It stays hidden while a '
+              'screen recording is running, and screenshots can\'t be '
+              'blocked — both of you see a note if one is taken.',
+              style: TextStyle(
+                  fontSize: 12.5, color: AppColors.subtle(sheetContext)),
+            ),
+            const SizedBox(height: 14),
+            TextField(
+              controller: controller,
+              autofocus: true,
+              minLines: 1,
+              maxLines: 5,
+              textCapitalization: TextCapitalization.sentences,
+              decoration: const InputDecoration(
+                hintText: 'Say it once…',
+                border: OutlineInputBorder(),
+              ),
+              onSubmitted: (v) => Navigator.of(sheetContext).pop(v),
+            ),
+            const SizedBox(height: 12),
+            FilledButton(
+              onPressed: () =>
+                  Navigator.of(sheetContext).pop(controller.text),
+              child: const Text('Send ghost message'),
+            ),
+          ],
+        ),
+      ),
+    );
+    controller.dispose();
+    if (text == null || text.trim().isEmpty) return;
+    if (!mounted || !await _confirmRecipient()) return;
+    final now = DateTime.now();
+    _deliver(Message(
+      id: 'ghost_${now.microsecondsSinceEpoch}',
+      text: text.trim(),
+      time: now,
+      isMe: true,
+      status: MessageStatus.sent,
+      viewOnce: true,
+    ));
+  }
+
   Future<void> _openImage(Message message) async {
+    // The single viewing must not be spent into a recording — same rule as a
+    // ghost text.
+    if (message.viewOnce &&
+        !message.isMe &&
+        ScreenshotWatch.instance.capturing.value) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('View-once photos stay hidden while the screen is '
+              'being recorded or mirrored.')));
+      return;
+    }
     // A received "view once" photo is consumed after this single viewing.
     final consume =
         message.viewOnce && !message.isMe && !message.viewOnceOpened;
@@ -2149,6 +2293,11 @@ class _ChatScreenState extends State<ChatScreen> {
             color: const Color(0xFF0A84FF),
             onTap: () => _handleSendImage(viewOnce: true)),
         AttachmentOption(
+            icon: Icons.blur_on,
+            label: 'Ghost message',
+            color: const Color(0xFF5E5CE6),
+            onTap: _composeGhost),
+        AttachmentOption(
             icon: Icons.insert_drive_file,
             label: 'Document',
             color: const Color(0xFF7F66FF),
@@ -2468,6 +2617,21 @@ class _ChatScreenState extends State<ChatScreen> {
                         icon: const Icon(Icons.search),
                         tooltip: 'Search this chat',
                         onPressed: () => setState(() => _searching = true),
+                      ),
+                      // The pinboard is the other mode of this screen: the
+                      // same conversation with the scrolling taken out —
+                      // pins, links, photos, places and files in one place.
+                      IconButton(
+                        icon: const Icon(Icons.push_pin_outlined),
+                        tooltip: 'Pinboard',
+                        onPressed: () => Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => MediaGalleryScreen(
+                              chatId: _chatId,
+                              contactName: contact.name,
+                            ),
+                          ),
+                        ),
                       ),
                     ],
                   ),

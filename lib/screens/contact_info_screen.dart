@@ -240,7 +240,7 @@ class ContactInfoScreen extends StatelessWidget {
               children: [
                 InfoTile(
                   leading: const Icon(Icons.photo_library_outlined),
-                  title: 'Media, links, and docs',
+                  title: 'Pinboard — media, links, places, files',
                   onTap: () => Navigator.of(context).push(
                     MaterialPageRoute(
                       builder: (_) => MediaGalleryScreen(

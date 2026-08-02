@@ -390,6 +390,10 @@ class NearbyShare extends ChangeNotifier {
         time: now,
         isMe: false,
         status: MessageStatus.delivered,
+        // Flagged so the pinboard's Files tab can list it without guessing
+        // from prose; only when it actually landed on disk.
+        isFile: where != null,
+        fileName: t.fileName,
       ),
     );
   }

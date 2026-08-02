@@ -129,6 +129,9 @@ class RelayService {
       'isImage': message.isImage,
       'imageSeed': message.imageSeed,
       'imageUrl': message.imageUrl,
+      // Without this on the wire, "view once" was a promise the sending
+      // device made to itself: the far end decoded an ordinary message.
+      'viewOnce': message.viewOnce,
       'isVoice': message.isVoice,
       'voiceSeconds': message.voiceSeconds,
       'isVoicemail': message.isVoicemail,
@@ -366,6 +369,7 @@ class RelayService {
         isImage: content['isImage'] as bool? ?? false,
         imageSeed: content['imageSeed'] as int? ?? 0,
         imageUrl: content['imageUrl'] as String?,
+        viewOnce: content['viewOnce'] as bool? ?? false,
         isVoice: content['isVoice'] as bool? ?? false,
         voiceSeconds: content['voiceSeconds'] as int? ?? 0,
         isVoicemail: content['isVoicemail'] as bool? ?? false,
@@ -771,6 +775,15 @@ class RelayService {
             if (from == null || digits(from) == digits(me)) return;
             screenshotFromDigits = digits(from);
             screenshotPing.value++;
+          },
+        )
+        .onBroadcast(
+          event: 'gshot',
+          callback: (payload) {
+            final from = payload['from'] as String?;
+            if (from == null || digits(from) == digits(me)) return;
+            ghostShotFromDigits = digits(from);
+            ghostShotPing.value++;
           },
         )
         .onBroadcast(
@@ -1807,6 +1820,13 @@ class RelayService {
   Future<void> sendRecordingNotice(String contactPhone) async =>
       _ping(contactPhone, 'cap');
 
+  /// Tells [contactPhone] that their ghost message, open on screen right
+  /// then, was screenshotted. Its own event for the same reason as 'cap':
+  /// "they screenshotted the chat" and "they kept the message you sent to
+  /// be read once" are different sentences.
+  Future<void> sendGhostShotNotice(String contactPhone) async =>
+      _ping(contactPhone, 'gshot');
+
   /// Sends an "online" presence ping to [contactPhone]'s inbox.
   Future<void> sendPresence(String contactPhone) async =>
       _ping(contactPhone, 'presence');
@@ -1821,6 +1841,10 @@ class RelayService {
   /// The same, for a screen recording rather than a single screenshot.
   final ValueNotifier<int> recordingPing = ValueNotifier<int>(0);
   String recordingFromDigits = '';
+
+  /// The same, for a screenshot of a ghost message specifically.
+  final ValueNotifier<int> ghostShotPing = ValueNotifier<int>(0);
+  String ghostShotFromDigits = '';
 
   Future<void> _ping(String contactPhone, String event) async {
     if (!_initialized || digits(contactPhone).isEmpty) return;

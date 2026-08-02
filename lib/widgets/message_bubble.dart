@@ -161,7 +161,9 @@ class MessageBubble extends StatelessWidget {
       );
     }
 
-    if (message.isImage && message.viewOnce) {
+    // Any view-once message — a photo or a ghost text — renders as a sealed
+    // bubble that never shows its content in the transcript.
+    if (message.viewOnce) {
       return _ViewOnceBubble(
         message: message,
         isMe: isMe,
@@ -609,15 +611,19 @@ class _ViewOnceBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Recipient's photo is "spent" once opened; the sender always sees a
-    // static label describing what they sent.
+    // Recipient's copy is "spent" once opened; the sender always sees a
+    // static label describing what they sent. A ghost text says what it is
+    // in its own words — never any of the words inside it.
+    final ghost = !message.isImage;
     final spent = message.viewOnceOpened && !isMe;
     final label = isMe
-        ? (message.viewOnceOpened ? 'Opened' : 'Photo · View once')
-        : (spent ? 'Opened' : 'View once');
-    final icon = spent
-        ? Icons.timer_off_outlined
-        : Icons.timer_outlined;
+        ? (message.viewOnceOpened
+            ? 'Opened'
+            : (ghost ? 'Ghost message' : 'Photo · View once'))
+        : (spent ? 'Opened' : (ghost ? 'Ghost message' : 'View once'));
+    final icon = ghost
+        ? Icons.blur_on
+        : (spent ? Icons.timer_off_outlined : Icons.timer_outlined);
     final faded = spent || (isMe && message.viewOnceOpened);
     return Align(
       alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
@@ -650,7 +656,7 @@ class _ViewOnceBubble extends StatelessWidget {
                     ),
                   ),
                   if (!isMe && !spent)
-                    Text('Tap to view',
+                    Text(ghost ? 'Tap to view once' : 'Tap to view',
                         style: TextStyle(color: metaColor, fontSize: 11.5)),
                 ],
               ),

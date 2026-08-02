@@ -102,7 +102,9 @@ import 'package:okay_messaging/widgets/osm_map.dart';
 import 'package:okay_messaging/screens/score_screen.dart';
 import 'package:okay_messaging/models/chat.dart';
 import 'package:okay_messaging/state/call_log.dart';
+import 'package:okay_messaging/screens/ghost_view_screen.dart';
 import 'package:okay_messaging/screens/media_gallery_screen.dart';
+import 'package:okay_messaging/state/screenshot_watch.dart';
 import 'package:okay_messaging/screens/my_qr_screen.dart';
 import 'package:okay_messaging/screens/security_code_screen.dart';
 import 'package:qr_flutter/qr_flutter.dart';
@@ -752,10 +754,11 @@ void main() {
     // Search is a mode of this screen, so it stayed — as an icon.
     expect(find.byTooltip('Search this chat'), findsOneWidget);
 
-    // Contact & chat settings is the name itself, and it carries Media and
-    // the SMS hand-off that used to sit in the menu.
+    // Contact & chat settings is the name itself, and it carries the
+    // pinboard and the SMS hand-off that used to sit in the menu.
     await openChatSettings(tester);
-    expect(find.text('Media, links, and docs'), findsOneWidget);
+    expect(
+        find.text('Pinboard — media, links, places, files'), findsOneWidget);
     await tester.scrollUntilVisible(find.text('Send as text (SMS)'), 120,
         scrollable: find.byType(Scrollable).first);
     expect(find.text('Send as text (SMS)'), findsOneWidget);
@@ -1135,11 +1138,14 @@ void main() {
     await tester.pumpAndSettle();
     await openChatSettings(tester);
     // The tile is below the fold on the settings screen.
-    await tapInSettings(tester, find.text('Media, links, and docs'));
+    await tapInSettings(
+        tester, find.text('Pinboard — media, links, places, files'));
 
     expect(find.byType(MediaGalleryScreen), findsOneWidget);
 
     // Media tab is empty for Carol; the Links tab shows the shared link.
+    await tester.tap(find.text('Media'));
+    await tester.pumpAndSettle();
     expect(find.text('No media shared yet'), findsOneWidget);
     await tester.tap(find.text('Links'));
     await tester.pumpAndSettle();
@@ -24903,6 +24909,241 @@ void main() {
       final srv = File('lib/screens/feed_screen.dart').readAsStringSync();
       expect(srv.contains('onOpenSelfThread != null &&'), isTrue,
           reason: 'the server card must be able to withhold the line');
+    });
+  });
+  group('ghost messages and the pinboard', () {
+    setUp(ChatStore.instance.reset);
+
+    Message ghost(String id,
+            {bool isMe = false, bool opened = false, String text = 'boo'}) =>
+        Message(
+          id: id,
+          text: text,
+          time: DateTime(2026, 1, 1),
+          isMe: isMe,
+          viewOnce: true,
+          viewOnceOpened: opened,
+        );
+
+    test('view once actually crosses the relay', () {
+      // Without the flag on the wire, "view once" was a promise the sending
+      // device made to itself — the far end decoded an ordinary message.
+      final src = File('lib/relay/relay_service.dart').readAsStringSync();
+      expect(src.contains("'viewOnce': message.viewOnce"), isTrue,
+          reason: 'encode must carry viewOnce');
+      expect(src.contains("viewOnce: content['viewOnce'] as bool? ?? false"),
+          isTrue,
+          reason: 'decode must read it back');
+    });
+
+    test('opening a ghost text takes its words out of the store', () {
+      ChatStore.instance.setChats([
+        Chat(
+            id: 'c',
+            contact: const AppUser(
+                id: 'p', name: 'Bo', avatarColor: '#2E7D32', phone: 'p'),
+            messages: [ghost('g1'), ghost('g2', isMe: true)])
+      ]);
+      ChatStore.instance.markViewOnceOpened('c', 'g1');
+      ChatStore.instance.markViewOnceOpened('c', 'g2');
+      final msgs = ChatStore.instance.chatById('c')!.messages;
+      expect(msgs[0].viewOnceOpened, isTrue);
+      expect(msgs[0].text, isEmpty,
+          reason: 'a spent ghost kept in the store is a copy kept for '
+              'whoever gets hold of the device');
+      expect(msgs[1].text, 'boo',
+          reason: 'the sender keeps their own words on their own device');
+    });
+
+    test('every screenshot notice gets its own id', () {
+      // A literal \$ once gave every notice the same id, which broke
+      // everything keyed by message id for all but the first.
+      ChatStore.instance.setChats([
+        const Chat(
+            id: 'c',
+            contact: AppUser(
+                id: 'p', name: 'Bo', avatarColor: '#2E7D32', phone: 'p'),
+            messages: [])
+      ]);
+      ChatStore.instance.noteScreenshot('c', byMe: true);
+      ChatStore.instance.noteScreenshot('c', byMe: true);
+      final ids = [
+        for (final m in ChatStore.instance.chatById('c')!.messages) m.id
+      ];
+      expect(ids.toSet().length, ids.length);
+      expect(ids.first, isNot(contains(r'$')),
+          reason: 'the id must interpolate, not print the expression');
+    });
+
+    test('a ghost screenshot is its own sentence', () {
+      ChatStore.instance.setChats([
+        const Chat(
+            id: 'c',
+            contact: AppUser(
+                id: 'p', name: 'Bo', avatarColor: '#2E7D32', phone: 'p'),
+            messages: [])
+      ]);
+      ChatStore.instance.noteScreenshot('c', byMe: false, ghost: true);
+      expect(
+          ChatStore.instance.chatById('c')!.messages.single.text,
+          'They took a screenshot of a ghost message.');
+    });
+
+    test('the chat screen listens for what it announces', () {
+      // dispose() removed four listeners nothing had added, which silently
+      // switched off screenshot announcements and the live blanking of
+      // protected chats. Registration and removal must both exist.
+      final src = File('lib/screens/chat_screen.dart').readAsStringSync();
+      for (final handler in [
+        '_onScreenshot',
+        '_onCapturing',
+        '_onRemoteScreenshot',
+        '_onRemoteRecording',
+        '_onRemoteGhostShot',
+      ]) {
+        expect(src.contains('addListener($handler)'), isTrue,
+            reason: '$handler is removed in dispose but never registered');
+        expect(src.contains('removeListener($handler)'), isTrue,
+            reason: '$handler must be cleaned up');
+      }
+    });
+
+    testWidgets('a ghost bubble never shows its words', (t) async {
+      Future<void> show(Message m) async {
+        await t.pumpWidget(MaterialApp(
+            home: Scaffold(body: MessageBubble(message: m))));
+        await t.pumpAndSettle();
+      }
+
+      await show(ghost('g1', text: 'the secret'));
+      expect(find.text('the secret'), findsNothing);
+      expect(find.text('Ghost message'), findsOneWidget);
+      expect(find.text('Tap to view once'), findsOneWidget);
+
+      await show(ghost('g2', text: 'the secret', opened: true));
+      expect(find.text('the secret'), findsNothing);
+      expect(find.text('Opened'), findsOneWidget);
+
+      await show(ghost('g3', text: 'the secret', isMe: true));
+      expect(find.text('the secret'), findsNothing,
+          reason: 'the transcript never shows ghost words, even your own');
+    });
+
+    testWidgets('the viewer hides the words the moment a recording starts',
+        (t) async {
+      addTearDown(() => ScreenshotWatch.instance.debugSetCapturing(false));
+      var shots = 0;
+      await t.pumpWidget(MaterialApp(
+        home: GhostViewScreen(
+          text: 'boo',
+          senderName: 'Ada',
+          onScreenshot: () => shots++,
+        ),
+      ));
+      await t.pumpAndSettle();
+      expect(find.text('boo'), findsOneWidget);
+      // The sentence this feature can stand behind — never "cannot be
+      // screenshotted", which iOS does not offer.
+      expect(find.textContaining('Screenshots can\'t be blocked'),
+          findsOneWidget);
+
+      ScreenshotWatch.instance.debugSetCapturing(true);
+      await t.pumpAndSettle();
+      expect(find.text('boo'), findsNothing);
+      expect(find.textContaining('Hidden while the screen'), findsOneWidget);
+
+      ScreenshotWatch.instance.debugSetCapturing(false);
+      await t.pumpAndSettle();
+      expect(find.text('boo'), findsOneWidget);
+
+      ScreenshotWatch.instance.debugFire();
+      expect(shots, 1, reason: 'a screenshot while open must be reported');
+    });
+
+    testWidgets('the pinboard lists everything except what promised one view',
+        (t) async {
+      ChatStore.instance.setChats([
+        Chat(
+          id: 'c',
+          contact: const AppUser(
+              id: 'p', name: 'Bo', avatarColor: '#2E7D32', phone: 'p'),
+          pinnedMessageIds: const ['pin1'],
+          messages: [
+            Message(
+                id: 'pin1',
+                text: 'the door code is 4711',
+                time: DateTime(2026, 1, 1),
+                isMe: true),
+            Message(
+                id: 'photo',
+                text: '',
+                time: DateTime(2026, 1, 1),
+                isMe: true,
+                isImage: true),
+            Message(
+                id: 'vo',
+                text: '',
+                time: DateTime(2026, 1, 1),
+                isMe: false,
+                isImage: true,
+                viewOnce: true),
+            ghost('g1', text: 'https://secret.example'),
+            Message(
+                id: 'link',
+                text: 'see https://example.com/menu',
+                time: DateTime(2026, 1, 1),
+                isMe: false),
+            Message(
+                id: 'place',
+                text: '',
+                time: DateTime(2026, 1, 1),
+                isMe: false,
+                isLocation: true,
+                locationLat: 1,
+                locationLng: 2,
+                locationLabel: '12 Main St'),
+            Message(
+                id: 'file',
+                text: '📎 taxes.pdf\n/docs/taxes.pdf',
+                time: DateTime(2026, 1, 1),
+                isMe: false,
+                isFile: true,
+                fileName: 'taxes.pdf'),
+          ],
+        )
+      ]);
+      await t.pumpWidget(const MaterialApp(
+          home: MediaGalleryScreen(chatId: 'c', contactName: 'Bo')));
+      await t.pumpAndSettle();
+
+      // Pinned first: the thing you saved on purpose.
+      expect(find.text('the door code is 4711'), findsOneWidget);
+
+      await t.tap(find.text('Media'));
+      await t.pumpAndSettle();
+      expect(find.byType(Hero), findsOneWidget,
+          reason: 'the view-once photo must not get a second door');
+
+      await t.tap(find.text('Links'));
+      await t.pumpAndSettle();
+      expect(find.textContaining('example.com/menu'), findsOneWidget);
+      expect(find.textContaining('secret.example'), findsNothing,
+          reason: 'a link inside a ghost message is still a ghost message');
+
+      await t.tap(find.text('Places'));
+      await t.pumpAndSettle();
+      expect(find.text('12 Main St'), findsOneWidget);
+
+      await t.tap(find.text('Files'));
+      await t.pumpAndSettle();
+      expect(find.text('taxes.pdf'), findsOneWidget);
+    });
+
+    test('a saved nearby file is flagged for the board', () {
+      final src = File('lib/mesh/nearby_share.dart').readAsStringSync();
+      expect(src.contains('isFile: where != null'), isTrue,
+          reason: 'a file that never landed on disk is not a file to list');
+      expect(src.contains('fileName: t.fileName'), isTrue);
     });
   });
   group('custom forms', () {

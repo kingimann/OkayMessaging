@@ -90,6 +90,13 @@ class Message {
   /// call (a [isVoice] message surfaced separately in the Calls tab).
   final bool isVoicemail;
 
+  /// True when this message is a file saved to the device (an Okay Drop
+  /// video or document). The text still carries the human-readable line —
+  /// an old build shows a sentence — but the flag is what lets the pinboard
+  /// list files without guessing from prose.
+  final bool isFile;
+  final String fileName;
+
   /// True when this message has been edited after sending.
   final bool edited;
 
@@ -191,6 +198,8 @@ class Message {
     this.isVoice = false,
     this.voiceSeconds = 0,
     this.isVoicemail = false,
+    this.isFile = false,
+    this.fileName = '',
     this.isImage = false,
     this.imageSeed = 0,
     this.imageUrl,
@@ -250,6 +259,8 @@ class Message {
         'isVoice': isVoice,
         'voiceSeconds': voiceSeconds,
         'isVoicemail': isVoicemail,
+        if (isFile) 'isFile': true,
+        if (isFile) 'fileName': fileName,
         'isImage': isImage,
         'imageSeed': imageSeed,
         'imageUrl': imageUrl,
@@ -303,6 +314,8 @@ class Message {
         isVoice: json['isVoice'] as bool? ?? false,
         voiceSeconds: json['voiceSeconds'] as int? ?? 0,
         isVoicemail: json['isVoicemail'] as bool? ?? false,
+        isFile: json['isFile'] as bool? ?? false,
+        fileName: json['fileName'] as String? ?? '',
         isImage: json['isImage'] as bool? ?? false,
         imageSeed: json['imageSeed'] as int? ?? 0,
         imageUrl: json['imageUrl'] as String?,
@@ -382,6 +395,8 @@ class Message {
       isVoice: isVoice,
       voiceSeconds: voiceSeconds,
       isVoicemail: isVoicemail,
+      isFile: isFile,
+      fileName: fileName,
       isImage: isImage,
       imageSeed: imageSeed,
       imageUrl: imageUrl,

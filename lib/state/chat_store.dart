@@ -492,20 +492,27 @@ class ChatStore extends ChangeNotifier {
   /// backup shows a sentence rather than an empty bubble. [byMe] decides
   /// which side it sits on and which way round it reads.
   void noteScreenshot(String chatId,
-      {required bool byMe, bool recording = false}) {
+      {required bool byMe, bool recording = false, bool ghost = false}) {
     if (_indexOf(chatId) == -1) return;
     final now = DateTime.now();
     addMessage(
       chatId,
       Message(
-        id: 'shot_\${now.microsecondsSinceEpoch}',
-        text: recording
+        // Interpolated, not escaped: a literal '$' here once gave every
+        // notice the same id, which broke everything keyed by it (pins,
+        // reactions, delete) for all but the first.
+        id: 'shot_${now.microsecondsSinceEpoch}',
+        text: ghost
             ? (byMe
-                ? 'You started recording or mirroring this chat.'
-                : 'They started recording or mirroring this chat.')
-            : (byMe
-                ? 'You took a screenshot of this chat.'
-                : 'They took a screenshot of this chat.'),
+                ? 'You took a screenshot of a ghost message.'
+                : 'They took a screenshot of a ghost message.')
+            : recording
+                ? (byMe
+                    ? 'You started recording or mirroring this chat.'
+                    : 'They started recording or mirroring this chat.')
+                : (byMe
+                    ? 'You took a screenshot of this chat.'
+                    : 'They took a screenshot of this chat.'),
         time: now,
         isMe: byMe,
         // Never forwardable, whatever the chat's setting is now: the notice
@@ -774,7 +781,13 @@ class ChatStore extends ChangeNotifier {
     _replace(i, _chats[i].copyWith(messages: msgs));
   }
 
-  /// Marks a "view once" photo as opened, so it can't be viewed again.
+  /// Marks a "view once" message as opened, so it can't be viewed again.
+  ///
+  /// A received ghost TEXT loses its words here too, not only its
+  /// openability: the bubble never renders them again, so keeping them would
+  /// be keeping a copy purely for whoever gets hold of the store. The
+  /// sender's own copy keeps its text — their words, their device — which is
+  /// also what the far side's 'vopen' receipt marks.
   void markViewOnceOpened(String chatId, String messageId) {
     final i = _indexOf(chatId);
     if (i == -1) return;
@@ -782,7 +795,8 @@ class ChatStore extends ChangeNotifier {
     final msgs = _chats[i].messages.map((m) {
       if (m.id == messageId && m.viewOnce && !m.viewOnceOpened) {
         changed = true;
-        return m.copyWith(viewOnceOpened: true);
+        final wipe = !m.isMe && !m.isImage;
+        return m.copyWith(viewOnceOpened: true, text: wipe ? '' : null);
       }
       return m;
     }).toList();
