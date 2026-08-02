@@ -62,8 +62,9 @@ Dart asks for it.
    re-creating the App ID from scratch still needs it.
 3. ~~Run `supabase/schema.sql` so `push_tokens` exists.~~ **Already done** —
    the table is live.
-4. ~~Deploy `push-send`.~~ **Already deployed.** Set the Edge Function
-   secrets, which is the only step still outstanding:
+4. ~~Deploy `push-send`.~~ **Already deployed.** ~~Set the Edge Function
+   secrets.~~ **Reported done** — and Settings → Notifications & calls →
+   **Check push setup** is how to confirm it rather than take it on trust:
 
    | Secret | Value |
    |---|---|
@@ -76,6 +77,28 @@ Dart asks for it.
    `APNS_SANDBOX` is the one that silently sends nothing when it is wrong: a
    token minted by a development build is not valid on the production host,
    and Apple answers `BadDeviceToken`.
+
+## Checking it — Settings → Notifications & calls → Check push setup
+
+None of the five can be validated where they are typed, and every way of
+getting them wrong produces the same symptom: nothing arrives. So the app
+asks Apple instead. `push-send` answers `POST { what: "check" }` by signing a
+real provider token and offering a push to a device token that belongs to
+nobody; Apple validates the key, then the team, then the topic, and only then
+looks at the token, so the answer names whichever it disliked:
+
+| Apple says | What it means |
+|---|---|
+| `BadDeviceToken` | `APNS_P8`, `APNS_KEY_ID`, `APNS_TEAM_ID` and `APNS_BUNDLE_ID` are all right — only the made-up token was refused |
+| `InvalidProviderToken` | the key, the key id and the team id do not belong together |
+| `TopicDisallowed` | the key is valid but has no access to `APNS_BUNDLE_ID` |
+| `ExpiredProviderToken` | the server's clock, not a secret |
+
+Nothing is delivered to anyone either way, and the reply carries no secret —
+only whether each is set. Both Apple hosts are asked, because `APNS_SANDBOX`
+is the one setting that can be *valid* and still wrong: the check compares it
+against whether the build asking is a release build, which is the fact the
+dashboard does not have.
 
 ## What will not get a push, and why
 

@@ -9,6 +9,7 @@ import '../state/backup_service.dart';
 import '../util/build_info.dart';
 import '../state/chat_store.dart';
 import '../state/platform_moderation.dart';
+import '../state/push_diagnostics.dart';
 import '../state/session.dart';
 import '../state/storage_store.dart';
 import '../widgets/app_dialogs.dart';
@@ -29,6 +30,7 @@ import 'privacy_settings_screen.dart';
 import 'public_feed_screen.dart' show BookmarksScreen, MutedAccountsScreen;
 import 'profile_screen.dart';
 import 'score_screen.dart';
+import 'self_test_screen.dart';
 import 'settings_widgets.dart';
 import 'wallet_screen.dart';
 import '../state/score_store.dart';
@@ -160,6 +162,22 @@ class SettingsView extends StatelessWidget {
         InfoSection(children: [
           _buildNotificationsTile(),
           _buildVoicemailTile(),
+          InfoTile(
+            leading: const Icon(Icons.notifications_paused_outlined),
+            title: 'Check push setup',
+            // Every way of getting push wrong looks identical from here —
+            // nothing arrives — so the check is worth surfacing rather than
+            // leaving somebody to guess which of six things it is.
+            subtitle: 'Why alerts do or don\'t arrive when the app is closed',
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => const SelfTestScreen(
+                  title: 'Check push setup',
+                  run: PushSelfTest.run,
+                ),
+              ),
+            ),
+          ),
         ]),
 
         settingsSectionLabel(context, 'Account'),

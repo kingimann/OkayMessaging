@@ -197,11 +197,17 @@ Two things that look like bugs and are not:
   the Push capability is enabled on the `com.okaymessaging` App ID and the
   stale provisioning profile was deleted — do not raise either again. The
   `push_tokens` table exists and `push-send` is deployed (both verified live).
-  What is left is one thing: an APNs `.p8` key from
-  developer.apple.com → Keys, and the `APNS_P8` / `APNS_KEY_ID` /
-  `APNS_TEAM_ID` / `APNS_BUNDLE_ID` / `APNS_SANDBOX` Edge Function secrets.
-  `APNS_SANDBOX` is `false` for TestFlight; wrong, and Apple answers
-  `BadDeviceToken` and nothing arrives with no error anywhere.
+  The `APNS_*` secrets are **reported set** and have not been confirmed from
+  here — they cannot be, because `push-send` is behind the Supabase JWT gate
+  and no probe from this box carries a session. **Settings → Notifications &
+  calls → Check push setup** is the confirmation: `push-send` answers
+  `POST { what: "check" }` by signing a provider token and offering a push to
+  a device token nobody owns, so Apple validates the key, the team and the
+  topic and names whichever it disliked (`BadDeviceToken` is the pass).
+  `APNS_SANDBOX` is the one that can be valid and still wrong — `false` for
+  TestFlight, `true` only from Xcode — so the check compares it against
+  `kReleaseMode` rather than guessing. Requires the current `push-send`; an
+  older deployment says so rather than reading its reply as "nothing is set".
 - **Default messaging app (iOS 18.2+)**: entitlement
   (`com.apple.developer.messaging-app`), `im:` scheme, scene-delegate →
   `okay/links` channel → `openChatForPhone` are all wired. If the IPA export

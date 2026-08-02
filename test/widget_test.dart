@@ -57,9 +57,12 @@ import 'package:okay_messaging/screens/identity_check_screen.dart';
 import 'package:okay_messaging/state/platform_moderation.dart';
 import 'package:okay_messaging/payments/connect_fields.dart';
 import 'package:okay_messaging/payments/payment_diagnostics.dart';
+import 'package:okay_messaging/state/push_diagnostics.dart';
+import 'package:okay_messaging/state/self_test.dart';
 import 'package:okay_messaging/payments/stripe_tokens.dart';
 import 'package:okay_messaging/screens/payment_controls_screen.dart';
 import 'package:okay_messaging/screens/payment_diagnostics_screen.dart';
+import 'package:okay_messaging/screens/self_test_screen.dart';
 import 'package:okay_messaging/screens/public_feed_screen.dart';
 import 'package:okay_messaging/state/public_feed_store.dart';
 import 'package:okay_messaging/state/push_service.dart';
@@ -23523,6 +23526,263 @@ void main() {
       expect(plist.contains('NSLocalNetworkUsageDescription'), isTrue,
           reason: 'iOS shows this before the first browse, and refuses '
               'without it');
+    });
+  });
+  group('push self-test', () {
+    // A push that never arrives has six different causes and one appearance.
+    // These lock down that the report names which one, because the whole
+    // reason it exists is that a dashboard cannot tell anybody.
+
+    PushCheck check({
+      bool p8 = true,
+      bool keyId = true,
+      bool teamId = true,
+      String bundleId = 'com.okaymessaging',
+      bool sandbox = false,
+      String keyError = '',
+      String prodReason = 'BadDeviceToken',
+      String sandboxReason = 'BadDeviceToken',
+      bool registered = true,
+    }) =>
+        PushCheck.fromJson({
+          'secrets': {
+            'p8': p8,
+            'keyId': keyId,
+            'teamId': teamId,
+            'bundleId': bundleId,
+            'sandbox': sandbox,
+          },
+          'keyError': keyError,
+          'production': {
+            'host': 'api.push.apple.com',
+            'status': 400,
+            'reason': prodReason,
+          },
+          'sandbox': {
+            'host': 'api.sandbox.push.apple.com',
+            'status': 400,
+            'reason': sandboxReason,
+          },
+          'device': {'registered': registered},
+        })!;
+
+    (String, bool) verdict(PushCheck? c,
+            {bool releaseBuild = true,
+            bool pushable = true,
+            String? error,
+            bool signedIn = true}) =>
+        PushSelfTest.verdictFor(
+          relayEnabled: true,
+          signedIn: signedIn,
+          releaseBuild: releaseBuild,
+          pushablePlatform: pushable,
+          check: c,
+          error: error,
+        );
+
+    test('Apple accepting the made-up token is the pass', () {
+      // BadDeviceToken is the *good* answer: Apple validates the provider
+      // token, then the topic, then the device token, so rejecting only the
+      // last one means it approved the key, the team and the app.
+      final (text, faulty) = verdict(check());
+      expect(faulty, isFalse);
+      expect(text, contains('set up correctly'));
+    });
+
+    test('a rejected signing key names the three secrets that make it', () {
+      final (text, faulty) = verdict(check(prodReason: 'InvalidProviderToken'));
+      expect(faulty, isTrue);
+      expect(text, contains('APNS_KEY_ID'));
+      expect(text, contains('APNS_TEAM_ID'));
+      expect(text, contains('APNS_P8'));
+      // And must not send somebody after the bundle id, which Apple never
+      // got as far as reading.
+      expect(text, isNot(contains('APNS_BUNDLE_ID')));
+    });
+
+    test('a disallowed topic blames the bundle id and nothing else', () {
+      final (text, faulty) =
+          verdict(check(bundleId: 'com.wrong.app', prodReason: 'TopicDisallowed'));
+      expect(faulty, isTrue);
+      expect(text, contains('APNS_BUNDLE_ID'));
+      expect(text, contains('com.wrong.app'));
+      expect(text, isNot(contains('APNS_P8')));
+    });
+
+    test('a p8 that is set but unreadable is not reported as missing', () {
+      // "Not set" would send somebody back to Apple for a key they already
+      // have, when the fault is how it was pasted.
+      final (text, _) = verdict(check(keyError: 'Invalid keyData'));
+      expect(text, contains('cannot be read'));
+      expect(text, contains('BEGIN'));
+      expect(text, isNot(contains('is not set')));
+    });
+
+    test('missing secrets are named individually', () {
+      expect(verdict(check(p8: false)).$1, contains('APNS_P8 is not set'));
+      expect(verdict(check(keyId: false)).$1,
+          allOf(contains('APNS_KEY_ID'), isNot(contains('APNS_TEAM_ID'))));
+      expect(verdict(check(teamId: false)).$1,
+          allOf(contains('APNS_TEAM_ID'), isNot(contains('APNS_KEY_ID'))));
+    });
+
+    test('sandbox is judged against the build that is asking', () {
+      // The failure this exists for: every secret correct, APNS_SANDBOX left
+      // on, and a TestFlight build receiving nothing for ever.
+      final release = verdict(check(sandbox: true), releaseBuild: true);
+      expect(release.$2, isTrue);
+      expect(release.$1, contains('APNS_SANDBOX'));
+      expect(release.$1, contains('production'));
+
+      // The same setting is correct for a build installed from Xcode, so it
+      // must not be reported as a fault there.
+      expect(verdict(check(sandbox: true), releaseBuild: false).$2, isFalse);
+
+      // And the mirror image: a debug build against production APNs is worth
+      // saying, but it is not somebody's setup being wrong.
+      final debugOnProd = verdict(check(), releaseBuild: false);
+      expect(debugOnProd.$2, isFalse);
+      expect(debugOnProd.$1, contains('Xcode'));
+    });
+
+    test('the sandbox flag decides which of Apple\'s answers counts', () {
+      // Both hosts are asked, but only the one the server actually sends to
+      // can decide the verdict.
+      expect(check(sandbox: true, sandboxReason: 'InvalidProviderToken').active
+          .reason, 'InvalidProviderToken');
+      expect(verdict(check(
+              sandbox: true,
+              prodReason: 'BadDeviceToken',
+              sandboxReason: 'InvalidProviderToken'),
+          releaseBuild: false)
+          .$2, isTrue);
+    });
+
+    test('a phone that never registered is separated from a bad secret', () {
+      final (text, faulty) = verdict(check(registered: false));
+      expect(faulty, isTrue);
+      expect(text, contains('never uploaded'));
+      // The secrets are fine, and saying otherwise would send somebody to
+      // the wrong dashboard.
+      expect(text, contains('secret is right'));
+
+      // On a build that cannot receive one at all, that is not a fault.
+      final web = verdict(check(registered: false), pushable: false);
+      expect(web.$2, isFalse);
+    });
+
+    test('an old deployment is told apart from a broken one', () {
+      // push-send before this change answers { sent: false } — a valid reply
+      // that is not a self-test. Reading it as "no secrets set" would be a
+      // confident wrong answer.
+      expect(PushCheck.fromJson({'sent': false}), isNull);
+      expect(PushCheck.fromJson(null), isNull);
+      final (text, faulty) = verdict(null, error: 'old-deployment');
+      expect(faulty, isTrue);
+      expect(text, contains('push-send'));
+      expect(text, contains('docs/edge_functions_paste/push-send.ts'));
+    });
+
+    test('the steps never carry a secret\'s value', () {
+      // The report is written to be pasted into a message, so the server may
+      // only ever say whether a secret is set — never what it is.
+      final src =
+          File('supabase/functions/push-send/index.ts').readAsStringSync();
+      final body = src.substring(src.indexOf('async function checkSetup'),
+          src.indexOf('Deno.serve'));
+      for (final name in ['APNS_P8', 'APNS_KEY_ID', 'APNS_TEAM_ID']) {
+        expect(body.contains('present("$name")'), isTrue,
+            reason: '$name must be reported as a boolean');
+        expect(RegExp('Deno\\.env\\.get\\("$name"\\)').hasMatch(body), isFalse,
+            reason: '$name must never reach the response');
+      }
+      // And it must not deliver anything while checking: the device token is
+      // one nobody owns.
+      expect(body.contains('"0".repeat(64)'), isTrue);
+    });
+
+    testWidgets('the report says which link is broken', (t) async {
+      addTearDown(() => PushSelfTest.debugCheckProbe = null);
+      // Tall enough that the verdict below seven steps is built at all — a
+      // ListView does not build what is off screen, and a finder cannot see
+      // what was never built.
+      t.view.physicalSize = const Size(1000, 2400);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.reset);
+      PushSelfTest.debugCheckProbe = () async => {
+            'secrets': {
+              'p8': true,
+              'keyId': true,
+              'teamId': true,
+              'bundleId': 'com.okaymessaging',
+              'sandbox': false,
+            },
+            'keyError': '',
+            'production': {
+              'host': 'api.push.apple.com',
+              'status': 403,
+              'reason': 'InvalidProviderToken',
+            },
+            'sandbox': {
+              'host': 'api.sandbox.push.apple.com',
+              'status': 403,
+              'reason': 'InvalidProviderToken',
+            },
+            'device': {'registered': true},
+          };
+
+      final steps = PushSelfTest.stepsFor(
+        relayEnabled: true,
+        signedIn: true,
+        releaseBuild: true,
+        pushablePlatform: true,
+        check: PushCheck.fromJson(await PushSelfTest.debugCheckProbe!()),
+        error: null,
+      );
+      await t.pumpWidget(MaterialApp(
+        home: SelfTestScreen(
+          title: 'Check push setup',
+          run: () async => SelfTestReport(
+            title: 'Push self-test',
+            steps: steps,
+            verdict: PushSelfTest.verdictFor(
+              relayEnabled: true,
+              signedIn: true,
+              releaseBuild: true,
+              pushablePlatform: true,
+              check: PushCheck.fromJson(await PushSelfTest.debugCheckProbe!()),
+              error: null,
+            ).$1,
+            faulty: true,
+          ),
+        ),
+      ));
+      await t.pumpAndSettle();
+
+      expect(find.text('What to change'), findsOneWidget);
+      expect(find.text('Apple'), findsOneWidget);
+      expect(find.textContaining('Rejected the signing key'), findsOneWidget);
+      // The steps that are fine must still say so, or the one that is not
+      // does not stand out.
+      expect(find.textContaining('Set, and it signs.'), findsOneWidget);
+    });
+
+    test('a pasted report names the test it came from', () {
+      const r = SelfTestReport(
+          title: 'Push self-test',
+          steps: [DiagnosticStep('Apple', 'accepted', CheckState.pass)],
+          verdict: 'fine',
+          faulty: false);
+      expect(r.report.split('\n').first, 'Push self-test');
+      expect(r.report, contains('[ok]   Apple: accepted'));
+    });
+
+    testWidgets('settings offers the check where notifications are', (t) async {
+      await t.pumpWidget(const MaterialApp(home: SettingsScreen()));
+      await t.pump(const Duration(milliseconds: 100));
+      await t.scrollUntilVisible(find.text('Check push setup'), 240,
+          scrollable: find.byType(Scrollable).first);
+      expect(find.text('Check push setup'), findsOneWidget);
     });
   });
 }

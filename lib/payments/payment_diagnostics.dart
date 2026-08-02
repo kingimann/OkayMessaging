@@ -5,52 +5,16 @@ import 'package:http/http.dart' as http;
 
 import '../relay/relay_config.dart';
 import 'connect_fields.dart';
+import '../state/self_test.dart';
 import '../state/session.dart';
 import 'payment_service.dart';
 
-/// One line of the payments self-test. Named CheckState rather than StepState
-/// because Material already has a StepState and the clash is silent until it
-/// is not.
-enum CheckState { pass, fail, unknown }
+export '../state/self_test.dart' show CheckState, DiagnosticStep;
 
-class DiagnosticStep {
-  final String title;
-
-  /// What was found. Shown verbatim, so it must never contain a secret.
-  final String detail;
-  final CheckState state;
-
-  const DiagnosticStep(this.title, this.detail, this.state);
-}
-
-/// What the self-test found, and the one sentence worth acting on.
-class PaymentDiagnostics {
-  final List<DiagnosticStep> steps;
-
-  /// The fix, or a statement that nothing looks wrong from here.
-  final String verdict;
-
-  /// Whether [verdict] names a fault rather than a clean result.
-  final bool faulty;
-
-  const PaymentDiagnostics(
-      {required this.steps, required this.verdict, required this.faulty});
-
-  /// A block of text somebody can paste into a message. No secret keys exist
-  /// on a client, and the publishable key is masked anyway, so this is safe to
-  /// send — but it is written to be read, not parsed.
-  String get report => [
-        'Payments self-test',
-        for (final s in steps)
-          '${switch (s.state) {
-            CheckState.pass => '[ok]  ',
-            CheckState.fail => '[FAIL]',
-            CheckState.unknown => '[ ? ] ',
-          }} ${s.title}: ${s.detail}',
-        '',
-        verdict,
-      ].join('\n');
-}
+/// What the payments self-test found. The shape is shared with every other
+/// self-test in the app; the name is kept because this one predates the split
+/// and reads better at the call sites that already use it.
+typedef PaymentDiagnostics = SelfTestReport;
 
 /// Runs the payments chain and says which link is broken.
 ///
@@ -205,7 +169,10 @@ class PaymentsSelfTest {
       setupError: setupError,
     );
     return PaymentDiagnostics(
-        steps: steps, verdict: verdict.$1, faulty: verdict.$2);
+        title: 'Payments self-test',
+        steps: steps,
+        verdict: verdict.$1,
+        faulty: verdict.$2);
   }
 
   /// The whole point of the exercise: given both halves, say what is wrong.

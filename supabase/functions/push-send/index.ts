@@ -18,6 +18,12 @@
 //   APNS_TEAM_ID   your Apple team id
 //   APNS_BUNDLE_ID com.okaymessaging
 //   APNS_SANDBOX   "true" while testing via Xcode/TestFlight-dev builds
+//
+// POST { what: "check" } -> a self-test of exactly those five, because there
+// is otherwise no way to find out whether they are right short of waiting for
+// a push that never comes. Four of the five can be wrong in ways that produce
+// the same silence, and the fifth (APNS_SANDBOX) can be *valid* and still send
+// every alert to an environment the build isn't in. See checkSetup().
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
 const admin = createClient(
@@ -47,6 +53,97 @@ async function apnsJwt(): Promise<string> {
   return `${header}.${claims}.${b64url(sig)}`;
 }
 
+/// Asks Apple whether the auth key works, without needing a real device.
+///
+/// A push request is validated in order — provider token, then topic, then
+/// device token — so posting a deliberately bogus device token gets Apple to
+/// check everything above it and name what it disliked:
+///
+///   BadDeviceToken       the key, the team and the topic were all accepted;
+///                        only the token we made up was rejected. A pass.
+///   InvalidProviderToken APNS_P8 / APNS_KEY_ID / APNS_TEAM_ID don't agree,
+///                        or the key has no access to this topic's app.
+///   TopicDisallowed      the key is fine; APNS_BUNDLE_ID isn't its app.
+///   ExpiredProviderToken the JWT is stale — a clock problem, not a secret.
+///
+/// Both hosts are asked, because they are separate Apple environments with
+/// separate device tokens and the same key works against both. Which one gets
+/// used is APNS_SANDBOX, and that setting is the one thing here a dashboard
+/// cannot get wrong-but-look-right: `true` is correct only for a build
+/// installed from Xcode. TestFlight and the App Store are production.
+async function checkSetup(phone: string) {
+  const present = (name: string) => (Deno.env.get(name) ?? "").length > 0;
+  const secrets = {
+    p8: present("APNS_P8"),
+    keyId: present("APNS_KEY_ID"),
+    teamId: present("APNS_TEAM_ID"),
+    bundleId: Deno.env.get("APNS_BUNDLE_ID") ?? "",
+    sandbox: Deno.env.get("APNS_SANDBOX") === "true",
+  };
+
+  let jwt = "";
+  let keyError = "";
+  try {
+    jwt = await apnsJwt();
+  } catch (e) {
+    // Never echo the key itself — only that it could not be read as one.
+    keyError = e instanceof Error ? e.message : "the key could not be read";
+  }
+
+  // A syntactically valid token that belongs to no device. Apple rejects it
+  // by name, which is the whole point: nothing is delivered anywhere.
+  const nowhere = "0".repeat(64);
+  const ask = async (host: string) => {
+    if (!jwt) return { host, status: 0, reason: "" };
+    try {
+      const res = await fetch(`https://${host}/3/device/${nowhere}`, {
+        method: "POST",
+        headers: {
+          "authorization": `bearer ${jwt}`,
+          "apns-topic": secrets.bundleId || "com.okaymessaging",
+          "apns-push-type": "alert",
+          "apns-priority": "10",
+        },
+        body: JSON.stringify({ aps: { "content-available": 1 } }),
+      });
+      const text = await res.text();
+      let reason = "";
+      try {
+        reason = String(JSON.parse(text).reason ?? "");
+      } catch {
+        reason = text.slice(0, 80);
+      }
+      return { host, status: res.status, reason };
+    } catch (e) {
+      return {
+        host,
+        status: 0,
+        reason: e instanceof Error ? e.message.slice(0, 80) : "unreachable",
+      };
+    }
+  };
+  const [production, sandbox] = await Promise.all([
+    ask("api.push.apple.com"),
+    ask("api.sandbox.push.apple.com"),
+  ]);
+
+  const { data: row } = phone
+    ? await admin.from("push_tokens").select("token, updated_at")
+      .eq("phone", phone).maybeSingle()
+    : { data: null };
+
+  return {
+    secrets,
+    keyError,
+    production,
+    sandbox,
+    // Whether the *caller's own* device ever uploaded a token. Every secret
+    // can be right and nothing arrive because iOS never granted permission,
+    // and that failure is on the phone rather than the server.
+    device: { registered: !!row?.token, updatedAt: row?.updated_at ?? null },
+  };
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: { "Access-Control-Allow-Origin": "*",
@@ -58,8 +155,15 @@ Deno.serve(async (req) => {
   const { data: caller } = await admin.auth.getUser(auth);
   if (!caller?.user) return Response.json({ error: "unauthorized" }, { status: 401 });
 
-  const { toPhone, title, body, badge, fromPhone } =
+  const { what, toPhone, title, body, badge, fromPhone } =
     await req.json().catch(() => ({}));
+
+  if (what === "check") {
+    return Response.json(
+      await checkSetup((caller.user.phone ?? "").replace(/\D/g, "")),
+    );
+  }
+
   const digits = String(toPhone ?? "").replace(/\D/g, "");
   const from = String(fromPhone ?? "").replace(/\D/g, "");
   if (!digits || !title) return Response.json({ error: "bad request" }, { status: 400 });
