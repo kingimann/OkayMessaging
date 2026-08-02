@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../widgets/phone_gate.dart';
 import '../theme/app_theme.dart';
 
 import '../models/chat.dart';
@@ -38,7 +39,16 @@ class _ActivityTabState extends State<ActivityTab> {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => PhoneGate(
+        title: 'Alerts',
+        scaffold: false,
+        reason: 'Alerts are follows, mentions and replies from the feeds, and '
+            'those need the server account a phone number stands behind. New '
+            'messages show on Chats either way.',
+        child: Builder(builder: _guarded),
+      );
+
+  Widget _guarded(BuildContext context) {
     return ListenableBuilder(
       listenable: Listenable.merge(
           [ChatStore.instance, CallLog.instance, FeedStore.instance]),

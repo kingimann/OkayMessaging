@@ -191,6 +191,37 @@ suite, because there is no Xcode here and `flutter analyze` never looks at
 Swift. The test *newer iOS APIs are guarded* now scans `ios/Runner/*.swift`
 for the known offenders; add to its list rather than rediscovering this.
 
+## Username-only accounts, and the one thing they can do
+
+Signing up with no phone number is a first-class choice on both login forms
+(*Sign up with a username instead*). The username is **required** there and
+optional everywhere else: with no number in anybody's contacts there is
+nothing to match on, so a handle is the only thing another person can be told
+and can type. A display name is optional and defaults to the handle — the
+account code is not a name anybody would recognise. `AccountCode.mint()`
+stands in for the number, so addressing works unchanged.
+
+**Chat works; nothing else does, and that is a fact rather than a policy.**
+Supabase authenticates a phone, so these accounts have no session at all.
+Message delivery does not need one — Realtime broadcast and the `mailbox`
+table are both reachable with the anon key (`mailbox_*` policies grant
+`anon`) — so chat is the same encryption, the same delivery, the same
+store-and-forward. Everything that reads or writes the server has nothing to
+answer with.
+
+So `PhoneGate` (`lib/widgets/phone_gate.dart`) wraps Newsfeed, Maps,
+Marketplace, Servers, Calls, Alerts, Wallet and Okay Drop — around the screen,
+never the row, for the same reason as `VerifiedGate`. Notes and Settings stay
+open: Notes is local-only and locking it would protect nobody, and Settings is
+the way out. There is **no owner waiver** — an owner without a number has no
+session either, so letting them through would show a screen that cannot load.
+`PhoneOnlyHint` puts a padlock on the drawer row; `_GateHint` in
+`home_screen.dart` shows one padlock for a row behind both gates.
+
+**There is no in-place upgrade.** The number *is* the account, so adding one
+means a new account, and the gate says so rather than offering a button that
+would sign somebody out. A test asserts chat is not gated.
+
 ## Verified-only features
 
 The **marketplace, wallet and Okay Drop** are behind

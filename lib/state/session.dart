@@ -76,12 +76,26 @@ class Session {
   ///
   /// The consequence, said rather than discovered: nobody can find you from
   /// their contacts, because there is no number of yours in anybody's phone.
-  /// They reach you by your code or your username, and that is all.
+  /// They reach you by your code or your username, and that is all. It also
+  /// means no Supabase session — Supabase authenticates a phone — so every
+  /// server-backed part of the app is locked behind [PhoneGate]. Chat is not
+  /// one of them: broadcast and the mailbox are both reachable with the anon
+  /// key, so messages work exactly as they do for anybody else.
+  ///
+  /// [name] may be empty, and usually is: signing up this way is one field.
+  /// The username stands in for it rather than the account code, which is a
+  /// display name nobody would choose and nobody would recognise.
   Future<void> signInWithoutNumber({
-    required String name,
-    String username = '',
-  }) =>
-      signIn(phone: AccountCode.mint(), name: name, username: username);
+    String name = '',
+    required String username,
+  }) {
+    final handle = _normalizeUsername(username);
+    return signIn(
+      phone: AccountCode.mint(),
+      name: name.trim().isEmpty ? handle : name.trim(),
+      username: handle,
+    );
+  }
 
   /// Whether the signed-in account has no phone number behind it.
   bool get isNumberless {

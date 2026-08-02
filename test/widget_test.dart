@@ -22,6 +22,7 @@ import 'package:okay_messaging/widgets/collapsible_text.dart';
 import 'package:okay_messaging/state/voice_presence_store.dart';
 import 'package:okay_messaging/state/channel_typing_store.dart';
 import 'package:okay_messaging/relay/app_pages.dart';
+import 'package:okay_messaging/widgets/phone_gate.dart';
 import 'package:okay_messaging/state/identity_verification.dart';
 import 'package:okay_messaging/app_state.dart';
 import 'package:okay_messaging/crypto/e2e.dart';
@@ -19477,14 +19478,19 @@ void main() {
       // The hint mirrors the gate's own flag. A padlock on a row that opens is
       // a worse lie than no padlock, so the two have to be set together.
       final src = File('lib/screens/home_screen.dart').readAsStringSync();
-      final waived = RegExp(r"_VerifiedOnlyHint\(ownerMayPass: true\)")
-          .allMatches(src)
-          .length;
-      final held = RegExp(r'_VerifiedOnlyHint\(\)').allMatches(src).length;
-      // Marketplace and Okay Drop waive; the wallet holds. The third match
-      // of the bare form is the constructor's own declaration.
+      final waived =
+          RegExp(r'_GateHint\(ownerMayPass: true\)').allMatches(src).length;
+      final held = RegExp(r'_GateHint\(\)').allMatches(src).length;
+      // Marketplace and Okay Drop waive; the wallet holds.
       expect(waived, 2, reason: 'the waived rows drifted from the gates');
       expect(held, 1, reason: 'the wallet row stopped showing its padlock');
+
+      // The rows only the phone gate shuts: Newsfeed, Maps and Servers. The
+      // fourth match is inside _GateHint, which is how a row behind BOTH
+      // gates shows one padlock instead of two.
+      expect(RegExp(r'PhoneOnlyHint\(\)').allMatches(src).length, 4,
+          reason: 'a phone-gated row lost its padlock, or gained one it '
+              'cannot back up');
     });
 
     test('the gate is on the screens, not on the buttons that open them', () {
@@ -19497,6 +19503,27 @@ void main() {
       ]) {
         expect(File(path).readAsStringSync().contains('VerifiedGate('), isTrue,
             reason: path);
+      }
+      // The same rule for the phone gate, on everything a username-only
+      // account cannot use. Chat is not in this list, and that is the point:
+      // broadcast and the mailbox are both reachable with the anon key, so
+      // messages work for an account with no session at all.
+      for (final path in [
+        'lib/screens/marketplace_screen.dart',
+        'lib/screens/wallet_screen.dart',
+        'lib/screens/nearby_share_screen.dart',
+        'lib/screens/public_feed_screen.dart',
+        'lib/screens/explore_map_screen.dart',
+        'lib/screens/communities.dart',
+        'lib/tabs/calls_tab.dart',
+        'lib/tabs/activity_tab.dart',
+      ]) {
+        expect(File(path).readAsStringSync().contains('PhoneGate('), isTrue,
+            reason: '$path is reachable without a phone number');
+      }
+      for (final path in ['lib/tabs/chats_tab.dart', 'lib/screens/chat_screen.dart']) {
+        expect(File(path).readAsStringSync().contains('PhoneGate('), isFalse,
+            reason: '$path is the one thing these accounts are for');
       }
       // Sending money from a chat is the wallet's own capability reached
       // another way — guarding one screen and not this is guarding the door
@@ -21703,7 +21730,7 @@ void main() {
       // The way in for somebody who has a handle but not their number to
       // hand — a sign-IN route, so it belongs here.
       expect(find.text('Sign in with username or email'), findsOneWidget);
-      expect(find.text('Continue without a phone number'), findsNothing,
+      expect(find.text('Sign up with a username instead'), findsNothing,
           reason: 'making a new account is not a way to sign in to an old one');
 
       await t.tap(find.text('Create account').first);
@@ -21712,7 +21739,7 @@ void main() {
           reason: 'a new account needs a name');
       expect(find.text('Create account'), findsWidgets);
       expect(find.text('Sign in with username or email'), findsNothing);
-      expect(find.text('Continue without a phone number'), findsOneWidget);
+      expect(find.text('Sign up with a username instead'), findsOneWidget);
     });
 
     testWidgets('the local form splits the same way', (t) async {
@@ -21765,15 +21792,14 @@ void main() {
         // under Create account rather than under Sign in.
         await t.tap(find.text('Create account'));
         await t.pumpAndSettle();
-        expect(find.text('Continue without a phone number'), findsOneWidget,
+        expect(find.text('Sign up with a username instead'), findsOneWidget,
             reason: verified
                 ? 'missing on the form the iOS build actually shows'
                 : 'missing on the local form');
       }
     });
 
-    testWidgets('the way in is offered, and needs a name rather than a number',
-        (t) async {
+    testWidgets('the way in needs a username rather than a number', (t) async {
       t.view.physicalSize = const Size(500, 1600);
       t.view.devicePixelRatio = 1.0;
       addTearDown(t.view.resetPhysicalSize);
@@ -21787,18 +21813,31 @@ void main() {
       await t.tap(find.text('Create account'));
       await t.pumpAndSettle();
 
-      // A name is what other people see, so it is the one thing asked for.
-      // Cleared explicitly: the field is prefilled from the last account, so
-      // without this the empty-name branch is never reached and the test
-      // proves nothing about it.
-      await t.enterText(find.byType(TextFormField).first, '');
-      await t.tap(find.text('Continue without a phone number'));
+      // The username is what other people type to reach you, and with no
+      // number in anybody's contacts it is the ONLY thing they can type — so
+      // it is the one field this path insists on. Both are cleared
+      // explicitly: they are prefilled from the last account, so without this
+      // the empty branch is never reached and the test proves nothing.
+      final fields = find.byType(TextFormField);
+      await t.enterText(fields.at(0), ''); // name
+      await t.enterText(fields.at(1), ''); // username
+      await t.tap(find.text('Sign up with a username instead'));
       await t.pump();
       expect(Session.instance.isSignedIn, isFalse);
-      expect(find.textContaining('Enter a name'), findsOneWidget);
+      expect(find.textContaining('Pick a username'), findsOneWidget);
 
-      await t.enterText(find.byType(TextFormField).first, 'Ada');
-      await t.tap(find.text('Continue without a phone number'));
+      // A handle too short to be one is refused for a different reason, and
+      // says so — "pick a username" at somebody who just did reads as a bug.
+      await t.enterText(fields.at(1), 'ad');
+      await t.tap(find.text('Sign up with a username instead'));
+      await t.pump();
+      expect(Session.instance.isSignedIn, isFalse);
+      expect(find.textContaining('at least 3'), findsOneWidget);
+
+      // No name typed: signing up this way is one field, and the handle
+      // stands in rather than the account code, which nobody would recognise.
+      await t.enterText(fields.at(1), 'ada');
+      await t.tap(find.text('Sign up with a username instead'));
       // pump, not pumpAndSettle: signing in leaves the button spinning until
       // the auth gate swaps the screen out, and there is no gate here.
       await t.pump();
@@ -21807,6 +21846,9 @@ void main() {
       expect(Session.instance.isSignedIn, isTrue);
       expect(Session.instance.isNumberless, isTrue,
           reason: 'no number was typed, so none was invented');
+      expect(Session.instance.user.value!.username, 'ada');
+      expect(Session.instance.user.value!.name, 'ada',
+          reason: 'the code is not a display name anybody would recognise');
     });
 
     testWidgets('the code is on screen where it can be read to somebody',
@@ -23990,6 +24032,122 @@ void main() {
       // anybody on the internet can call.
       expect(src.contains('createClient'), isFalse);
       expect(src.contains('SERVICE_ROLE'), isFalse);
+    });
+  });
+  group('a username-only account is a chat account', () {
+    // Signing up with no number is a real choice rather than a lesser one,
+    // and it has one consequence that decides everything else: Supabase
+    // authenticates a phone, so there is no session at all. Chat does not
+    // need one — broadcast and the mailbox are both reachable with the anon
+    // key — and everything that reads or writes the server does.
+
+    setUp(Session.instance.resetForTest);
+    tearDown(Session.instance.resetForTest);
+
+    Widget gated() => const MaterialApp(
+          home: PhoneGate(
+            title: 'Wallet',
+            reason: 'because money',
+            child: Text('the real screen'),
+          ),
+        );
+
+    testWidgets('an account with a number is not stopped', (t) async {
+      Session.instance.signInForTest(phone: '15551230000', name: 'Ada');
+      await t.pumpWidget(gated());
+      await t.pumpAndSettle();
+      expect(find.text('the real screen'), findsOneWidget);
+      expect(find.textContaining('needs a phone number'), findsNothing);
+    });
+
+    testWidgets('an account with a code is, and is told why', (t) async {
+      Session.instance
+          .signInForTest(phone: AccountCode.mint(), name: 'ada', username: 'ada');
+      await t.pumpWidget(gated());
+      await t.pumpAndSettle();
+      expect(find.text('the real screen'), findsNothing);
+      expect(find.text('Wallet needs a phone number'), findsOneWidget);
+      // The specific reason, not a generic one: eight screens are behind this
+      // gate and each is shut for its own reason.
+      expect(find.textContaining('because money'), findsOneWidget);
+      // And a way forward. A gate with no way out is a dead end, and the
+      // honest answer is that the number IS the account.
+      expect(find.textContaining('Chats work as they are'), findsOneWidget);
+    });
+
+    testWidgets('the lock lifts the moment an account has a number',
+        (t) async {
+      // The gate listens rather than reading once: signing out of a
+      // numberless account and into a real one must not leave the lock up.
+      Session.instance.signInForTest(phone: AccountCode.mint(), name: 'ada');
+      await t.pumpWidget(gated());
+      await t.pumpAndSettle();
+      expect(find.text('the real screen'), findsNothing);
+
+      Session.instance.signInForTest(phone: '15551230000', name: 'Ada');
+      await t.pumpAndSettle();
+      expect(find.text('the real screen'), findsOneWidget);
+    });
+
+    testWidgets('as a tab body it brings no second app bar', (t) async {
+      // The home screen already has one, and a bar with nothing to do
+      // stacked under the real one is what scaffold: false is for.
+      Session.instance.signInForTest(phone: AccountCode.mint(), name: 'ada');
+      await t.pumpWidget(MaterialApp(
+        home: Scaffold(
+          appBar: AppBar(title: const Text('OkayMessenger')),
+          body: const PhoneGate(
+            title: 'Calls',
+            reason: 'because ringing',
+            scaffold: false,
+            child: Text('the real screen'),
+          ),
+        ),
+      ));
+      await t.pumpAndSettle();
+      expect(find.text('Calls needs a phone number'), findsOneWidget);
+      expect(find.byType(AppBar), findsOneWidget);
+      expect(find.text('OkayMessenger'), findsOneWidget);
+    });
+
+    testWidgets('the padlock on a row matches whether the row opens',
+        (t) async {
+      Session.instance.signInForTest(phone: AccountCode.mint(), name: 'ada');
+      await t.pumpWidget(const MaterialApp(home: Scaffold(body: PhoneOnlyHint())));
+      await t.pumpAndSettle();
+      expect(find.byIcon(Icons.lock_outline), findsOneWidget);
+
+      Session.instance.signInForTest(phone: '15551230000', name: 'Ada');
+      await t.pumpAndSettle();
+      expect(find.byIcon(Icons.lock_outline), findsNothing,
+          reason: 'a padlock on a row that opens is worse than none');
+    });
+
+    test('the username is the account, so it is normalised and kept', () async {
+      // With no number in anybody's contacts there is nothing to match on, so
+      // the handle is the only thing another person can be told and can type.
+      await Session.instance.signInWithoutNumber(username: '  @Ada.Lovelace ');
+      expect(Session.instance.user.value!.username, 'ada.lovelace');
+      expect(Session.instance.isNumberless, isTrue);
+
+      // And it stands in for a display name, because the account code is one
+      // nobody would choose and nobody would recognise.
+      expect(Session.instance.user.value!.name, 'ada.lovelace');
+      expect(AccountCode.isCode(Session.instance.user.value!.phone), isTrue);
+
+      // A name typed is still a name kept.
+      await Session.instance
+          .signInWithoutNumber(name: 'Ada', username: 'ada2');
+      expect(Session.instance.user.value!.name, 'Ada');
+    });
+
+    test('a real number is never mistaken for one of these', () {
+      Session.instance.signInForTest(phone: '15551230000', name: 'Ada');
+      expect(Session.instance.isNumberless, isFalse);
+      // Nor is a signed-out app, which would otherwise lock every screen
+      // behind a gate nobody could pass.
+      Session.instance.resetForTest();
+      expect(Session.instance.isNumberless, isFalse);
     });
   });
 }

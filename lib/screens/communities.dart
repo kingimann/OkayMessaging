@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../widgets/phone_gate.dart';
 
 import 'dart:async';
 import 'dart:convert';
@@ -119,7 +120,17 @@ class _CommunitiesTabState extends State<CommunitiesTab> {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => PhoneGate(
+        title: 'Servers',
+        scaffold: false,
+        reason: 'A server is other people, and everything in one — the '
+            'roster, the channels, the invites — lives on the relay under '
+            'your account. There is no session behind an account with no '
+            'phone number to join one with.',
+        child: Builder(builder: _guarded),
+      );
+
+  Widget _guarded(BuildContext context) {
     return ListenableBuilder(
       listenable: Listenable.merge([
         CommunityStore.instance,

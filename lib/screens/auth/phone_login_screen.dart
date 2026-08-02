@@ -876,27 +876,51 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
           const SizedBox(height: 6),
           TextButton(
             onPressed: _busy ? null : _continueWithoutNumber,
-            child: Text('Continue without a phone number',
+            child: Text('Sign up with a username instead',
                 style: TextStyle(color: AppColors.subtle(context))),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 2, 24, 0),
+            child: Text(
+              'No number, and no way for anyone to find you from their '
+              'contacts. Chats work; the rest of the app needs a number.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                  fontSize: 12, height: 1.35, color: AppColors.subtle(context)),
+            ),
           ),
         ],
       ];
 
-  /// Signs in with no number at all — a name, and a code instead.
+  /// Signs up with a username and nothing else — a code stands in for the
+  /// number.
   ///
   /// The phone field is skipped rather than validated, so the form's own
   /// "enter a valid number" never fires on a path that deliberately has none.
+  ///
+  /// THE USERNAME IS REQUIRED HERE, and it is optional everywhere else. With a
+  /// number, somebody who has you in their contacts finds you without knowing
+  /// anything else about you. With no number there is nothing in anybody's
+  /// phone to match, so a handle is the only thing left that another person
+  /// can be told and can type — an account with neither is one nobody can
+  /// start a conversation with.
+  ///
+  /// A display name is not: it defaults to the username, so the whole of
+  /// signing up is one field.
   Future<void> _continueWithoutNumber() async {
-    final name = _name.text.trim();
-    if (name.isEmpty) {
-      setState(() => _error = 'Enter a name so people know who you are.');
+    final username = AccountService.normalizeUsername(_username.text);
+    if (!AccountService.isValidUsername(username)) {
+      setState(() => _error = _username.text.trim().isEmpty
+          ? 'Pick a username — with no number it is the only way anyone can '
+              'reach you.'
+          : 'That username needs at least 3 letters or numbers.');
       return;
     }
     if (!await _passTwoStep()) return;
     setState(() => _busy = true);
     await Session.instance.signInWithoutNumber(
-      name: name,
-      username: _username.text.trim(),
+      name: _name.text.trim(),
+      username: username,
     );
     // The auth gate reacts to the new session and shows the home screen.
   }
@@ -931,12 +955,23 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
         // want to give one to, and there is nothing to verify about an
         // account that has none. It is a way to CREATE one, so it lives with
         // the other one of those.
-        if (_signingUp)
+        if (_signingUp) ...[
           TextButton(
             onPressed: _busy ? null : _continueWithoutNumber,
-            child: Text('Continue without a phone number',
+            child: Text('Sign up with a username instead',
                 style: TextStyle(color: AppColors.subtle(context))),
           ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 2, 24, 0),
+            child: Text(
+              'No number, and no way for anyone to find you from their '
+              'contacts. Chats work; the rest of the app needs a number.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                  fontSize: 12, height: 1.35, color: AppColors.subtle(context)),
+            ),
+          ),
+        ],
       ];
 
   // Verified step 1b: one field that takes @username or email.

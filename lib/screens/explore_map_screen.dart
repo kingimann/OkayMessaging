@@ -1,4 +1,5 @@
 import 'dart:async';
+import '../widgets/phone_gate.dart';
 import '../theme/app_theme.dart';
 
 import 'package:flutter/material.dart';
@@ -319,7 +320,15 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => PhoneGate(
+        title: 'Maps',
+        reason: 'Saving a place and sharing one both put it on the server '
+            'under your account, and an account with no phone number has no '
+            'session to put anything there with.',
+        child: Builder(builder: _guarded),
+      );
+
+  Widget _guarded(BuildContext context) {
     final selected = _selected;
     // Full-bleed, Apple-Maps-style: the map fills the screen and every
     // control floats over it.

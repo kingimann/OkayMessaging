@@ -1,4 +1,5 @@
 import 'package:file_picker/file_picker.dart';
+import '../widgets/phone_gate.dart';
 import '../theme/app_theme.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -528,7 +529,13 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
   Widget build(BuildContext context) {
     // Wrapped here rather than at the button that opens this, so every way
     // in is covered.
-    return VerifiedGate(
+    return PhoneGate(
+      title: 'Marketplace',
+      reason: 'Buying and selling runs on the wallet and on the ID check, and '
+          'both need a phone number behind the account. Browsing is off too: '
+          'listings live on the server, and an account with no number has no '
+          'session to read them with.',
+      child: VerifiedGate(
       title: 'Marketplace',
       reason: 'Money and strangers meet here: somebody buying from you is '
           'trusting a name they have never met. Verifying your ID is what '
@@ -536,8 +543,9 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
       // Ours to waive: nothing outside the app needs the verified identity to
       // list or browse. Whoever runs the marketplace is already answerable
       // for it.
-      ownerMayPass: true,
-      child: _guarded(context),
+        ownerMayPass: true,
+        child: _guarded(context),
+      ),
     );
   }
 

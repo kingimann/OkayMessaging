@@ -1,4 +1,5 @@
 import 'dart:math';
+import '../widgets/phone_gate.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -126,7 +127,18 @@ class CallsTab extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => PhoneGate(
+        title: 'Calls',
+        // Not a tab that gets hidden: the bar keeps its five, and the one
+        // that is locked says so rather than vanishing and leaving somebody
+        // wondering what happened to it.
+        scaffold: false,
+        reason: 'A call is placed to a number and rings a number back. There '
+            'is nothing for an account without one to be reached on.',
+        child: Builder(builder: _guarded),
+      );
+
+  Widget _guarded(BuildContext context) {
     return ListenableBuilder(
       listenable: Listenable.merge([
         CallLog.instance,

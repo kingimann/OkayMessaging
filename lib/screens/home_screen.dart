@@ -1,4 +1,6 @@
 import 'dart:ui' show ImageFilter;
+import '../state/session.dart';
+import '../widgets/phone_gate.dart';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
@@ -536,25 +538,28 @@ class _AppSideBar extends StatelessWidget {
               ListTile(
                 leading: const Icon(Icons.public),
                 title: const Text('Newsfeed'),
+                trailing: const PhoneOnlyHint(),
                 subtitle: const Text('One public timeline, everyone on it'),
                 onTap: () => _go(context, const PublicFeedScreen()),
               ),
               ListTile(
                 leading: const Icon(Icons.map_outlined),
                 title: const Text('Maps'),
+                trailing: const PhoneOnlyHint(),
                 subtitle: const Text('Search, navigate, share places'),
                 onTap: () => _go(context, const ExploreMapScreen()),
               ),
               ListTile(
                 leading: const Icon(Icons.storefront_outlined),
                 title: const Text('Marketplace'),
-                trailing: const _VerifiedOnlyHint(ownerMayPass: true),
+                trailing: const _GateHint(ownerMayPass: true),
                 subtitle: const Text('Buy and sell with your servers'),
                 onTap: () => _go(context, const MarketplaceScreen()),
               ),
               ListTile(
                 leading: const Icon(Icons.groups_outlined),
                 title: const Text('Servers'),
+                trailing: const PhoneOnlyHint(),
                 // Servers IS a bottom tab, so this switches the bar rather
                 // than pushing a second copy of a screen that is already open
                 // behind the drawer — and says when it is the one showing,
@@ -576,7 +581,7 @@ class _AppSideBar extends StatelessWidget {
               ListTile(
                 leading: const Icon(Icons.wifi_tethering),
                 title: const Text('Okay Drop'),
-                trailing: const _VerifiedOnlyHint(ownerMayPass: true),
+                trailing: const _GateHint(ownerMayPass: true),
                 // One line on the narrowest phone still sold — the drawer
                 // test taps every destination, and a second line here pushes
                 // the last one off the bottom.
@@ -587,7 +592,7 @@ class _AppSideBar extends StatelessWidget {
               ListTile(
                 leading: const Icon(Icons.account_balance_wallet_outlined),
                 title: const Text('Wallet'),
-                trailing: const _VerifiedOnlyHint(),
+                trailing: const _GateHint(),
                 subtitle: const Text('Send and receive money'),
                 onTap: () => _go(context, const WalletScreen()),
               ),
@@ -753,6 +758,23 @@ class _IconWithBadge extends StatelessWidget {
 /// [ownerMayPass] mirrors the same flag on the [VerifiedGate] each row opens,
 /// and has to keep mirroring it: a padlock on a row that opens is a worse lie
 /// than no padlock at all.
+/// One padlock for two gates. A row behind both would otherwise carry two,
+/// which reads as a worse problem than it is — and the phone gate is the
+/// outer one, so it is the one that decides.
+class _GateHint extends StatelessWidget {
+  const _GateHint({this.ownerMayPass = false});
+
+  final bool ownerMayPass;
+
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(
+        listenable: Session.instance.user,
+        builder: (context, _) => Session.instance.isNumberless
+            ? const PhoneOnlyHint()
+            : _VerifiedOnlyHint(ownerMayPass: ownerMayPass),
+      );
+}
+
 class _VerifiedOnlyHint extends StatelessWidget {
   const _VerifiedOnlyHint({this.ownerMayPass = false});
 

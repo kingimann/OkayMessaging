@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../widgets/phone_gate.dart';
 
 import '../payments/payment_service.dart';
 import '../payments/storage_economics.dart';
@@ -104,7 +105,13 @@ class _WalletScreenState extends State<WalletScreen> {
   Widget build(BuildContext context) {
     // Wrapped here rather than at the button that opens this, so every way
     // in is covered.
-    return VerifiedGate(
+    return PhoneGate(
+      title: 'Wallet',
+      reason: 'Sending or receiving money means a bank, a card and an ID '
+          'check, and every one of those is attached to a person a phone '
+          'number identifies. There is nothing here an account without one '
+          'could be given.',
+      child: VerifiedGate(
       title: 'Wallet',
       reason: 'This moves real money to and from real people. A card is charged '
           'and a bank account is paid out, and both need to belong to '
@@ -118,7 +125,8 @@ class _WalletScreenState extends State<WalletScreen> {
           'Every payment carries the legal name from your ID check, and Stripe '
           'refuses one without it — a role in this app cannot supply a name '
           'that somebody else has to verify.',
-      child: _guarded(context),
+        child: _guarded(context),
+      ),
     );
   }
 
