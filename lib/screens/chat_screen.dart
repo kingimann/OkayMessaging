@@ -1882,6 +1882,7 @@ class _ChatScreenState extends State<ChatScreen> {
             label: 'Contact',
             color: const Color(0xFF009DE2),
             onTap: _pickContactToShare),
+
         // Not offered in your own notes: there is no second party to pay.
         // Groups keep it — the option asks which member first.
         if (!_isNoteToSelf)

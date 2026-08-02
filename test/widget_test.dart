@@ -1283,6 +1283,31 @@ void main() {
     await tester.pump(const Duration(seconds: 2));
   });
 
+  testWidgets('sending later is a button, not a secret long-press',
+      (tester) async {
+    // Scheduling has worked for a long time — by long-pressing send, which
+    // nothing advertises and nobody finds. The long-press still works; this
+    // is the half somebody can see.
+    await tester.pumpWidget(const OkayMessagingApp());
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Bob Carter'));
+    await tester.pumpAndSettle();
+
+    // Nothing typed: nothing to schedule, so no control for it.
+    expect(find.byTooltip('Send later'), findsNothing);
+
+    await tester.enterText(
+        find.widgetWithText(TextField, 'Message'), 'see you at six');
+    await tester.pump();
+    expect(find.byTooltip('Send later'), findsOneWidget,
+        reason: 'scheduling is still only reachable by long-pressing send');
+
+    // It opens the date step of the same flow the long-press uses.
+    await tester.tap(find.byTooltip('Send later'));
+    await tester.pumpAndSettle();
+    expect(find.text('Send on'), findsOneWidget);
+  });
+
   test('Scheduler delivers due messages and keeps future ones pending', () {
     ChatStore.instance.reset();
     Scheduler.instance.resetForTest();
@@ -7979,6 +8004,104 @@ void main() {
       expect(store.isSaved(keeper.id), isFalse);
     });
 
+    testWidgets('a thread screen draws the posts above the one you opened',
+        (t) async {
+      // The store returning a chain is half of it; the screen has to show it.
+      // Before this a reply four levels down rendered as a sentence answering
+      // nothing, with one line naming its parent and no way to read it.
+      FeedStore.instance.resetForTest();
+      addTearDown(FeedStore.instance.resetForTest);
+      final store = FeedStore.instance;
+      final root = store.add('c1', 'the very first thing');
+      final mid = store.add('c1', 'a reply in the middle', parentId: root.id);
+      final leaf = store.add('c1', 'the deep one', parentId: mid.id);
+
+      await t.pumpWidget(MaterialApp(home: FeedPostScreen(postId: leaf.id)));
+      await t.pump();
+      await t.pump(const Duration(milliseconds: 300));
+
+      expect(find.text('the deep one'), findsOneWidget);
+      expect(find.text('a reply in the middle'), findsOneWidget,
+          reason: 'the immediate parent is missing from the thread');
+      expect(find.text('the very first thing'), findsOneWidget,
+          reason: 'the chain stopped short of the root');
+    });
+
+    test('the public thread does the same, root first and loop-proof', () {
+      final store = PublicFeedStore.instance;
+      addTearDown(store.resetForTest);
+      PublicPost mk(String id, {String? replyTo}) => PublicPost(
+          id: id,
+          authorUsername: 'ada',
+          body: id,
+          replyTo: replyTo,
+          createdAt: DateTime.now());
+      PublicFeedStore.debugLoadOverride = () async => [
+            mk('root'),
+            mk('a', replyTo: 'root'),
+            mk('b', replyTo: 'a'),
+            mk('self', replyTo: 'self'),
+          ];
+      return store.load().then((_) {
+        expect(store.ancestorsOf('b').map((p) => p.id), ['root', 'a']);
+        expect(store.ancestorsOf('root'), isEmpty);
+        expect(store.ancestorsOf('self'), isEmpty,
+            reason: 'a post that is its own parent must not spin');
+        // A parent that never loaded stops the chain rather than faking one.
+        expect(store.ancestorsOf('missing'), isEmpty);
+      });
+    });
+
+    test('a thread knows the conversation above it, and cannot loop', () {
+      FeedStore.instance.resetForTest();
+      final store = FeedStore.instance;
+      final root = store.add('c1', 'the first thing');
+      final a = store.add('c1', 'answering that', parentId: root.id);
+      final b = store.add('c1', 'answering the answer', parentId: a.id);
+
+      // Root first, so the chain reads top-to-bottom like the screen draws it.
+      expect(store.ancestorsOf(b.id).map((p) => p.id), [root.id, a.id]);
+      expect(store.ancestorsOf(a.id).map((p) => p.id), [root.id]);
+      expect(store.ancestorsOf(root.id), isEmpty);
+
+      // A parent id rides the relay from somebody else's device, so a row
+      // pointing at itself is one malformed message away. Unbounded, the walk
+      // up would hang the thread screen rather than draw it.
+      store.addRemote(FeedPost(
+        id: 'loop',
+        communityId: 'c1',
+        authorName: 'Mallory',
+        authorUsername: 'mallory',
+        time: DateTime.now(),
+        text: 'me again',
+        parentId: 'loop',
+      ));
+      expect(store.ancestorsOf('loop'), isEmpty,
+          reason: 'a post that is its own parent must not spin');
+
+      // A mutual pair is the same trap one step further out.
+      store.addRemote(FeedPost(
+          id: 'p1',
+          communityId: 'c1',
+          authorName: 'M',
+          authorUsername: 'm',
+          time: DateTime.now(),
+          text: 'a',
+          parentId: 'p2'));
+      store.addRemote(FeedPost(
+          id: 'p2',
+          communityId: 'c1',
+          authorName: 'M',
+          authorUsername: 'm',
+          time: DateTime.now(),
+          text: 'b',
+          parentId: 'p1'));
+      final pair = store.ancestorsOf('p1');
+      expect(pair.length, lessThanOrEqualTo(FeedStore.maxThreadDepth));
+      expect(pair.map((p) => p.id).toSet().length, pair.length,
+          reason: 'the chain repeated a post, so it went round the loop');
+    });
+
     test('an alert can be deleted, and a person can be silenced', () {
       FeedStore.instance.resetForTest();
       final store = FeedStore.instance;
@@ -13777,8 +13900,12 @@ void main() {
       await t.tap(find.text('Hi back'));
       await t.pumpAndSettle();
       expect(find.text('Hi back'), findsOneWidget, reason: 'now the root');
-      expect(find.text('Hi'), findsNothing,
-          reason: 'the post it hangs under is a screen back');
+      // The post it hangs under is drawn ABOVE it now. This used to assert
+      // the opposite — that the parent was a screen back — which was true of
+      // a thread that showed no ancestors, and was the thing that made a
+      // deep reply read as a sentence answering nothing.
+      expect(find.text('Hi'), findsOneWidget,
+          reason: 'the conversation above this reply is missing');
       expect(find.text('No replies yet.'), findsOneWidget);
     });
 

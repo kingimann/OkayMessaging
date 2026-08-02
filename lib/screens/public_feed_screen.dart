@@ -1157,12 +1157,18 @@ class _Entry extends StatelessWidget {
     required this.onReply,
     required this.onOpen,
     this.collapseLongBody = true,
+    this.threadedBelow = false,
   });
 
   final PublicPost post;
   final void Function(PublicPost target) onReply;
   final void Function(PublicPost target) onOpen;
   final bool collapseLongBody;
+
+  /// Draws a line from this post's avatar down to the next one — what makes
+  /// a chain of replies read as one conversation rather than a list of
+  /// unrelated posts stacked up.
+  final bool threadedBelow;
 
   @override
   Widget build(BuildContext context) {
@@ -1172,12 +1178,13 @@ class _Entry extends StatelessWidget {
         ? PublicFeedStore.instance.byId(post.repostOf!)
         : null;
     if (original == null) {
-      return _PostTile(
+      final tile = _PostTile(
         post: post,
         onReply: () => onReply(post),
         onOpen: () => onOpen(post),
         collapseLongBody: collapseLongBody,
       );
+      return threadedBelow ? _ThreadSpine(child: tile) : tile;
     }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1568,12 +1575,29 @@ class PublicThreadScreen extends StatelessWidget {
             return const Center(child: Text('This post was removed.'));
           }
           final replies = PublicFeedStore.instance.repliesTo(postId);
+          final ancestors = PublicFeedStore.instance.ancestorsOf(postId);
           return Column(
             children: [
               Expanded(
                 child: ListView(
             padding: const EdgeInsets.only(bottom: 24),
             children: [
+              // THE CONVERSATION ABOVE THIS POST, root first. Without it a
+              // reply four levels down is a sentence with no idea what it is
+              // answering — you could descend a thread but never see where
+              // you were. Each one opens its own thread, so the chain is a
+              // way back up as well as context.
+              for (final a in ancestors)
+                _Entry(
+                  post: a,
+                  threadedBelow: true,
+                  onReply: (target) => _openComposer(context,
+                      replyTo: target.id, replyingToName: target.authorName),
+                  onOpen: (target) => Navigator.of(context).push(
+                    MaterialPageRoute(
+                        builder: (_) => PublicThreadScreen(postId: target.id)),
+                  ),
+                ),
               _Entry(
                 post: post,
                 collapseLongBody: false,
@@ -2739,6 +2763,44 @@ class _Quoted extends StatelessWidget {
                   ),
               ],
             ),
+    );
+  }
+}
+
+
+/// A post in an ancestor chain, with the connector down its left.
+///
+/// The line sits under the avatar and runs the height of the tile, so the
+/// column of faces reads as one conversation. Drawn behind the post rather
+/// than around it: wrapping each tile in padding would shift the whole
+/// thread right of the timeline it came from, and the same post would sit in
+/// two different places depending on which screen you reached it from.
+class _ThreadSpine extends StatelessWidget {
+  final Widget child;
+  const _ThreadSpine({required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    final left = FeedPostMetrics.tilePadding.left +
+        FeedPostMetrics.avatarRadius -
+        1;
+    return Stack(
+      children: [
+        // Starts below the avatar, not at the top of the tile: a line across
+        // somebody's face is a rendering accident, not a thread.
+        Positioned(
+          left: left,
+          top: FeedPostMetrics.tilePadding.top +
+              FeedPostMetrics.avatarRadius * 2 +
+              4,
+          bottom: 0,
+          child: Container(
+            width: 2,
+            color: Theme.of(context).dividerColor,
+          ),
+        ),
+        child,
+      ],
     );
   }
 }

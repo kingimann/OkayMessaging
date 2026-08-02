@@ -391,6 +391,20 @@ class _ChatInputBarState extends State<ChatInputBar> {
               ),
             ),
           ),
+          // SCHEDULING, WHERE IT CAN BE FOUND. It has worked for a long time
+          // by long-pressing send, which nothing advertises and nobody
+          // discovers — the long-press still works, and now there is a
+          // button too. Only once something is typed: an empty box has
+          // nothing to schedule, and a permanently-there clock would be a
+          // control that does nothing most of the time.
+          if (_hasText && widget.onSchedule != null) ...[
+            const SizedBox(width: 2),
+            IconButton(
+              icon: const Icon(Icons.schedule),
+              tooltip: 'Send later',
+              onPressed: _schedule,
+            ),
+          ],
           const SizedBox(width: 6),
           GestureDetector(
             onTap: _hasText ? _send : _startRecording,

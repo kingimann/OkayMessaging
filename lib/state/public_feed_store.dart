@@ -908,6 +908,35 @@ class PublicFeedStore extends ChangeNotifier {
     }
   }
 
+  /// The chain of posts [postId] is a reply to, ROOT FIRST.
+  ///
+  /// This is what makes a thread a thread rather than a stack of screens: X
+  /// draws the conversation above the post you opened, and without it a reply
+  /// four levels down is a sentence with no idea what it is answering.
+  ///
+  /// Bounded and cycle-safe, and not defensively — a post's parent id arrives
+  /// over the relay from somebody else's device. A row pointing at itself, or
+  /// a pair pointing at each other, is one malformed message away, and an
+  /// unbounded walk up would hang the thread screen rather than render it.
+  /// Anything past [maxThreadDepth] is a conversation nobody is reading in
+  /// one screenful anyway.
+  static const int maxThreadDepth = 25;
+
+  List<PublicPost> ancestorsOf(String postId) {
+    final chain = <PublicPost>[];
+    final seen = <String>{postId};
+    var current = byId(postId);
+    while (current?.replyTo != null && chain.length < maxThreadDepth) {
+      final parentId = current!.replyTo!;
+      if (!seen.add(parentId)) break; // a loop: stop rather than spin
+      final parent = byId(parentId);
+      if (parent == null) break; // not loaded (or deleted) — say no more
+      chain.add(parent);
+      current = parent;
+    }
+    return chain.reversed.toList();
+  }
+
   /// Replies to [postId], oldest first.
   List<PublicPost> repliesTo(String postId) => [
         for (final p in _posts)

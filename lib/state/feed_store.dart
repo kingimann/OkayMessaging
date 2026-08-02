@@ -752,6 +752,28 @@ class FeedStore extends ChangeNotifier {
   }
 
   /// The replies under a post, oldest first (thread order).
+  /// The chain of posts [postId] is a reply to, ROOT FIRST. Same contract,
+  /// same reasoning and same guards as the public feed's — see
+  /// PublicFeedStore.ancestorsOf. Parent ids ride the relay from other
+  /// devices, so a self-referencing or looping row is one malformed message
+  /// away and an unbounded walk would hang the thread.
+  static const int maxThreadDepth = 25;
+
+  List<FeedPost> ancestorsOf(String postId) {
+    final chain = <FeedPost>[];
+    final seen = <String>{postId};
+    var current = postById(postId);
+    while (current?.parentId != null && chain.length < maxThreadDepth) {
+      final parentId = current!.parentId!;
+      if (!seen.add(parentId)) break;
+      final parent = postById(parentId);
+      if (parent == null) break;
+      chain.add(parent);
+      current = parent;
+    }
+    return chain.reversed.toList();
+  }
+
   List<FeedPost> repliesTo(String postId) {
     final list = _posts.where((p) => p.parentId == postId).toList()
       ..sort((a, b) => a.time.compareTo(b.time));

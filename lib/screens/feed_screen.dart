@@ -1075,48 +1075,13 @@ class _FeedPostScreenState extends State<FeedPostScreen> {
                 child: PullToRefresh(
                   child: ListView(
                     children: [
-                      // Threading: a reply-of-a-reply shows where it hangs.
-                      if (post.parentId != null)
-                        Builder(builder: (context) {
-                          final parent =
-                              FeedStore.instance.postById(post.parentId!);
-                          return InkWell(
-                            onTap: parent == null
-                                ? null
-                                : () => Navigator.of(context).push(
-                                    MaterialPageRoute(
-                                        builder: (_) =>
-                                            FeedPostScreen(postId: parent.id))),
-                            child: Padding(
-                              padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
-                              child: Row(
-                                children: [
-                                  Icon(Icons.subdirectory_arrow_left,
-                                      size: 15,
-                                      color: Theme.of(context)
-                                          .colorScheme
-                                          .onSurfaceVariant),
-                                  const SizedBox(width: 6),
-                                  Flexible(
-                                    child: Text(
-                                      parent == null
-                                          ? 'In reply to an unavailable post'
-                                          : 'In reply to @${parent.authorUsername} — view thread',
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(
-                                          fontSize: 12.5,
-                                          fontWeight: FontWeight.w600,
-                                          color: Theme.of(context)
-                                              .colorScheme
-                                              .primary),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          );
-                        }),
+                      // THE CONVERSATION ABOVE THIS POST, root first. It
+                      // used to be a single line naming the immediate
+                      // parent, which told you there was a thread without
+                      // showing you any of it — a reply four levels down
+                      // still read as a sentence answering nothing.
+                      for (final a in FeedStore.instance.ancestorsOf(post.id))
+                        _AncestorCard(post: a),
                       _PostCard(
                         post: post,
                         onLike: () => FeedStore.instance.toggleLike(post.id),
@@ -1687,4 +1652,73 @@ class _VideoElsewhere extends StatelessWidget {
           ),
         ),
       );
+}
+
+
+/// One post in a thread's ancestor chain: the post itself, tappable, with a
+/// connector running down from its avatar to the next.
+///
+/// A quieter card than [_PostCard] on purpose — these are context, and giving
+/// them the same like/repost/reply row would make the post you actually
+/// opened indistinguishable from the ones above it.
+class _AncestorCard extends StatelessWidget {
+  final FeedPost post;
+  const _AncestorCard({required this.post});
+
+  @override
+  Widget build(BuildContext context) {
+    final left =
+        FeedPostMetrics.tilePadding.left + FeedPostMetrics.avatarRadius - 1;
+    return Stack(
+      children: [
+        // Below the avatar, never across it.
+        Positioned(
+          left: left,
+          top: FeedPostMetrics.tilePadding.top +
+              FeedPostMetrics.avatarRadius * 2 +
+              4,
+          bottom: 0,
+          child: Container(width: 2, color: Theme.of(context).dividerColor),
+        ),
+        InkWell(
+          onTap: () => Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => FeedPostScreen(postId: post.id))),
+          child: Padding(
+            padding: FeedPostMetrics.tilePadding,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                FeedAvatar(
+                    username: post.authorUsername, name: post.authorName),
+                const SizedBox(width: FeedPostMetrics.gutter),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      FeedPostHeader(
+                        name: post.authorName,
+                        username: post.authorUsername,
+                        verified: post.authorVerified,
+                        time: post.time,
+                      ),
+                      if (post.text.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 2),
+                          child: Text(
+                            post.text,
+                            maxLines: 4,
+                            overflow: TextOverflow.ellipsis,
+                            style: FeedPostMetrics.body,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
 }
