@@ -49,6 +49,14 @@ HostedPresentation hostedPresentationFor({required bool webViewSupported}) =>
 ///
 /// Flip this off with --dart-define=PREFER_EMBEDDED_CONNECT=true to try the
 /// embedded component again once the self-test says which cause it was.
+///
+/// If you do, note that `connect.html` is served from GitHub Pages and can be
+/// a 404 for minutes after any push (see docs/server_deploy_checklist.md §3b).
+/// [shouldFallBackToHosted] will not save you there: it fires on an `error:`
+/// event from the page, and a 404 page runs no JavaScript at all, so nothing
+/// is ever reported and the screen sits on it. The ID check hit exactly this
+/// and now preflights with [IdentityVerification.pageIsServed]; this path
+/// would need the same.
 const bool preferHostedOnboarding = !bool.fromEnvironment(
   'PREFER_EMBEDDED_CONNECT',
   defaultValue: false,
