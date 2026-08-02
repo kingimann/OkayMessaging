@@ -21803,6 +21803,54 @@ void main() {
       }
     });
 
+    testWidgets('and on the verified form it opens a step with the field',
+        (t) async {
+      // The button used to run the numberless sign-up directly — on a form
+      // with no username field, so the tap could only ever error about a
+      // field that was not on screen. iOS and web both build verified, so
+      // "sign up with just a username" was impossible everywhere it counted.
+      t.view.physicalSize = const Size(500, 1600);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.resetPhysicalSize);
+      addTearDown(() => debugVerifiedModeOverride = null);
+      debugVerifiedModeOverride = true;
+
+      await t.pumpWidget(const MaterialApp(home: PhoneLoginScreen()));
+      await t.pumpAndSettle();
+      if (find.text('Use a different account').evaluate().isNotEmpty) {
+        await t.tap(find.text('Use a different account'));
+        await t.pumpAndSettle();
+      }
+      await t.tap(find.text('Create account').first);
+      await t.pumpAndSettle();
+
+      await t.tap(find.text('Sign up with a username instead'));
+      await t.pumpAndSettle();
+
+      // A step, not an error: the username field is on screen and the phone
+      // form is gone. The way back is offered, because arriving here by
+      // mis-tap should not cost the number path.
+      expect(find.widgetWithText(TextFormField, 'Username'), findsOneWidget);
+      expect(find.text('Phone number'), findsNothing);
+      expect(find.text('Use a phone number instead'), findsOneWidget);
+
+      // Both cleared explicitly — a device that remembers an account
+      // prefills them, and the point is the empty-name default.
+      final fields = find.byType(TextFormField);
+      await t.enterText(fields.at(0), 'ada');
+      await t.enterText(fields.at(1), '');
+      await t.tap(find.widgetWithText(FilledButton, 'Create account'));
+      await t.pump();
+      await t.pump(const Duration(milliseconds: 100));
+      addTearDown(Session.instance.signOut);
+      expect(Session.instance.isSignedIn, isTrue);
+      expect(Session.instance.isNumberless, isTrue,
+          reason: 'no number was typed, so none was invented');
+      expect(Session.instance.user.value!.username, 'ada');
+      expect(Session.instance.user.value!.name, 'ada',
+          reason: 'the handle stands in for the name, not the account code');
+    });
+
     testWidgets('the way in needs a username rather than a number', (t) async {
       t.view.physicalSize = const Size(500, 1600);
       t.view.devicePixelRatio = 1.0;

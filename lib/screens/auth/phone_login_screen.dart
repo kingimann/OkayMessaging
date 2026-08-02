@@ -26,7 +26,7 @@ class PhoneLoginScreen extends StatefulWidget {
   State<PhoneLoginScreen> createState() => _PhoneLoginScreenState();
 }
 
-enum _Step { phone, identifier, code, emailCode, username }
+enum _Step { phone, identifier, code, emailCode, username, noNumber }
 
 /// Which of the two things somebody is here to do.
 ///
@@ -640,6 +640,8 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
         return 'Enter the code we emailed to $_emailLogin';
       case _Step.username:
         return 'Pick a username others can find you by';
+      case _Step.noNumber:
+        return 'One field — the username people reach you by';
     }
   }
 
@@ -667,6 +669,8 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
         return _codeFields();
       case _Step.username:
         return _usernameFields();
+      case _Step.noNumber:
+        return _noNumberFields();
     }
   }
 
@@ -704,17 +708,21 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
             (v == null || v.trim().isEmpty) ? 'Enter a name' : null,
       );
 
-  Widget _usernameField() => TextFormField(
+  /// [required] on the numberless path, where the handle is the whole
+  /// account; optional everywhere else — see [_continueWithoutNumber].
+  Widget _usernameField({bool required = false}) => TextFormField(
         controller: _username,
         textInputAction: TextInputAction.next,
-        decoration: _dec('Username (optional)',
+        decoration: _dec(required ? 'Username' : 'Username (optional)',
             icon: Icons.alternate_email,
             helper: 'Letters, numbers, _ and . — so people can find you'),
         validator: (v) {
           final u = AccountService.normalizeUsername(v ?? '');
           // Optional: empty is a choice, not a mistake. Only a non-empty
           // handle that breaks the format rules is worth stopping for.
-          if (u.isEmpty && (v ?? '').trim().isEmpty) return null;
+          if (u.isEmpty && (v ?? '').trim().isEmpty) {
+            return required ? 'Pick a username' : null;
+          }
           if (!AccountService.isValidUsername(u)) {
             return 'At least 3 letters/numbers';
           }
@@ -907,6 +915,11 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
   ///
   /// A display name is not: it defaults to the username, so the whole of
   /// signing up is one field.
+  void _startNoNumber() => setState(() {
+        _error = null;
+        _step = _Step.noNumber;
+      });
+
   Future<void> _continueWithoutNumber() async {
     final username = AccountService.normalizeUsername(_username.text);
     if (!AccountService.isValidUsername(username)) {
@@ -955,9 +968,14 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
         // want to give one to, and there is nothing to verify about an
         // account that has none. It is a way to CREATE one, so it lives with
         // the other one of those.
+        //
+        // It moves to its own step rather than signing up on the spot: this
+        // form has no username field — the handle is normally chosen after
+        // the code checks out — so acting here could only ever show an error
+        // about a field that is not on screen.
         if (_signingUp) ...[
           TextButton(
-            onPressed: _busy ? null : _continueWithoutNumber,
+            onPressed: _busy ? null : _startNoNumber,
             child: Text('Sign up with a username instead',
                 style: TextStyle(color: AppColors.subtle(context))),
           ),
@@ -1162,6 +1180,44 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
           onPressed: _busy ? null : _skipUsername,
           child: Text('Skip for now',
               style: TextStyle(color: AppColors.subtle(context))),
+        ),
+      ];
+
+  /// Numberless sign-up on the verified form: the username, and nothing else
+  /// to fill in. A display name is optional and defaults to the handle — the
+  /// account code is not a name anybody would recognise.
+  List<Widget> _noNumberFields() => [
+        _usernameField(required: true),
+        const SizedBox(height: 14),
+        TextFormField(
+          controller: _name,
+          textCapitalization: TextCapitalization.words,
+          decoration: _dec('Display name (optional)',
+              icon: Icons.person_outline, helper: 'Defaults to your username'),
+          onFieldSubmitted: (_) => _continueWithoutNumber(),
+        ),
+        const SizedBox(height: 24),
+        _cta('Create account', _continueWithoutNumber),
+        const SizedBox(height: 6),
+        TextButton(
+          onPressed: _busy
+              ? null
+              : () => setState(() {
+                    _error = null;
+                    _step = _Step.phone;
+                  }),
+          child: Text('Use a phone number instead',
+              style: TextStyle(color: AppColors.subtle(context))),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(24, 2, 24, 0),
+          child: Text(
+            'No number, and no way for anyone to find you from their '
+            'contacts. Chats work; the rest of the app needs a number.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+                fontSize: 12, height: 1.35, color: AppColors.subtle(context)),
+          ),
         ),
       ];
 }
