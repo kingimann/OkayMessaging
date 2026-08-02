@@ -193,7 +193,17 @@ class _ActivityTabState extends State<ActivityTab> {
                           if (showServers && mentions.isNotEmpty) ...[
                             _sectionLabel(context, 'MENTIONS & REPLIES'),
                             for (final n in mentions)
-                              ListTile(
+                              // Swipe it away, like an unread chat above —
+                              // except this one really is deleted: an alert
+                              // is this device's note that something
+                              // happened, not a thing anybody else can see.
+                              Dismissible(
+                                key: ValueKey('notif_${n.id}'),
+                                direction: DismissDirection.endToStart,
+                                background: _dismissBg(icon: Icons.delete_outline),
+                                onDismissed: (_) =>
+                                    FeedStore.instance.dismissNotification(n.id),
+                                child: ListTile(
                                 leading: Stack(
                                   clipBehavior: Clip.none,
                                   children: [
@@ -263,8 +273,20 @@ class _ActivityTabState extends State<ActivityTab> {
                                         style: TextStyle(
                                             fontSize: 12,
                                             color: AppColors.subtle(context))),
+                                    // A swipe is quick and undiscoverable;
+                                    // this is the same two actions where
+                                    // somebody can find them.
+                                    IconButton(
+                                      icon: const Icon(Icons.more_horiz,
+                                          size: 18),
+                                      tooltip: 'Alert options',
+                                      visualDensity: VisualDensity.compact,
+                                      onPressed: () =>
+                                          _alertActions(context, n),
+                                    ),
                                   ],
                                 ),
+                                onLongPress: () => _alertActions(context, n),
                                 onTap: () => Navigator.of(context).push(
                                   MaterialPageRoute(
                                     // A channel mention opens the channel; a
@@ -277,6 +299,7 @@ class _ActivityTabState extends State<ActivityTab> {
                                             postId: n.threadPostId),
                                   ),
                                 ),
+                              ),
                               ),
                           ],
                           if (showServers && posts.isNotEmpty) ...[
@@ -324,12 +347,74 @@ class _ActivityTabState extends State<ActivityTab> {
     );
   }
 
-  Widget _dismissBg() => Container(
-        color: Colors.green,
+  /// The colour behind a swipe says which of the two things it does: green
+  /// and a read-mark for "mark read", red and a bin for "delete". Same
+  /// gesture, different outcome, and only the background says so.
+  Widget _dismissBg({IconData icon = Icons.mark_chat_read}) => Container(
+        color: icon == Icons.delete_outline ? Colors.red : Colors.green,
         alignment: Alignment.centerRight,
         padding: const EdgeInsets.only(right: 20),
-        child: const Icon(Icons.mark_chat_read, color: Colors.white),
+        child: Icon(icon, color: Colors.white),
       );
+
+  /// Delete this alert, or stop getting them from this person.
+  ///
+  /// Muting is deliberately about ALERTS and not about the person: their
+  /// replies still appear when the thread is opened. Muting somebody
+  /// wholesale is a different control, on the newsfeed, and doing the larger
+  /// thing from a row labelled "Mute notifications" would be a lie.
+  Future<void> _alertActions(BuildContext context, FeedNotification n) async {
+    final store = FeedStore.instance;
+    final muted = store.notificationsMuted(n.actorUsername);
+    final who = n.actorName.isEmpty ? 'them' : n.actorName;
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheet) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.delete_outline),
+              title: const Text('Delete this alert'),
+              onTap: () => Navigator.of(sheet).pop('delete'),
+            ),
+            if (n.actorUsername.isNotEmpty)
+              ListTile(
+                leading: Icon(
+                    muted ? Icons.notifications_active_outlined : Icons.notifications_off_outlined),
+                title: Text(muted
+                    ? 'Unmute notifications from $who'
+                    : 'Mute notifications from $who'),
+                subtitle: Text(muted
+                    ? 'You will hear about their replies again'
+                    : 'Their replies still show in the thread'),
+                onTap: () => Navigator.of(sheet).pop('mute'),
+              ),
+            ListTile(
+              leading: const Icon(Icons.clear_all),
+              title: const Text('Clear all alerts'),
+              onTap: () => Navigator.of(sheet).pop('clear'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (choice == null || !context.mounted) return;
+    switch (choice) {
+      case 'delete':
+        store.dismissNotification(n.id);
+      case 'mute':
+        final nowMuted = store.toggleNotificationMute(n.actorUsername);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(nowMuted
+              ? 'Muted notifications from $who'
+              : 'Unmuted notifications from $who'),
+        ));
+      case 'clear':
+        store.clearNotifications();
+    }
+  }
 
   Widget _sectionLabel(BuildContext context, String text) =>
       SectionHeader(text);

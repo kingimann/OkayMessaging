@@ -513,6 +513,9 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('Settings'));
     await tester.pumpAndSettle();
+    // Settings gained two tiles above this one, so it is below the fold now.
+    await tester.ensureVisible(find.text('Chats & appearance'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Chats & appearance'));
     await tester.pumpAndSettle();
 
@@ -7974,6 +7977,73 @@ void main() {
       expect(store.isSaved(keeper.id), isTrue);
       expect(store.toggleSaved(keeper.id), isFalse);
       expect(store.isSaved(keeper.id), isFalse);
+    });
+
+    test('an alert can be deleted, and a person can be silenced', () {
+      FeedStore.instance.resetForTest();
+      final store = FeedStore.instance;
+      final mine = store.add('c1', 'my original post');
+      FeedPost from(String id, String who, {String? parent, String text = ''}) =>
+          FeedPost(
+              id: id,
+              communityId: 'c1',
+              authorName: who,
+              authorUsername: who.toLowerCase(),
+              time: DateTime.now(),
+              text: text,
+              parentId: parent);
+
+      store.addRemote(from('r1', 'Grace', parent: mine.id, text: 'nice'));
+      store.addRemote(from('r2', 'Hana', parent: mine.id, text: 'agreed'));
+      expect(store.notifications, hasLength(2));
+
+      // Deleting one leaves the other alone.
+      store.dismissNotification('r1');
+      expect(store.notifications.map((n) => n.id), ['r2']);
+
+      // Muting is about what happens NEXT: the alert already there stays,
+      // because sweeping the list would read as the app deleting history.
+      expect(store.toggleNotificationMute('hana'), isTrue);
+      expect(store.notificationsMuted('Hana'), isTrue,
+          reason: 'case must not decide whether somebody is muted');
+      expect(store.notifications, hasLength(1),
+          reason: 'muting is not a delete');
+
+      // A new interaction from them raises nothing at all.
+      store.addRemote(from('r3', 'Hana', parent: mine.id, text: 'and again'));
+      expect(store.notifications.map((n) => n.id), ['r2'],
+          reason: 'a muted account still raised an alert');
+
+      // Somebody unmuted still gets through.
+      store.addRemote(from('r4', 'Grace', parent: mine.id, text: 'hello'));
+      expect(store.notifications.map((n) => n.id), ['r4', 'r2']);
+
+      // Unmuting restores them.
+      expect(store.toggleNotificationMute('hana'), isFalse);
+      store.addRemote(from('r5', 'Hana', parent: mine.id, text: 'back'));
+      expect(store.notifications.first.id, 'r5');
+
+      store.clearNotifications();
+      expect(store.notifications, isEmpty);
+    });
+
+    test('a silenced person stays silenced across a restart', () async {
+      // The mute is written under its own key. A save/load pair that disagreed
+      // about that name would lose it on every launch, and the only symptom
+      // would be alerts quietly coming back.
+      SharedPreferences.setMockInitialValues({});
+      FeedStore.instance.resetForTest();
+      final store = FeedStore.instance;
+      store.toggleNotificationMute('hana');
+      // _save() is fire-and-forget; let it reach the (mock) prefs.
+      await Future<void>.delayed(Duration.zero);
+
+      store.resetForTest();
+      expect(store.notificationsMuted('hana'), isFalse,
+          reason: 'resetForTest must not leak a mute into the next test');
+      await store.load();
+      expect(store.notificationsMuted('hana'), isTrue,
+          reason: 'the mute did not survive a restart');
     });
 
     test('feed notifications fire for replies, mentions, and reposts', () {
@@ -18485,6 +18555,44 @@ void main() {
       addTearDown(t.view.resetPhysicalSize);
     });
 
+    testWidgets('bookmarks and muted accounts are reachable from Settings',
+        (t) async {
+      // They came off the newsfeed's bar, then off the sidebar. Settings is
+      // the third home and has to actually work: bookmarks nobody can open
+      // are notes nobody reads, and a muted list nobody can reach is a mute
+      // nobody can undo.
+      SharedPreferences.setMockInitialValues({});
+      final prevProfile = AppState.profile.value;
+      addTearDown(() => AppState.profile.value = prevProfile);
+      AppState.profile.value = const AppUser(
+          id: 'me', name: 'Me', avatarColor: '#000000', username: 'me');
+
+      for (final (tile, screen) in [
+        ('Bookmarks', BookmarksScreen),
+        ('Muted accounts', MutedAccountsScreen),
+      ]) {
+        // Keyed per tile: without it the second pumpWidget reuses the same
+        // element tree and the route pushed by the first iteration is still
+        // on top, absorbing the tap.
+        await t.pumpWidget(MaterialApp(
+            key: ValueKey(tile), home: const SettingsScreen()));
+        // pump, not pumpAndSettle: the settings hub keeps rebuilding, so a
+        // settle never arrives.
+        await t.pump();
+        expect(find.text(tile), findsOneWidget,
+            reason: '$tile is not on the Settings screen');
+        // Being in the tree is not being tappable: the second of these sits
+        // below the fold on the default test surface.
+        await t.ensureVisible(find.text(tile));
+        await t.pump();
+        await t.tap(find.text(tile));
+        await t.pump();
+        await t.pump(const Duration(milliseconds: 400));
+        expect(find.byType(screen), findsOneWidget,
+            reason: '$tile does not open from Settings');
+      }
+    });
+
     testWidgets('the drawer destinations lay out, and can be left', (t) async {
       // Everything the sidebar can reach, at the narrowest phone. Each one is
       // opened, checked for a way back, and left again — a screen you can
@@ -18500,8 +18608,6 @@ void main() {
         // Renamed from "Send nearby". Listed here so the rename is checked
         // where it matters — the row somebody actually taps.
         'Okay Drop',
-        'Bookmarks',
-        'Muted accounts',
         'Wallet',
         'Settings',
       ]) {
@@ -21969,7 +22075,11 @@ void main() {
       await t.pumpAndSettle();
       expect(find.byType(SettingsScreen), findsOneWidget);
 
+      // Two more tiles above it pushed Sign out past the bottom of even this
+      // tall surface, so scrolling to it is no longer enough on its own.
       await t.scrollUntilVisible(find.text('Sign out'), 250);
+      await t.ensureVisible(find.text('Sign out'));
+      await t.pumpAndSettle();
       await t.tap(find.text('Sign out'));
       await t.pumpAndSettle();
 

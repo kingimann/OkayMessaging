@@ -573,24 +573,6 @@ class _AppSideBar extends StatelessWidget {
                 subtitle: const Text('Write things down, kept on this device'),
                 onTap: () => _go(context, const NotesScreen()),
               ),
-              // Both of these used to hang off the newsfeed's app bar — a
-              // bookmark icon and an overflow menu that were asked to be
-              // taken off it. They live here now rather than nowhere:
-              // bookmarks you cannot open are notes to yourself you never see,
-              // and a muted list you cannot reach is a mute you can never
-              // undo.
-              ListTile(
-                leading: const Icon(Icons.bookmark_border),
-                title: const Text('Bookmarks'),
-                subtitle: const Text('Posts you saved, kept on this device'),
-                onTap: () => _go(context, const BookmarksScreen()),
-              ),
-              ListTile(
-                leading: const Icon(Icons.volume_off_outlined),
-                title: const Text('Muted accounts'),
-                subtitle: const Text('People whose posts you hid'),
-                onTap: () => _go(context, const MutedAccountsScreen()),
-              ),
               ListTile(
                 leading: const Icon(Icons.wifi_tethering),
                 title: const Text('Okay Drop'),

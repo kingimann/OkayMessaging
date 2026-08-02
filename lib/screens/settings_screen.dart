@@ -26,6 +26,7 @@ import 'my_qr_screen.dart';
 import 'okay_pro_screen.dart';
 import 'permissions_screen.dart';
 import 'privacy_settings_screen.dart';
+import 'public_feed_screen.dart' show BookmarksScreen, MutedAccountsScreen;
 import 'profile_screen.dart';
 import 'score_screen.dart';
 import 'settings_widgets.dart';
@@ -86,6 +87,26 @@ class SettingsView extends StatelessWidget {
               subtitle: 'Camera, microphone, location, contacts, photos',
               onTap: () => Navigator.of(context).push(
                 MaterialPageRoute(builder: (_) => const PermissionsScreen()),
+              ),
+            ),
+            // Both of these came off the newsfeed's app bar, then off the
+            // sidebar. They are here rather than nowhere: bookmarks you
+            // cannot open are notes you never read, and a muted list nobody
+            // can reach is a mute nobody can undo.
+            InfoTile(
+              leading: const Icon(Icons.bookmark_border),
+              title: 'Bookmarks',
+              subtitle: 'Newsfeed posts you saved, kept on this device',
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const BookmarksScreen()),
+              ),
+            ),
+            InfoTile(
+              leading: const Icon(Icons.volume_off_outlined),
+              title: 'Muted accounts',
+              subtitle: 'People whose posts you hid on the newsfeed',
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const MutedAccountsScreen()),
               ),
             ),
             InfoTile(

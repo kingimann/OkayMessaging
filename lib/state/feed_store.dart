@@ -324,6 +324,15 @@ class FeedStore extends ChangeNotifier {
   final Set<String> _hiddenIds = {};
   final Set<String> _mutedUsernames = {};
 
+  /// Accounts whose interactions no longer raise an alert.
+  ///
+  /// SEPARATE FROM [_mutedUsernames] on purpose, and narrower. Muting somebody
+  /// hides everything they post; muting their notifications only stops the
+  /// buzz — you still see their replies when you open the thread. "Mute
+  /// notifications" is offered on an alert, so it has to mean what it says
+  /// there rather than quietly doing the larger thing.
+  final Set<String> _mutedNotifiers = {};
+
   // Bookmarks: posts saved on this device.
   final Set<String> _savedIds = {};
 
@@ -350,6 +359,41 @@ class FeedStore extends ChangeNotifier {
   /// How many are still unseen (drives the tab badge).
   int get unseenNotificationCount =>
       _notifications.where((n) => !n.seen).length;
+
+  /// Whether alerts from [username] are silenced.
+  bool notificationsMuted(String username) =>
+      username.isNotEmpty && _mutedNotifiers.contains(username.toLowerCase());
+
+  /// Silences or unsilences alerts from [username]; returns true when now
+  /// muted. Existing alerts stay — muting is about what happens next, and
+  /// sweeping the list would look like the app deleting your history.
+  bool toggleNotificationMute(String username) {
+    final u = username.toLowerCase();
+    if (u.isEmpty) return false;
+    final nowMuted = !_mutedNotifiers.remove(u);
+    if (nowMuted) _mutedNotifiers.add(u);
+    _save();
+    notifyListeners();
+    return nowMuted;
+  }
+
+  /// Removes one alert. Local only: an alert is this device's note that
+  /// something happened, not a thing anybody else can see.
+  void dismissNotification(String id) {
+    final before = _notifications.length;
+    _notifications.removeWhere((n) => n.id == id);
+    if (_notifications.length == before) return;
+    _save();
+    notifyListeners();
+  }
+
+  /// Removes every alert.
+  void clearNotifications() {
+    if (_notifications.isEmpty) return;
+    _notifications.clear();
+    _save();
+    notifyListeners();
+  }
 
   /// Marks every feed notification seen.
   void markNotificationsSeen() {
@@ -1156,7 +1200,8 @@ class FeedStore extends ChangeNotifier {
           p.authorUsername.toLowerCase() == myUsername.toLowerCase();
       if (mine && likerUsername.toLowerCase() != myUsername.toLowerCase()) {
         final noteId = 'likenote_${postId}_$likerUsername';
-        if (!_notifications.any((n) => n.id == noteId)) {
+        if (!notificationsMuted(likerUsername) &&
+            !_notifications.any((n) => n.id == noteId)) {
           _notifications.insert(
               0,
               FeedNotification(
@@ -1190,6 +1235,9 @@ class FeedStore extends ChangeNotifier {
     final note = notificationFor(post,
         myUsername: myUsername, myPostIds: myPostIds);
     if (note == null) return;
+    // Muted at the door rather than filtered on the way out: an alert that
+    // was never wanted should not sit in storage waiting to be hidden.
+    if (notificationsMuted(note.actorUsername)) return;
     if (_notifications.any((n) => n.id == note.id)) return;
     _notifications.insert(0, note);
     if (_notifications.length > 50) _notifications.removeLast();
@@ -1351,6 +1399,10 @@ class FeedStore extends ChangeNotifier {
           ..clear()
           ..addAll(
               (decoded['muted'] as List? ?? const []).whereType<String>());
+        _mutedNotifiers
+          ..clear()
+          ..addAll((decoded['notifmuted'] as List? ?? const [])
+              .whereType<String>());
         _savedIds
           ..clear()
           ..addAll(
@@ -1400,6 +1452,7 @@ class FeedStore extends ChangeNotifier {
             'posts': [for (final p in _posts) p.toJson()],
             'hidden': _hiddenIds.toList(),
             'muted': _mutedUsernames.toList(),
+            'notifmuted': _mutedNotifiers.toList(),
             'saved': _savedIds.toList(),
             'deleted': _deletedIds.toList(),
             'notifs': [for (final n in _notifications) n.toJson()],
@@ -1417,6 +1470,7 @@ class FeedStore extends ChangeNotifier {
     _posts.clear();
     _hiddenIds.clear();
     _mutedUsernames.clear();
+    _mutedNotifiers.clear();
     _savedIds.clear();
     _deletedIds.clear();
     _notifications.clear();
