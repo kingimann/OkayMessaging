@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 
 import '../../models/user.dart';
 import '../../relay/relay_service.dart';
+import '../../state/identity_verification.dart';
 import '../../state/legal_consent.dart';
+import '../../state/platform_moderation.dart';
 import '../../state/push_service.dart';
 import '../../state/session.dart';
 import '../home_screen.dart';
@@ -39,6 +41,16 @@ class _AuthGateState extends State<AuthGate> {
           _startedForPhone = user.phone;
           RelayService.instance.start();
           PushService.instance.register();
+          // Both of these are answers about *this account*, keyed on the
+          // phone in the session JWT — so they have to be asked again when
+          // the account changes, and when one appears at all. The launch-time
+          // read happens before anybody has signed in, so on the first run
+          // after a sign-in it asked on behalf of nobody.
+          //
+          // This is also what makes a role granted in SQL show up: sign out,
+          // sign back in, and the console is there.
+          PlatformModeration.instance.refresh();
+          IdentityVerification.instance.refresh();
         }
         // The current Terms & Privacy Policy must be agreed to before the
         // app opens — on first sign-in, and again after any update to them.

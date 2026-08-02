@@ -36,6 +36,7 @@ import 'package:okay_messaging/util/phone_format.dart';
 import 'package:okay_messaging/legal/legal_content.dart';
 import 'package:okay_messaging/models/call.dart' as callmodel;
 import 'package:okay_messaging/screens/notes_screen.dart';
+import 'package:okay_messaging/screens/auth/auth_gate.dart';
 import 'package:okay_messaging/screens/auth/phone_login_screen.dart'
     show PhoneLoginScreen, debugVerifiedModeOverride;
 import 'package:okay_messaging/screens/profile_screen.dart';
@@ -17576,6 +17577,49 @@ void main() {
       expect(find.widgetWithText(ChoiceChip, 'Banned'), findsNothing,
           reason: 'a moderator is not offered a ban');
       expect(find.widgetWithText(ChoiceChip, 'Suspended'), findsNothing);
+    });
+
+    test('the role is asked for only once a client exists to ask with', () {
+      // `Supabase.initialize` runs inside `RelayService.init`. Both of these
+      // reach the server through `Supabase.instance.client`, which throws
+      // before that has happened — and the throw is caught and turned into a
+      // null client, so asking too early fails *silently*. It did: the role
+      // came back member on every launch and the console could not appear
+      // whatever the database held. Ordering is the entire fix, so ordering
+      // is what gets pinned.
+      final src = File('lib/main.dart').readAsStringSync();
+      final relay = src.indexOf("_boot('relay'");
+      // indexOf, not lastIndexOf: a re-added early call is the regression.
+      final role = src.indexOf('PlatformModeration.instance.refresh()');
+      final identity = src.indexOf('IdentityVerification.instance.refresh()');
+      expect(relay, isNonNegative, reason: 'the relay boot moved or was renamed');
+      expect(role, isNonNegative);
+      expect(identity, isNonNegative);
+      expect(role, greaterThan(relay),
+          reason: 'the role is read before Supabase exists, so it is never read');
+      expect(identity, greaterThan(relay),
+          reason: 'the verdict is read before Supabase exists');
+    });
+
+    testWidgets('signing in re-reads what the server says about the account',
+        (tester) async {
+      // The launch-time read happens before anyone has signed in, so it asks
+      // on behalf of nobody. Without this, a role granted in SQL could never
+      // reach a running app — which is exactly how it behaved.
+      var asked = 0;
+      PlatformModeration.debugStatusOverride = () async {
+        asked++;
+        return (PlatformRole.admin, null);
+      };
+      addTearDown(() {
+        PlatformModeration.debugStatusOverride = null;
+        PlatformModeration.instance.resetForTest();
+      });
+      Session.instance.signInForTest();
+      await tester.pumpWidget(const MaterialApp(home: AuthGate()));
+      await tester.pump();
+      expect(asked, greaterThan(0),
+          reason: 'signing in never asked the server for this account');
     });
   });
 

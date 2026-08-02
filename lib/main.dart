@@ -127,13 +127,11 @@ Future<void> main() async {
     }
   });
   // The stored verdict first, so a launch with no network still knows where
-  // the account stands; the server's answer overwrites it when it arrives.
+  // the account stands. Asking the server is further down, after the relay
+  // boot: `Supabase.initialize` lives in `RelayService.init`, and both of
+  // these read the session JWT through a client that does not exist until it
+  // has run.
   await IdentityVerification.instance.load();
-  unawaited(IdentityVerification.instance.refresh());
-  // App-wide role and sanction. Fire-and-forget: a device that can't reach the
-  // server shows no moderation tools and enforces no sanction locally — the
-  // database is what actually holds a lock-out.
-  unawaited(PlatformModeration.instance.refresh());
   ChannelTypingStore.instance.onTyping = (communityId, channelId) =>
       RelayService.instance.sendChannelTyping(communityId, channelId);
   VoicePresenceStore.instance.onPresence = (communityId, channelId,
@@ -161,6 +159,18 @@ Future<void> main() async {
   // Network-facing: most likely of all to stall on a bad connection.
   await _boot('relay', RelayService.instance.init,
       limit: const Duration(seconds: 10));
+  // Both of these ask the server about this account, so they have to follow
+  // the relay boot above — that is where `Supabase.initialize` runs, and a
+  // client fetched before it throws. The throw is caught and turned into a
+  // null client, so calling these too early failed *silently*: the role came
+  // back member on every launch and the moderation console could never
+  // appear no matter what the database said.
+  //
+  // Fire-and-forget: a device that can't reach the server shows no moderation
+  // tools and enforces no sanction locally — the database is what actually
+  // holds a lock-out.
+  unawaited(IdentityVerification.instance.refresh());
+  unawaited(PlatformModeration.instance.refresh());
   await _boot('scheduler', Scheduler.instance.init);
   ChatStore.instance.startSweeper();
   runApp(const OkayMessagingApp());
