@@ -233,6 +233,20 @@ Two things that look like bugs and are not:
   two are documented inconsistently and neither can be checked without a key
   — betting on one and losing means a GIF grid that is silently always empty.
   **Nothing here has been run against the live API.**
+- **Feed media**: both feeds take a photo, a GIF and a video, one per post.
+  A GIF is stored as a **URL** — the provider already serves it, so copying
+  it into a bucket would mean paying to serve it twice. Video is **bytes**,
+  and the two feeds store it differently on purpose: a server post seals it
+  with the server key into `market-media` (reusing `FeedPost.listingVideo`,
+  so it inherits the envelope, persistence and tombstone cascade), while a
+  public post puts it **unsealed** in `public-media` — a world-readable post
+  has nobody to keep it from, and that is also what lets it stream on the
+  web, which a sealed listing video cannot. Both capped at 12 MB: storage is
+  cheap ($0.0213/GB-mo), egress is not ($0.09/GB) and on a public feed it has
+  no ceiling. **Re-run `docs/public_feed.sql`** for the `gif_url` /
+  `video_path` columns — until then `PublicFeedStore.mediaSupported` is false
+  and the composer hides both buttons rather than offering a post the insert
+  would reject.
 - **Cloud storage is a paid subscription** (`lib/state/storage_store.dart`):
   backup used to be free and on for everyone; now everything except chats
   (servers, feed, follows, places, score, email) rides the encrypted cloud

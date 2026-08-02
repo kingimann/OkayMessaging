@@ -55,16 +55,25 @@ create table if not exists public.public_posts (
   -- Path inside the public-media bucket, not a full URL, so moving the project
   -- doesn't strand every image ever posted.
   image_path    text not null default '',
+  -- An address, not bytes. A GIF picked from the provider is already served
+  -- from their CDN; copying it here would be paying to store and serve a
+  -- file somebody else already serves for free.
+  gif_url       text not null default '',
+  -- Object name in the same public-media bucket. Unsealed, unlike a server
+  -- feed's video, because a public post is world-readable by definition —
+  -- there is nobody to keep it from.
+  video_path    text not null default '',
   -- A poll: two to four answers, with the question in `body`. Null for an
   -- ordinary post. Who voted for what is in public_post_votes and is readable
   -- by nobody; only the tally comes back, from the counter below.
   poll_options  text[],
   poll_closes_at timestamptz,
   created_at    timestamptz not null default now(),
-  -- Something has to be in a post. Text, an image, or a repost — an entirely
-  -- empty row is a rendering bug waiting to happen.
+  -- Something has to be in a post. Text, a picture, a GIF, a video, or a
+  -- repost — an entirely empty row is a rendering bug waiting to happen.
   constraint public_posts_not_empty check (
-    char_length(body) > 0 or image_path <> '' or repost_of is not null
+    char_length(body) > 0 or image_path <> '' or gif_url <> ''
+    or video_path <> '' or repost_of is not null
   ),
   -- A post cannot be both a reply and a repost: the two mean different places
   -- in the tree and the UI would have to pick one anyway.
@@ -98,6 +107,29 @@ alter table public.public_posts
   add column if not exists poll_options text[];
 alter table public.public_posts
   add column if not exists poll_closes_at timestamptz;
+
+-- Media beyond a still photo.
+--
+-- gif_url is an ADDRESS, not bytes: a GIF picked from the provider already
+-- lives on their CDN, and copying it into our bucket would be paying to
+-- store and serve a file somebody else is already serving for free.
+--
+-- video_path is an object name in the same public-media bucket the images
+-- use. Unsealed, unlike a server feed's video, because a public post is
+-- world-readable by definition — there is nobody to keep it from, and a seal
+-- whose key everybody holds is decoration.
+alter table public.public_posts
+  add column if not exists gif_url text not null default '';
+alter table public.public_posts
+  add column if not exists video_path text not null default '';
+do $$ begin
+  -- A post carrying only a GIF or only a video is a post. The original
+  -- constraint predates both and would reject them as empty.
+  alter table public.public_posts drop constraint if exists public_posts_not_empty;
+  alter table public.public_posts add constraint public_posts_not_empty check (
+    char_length(body) > 0 or image_path <> '' or gif_url <> ''
+    or video_path <> '' or repost_of is not null);
+exception when duplicate_object then null; end $$;
 
 create table if not exists public.public_post_likes (
   post_id     text not null references public.public_posts(id) on delete cascade,
@@ -252,9 +284,12 @@ exception when duplicate_object then null; end $$;
 -- So the table-wide grant goes first, and the readable columns are handed back
 -- one by one. Anything asking for `*` is refused outright.
 revoke select on table public.public_posts from anon, authenticated;
+-- gif_url and video_path belong on this list, not merely in the table. A
+-- column added without being granted here is a column the app cannot read —
+-- the post comes back with its video silently missing and nothing says why.
 grant select (id, author_username, author_name, author_verified, body,
-              reply_to, repost_of, image_path, poll_options, poll_closes_at,
-              created_at)
+              reply_to, repost_of, image_path, gif_url, video_path,
+              poll_options, poll_closes_at, created_at)
   on public.public_posts to anon, authenticated;
 
 revoke select on table public.public_post_likes from anon, authenticated;
@@ -385,6 +420,8 @@ select
   p.reply_to,
   p.repost_of,
   p.image_path,
+  p.gif_url,
+  p.video_path,
   p.poll_options,
   p.poll_closes_at,
   p.created_at,

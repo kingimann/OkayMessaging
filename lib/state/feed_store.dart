@@ -79,9 +79,15 @@ class FeedPost {
   /// tile can say "was \$40" — the one edit buyers genuinely care about.
   final int prevPriceCents;
 
-  /// Bucket path of the listing's sealed video ('' = none). The bytes live
-  /// in Storage — see MarketMedia — because a video cannot ride the relay;
-  /// only this address rides in the envelope.
+  /// Bucket path of this post's sealed video ('' = none). The bytes live in
+  /// Storage — see MarketMedia — because a video cannot ride the relay; only
+  /// this address rides in the envelope.
+  ///
+  /// Named for the listings it was built for, and kept that name on purpose:
+  /// an ordinary post's video is the same sealed object in the same bucket
+  /// under the same server key, so reusing the field means video on a post
+  /// inherits the wire format, the persistence and the tombstone cascade
+  /// without a second copy of any of it. Read it through [hasVideo].
   final String listingVideo;
 
   /// Photo-part index (1-based) when this post is one extra photo of a
@@ -93,6 +99,9 @@ class FeedPost {
   final int mediaPart;
 
   bool get isMediaPart => mediaPart > 0;
+
+  /// Whether this post carries a video, listing or not.
+  bool get hasVideo => listingVideo.isNotEmpty;
 
   /// Poll fields. [pollOptions] empty means this isn't a poll; [pollVotes]
   /// is the tally per option and [pollMyVote] this device's choice (-1 none).
@@ -701,7 +710,7 @@ class FeedStore extends ChangeNotifier {
 
   /// Posts [text] as the signed-in user. Returns the new post.
   FeedPost add(String communityId, String text,
-      {String? parentId, String? gifUrl}) {
+      {String? parentId, String? gifUrl, String videoPath = ''}) {
     final me = AppState.profile.value;
     final post = FeedPost(
       id: 'post_${DateTime.now().microsecondsSinceEpoch}_${_nextId++}',
@@ -713,6 +722,7 @@ class FeedStore extends ChangeNotifier {
       text: text.trim(),
       parentId: parentId,
       gifUrl: gifUrl,
+      listingVideo: videoPath,
     );
     _posts.add(post);
     _save();

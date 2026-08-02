@@ -76,6 +76,14 @@ class MarketMedia {
     }
   }
 
+  /// Whether a video could be sealed for [communityId] at all.
+  ///
+  /// Asked before an "Attach video" button is drawn: a server with no shared
+  /// key has nowhere to put a sealed video, and offering the button anyway
+  /// means a picker, an upload, and a failure at the end of it.
+  static bool canSeal(String communityId) =>
+      MarketMedia.instance._secretFor(communityId) != null;
+
   /// Seals and uploads [bytes] for a listing. Returns the bucket path, or
   /// throws [MarketMediaError] with a reason a person can act on.
   Future<String> uploadVideo({

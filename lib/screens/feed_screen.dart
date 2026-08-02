@@ -5,7 +5,10 @@ import '../app_state.dart';
 import '../state/chat_store.dart';
 import '../state/community_store.dart';
 import '../state/feed_drafts.dart';
+import '../mesh/nearby_pick.dart';
 import '../state/feed_store.dart';
+import '../state/market_media.dart';
+import '../widgets/listing_video.dart';
 import '../state/platform_moderation.dart';
 import '../theme/app_theme.dart';
 import '../state/session.dart' as local;
@@ -122,9 +125,9 @@ class _FeedScreenState extends State<FeedScreen> {
     super.dispose();
   }
 
-  void _post({String? gifUrl}) {
+  void _post({String? gifUrl, String videoPath = ''}) {
     final text = _composer.text.trim();
-    if (text.isEmpty && gifUrl == null) return;
+    if (text.isEmpty && gifUrl == null && videoPath.isEmpty) return;
     // The server's word filter guards its feed like its channels.
     final hit = CommunityStore.instance.filterHit(widget.communityId, text);
     if (hit != null) {
@@ -132,7 +135,8 @@ class _FeedScreenState extends State<FeedScreen> {
           content: Text('"$hit" is blocked by this server\'s word filter')));
       return;
     }
-    FeedStore.instance.add(widget.communityId, text, gifUrl: gifUrl);
+    FeedStore.instance
+        .add(widget.communityId, text, gifUrl: gifUrl, videoPath: videoPath);
     _composer.clear();
     FeedDrafts.instance.clear(_draftKey);
     FocusScope.of(context).unfocus();
@@ -152,6 +156,52 @@ class _FeedScreenState extends State<FeedScreen> {
     if (dataUri == null || !mounted) return;
     // A photo posts like a GIF: an image with whatever was typed as caption.
     _post(gifUrl: dataUri);
+  }
+
+  /// Attaches a video to the post being written.
+  ///
+  /// Sealed with the server's key and put in the same bucket a listing's
+  /// video uses — a video cannot ride the relay, so only its address travels
+  /// in the envelope. Uploaded BEFORE the post is made: a post pointing at an
+  /// object that failed to upload would show a broken player to the whole
+  /// server, permanently.
+  Future<void> _attachVideo() async {
+    PickedItem? picked;
+    try {
+      picked = await NearbyPick.pick(limit: MarketMedia.maxVideoBytes);
+    } on FileRejected catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.reason)));
+      }
+      return;
+    }
+    if (picked == null || !mounted) return;
+    if (picked.kind != 'video') {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Pick a video file.')));
+      return;
+    }
+    final bytes = PhotoPrep.bytesFromDataUri(picked.dataUri);
+    if (bytes == null || !mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Uploading video…')));
+    try {
+      final path = await MarketMedia.instance.uploadVideo(
+        communityId: widget.communityId,
+        // Its own id, so replacing the video on one post cannot overwrite
+        // another's object.
+        listingId: 'post_${DateTime.now().microsecondsSinceEpoch}',
+        bytes: bytes,
+      );
+      if (!mounted) return;
+      _post(videoPath: path);
+    } on MarketMediaError catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.reason)));
+      }
+    }
   }
 
   /// The composer, opened from the app bar's pencil.
@@ -186,6 +236,12 @@ class _FeedScreenState extends State<FeedScreen> {
           await _attachPhoto();
           if (pageContext.mounted) Navigator.pop(pageContext);
         },
+        onAttachVideo: MarketMedia.canSeal(widget.communityId)
+            ? () async {
+                await _attachVideo();
+                if (pageContext.mounted) Navigator.pop(pageContext);
+              }
+            : null,
       ),
     ));
   }
@@ -789,6 +845,22 @@ class _PostCard extends StatelessWidget {
                     ),
                   ),
                 ],
+                if (post.hasVideo && post.priceCents == null) ...[
+                  const SizedBox(height: 8),
+                  ClipRRect(
+                    borderRadius:
+                        BorderRadius.circular(FeedPostMetrics.imageRadius),
+                    child: ListingVideoPlayer.isSupported
+                        ? ListingVideoPlayer.build(
+                            communityId: post.communityId,
+                            path: post.listingVideo,
+                          )
+                        // The web build has no filesystem to decrypt into, so
+                        // it says where the video can be watched rather than
+                        // drawing a dead box.
+                        : const _VideoElsewhere(),
+                  ),
+                ],
                 const SizedBox(height: 2),
                 FeedPostActions(
                   replyCount: post.replies,
@@ -1257,6 +1329,10 @@ class FeedComposerScreen extends StatefulWidget {
   /// Opens the photo picker and posts the shot the same way.
   final VoidCallback? onAttachPhoto;
 
+  /// Attaches a video. Null where video cannot go — a reply, or a build with
+  /// no server to seal and store it.
+  final VoidCallback? onAttachVideo;
+
   /// Usernames matching the @prefix being typed, for tag-a-person chips.
   final List<String> Function(String prefix)? mentionCandidates;
 
@@ -1283,6 +1359,7 @@ class FeedComposerScreen extends StatefulWidget {
     this.onPostGif,
     this.onCreatePoll,
     this.onAttachPhoto,
+    this.onAttachVideo,
     this.mentionCandidates,
     this.replyingToName,
     this.replyingTo,
@@ -1506,6 +1583,9 @@ class _FeedComposerScreenState extends State<FeedComposerScreen> {
                     if (widget.onAttachPhoto != null)
                       _tool(Icons.image_outlined, 'Attach photo',
                           widget.onAttachPhoto),
+                    if (widget.onAttachVideo != null)
+                      _tool(Icons.movie_outlined, 'Attach video',
+                          widget.onAttachVideo),
                     _tool(Icons.gif_box_outlined, 'Emoji & GIFs', _pick),
                     if (widget.onCreatePoll != null)
                       _tool(Icons.poll_outlined, 'Create poll',
@@ -1579,4 +1659,32 @@ class _CountRing extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Stands in for a sealed video on the web build, which has no filesystem to
+/// decrypt it into. Saying where it can be watched beats a dead grey box that
+/// looks like the post is broken.
+class _VideoElsewhere extends StatelessWidget {
+  const _VideoElsewhere();
+
+  @override
+  Widget build(BuildContext context) => AspectRatio(
+        aspectRatio: 16 / 9,
+        child: ColoredBox(
+          color: Theme.of(context).colorScheme.surfaceContainerHighest,
+          child: Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.movie_outlined,
+                    size: 30, color: AppColors.subtle(context)),
+                const SizedBox(height: 6),
+                Text('Video — open in the app',
+                    style: TextStyle(
+                        fontSize: 12.5, color: AppColors.subtle(context))),
+              ],
+            ),
+          ),
+        ),
+      );
 }

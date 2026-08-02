@@ -6692,6 +6692,38 @@ void main() {
       }
     });
 
+    test('an ordinary server post carries video the same way a listing does',
+        () async {
+      // Deliberately the SAME field and the same bucket. A post's video is
+      // the same sealed object under the same server key, so reusing
+      // listingVideo means video on a post inherits the wire format, the
+      // persistence and the tombstone cascade instead of a second copy of
+      // each.
+      CommunityStore.instance.resetForTest();
+      FeedStore.instance.resetForTest();
+      addTearDown(() {
+        CommunityStore.instance.resetForTest();
+        FeedStore.instance.resetForTest();
+        MarketMedia.debugBucketOverride = null;
+      });
+      final server = CommunityStore.instance.createCommunity('Clips');
+      MarketMedia.debugBucketOverride = <String, String>{};
+
+      expect(MarketMedia.canSeal(server.id), isTrue);
+      expect(MarketMedia.canSeal('no-such-server'), isFalse,
+          reason: 'the Attach video button must not be drawn without a key');
+
+      final post = FeedStore.instance
+          .add(server.id, 'watch this', videoPath: 'clips/a.sealed');
+      expect(post.hasVideo, isTrue);
+      expect(post.priceCents, isNull, reason: 'this is a post, not a listing');
+
+      // And it survives the envelope, which is what makes it reach anybody.
+      final back = FeedPost.fromJson(post.toJson());
+      expect(back.hasVideo, isTrue);
+      expect(back.listingVideo, 'clips/a.sealed');
+    });
+
     test('the video path rides the listing envelope, not the bytes', () {
       final listing = FeedPost(
         id: 'lst_vp',
@@ -14506,6 +14538,117 @@ void main() {
       expect(uploaded, 1);
       expect(store.posts.first.hasImage, isTrue);
       expect(store.posts.first.imagePath, endsWith('.jpg'));
+    });
+
+    test('a GIF posts as an address and a video as bytes', () async {
+      final store = PublicFeedStore.instance;
+      PublicFeedStore.debugLoadOverride = () async => [];
+      await store.load();
+      var videosUp = 0;
+      PublicFeedStore.debugUploadVideoOverride = (id, bytes) async {
+        videosUp++;
+        return '$id.mp4';
+      };
+      PublicFeedStore.debugPostOverride = (_) async {};
+      addTearDown(() => PublicFeedStore.debugUploadVideoOverride = null);
+
+      // A GIF is a URL. Nothing is uploaded — the provider already serves it,
+      // and copying it into the bucket would be paying to serve it twice.
+      await store.post('', gifUrl: 'https://media.klipy.com/a.gif');
+      expect(videosUp, 0, reason: 'a GIF must not touch the bucket');
+      expect(store.posts.first.hasGif, isTrue);
+      expect(store.posts.first.gifUrl, 'https://media.klipy.com/a.gif');
+      expect(store.posts.first.hasVideo, isFalse);
+
+      // A video is bytes, and nobody else is hosting it.
+      final clip = Uint8List.fromList(
+          [0, 0, 0, 24, 0x66, 0x74, 0x79, 0x70, ...List.filled(64, 0)]);
+      await store.post('look', video: clip);
+      expect(videosUp, 1);
+      expect(store.posts.first.hasVideo, isTrue);
+      expect(store.posts.first.videoPath, endsWith('.mp4'));
+    });
+
+    test('an oversized or bogus video never reaches the bucket', () async {
+      final store = PublicFeedStore.instance;
+      PublicFeedStore.debugLoadOverride = () async => [];
+      await store.load();
+      var videosUp = 0;
+      PublicFeedStore.debugUploadVideoOverride = (id, bytes) async {
+        videosUp++;
+        return '$id.mp4';
+      };
+      PublicFeedStore.debugPostOverride = (_) async {};
+      addTearDown(() => PublicFeedStore.debugUploadVideoOverride = null);
+
+      // Egress is the half of the cost that scales with how popular a post
+      // gets, and on a world-readable feed that has no ceiling. The cap is
+      // what makes any claim about what hosting this costs true at all.
+      await expectLater(
+        store.post('', video: Uint8List(PublicFeedStore.maxVideoBytes + 1)),
+        throwsA(predicate((e) => '$e'.contains('MB'))),
+      );
+      // A renamed .mp4 that is really something else is refused too.
+      await expectLater(
+        store.post('', video: Uint8List.fromList(List.filled(64, 0x41))),
+        throwsA(predicate((e) => '$e'.contains('video'))),
+      );
+      expect(videosUp, 0, reason: 'nothing should reach the bucket');
+    });
+
+    test('one piece of media per post, and media alone is a post', () async {
+      final store = PublicFeedStore.instance;
+      PublicFeedStore.debugLoadOverride = () async => [];
+      await store.load();
+      PublicFeedStore.debugPostOverride = (_) async {};
+      PublicFeedStore.debugUploadOverride = (id, bytes) async => '$id.jpg';
+
+      // Two would have to share the width, and the second would be a
+      // thumbnail nobody asked for.
+      await expectLater(
+        store.post('both',
+            image: Uint8List(64), gifUrl: 'https://media.klipy.com/a.gif'),
+        throwsA(predicate((e) => '$e'.contains('One picture'))),
+      );
+      // And empty text is fine when something is attached — the CHECK on the
+      // table says the same, so validate must not be stricter than it.
+      expect(PublicFeedStore.validate('', hasGif: true), isNull);
+      expect(PublicFeedStore.validate('', hasVideo: true), isNull);
+      expect(PublicFeedStore.validate(''), isNotNull);
+    });
+
+    test('the columns the app reads are the columns the SQL grants', () {
+      // A column added to the table but left off the grant list comes back
+      // missing with nothing said about why — the exact shape of bug this
+      // file has shipped before.
+      final sql = File('docs/public_feed.sql').readAsStringSync();
+      final grant = RegExp(r'grant select \(([^)]*)\)\s*\n?\s*on public\.public_posts')
+          .firstMatch(sql)!
+          .group(1)!;
+      for (final column in ['gif_url', 'video_path', 'image_path']) {
+        expect(grant.contains(column), isTrue,
+            reason: '$column is readable by nobody');
+        // And the view the feed actually selects from has to carry it too.
+        expect(RegExp('p\\.$column').hasMatch(sql), isTrue,
+            reason: '$column never reaches the public_feed view');
+      }
+      // The newest column set the client asks for must not name a column the
+      // view lacks: one missing column fails the whole request.
+      expect(PublicFeedStore.debugColumnSets.first.contains('gif_url'), isTrue);
+      expect(
+          PublicFeedStore.debugColumnSets.first.contains('video_path'), isTrue);
+
+      // And the INSERT has to name them as well. debugPostOverride stands in
+      // for the whole round trip, so no test above this line ever touches the
+      // insert map — a column missing there renders once, locally, and is
+      // gone on the next load with nothing said about why.
+      final dart =
+          File('lib/state/public_feed_store.dart').readAsStringSync();
+      for (final column in ['gif_url', 'video_path', 'image_path']) {
+        expect(dart.contains("'$column':"), isTrue,
+            reason: 'the insert never writes $column, so it would not survive '
+                'a reload');
+      }
     });
 
     testWidgets('a timed-out account is told, not silently ignored',

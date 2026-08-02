@@ -8,6 +8,7 @@ import '../app_state.dart';
 import '../relay/relay_config.dart';
 import 'account_service.dart';
 import 'feed_mute_store.dart';
+import 'market_media.dart';
 import 'follow_store.dart';
 import 'session.dart' as local;
 
@@ -30,6 +31,18 @@ class PublicPost {
   /// Object name inside the public-media bucket, or '' for no image. A path
   /// rather than a URL, so moving the project doesn't strand every image.
   final String imagePath;
+
+  /// An animated GIF, by address, or '' for none.
+  ///
+  /// A URL and not bytes: the GIF already lives on the provider's CDN, and
+  /// copying it into our bucket would mean paying to store and serve a file
+  /// somebody else serves for free.
+  final String gifUrl;
+
+  /// Object name of a video in the same bucket, or '' for none. Unsealed,
+  /// unlike a server feed's video, because a public post is world-readable
+  /// by definition — there is nobody to keep it from.
+  final String videoPath;
   final DateTime createdAt;
   final int likeCount;
   final int replyCount;
@@ -66,6 +79,8 @@ class PublicPost {
     this.replyTo,
     this.repostOf,
     this.imagePath = '',
+    this.gifUrl = '',
+    this.videoPath = '',
     required this.createdAt,
     this.likeCount = 0,
     this.replyCount = 0,
@@ -80,6 +95,13 @@ class PublicPost {
 
   /// Whether this carries an image.
   bool get hasImage => imagePath.isNotEmpty;
+
+  bool get hasGif => gifUrl.isNotEmpty;
+  bool get hasVideo => videoPath.isNotEmpty;
+
+  /// Whether this carries any media at all — what "is there something to
+  /// show under the text" means everywhere it is asked.
+  bool get hasMedia => hasImage || hasGif || hasVideo;
 
   /// Whether this repeats another post without adding anything.
   bool get isPlainRepost => repostOf != null && body.isEmpty;
@@ -138,6 +160,8 @@ class PublicPost {
         replyTo: replyTo,
         repostOf: repostOf,
         imagePath: imagePath,
+        gifUrl: gifUrl,
+        videoPath: videoPath,
         createdAt: createdAt,
         likeCount: likeCount ?? this.likeCount,
         replyCount: replyCount ?? this.replyCount,
@@ -162,6 +186,8 @@ class PublicPost {
         replyTo: replyTo,
         repostOf: repostOf,
         imagePath: imagePath,
+        gifUrl: gifUrl,
+        videoPath: videoPath,
         createdAt: createdAt,
         likeCount: likeCount,
         replyCount: replyCount,
@@ -182,6 +208,8 @@ class PublicPost {
         replyTo: r['reply_to'] as String?,
         repostOf: r['repost_of'] as String?,
         imagePath: r['image_path'] as String? ?? '',
+        gifUrl: r['gif_url'] as String? ?? '',
+        videoPath: r['video_path'] as String? ?? '',
         createdAt: DateTime.tryParse(r['created_at'] as String? ?? '')
                 ?.toLocal() ??
             DateTime.now(),
@@ -295,7 +323,12 @@ class PublicFeedStore extends ChangeNotifier {
   /// down a generation and tries again. This used to be a single boolean,
   /// which could only ever describe two schemas; polls made a third.
   static const List<String> _columnSets = [
-    // Current: polls.
+    // Current: GIFs and video.
+    'id, author_username, author_name, author_verified, body, reply_to, '
+        'repost_of, image_path, gif_url, video_path, poll_options, '
+        'poll_closes_at, created_at, like_count, reply_count, repost_count, '
+        'poll_votes',
+    // Before those: polls.
     'id, author_username, author_name, author_verified, body, reply_to, '
         'repost_of, image_path, poll_options, poll_closes_at, created_at, '
         'like_count, reply_count, repost_count, poll_votes',
@@ -315,11 +348,20 @@ class PublicFeedStore extends ChangeNotifier {
 
   String get _columns => _columnSets[_columnLevel];
 
+  /// The column generations, for a test that checks them against the SQL.
+  @visibleForTesting
+  static List<String> get debugColumnSets => _columnSets;
+
   /// Whether the server's feed is behind the app.
   bool get legacyView => _columnLevel > 0;
 
   /// Whether the server's feed knows about polls.
-  bool get pollsSupported => _columnLevel == 0;
+  bool get pollsSupported => _columnLevel <= 1;
+
+  /// Whether the server's feed knows about GIFs and video. False until the
+  /// migration is pasted in — the composer hides both rather than offering a
+  /// button whose post the insert would reject.
+  bool get mediaSupported => _columnLevel == 0;
 
   /// Steps down one schema generation. Returns false when there is nothing
   /// older to try, so the caller rethrows rather than looping.
@@ -434,9 +476,14 @@ class PublicFeedStore extends ChangeNotifier {
   /// Empty text is fine when the post carries something else — an image or a
   /// repost — which mirrors the CHECK on the table rather than guessing at it.
   static String? validate(String text,
-      {bool hasImage = false, bool isRepost = false}) {
+      {bool hasImage = false,
+      bool isRepost = false,
+      bool hasGif = false,
+      bool hasVideo = false}) {
     final t = text.trim();
-    if (t.isEmpty && !hasImage && !isRepost) return 'Write something first.';
+    if (t.isEmpty && !hasImage && !isRepost && !hasGif && !hasVideo) {
+      return 'Write something first.';
+    }
     if (t.length > maxLength) {
       return 'That\'s ${t.length - maxLength} characters too long.';
     }
@@ -939,11 +986,27 @@ class PublicFeedStore extends ChangeNotifier {
       {String? replyTo,
       String? repostOf,
       Uint8List? image,
+      String? gifUrl,
+      Uint8List? video,
       List<String>? pollOptions,
       Duration? pollRunsFor}) async {
     final problem = validate(text,
-        hasImage: image != null, isRepost: repostOf != null);
+        hasImage: image != null,
+        isRepost: repostOf != null,
+        hasGif: (gifUrl ?? '').isNotEmpty,
+        hasVideo: video != null);
     if (problem != null) throw PublicFeedError(problem);
+    // One piece of media. Two would have to share the width, and the second
+    // would be a thumbnail nobody asked for — the same reason a poll and a
+    // photo have never been allowed together.
+    final carried = [
+      image != null,
+      (gifUrl ?? '').isNotEmpty,
+      video != null,
+    ].where((x) => x).length;
+    if (carried > 1) {
+      throw PublicFeedError('One picture, GIF or video per post.');
+    }
     if (replyTo != null && repostOf != null) {
       // The table refuses this too; catching it here keeps the message useful.
       throw PublicFeedError('A post can be a reply or a repost, not both.');
@@ -987,6 +1050,10 @@ class PublicFeedStore extends ChangeNotifier {
     if (image != null) {
       imagePath = await _uploadImage(id, image);
     }
+    var videoPath = '';
+    if (video != null) {
+      videoPath = await _uploadVideo(id, video);
+    }
     final post = PublicPost(
       id: id,
       authorUsername: me.username,
@@ -996,6 +1063,8 @@ class PublicFeedStore extends ChangeNotifier {
       replyTo: replyTo,
       repostOf: repostOf,
       imagePath: imagePath,
+      gifUrl: gifUrl ?? '',
+      videoPath: videoPath,
       createdAt: DateTime.now(),
       mine: true,
       pollOptions: answers,
@@ -1022,6 +1091,8 @@ class PublicFeedStore extends ChangeNotifier {
           if (replyTo != null) 'reply_to': replyTo,
           if (repostOf != null) 'repost_of': repostOf,
           if (imagePath.isNotEmpty) 'image_path': imagePath,
+          if (post.gifUrl.isNotEmpty) 'gif_url': post.gifUrl,
+          if (videoPath.isNotEmpty) 'video_path': videoPath,
           if (answers.isNotEmpty) 'poll_options': answers,
           if (closesAt != null)
             'poll_closes_at': closesAt.toUtc().toIso8601String(),
@@ -1055,6 +1126,28 @@ class PublicFeedStore extends ChangeNotifier {
   /// The biggest image a post may carry. Matches the bucket's own limit, so
   /// somebody is told before the upload rather than after.
   static const int maxImageBytes = 4 * 1024 * 1024;
+
+  /// The biggest video a public post may carry.
+  ///
+  /// The same 12 MB a marketplace listing gets, and for the same reason: it
+  /// is about thirty seconds of 720p phone video, and a cap is what makes any
+  /// claim about the cost of hosting this true. Storage is the cheap half
+  /// ($0.0213/GB-mo); egress is the half that scales with how popular a post
+  /// gets, and on a WORLD-READABLE feed that has no ceiling. Twelve megabytes
+  /// is the difference between a post that goes around costing cents and one
+  /// costing tens of dollars.
+  static const int maxVideoBytes = 12 * 1024 * 1024;
+
+  /// Where to fetch a post's video from, or null when it has none.
+  ///
+  /// A plain public URL, so the player streams it straight from the bucket —
+  /// no download-then-decrypt step, which is what limits a *server* feed's
+  /// video to devices with a filesystem. This one plays on the web too.
+  static String? videoUrlFor(PublicPost post) {
+    if (!post.hasVideo || !RelayConfig.isEnabled) return null;
+    return '${RelayConfig.supabaseUrl}/storage/v1/object/public/'
+        '$bucket/${post.videoPath}';
+  }
 
   /// Where to fetch a post's image from, or null when it has none.
   static String? imageUrlFor(PublicPost post) {
@@ -1091,6 +1184,53 @@ class PublicFeedStore extends ChangeNotifier {
             '\n\n(re-run docs/public_feed.sql)');
       }
       throw PublicFeedError('Couldn\'t upload that image.');
+    }
+  }
+
+  /// Test hook: replaces the video bucket round trip.
+  @visibleForTesting
+  static Future<String> Function(String id, Uint8List bytes)?
+      debugUploadVideoOverride;
+
+  /// Puts a video in the bucket and returns its object name.
+  ///
+  /// Unsealed, unlike a listing's. A public post is world-readable, so there
+  /// is nobody to keep the bytes from, and encrypting with a key everybody
+  /// holds costs CPU to protect nothing. It also means the player streams the
+  /// URL directly — which is what lets this work on the web, where a listing
+  /// video cannot (no filesystem to decrypt into).
+  Future<String> _uploadVideo(String id, Uint8List bytes) async {
+    if (bytes.length > maxVideoBytes) {
+      throw PublicFeedError(
+          'That video is over ${maxVideoBytes ~/ (1024 * 1024)} MB. '
+          'About 30 seconds fits — trim it and try again.');
+    }
+    if (!MarketMedia.looksLikeVideo(bytes)) {
+      // Reusing the marketplace's container sniff rather than a second copy
+      // of the same magic numbers.
+      throw PublicFeedError('That doesn\'t look like a video file.');
+    }
+    final override = debugUploadVideoOverride;
+    if (override != null) return override(id, bytes);
+    final client = _client;
+    if (client == null) throw PublicFeedError('No server configured.');
+    final name = '$id.mp4';
+    try {
+      await client.storage.from(bucket).uploadBinary(name, bytes,
+          fileOptions: const FileOptions(contentType: 'video/mp4'));
+      return name;
+    } catch (e) {
+      final text = '$e';
+      if (text.contains('Bucket not found')) {
+        throw PublicFeedError('Video posting isn\'t set up on the server yet.'
+            '\n\n(re-run docs/public_feed.sql)');
+      }
+      if (text.contains('exceeded the maximum allowed size') ||
+          text.contains('Payload too large')) {
+        // The bucket has its own ceiling and it may be lower than ours.
+        throw PublicFeedError('The server refused that video for its size.');
+      }
+      throw PublicFeedError('Couldn\'t upload that video.');
     }
   }
 

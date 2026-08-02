@@ -22,7 +22,11 @@ import '../utils/date_formatter.dart';
 import '../widgets/sanction_notice.dart';
 import '../widgets/user_avatar.dart';
 import '../widgets/feed_post_actions.dart';
+import '../mesh/nearby_pick.dart';
+import '../widgets/chat_photo.dart';
+import '../widgets/emoji_gif_sheet.dart';
 import '../widgets/feed_post_parts.dart';
+import '../widgets/feed_video.dart';
 import '../widgets/verified_badge.dart';
 import 'edit_profile_screen.dart';
 import 'feed_screen.dart' show FeedPostScreen;
@@ -1325,6 +1329,36 @@ class _PostTile extends StatelessWidget {
                       ),
                     ),
                   ],
+                  if (post.hasGif) ...[
+                    const SizedBox(height: 8),
+                    // ChatPhoto, so an animated GIF served from the
+                    // provider's CDN and a data: URI both work through one
+                    // path — the same widget the server feed draws its GIFs
+                    // with.
+                    FeedPostImage(
+                      onOpen: () => Navigator.of(context).push(MaterialPageRoute(
+                        builder: (_) => FeedPhotoScreen(
+                            url: post.gifUrl,
+                            by: post.authorName.isEmpty
+                                ? '@${post.authorUsername}'
+                                : post.authorName),
+                      )),
+                      child: ChatPhoto(
+                        url: post.gifUrl,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_) => const SizedBox.shrink(),
+                      ),
+                    ),
+                  ],
+                  if (post.hasVideo) ...[
+                    const SizedBox(height: 8),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(
+                          FeedPostMetrics.imageRadius),
+                      child: FeedVideo(
+                          url: PublicFeedStore.videoUrlFor(post) ?? ''),
+                    ),
+                  ],
                   if (post.isPoll) ...[
                     const SizedBox(height: 10),
                     _Poll(post: post),
@@ -1835,6 +1869,13 @@ class _ComposerState extends State<_Composer> {
   final _text = TextEditingController();
   bool _sending = false;
   Uint8List? _image;
+  String? _gifUrl;
+  Uint8List? _video;
+  String _videoName = '';
+
+  /// One piece of media at a time — the store refuses more, and two would
+  /// have to share the width anyway.
+  bool get _hasMedia => _image != null || _gifUrl != null || _video != null;
 
   /// Which box this is: a reply is kept apart from the main composer, so a
   /// half-written reply to one person does not appear in the box for another.
@@ -1905,7 +1946,53 @@ class _ComposerState extends State<_Composer> {
       if (dataUri == null) return;
       final bytes = PhotoPrep.bytesFromDataUri(dataUri);
       if (bytes == null || !mounted) return;
-      setState(() => _image = bytes);
+      setState(() {
+        _image = bytes;
+        _gifUrl = null;
+        _video = null;
+      });
+    } on FileRejected catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.reason)));
+      }
+    }
+  }
+
+  /// Picks a GIF from the provider. Nothing is uploaded — a GIF already lives
+  /// on their CDN, and the post carries its address.
+  Future<void> _pickGif() async {
+    // Opened straight on the GIF tab: this button says GIF, so landing on
+    // emoji would be answering a different question.
+    final picked = await showEmojiGifSheet(context, initialTab: 1);
+    final gif = picked?.gif;
+    if (gif == null || !mounted) return;
+    setState(() {
+      _gifUrl = gif.url;
+      _image = null;
+      _video = null;
+    });
+  }
+
+  /// Picks a video. Bytes this time, because unlike a GIF there is nobody
+  /// else already hosting it.
+  Future<void> _pickVideo() async {
+    try {
+      final picked = await NearbyPick.pick(limit: PublicFeedStore.maxVideoBytes);
+      if (picked == null || !mounted) return;
+      if (picked.kind != 'video') {
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Pick a video file.')));
+        return;
+      }
+      final bytes = PhotoPrep.bytesFromDataUri(picked.dataUri);
+      if (bytes == null || !mounted) return;
+      setState(() {
+        _video = bytes;
+        _videoName = picked.fileName;
+        _image = null;
+        _gifUrl = null;
+      });
     } on FileRejected catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context)
@@ -1931,6 +2018,8 @@ class _ComposerState extends State<_Composer> {
           replyTo: widget.replyTo,
           repostOf: widget.quoteOf,
           image: _image,
+          gifUrl: _gifUrl,
+          video: _video,
           pollOptions: [for (final c in _pollFields ?? const []) c.text],
           pollRunsFor: _isPoll ? _pollRunsFor : null);
       // Cleared only once it is actually posted. A send that throws leaves
@@ -1954,7 +2043,7 @@ class _ComposerState extends State<_Composer> {
     final accent = Theme.of(context).colorScheme.primary;
     final postable = !_sending &&
         left >= 0 &&
-        (typed > 0 || _image != null || widget.quoteOf != null) &&
+        (typed > 0 || _hasMedia || widget.quoteOf != null) &&
         (!_isPoll ||
             (typed > 0 &&
                 PublicFeedStore.validatePoll(
@@ -2111,6 +2200,60 @@ class _ComposerState extends State<_Composer> {
                                 ],
                               ),
                             ],
+                            if (_gifUrl != null) ...[
+                              const SizedBox(height: 10),
+                              Stack(
+                                alignment: Alignment.topRight,
+                                children: [
+                                  ClipRRect(
+                                    borderRadius: BorderRadius.circular(16),
+                                    child: ChatPhoto(
+                                      url: _gifUrl!,
+                                      height: 200,
+                                      width: double.infinity,
+                                      fit: BoxFit.cover,
+                                    ),
+                                  ),
+                                  IconButton(
+                                    icon: const CircleAvatar(
+                                      radius: 14,
+                                      backgroundColor: Colors.black54,
+                                      child: Icon(Icons.close,
+                                          size: 16, color: Colors.white),
+                                    ),
+                                    tooltip: 'Remove GIF',
+                                    onPressed: () =>
+                                        setState(() => _gifUrl = null),
+                                  ),
+                                ],
+                              ),
+                            ],
+                            if (_video != null) ...[
+                              const SizedBox(height: 10),
+                              // The file, named and weighed, rather than a
+                              // frame of it: decoding a poster image here
+                              // would mean playing the video to show that
+                              // the video is attached.
+                              ListTile(
+                                contentPadding: EdgeInsets.zero,
+                                leading: const Icon(Icons.movie_outlined),
+                                title: Text(
+                                  _videoName.isEmpty ? 'Video' : _videoName,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                subtitle: Text(
+                                    '${(_video!.length / (1024 * 1024)).toStringAsFixed(1)} MB'),
+                                trailing: IconButton(
+                                  icon: const Icon(Icons.close),
+                                  tooltip: 'Remove video',
+                                  onPressed: () => setState(() {
+                                    _video = null;
+                                    _videoName = '';
+                                  }),
+                                ),
+                              ),
+                            ],
                             const SizedBox(height: 12),
                             // Who can see it, said where the timelines people
                             // arrive from say who can reply. This is the one
@@ -2160,6 +2303,24 @@ class _ComposerState extends State<_Composer> {
                     tooltip: 'Add a photo',
                     onPressed: _sending || _isPoll ? null : _pickImage,
                   ),
+                  // Both hidden until the server's feed has the columns for
+                  // them. Offering a button whose post the insert would
+                  // reject is worse than not offering it — see
+                  // PublicFeedStore.mediaSupported.
+                  if (PublicFeedStore.instance.mediaSupported) ...[
+                    IconButton(
+                      icon: const Icon(Icons.gif_box_outlined),
+                      color: accent,
+                      tooltip: 'Add a GIF',
+                      onPressed: _sending || _isPoll ? null : _pickGif,
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.movie_outlined),
+                      color: accent,
+                      tooltip: 'Add a video',
+                      onPressed: _sending || _isPoll ? null : _pickVideo,
+                    ),
+                  ],
                   IconButton(
                     icon: Icon(_isPoll ? Icons.poll : Icons.poll_outlined),
                     color: accent,
