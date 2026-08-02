@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter/services.dart';
 
 import '../app_state.dart';
@@ -249,6 +250,18 @@ class ContactInfoScreen extends StatelessWidget {
                     ),
                   ),
                 ),
+                // Moved off the chat's overflow menu with it. This is a thing
+                // you decide about a PERSON — reach them the other way —
+                // rather than about the message you are part-way through, so
+                // it belongs on the screen about them.
+                if (!user.isGroup && user.phone.isNotEmpty)
+                  InfoTile(
+                    leading: const Icon(Icons.sms_outlined),
+                    title: 'Send as text (SMS)',
+                    subtitle: 'Hands the number to your phone\'s own '
+                        'Messages app',
+                    onTap: () => launchUrl(Uri.parse('sms:${user.phone}')),
+                  ),
               ],
             ),
           if (chatId != null) _ConfirmBeforeSendSection(chatId: chatId!),

@@ -181,7 +181,7 @@ class _NearbyShareScreenState extends State<NearbyShareScreen> {
     // Wrapped here rather than at the button that opens this, so every way
     // in is covered.
     return VerifiedGate(
-      title: 'Send nearby',
+      title: 'Okay Drop',
       reason: 'This offers files to strangers in the room, straight from your '
           'phone to theirs. Verifying your ID means the name they see is one '
           'somebody stood behind.',
@@ -195,7 +195,7 @@ class _NearbyShareScreenState extends State<NearbyShareScreen> {
   Widget _guarded(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Send to someone nearby'),
+        title: const Text('Okay Drop'),
         actions: [
           IconButton(
             tooltip: 'Pick a photo',

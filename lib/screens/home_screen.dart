@@ -593,7 +593,7 @@ class _AppSideBar extends StatelessWidget {
               ),
               ListTile(
                 leading: const Icon(Icons.wifi_tethering),
-                title: const Text('Send nearby'),
+                title: const Text('Okay Drop'),
                 trailing: const _VerifiedOnlyHint(ownerMayPass: true),
                 // One line on the narrowest phone still sold — the drawer
                 // test taps every destination, and a second line here pushes

@@ -1,11 +1,9 @@
 import '../state/smart_replies.dart';
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../app_state.dart';
 import '../data/mock_data.dart';
@@ -28,8 +26,6 @@ import '../state/push_service.dart';
 import '../state/file_transfer.dart';
 import '../state/scheduler.dart';
 import '../theme/app_theme.dart';
-import '../util/file_saver.dart';
-import '../utils/chat_transcript.dart';
 import '../utils/date_formatter.dart';
 import '../widgets/chat_input_bar.dart';
 import '../widgets/emoji_data.dart';
@@ -42,7 +38,6 @@ import '../widgets/streak_chip.dart';
 import '../widgets/user_avatar.dart';
 import '../widgets/verified_badge.dart';
 import '../state/call_service.dart';
-import 'chat_places_screen.dart';
 import 'contact_info_screen.dart';
 import 'forward_screen.dart';
 import 'group_info_screen.dart';
@@ -50,8 +45,6 @@ import 'image_view_screen.dart';
 import 'location_map_screen.dart';
 import '../util/geocoding.dart';
 import 'explore_map_screen.dart';
-import 'media_gallery_screen.dart';
-import 'wallpaper_screen.dart';
 import '../state/identity_verification.dart';
 import 'score_screen.dart';
 
@@ -1420,66 +1413,6 @@ class _ChatScreenState extends State<ChatScreen> {
     overlay.insert(entry);
   }
 
-  void _onMenuSelected(String value) {
-    final contact = widget.chat.contact;
-    switch (value) {
-      case 'search':
-        setState(() => _searching = true);
-      case 'view':
-        Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) => contact.isGroup
-                ? GroupInfoScreen(group: contact, members: widget.chat.members, chatId: _chatId)
-                : ContactInfoScreen(user: contact, chatId: _chatId),
-          ),
-        );
-      case 'sms':
-        // Like Truecaller: the app can't send SMS itself on iOS — it hands
-        // the number to the system Messages composer and the user hits send.
-        launchUrl(Uri.parse('sms:${contact.phone}'));
-      case 'media':
-        _openMediaGallery();
-      case 'places':
-        Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) => ChatPlacesScreen(
-              chatId: _chatId,
-              contactName: contact.name,
-            ),
-          ),
-        );
-      case 'pin':
-        _store.togglePin(_chatId);
-        final pinned = _store.chatById(_chatId)?.isPinned ?? false;
-        setState(() {});
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(pinned ? 'Chat pinned' : 'Chat unpinned')),
-        );
-      case 'mute':
-        _store.toggleMute(_chatId);
-        final muted = _store.chatById(_chatId)?.isMuted ?? false;
-        setState(() {});
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(muted ? 'Muted' : 'Unmuted')),
-        );
-      case 'disappearing':
-        _chooseDisappearing();
-      case 'wallpaper':
-        Navigator.of(context)
-            .push(MaterialPageRoute(
-                builder: (_) => WallpaperScreen(chatId: _chatId)))
-            .then((_) {
-          if (mounted) setState(() {}); // reflect the new per-chat wallpaper
-        });
-      case 'export':
-        _exportChat();
-      case 'clear':
-        _confirmClearChat();
-      case 'delete':
-        _confirmDeleteChat();
-    }
-  }
-
   Future<void> _chooseDisappearing() async {
     const options = <String, int>{
       'Off': 0,
@@ -1535,73 +1468,6 @@ class _ChatScreenState extends State<ChatScreen> {
           ? 'Disappearing messages off'
           : 'Disappearing messages: $label'),
     ));
-  }
-
-  Future<void> _exportChat() async {
-    final chat = _store.chatById(_chatId);
-    if (chat == null) return;
-    if (chat.messages.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Nothing to export yet')),
-      );
-      return;
-    }
-    final messenger = ScaffoldMessenger.of(context);
-    final transcript = buildChatTranscript(chat, AppState.profile.value.name);
-    final result = await saveIncomingFile(
-      transcriptFileName(widget.chat.contact.name),
-      Uint8List.fromList(utf8.encode(transcript)),
-    );
-    messenger.showSnackBar(SnackBar(
-      content: Text(result ?? 'Couldn\'t export the chat'),
-    ));
-  }
-
-  Future<void> _confirmClearChat() async {
-    final ok = await _confirm(
-      title: 'Clear this chat?',
-      message: 'All messages in this conversation will be removed from this '
-          'device. This cannot be undone.',
-      action: 'Clear chat',
-    );
-    if (ok) _store.clearMessages(_chatId);
-  }
-
-  Future<void> _confirmDeleteChat() async {
-    final ok = await _confirm(
-      title: 'Delete this chat?',
-      message: 'This conversation will be removed from this device. This '
-          'cannot be undone.',
-      action: 'Delete chat',
-    );
-    if (!ok || !mounted) return;
-    _store.deleteChat(_chatId);
-    Navigator.of(context).pop();
-  }
-
-  Future<bool> _confirm({
-    required String title,
-    required String message,
-    required String action,
-  }) =>
-      showAppConfirmDialog(
-        context,
-        icon: Icons.warning_amber_rounded,
-        title: title,
-        message: message,
-        confirmLabel: action,
-        destructive: true,
-      );
-
-  void _openMediaGallery() {
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => MediaGalleryScreen(
-          chatId: _chatId,
-          contactName: widget.chat.contact.name,
-        ),
-      ),
-    );
   }
 
   void _startCall({required bool video}) {
@@ -2257,26 +2123,22 @@ class _ChatScreenState extends State<ChatScreen> {
                         icon: const Icon(Icons.videocam),
                         onPressed: () => _startCall(video: true),
                       ),
-                      // The heavy settings moved to the contact info
-                      // screen (View contact) — the menu keeps only what
-                      // belongs to this moment in the conversation.
-                      PopupMenuButton<String>(
-                        onSelected: _onMenuSelected,
-                        itemBuilder: (context) => [
-                          const PopupMenuItem(
-                              value: 'search', child: Text('Search')),
-                          const PopupMenuItem(
-                              value: 'view',
-                              child: Text('Contact & chat settings')),
-                          const PopupMenuItem(
-                              value: 'media',
-                              child: Text('Media, links, and docs')),
-                          if (!widget.chat.contact.isGroup &&
-                              widget.chat.contact.phone.isNotEmpty)
-                            const PopupMenuItem(
-                                value: 'sms',
-                                child: Text('Send as text (SMS)')),
-                        ],
+                      // The overflow menu is gone from this bar. Of the four
+                      // things it held, two were already reachable — tapping
+                      // the name opens Contact & chat settings, which is
+                      // where "Media, links, and docs" lives — and "Send as
+                      // text (SMS)" moved there too, being a thing you decide
+                      // about a person rather than about this moment.
+                      //
+                      // Search stays here, as an icon. It is a MODE OF THIS
+                      // SCREEN, not a setting: searching a conversation is
+                      // something you do while reading it, and routing it
+                      // through a settings screen would mean leaving the
+                      // thing you are searching.
+                      IconButton(
+                        icon: const Icon(Icons.search),
+                        tooltip: 'Search this chat',
+                        onPressed: () => setState(() => _searching = true),
                       ),
                     ],
                   ),

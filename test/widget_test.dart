@@ -178,14 +178,14 @@ import 'package:okay_messaging/state/favourites_store.dart';
 import 'package:okay_messaging/state/onboarding_store.dart';
 import 'package:okay_messaging/widgets/heart_burst.dart';
 import 'package:okay_messaging/widgets/rich_message_text.dart';
+import 'package:okay_messaging/widgets/user_avatar.dart';
 
-/// Opens the contact-info / chat-settings screen from an open chat: the
-/// overflow menu's "Contact & chat settings" now hosts what used to be
-/// scattered menu items.
+/// Opens the contact-info / chat-settings screen from an open chat.
+///
+/// By tapping the NAME, which is the only route now: the overflow menu that
+/// used to carry "Contact & chat settings" is gone from the chat's bar.
 Future<void> openChatSettings(WidgetTester tester) async {
-  await tester.tap(find.byIcon(Icons.more_vert));
-  await tester.pumpAndSettle();
-  await tester.tap(find.text('Contact & chat settings'));
+  await tester.tap(find.byType(UserAvatar).first);
   await tester.pumpAndSettle();
 }
 
@@ -535,10 +535,9 @@ void main() {
     await tester.tap(find.text('Bob Carter'));
     await tester.pumpAndSettle();
 
-    // Search now lives in the overflow menu (decluttered header).
-    await tester.tap(find.byIcon(Icons.more_vert));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Search'));
+    // Search is an icon on the chat's bar: it is a mode of this screen, not
+    // a setting, so it stayed when the overflow menu went.
+    await tester.tap(find.byTooltip('Search this chat'));
     await tester.pumpAndSettle();
 
     final searchField = find.descendant(
@@ -722,6 +721,30 @@ void main() {
     // Unmount so any map tile work is torn down before the test ends.
     await tester.pumpWidget(const SizedBox());
     await tester.pump();
+  });
+
+  testWidgets('the chat header has no overflow menu, and strands nothing',
+      (tester) async {
+    // Asked for: the three dots are off this bar. The four things behind
+    // them all still have a home, which is the part that had to be checked —
+    // a menu removed is four screens orphaned if nobody looks.
+    await tester.pumpWidget(const OkayMessagingApp());
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Bob Carter'));
+    await tester.pumpAndSettle();
+
+    expect(find.byIcon(Icons.more_vert), findsNothing);
+
+    // Search is a mode of this screen, so it stayed — as an icon.
+    expect(find.byTooltip('Search this chat'), findsOneWidget);
+
+    // Contact & chat settings is the name itself, and it carries Media and
+    // the SMS hand-off that used to sit in the menu.
+    await openChatSettings(tester);
+    expect(find.text('Media, links, and docs'), findsOneWidget);
+    await tester.scrollUntilVisible(find.text('Send as text (SMS)'), 120,
+        scrollable: find.byType(Scrollable).first);
+    expect(find.text('Send as text (SMS)'), findsOneWidget);
   });
 
   testWidgets('Sharing a contact sends a contact card', (tester) async {
@@ -1092,13 +1115,13 @@ void main() {
     await tester.pumpWidget(const OkayMessagingApp());
     await tester.pumpAndSettle();
 
-    // Carol's chat has a shared link; open the media gallery from the menu.
+    // Carol's chat has a shared link. The gallery is reached through Contact
+    // & chat settings now — the chat's overflow menu is gone.
     await tester.tap(find.text('Carol Diaz'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byIcon(Icons.more_vert));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Media, links, and docs'));
-    await tester.pumpAndSettle();
+    await openChatSettings(tester);
+    // The tile is below the fold on the settings screen.
+    await tapInSettings(tester, find.text('Media, links, and docs'));
 
     expect(find.byType(MediaGalleryScreen), findsOneWidget);
 
@@ -15913,7 +15936,7 @@ void main() {
       // the browser the app already is).
       const allowed = {
         'lib/state/incoming_links.dart', // telephony: / tel: / sms:
-        'lib/screens/chat_screen.dart', // sms: composer
+        'lib/screens/contact_info_screen.dart', // sms: composer
         'lib/main.dart', // sms: for a number that isn't on the app
         'lib/screens/in_app_web_screen.dart', // web build fallback only
       };
@@ -15942,7 +15965,8 @@ void main() {
       // The exceptions earn their place only while they stay phone-shaped.
       for (final path in [
         'lib/state/incoming_links.dart',
-        'lib/screens/chat_screen.dart',
+        // The SMS hand-off moved here with the chat's overflow menu.
+        'lib/screens/contact_info_screen.dart',
         'lib/main.dart',
       ]) {
         final src = File(path).readAsStringSync();
@@ -18473,6 +18497,9 @@ void main() {
         'Newsfeed',
         'Maps',
         'Marketplace',
+        // Renamed from "Send nearby". Listed here so the rename is checked
+        // where it matters — the row somebody actually taps.
+        'Okay Drop',
         'Bookmarks',
         'Muted accounts',
         'Wallet',
@@ -19093,7 +19120,7 @@ void main() {
     const gated = [
       ('Marketplace', MarketplaceScreen()),
       ('Wallet', WalletScreen()),
-      ('Send nearby', NearbyShareScreen()),
+      ('Okay Drop', NearbyShareScreen()),
     ];
 
     testWidgets('an unverified account is stopped at all three', (t) async {
@@ -19146,14 +19173,14 @@ void main() {
     testWidgets('the owner walks through the two gates that are ours to waive',
         (t) async {
       // A rule enforcing itself against the person who set it. The marketplace
-      // and Send nearby need nothing from outside the app, so running the app
+      // and Okay Drop need nothing from outside the app, so running the app
       // is enough.
       IdentityVerification.debugGateOverride = true;
       PlatformModeration.instance.debugSet(role: PlatformRole.owner);
       addTearDown(PlatformModeration.instance.resetForTest);
       for (final (title, screen) in [
         ('Marketplace', const MarketplaceScreen()),
-        ('Send nearby', const NearbyShareScreen()),
+        ('Okay Drop', const NearbyShareScreen()),
       ]) {
         await t.pumpWidget(MaterialApp(key: ValueKey(title), home: screen));
         await t.pumpAndSettle();
@@ -19189,7 +19216,7 @@ void main() {
           .allMatches(src)
           .length;
       final held = RegExp(r'_VerifiedOnlyHint\(\)').allMatches(src).length;
-      // Marketplace and Send nearby waive; the wallet holds. The third match
+      // Marketplace and Okay Drop waive; the wallet holds. The third match
       // of the bare form is the constructor's own declaration.
       expect(waived, 2, reason: 'the waived rows drifted from the gates');
       expect(held, 1, reason: 'the wallet row stopped showing its padlock');

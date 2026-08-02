@@ -53,7 +53,7 @@ class VerifiedGate extends StatelessWidget {
   final String ownerReason;
 
   /// What is behind the gate, for the bar at the top and the sentence under
-  /// it — "Marketplace", "Wallet", "Send nearby".
+  /// it — "Marketplace", "Wallet", "Okay Drop".
   final String title;
 
   /// Why this one in particular needs it. Generic text on three different

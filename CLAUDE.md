@@ -172,7 +172,7 @@ for the known offenders; add to its list rather than rediscovering this.
 
 ## Verified-only features
 
-The **marketplace, wallet and Send nearby** are behind
+The **marketplace, wallet and Okay Drop** are behind
 `IdentityVerification.allowsTrusted` — the Stripe Identity check, the same
 one that earns the blue check. The gate is inside each screen
 (`VerifiedGate`), not on the drawer row that opens it, because a row is one
@@ -275,7 +275,7 @@ Two things that look like bugs and are not:
   invite **encrypted to the key they asked with** — never in the clear, because
   the invite contains the server secret and a plaintext reply would hand it to
   everyone within earshot. The server's own invite policy still applies.
-- **Send nearby** (`lib/mesh/nearby_share.dart`, drawer → Send nearby): AirDrop's
+- **Okay Drop** (`lib/mesh/nearby_share.dart`, drawer → Okay Drop): AirDrop's
   shape on the same radio — you appear to people around you only if you say so
   (Privacy & security → "Who can send me things", off by default, the same three
   answers AirDrop gives), an offer says what is coming and how big, and nothing
