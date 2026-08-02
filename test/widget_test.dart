@@ -69,7 +69,6 @@ import 'package:okay_messaging/widgets/feed_post_parts.dart';
 import 'package:okay_messaging/widgets/streak_chip.dart';
 import 'package:okay_messaging/widgets/sanction_notice.dart';
 import 'package:okay_messaging/screens/forum_screen.dart';
-import 'package:okay_messaging/screens/location_picker_screen.dart';
 import 'package:okay_messaging/screens/marketplace_screen.dart';
 import 'package:okay_messaging/screens/nearby_share_screen.dart';
 import 'package:okay_messaging/widgets/verified_badge.dart';
@@ -700,10 +699,17 @@ void main() {
     await tester.tap(find.byIcon(Icons.attach_file));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Location'));
-    // The picker hosts a FlutterMap whose tile timers never settle, so pump
+    // The map hosts a FlutterMap whose tile timers never settle, so pump
     // fixed frames instead of pumpAndSettle.
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
+
+    // The chat now opens the SAME map as Maps, so there is no permanent
+    // centre pin to send: a place gets chosen first. Pressing and holding
+    // drops one, which is the arbitrary-point path the old picker had.
+    await tester.longPress(find.byType(FlutterMap));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
 
     expect(find.text('Send this location'), findsOneWidget);
     await tester.tap(find.text('Send this location'));
@@ -9749,24 +9755,117 @@ void main() {
       expect(formatDuration(3900), '1 h 5 min');
     });
 
-    testWidgets('picker falls back gracefully when GPS is unavailable',
+    testWidgets('sharing a place from a chat opens the app\'s one real map',
         (tester) async {
-      await tester.pumpWidget(const MaterialApp(home: LocationPickerScreen()));
+      // There used to be a second map that existed only for this: a centre
+      // pin over a submit-only search box, with no suggestions, no nearby
+      // categories, no saved places, and no name for what you picked. The
+      // chat now opens the same map as Maps, in picking mode.
+      // A full-screen map with a bottom sheet does not fit the default 600pt
+      // test surface: the first result lands at y=626 and no tap reaches it.
+      await tester.binding.setSurfaceSize(const Size(800, 1400));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(MaterialApp(
+        home: ExploreMapScreen(
+          picking: true,
+          debugMyLocation: const LatLng(43.65, -79.38),
+          debugSearch: (q) async => const [
+            GeoResult(name: 'Union Station, Toronto', lat: 43.6453, lng: -79.3806),
+          ],
+        ),
+      ));
       // FlutterMap tile timers never settle, so pump fixed frames.
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
 
-      // On native/tests the geolocation helper returns null (no browser GPS),
-      // so tapping "Use my location" shows a fallback message.
-      await tester.tap(find.byTooltip('Use my location'));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 300));
+      // The things the old picker did not have.
+      expect(find.textContaining('press and hold'), findsOneWidget,
+          reason: 'picking mode never says how to choose an arbitrary point');
+      await tester.enterText(find.byType(TextField).first, 'union');
+      await tester.pump(const Duration(milliseconds: 600));
+      expect(find.textContaining('Union Station'), findsWidgets,
+          reason: 'search-as-you-type is the whole reason for the swap');
 
-      expect(find.textContaining('Couldn\'t get your location'), findsOneWidget);
+      // Choosing one offers to send it back, and the place keeps its name —
+      // which is what turns "Shared location" into "Union Station, Toronto"
+      // in the chat.
+      // ensureVisible, not a bare tap: the sheet's resting height depends on
+      // whether recents and saved places have anything in them, so the first
+      // result's y position is not a constant across a whole suite run.
+      await tester.ensureVisible(
+          find.widgetWithText(ListTile, 'Union Station, Toronto').first);
+      await tester.pump();
+      await tester.tap(
+          find.widgetWithText(ListTile, 'Union Station, Toronto').first);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
       expect(find.text('Send this location'), findsOneWidget);
+      expect(find.text('Directions'), findsNothing,
+          reason: 'a chat is waiting; sending it elsewhere is not the offer');
 
       await tester.pumpWidget(const SizedBox());
       await tester.pump();
+    });
+
+    testWidgets('and the ordinary map still offers directions, not a send-back',
+        (tester) async {
+      // The other half of the flag: picking mode must not leak into Maps
+      // opened normally, where "Send this location" would pop a route
+      // nobody pushed.
+      await tester.binding.setSurfaceSize(const Size(800, 1400));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(MaterialApp(
+        home: ExploreMapScreen(
+          debugMyLocation: const LatLng(43.65, -79.38),
+          debugSearch: (q) async => const [
+            GeoResult(name: 'Union Station, Toronto', lat: 43.6453, lng: -79.3806),
+          ],
+        ),
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.textContaining('press and hold'), findsNothing);
+      await tester.enterText(find.byType(TextField).first, 'union');
+      await tester.pump(const Duration(milliseconds: 600));
+      // ensureVisible, not a bare tap: the sheet's resting height depends on
+      // whether recents and saved places have anything in them, so the first
+      // result's y position is not a constant across a whole suite run.
+      await tester.ensureVisible(
+          find.widgetWithText(ListTile, 'Union Station, Toronto').first);
+      await tester.pump();
+      await tester.tap(
+          find.widgetWithText(ListTile, 'Union Station, Toronto').first);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.text('Directions'), findsOneWidget);
+      expect(find.text('Send this location'), findsNothing);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+    });
+
+    test('nothing in the app opens a second map any more', () {
+      // The old picker's only remaining caller was this test file. A spare
+      // map is how the two drift apart again.
+      expect(File('lib/screens/location_picker_screen.dart').existsSync(),
+          isFalse,
+          reason: 'the duplicate map is back');
+      for (final f in Directory('lib')
+          .listSync(recursive: true)
+          .whereType<File>()
+          .where((f) => f.path.endsWith('.dart'))) {
+        expect(f.readAsStringSync().contains('LocationPickerScreen'), isFalse,
+            reason: '${f.path} still reaches for the old picker');
+      }
+      // And the chat has to ask for PICKING mode. Opening the ordinary map
+      // from an attachment gives a screen with no way to answer with a
+      // place — the flag is the whole contract between them.
+      expect(
+          File('lib/screens/chat_screen.dart')
+              .readAsStringSync()
+              .contains('ExploreMapScreen(picking: true)'),
+          isTrue,
+          reason: 'the chat opens a map that cannot hand a location back');
     });
   });
 

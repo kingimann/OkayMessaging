@@ -20,6 +20,15 @@ import 'route_map_screen.dart';
 /// A standalone, Apple-Maps-style map: search places or nearby categories, see
 /// them on the map, read details with distance, save favourites, and get
 /// in-app directions — no external maps needed.
+///
+/// **Also the location picker.** Attaching a place to a chat used to open a
+/// second, much poorer map: a centre pin over a submit-only search box, with
+/// no suggestions as you type, no nearby categories, no saved places, no
+/// recents, and nothing to name what you were pointing at — a shared spot
+/// arrived as "Shared location" and a pair of coordinates. There is no reason
+/// for the app to contain two maps, and the good one was not the one in the
+/// chat. Opened with [picking] it returns the chosen place instead of
+/// offering to forward it.
 class ExploreMapScreen extends StatefulWidget {
   /// Test/preview hook: a fixed "current location" fix, bypassing real GPS.
   final LatLng? debugMyLocation;
@@ -27,7 +36,17 @@ class ExploreMapScreen extends StatefulWidget {
   /// Test hook: replaces the network place search (null = request failed).
   final Future<List<GeoResult>?> Function(String query)? debugSearch;
 
-  const ExploreMapScreen({super.key, this.debugMyLocation, this.debugSearch});
+  /// When true this is a chooser: the place card offers "Send this location",
+  /// which pops with the selected [GeoResult]. Everything else about the map
+  /// is unchanged, which is the entire point.
+  final bool picking;
+
+  const ExploreMapScreen({
+    super.key,
+    this.debugMyLocation,
+    this.debugSearch,
+    this.picking = false,
+  });
 
   @override
   State<ExploreMapScreen> createState() => _ExploreMapScreenState();
@@ -798,6 +817,36 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
                             });
                           },
                         ),
+                        // Arriving from a chat, the map looks like every
+                        // other map — so say what it wants. The old picker
+                        // had a permanent centre pin and needed no
+                        // instruction; this one is worth the sentence.
+                        if (widget.picking && _selected == null)
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(6, 14, 6, 4),
+                            child: Row(
+                              children: [
+                                Icon(Icons.touch_app_outlined,
+                                    size: 18,
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onSurfaceVariant),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    'Search a place, or press and hold the '
+                                    'map to drop a pin.',
+                                    style: TextStyle(
+                                      fontSize: 13.5,
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .onSurfaceVariant,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
                         // While a search is in flight with nothing to show
                         // yet, say so instead of leaving an empty sheet.
                         if (_searching && _results.isEmpty)
@@ -1049,16 +1098,28 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
                     spacing: 8,
                     runSpacing: 8,
                     children: [
-                      FilledButton.icon(
-                        onPressed: _directions,
-                        icon: const Icon(Icons.directions, size: 18),
-                        label: const Text('Directions'),
-                      ),
-                      OutlinedButton.icon(
-                        onPressed: _sendToChat,
-                        icon: const Icon(Icons.chat_bubble_outline, size: 16),
-                        label: const Text('Send'),
-                      ),
+                      if (widget.picking)
+                        // The one action that makes sense when a chat is
+                        // waiting for an answer. Directions and Share are
+                        // still there, but sending it somewhere ELSE while
+                        // this chat is waiting is not an offer worth making.
+                        FilledButton.icon(
+                          onPressed: () => Navigator.of(context).pop(place),
+                          icon: const Icon(Icons.send, size: 18),
+                          label: const Text('Send this location'),
+                        )
+                      else ...[
+                        FilledButton.icon(
+                          onPressed: _directions,
+                          icon: const Icon(Icons.directions, size: 18),
+                          label: const Text('Directions'),
+                        ),
+                        OutlinedButton.icon(
+                          onPressed: _sendToChat,
+                          icon: const Icon(Icons.chat_bubble_outline, size: 16),
+                          label: const Text('Send'),
+                        ),
+                      ],
                       OutlinedButton.icon(
                         onPressed: _share,
                         icon: const Icon(Icons.ios_share, size: 16),

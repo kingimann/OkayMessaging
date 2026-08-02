@@ -5,7 +5,6 @@ import 'dart:convert';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:latlong2/latlong.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../app_state.dart';
@@ -49,7 +48,8 @@ import 'forward_screen.dart';
 import 'group_info_screen.dart';
 import 'image_view_screen.dart';
 import 'location_map_screen.dart';
-import 'location_picker_screen.dart';
+import '../util/geocoding.dart';
+import 'explore_map_screen.dart';
 import 'media_gallery_screen.dart';
 import 'wallpaper_screen.dart';
 import '../state/identity_verification.dart';
@@ -579,23 +579,29 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _handleSendLocation() async {
-    // Pick a real point on an OpenStreetMap before sending.
-    final picked = await Navigator.of(context).push<LatLng>(
-      MaterialPageRoute(builder: (_) => const LocationPickerScreen()),
+    // The SAME map as Maps, in picking mode — search as you type, nearby
+    // categories, saved places, recents, and a name for what you picked.
+    // This used to open a second, much poorer map that existed only here.
+    final picked = await Navigator.of(context).push<GeoResult>(
+      MaterialPageRoute(builder: (_) => const ExploreMapScreen(picking: true)),
     );
     if (picked == null || !mounted) return;
     if (!await _confirmRecipient()) return;
     final now = DateTime.now();
+    final label = picked.name.trim();
     _deliver(Message(
       id: 'loc_${now.microsecondsSinceEpoch}',
-      text: 'Shared location',
+      // The place's own name, not "Shared location". A dropped pin is reverse
+      // geocoded on the way through, so even a point in a field arrives as a
+      // street rather than as two numbers.
+      text: label.isEmpty ? 'Shared location' : label,
       time: now,
       isMe: true,
       status: MessageStatus.sent,
       isLocation: true,
-      locationLat: picked.latitude,
-      locationLng: picked.longitude,
-      locationLabel: 'Shared location',
+      locationLat: picked.lat,
+      locationLng: picked.lng,
+      locationLabel: label.isEmpty ? 'Shared location' : label,
     ));
   }
 
