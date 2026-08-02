@@ -7,7 +7,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 
-import '../state/recent_searches.dart';
 import '../state/saved_places_store.dart';
 import '../util/geocoding.dart';
 import '../util/geolocation.dart';
@@ -15,7 +14,6 @@ import '../utils/maps_link.dart';
 import '../widgets/osm_map.dart';
 import 'forward_screen.dart';
 import 'map_screen.dart';
-import 'route_map_screen.dart';
 
 /// A standalone, Apple-Maps-style map: search places or nearby categories, see
 /// them on the map, read details with distance, save favourites, and get
@@ -33,9 +31,6 @@ class ExploreMapScreen extends StatefulWidget {
   /// Test/preview hook: a fixed "current location" fix, bypassing real GPS.
   final LatLng? debugMyLocation;
 
-  /// Test hook: replaces the network place search (null = request failed).
-  final Future<List<GeoResult>?> Function(String query)? debugSearch;
-
   /// When true this is a chooser: the place card offers "Send this location",
   /// which pops with the selected [GeoResult]. Everything else about the map
   /// is unchanged, which is the entire point.
@@ -44,7 +39,6 @@ class ExploreMapScreen extends StatefulWidget {
   const ExploreMapScreen({
     super.key,
     this.debugMyLocation,
-    this.debugSearch,
     this.picking = false,
   });
 
@@ -54,7 +48,6 @@ class ExploreMapScreen extends StatefulWidget {
 
 class _ExploreMapScreenState extends State<ExploreMapScreen> {
   final MapController _map = MapController();
-  final TextEditingController _search = TextEditingController();
   final DraggableScrollableController _sheet = DraggableScrollableController();
 
   /// The sheet collapsed to its search field and nothing else, as a fraction
@@ -108,17 +101,11 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
     setState(() => _bottomOverlay = height);
   }
 
-  bool _searching = false;
-  List<GeoResult> _results = const [];
-
   LatLng? _me;
   GeoResult? _selected;
   bool _resolvingPin = false;
 
   Timer? _locTimer;
-  Timer? _debounce;
-  int _searchSeq = 0;
-
   @override
   void initState() {
     super.initState();
@@ -155,8 +142,6 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
           .then((p) => p.setString('map_last_view', view));
     } catch (_) {}
     _locTimer?.cancel();
-    _debounce?.cancel();
-    _search.dispose();
     _sheet.dispose();
     super.dispose();
   }
@@ -164,94 +149,6 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
   /// True once the user has panned/zoomed the map themselves, making the
   /// camera centre a meaningful "search here" point.
   bool _mapTouched = false;
-
-  /// True while the suggestion dropdown is dismissed (map tap) — the result
-  /// pins stay on the map; typing brings the list back.
-  bool _hideSuggestions = false;
-
-  /// True after a submitted search with several hits: they're listed in a
-  /// bottom results sheet (Apple-Maps style) instead of the dropdown.
-  bool _showResultsSheet = false;
-
-  /// The last submitted query, so "Search this area" can re-run it where the
-  /// user has panned to.
-  String? _lastQuery;
-
-  /// The last category chip search (label, Overpass filter) — the nearby
-  /// counterpart of [_lastQuery] for "Search this area".
-  (String, String)? _lastNearby;
-
-  /// True once the user pans away from a search's results — shows the
-  /// "Search this area" button.
-  bool _showSearchHere = false;
-
-  Future<List<GeoResult>?> _doSearch(String q, {LatLng? biasOverride}) async {
-    final debug = widget.debugSearch;
-    if (debug != null) return debug(q);
-    // Bias to where the user actually is — or where they've panned the map
-    // to. Never bias to the untouched placeholder centre: that would rank a
-    // far-away city's results first for everyone without a GPS fix.
-    final LatLng? bias = biasOverride ?? _me ?? (_mapTouched ? _center : null);
-    final results = await searchPlaces(q,
-        lat: bias?.latitude, lng: bias?.longitude, limit: 12);
-    if (results != null) return results;
-    // Geocoder unreachable — try a nearby name match on the independent
-    // Overpass servers before declaring search dead.
-    if (bias == null) return null;
-    return searchNamesNearby(q, lat: bias.latitude, lng: bias.longitude);
-  }
-
-  /// Live, Apple-Maps-style suggestions while typing (debounced; stale
-  /// responses are discarded).
-  /// What the last finished search concluded when it had nothing to show.
-  ///
-  /// A search that found nothing, and a search that could not run at all,
-  /// both used to leave the sheet showing favourites and recents again — the
-  /// same thing it showed before anyone typed. Indistinguishable from the
-  /// app ignoring you.
-  String? _searchNote;
-
-  void _onQueryChanged(String text) {
-    _debounce?.cancel();
-    final q = text.trim();
-    if (q.isEmpty) {
-      setState(() {
-        _results = const [];
-        _searching = false;
-        _hideSuggestions = false;
-        _searchNote = null;
-      });
-      return;
-    }
-    // Refresh the clear button and re-show a dismissed suggestion list.
-    setState(() => _hideSuggestions = false);
-    // Typing means searching — raise the sheet so suggestions have room.
-    try {
-      if (_sheet.isAttached && _sheet.size < 0.6) {
-        _sheet.animateTo(0.88,
-            duration: const Duration(milliseconds: 200),
-            curve: Curves.easeOut);
-      }
-    } catch (_) {}
-    _debounce = Timer(const Duration(milliseconds: 250), () async {
-      if (!mounted) return;
-      final seq = ++_searchSeq;
-      setState(() => _searching = true);
-      final results = await _doSearch(q);
-      if (!mounted || seq != _searchSeq) return;
-      setState(() {
-        _searching = false;
-        // A failed request (null) keeps the previous suggestions on screen
-        // instead of blanking them mid-typing.
-        if (results != null) _results = results;
-        _searchNote = results == null
-            ? 'Couldn\'t search right now. Check your connection.'
-            : results.isEmpty
-                ? 'No places found for "$q".'
-                : null;
-      });
-    });
-  }
 
   Future<void> _locate({required bool recenter}) async {
     LatLng? fix = widget.debugMyLocation;
@@ -279,141 +176,11 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
     }
   }
 
-  LatLng get _center {
-    try {
-      return _map.camera.center;
-    } catch (_) {
-      return _me ?? const LatLng(20, 0);
-    }
-  }
-
-  Future<void> _runSearch({String? term, bool nearCenter = false}) async {
-    final q = (term ?? _search.text).trim();
-    if (q.isEmpty) return;
-    // "coffee" typed into the box is a category intent, not a name — divert
-    // to the true nearby search whenever we know where "nearby" is.
-    final filter = categoryFilterFor(q);
-    if (filter != null) {
-      final bias =
-          nearCenter ? _center : (_me ?? (_mapTouched ? _center : null));
-      if (bias != null) {
-        if (term == null) RecentSearches.maps.add(q.toLowerCase());
-        final label = q[0].toUpperCase() + q.substring(1).toLowerCase();
-        return _runNearby(label, filter, biasOverride: bias);
-      }
-    }
-    _debounce?.cancel();
-    FocusScope.of(context).unfocus();
-    final seq = ++_searchSeq;
-    setState(() {
-      _searching = true;
-      _showSearchHere = false;
-    });
-    final results =
-        await _doSearch(q, biasOverride: nearCenter ? _center : null);
-    if (!mounted || seq != _searchSeq) return;
-    if (results == null) {
-      setState(() => _searching = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text('Search failed — check your connection and try '
-                'again.')),
-      );
-      return;
-    }
-    // Remember typed queries that found something (not the category chips).
-    if (term == null && results.isNotEmpty) RecentSearches.maps.add(q);
-    _lastQuery = q;
-    _lastNearby = null;
-    _showFound(results, 'Nothing found for "$q" nearby.');
-  }
-
-  /// A true nearby-category search (every cafe/restaurant/… around [bias])
-  /// via Overpass — what the chips run instead of a name search.
-  Future<void> _runNearby(String label, String filter,
-      {LatLng? biasOverride}) async {
-    final bias = biasOverride ?? _me ?? (_mapTouched ? _center : null);
-    if (bias == null) return; // callers guard and explain
-    _debounce?.cancel();
-    FocusScope.of(context).unfocus();
-    final seq = ++_searchSeq;
-    setState(() {
-      _searching = true;
-      _showSearchHere = false;
-      _search.text = label;
-    });
-    final debug = widget.debugSearch;
-    var results = debug != null
-        ? await debug(label.toLowerCase())
-        : await searchNearby(
-            filters: [filter], lat: bias.latitude, lng: bias.longitude);
-    // Every Overpass mirror down? Fall back to the Photon geocoder, biased to
-    // the area, so a category still returns something rather than failing.
-    if (results == null && debug == null) {
-      results = await searchPlaces(label,
-          lat: bias.latitude, lng: bias.longitude, limit: 25);
-    }
-    if (!mounted || seq != _searchSeq) return;
-    if (results == null) {
-      setState(() => _searching = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text('Search failed — check your connection and try '
-                'again.')),
-      );
-      return;
-    }
-    _lastQuery = null;
-    _lastNearby = (label, filter);
-    _showFound(results, 'No ${label.toLowerCase()} found nearby.');
-  }
-
-  /// Shared landing for search results: sheet/card state, camera framing,
-  /// and the empty-result message.
-  void _showFound(List<GeoResult> results, String emptyMessage) {
-    setState(() {
-      _searching = false;
-      _results = results;
-      // Several hits go to the bottom results sheet, not the dropdown.
-      _hideSuggestions = results.length > 1;
-      _showResultsSheet = results.length > 1;
-      _selected = results.length == 1 ? results.first : null;
-    });
-    if (results.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(emptyMessage)),
-      );
-    } else if (results.length == 1) {
-      _map.move(LatLng(results.first.lat, results.first.lng), 15);
-    } else {
-      // Frame every result pin at once, Apple-Maps style.
-      _map.fitCamera(
-        CameraFit.bounds(
-          bounds: LatLngBounds.fromPoints(
-              [for (final r in results) LatLng(r.lat, r.lng)]),
-          padding: const EdgeInsets.fromLTRB(50, 140, 50, 120),
-          // Clustered results must not zoom past the deepest real tiles.
-          maxZoom: 16.5,
-        ),
-      );
-    }
-  }
-
+  /// Selects a place — one you saved, or one you just dropped a pin on —
+  /// and frames it under the card.
   void _select(GeoResult r) {
     FocusScope.of(context).unfocus();
-    _debounce?.cancel();
-    ++_searchSeq; // discard any in-flight suggestion fetch
-    // Picking a suggestion is the common path now — remember it.
-    RecentSearches.maps.add(r.name.split(',').first.trim());
-    setState(() {
-      _selected = r;
-      _search.text = r.name;
-      // Picks from the results sheet keep the other pins (and the sheet
-      // comes back when the place card is closed); dropdown picks clear.
-      if (!_showResultsSheet) _results = const [];
-      _searching = false;
-      _showSearchHere = false;
-    });
+    setState(() => _selected = r);
     _map.move(LatLng(r.lat, r.lng), 16);
   }
 
@@ -421,8 +188,6 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
     setState(() {
       _selected = GeoResult(name: '', lat: point.latitude, lng: point.longitude);
       _resolvingPin = true;
-      _results = const [];
-      _showResultsSheet = false;
     });
     final place = await reverseGeocode(point.latitude, point.longitude);
     if (!mounted) return;
@@ -459,20 +224,6 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
     }
     setState(() => _me = fix);
     _map.move(fix, 15);
-  }
-
-  void _directions() {
-    final s = _selected;
-    if (s == null) return;
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => RouteMapScreen(
-          dest: LatLng(s.lat, s.lng),
-          from: _me,
-          label: s.name.isEmpty ? 'Directions' : s.name,
-        ),
-      ),
-    );
   }
 
   void _sendToChat() {
@@ -573,8 +324,9 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
     // Full-bleed, Apple-Maps-style: the map fills the screen and every
     // control floats over it.
     final dark = Theme.of(context).brightness == Brightness.dark;
-    final hasSheetContent = SavedPlacesStore.instance.places.isNotEmpty ||
-        RecentSearches.maps.queries.isNotEmpty;
+    // Saved places only: recent searches went with the search bar, since a
+    // remembered query cannot be re-run without one.
+    final hasSheetContent = SavedPlacesStore.instance.places.isNotEmpty;
     final compact = compactSheetFraction(context);
     final resting = restingSheetFraction(context, hasContent: hasSheetContent);
     _resting = resting;
@@ -600,22 +352,8 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
               onPositionChanged: (camera, hasGesture) {
                 if (!hasGesture) return;
                 _mapTouched = true;
-                // Panning away from a search's results offers to re-run it
-                // around the new spot, Apple-Maps style.
-                if (_results.isNotEmpty &&
-                    (_lastQuery != null || _lastNearby != null) &&
-                    !_showSearchHere) {
-                  setState(() => _showSearchHere = true);
-                }
               },
-              onTap: (_, __) {
-                // Tapping the map puts the map first: drop the keyboard and
-                // tuck the suggestion list away (pins stay).
-                FocusScope.of(context).unfocus();
-                if (_results.isNotEmpty && !_hideSuggestions) {
-                  setState(() => _hideSuggestions = true);
-                }
-              },
+              onTap: (_, __) => FocusScope.of(context).unfocus(),
               onLongPress: (_, point) => _dropPin(point),
             ),
             children: [
@@ -625,8 +363,8 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
                 builder: (context, _) => MarkerLayer(
                   markers: [
                     // Saved places live on the idle map like Apple Maps
-                    // favourites; hidden while browsing search results.
-                    if (_results.isEmpty && selected == null)
+                    // favourites; hidden while a place card is open.
+                    if (selected == null)
                       for (final p in SavedPlacesStore.instance.places)
                         Marker(
                           point: LatLng(p.lat, p.lng),
@@ -645,31 +383,6 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
                           ),
                         ),
                     if (_me != null) myLocationMarker(_me!),
-                    for (final r in _results)
-                      Marker(
-                        point: LatLng(r.lat, r.lng),
-                        width: 32,
-                        height: 32,
-                        child: GestureDetector(
-                          onTap: () => _select(r),
-                          // Category glyph pins, Apple-Maps style: a cafe
-                          // looks like a cafe from across the map.
-                          child: Container(
-                            decoration: BoxDecoration(
-                              color: Theme.of(context).colorScheme.surface,
-                              shape: BoxShape.circle,
-                              border: Border.all(
-                                  color: const Color(0xFF0A84FF), width: 2),
-                              boxShadow: const [
-                                BoxShadow(
-                                    color: Colors.black38, blurRadius: 4),
-                              ],
-                            ),
-                            child: Icon(iconForPlaceCategory(r.category),
-                                size: 16, color: const Color(0xFF0A84FF)),
-                          ),
-                        ),
-                      ),
                     if (selected != null)
                       mapPin(LatLng(selected.lat, selected.lng)),
                   ],
@@ -714,7 +427,7 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
               controller: _map,
               bottom: _aboveSheet(context) + 16,
               onMyLocation:
-                  selected == null && !_showResultsSheet ? _goToMe : null,
+                  selected == null ? _goToMe : null,
               onSaved: _showSaved,
               onFriends: () => Navigator.of(context)
                   .push(MaterialPageRoute(builder: (_) => const MapScreen())),
@@ -729,29 +442,10 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
               onTap: () => Navigator.of(context).maybePop(),
             ),
           ),
-          if (_showSearchHere && selected == null && _results.isNotEmpty)
-            Positioned(
-              top: MediaQuery.of(context).padding.top + 12,
-              left: 0,
-              right: 0,
-              child: Center(
-                child: FilledButton.tonalIcon(
-                  onPressed: () {
-                    final nearby = _lastNearby;
-                    if (nearby != null) {
-                      _runNearby(nearby.$1, nearby.$2, biasOverride: _center);
-                    } else {
-                      _runSearch(term: _lastQuery, nearCenter: true);
-                    }
-                  },
-                  icon: const Icon(Icons.refresh, size: 18),
-                  label: const Text('Search this area'),
-                ),
-              ),
-            ),
-          // Apple Maps' signature: everything lives in a draggable bottom
-          // search sheet over the full-bleed map.
-          if (selected == null && !_showResultsSheet)
+          // Apple Maps' signature: a draggable bottom sheet over the
+          // full-bleed map. It holds saved places now that the search box
+          // that used to head it is gone.
+          if (selected == null)
             Positioned.fill(
               child: AnimatedPadding(
                 duration: const Duration(milliseconds: 150),
@@ -789,34 +483,6 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
                             ),
                           ),
                         ),
-                        _SearchBox(
-                          controller: _search,
-                          searching: _searching,
-                          // Hide the suggestion list when the user tapped
-                          // the map; the result pins stay either way.
-                          results: !_hideSuggestions
-                              ? _results
-                              : const <GeoResult>[],
-                          origin: _me,
-                          onSubmit: () => _runSearch(),
-                          onPick: _select,
-                          onChanged: _onQueryChanged,
-                          onClear: () {
-                            _debounce?.cancel();
-                            ++_searchSeq;
-                            _search.clear();
-                            setState(() {
-                              _results = const [];
-                              _selected = null;
-                              _searching = false;
-                              _hideSuggestions = false;
-                              _showResultsSheet = false;
-                              _showSearchHere = false;
-                              _lastQuery = null;
-                              _lastNearby = null;
-                            });
-                          },
-                        ),
                         // Arriving from a chat, the map looks like every
                         // other map — so say what it wants. The old picker
                         // had a permanent centre pin and needed no
@@ -834,8 +500,8 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
                                 const SizedBox(width: 8),
                                 Expanded(
                                   child: Text(
-                                    'Search a place, or press and hold the '
-                                    'map to drop a pin.',
+                                    'Press and hold the map to drop a pin, '
+                                    'or pick one you have saved.',
                                     style: TextStyle(
                                       fontSize: 13.5,
                                       color: Theme.of(context)
@@ -847,86 +513,34 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
                               ],
                             ),
                           ),
-                        // While a search is in flight with nothing to show
-                        // yet, say so instead of leaving an empty sheet.
-                        if (_searching && _results.isEmpty)
-                          const Padding(
-                            padding: EdgeInsets.symmetric(vertical: 18),
-                            child: Center(
-                                child: SizedBox(
-                                    width: 22,
-                                    height: 22,
-                                    child: CircularProgressIndicator(
-                                        strokeWidth: 2.4))),
-                          ),
-                        // A search that came back with nothing has to say so.
-                        // Dropping back to favourites and recents looked
-                        // exactly like never having typed anything.
-                        if (!_searching &&
-                            _results.isEmpty &&
-                            _searchNote != null)
+                        _FavoritesRow(
+                          onPick: (p) => _select(GeoResult(
+                              name: p.name, lat: p.lat, lng: p.lng)),
+                        ),
+                        // Renders nothing at all until something is saved, so
+                        // a pulled-up sheet was a blank screen that looked
+                        // broken rather than new.
+                        if (!hasSheetContent)
                           Padding(
-                            padding: const EdgeInsets.fromLTRB(6, 16, 6, 6),
-                            child: Row(
-                              children: [
-                                Icon(Icons.search_off,
-                                    size: 18,
-                                    color: Theme.of(context)
-                                        .colorScheme
-                                        .onSurfaceVariant),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Text(
-                                    _searchNote!,
-                                    style: TextStyle(
-                                      fontSize: 13.5,
-                                      color: Theme.of(context)
-                                          .colorScheme
-                                          .onSurfaceVariant,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        if (_results.isEmpty && !_searching) ...[
-                          _FavoritesRow(
-                            onPick: (p) => _select(GeoResult(
-                                name: p.name, lat: p.lat, lng: p.lng)),
-                          ),
-                          const SizedBox(height: 10),
-                          _RecentMapSearches(onPick: (q) {
-                            _search.text = q;
-                            _runSearch();
-                          }),
-                          // Both of those render nothing at all until there
-                          // is something in them, so a pulled-up sheet was a
-                          // blank screen that looked broken rather than new.
-                          if (!hasSheetContent && _searchNote == null)
-                            Padding(
-                              padding:
-                                  const EdgeInsets.fromLTRB(6, 18, 6, 8),
-                              child: Text(
-                                'Places you save and searches you make will '
-                                'show up here.',
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  height: 1.4,
-                                  color: Theme.of(context)
-                                      .colorScheme
-                                      .onSurfaceVariant,
-                                ),
+                            padding: const EdgeInsets.fromLTRB(6, 18, 6, 8),
+                            child: Text(
+                              'Press and hold the map to drop a pin. Places '
+                              'you save show up here.',
+                              style: TextStyle(
+                                fontSize: 13,
+                                height: 1.4,
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .onSurfaceVariant,
                               ),
                             ),
-                        ],
+                          ),
                       ],
                     ),
                   ),
                 ),
               ),
             ),
-          if (_showResultsSheet && selected == null && _results.length > 1)
-            _resultsSheet(context),
           if (selected != null)
             Positioned(
               left: 12,
@@ -942,104 +556,6 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
               ),
             ),
         ],
-      ),
-    );
-  }
-
-  /// "Cafe · 350 m" meta line for a results-sheet row.
-  String? _placeMeta(GeoResult r) {
-    final parts = <String>[];
-    if (r.category.isNotEmpty) parts.add(r.category);
-    final me = _me;
-    if (me != null) {
-      parts.add(formatDistance(
-          const Distance().distance(me, LatLng(r.lat, r.lng))));
-    }
-    return parts.isEmpty ? null : parts.join(' · ');
-  }
-
-  /// The Apple-Maps-style bottom sheet listing a submitted search's results.
-  Widget _resultsSheet(BuildContext context) {
-    return Positioned(
-      left: 0,
-      right: 0,
-      bottom: 0,
-      child: SafeArea(
-        top: false,
-        child: _MeasuredHeight(
-          onHeight: _setBottomOverlay,
-          child: Material(
-          elevation: 12,
-          color: Theme.of(context).colorScheme.surface,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-          clipBehavior: Clip.antiAlias,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 10, 8, 0),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          if (_search.text.trim().isNotEmpty)
-                            Text(
-                              _search.text.trim(),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                  fontSize: 16, fontWeight: FontWeight.w700),
-                            ),
-                          Text(
-                            '${_results.length} places',
-                            style: _search.text.trim().isEmpty
-                                ? const TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w600)
-                                : TextStyle(
-                                    fontSize: 13,
-                                    color: AppColors.subtle(context)),
-                          ),
-                        ],
-                      ),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.close),
-                      tooltip: 'Close results',
-                      onPressed: () => setState(() {
-                        _showResultsSheet = false;
-                        _results = const [];
-                        _search.clear();
-                      }),
-                    ),
-                  ],
-                ),
-              ),
-              ConstrainedBox(
-                constraints: const BoxConstraints(maxHeight: 236),
-                child: ListView.builder(
-                  shrinkWrap: true,
-                  padding: const EdgeInsets.only(bottom: 8),
-                  itemCount: _results.length,
-                  itemBuilder: (context, i) {
-                    final r = _results[i];
-                    final meta = _placeMeta(r);
-                    return ListTile(
-                      leading: Icon(iconForPlaceCategory(r.category)),
-                      title: Text(r.name.split(',').first.trim(),
-                          maxLines: 1, overflow: TextOverflow.ellipsis),
-                      subtitle: meta == null ? null : Text(meta),
-                      onTap: () => _select(r),
-                    );
-                  },
-                ),
-              ),
-            ],
-          ),
-        ),
-        ),
       ),
     );
   }
@@ -1100,26 +616,19 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
                     children: [
                       if (widget.picking)
                         // The one action that makes sense when a chat is
-                        // waiting for an answer. Directions and Share are
-                        // still there, but sending it somewhere ELSE while
-                        // this chat is waiting is not an offer worth making.
+                        // waiting for an answer: sending it somewhere ELSE
+                        // while this chat waits is not an offer worth making.
                         FilledButton.icon(
                           onPressed: () => Navigator.of(context).pop(place),
                           icon: const Icon(Icons.send, size: 18),
                           label: const Text('Send this location'),
                         )
-                      else ...[
+                      else
                         FilledButton.icon(
-                          onPressed: _directions,
-                          icon: const Icon(Icons.directions, size: 18),
-                          label: const Text('Directions'),
-                        ),
-                        OutlinedButton.icon(
                           onPressed: _sendToChat,
                           icon: const Icon(Icons.chat_bubble_outline, size: 16),
                           label: const Text('Send'),
                         ),
-                      ],
                       OutlinedButton.icon(
                         onPressed: _share,
                         icon: const Icon(Icons.ios_share, size: 16),
@@ -1282,166 +791,6 @@ class _FavoritesRow extends StatelessWidget {
           ),
         );
       },
-    );
-  }
-}
-
-/// The user's recent map searches, shown while the map is idle.
-class _RecentMapSearches extends StatelessWidget {
-  final ValueChanged<String> onPick;
-  const _RecentMapSearches({required this.onPick});
-
-  @override
-  Widget build(BuildContext context) {
-    return ListenableBuilder(
-      listenable: RecentSearches.maps,
-      builder: (context, _) {
-        final queries = RecentSearches.maps.queries.take(5).toList();
-        if (queries.isEmpty) return const SizedBox.shrink();
-        return Material(
-          elevation: 2,
-          borderRadius: BorderRadius.circular(14),
-          clipBehavior: Clip.antiAlias,
-          color: Theme.of(context)
-              .colorScheme
-              .surface
-              .withValues(alpha: 0.95),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              for (final q in queries)
-                ListTile(
-                  dense: true,
-                  leading: const Icon(Icons.history, size: 20),
-                  title: Text(q,
-                      maxLines: 1, overflow: TextOverflow.ellipsis),
-                  trailing: IconButton(
-                    icon: const Icon(Icons.close, size: 18),
-                    onPressed: () => RecentSearches.maps.remove(q),
-                  ),
-                  onTap: () => onPick(q),
-                ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-}
-
-/// A rounded search field with a dropdown of geocoded place results.
-class _SearchBox extends StatelessWidget {
-  final TextEditingController controller;
-  final bool searching;
-  final List<GeoResult> results;
-  final LatLng? origin;
-  final VoidCallback onSubmit;
-  final ValueChanged<GeoResult> onPick;
-  final ValueChanged<String>? onChanged;
-  final VoidCallback? onClear;
-
-  const _SearchBox({
-    required this.controller,
-    required this.searching,
-    required this.results,
-    required this.onSubmit,
-    required this.onPick,
-    this.origin,
-    this.onChanged,
-    this.onClear,
-  });
-
-  /// "Cafe · 350 m" style meta line for a result row.
-  String? _meta(GeoResult r) {
-    final parts = <String>[];
-    if (r.category.isNotEmpty) parts.add(r.category);
-    final o = origin;
-    if (o != null) {
-      parts.add(formatDistance(
-          const Distance().distance(o, LatLng(r.lat, r.lng))));
-    }
-    return parts.isEmpty ? null : parts.join(' · ');
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Material(
-          elevation: 3,
-          borderRadius: BorderRadius.circular(28),
-          child: TextField(
-            controller: controller,
-            textInputAction: TextInputAction.search,
-            onChanged: onChanged,
-            onSubmitted: (_) => onSubmit(),
-            decoration: InputDecoration(
-              hintText: 'Search Maps',
-              prefixIcon: const Icon(Icons.search),
-              suffixIcon: searching
-                  ? const Padding(
-                      padding: EdgeInsets.all(12),
-                      child: SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2)),
-                    )
-                  : controller.text.isNotEmpty
-                      ? IconButton(
-                          icon: const Icon(Icons.close),
-                          tooltip: 'Clear search',
-                          onPressed: onClear,
-                        )
-                      : null,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(28),
-                borderSide: BorderSide.none,
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(28),
-                borderSide: BorderSide.none,
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(28),
-                borderSide: BorderSide.none,
-              ),
-              filled: true,
-              fillColor: Theme.of(context).colorScheme.surface,
-              isDense: true,
-              contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 4, vertical: 14),
-            ),
-          ),
-        ),
-        if (results.isNotEmpty)
-          Container(
-            margin: const EdgeInsets.only(top: 6),
-            constraints: const BoxConstraints(maxHeight: 300),
-            child: Material(
-              elevation: 3,
-              borderRadius: BorderRadius.circular(14),
-              clipBehavior: Clip.antiAlias,
-              child: ListView.separated(
-                shrinkWrap: true,
-                itemCount: results.length,
-                separatorBuilder: (_, __) => const Divider(height: 1),
-                itemBuilder: (context, i) {
-                  final r = results[i];
-                  final meta = _meta(r);
-                  return ListTile(
-                    dense: true,
-                    leading: Icon(iconForPlaceCategory(r.category)),
-                    title: Text(r.name,
-                        maxLines: 1, overflow: TextOverflow.ellipsis),
-                    subtitle: meta == null ? null : Text(meta),
-                    onTap: () => onPick(r),
-                  );
-                },
-              ),
-            ),
-          ),
-      ],
     );
   }
 }

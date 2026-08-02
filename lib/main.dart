@@ -94,7 +94,6 @@ Future<void> main() async {
   ScoreStore.instance.dailyCheckIn();
   await _boot('streaks', StreakStore.instance.load);
   await _boot('searches', RecentSearches.instance.load);
-  await _boot('map searches', RecentSearches.maps.load);
   await _boot('backup', BackupService.instance.load);
   await _boot('payments', PaymentService.instance.load);
   await _boot('places', SavedPlacesStore.instance.load);

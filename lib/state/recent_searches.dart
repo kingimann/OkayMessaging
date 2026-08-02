@@ -3,12 +3,12 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 /// Remembers the last few search queries (most-recent first) so they can be
 /// re-run with a tap. Stored on-device only. Two instances exist: [instance]
-/// for the universal chat search and [maps] for place searches in Maps.
+/// for the universal chat search. There used to be a second one for place
+/// searches in Maps; it went when the map's search bar did, because a
+/// remembered query is worth nothing without a box to re-run it in.
 class RecentSearches extends ChangeNotifier {
   RecentSearches._(this._kKey);
   static final RecentSearches instance = RecentSearches._('recent_searches_v1');
-  static final RecentSearches maps =
-      RecentSearches._('recent_map_searches_v1');
 
   final String _kKey;
   static const _max = 8;

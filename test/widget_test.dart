@@ -219,7 +219,6 @@ void main() {
     ChatsTab.filtersVisible.value = false;
     LiveLocationStore.instance.resetForTest();
     SavedPlacesStore.instance.resetForTest();
-    RecentSearches.maps.resetForTest();
     // Plugin platform channels never complete inside the fake-async test
     // zone, so resolve GPS lookups immediately (with no fix) in tests.
     debugGeolocationOverride = () async => null;
@@ -9038,11 +9037,11 @@ void main() {
       await tester.pump();
     });
 
-    testWidgets('an empty search sheet rests at the search field, not a third '
-        'of the screen', (tester) async {
+    testWidgets('an empty sheet rests low, not a third of the screen',
+        (tester) async {
       // A flat 0.30 gave every new account a third of the screen as an empty
-      // slab: nothing is saved and nothing has been searched, so the two rows
-      // under the field render nothing at all.
+      // slab: nothing is saved yet, so the row under the handle renders
+      // nothing at all.
       await tester.pumpWidget(const MaterialApp(
         home: ExploreMapScreen(debugMyLocation: LatLng(43.6, -79.3)),
       ));
@@ -9065,8 +9064,8 @@ void main() {
           reason: 'an empty sheet should not eat a third of the map '
               '(covers $covered of ${screen.height}, top $sheetTop)');
 
-      // And pulling it up says why it is empty rather than showing nothing.
-      expect(find.textContaining('will show up here'), findsOneWidget);
+      // And it says why it is empty rather than showing nothing.
+      expect(find.textContaining('show up here'), findsOneWidget);
     });
 
     testWidgets('the zoom buttons respect the map\'s own limits',
@@ -9132,12 +9131,15 @@ void main() {
           lessThanOrEqualTo(sheetTop));
     });
 
-    testWidgets('the tile credit is not buried under the search sheet',
+    testWidgets('the tile credit is not buried under the sheet',
         (tester) async {
       // Mapbox's terms — and OpenStreetMap's — require the credit to be
       // visible. It was offset by the sheet's *minimum* size while the sheet
       // rested well above that, so at rest it sat underneath.
-      RecentSearches.maps.add('coffee');
+      //
+      // A saved place is what gives the sheet content now; it used to be a
+      // recent search, which went with the search bar.
+      SavedPlacesStore.instance.toggle(const SavedPlace('Home', 43.6, -79.3));
       await tester.pumpWidget(const MaterialApp(
         home: ExploreMapScreen(debugMyLocation: LatLng(43.6, -79.3)),
       ));
@@ -9176,7 +9178,8 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
       expect(find.text('Home Cafe'), findsWidgets);
-      expect(find.text('Directions'), findsOneWidget);
+      // Send, not Directions: routing went with the search bar.
+      expect(find.text('Send'), findsOneWidget);
 
       await tester.pumpWidget(const SizedBox());
       await tester.pump();
@@ -9248,15 +9251,6 @@ void main() {
           double.infinity);
     });
 
-    test('map recent searches are separate from chat recent searches', () {
-      RecentSearches.maps.add('coffee');
-      RecentSearches.maps.add('eiffel tower');
-      expect(RecentSearches.maps.queries, ['eiffel tower', 'coffee']);
-      expect(RecentSearches.instance.queries, isNot(contains('coffee')));
-      RecentSearches.maps.remove('coffee');
-      expect(RecentSearches.maps.queries, ['eiffel tower']);
-    });
-
     test('iconForPlaceCategory maps businesses and addresses sensibly', () {
       expect(iconForPlaceCategory(''), Icons.location_on_outlined);
       expect(iconForPlaceCategory('Cafe'), Icons.local_cafe);
@@ -9302,246 +9296,6 @@ void main() {
       await tester.pump();
     });
 
-    testWidgets('typing shows live suggestions; picking one selects the place',
-        (tester) async {
-      const cafe = GeoResult(
-          name: 'Blue Bottle, San Francisco',
-          lat: 37.7763,
-          lng: -122.4232,
-          category: 'Cafe');
-      const shop = GeoResult(
-          name: 'Blue Danube Coffee', lat: 37.78, lng: -122.46);
-      var calls = 0;
-      await tester.pumpWidget(MaterialApp(
-        home: ExploreMapScreen(
-          debugMyLocation: const LatLng(37.7749, -122.4194),
-          debugSearch: (q) async {
-            calls++;
-            return const [cafe, shop];
-          },
-        ),
-      ));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 300));
-
-      // Type — no submit — and let the debounce fire.
-      await tester.enterText(find.byType(TextField).first, 'blue');
-      await tester.pump(const Duration(milliseconds: 400));
-      await tester.pump();
-
-      expect(calls, 1);
-      expect(find.text('Blue Bottle, San Francisco'), findsOneWidget);
-      expect(find.text('Blue Danube Coffee'), findsOneWidget);
-      // The meta line shows category + distance from the debug fix.
-      expect(find.textContaining('Cafe · '), findsOneWidget);
-
-      // The sheet rests at the height of the search field when there is
-      // nothing saved yet, so it opens to put the suggestions on screen.
-      // Without that they render below the fold — findable by a test, and
-      // invisible to a person.
-      await tester.pump(const Duration(milliseconds: 250));
-
-      // Picking a suggestion selects it (Directions card) and remembers it.
-      await tester.tap(find.text('Blue Bottle, San Francisco'));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 300));
-      expect(find.text('Directions'), findsOneWidget);
-      expect(RecentSearches.maps.queries, contains('Blue Bottle'));
-      // The my-location FAB hides while the place card is up (it would
-      // overlap the card).
-      expect(find.byTooltip('My location'), findsNothing);
-
-      await tester.pumpWidget(const SizedBox());
-      await tester.pump();
-    });
-
-    testWidgets('a failed suggestion fetch keeps the previous suggestions',
-        (tester) async {
-      var fail = false;
-      await tester.pumpWidget(MaterialApp(
-        home: ExploreMapScreen(
-          debugSearch: (q) async => fail
-              ? null
-              : const [GeoResult(name: 'Blue Bottle', lat: 37.7, lng: -122.4)],
-        ),
-      ));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 300));
-
-      await tester.enterText(find.byType(TextField).first, 'blue');
-      await tester.pump(const Duration(milliseconds: 400));
-      await tester.pump();
-      expect(find.text('Blue Bottle'), findsOneWidget);
-
-      // The next keystroke's fetch fails — the list must NOT blank out.
-      fail = true;
-      await tester.enterText(find.byType(TextField).first, 'blue b');
-      await tester.pump(const Duration(milliseconds: 400));
-      await tester.pump();
-      expect(find.text('Blue Bottle'), findsOneWidget);
-
-      await tester.pumpWidget(const SizedBox());
-      await tester.pump();
-    });
-
-    testWidgets('the clear button resets the search', (tester) async {
-      await tester.pumpWidget(MaterialApp(
-        home: ExploreMapScreen(
-          debugSearch: (q) async =>
-              const [GeoResult(name: 'Somewhere', lat: 1, lng: 2)],
-        ),
-      ));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 300));
-
-      await tester.enterText(find.byType(TextField).first, 'some');
-      await tester.pump(const Duration(milliseconds: 400));
-      await tester.pump();
-      expect(find.text('Somewhere'), findsOneWidget);
-
-      await tester.tap(find.byTooltip('Clear search'));
-      await tester.pump();
-      expect(find.text('Somewhere'), findsNothing);
-      final field = tester.widget<TextField>(find.byType(TextField).first);
-      expect(field.controller!.text, isEmpty);
-
-      await tester.pumpWidget(const SizedBox());
-      await tester.pump();
-    });
-
-    testWidgets('a submitted search lists its hits in a bottom results sheet',
-        (tester) async {
-      const hits = [
-        GeoResult(
-            name: 'Cafe A, Toronto', lat: 43.65, lng: -79.38, category: 'Cafe'),
-        GeoResult(
-            name: 'Cafe B, Toronto', lat: 43.66, lng: -79.39, category: 'Cafe'),
-        GeoResult(
-            name: 'Cafe C, Toronto', lat: 43.67, lng: -79.40, category: 'Cafe'),
-      ];
-      await tester.pumpWidget(MaterialApp(
-        home: ExploreMapScreen(
-          debugMyLocation: const LatLng(43.6, -79.3),
-          debugSearch: (q) async => hits,
-        ),
-      ));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 300));
-
-      await tester.enterText(find.byType(TextField).first, 'cafe');
-      await tester.testTextInput.receiveAction(TextInputAction.search);
-      await tester.pump();
-      // Long enough for the FAB's scale-out animation to finish.
-      await tester.pump(const Duration(milliseconds: 400));
-
-      // The sheet lists every hit; the dropdown stays out of the way, and
-      // the my-location FAB hides so it can't overlap the sheet.
-      expect(find.text('3 places'), findsOneWidget);
-      expect(find.text('Cafe A'), findsOneWidget);
-      expect(find.text('Cafe C'), findsOneWidget);
-      expect(find.byTooltip('My location'), findsNothing);
-
-      // Picking one opens its card and hides the sheet…
-      await tester.tap(find.text('Cafe B'));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 300));
-      expect(find.text('Directions'), findsOneWidget);
-      expect(find.text('3 places'), findsNothing);
-
-      // …and closing the card brings the results sheet back.
-      await tester.tap(find.byTooltip('Clear'));
-      await tester.pump();
-      expect(find.text('3 places'), findsOneWidget);
-
-      // Closing the sheet clears the search entirely (and the FAB returns).
-      await tester.tap(find.byTooltip('Close results'));
-      await tester.pump();
-      expect(find.text('3 places'), findsNothing);
-      final field = tester.widget<TextField>(find.byType(TextField).first);
-      expect(field.controller!.text, isEmpty);
-      expect(find.byTooltip('My location'), findsOneWidget);
-
-      await tester.pumpWidget(const SizedBox());
-      await tester.pump();
-    });
-
-    testWidgets('panning away from results offers "Search this area"',
-        (tester) async {
-      var calls = 0;
-      await tester.pumpWidget(MaterialApp(
-        home: ExploreMapScreen(
-          debugMyLocation: const LatLng(43.6, -79.3),
-          debugSearch: (q) async {
-            calls++;
-            return const [
-              GeoResult(name: 'Cafe A', lat: 43.65, lng: -79.38),
-              GeoResult(name: 'Cafe B', lat: 43.66, lng: -79.39),
-            ];
-          },
-        ),
-      ));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 300));
-
-      await tester.enterText(find.byType(TextField).first, 'cafe');
-      await tester.testTextInput.receiveAction(TextInputAction.search);
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 100));
-      expect(calls, 1);
-      expect(find.text('2 places'), findsOneWidget);
-      expect(find.text('Search this area'), findsNothing);
-
-      // Pan the map — the re-search button appears.
-      await tester.dragFrom(const Offset(400, 250), const Offset(-120, 40));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 400));
-      expect(find.text('Search this area'), findsOneWidget);
-
-      // Tapping it re-runs the same query around the new centre.
-      await tester.tap(find.text('Search this area'));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 100));
-      expect(calls, 2);
-      expect(find.text('Search this area'), findsNothing);
-      expect(find.text('2 places'), findsOneWidget);
-
-      await tester.pumpWidget(const SizedBox());
-      await tester.pump();
-    });
-
-    testWidgets('tapping the map dismisses suggestions; typing re-shows them',
-        (tester) async {
-      await tester.pumpWidget(MaterialApp(
-        home: ExploreMapScreen(
-          debugSearch: (q) async =>
-              const [GeoResult(name: 'Somewhere', lat: 1, lng: 2)],
-        ),
-      ));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 300));
-
-      await tester.enterText(find.byType(TextField).first, 'some');
-      await tester.pump(const Duration(milliseconds: 400));
-      await tester.pump();
-      expect(find.text('Somewhere'), findsOneWidget);
-
-      // Tap the bare map strip above the raised search sheet (double-tap
-      // zoom disambiguation delays the tap).
-      await tester.tapAt(const Offset(300, 50));
-      await tester.pump(const Duration(milliseconds: 400));
-      await tester.pump();
-      expect(find.text('Somewhere'), findsNothing);
-
-      // Typing again brings the list back.
-      await tester.enterText(find.byType(TextField).first, 'somewh');
-      await tester.pump(const Duration(milliseconds: 400));
-      await tester.pump();
-      expect(find.text('Somewhere'), findsOneWidget);
-
-      await tester.pumpWidget(const SizedBox());
-      await tester.pump();
-    });
-
     testWidgets('Maps shows the blue "you are here" dot when located',
         (tester) async {
       await tester.pumpWidget(const MaterialApp(
@@ -9562,27 +9316,6 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
       expect(find.byType(MyLocationDot), findsNothing);
-      await tester.pumpWidget(const SizedBox());
-      await tester.pump();
-    });
-
-    testWidgets('Maps shows recent searches and can remove one',
-        (tester) async {
-      RecentSearches.maps.add('sushi');
-      RecentSearches.maps.add('coffee');
-      await tester.pumpWidget(const MaterialApp(home: ExploreMapScreen()));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 300));
-
-      expect(find.text('coffee'), findsOneWidget);
-      expect(find.text('sushi'), findsOneWidget);
-
-      // Remove "coffee" via its X.
-      await tester.tap(find.byIcon(Icons.close).first);
-      await tester.pump();
-      expect(find.text('coffee'), findsNothing);
-      expect(find.text('sushi'), findsOneWidget);
-
       await tester.pumpWidget(const SizedBox());
       await tester.pump();
     });
@@ -9621,83 +9354,12 @@ void main() {
       expect(iconForManeuver('continue', ''), Icons.straight);
     });
 
-    testWidgets('a category chip runs a nearby search into the results sheet',
-        (tester) async {
-      String? asked;
-      await tester.pumpWidget(MaterialApp(
-        home: ExploreMapScreen(
-          debugMyLocation: const LatLng(44.05, -79.46),
-          debugSearch: (q) async {
-            asked = q;
-            return const [
-              GeoResult(
-                  name: 'Cafe One', lat: 44.05, lng: -79.45, category: 'Cafe'),
-              GeoResult(
-                  name: 'Cafe Two', lat: 44.06, lng: -79.47, category: 'Cafe'),
-            ];
-          },
-        ),
-      ));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 300));
-
-      // Category searches now run from the typed query ("coffee" is a
-      // category intent), not a chip row.
-      await tester.enterText(find.byType(TextField).first, 'coffee');
-      await tester.testTextInput.receiveAction(TextInputAction.search);
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 100));
-
-      expect(asked, 'coffee');
-      expect(find.text('2 places'), findsOneWidget);
-      expect(find.text('Cafe One'), findsOneWidget);
-      // The results sheet header names the category being browsed.
-      expect(find.text('Coffee'), findsOneWidget);
-
-      await tester.pumpWidget(const SizedBox());
-      await tester.pump();
-    });
-
     test('categoryFilterFor spots category intents, not names', () {
       expect(categoryFilterFor('coffee'), isNotNull);
       expect(categoryFilterFor('  Gas Station '), isNotNull);
       expect(categoryFilterFor('pharmacy'), isNotNull);
       expect(categoryFilterFor('Blue Bottle'), isNull);
       expect(categoryFilterFor('1226 valencia street'), isNull);
-    });
-
-    testWidgets('typing a category word like "coffee" runs a nearby search',
-        (tester) async {
-      String? asked;
-      await tester.pumpWidget(MaterialApp(
-        home: ExploreMapScreen(
-          debugMyLocation: const LatLng(44.05, -79.46),
-          debugSearch: (q) async {
-            asked = q;
-            return const [
-              GeoResult(name: 'Cafe One', lat: 44.05, lng: -79.45),
-              GeoResult(name: 'Cafe Two', lat: 44.06, lng: -79.47),
-            ];
-          },
-        ),
-      ));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 300));
-
-      await tester.enterText(find.byType(TextField).first, 'coffee');
-      await tester.testTextInput.receiveAction(TextInputAction.search);
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 100));
-
-      // The nearby (category) path took over: the results header shows the
-      // capitalised label and the query was remembered.
-      expect(asked, 'coffee');
-      expect(find.text('2 places'), findsOneWidget);
-      expect(find.text('Coffee'), findsOneWidget);
-      expect(RecentSearches.maps.queries, contains('coffee'));
-
-      await tester.pumpWidget(const SizedBox());
-      await tester.pump();
     });
 
     test('parseOsrmRoutes returns the primary and its alternatives', () {
@@ -9854,87 +9516,59 @@ void main() {
 
     testWidgets('sharing a place from a chat opens the app\'s one real map',
         (tester) async {
-      // There used to be a second map that existed only for this: a centre
-      // pin over a submit-only search box, with no suggestions, no nearby
-      // categories, no saved places, and no name for what you picked. The
-      // chat now opens the same map as Maps, in picking mode.
-      // A full-screen map with a bottom sheet does not fit the default 600pt
-      // test surface: the first result lands at y=626 and no tap reaches it.
+      // There used to be a second map that existed only for this. The chat
+      // now opens the same one as Maps, in picking mode — which since the
+      // search bar was removed means dropping a pin or reusing a saved place.
       await tester.binding.setSurfaceSize(const Size(800, 1400));
       addTearDown(() => tester.binding.setSurfaceSize(null));
-      await tester.pumpWidget(MaterialApp(
+      await tester.pumpWidget(const MaterialApp(
         home: ExploreMapScreen(
           picking: true,
-          debugMyLocation: const LatLng(43.65, -79.38),
-          debugSearch: (q) async => const [
-            GeoResult(name: 'Union Station, Toronto', lat: 43.6453, lng: -79.3806),
-          ],
+          debugMyLocation: LatLng(43.65, -79.38),
         ),
       ));
       // FlutterMap tile timers never settle, so pump fixed frames.
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
 
-      // The things the old picker did not have.
-      expect(find.textContaining('press and hold'), findsOneWidget,
-          reason: 'picking mode never says how to choose an arbitrary point');
-      await tester.enterText(find.byType(TextField).first, 'union');
-      await tester.pump(const Duration(milliseconds: 600));
-      expect(find.textContaining('Union Station'), findsWidgets,
-          reason: 'search-as-you-type is the whole reason for the swap');
+      // The picking-only sentence. The empty-state copy underneath also
+      // mentions pressing and holding, so matching on that alone finds two.
+      expect(find.textContaining('pick one you have saved'), findsOneWidget,
+          reason: 'picking mode never says how to choose a point');
 
-      // Choosing one offers to send it back, and the place keeps its name —
-      // which is what turns "Shared location" into "Union Station, Toronto"
-      // in the chat.
-      // ensureVisible, not a bare tap: the sheet's resting height depends on
-      // whether recents and saved places have anything in them, so the first
-      // result's y position is not a constant across a whole suite run.
-      await tester.ensureVisible(
-          find.widgetWithText(ListTile, 'Union Station, Toronto').first);
-      await tester.pump();
-      await tester.tap(
-          find.widgetWithText(ListTile, 'Union Station, Toronto').first);
+      // Long press drops a pin. Reverse geocoding cannot reach the network in
+      // a test, so the fallback name — the coordinates — is what comes back,
+      // and the card still has to appear and still has to offer to send it.
+      await tester.longPress(find.byType(FlutterMap));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 400));
+
       expect(find.text('Send this location'), findsOneWidget);
-      expect(find.text('Directions'), findsNothing,
-          reason: 'a chat is waiting; sending it elsewhere is not the offer');
+      expect(find.text('Send'), findsNothing,
+          reason: 'a chat is waiting; forwarding it elsewhere is not the offer');
 
       await tester.pumpWidget(const SizedBox());
       await tester.pump();
     });
 
-    testWidgets('and the ordinary map still offers directions, not a send-back',
+    testWidgets('and the ordinary map offers Send, not a send-back',
         (tester) async {
       // The other half of the flag: picking mode must not leak into Maps
-      // opened normally, where "Send this location" would pop a route
-      // nobody pushed.
+      // opened normally, where "Send this location" would pop a route nobody
+      // pushed.
       await tester.binding.setSurfaceSize(const Size(800, 1400));
       addTearDown(() => tester.binding.setSurfaceSize(null));
-      await tester.pumpWidget(MaterialApp(
-        home: ExploreMapScreen(
-          debugMyLocation: const LatLng(43.65, -79.38),
-          debugSearch: (q) async => const [
-            GeoResult(name: 'Union Station, Toronto', lat: 43.6453, lng: -79.3806),
-          ],
-        ),
+      await tester.pumpWidget(const MaterialApp(
+        home: ExploreMapScreen(debugMyLocation: LatLng(43.65, -79.38)),
       ));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
-      expect(find.textContaining('press and hold'), findsNothing);
-      await tester.enterText(find.byType(TextField).first, 'union');
-      await tester.pump(const Duration(milliseconds: 600));
-      // ensureVisible, not a bare tap: the sheet's resting height depends on
-      // whether recents and saved places have anything in them, so the first
-      // result's y position is not a constant across a whole suite run.
-      await tester.ensureVisible(
-          find.widgetWithText(ListTile, 'Union Station, Toronto').first);
-      await tester.pump();
-      await tester.tap(
-          find.widgetWithText(ListTile, 'Union Station, Toronto').first);
+      expect(find.textContaining('pick one you have saved'), findsNothing);
+
+      await tester.longPress(find.byType(FlutterMap));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 400));
-      expect(find.text('Directions'), findsOneWidget);
+      expect(find.text('Send'), findsOneWidget);
       expect(find.text('Send this location'), findsNothing);
 
       await tester.pumpWidget(const SizedBox());
