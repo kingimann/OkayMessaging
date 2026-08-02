@@ -653,7 +653,13 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
     if (_showWelcomeBack && last != null && _step == _Step.phone) {
       return _welcomeBack(last);
     }
-    if (!_verifiedMode) return [_modeSwitch(), ..._localFields()];
+    if (!_verifiedMode) {
+      // The no-number step is a full screen of its own on this form too, so
+      // "Sign up with a username instead" lands somewhere with a username
+      // field rather than erroring about one that isn't shown.
+      if (_step == _Step.noNumber) return _noNumberFields();
+      return [_modeSwitch(), ..._localFields()];
+    }
     switch (_step) {
       case _Step.phone:
         return [
@@ -883,7 +889,7 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
         if (_signingUp) ...[
           const SizedBox(height: 6),
           TextButton(
-            onPressed: _busy ? null : _continueWithoutNumber,
+            onPressed: _busy ? null : _startNoNumber,
             child: Text('Sign up with a username instead',
                 style: TextStyle(color: AppColors.subtle(context))),
           ),

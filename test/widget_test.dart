@@ -21866,6 +21866,9 @@ void main() {
     });
 
     testWidgets('the way in needs a username rather than a number', (t) async {
+      // The local form now opens the same dedicated no-number step the
+      // verified form does, so the flow is identical on both builds: the
+      // link never errors about a field that isn't on screen.
       t.view.physicalSize = const Size(500, 1600);
       t.view.devicePixelRatio = 1.0;
       addTearDown(t.view.resetPhysicalSize);
@@ -21876,34 +21879,38 @@ void main() {
         await t.tap(find.text('Use a different account'));
         await t.pumpAndSettle();
       }
-      await t.tap(find.text('Create account'));
+      await t.tap(find.text('Create account').first);
       await t.pumpAndSettle();
 
-      // The username is what other people type to reach you, and with no
-      // number in anybody's contacts it is the ONLY thing they can type — so
-      // it is the one field this path insists on. Both are cleared
-      // explicitly: they are prefilled from the last account, so without this
-      // the empty branch is never reached and the test proves nothing.
-      final fields = find.byType(TextFormField);
-      await t.enterText(fields.at(0), ''); // name
-      await t.enterText(fields.at(1), ''); // username
       await t.tap(find.text('Sign up with a username instead'));
+      await t.pumpAndSettle();
+      // A step with the username field, not an error over the phone form.
+      expect(find.widgetWithText(TextFormField, 'Username'), findsOneWidget);
+      expect(find.text('Phone number'), findsNothing);
+
+      // On the step: username (0), display name (1). Cleared explicitly —
+      // they prefill from the last account, so without this the empty branch
+      // is never reached and the test proves nothing.
+      final fields = find.byType(TextFormField);
+      await t.enterText(fields.at(0), '');
+      await t.enterText(fields.at(1), '');
+      await t.tap(find.widgetWithText(FilledButton, 'Create account'));
       await t.pump();
       expect(Session.instance.isSignedIn, isFalse);
       expect(find.textContaining('Pick a username'), findsOneWidget);
 
       // A handle too short to be one is refused for a different reason, and
       // says so — "pick a username" at somebody who just did reads as a bug.
-      await t.enterText(fields.at(1), 'ad');
-      await t.tap(find.text('Sign up with a username instead'));
+      await t.enterText(fields.at(0), 'ad');
+      await t.tap(find.widgetWithText(FilledButton, 'Create account'));
       await t.pump();
       expect(Session.instance.isSignedIn, isFalse);
       expect(find.textContaining('at least 3'), findsOneWidget);
 
       // No name typed: signing up this way is one field, and the handle
       // stands in rather than the account code, which nobody would recognise.
-      await t.enterText(fields.at(1), 'ada');
-      await t.tap(find.text('Sign up with a username instead'));
+      await t.enterText(fields.at(0), 'ada');
+      await t.tap(find.widgetWithText(FilledButton, 'Create account'));
       // pump, not pumpAndSettle: signing in leaves the button spinning until
       // the auth gate swaps the screen out, and there is no gate here.
       await t.pump();
