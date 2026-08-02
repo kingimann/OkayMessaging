@@ -25107,23 +25107,23 @@ void main() {
     void distribute(SenderKeyStore from, String fromId, List<SenderKeyStore> to) {
       final skdm = from.mySkdm(sid);
       for (final t in to) {
-        t.acceptSkdm(sid, fromId, skdm.ck, skdm.n);
+        t.acceptSkdm(sid, fromId, skdm.ck, skdm.n, skdm.sig);
       }
     }
 
     test('a broadcast reaches every member who has the sender key', () {
       distribute(aaa, 'aaa', [bbb, ccc]);
       final m = aaa.seal(sid, 'hello server');
-      expect(bbb.open(sid, 'aaa', m.n, m.ct), 'hello server');
-      expect(ccc.open(sid, 'aaa', m.n, m.ct), 'hello server');
+      expect(bbb.open(sid, 'aaa', m.n, m.ct, m.sg), 'hello server');
+      expect(ccc.open(sid, 'aaa', m.n, m.ct, m.sg), 'hello server');
     });
 
     test('a member without the sender key cannot read (must request it)', () {
       // The race the relay closes with an skreq: ccc never took aaa's SKDM.
       distribute(aaa, 'aaa', [bbb]);
       final m = aaa.seal(sid, 'members only');
-      expect(bbb.open(sid, 'aaa', m.n, m.ct), 'members only');
-      expect(ccc.open(sid, 'aaa', m.n, m.ct), isNull);
+      expect(bbb.open(sid, 'aaa', m.n, m.ct, m.sg), 'members only');
+      expect(ccc.open(sid, 'aaa', m.n, m.ct, m.sg), isNull);
     });
 
     test('each message uses its own key; a replay reads once', () {
@@ -25131,9 +25131,9 @@ void main() {
       final m1 = aaa.seal(sid, 'one');
       final m2 = aaa.seal(sid, 'two');
       expect(m1.ct, isNot(m2.ct));
-      expect(bbb.open(sid, 'aaa', m1.n, m1.ct), 'one');
-      expect(bbb.open(sid, 'aaa', m2.n, m2.ct), 'two');
-      expect(bbb.open(sid, 'aaa', m1.n, m1.ct), isNull,
+      expect(bbb.open(sid, 'aaa', m1.n, m1.ct, m1.sg), 'one');
+      expect(bbb.open(sid, 'aaa', m2.n, m2.ct, m2.sg), 'two');
+      expect(bbb.open(sid, 'aaa', m1.n, m1.ct, m1.sg), isNull,
           reason: 'the key was deleted on use — forward secrecy at work');
     });
 
@@ -25142,9 +25142,9 @@ void main() {
       final m1 = aaa.seal(sid, 'first');
       final m2 = aaa.seal(sid, 'second');
       final m3 = aaa.seal(sid, 'third');
-      expect(bbb.open(sid, 'aaa', m3.n, m3.ct), 'third');
-      expect(bbb.open(sid, 'aaa', m1.n, m1.ct), 'first');
-      expect(bbb.open(sid, 'aaa', m2.n, m2.ct), 'second');
+      expect(bbb.open(sid, 'aaa', m3.n, m3.ct, m3.sg), 'third');
+      expect(bbb.open(sid, 'aaa', m1.n, m1.ct, m1.sg), 'first');
+      expect(bbb.open(sid, 'aaa', m2.n, m2.ct, m2.sg), 'second');
     });
 
     test('a late joiner reads from when they joined, not before', () {
@@ -25152,10 +25152,10 @@ void main() {
       final before = aaa.seal(sid, 'before ccc');
       // ccc joins now: takes aaa's CURRENT skdm, which is past `before`.
       final skdm = aaa.mySkdm(sid);
-      ccc.acceptSkdm(sid, 'aaa', skdm.ck, skdm.n);
+      ccc.acceptSkdm(sid, 'aaa', skdm.ck, skdm.n, skdm.sig);
       final after = aaa.seal(sid, 'after ccc');
-      expect(ccc.open(sid, 'aaa', after.n, after.ct), 'after ccc');
-      expect(ccc.open(sid, 'aaa', before.n, before.ct), isNull,
+      expect(ccc.open(sid, 'aaa', after.n, after.ct, after.sg), 'after ccc');
+      expect(ccc.open(sid, 'aaa', before.n, before.ct, before.sg), isNull,
           reason: 'a joiner must not be handed keys to earlier messages');
     });
 
@@ -25163,29 +25163,31 @@ void main() {
       // ccc was a member and holds aaa's chain…
       distribute(aaa, 'aaa', [bbb, ccc]);
       final old = aaa.seal(sid, 'while ccc was in');
-      expect(ccc.open(sid, 'aaa', old.n, old.ct), 'while ccc was in');
+      expect(ccc.open(sid, 'aaa', old.n, old.ct, old.sg), 'while ccc was in');
       // …ccc leaves; aaa rotates to a fresh epoch and redistributes to bbb.
       aaa.rotate(sid);
       final skdm = aaa.mySkdm(sid);
-      bbb.acceptSkdm(sid, 'aaa', skdm.ck, skdm.n);
+      bbb.acceptSkdm(sid, 'aaa', skdm.ck, skdm.n, skdm.sig);
       final fresh = aaa.seal(sid, 'after ccc left');
-      expect(bbb.open(sid, 'aaa', fresh.n, fresh.ct), 'after ccc left');
-      expect(ccc.open(sid, 'aaa', fresh.n, fresh.ct), isNull,
+      expect(bbb.open(sid, 'aaa', fresh.n, fresh.ct, fresh.sg), 'after ccc left');
+      expect(ccc.open(sid, 'aaa', fresh.n, fresh.ct, fresh.sg), isNull,
           reason: 'the departed member\'s old chain reads nothing new');
     });
 
     test('a message wound past MAX_SKIP is refused', () {
       distribute(aaa, 'aaa', [bbb]);
       final m = aaa.seal(sid, 'x');
-      // Forge an iteration far beyond the bound.
-      expect(bbb.open(sid, 'aaa', SenderKeyStore.maxSkip + 10, m.ct), isNull);
+      // Forge an iteration far beyond the bound (re-sign so it clears the
+      // signature check and the skip bound is what actually refuses it).
+      expect(
+          bbb.open(sid, 'aaa', SenderKeyStore.maxSkip + 10, m.ct, m.sg), isNull);
     });
 
     test('a tampered server/iteration binding fails the tag', () {
       distribute(aaa, 'aaa', [bbb]);
       final m = aaa.seal(sid, 'bound to place');
-      // Right ciphertext, wrong iteration claim → AAD mismatch → null.
-      expect(bbb.open(sid, 'aaa', m.n + 1, m.ct), isNull);
+      // Right ciphertext, wrong iteration claim → signature/AAD mismatch.
+      expect(bbb.open(sid, 'aaa', m.n + 1, m.ct, m.sg), isNull);
     });
 
     test('two senders on one server do not collide', () {
@@ -25193,8 +25195,28 @@ void main() {
       distribute(bbb, 'bbb', [ccc]);
       final fromA = aaa.seal(sid, 'from A');
       final fromB = bbb.seal(sid, 'from B');
-      expect(ccc.open(sid, 'aaa', fromA.n, fromA.ct), 'from A');
-      expect(ccc.open(sid, 'bbb', fromB.n, fromB.ct), 'from B');
+      expect(ccc.open(sid, 'aaa', fromA.n, fromA.ct, fromA.sg), 'from A');
+      expect(ccc.open(sid, 'bbb', fromB.n, fromB.ct, fromB.sg), 'from B');
+    });
+
+    test('one member cannot forge a message as another', () {
+      // The signature gap this closes: bbb receives aaa's chain (must, to
+      // decrypt) — but without aaa's signing key, bbb cannot write as aaa.
+      distribute(aaa, 'aaa', [bbb, ccc]);
+      // bbb holds aaa's chain key, so bbb can derive aaa's next message key
+      // and forge a ciphertext… but bbb signs with ITS OWN key.
+      final forged = bbb.seal(sid, 'pretending to be aaa');
+      // ccc, verifying against aaa's signing key from the SKDM, rejects it.
+      expect(ccc.open(sid, 'aaa', forged.n, forged.ct, forged.sg), isNull,
+          reason: 'a message signed by bbb must not read as one from aaa');
+    });
+
+    test('a genuine message with a swapped signature is refused', () {
+      distribute(aaa, 'aaa', [bbb, ccc]);
+      final real = aaa.seal(sid, 'genuine');
+      final other = bbb.seal(sid, 'other'); // some other valid signature
+      expect(ccc.open(sid, 'aaa', real.n, real.ct, other.sg), isNull,
+          reason: 'the signature must be aaa\'s over THIS ciphertext');
     });
 
     test('the relay wires it with a shared-secret fallback and rotation', () {
@@ -25206,6 +25228,10 @@ void main() {
           reason: 'the SKDM race needs a request/deliver path');
       expect(src.contains('.rotate('), isTrue,
           reason: 'membership change must rotate the epoch');
+      expect(src.contains("'sg': sealed.sg"), isTrue,
+          reason: 'the per-message signature must ride the broadcast');
+      expect(src.contains("'sig': skdm.sig"), isTrue,
+          reason: 'the SKDM must carry the signing public key');
     });
   });
   group('private notifications and forced-E2EE backups', () {

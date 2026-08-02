@@ -1305,15 +1305,18 @@ class RelayService {
         // this sender's chain yet, their SKDM hasn't arrived — ask for it and
         // drop this one message rather than reading it a weaker way.
         final n = (payload['skn'] as num?)?.toInt() ?? 0;
+        final sg = payload['sg'] as String? ?? '';
         final sender = digits(from);
         if (!SenderKeyStore.instance.canRead(cid, sender)) {
           _requestSkdm(cid, sender);
           return;
         }
-        plain = SenderKeyStore.instance.open(cid, sender, n, skc);
+        plain = SenderKeyStore.instance.open(cid, sender, n, skc, sg);
         if (plain == null) {
-          // Held the chain but couldn't open (gap past the bound, or a
-          // rotation we missed) — re-request to resync.
+          // Held the chain but couldn't open: a gap past the bound / a
+          // rotation we missed (re-request resyncs), OR a signature that did
+          // not verify (a forgery — the resync is harmless, the message
+          // stays dropped).
           _requestSkdm(cid, sender);
           return;
         }
@@ -1417,7 +1420,7 @@ class RelayService {
     final firstSend = !sk.hasOwn(community.id);
     final sealed = sk.seal(community.id, plaintext);
     if (firstSend) _distributeSkdm(community);
-    return {'skc': sealed.ct, 'skn': sealed.n};
+    return {'skc': sealed.ct, 'skn': sealed.n, 'sg': sealed.sg};
   }
 
   /// Sends this device's current SKDM for [community] to each reachable
@@ -1429,8 +1432,12 @@ class RelayService {
     if (me == null) return;
     final skdm = SenderKeyStore.instance.mySkdm(community.id);
     final mine = digits(me.phone);
-    final body = jsonEncode(
-        {'communityId': community.id, 'ck': skdm.ck, 'n': skdm.n});
+    final body = jsonEncode({
+      'communityId': community.id,
+      'ck': skdm.ck,
+      'n': skdm.n,
+      'sig': skdm.sig, // the signing public key, so receivers can verify
+    });
     for (final m in community.members) {
       final d = CommunityStore.digitsOfWireId(m.id);
       if (d == null || d == mine) continue;
@@ -1463,8 +1470,9 @@ class RelayService {
       final cid = body['communityId'] as String?;
       final ck = body['ck'] as String?;
       final n = (body['n'] as num?)?.toInt();
-      if (cid == null || ck == null || n == null) return;
-      SenderKeyStore.instance.acceptSkdm(cid, digits(from), ck, n);
+      final sig = body['sig'] as String?;
+      if (cid == null || ck == null || n == null || sig == null) return;
+      SenderKeyStore.instance.acceptSkdm(cid, digits(from), ck, n, sig);
     } catch (_) {}
   }
 

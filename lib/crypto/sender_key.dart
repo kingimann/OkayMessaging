@@ -3,6 +3,7 @@ import 'dart:math';
 
 import 'package:crypto/crypto.dart' show Hmac, sha256;
 import 'package:flutter/foundation.dart';
+import 'package:pointycastle/export.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'e2e.dart';
@@ -38,6 +39,16 @@ import 'e2e.dart';
 /// Closing that needs a per-sender signing key and is a documented follow-up;
 /// it is not a regression, and confidentiality against non-members holds
 /// regardless (they never receive the SKDM).
+///
+/// **Per-message signatures close the one gap.** Every receiver must hold a
+/// sender's chain key to decrypt, which would let one member forge messages
+/// as another — so each sender also owns a P-256 signing keypair whose
+/// PRIVATE half is never distributed. The SKDM carries the public half; every
+/// broadcast is signed over its ciphertext, and [open] refuses a message
+/// whose signature does not verify. That is Signal's group unforgeability,
+/// and it means a member who can read another's messages still cannot write
+/// as them. (P-256 rather than Ed25519 for the same reason the ratchet uses
+/// it — the app has one curve.)
 ///
 /// The wiring that carries SKDMs between devices and rotates on membership
 /// change lives in the relay; like the mesh and the ratchet's transport, the
@@ -94,6 +105,59 @@ class SenderKeyStore {
   static Uint8List _random32() =>
       Uint8List.fromList(List.generate(32, (_) => _rng.nextInt(256)));
 
+  static final ECDomainParameters _curve = ECDomainParameters('secp256r1');
+
+  /// A fresh P-256 signing keypair, as (private hex, public base64). The
+  /// private half stays on this device and never rides an SKDM.
+  static ({String priv, String pub}) _genSigningKey() {
+    final seed = _random32();
+    final gen = ECKeyGenerator()
+      ..init(ParametersWithRandom(
+          ECKeyGeneratorParameters(_curve), FortunaRandom()
+            ..seed(KeyParameter(seed))));
+    final pair = gen.generateKeyPair();
+    final priv = pair.privateKey;
+    final pub = pair.publicKey;
+    return (
+      priv: priv.d!.toRadixString(16),
+      pub: base64.encode(pub.Q!.getEncoded(false)),
+    );
+  }
+
+  /// Deterministic (RFC 6979) ECDSA-SHA256 over [msg] — no RNG at sign time,
+  /// so a signature can't leak the key through a weak nonce.
+  static String _sign(String privHex, List<int> msg) {
+    final signer = ECDSASigner(SHA256Digest(), HMac(SHA256Digest(), 64))
+      ..init(true,
+          PrivateKeyParameter(ECPrivateKey(BigInt.parse(privHex, radix: 16), _curve)));
+    final sig =
+        signer.generateSignature(Uint8List.fromList(msg)) as ECSignature;
+    return '${sig.r.toRadixString(16)}.${sig.s.toRadixString(16)}';
+  }
+
+  static bool _verify(String pubB64, List<int> msg, String sig) {
+    try {
+      final parts = sig.split('.');
+      if (parts.length != 2) return false;
+      final point = _curve.curve.decodePoint(base64.decode(pubB64));
+      if (point == null) return false;
+      final signer = ECDSASigner(SHA256Digest(), HMac(SHA256Digest(), 64))
+        ..init(false, PublicKeyParameter(ECPublicKey(point, _curve)));
+      return signer.verifySignature(
+          Uint8List.fromList(msg),
+          ECSignature(BigInt.parse(parts[0], radix: 16),
+              BigInt.parse(parts[1], radix: 16)));
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// What a signature covers: the ciphertext, bound to its server and
+  /// iteration, so a valid signature can't be lifted onto a different
+  /// message, position, or server.
+  static List<int> _signed(String serverId, int n, String ct) =>
+      [...utf8.encode(ct), ..._aad(serverId, n)];
+
   /// This device's current sender-key distribution message for [serverId] —
   /// the chain key and the iteration it is at, so a member who accepts it
   /// reads everything from here forward. Creates the chain on first call.
@@ -101,39 +165,48 @@ class SenderKeyStore {
   /// It hands out the CURRENT chain key, not the epoch's original: a member
   /// who joins mid-conversation should be able to read from now on, and must
   /// NOT be handed the key to messages sent before they arrived.
-  ({String ck, int n}) mySkdm(String serverId) {
-    final chain = _own.putIfAbsent(serverId, () => _Chain(_random32()));
+  ({String ck, int n, String sig}) mySkdm(String serverId) {
+    final chain = _ensureOwn(serverId);
     _persist();
-    return (ck: base64.encode(chain.ck), n: chain.n);
+    return (ck: base64.encode(chain.ck), n: chain.n, sig: chain.signPub!);
   }
+
+  _Chain _ensureOwn(String serverId) => _own.putIfAbsent(serverId, () {
+        final sign = _genSigningKey();
+        return _Chain(_random32(), signPriv: sign.priv, signPub: sign.pub);
+      });
 
   /// Whether this device already has a sending chain for [serverId] — i.e.
   /// whether its SKDM has been minted (and so needs distributing).
   bool hasOwn(String serverId) => _own.containsKey(serverId);
 
   /// Seals [plaintext] under this device's sender chain for [serverId],
-  /// advancing the chain. Returns the iteration and ciphertext; the receiver
-  /// pairs the iteration with the sender's digits to find the message key.
-  ({int n, String ct}) seal(String serverId, String plaintext) {
-    final chain = _own.putIfAbsent(serverId, () => _Chain(_random32()));
+  /// advancing the chain and signing the ciphertext. Returns the iteration,
+  /// ciphertext, and signature; the receiver pairs the iteration with the
+  /// sender's digits to find the message key and verifies against the signing
+  /// key the SKDM handed over.
+  ({int n, String ct, String sg}) seal(String serverId, String plaintext) {
+    final chain = _ensureOwn(serverId);
     final n = chain.n;
     final mk = chain.messageKey();
     chain.advance();
     _persist();
-    return (n: n, ct: E2eCrypto.encrypt(mk, plaintext, aad: _aad(serverId, n)));
+    final ct = E2eCrypto.encrypt(mk, plaintext, aad: _aad(serverId, n));
+    return (n: n, ct: ct, sg: _sign(chain.signPriv!, _signed(serverId, n, ct)));
   }
 
-  /// Accepts a peer's SKDM: stores [senderDigits]'s chain for [serverId] so
-  /// their messages can be read from iteration [n] onward. A later SKDM for
-  /// the same sender replaces the earlier one (they rotated, or re-sent a
-  /// fresher key) — but never rolls an existing chain BACKWARDS, which would
-  /// re-open message keys a compromise-recovery rotation just closed.
-  void acceptSkdm(
-      String serverId, String senderDigits, String ck, int n) {
+  /// Accepts a peer's SKDM: stores [senderDigits]'s chain and signing key for
+  /// [serverId] so their messages can be read (and verified) from iteration
+  /// [n] onward. A later SKDM for the same sender replaces the earlier one
+  /// (they rotated, or re-sent a fresher key) — but never rolls an existing
+  /// chain BACKWARDS, which would re-open message keys a compromise-recovery
+  /// rotation just closed.
+  void acceptSkdm(String serverId, String senderDigits, String ck, int n,
+      String signPub) {
     final key = _rk(serverId, senderDigits);
     final existing = _recv[key];
     if (existing != null && n < existing.n) return;
-    _recv[key] = _Chain(base64.decode(ck), n: n);
+    _recv[key] = _Chain(base64.decode(ck), n: n, signPub: signPub);
     _persist();
   }
 
@@ -142,13 +215,21 @@ class SenderKeyStore {
   bool canRead(String serverId, String senderDigits) =>
       _recv.containsKey(_rk(serverId, senderDigits));
 
-  /// Opens a sender-key message. Null when the sender's chain is unknown
-  /// (SKDM not yet received — the caller should request it), the message is a
-  /// replay (its key was used and deleted), or it is wound past [maxSkip].
+  /// Opens a sender-key message, verifying its signature first. Null when the
+  /// signature does not verify (a member forging as another, or corruption),
+  /// the sender's chain is unknown (SKDM not yet received — the caller should
+  /// request it), the message is a replay (its key was used and deleted), or
+  /// it is wound past [maxSkip].
   String? open(
-      String serverId, String senderDigits, int n, String ct) {
+      String serverId, String senderDigits, int n, String ct, String sg) {
     final chain = _recv[_rk(serverId, senderDigits)];
     if (chain == null) return null;
+    // Authenticate before touching the chain: an unverified message must not
+    // advance or shelve anything.
+    if (chain.signPub == null ||
+        !_verify(chain.signPub!, _signed(serverId, n, ct), sg)) {
+      return null;
+    }
     final shelved = chain.takeSkipped(n);
     if (shelved != null) {
       _persist();
@@ -173,7 +254,9 @@ class SenderKeyStore {
   /// members. Drops stored receive chains for the server too, so their next
   /// SKDM is taken cleanly.
   void rotate(String serverId) {
-    _own[serverId] = _Chain(_random32());
+    final sign = _genSigningKey();
+    _own[serverId] =
+        _Chain(_random32(), signPriv: sign.priv, signPub: sign.pub);
     _recv.removeWhere((k, _) => k.startsWith('$serverId|'));
     _persist();
   }
@@ -200,10 +283,16 @@ class SenderKeyStore {
 /// One symmetric chain: a key and the iteration it sits at, plus the shelf of
 /// message keys skipped for out-of-order arrivals.
 class _Chain {
-  _Chain(this.ck, {this.n = 0});
+  _Chain(this.ck, {this.n = 0, this.signPriv, this.signPub});
 
   List<int> ck;
   int n;
+
+  /// Own chains carry both halves of the signing key; receive chains carry
+  /// only the sender's public half, to verify with.
+  String? signPriv;
+  String? signPub;
+
   final Map<int, String> skipped = {}; // iteration -> base64 message key
 
   List<int> messageKey() => Hmac(sha256, ck).convert(const [0x01]).bytes;
@@ -230,12 +319,16 @@ class _Chain {
   Map<String, dynamic> toJson() => {
         'ck': base64.encode(ck),
         'n': n,
+        if (signPriv != null) 'sp': signPriv,
+        if (signPub != null) 'sP': signPub,
         'skipped': skipped,
       };
 
   factory _Chain.fromJson(Map<String, dynamic> j) {
     final c = _Chain(base64.decode(j['ck'] as String),
-        n: (j['n'] as num?)?.toInt() ?? 0);
+        n: (j['n'] as num?)?.toInt() ?? 0,
+        signPriv: j['sp'] as String?,
+        signPub: j['sP'] as String?);
     ((j['skipped'] as Map?) ?? const {})
         .forEach((k, v) => c.skipped[int.parse('$k')] = '$v');
     return c;

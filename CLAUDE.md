@@ -176,12 +176,14 @@ iOS builds run on **Codemagic** (`codemagic.yaml`, workflow
   as legacy fallback for older builds. A member removal rotates the epoch
   (`onMemberRemoved` → `rotateServerKey`) so a departed member's chain reads
   nothing after; a receiver that lacks a sender's chain sends `skreq` and the
-  sender re-delivers the SKDM. **Known limits, stated rather than hidden:**
-  no per-message signatures yet, so member-to-member unforgeability stays at
-  the shared-secret level (parity, not a regression — non-members never get
-  the SKDM); and the multi-device distribution/rotation path is first proven
-  on real devices, like the mesh. The chain core is proven in-process by its
-  tests.
+  sender re-delivers the SKDM. **Every broadcast is signed** with a per-sender
+  P-256 key whose private half never leaves the device (the SKDM carries only
+  the public half): a member who holds another's chain to DECRYPT still cannot
+  forge as them, because `open` verifies the signature before touching the
+  chain. That is Signal's group unforgeability. **Remaining limit, stated
+  rather than hidden:** the multi-device distribution/rotation path is first
+  proven on real devices, like the mesh — the chain and signature core are
+  proven in-process by their tests.
 - The Supabase **publishable** key (`sb_publishable_…`) and the Stripe
   **publishable** key (`pk_live_…`) are client-safe and intentionally inlined
   in build configs. Secret keys (`sk_…`, APNs `.p8`) must never enter the
