@@ -314,12 +314,59 @@ A separate, thinner thread screen would have drifted from this one the first
 time either changed, and would have needed its own composer, attachments,
 reactions and delivery.
 
+**Both newsfeeds thread too**, and had before this: replies carry a parent,
+neither timeline shows them, both walk the ancestor chain root-first with the
+same depth bound and cycle guard, and both draw a spine. What they gained is
+X's distinction — `selfThreadOf` on each store, and a **"Show this thread"**
+line when the AUTHOR continued their own post, which is a different event from
+strangers answering and is not what the reply count means. Never drawn on the
+post that already is the thread on screen.
+
 **Flat, groups only.** "Reply in thread" is hidden in a 1:1 (the room is the
 two of you, there is nothing to spare it from) and inside a thread (a thread
 of threads is a second place to lose a conversation). The header says
 "Thread · Stays out of <group>", because the same avatar and name as the group
 would leave somebody typing into a side conversation believing they were
 talking to everyone.
+
+## Custom forms
+
+`lib/models/form_spec.dart`, sent from the chat attachment panel. **A form is
+a richer poll and is built as one on purpose**: it goes into a conversation as
+a message (`Message.isForm`), the answers come back over the same E2E path as
+a `form` relay event, and none of it touches a table. Posting answers to a
+server would make this the one feature collecting people's replies in the
+clear, and forms collect exactly the kind of answer worth protecting — a test
+asserts no form file reaches for `supabase` or `http`.
+
+Five field kinds (short, long, number, choose-one, yes/no). A number stays
+**text** — a phone number with a leading zero stops being one once parsed.
+Answers are **positional and always as long as the form**; an unanswered
+optional question is `''`, because a shorter list shifts every later answer
+onto the wrong question. Answering twice corrects rather than duplicates. The
+card says a different thing to each side: the sender gets the count and can
+read them, recipients are never shown who else answered.
+
+**Known limit**: responses come back over the 1:1 path, so a form sent to a
+group only aggregates from direct peers. Group fan-out for responses is not
+built.
+
+## Quick replies
+
+`lib/state/quick_replies.dart` — the sentences somebody types most, saved
+once. Settings → Quick replies, or hold a message → Save as quick reply;
+inserted from the attachment panel. **Inserted, never sent**, and appended to
+what is already typed: a canned reply that sends itself is a message nobody
+read before it left.
+
+On the device and nowhere else — not on a server, not in the encrypted backup,
+and a test holds it there. The list of sentences a person uses most is a fair
+description of their life. The starter suggestions are *offered*, never
+seeded, which is the no-fake-data rule wearing a different hat.
+
+`reorder` takes the index **after** the lift (`onReorderItem`), so there is no
+off-by-one to compensate for — the old `onReorder` is deprecated and
+compensating anyway swaps the wrong pair.
 
 ## Verified-only features
 
@@ -340,6 +387,25 @@ Two things that look like bugs and are not:
   nearby's entire point is working with no network; an offline launch would
   otherwise read a verified account as unverified. `refresh()` still
   overwrites it, including downgrades.
+
+## Waiting on the user (nothing here is code)
+
+Carried across several sessions; none of it can be done from this box.
+
+1. **Start a Codemagic build.** Everything since the last one is unbuilt,
+   including ~115 lines of new Swift (`okay/screenshot`, the capture observer,
+   the app-switcher cover) plus `Mesh.swift` and `NearbyFast.swift`, which have
+   still never been compiled anywhere.
+2. **Deploy the `pages` Edge Function with JWT verification OFF**, and add
+   `https://<project>.supabase.co/functions/v1/pages/email-confirmed` to
+   Supabase → Authentication → Redirect URLs. Do the second one *before*
+   shipping a build or confirmation links land on `localhost`.
+3. **Re-paste `push-send`** — the deployed copy predates the self-test.
+4. **`KLIPY_API_KEY`** into the Codemagic `test` variable group and the GitHub
+   Actions secret.
+5. **Deploy `moderation-screen`** (still 404; fails open, needs
+   `OPENAI_API_KEY`).
+6. **Settings → Pages → Source → GitHub Actions** (`docs/server_deploy_checklist.md` §3b).
 
 ## Open items (verify before assuming)
 
@@ -383,8 +449,12 @@ Two things that look like bugs and are not:
   ($0.125/GB) would make every storage plan unprofitable. Bucket setup:
   `docs/chat_backup_bucket.sql`.
 - **GIFs**: the picker is built and tested, but GIF *search* needs a free
-  KLIPY key passed at build time (`--dart-define=KLIPY_API_KEY=…`), from
-  `partner.klipy.com/api-keys`. Without it the GIF tab says so; emoji and
+  KLIPY key. **The wiring is done** — `codemagic.yaml` and `deploy-web.yml`
+  both pass `--dart-define=KLIPY_API_KEY=…` — so what is left is putting the
+  key in the Codemagic **`test`** variable group and in the GitHub Actions
+  secret of the same name. Deliberately not in the repo: it ends up in the
+  binary either way, but a key in git history is public to everyone who ever
+  clones. From `partner.klipy.com/api-keys`. Without it the GIF tab says so; emoji and
   everything else are unaffected, and a GIF someone already sent still plays.
   **It was Tenor until Google shut that API down on 30 June 2026** — keys
   stopped being issued that January and live ones started erroring on the
