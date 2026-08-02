@@ -148,6 +148,17 @@ iOS builds run on **Codemagic** (`codemagic.yaml`, workflow
   message content must never be stored or logged server-side, and the
   mailbox must only ever hold the same sealed envelopes the broadcast
   carries.
+- **Messages ride the Signal Double Ratchet** (`lib/crypto/double_ratchet.dart`,
+  enc 3) wherever the peer's identity key is known, with the static-ECDH
+  path (enc 2) as the floor and the phone-derived key (enc 1) under that.
+  Two documented substitutions from the spec: DH is P-256 (the app's one
+  curve), and the X3DH prekey server is stood in for by the existing in-band
+  exchange — bootstrap trust is the safety number, same as before. Roles are
+  fixed (smaller digits initiates; the responder answers only), which is what
+  prevents the two-Alices race. Sessions persist on-device; an identity-key
+  change buries the session. Eleven tests pin the properties — including the
+  honest healing boundary: a stolen session reads until a post-theft DH
+  enters the root, and nothing after.
 - The Supabase **publishable** key (`sb_publishable_…`) and the Stripe
   **publishable** key (`pk_live_…`) are client-safe and intentionally inlined
   in build configs. Secret keys (`sk_…`, APNs `.p8`) must never enter the

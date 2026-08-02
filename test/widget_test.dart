@@ -102,6 +102,7 @@ import 'package:okay_messaging/widgets/osm_map.dart';
 import 'package:okay_messaging/screens/score_screen.dart';
 import 'package:okay_messaging/models/chat.dart';
 import 'package:okay_messaging/state/call_log.dart';
+import 'package:okay_messaging/crypto/double_ratchet.dart';
 import 'package:okay_messaging/screens/ghost_view_screen.dart';
 import 'package:okay_messaging/screens/media_gallery_screen.dart';
 import 'package:okay_messaging/state/screenshot_watch.dart';
@@ -24909,6 +24910,160 @@ void main() {
       final srv = File('lib/screens/feed_screen.dart').readAsStringSync();
       expect(srv.contains('onOpenSelfThread != null &&'), isTrue,
           reason: 'the server card must be able to withhold the line');
+    });
+  });
+  group('the Signal double ratchet', () {
+    // Two devices in one process: Alice (111, the fixed initiator — smaller
+    // digits) and Bob (222, the responder). Each holds its own identity and
+    // the other's public key, exactly the state the in-band exchange leaves.
+    late SecureKeyExchange kxA, kxB;
+    late DoubleRatchet a, b;
+
+    setUp(() {
+      kxA = SecureKeyExchange.freshForTest();
+      kxB = SecureKeyExchange.freshForTest();
+      kxA.rememberPeer('222', kxB.myPublicKey!);
+      kxB.rememberPeer('111', kxA.myPublicKey!);
+      a = DoubleRatchet.freshForTest(kxA);
+      b = DoubleRatchet.freshForTest(kxB);
+    });
+
+    test('messages round-trip, each under its own key', () {
+      final m1 = a.encrypt('111', '222', 'first')!;
+      final m2 = a.encrypt('111', '222', 'second')!;
+      expect(m1.blob, isNot(m2.blob));
+      expect(m1.header['n'], 0);
+      expect(m2.header['n'], 1);
+      expect(b.decrypt('222', '111', m1.header, m1.blob), 'first');
+      expect(b.decrypt('222', '111', m2.header, m2.blob), 'second');
+    });
+
+    test('the responder cannot start a session, only answer one', () {
+      // Two sides that both spoke first would mint two incompatible
+      // sessions and each lose the other's opener — so only Alice creates,
+      // and Bob's messages ride the static path until she has.
+      expect(b.encrypt('222', '111', 'too early'), isNull);
+      final m = a.encrypt('111', '222', 'opener')!;
+      expect(b.decrypt('222', '111', m.header, m.blob), 'opener');
+      expect(b.encrypt('222', '111', 'now I can'), isNotNull);
+    });
+
+    test('a reply advances the DH ratchet on both ends', () {
+      final m1 = a.encrypt('111', '222', 'hi')!;
+      b.decrypt('222', '111', m1.header, m1.blob);
+      final r1 = b.encrypt('222', '111', 'hi yourself')!;
+      expect(r1.header['dh'], isNot(m1.header['dh']),
+          reason: 'Bob replies under a ratchet key of his own');
+      expect(a.decrypt('111', '222', r1.header, r1.blob), 'hi yourself');
+      final m2 = a.encrypt('111', '222', 'again')!;
+      expect(m2.header['dh'], isNot(m1.header['dh']),
+          reason: 'receiving a new remote key turns Alice\'s crank too');
+      expect(b.decrypt('222', '111', m2.header, m2.blob), 'again');
+    });
+
+    test('out-of-order delivery is shelved, not lost', () {
+      final m1 = a.encrypt('111', '222', 'one')!;
+      final m2 = a.encrypt('111', '222', 'two')!;
+      final m3 = a.encrypt('111', '222', 'three')!;
+      expect(b.decrypt('222', '111', m3.header, m3.blob), 'three');
+      expect(b.decrypt('222', '111', m1.header, m1.blob), 'one');
+      expect(b.decrypt('222', '111', m2.header, m2.blob), 'two');
+    });
+
+    test('a replayed message decrypts exactly once', () {
+      final m = a.encrypt('111', '222', 'once only')!;
+      expect(b.decrypt('222', '111', m.header, m.blob), 'once only');
+      expect(b.decrypt('222', '111', m.header, m.blob), isNull,
+          reason: 'the key was deleted on use — that is the whole point');
+    });
+
+    test('a touched header fails like touched ciphertext', () {
+      final m = a.encrypt('111', '222', 'bound')!;
+      final forged = Map<String, dynamic>.from(m.header);
+      forged['n'] = (forged['n'] as int) + 1;
+      expect(b.decrypt('222', '111', forged, m.blob), isNull);
+    });
+
+    test('a stolen session heals once a fresh key the thief never saw lands',
+        () {
+      // The property the static path never had — but healing has a precise
+      // boundary worth pinning: a thief who copies Bob's state owns Bob's
+      // CURRENT ratchet private key, so it can follow the conversation until
+      // Bob next generates a pair (which happens as he receives Alice's next
+      // new key) and that pair enters the root. Everything after that DH is
+      // noise to the copy.
+      final m1 = a.encrypt('111', '222', 'before')!;
+      b.decrypt('222', '111', m1.header, m1.blob);
+      final stolen = jsonDecode(jsonEncode(b.debugSessionJson('111')))
+          as Map<String, dynamic>;
+      final thief = DoubleRatchet.freshForTest(kxB);
+      thief.debugRestoreSession('111', stolen);
+
+      // The exchange that heals: Bob replies (under the stolen key — the
+      // thief can still follow), Alice ratchets, Bob decrypts her message
+      // and mints the pair the thief will never hold, replies under it,
+      // Alice ratchets onto it.
+      final r1 = b.encrypt('222', '111', 'reply one')!;
+      a.decrypt('111', '222', r1.header, r1.blob);
+      final m2 = a.encrypt('111', '222', 'mid-heal')!;
+      expect(thief.decrypt('222', '111', m2.header, m2.blob), 'mid-heal',
+          reason: 'honesty about the boundary: the thief still reads here — '
+              'no fresh DH has entered the root yet');
+      expect(b.decrypt('222', '111', m2.header, m2.blob), 'mid-heal');
+      final r2 = b.encrypt('222', '111', 'reply two')!;
+      a.decrypt('111', '222', r2.header, r2.blob);
+
+      // Healed: the root has stepped through Bob's post-theft key.
+      final m3 = a.encrypt('111', '222', 'after the ratchet turned')!;
+      expect(thief.decrypt('222', '111', m3.header, m3.blob), isNull);
+      // The rightful Bob reads it fine.
+      expect(b.decrypt('222', '111', m3.header, m3.blob),
+          'after the ratchet turned');
+    });
+
+    test('a session survives being persisted mid-conversation', () {
+      final m1 = a.encrypt('111', '222', 'pre-restart')!;
+      b.decrypt('222', '111', m1.header, m1.blob);
+      final saved = jsonDecode(jsonEncode(a.debugSessionJson('222')))
+          as Map<String, dynamic>;
+      final restarted = DoubleRatchet.freshForTest(kxA);
+      restarted.debugRestoreSession('222', saved);
+      final m2 = restarted.encrypt('111', '222', 'post-restart')!;
+      expect(b.decrypt('222', '111', m2.header, m2.blob), 'post-restart');
+    });
+
+    test('an identity change buries the old session', () {
+      final m1 = a.encrypt('111', '222', 'old world')!;
+      b.decrypt('222', '111', m1.header, m1.blob);
+      a.resetPeer('222');
+      final m2 = a.encrypt('111', '222', 'new world')!;
+      expect(m2.header['sid'], isNot(m1.header['sid']),
+          reason: 'a fresh session, not a resumed one');
+      // Bob rebuilds his half from the new sid and reads on.
+      expect(b.decrypt('222', '111', m2.header, m2.blob), 'new world');
+    });
+
+    test('a header wound past MAX_SKIP is refused, not ground through', () {
+      final m = a.encrypt('111', '222', 'x')!;
+      final forged = Map<String, dynamic>.from(m.header);
+      forged['n'] = DoubleRatchet.maxSkip + 5;
+      expect(b.decrypt('222', '111', forged, m.blob), isNull);
+    });
+
+    test('the relay actually uses it, on both sides', () {
+      final src = File('lib/relay/relay_service.dart').readAsStringSync();
+      expect(src.contains('enc = 3'), isTrue);
+      expect(src.contains("'rh': rh"), isTrue,
+          reason: 'the ratchet header must ride the payload');
+      expect(src.contains("encRaw == 3 || encRaw == '3'"), isTrue,
+          reason: 'and be understood on arrival');
+      expect(src.contains('ratchet: (kx.isReady && peerPub != null)'), isTrue,
+          reason: 'send must offer the ratchet wherever ECDH was possible');
+      expect(src.contains('r.resetPeer(from)'), isTrue,
+          reason: 'a changed identity key must bury the old session');
+      final main = File('lib/main.dart').readAsStringSync();
+      expect(main.contains('DoubleRatchet.instance.load'), isTrue,
+          reason: 'sessions must survive a restart');
     });
   });
   group('private notifications and forced-E2EE backups', () {

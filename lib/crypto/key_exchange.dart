@@ -113,14 +113,15 @@ class SecureKeyExchange {
       if (point == null) return null;
       final agreement = ECDHBasicAgreement()..init(_priv!);
       final shared = agreement.calculateAgreement(ECPublicKey(point, _domain));
-      return _fixed32(shared);
+      return fixed32(shared);
     } catch (_) {
       return null;
     }
   }
 
   /// Left-pads / trims a BigInt to exactly 32 bytes (the P-256 field size).
-  static List<int> _fixed32(BigInt v) {
+  /// Public because the Double Ratchet's own DH steps need the same fixing.
+  static List<int> fixed32(BigInt v) {
     var hex = v.toRadixString(16);
     if (hex.length.isOdd) hex = '0$hex';
     var bytes = <int>[

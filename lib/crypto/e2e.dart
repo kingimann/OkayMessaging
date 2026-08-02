@@ -81,11 +81,19 @@ class E2eCrypto {
       Uint8List.fromList(List.generate(n, (_) => _rng.nextInt(256)));
 
   /// Encrypts [plaintext] under the shared [secret], returning a base64 blob.
-  static String encrypt(List<int> secret, String plaintext) {
+  ///
+  /// [aad] is authenticated without being encrypted — the Double Ratchet
+  /// binds its clear-text header this way, so a touched header fails the tag
+  /// exactly like touched ciphertext. Omitting it keeps the old format:
+  /// GCM with empty AD, which is what every pre-ratchet blob used.
+  static String encrypt(List<int> secret, String plaintext, {Uint8List? aad}) {
     final key = deriveAesKey(secret);
     final nonce = _randomBytes(12);
     final gcm = GCMBlockCipher(AESEngine())
-      ..init(true, AEADParameters(KeyParameter(key), 128, nonce, Uint8List(0)));
+      ..init(
+          true,
+          AEADParameters(
+              KeyParameter(key), 128, nonce, aad ?? Uint8List(0)));
     final data = Uint8List.fromList(utf8.encode(plaintext));
     final out = gcm.process(data); // ciphertext followed by the 16-byte tag
     return base64.encode(Uint8List.fromList([...nonce, ...out]));
@@ -93,7 +101,7 @@ class E2eCrypto {
 
   /// Decrypts a base64 [blob]. Returns null if it is malformed, or if GCM
   /// authentication fails (tampered ciphertext or the wrong key).
-  static String? decrypt(List<int> secret, String blob) {
+  static String? decrypt(List<int> secret, String blob, {Uint8List? aad}) {
     Uint8List raw;
     try {
       raw = base64.decode(blob);
@@ -105,7 +113,10 @@ class E2eCrypto {
     final body = raw.sublist(12);
     final key = deriveAesKey(secret);
     final gcm = GCMBlockCipher(AESEngine())
-      ..init(false, AEADParameters(KeyParameter(key), 128, nonce, Uint8List(0)));
+      ..init(
+          false,
+          AEADParameters(
+              KeyParameter(key), 128, nonce, aad ?? Uint8List(0)));
     try {
       final plain = gcm.process(Uint8List.fromList(body));
       return utf8.decode(plain);

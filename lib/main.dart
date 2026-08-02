@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'app_state.dart';
+import 'crypto/double_ratchet.dart';
 import 'crypto/key_exchange.dart';
 import 'payments/iap_entitlement.dart';
 import 'payments/payment_service.dart';
@@ -87,6 +88,7 @@ Future<void> main() async {
   await _boot('session', Session.instance.load);
   await _boot('persistence', Persistence.init);
   await _boot('keys', SecureKeyExchange.instance.load);
+  await _boot('ratchet', DoubleRatchet.instance.load);
   await _boot('lock', AppLock.instance.load);
   await _boot('chat locks', ChatLock.instance.load);
   await _boot('quick replies', QuickReplies.instance.load);

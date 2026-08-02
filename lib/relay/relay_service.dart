@@ -10,6 +10,7 @@ import '../app_state.dart';
 import '../crypto/e2e.dart';
 import '../mesh/mesh_packet.dart';
 import '../mesh/mesh_service.dart';
+import '../crypto/double_ratchet.dart';
 import '../crypto/key_exchange.dart';
 import '../models/chat.dart';
 import '../models/community.dart';
@@ -76,9 +77,13 @@ class RelayService {
   /// read: it never sees who is talking, what they wrote, or what they sent.
   /// Only routing data (`id`, `from`, `enc`, `spk`, `ts`) stays in the clear.
   ///
+  ///  * enc 3 — the Signal Double Ratchet ([DoubleRatchet]): a fresh AES key
+  ///    per message, deleted on use, with the ratchet header riding as `rh`.
+  ///    Used whenever a session exists or this side may start one.
   ///  * enc 2 — AES-256-GCM keyed by an ECDH shared secret ([ecdhSecret]); the
   ///    sender's public key rides along as `spk` so the recipient can derive
-  ///    the same secret. This is the strong path, used once keys are exchanged.
+  ///    the same secret. The floor once keys are exchanged, and what the
+  ///    responder side sends until the initiator's first ratchet message.
   ///  * enc 1 — AES-256-GCM keyed by the phone-number-derived secret (the
   ///    fallback until the ECDH handshake completes).
   ///  * enc 0 — plaintext JSON (no recipient key available yet).
@@ -101,6 +106,7 @@ class RelayService {
     List<AppUser> groupMembers = const [],
     List<int>? ecdhSecret,
     String? senderPublicKey,
+    DoubleRatchet? ratchet,
   }) {
     // Everything sensitive goes inside this blob — nothing but routing leaks.
     // The full message is carried so replies, forwards, shared location /
@@ -165,7 +171,18 @@ class RelayService {
     var c = content;
     var enc = 0;
     String? spk;
-    if (ecdhSecret != null && senderPublicKey != null) {
+    Map<String, dynamic>? rh;
+    // Best first: the ratchet declines (returns null) when it may not start
+    // a session from this side, and the static paths below stay the floor.
+    final sealed = ratchet?.encrypt(fromPhone, toPhone, content);
+    if (sealed != null) {
+      c = sealed.blob;
+      enc = 3;
+      rh = sealed.header;
+      // The identity key still rides along: it is what lets the responder
+      // bootstrap their half, and what keeps rememberPeer current.
+      spk = senderPublicKey;
+    } else if (ecdhSecret != null && senderPublicKey != null) {
       c = E2eCrypto.encrypt(ecdhSecret, content);
       enc = 2;
       spk = senderPublicKey;
@@ -179,6 +196,7 @@ class RelayService {
       'c': c,
       'enc': enc,
       if (spk != null) 'spk': spk,
+      if (rh != null) 'rh': rh,
       'ts': message.time.toIso8601String(),
     };
   }
@@ -522,6 +540,7 @@ class RelayService {
     Map<String, dynamic> payload, {
     required String from,
     required String myPhone,
+    DoubleRatchet? ratchet,
   }) {
     final blob = payload['c'] as String?;
     if (blob == null) {
@@ -541,14 +560,34 @@ class RelayService {
     var json = blob;
     // enc may arrive as int or bool depending on JSON transport.
     final encRaw = payload['enc'];
-    if (encRaw == 2 || encRaw == '2') {
+    if (encRaw == 3 || encRaw == '3') {
+      // Double Ratchet. Remember the identity key FIRST: a changed key means
+      // every session under the old one is a session with the wrong person,
+      // and the responder's bootstrap below needs the current key in place.
+      final r = ratchet ?? DoubleRatchet.instance;
+      final spk = payload['spk'] as String?;
+      if (spk != null &&
+          SecureKeyExchange.instance.rememberPeer(from, spk)) {
+        r.resetPeer(from);
+      }
+      final rh = payload['rh'];
+      if (rh is Map) {
+        json = r.decrypt(
+                myPhone, from, Map<String, dynamic>.from(rh), blob) ??
+            blob;
+      }
+    } else if (encRaw == 2 || encRaw == '2') {
       // ECDH path: derive the shared secret from the sender's public key.
       final spk = payload['spk'] as String?;
       final secret =
           spk == null ? null : SecureKeyExchange.instance.sharedSecretWith(spk);
       if (secret != null) {
         json = E2eCrypto.decrypt(secret, blob) ?? blob;
-        SecureKeyExchange.instance.rememberPeer(from, spk!);
+        if (SecureKeyExchange.instance.rememberPeer(from, spk!)) {
+          // The old identity's ratchet session dies with the old identity,
+          // whichever path this particular message rode.
+          (ratchet ?? DoubleRatchet.instance).resetPeer(from);
+        }
       }
     } else if (encRaw == 1 || encRaw == true) {
       json = E2eCrypto.decrypt(E2eCrypto.keyFor(from, myPhone), blob) ?? blob;
@@ -1920,6 +1959,10 @@ class RelayService {
       groupMembers: group?.members ?? const [],
       ecdhSecret: ecdhSecret,
       senderPublicKey: senderPublicKey,
+      // The ratchet runs only where the static ECDH path could: with the
+      // peer's identity key in hand. It declines internally when this side
+      // may not initiate, and the static paths stay the floor.
+      ratchet: (kx.isReady && peerPub != null) ? DoubleRatchet.instance : null,
     );
     await channel.sendBroadcastMessage(event: 'msg', payload: payload);
     // Also queue the sealed envelope so an offline recipient still gets it
