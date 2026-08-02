@@ -7370,6 +7370,150 @@ void main() {
           5000);
     });
 
+    test('an instant cash-out quote adds up, and the platform adds nothing',
+        () {
+      // Stripe charges the account cashing out and takes it from the amount.
+      // The platform has no cost to clear here, so it takes no cut — and the
+      // three numbers the dialog shows have to reconcile exactly, because
+      // they are shown together.
+      for (final country in ['CA', 'US', null]) {
+        for (final amount in [500, 1000, 4215, 250000]) {
+          final fee = InstantPayoutEconomics.feeCents(amount, country);
+          final lands = InstantPayoutEconomics.landsCents(amount, country);
+          expect(fee + lands, amount,
+              reason: 'the cash-out quote lost a cent somewhere ($country)');
+          expect(fee, greaterThan(0));
+          expect(lands, lessThan(amount));
+        }
+      }
+      // Canada is genuinely cheaper than the US — worth pinning, because the
+      // app onboards to Canadian banks by default and rounding the two
+      // together would overcharge the common case in the quote.
+      expect(InstantPayoutEconomics.percentFor('CA'), 1.0);
+      expect(InstantPayoutEconomics.percentFor('US'), 1.5);
+      expect(InstantPayoutEconomics.feeCents(10000, 'CA'), 100);
+      expect(InstantPayoutEconomics.feeCents(10000, 'US'), 150);
+
+      // Rounded UP on a fractional cent, and pinned at amounts where the two
+      // directions actually differ — every figure above is a whole number of
+      // cents either way, so on its own none of it can tell ceil from floor.
+      // Quoting a fee a penny under is a surprise at the worst moment;
+      // quoting one a penny over costs nobody anything.
+      expect(InstantPayoutEconomics.feeCents(4215, 'CA'), 43,
+          reason: '1% of \$42.15 is 42.15¢ — the quote must not say 42');
+      expect(InstantPayoutEconomics.feeCents(4215, 'US'), 64,
+          reason: '1.5% of \$42.15 is 63.225¢');
+      expect(InstantPayoutEconomics.feeCents(101, 'CA'), 2,
+          reason: '1% of \$1.01 is barely over a cent, and still costs two');
+      // Which means what lands is a cent light, not a cent heavy.
+      expect(InstantPayoutEconomics.landsCents(4215, 'CA'), 4215 - 43);
+    });
+
+    test('an unknown country is quoted at the dearest rate, never the cheapest',
+        () {
+      // An estimate that comes in generous costs nobody anything. One that
+      // comes in mean is the app having been wrong about somebody's money.
+      final worst = InstantPayoutEconomics.percentByCountry.values
+          .reduce((a, b) => a > b ? a : b);
+      expect(InstantPayoutEconomics.fallbackPercent, worst);
+      expect(InstantPayoutEconomics.percentFor('ZZ'), worst);
+      expect(InstantPayoutEconomics.percentFor(null), worst);
+      // And nowhere unsupported is offered the button at all.
+      expect(InstantPayoutEconomics.isSupportedIn('ZZ'), isFalse);
+      expect(InstantPayoutEconomics.isSupportedIn(null), isFalse);
+      expect(InstantPayoutEconomics.isSupportedIn('ca'), isTrue,
+          reason: 'Stripe returns the country lowercased often enough');
+    });
+
+    test('the instant button is offered only where Stripe would allow it', () {
+      // Every condition here is one Stripe refuses on. A button that can only
+      // fail is worse than no button.
+      const base = WalletStatus(
+        onboarded: true,
+        chargesEnabled: true,
+        payoutsEnabled: true,
+        instantAvailableCents: 5000,
+        country: 'CA',
+        hasDebitCard: true,
+      );
+      expect(base.canCashOutInstantly, isTrue);
+      expect(
+          const WalletStatus(
+                  onboarded: true,
+                  chargesEnabled: true,
+                  payoutsEnabled: true,
+                  instantAvailableCents: 5000,
+                  country: 'CA',
+                  hasDebitCard: false)
+              .canCashOutInstantly,
+          isFalse,
+          reason: 'no card to pay out to');
+      expect(
+          const WalletStatus(
+                  onboarded: true,
+                  chargesEnabled: true,
+                  payoutsEnabled: false,
+                  instantAvailableCents: 5000,
+                  country: 'CA',
+                  hasDebitCard: true)
+              .canCashOutInstantly,
+          isFalse,
+          reason: 'payouts are switched off on the account');
+      expect(
+          const WalletStatus(
+                  onboarded: true,
+                  chargesEnabled: true,
+                  payoutsEnabled: true,
+                  instantAvailableCents: 5000,
+                  country: 'DE',
+                  hasDebitCard: true)
+              .canCashOutInstantly,
+          isFalse,
+          reason: 'instant payouts do not exist there');
+      expect(
+          const WalletStatus(
+                  onboarded: true,
+                  chargesEnabled: true,
+                  payoutsEnabled: true,
+                  instantAvailableCents: 100,
+                  country: 'CA',
+                  hasDebitCard: true)
+              .canCashOutInstantly,
+          isFalse,
+          reason: 'below the floor worth a tap');
+    });
+
+    test('the instant balance is read as its own bucket, not the ordinary one',
+        () {
+      // Stripe keeps instant_available separately and it is NOT a slice of
+      // available. Reading the wrong one offers money Stripe then refuses.
+      final s = WalletStatus.fromJson(const {
+        'onboarded': true,
+        'chargesEnabled': true,
+        'payoutsEnabled': true,
+        'available': 9000,
+        'instantAvailable': 3200,
+        'country': 'CA',
+        'hasDebitCard': true,
+        'cardLast4': '4242',
+      });
+      expect(s.availableCents, 9000);
+      expect(s.instantAvailableCents, 3200);
+      expect(s.cardLast4, '4242');
+      // Both servers must READ that bucket, not merely mention it in a type.
+      // Asserting on the word alone passes happily while the code beneath it
+      // sums `available` instead — which is the exact mistake being guarded.
+      for (final path in [
+        'supabase/functions/payments-status/index.ts',
+        'supabase/functions/payments-payout/index.ts',
+      ]) {
+        final flat =
+            File(path).readAsStringSync().replaceAll(RegExp(r'\s+'), ' ');
+        expect(flat.contains('.instant_available ?? []'), isTrue,
+            reason: '$path does not actually read the instant bucket');
+      }
+    });
+
     test('the fair-use egress ceiling sits below what the price can pay for',
         () {
       // Egress dominates the cost of a stored GB: at 3x stored per month a
@@ -10515,18 +10659,70 @@ void main() {
   });
 
   group('GIFs', () {
-    test('a Tenor response maps to picker results', () {
+    test('a Tenor-shaped response maps to picker results', () {
+      // KLIPY's compatibility endpoint answers in this shape — the whole
+      // reason the migration off Tenor was a base URL and a key.
       const body = '{"results":[{"id":"1","content_description":"happy dance",'
           '"media_formats":{'
-          '"gif":{"url":"https://media.tenor.com/a.gif","dims":[400,200]},'
-          '"tinygif":{"url":"https://media.tenor.com/a-small.gif",'
+          '"gif":{"url":"https://media.klipy.com/a.gif","dims":[400,200]},'
+          '"tinygif":{"url":"https://media.klipy.com/a-small.gif",'
           '"dims":[200,100]}}}]}';
       final results = GifService.parseResults(body);
       expect(results, hasLength(1));
-      expect(results.single.url, 'https://media.tenor.com/a.gif');
-      expect(results.single.previewUrl, 'https://media.tenor.com/a-small.gif');
+      expect(results.single.url, 'https://media.klipy.com/a.gif');
+      expect(results.single.previewUrl, 'https://media.klipy.com/a-small.gif');
       expect(results.single.description, 'happy dance');
       expect(results.single.aspectRatio, closeTo(2.0, 0.001));
+    });
+
+    test('and so does the provider\'s own native shape', () {
+      // Documented inconsistently and unverifiable from here without a key.
+      // Guessing wrong would mean a grid that is silently always empty, so
+      // both are read: `data.data` rather than `results`, `files` rather than
+      // `media_formats`, `src` rather than `url`, width/height rather than
+      // dims.
+      const body = '{"result":true,"data":{"data":[{"slug":"xyz",'
+          '"title":"happy dance","files":{'
+          '"gif":{"src":"https://media.klipy.com/b.gif","width":600,'
+          '"height":200},'
+          '"nanogif":{"src":"https://media.klipy.com/b-tiny.gif"}}}],'
+          '"current_page":1,"has_next":true}}';
+      final results = GifService.parseResults(body);
+      expect(results, hasLength(1));
+      expect(results.single.url, 'https://media.klipy.com/b.gif');
+      expect(results.single.previewUrl, 'https://media.klipy.com/b-tiny.gif');
+      expect(results.single.description, 'happy dance');
+      expect(results.single.id, 'xyz');
+      expect(results.single.aspectRatio, closeTo(3.0, 0.001));
+    });
+
+    test('a result missing its preferred size falls through to one it has',
+        () {
+      // Asking for five formats and being handed one is normal.
+      const body = '{"results":[{"id":"1","media_formats":{'
+          '"mediumgif":{"url":"https://media.klipy.com/c.gif","dims":[300,300]}'
+          '}}]}';
+      final r = GifService.parseResults(body).single;
+      expect(r.url, 'https://media.klipy.com/c.gif');
+      expect(r.previewUrl, 'https://media.klipy.com/c.gif',
+          reason: 'the only size available has to serve as both');
+    });
+
+    test('the picker points at the provider that still exists', () {
+      // Tenor started returning errors on 30 June 2026. A build still aimed
+      // at it searches nothing, forever, and says nothing about why.
+      final src = File('lib/state/gif_service.dart').readAsStringSync();
+      expect(src.contains('tenor.googleapis.com'), isFalse,
+          reason: 'still calling an API that was shut down');
+      expect(src.contains('api.klipy.com'), isTrue);
+      // And the build flag the picker asks for is the one it reads.
+      expect(src.contains("String.fromEnvironment('KLIPY_API_KEY'"), isTrue);
+      expect(
+          File('lib/widgets/emoji_gif_sheet.dart')
+              .readAsStringSync()
+              .contains('KLIPY_API_KEY'),
+          isTrue,
+          reason: 'the empty state names a flag nobody can set');
     });
 
     test('results without a usable format are skipped, not crashed on', () {
@@ -22320,6 +22516,117 @@ void main() {
       expect(
           FileModeration.inspectNearby(video, limit: 1 << 20).allowed, isFalse,
           reason: 'a blocked hash is blocked on every path');
+    });
+
+    testWidgets('a send that could only fail is not offered', (t) async {
+      // Two people in the room can be on different links. Choosing a video
+      // and tapping Send at the one on Bluetooth alone used to spend a tap
+      // to learn that — `offer` returned null and a snackbar explained
+      // afterwards. The row says so instead, and the button is dead.
+      IdentityVerification.debugGateOverride = false;
+      MeshService.debugAvailableOverride = true;
+      // NOT awaited: turning the mesh on talks to a method channel, and the
+      // reply is delivered by the pump — awaiting it here waits for a message
+      // only pumping can deliver.
+      unawaited(MeshService.instance.setEnabled(true));
+      NearbyPeople.instance.heard(ada());
+
+      // Bigger than Bluetooth carries, well inside the fast link — the same
+      // boundary `offer` enforces.
+      final big = 'data:video/mp4;base64,${'A' * 400000}';
+      await t.pumpWidget(MaterialApp(
+          home: NearbyShareScreen(
+              dataUri: big, kind: 'video', key: const ValueKey('bt'))));
+      await t.pump();
+
+      expect(find.text('Ada'), findsOneWidget);
+      expect(find.textContaining('too big for Bluetooth alone'), findsOneWidget,
+          reason: 'the row never said the file cannot cross this link');
+      expect(
+          t.widget<FilledButton>(find.widgetWithText(FilledButton, 'Send'))
+              .onPressed,
+          isNull,
+          reason: 'Send was tappable for a transfer that cannot happen');
+    });
+
+    testWidgets('and is offered once the link that can carry it exists',
+        (t) async {
+      // The other half of the same fact: nothing about the file changed, only
+      // the way it would travel.
+      IdentityVerification.debugGateOverride = false;
+      MeshService.debugAvailableOverride = true;
+      unawaited(MeshService.instance.setEnabled(true));
+      NearbyPeople.instance.heard(ada());
+
+      // runAsync, not a bare await: bringing the fast link up crosses a
+      // method channel, and inside testWidgets a channel reply only arrives
+      // while something is pumping. Awaiting it directly waits forever.
+      await t.runAsync(() async {
+        NearbyFast.instance.debugMarkRunning();
+        await NearbyFast.instance.notePeers(['tok-ada']);
+        NearbyFast.instance.noteBody('tok-ada',
+            jsonEncode({'k': 'hi', 'd': '15550102222', 'n': 'Ada'}));
+      });
+      expect(NearbyFast.instance.hasPeer('15550102222'), isTrue,
+          reason: 'the fast link never came up, so the rest proves nothing');
+
+      final big = 'data:video/mp4;base64,${'A' * 400000}';
+      await t.pumpWidget(MaterialApp(
+          home: NearbyShareScreen(
+              dataUri: big, kind: 'video', key: const ValueKey('fast'))));
+      await t.pump();
+
+      expect(find.textContaining('too big'), findsNothing);
+      expect(
+          t.widget<FilledButton>(find.widgetWithText(FilledButton, 'Send'))
+              .onPressed,
+          isNotNull,
+          reason: 'the fast link can carry this and the button should work');
+    });
+
+    testWidgets('opening the screen shows the room, not a photo picker',
+        (t) async {
+      // It used to fire the system picker from a post-frame callback, so the
+      // first thing between you and "has Ada appeared yet" was a full-screen
+      // modal to dismiss.
+      IdentityVerification.debugGateOverride = false;
+      MeshService.debugAvailableOverride = true;
+      // NOT awaited: turning the mesh on talks to a method channel, and the
+      // reply is delivered by the pump — awaiting it here waits for a message
+      // only pumping can deliver.
+      unawaited(MeshService.instance.setEnabled(true));
+      NearbyPeople.instance.heard(ada());
+
+      var pickerOpened = false;
+      // BOTH pickers. The screen's photo path goes through PhotoPrep and its
+      // file path through NearbyPick, so hooking one and not the other
+      // watches a door the auto-open never used.
+      PhotoPrep.debugPickOverride = () async {
+        pickerOpened = true;
+        return null;
+      };
+      NearbyPick.debugPickOverride = () async {
+        pickerOpened = true;
+        return null;
+      };
+      addTearDown(() {
+        PhotoPrep.debugPickOverride = null;
+        NearbyPick.debugPickOverride = null;
+      });
+
+      await t.pumpWidget(const MaterialApp(home: NearbyShareScreen()));
+      await t.pump();
+      await t.pump(const Duration(milliseconds: 50));
+
+      expect(pickerOpened, isFalse,
+          reason: 'the screen hijacked the first frame with a picker');
+      expect(find.text('Ada'), findsOneWidget,
+          reason: 'the room should be visible immediately');
+      // And with nothing chosen there is nothing to send yet.
+      expect(
+          t.widget<FilledButton>(find.widgetWithText(FilledButton, 'Send'))
+              .onPressed,
+          isNull);
     });
 
     test('the ceiling is the transport, not a number somebody picked', () async {

@@ -9,8 +9,9 @@ import '../mesh/nearby_transfer.dart';
 import '../theme/app_theme.dart';
 import '../util/file_moderation.dart';
 import '../util/photo_prep.dart';
-import '../widgets/empty_state.dart';
+import '../widgets/chat_photo.dart';
 import '../widgets/verified_gate.dart';
+import 'privacy_settings_screen.dart';
 
 /// Send a photo, a video or a file to somebody standing next to you.
 ///
@@ -24,11 +25,26 @@ import '../widgets/verified_gate.dart';
 /// which each person is on rather than letting somebody pick a video and
 /// find out thirty seconds later.
 class NearbyShareScreen extends StatefulWidget {
-  /// The item to send, as a data URI. Null asks for one when the screen
-  /// opens — which is the ordinary way in from a share button.
+  /// The item to send, as a data URI — set when the screen is opened from a
+  /// share button that already has one. Null just opens empty: picking is a
+  /// tap away and the room is worth seeing first.
   final String? dataUri;
 
-  const NearbyShareScreen({super.key, this.dataUri});
+  /// What [dataUri] actually is: 'image', 'video' or 'file'. It was assumed
+  /// to be an image, so a video arriving from a share button was drawn
+  /// through an image decoder and called "Photo".
+  final String kind;
+
+  /// What to call it. Defaults per [kind] rather than to "Photo" for
+  /// everything.
+  final String? fileName;
+
+  const NearbyShareScreen({
+    super.key,
+    this.dataUri,
+    this.kind = 'image',
+    this.fileName,
+  });
 
   @override
   State<NearbyShareScreen> createState() => _NearbyShareScreenState();
@@ -44,10 +60,24 @@ class _NearbyShareScreenState extends State<NearbyShareScreen> {
     final given = widget.dataUri;
     if (given != null) {
       _item = PickedItem(
-          dataUri: given, fileName: 'Photo', kind: 'image', bytes: 0);
-    } else {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _pickPhoto());
+        dataUri: given,
+        fileName: widget.fileName ??
+            switch (widget.kind) {
+              'video' => 'Video',
+              'image' => 'Photo',
+              _ => 'File',
+            },
+        kind: widget.kind,
+        // base64 carries 3 bytes in every 4 characters; near enough to put a
+        // size on the card, which is all this is for.
+        bytes: given.length ~/ 4 * 3,
+      );
     }
+    // Opening this screen no longer throws the system photo picker in your
+    // face. It used to, on the theory that you came here to send something —
+    // but the first thing most people want is to know whether the person
+    // beside them has even appeared yet, and that was a full-screen modal to
+    // dismiss before you could look.
   }
 
   /// The biggest thing anybody in the room could take right now.
@@ -95,6 +125,26 @@ class _NearbyShareScreenState extends State<NearbyShareScreen> {
 
   /// Anything at all, as it is.
   Future<void> _pickFile() => _run(() => NearbyPick.pick(limit: _limit));
+
+  /// Whether what is chosen can actually cross to [person] on the link they
+  /// happen to be on.
+  ///
+  /// The same comparison [NearbyShare.offer] makes, asked *before* the tap
+  /// instead of reported after it. Two people in the room can be on different
+  /// links — one on the fast one, one on Bluetooth alone — so "it fits" is a
+  /// question about a person, not about the file, and a Send button that can
+  /// only fail should not be tappable.
+  bool _fitsFor(NearbyPerson person) {
+    final item = _item;
+    if (item == null) return false;
+    return item.dataUri.length <=
+        TransferChunks.limitFor(NearbyFast.instance.hasPeer(person.digits));
+  }
+
+  void _clearItem() => setState(() => _item = null);
+
+  void _openPrivacy() => Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const PrivacySettingsScreen()));
 
   Future<void> _send(NearbyPerson person) async {
     final item = _item;
@@ -169,49 +219,91 @@ class _NearbyShareScreenState extends State<NearbyShareScreen> {
         builder: (context, _) {
           final mesh = MeshService.instance;
           if (!mesh.enabled) {
-            return const EmptyState(
-              icon: Icons.bluetooth_disabled,
-              title: 'Bluetooth is off',
-              caption: 'Turn on "Message people nearby" in Privacy & security '
-                  'to send to people around you with no internet.',
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(28, 0, 28, 40),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.bluetooth_disabled,
+                        size: 52, color: AppColors.subtle(context)),
+                    const SizedBox(height: 16),
+                    const Text('Bluetooth is off',
+                        style: TextStyle(
+                            fontSize: 18, fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Turn on "Message people nearby" to send to people '
+                      'around you with no internet.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                          fontSize: 13.5,
+                          height: 1.4,
+                          color: AppColors.subtle(context)),
+                    ),
+                    const SizedBox(height: 18),
+                    // The setting used to be named and not offered, which
+                    // leaves somebody hunting through Settings for a screen
+                    // this one could simply open.
+                    FilledButton(
+                      onPressed: _openPrivacy,
+                      child: const Text('Open Privacy & security'),
+                    ),
+                  ],
+                ),
+              ),
             );
           }
           final people = NearbyPeople.instance.people;
+          final transfers = NearbyShare.instance.transfers;
           return ListView(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
             children: [
               _itemCard(context),
               const SizedBox(height: 18),
-              Text('PEOPLE NEARBY',
-                  style: TextStyle(
-                      fontSize: 11.5,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 0.8,
-                      color: AppColors.subtle(context))),
+              _sectionLabel(context, 'PEOPLE NEARBY'),
               const SizedBox(height: 4),
               if (people.isEmpty)
                 Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 24),
-                  child: Text(
-                    'Nobody yet. They need the app open, Bluetooth on, and '
-                    'to have made themselves findable — the same three things '
-                    'you do.',
-                    style: TextStyle(
-                        fontSize: 13.5,
-                        height: 1.4,
-                        color: AppColors.subtle(context)),
+                  padding: const EdgeInsets.symmetric(vertical: 20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Nobody yet. They need the app open, Bluetooth on, '
+                        'and to have made themselves findable — the same '
+                        'three things you do.',
+                        style: TextStyle(
+                            fontSize: 13.5,
+                            height: 1.4,
+                            color: AppColors.subtle(context)),
+                      ),
+                      const SizedBox(height: 12),
+                      // Including you: "findable" is off by default, so the
+                      // most likely reason the room looks empty to them is
+                      // the setting on this phone.
+                      OutlinedButton.icon(
+                        onPressed: _openPrivacy,
+                        icon: const Icon(Icons.visibility_outlined, size: 18),
+                        label: const Text('Check who can see me'),
+                      ),
+                    ],
                   ),
                 )
               else
                 for (final person in people)
                   _PersonRow(
                     person: person,
-                    enabled: _item != null,
+                    hasItem: _item != null,
+                    fits: _fitsFor(person),
                     onSend: () => _send(person),
                   ),
-              const SizedBox(height: 20),
-              for (final t in NearbyShare.instance.transfers)
-                _TransferRow(transfer: t),
+              if (transfers.isNotEmpty) ...[
+                const SizedBox(height: 22),
+                _sectionLabel(context, 'TRANSFERS'),
+                const SizedBox(height: 8),
+                for (final t in transfers) _TransferRow(transfer: t),
+              ],
             ],
           );
         },
@@ -219,9 +311,57 @@ class _NearbyShareScreenState extends State<NearbyShareScreen> {
     );
   }
 
+  static Widget _sectionLabel(BuildContext context, String text) => Text(
+        text,
+        style: TextStyle(
+            fontSize: 11.5,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0.8,
+            color: AppColors.subtle(context)),
+      );
+
   Widget _itemCard(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final item = _item;
+    if (item != null) {
+      // What is about to be sent, with a way out of it. Swapping the file was
+      // possible from the app bar; unchoosing it was not, so a mis-picked
+      // 12 MB video could only be replaced, never put down.
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _itemPreview(context, item, scheme),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  sizeLabel(item.bytes).isEmpty
+                      ? item.fileName
+                      : '${item.fileName} · ${sizeLabel(item.bytes)}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                      fontSize: 12.5, color: AppColors.subtle(context)),
+                ),
+              ),
+              TextButton(
+                onPressed: _clearItem,
+                style: TextButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                    padding: const EdgeInsets.symmetric(horizontal: 8)),
+                child: const Text('Remove'),
+              ),
+            ],
+          ),
+        ],
+      );
+    }
+    return _itemPreview(context, item, scheme);
+  }
+
+  Widget _itemPreview(
+      BuildContext context, PickedItem? item, ColorScheme scheme) {
     return Container(
       height: 160,
       alignment: Alignment.center,
@@ -248,9 +388,18 @@ class _NearbyShareScreenState extends State<NearbyShareScreen> {
                     ),
                   ],
                 )
+              // ChatPhoto, not Image.network: what is held here is a `data:`
+              // URI, and NetworkImage hands that to an HttpClient that has no
+              // idea what to do with the scheme. The preview of a photo you
+              // had just chosen came up blank on a phone for that reason.
               : item.kind == 'image'
-                  ? Image.network(item.dataUri,
-                      fit: BoxFit.cover, width: double.infinity)
+                  ? ChatPhoto(
+                      url: item.dataUri,
+                      fit: BoxFit.cover,
+                      width: double.infinity,
+                      errorBuilder: (context) => Icon(Icons.broken_image_outlined,
+                          size: 38, color: AppColors.subtle(context)),
+                    )
                   : Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
@@ -283,13 +432,25 @@ class _NearbyShareScreenState extends State<NearbyShareScreen> {
 
 class _PersonRow extends StatelessWidget {
   final NearbyPerson person;
-  final bool enabled;
+
+  /// Whether anything is chosen yet.
+  final bool hasItem;
+
+  /// Whether what is chosen fits *this* person's link.
+  final bool fits;
+
   final VoidCallback onSend;
-  const _PersonRow(
-      {required this.person, required this.enabled, required this.onSend});
+  const _PersonRow({
+    required this.person,
+    required this.hasItem,
+    required this.fits,
+    required this.onSend,
+  });
 
   @override
   Widget build(BuildContext context) {
+    final fast = NearbyFast.instance.hasPeer(person.digits);
+    final tooBig = hasItem && !fits;
     return ListTile(
       contentPadding: EdgeInsets.zero,
       leading: CircleAvatar(
@@ -304,14 +465,27 @@ class _PersonRow extends StatelessWidget {
           style: const TextStyle(fontWeight: FontWeight.w600)),
       // Worth saying which way it will go: one is about a second and one is
       // half a minute of standing still, and that changes what somebody does
-      // next.
-      // The difference is not cosmetic: one of these can take a video and
-      // the other cannot.
-      subtitle: Text(NearbyFast.instance.hasPeer(person.digits)
-          ? 'Nearby · quick link, files and video'
-          : 'Nearby · Bluetooth only, photos and small files'),
+      // next. The difference is not cosmetic: one of these can take a video
+      // and the other cannot.
+      //
+      // And when the thing already chosen cannot cross this particular link,
+      // that is what the row says instead. Two people in the room can be on
+      // different links, so this is a fact about the pair — it used to be
+      // discovered by tapping Send and reading the failure.
+      subtitle: Text(
+        tooBig
+            ? (fast
+                ? 'Nearby · too big to hand over'
+                : 'Nearby · too big for Bluetooth alone')
+            : fast
+                ? 'Nearby · quick link, files and video'
+                : 'Nearby · Bluetooth only, photos and small files',
+        style: tooBig
+            ? TextStyle(color: Theme.of(context).colorScheme.error)
+            : null,
+      ),
       trailing: FilledButton(
-        onPressed: enabled ? onSend : null,
+        onPressed: hasItem && fits ? onSend : null,
         child: const Text('Send'),
       ),
     );
