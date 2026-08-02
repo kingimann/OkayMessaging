@@ -56,12 +56,14 @@ Dart asks for it.
    **Apple Push Notifications service (APNs)** → download the `.p8`. Note the
    Key ID; the Team ID is top-right of the page. Apple lets you download the
    key **once**.
-2. **Identifiers → com.okaymessaging** → enable **Push Notifications**, then
-   delete the existing provisioning profile so Codemagic mints a fresh one on
-   the next build. Without this the IPA export fails on the entitlement.
-3. Run `supabase/schema.sql` in the SQL Editor so `push_tokens` exists.
-4. Deploy `push-send` (paste `docs/edge_functions_paste/push-send.ts`) and set
-   the Edge Function secrets:
+2. ~~**Identifiers → com.okaymessaging** → enable **Push Notifications**, then
+   delete the existing provisioning profile.~~ **Already done.** Left here
+   because the IPA export fails on the entitlement without it, so anybody
+   re-creating the App ID from scratch still needs it.
+3. ~~Run `supabase/schema.sql` so `push_tokens` exists.~~ **Already done** —
+   the table is live.
+4. ~~Deploy `push-send`.~~ **Already deployed.** Set the Edge Function
+   secrets, which is the only step still outstanding:
 
    | Secret | Value |
    |---|---|

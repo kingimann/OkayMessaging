@@ -193,10 +193,15 @@ Two things that look like bugs and are not:
 ## Open items (verify before assuming)
 
 - **Push notifications**: all code is in place (register on sign-in, token
-  upload, message + call pushes, `push-send` Edge Function). It stays inert
-  until the user enables the Push capability on the `com.okaymessaging` App
-  ID, deletes the stale provisioning profile, creates an APNs key, and sets
-  the `APNS_*` Edge Function secrets.
+  upload, message + call pushes, `push-send` Edge Function). **Done already:**
+  the Push capability is enabled on the `com.okaymessaging` App ID and the
+  stale provisioning profile was deleted — do not raise either again. The
+  `push_tokens` table exists and `push-send` is deployed (both verified live).
+  What is left is one thing: an APNs `.p8` key from
+  developer.apple.com → Keys, and the `APNS_P8` / `APNS_KEY_ID` /
+  `APNS_TEAM_ID` / `APNS_BUNDLE_ID` / `APNS_SANDBOX` Edge Function secrets.
+  `APNS_SANDBOX` is `false` for TestFlight; wrong, and Apple answers
+  `BadDeviceToken` and nothing arrives with no error anywhere.
 - **Default messaging app (iOS 18.2+)**: entitlement
   (`com.apple.developer.messaging-app`), `im:` scheme, scene-delegate →
   `okay/links` channel → `openChatForPhone` are all wired. If the IPA export
