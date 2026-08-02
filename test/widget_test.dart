@@ -6913,18 +6913,115 @@ void main() {
 
     test('every category that ever shipped still exists', () {
       // Categories live as strings on listings already out on the relay;
-      // renaming or dropping one orphans every listing filed under it. The
-      // original ten are the floor this list can never sink below.
+      // renaming or dropping one orphans every listing filed under it. This
+      // is the FULL list as it stood before the second batch was appended —
+      // the floor, not a sample of it.
       const legacy = [
-        'Electronics', 'Furniture', 'Clothing', 'Vehicles', 'Home & Garden',
-        'Sports', 'Games & Toys', 'Books', 'Free stuff', 'Other',
+        'Electronics', 'Phones & Tablets', 'Appliances', 'Furniture',
+        'Home & Garden', 'Tools & Home Improvement', 'Clothing',
+        'Jewelry & Accessories', 'Beauty & Health', 'Baby & Kids', 'Vehicles',
+        'Sports', 'Games & Toys', 'Musical Instruments', 'Pet Supplies',
+        'Books', 'Tickets', 'Free stuff', 'Other',
       ];
       for (final c in legacy) {
         expect(kMarketplaceCategories, contains(c),
             reason: '$c has shipped and cannot be renamed or dropped');
       }
-      expect(kMarketplaceCategories.length, greaterThanOrEqualTo(15));
-      expect(kMarketplaceCategories.last, 'Other');
+      // Appended, never reordered: the old names keep their old positions, so
+      // a build that stored an index rather than a name is not betrayed and
+      // `first` is still the form's default.
+      expect(kMarketplaceCategories.take(legacy.length).toList(), legacy);
+      expect(kMarketplaceCategories.toSet().length,
+          kMarketplaceCategories.length,
+          reason: 'a duplicate category splits its own listings in two');
+    });
+
+    test('every category is filed under a heading, none twice', () {
+      // The picker has a "More" bucket so an unfiled category can never be
+      // unreachable — which also means asking "is everything reachable?"
+      // can never fail, and would be a test that reads as coverage while
+      // proving nothing. So the assertion is the stronger one: nothing
+      // should be FALLING INTO that bucket. Add a category without filing
+      // it and this says so.
+      final sections = marketplaceCategorySections();
+      expect(sections.map((s) => s.$1), isNot(contains('More')),
+          reason: 'a category was added without being filed under a heading');
+
+      final filed = [
+        for (final items in kMarketplaceCategoryGroups.values) ...items
+      ];
+      expect(filed.toSet(), kMarketplaceCategories.toSet(),
+          reason: 'the groups and the list disagree about what exists');
+      expect(filed.length, kMarketplaceCategories.length,
+          reason: 'a category is filed under two headings');
+      // A heading naming something that does not exist is a typo that shows
+      // up as a silently missing row.
+      for (final entry in kMarketplaceCategoryGroups.entries) {
+        for (final c in entry.value) {
+          expect(kMarketplaceCategories, contains(c),
+              reason: '${entry.key} lists "$c", which is not a category');
+        }
+      }
+    });
+
+    test('the extra listing options ride the envelope and survive an edit',
+        () async {
+      FeedStore.instance.resetForTest();
+      addTearDown(FeedStore.instance.resetForTest);
+      final listing = FeedStore.instance.addListing(
+        'c1',
+        title: 'Desk',
+        priceCents: 4000,
+        category: 'Furniture',
+        delivery: 'delivery',
+        quantity: 3,
+        offers: true,
+        place: 'Bloor & Bathurst',
+      );
+      expect(listing.listingDelivery, 'delivery');
+      expect(listing.listingQuantity, 3);
+      expect(listing.listingOffers, isTrue);
+      expect(listing.listingPlace, 'Bloor & Bathurst');
+
+      // Everything a buyer sees has to cross the relay, or it exists only on
+      // the phone that typed it.
+      final back = FeedPost.fromJson(listing.toJson());
+      expect(back.listingDelivery, 'delivery');
+      expect(back.listingQuantity, 3);
+      expect(back.listingOffers, isTrue);
+      expect(back.listingPlace, 'Bloor & Bathurst');
+
+      // An edit that does not mention them must not silently reset them —
+      // updateListing takes nullables precisely so "unspecified" and "clear
+      // it" are different instructions.
+      FeedStore.instance.updateListing(listing.id,
+          title: 'Desk', priceCents: 3500, category: 'Furniture');
+      final after = FeedStore.instance.postById(listing.id)!;
+      expect(after.listingQuantity, 3);
+      expect(after.listingPlace, 'Bloor & Bathurst');
+      expect(after.listingOffers, isTrue);
+      expect(after.priceCents, 3500, reason: 'the edit still applied');
+    });
+
+    test('a quantity below one is never stored, and defaults stay off air',
+        () {
+      FeedStore.instance.resetForTest();
+      addTearDown(FeedStore.instance.resetForTest);
+      // A listing of nothing is a sold listing, not a listing of zero.
+      final zero = FeedStore.instance.addListing('c1',
+          title: 'Chair', priceCents: 100, category: 'Furniture', quantity: 0);
+      expect(zero.listingQuantity, 1);
+
+      // And an ordinary listing puts none of this on the wire: every field is
+      // omitted at its default, so the envelope does not grow for the
+      // listings that say nothing new.
+      final plain = FeedStore.instance
+          .addListing('c1', title: 'Lamp', priceCents: 100, category: 'Other');
+      final json = plain.toJson();
+      expect(json.containsKey('listingQuantity'), isFalse);
+      expect(json.containsKey('listingOffers'), isFalse);
+      expect(json.containsKey('listingDelivery'), isFalse);
+      expect(json.containsKey('listingPlace'), isFalse);
     });
 
     testWidgets('condition rides the listing and the sell form sets it',

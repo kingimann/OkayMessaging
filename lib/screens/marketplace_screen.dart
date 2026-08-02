@@ -2,6 +2,7 @@ import 'package:file_picker/file_picker.dart';
 import '../theme/app_theme.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../app_state.dart';
 import '../models/chat.dart';
@@ -12,6 +13,8 @@ import '../state/chat_store.dart';
 import '../state/community_store.dart';
 import '../state/feed_store.dart';
 import '../state/market_media.dart';
+import '../util/geocoding.dart';
+import 'explore_map_screen.dart';
 import '../state/storage_store.dart';
 import '../util/file_moderation.dart';
 import '../util/photo_prep.dart';
@@ -34,6 +37,8 @@ const int kMaxListingPhotos = 4;
 /// Every category name that has EVER shipped must stay in this list —
 /// categories live as strings on listings already out on the relay, and
 /// renaming one here would orphan every existing listing filed under it.
+/// APPEND ONLY, and never reorder above an existing entry — the doc above is
+/// the rule, and the second half of it is that `first` is the form's default.
 const List<String> kMarketplaceCategories = [
   'Electronics',
   'Phones & Tablets',
@@ -54,7 +59,136 @@ const List<String> kMarketplaceCategories = [
   'Tickets',
   'Free stuff',
   'Other',
+  // Added later. Each one is a thing people were previously filing under
+  // 'Other' or, worse, under a category it did not belong to — which is how
+  // a filter stops being worth using.
+  'Computers',
+  'TV & Audio',
+  'Cameras & Photo',
+  'Video Games & Consoles',
+  'Shoes',
+  'Bags & Luggage',
+  'Watches',
+  'Bikes',
+  'Auto Parts',
+  'Motorcycles',
+  'Boats & Watercraft',
+  'Camping & Outdoors',
+  'Art & Collectibles',
+  'Antiques',
+  'Crafts & Hobbies',
+  'Movies & Music',
+  'Office & Business',
+  'Farm & Garden Equipment',
+  'Building Materials',
+  'Food & Drink',
+  'Property & Rentals',
+  'Services',
+  'Wanted',
 ];
+
+/// How the picker groups the list. Display only, so unlike the list above
+/// this can be reshuffled freely — nothing is stored under a heading.
+///
+/// A flat menu of forty entries is a wall to scroll, which is the reason a
+/// grouped, searchable sheet replaced the dropdown at the same time as the
+/// categories were added. Anything not named here falls under "More".
+const Map<String, List<String>> kMarketplaceCategoryGroups = {
+  'Tech': [
+    'Electronics',
+    'Phones & Tablets',
+    'Computers',
+    'TV & Audio',
+    'Cameras & Photo',
+    'Video Games & Consoles',
+  ],
+  'Home': [
+    'Furniture',
+    'Appliances',
+    'Home & Garden',
+    'Tools & Home Improvement',
+    'Building Materials',
+    'Farm & Garden Equipment',
+  ],
+  'Wearables': [
+    'Clothing',
+    'Shoes',
+    'Jewelry & Accessories',
+    'Watches',
+    'Bags & Luggage',
+    'Beauty & Health',
+  ],
+  'Getting around': [
+    'Vehicles',
+    'Auto Parts',
+    'Motorcycles',
+    'Bikes',
+    'Boats & Watercraft',
+  ],
+  'Leisure': [
+    'Sports',
+    'Camping & Outdoors',
+    'Games & Toys',
+    'Musical Instruments',
+    'Books',
+    'Movies & Music',
+    'Art & Collectibles',
+    'Antiques',
+    'Crafts & Hobbies',
+    'Tickets',
+  ],
+  'Everything else': [
+    'Baby & Kids',
+    'Pet Supplies',
+    'Food & Drink',
+    'Office & Business',
+    'Property & Rentals',
+    'Services',
+    'Wanted',
+    'Free stuff',
+    'Other',
+  ],
+};
+
+/// Every category, in the order the grouped picker shows them, with anything
+/// missing from a group appended so a new category can never be unreachable
+/// just because somebody forgot to file it.
+List<(String, List<String>)> marketplaceCategorySections() {
+  final grouped = <String>{};
+  final out = <(String, List<String>)>[];
+  for (final entry in kMarketplaceCategoryGroups.entries) {
+    final present =
+        entry.value.where(kMarketplaceCategories.contains).toList();
+    if (present.isEmpty) continue;
+    grouped.addAll(present);
+    out.add((entry.key, present));
+  }
+  final ungrouped =
+      kMarketplaceCategories.where((c) => !grouped.contains(c)).toList();
+  if (ungrouped.isNotEmpty) out.add(('More', ungrouped));
+  return out;
+}
+
+/// How a listing changes hands. The stored value is the first of each pair;
+/// the label is display only, so it can be reworded without orphaning a
+/// listing already out on the relay — the same rule the categories follow,
+/// solved a better way because these were designed after that lesson.
+const List<(String, String)> kListingDeliveryOptions = [
+  ('pickup', 'Pickup'),
+  ('delivery', 'Local delivery'),
+  ('shipping', 'Can ship'),
+];
+
+/// The label for a stored delivery value, or '' when it is unset or unknown.
+/// Unknown rather than crashing: a newer client may send a value this build
+/// has never heard of, and a listing that renders is worth more than one that
+/// throws.
+String listingDeliveryLabel(String value) {
+  for (final (v, label) in kListingDeliveryOptions) {
+    if (v == value) return label;
+  }
+  return '';
+}
 
 /// How used an item is. Optional on the form — a required condition gets
 /// answered with whatever dismisses the field fastest.
@@ -315,7 +449,17 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
                     spacing: 8,
                     runSpacing: 8,
                     children: [
-                      for (final c in kMarketplaceCategories)
+                      // Only categories with something in them, plus
+                      // whichever is currently selected so a filter can
+                      // always be switched off from here. Forty-two empty
+                      // chips is a wall, and every one of them is a door
+                      // that opens on nothing — the counts below used to be
+                      // the only hint, on a list a third this long.
+                      for (final c in kMarketplaceCategories.where((c) =>
+                          c == _category ||
+                          FeedStore.instance
+                              .listings()
+                              .any((l) => l.listingCategory == c)))
                         Builder(builder: (context) {
                           // How much is behind each door, so nobody opens an
                           // empty one to find out.
@@ -950,6 +1094,39 @@ class ListingScreen extends StatelessWidget {
                       style: TextStyle(
                           fontSize: 13, color: AppColors.subtle(context)),
                     ),
+                    // The answers a buyer would otherwise have to ask for.
+                    // Each is omitted when unset rather than shown empty: a
+                    // row of "—" reads as a seller who could not be bothered.
+                    if (listing.listingPlace.isNotEmpty ||
+                        listing.listingDelivery.isNotEmpty ||
+                        listing.listingQuantity > 1 ||
+                        listing.listingOffers) ...[
+                      const SizedBox(height: 10),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 6,
+                        children: [
+                          if (listing.listingPlace.isNotEmpty)
+                            _ListingFact(
+                                icon: Icons.place_outlined,
+                                label: listing.listingPlace),
+                          if (listingDeliveryLabel(listing.listingDelivery)
+                              .isNotEmpty)
+                            _ListingFact(
+                                icon: Icons.local_shipping_outlined,
+                                label: listingDeliveryLabel(
+                                    listing.listingDelivery)),
+                          if (listing.listingQuantity > 1)
+                            _ListingFact(
+                                icon: Icons.inventory_2_outlined,
+                                label: '${listing.listingQuantity} available'),
+                          if (listing.listingOffers)
+                            const _ListingFact(
+                                icon: Icons.handshake_outlined,
+                                label: 'Open to offers'),
+                        ],
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -1443,6 +1620,13 @@ class _SellScreenState extends State<SellScreen> {
       ? widget.existing!.listingCategory
       : kMarketplaceCategories.first;
   late String _condition = widget.existing?.listingCondition ?? '';
+  late String _delivery = widget.existing?.listingDelivery ?? '';
+  late final TextEditingController _quantity = TextEditingController(
+      text: (widget.existing?.listingQuantity ?? 1) > 1
+          ? '${widget.existing!.listingQuantity}'
+          : '');
+  late bool _offers = widget.existing?.listingOffers ?? false;
+  late String _place = widget.existing?.listingPlace ?? '';
   /// Up to [kMaxListingPhotos], cover first. Prefilled from the existing
   /// listing and its photo parts when editing.
   late final List<String> _photos = widget.existing == null
@@ -1491,10 +1675,41 @@ class _SellScreenState extends State<SellScreen> {
     }
   }
 
+  /// The typed quantity, floored at one. An empty field means one, which is
+  /// why the field is left blank rather than pre-filled with "1" — a form
+  /// that starts full of defaults reads as a form with more to answer.
+  int get _quantityValue {
+    final n = int.tryParse(_quantity.text.trim()) ?? 1;
+    return n < 1 ? 1 : n;
+  }
+
+  /// The grouped, searchable category sheet.
+  Future<void> _pickCategory() async {
+    final chosen = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (_) => _CategorySheet(selected: _category),
+    );
+    if (chosen != null && mounted) setState(() => _category = chosen);
+  }
+
+  /// Where the item is, chosen on the app's one map.
+  Future<void> _pickPlace() async {
+    final picked = await Navigator.of(context).push<GeoResult>(
+      MaterialPageRoute(builder: (_) => const ExploreMapScreen(picking: true)),
+    );
+    if (picked == null || !mounted) return;
+    // The NAME only. A listing goes to everyone in the server, and a
+    // coordinate pair to five decimals is somebody's address.
+    setState(() => _place = picked.name.trim());
+  }
+
   @override
   void dispose() {
     _title.dispose();
     _price.dispose();
+    _quantity.dispose();
     _description.dispose();
     super.dispose();
   }
@@ -1561,6 +1776,10 @@ class _SellScreenState extends State<SellScreen> {
         extraPhotos: _photos.skip(1).toList(),
         videoPath: removedVideo ? '' : videoPath,
         condition: _condition,
+        delivery: _delivery,
+        quantity: _quantityValue,
+        offers: _offers,
+        place: _place,
       );
       listing = existing;
     } else {
@@ -1573,6 +1792,10 @@ class _SellScreenState extends State<SellScreen> {
         photoUrl: _photos.firstOrNull,
         extraPhotos: _photos.skip(1).toList(),
         condition: _condition,
+        delivery: _delivery,
+        quantity: _quantityValue,
+        offers: _offers,
+        place: _place,
       );
     }
     if (removedVideo) {
@@ -1694,6 +1917,10 @@ class _SellScreenState extends State<SellScreen> {
         parseListingPrice(_price.text) != (existing.priceCents ?? 0) ||
         _category != existing.listingCategory ||
         _condition != existing.listingCondition ||
+        _delivery != existing.listingDelivery ||
+        _quantityValue != existing.listingQuantity ||
+        _offers != existing.listingOffers ||
+        _place != existing.listingPlace ||
         _videoBytes != null ||
         (_videoPath.isEmpty) != existing.listingVideo.isEmpty ||
         !listEquals(
@@ -1756,6 +1983,27 @@ class _SellScreenState extends State<SellScreen> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          // AT THE TOP, not the bottom. It used to sit under the last field,
+          // which was survivable on a short form and stopped being so the
+          // moment this one grew: you tapped Post, the refusal rendered
+          // below the fold, and nothing appeared to happen at all.
+          if (_error != null)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.error_outline,
+                      size: 18, color: Theme.of(context).colorScheme.error),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(_error!,
+                        style: TextStyle(
+                            color: Theme.of(context).colorScheme.error)),
+                  ),
+                ],
+              ),
+            ),
           // Up to four photos, cover first. Each rides the relay as its own
           // message, which is why the cap exists at all — see mediaPart.
           SizedBox(
@@ -1882,17 +2130,24 @@ class _SellScreenState extends State<SellScreen> {
               ),
               const SizedBox(width: 10),
               Expanded(
-                child: DropdownButtonFormField<String>(
-                  // Sized to its column, not to its widest item — "Home &
-                  // Garden" at intrinsic width overflowed the half-width slot.
-                  isExpanded: true,
-                  initialValue: _category,
-                  items: [
-                    for (final c in kMarketplaceCategories)
-                      DropdownMenuItem(value: c, child: Text(c)),
-                  ],
-                  onChanged: (v) => setState(() => _category = v ?? _category),
-                  decoration: const InputDecoration(labelText: 'Category'),
+                // A field that OPENS A SHEET rather than a dropdown. Forty
+                // categories in a menu is a wall to scroll past, and the one
+                // you want is never the one on screen; the sheet groups them
+                // and takes a search.
+                child: InkWell(
+                  onTap: _pickCategory,
+                  child: InputDecorator(
+                    decoration: const InputDecoration(labelText: 'Category'),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(_category,
+                              maxLines: 1, overflow: TextOverflow.ellipsis),
+                        ),
+                        const Icon(Icons.arrow_drop_down),
+                      ],
+                    ),
+                  ),
                 ),
               ),
             ],
@@ -1920,6 +2175,93 @@ class _SellScreenState extends State<SellScreen> {
                       () => _condition = _condition == c ? '' : c),
                 ),
             ],
+          ),
+          const SizedBox(height: 12),
+          // How it changes hands — the buyer's first question after the
+          // price, and one the description used to have to answer in prose.
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Text('How it changes hands',
+                style: Theme.of(context).textTheme.labelLarge),
+          ),
+          const SizedBox(height: 6),
+          Wrap(
+            spacing: 8,
+            children: [
+              for (final (value, label) in kListingDeliveryOptions)
+                ChoiceChip(
+                  label: Text(label),
+                  selected: _delivery == value,
+                  onSelected: (_) => setState(
+                      () => _delivery = _delivery == value ? '' : value),
+                ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _quantity,
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  decoration: const InputDecoration(
+                      labelText: 'Quantity', hintText: '1'),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: InkWell(
+                  onTap: () => setState(() => _offers = !_offers),
+                  child: InputDecorator(
+                    // NOT labelled "Price" — the price field is six inches
+                    // to the left wearing that exact label, and two of them
+                    // on one form is a question nobody can answer.
+                    decoration:
+                        const InputDecoration(labelText: 'Negotiable'),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(_offers ? 'Open to offers' : 'Firm',
+                              maxLines: 1, overflow: TextOverflow.ellipsis),
+                        ),
+                        Switch(
+                          value: _offers,
+                          onChanged: (v) => setState(() => _offers = v),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          // Where it is. A NAME, never coordinates: this rides the relay to
+          // everyone in the server, and "Bloor & Bathurst" is what a buyer
+          // needs while a lat/lng to five decimals is somebody's front door.
+          InkWell(
+            onTap: _pickPlace,
+            child: InputDecorator(
+              decoration: InputDecoration(
+                labelText: 'Where it is',
+                suffixIcon: _place.isEmpty
+                    ? const Icon(Icons.map_outlined)
+                    : IconButton(
+                        icon: const Icon(Icons.close),
+                        tooltip: 'Clear',
+                        onPressed: () => setState(() => _place = ''),
+                      ),
+              ),
+              child: Text(
+                _place.isEmpty ? 'Add a pickup area' : _place,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: _place.isEmpty
+                    ? TextStyle(color: AppColors.subtle(context))
+                    : null,
+              ),
+            ),
           ),
           const SizedBox(height: 12),
           if (servers.length > 1 && widget.existing == null) ...[
@@ -1970,13 +2312,6 @@ class _SellScreenState extends State<SellScreen> {
               ),
             ],
           ),
-          if (_error != null)
-            Padding(
-              padding: const EdgeInsets.only(top: 10),
-              child: Text(_error!,
-                  style:
-                      TextStyle(color: Theme.of(context).colorScheme.error)),
-            ),
         ],
       ),
     );
@@ -2119,6 +2454,147 @@ class SellerScreen extends StatelessWidget {
             ],
           );
         },
+      ),
+    );
+  }
+}
+
+/// The category chooser: grouped, searchable, and taller than a dropdown.
+///
+/// A dropdown was fine for nineteen categories and is not fine for forty —
+/// the one you want is never the one on screen, and there is no way to type
+/// at it. Search matches anywhere in the name, so "phone" finds
+/// "Phones & Tablets" and "camp" finds "Camping & Outdoors".
+class _CategorySheet extends StatefulWidget {
+  final String selected;
+  const _CategorySheet({required this.selected});
+
+  @override
+  State<_CategorySheet> createState() => _CategorySheetState();
+}
+
+class _CategorySheetState extends State<_CategorySheet> {
+  final TextEditingController _search = TextEditingController();
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final q = _search.text.trim().toLowerCase();
+    final sections = q.isEmpty
+        ? marketplaceCategorySections()
+        : [
+            (
+              'Matches',
+              kMarketplaceCategories
+                  .where((c) => c.toLowerCase().contains(q))
+                  .toList()
+            )
+          ];
+    return SafeArea(
+      child: Padding(
+        padding: EdgeInsets.only(
+            bottom: MediaQuery.of(context).viewInsets.bottom),
+        child: SizedBox(
+          height: MediaQuery.of(context).size.height * 0.75,
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                child: TextField(
+                  controller: _search,
+                  autofocus: false,
+                  onChanged: (_) => setState(() {}),
+                  decoration: InputDecoration(
+                    hintText: 'Search categories',
+                    prefixIcon: const Icon(Icons.search),
+                    isDense: true,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(24),
+                      borderSide: BorderSide.none,
+                    ),
+                    filled: true,
+                  ),
+                ),
+              ),
+              Expanded(
+                child: sections.every((s) => s.$2.isEmpty)
+                    ? Center(
+                        child: Text('Nothing matches "${_search.text.trim()}"',
+                            style: TextStyle(color: AppColors.subtle(context))),
+                      )
+                    : ListView(
+                        padding: const EdgeInsets.only(bottom: 16),
+                        children: [
+                          for (final (heading, items) in sections) ...[
+                            if (items.isNotEmpty)
+                              Padding(
+                                padding:
+                                    const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                                child: Text(
+                                  heading.toUpperCase(),
+                                  style: TextStyle(
+                                    fontSize: 11.5,
+                                    fontWeight: FontWeight.w700,
+                                    letterSpacing: 0.8,
+                                    color: AppColors.subtle(context),
+                                  ),
+                                ),
+                              ),
+                            for (final c in items)
+                              ListTile(
+                                dense: true,
+                                title: Text(c),
+                                trailing: c == widget.selected
+                                    ? const Icon(Icons.check, size: 20)
+                                    : null,
+                                onTap: () => Navigator.of(context).pop(c),
+                              ),
+                          ],
+                        ],
+                      ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+
+/// One fact about a listing, as a small labelled pill.
+class _ListingFact extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  const _ListingFact({required this.icon, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    final subtle = AppColors.subtle(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 15, color: subtle),
+          const SizedBox(width: 6),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 220),
+            child: Text(label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 12.5)),
+          ),
+        ],
       ),
     );
   }

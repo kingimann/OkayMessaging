@@ -90,6 +90,25 @@ class FeedPost {
   /// without a second copy of any of it. Read it through [hasVideo].
   final String listingVideo;
 
+  /// How a listing changes hands: '' (unsaid), 'pickup', 'delivery',
+  /// 'shipping'. A buyer's first question after the price, and one the
+  /// description used to have to answer in prose.
+  final String listingDelivery;
+
+  /// How many are for sale. 1 unless the seller says otherwise; 0 is never
+  /// stored, because a listing of nothing is a sold listing.
+  final int listingQuantity;
+
+  /// Whether the seller will talk about the price. Distinct from a low price:
+  /// "firm" saves both sides a conversation neither wanted.
+  final bool listingOffers;
+
+  /// Where the item is, as a human-readable place ('' = unsaid). A name and
+  /// not coordinates: this rides the relay to everyone in the server, and
+  /// "Bloor & Bathurst" is what a buyer needs, while a lat/lng pair to five
+  /// decimal places is somebody's front door.
+  final String listingPlace;
+
   /// Photo-part index (1-based) when this post is one extra photo of a
   /// listing; 0 everywhere else. Each part rides as its OWN post because the
   /// relay caps a payload around a quarter-megabyte and one photo already
@@ -146,6 +165,10 @@ class FeedPost {
     this.rating = 0,
     this.mediaPart = 0,
     this.listingVideo = '',
+    this.listingDelivery = '',
+    this.listingQuantity = 1,
+    this.listingOffers = false,
+    this.listingPlace = '',
     this.prevPriceCents = 0,
     this.pollQuestion = '',
     this.pollOptions = const [],
@@ -193,6 +216,10 @@ class FeedPost {
         rating: rating,
         mediaPart: mediaPart,
         listingVideo: listingVideo,
+        listingDelivery: listingDelivery,
+        listingQuantity: listingQuantity,
+        listingOffers: listingOffers,
+        listingPlace: listingPlace,
         prevPriceCents: prevPriceCents,
         pollQuestion: pollQuestion,
         pollOptions: pollOptions,
@@ -229,6 +256,10 @@ class FeedPost {
         if (rating > 0) 'rating': rating,
         if (mediaPart > 0) 'mediaPart': mediaPart,
         if (listingVideo.isNotEmpty) 'listingVideo': listingVideo,
+        if (listingDelivery.isNotEmpty) 'listingDelivery': listingDelivery,
+        if (listingQuantity != 1) 'listingQuantity': listingQuantity,
+        if (listingOffers) 'listingOffers': true,
+        if (listingPlace.isNotEmpty) 'listingPlace': listingPlace,
         if (prevPriceCents > 0) 'prevPriceCents': prevPriceCents,
         if (isPoll) ...{
           'pollQuestion': pollQuestion,
@@ -264,6 +295,10 @@ class FeedPost {
         rating: (j['rating'] as num?)?.toInt() ?? 0,
         mediaPart: (j['mediaPart'] as num?)?.toInt() ?? 0,
         listingVideo: j['listingVideo'] as String? ?? '',
+        listingDelivery: j['listingDelivery'] as String? ?? '',
+        listingQuantity: (j['listingQuantity'] as num?)?.toInt() ?? 1,
+        listingOffers: j['listingOffers'] as bool? ?? false,
+        listingPlace: j['listingPlace'] as String? ?? '',
         prevPriceCents: (j['prevPriceCents'] as num?)?.toInt() ?? 0,
         pollQuestion: j['pollQuestion'] as String? ?? '',
         pollOptions:
@@ -744,6 +779,10 @@ class FeedStore extends ChangeNotifier {
     List<String> extraPhotos = const [],
     String videoPath = '',
     String condition = '',
+    String delivery = '',
+    int quantity = 1,
+    bool offers = false,
+    String place = '',
   }) {
     final me = AppState.profile.value;
     final post = FeedPost(
@@ -763,6 +802,10 @@ class FeedStore extends ChangeNotifier {
       listingCategory: category,
       listingCondition: condition,
       listingVideo: videoPath,
+      listingDelivery: delivery,
+      listingQuantity: quantity < 1 ? 1 : quantity,
+      listingOffers: offers,
+      listingPlace: place,
     );
     _posts.add(post);
     _addPhotoParts(post, extraPhotos);
@@ -918,6 +961,10 @@ class FeedStore extends ChangeNotifier {
     String description = '',
     String? photoUrl,
     List<String>? extraPhotos,
+    String? delivery,
+    int? quantity,
+    bool? offers,
+    String? place,
     String? videoPath,
     String? condition,
   }) {
@@ -957,6 +1004,10 @@ class FeedStore extends ChangeNotifier {
       listingSold: post.listingSold,
       listingRev: post.listingRev + 1,
       listingVideo: videoPath ?? post.listingVideo,
+      listingDelivery: delivery ?? post.listingDelivery,
+      listingQuantity: quantity ?? post.listingQuantity,
+      listingOffers: offers ?? post.listingOffers,
+      listingPlace: place ?? post.listingPlace,
       // Remember the old ask across ONE change, so a drop can be shown.
       // An unchanged price keeps whatever history it had.
       prevPriceCents: priceCents != (post.priceCents ?? 0)
