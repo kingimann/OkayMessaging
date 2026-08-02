@@ -34,6 +34,18 @@ class _FormFillScreenState extends State<FormFillScreen> {
 
   bool get _complete => FormResponse.isComplete(widget.fields, _answers);
 
+  void _set(int i, String v) => setState(() {
+        _answers[i] = v;
+        // Changing an answer can fold later questions away. Their answers go
+        // with them: an answer to a question no longer being asked would
+        // otherwise ride out with the response and read as an answer to it.
+        for (var q = 0; q < widget.fields.length; q++) {
+          if (!FormResponse.isShown(widget.fields, _answers, q)) {
+            _answers[q] = '';
+          }
+        }
+      });
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -58,14 +70,18 @@ class _FormFillScreenState extends State<FormFillScreen> {
           ),
           const SizedBox(height: 16),
           for (var i = 0; i < widget.fields.length; i++)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 18),
-              child: _Question(
-                field: widget.fields[i],
-                value: _answers[i],
-                onChanged: (v) => setState(() => _answers[i] = v),
+            if (FormResponse.isShown(widget.fields, _answers, i))
+              Padding(
+                padding: const EdgeInsets.only(bottom: 18),
+                child: _Question(
+                  // Keyed by position: hiding question 3 must not hand its
+                  // text-field state to question 4 as the column reflows.
+                  key: ValueKey('q_$i'),
+                  field: widget.fields[i],
+                  value: _answers[i],
+                  onChanged: (v) => _set(i, v),
+                ),
               ),
-            ),
           if (!_complete)
             Text(
               'Answer the questions marked * to send.',
@@ -80,11 +96,28 @@ class _FormFillScreenState extends State<FormFillScreen> {
 
 class _Question extends StatelessWidget {
   const _Question(
-      {required this.field, required this.value, required this.onChanged});
+      {super.key,
+      required this.field,
+      required this.value,
+      required this.onChanged});
 
   final FormFieldSpec field;
   final String value;
   final ValueChanged<String> onChanged;
+
+  Future<void> _pickDate(BuildContext context) async {
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: DateTime.tryParse(value) ?? now,
+      firstDate: DateTime(1900),
+      lastDate: DateTime(2100),
+    );
+    if (picked == null) return;
+    final m = picked.month.toString().padLeft(2, '0');
+    final d = picked.day.toString().padLeft(2, '0');
+    onChanged('${picked.year}-$m-$d');
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -94,6 +127,12 @@ class _Question extends StatelessWidget {
       children: [
         Text(label,
             style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+        if (field.help.trim().isNotEmpty) ...[
+          const SizedBox(height: 2),
+          Text(field.help,
+              style:
+                  TextStyle(fontSize: 12.5, color: AppColors.subtle(context))),
+        ],
         const SizedBox(height: 8),
         switch (field.kind) {
           // Chips rather than radios: RadioListTile's group API is deprecated
@@ -111,6 +150,72 @@ class _Question extends StatelessWidget {
                     // question can be un-answered after a mis-tap.
                     onSelected: (_) =>
                         onChanged(value == option ? '' : option),
+                  ),
+              ],
+            ),
+          FormFieldKind.chooseMany => Wrap(
+              spacing: 8,
+              runSpacing: 4,
+              children: [
+                for (final option in field.options)
+                  FilterChip(
+                    label: Text(option),
+                    selected: value.split(', ').contains(option),
+                    onSelected: (picked) {
+                      // Kept in the form's order, not the tapping order, so
+                      // the same picks always read back as the same answer.
+                      final chosen = value.split(', ').toSet();
+                      picked ? chosen.add(option) : chosen.remove(option);
+                      onChanged(field.options
+                          .where(chosen.contains)
+                          .join(', '));
+                    },
+                  ),
+              ],
+            ),
+          FormFieldKind.dropdown => DropdownButtonFormField<String>(
+              initialValue:
+                  field.options.contains(value) ? value : null,
+              // Sized by the screen, not the widest option, which nothing
+              // stops from being a sentence.
+              isExpanded: true,
+              decoration:
+                  const InputDecoration(border: OutlineInputBorder()),
+              hint: const Text('Choose…'),
+              items: [
+                // The way back to no answer, so an optional dropdown is not
+                // the one control a mis-tap commits forever.
+                if (!field.required)
+                  const DropdownMenuItem(
+                      value: '', child: Text('No answer')),
+                for (final option in field.options)
+                  DropdownMenuItem(value: option, child: Text(option)),
+              ],
+              onChanged: (v) => onChanged(v ?? ''),
+            ),
+          FormFieldKind.date => OutlinedButton.icon(
+              onPressed: () => _pickDate(context),
+              icon: const Icon(Icons.event, size: 19),
+              label: Text(value.isEmpty ? 'Pick a date' : value),
+            ),
+          FormFieldKind.rating => Row(
+              children: [
+                for (var star = 1; star <= 5; star++)
+                  IconButton(
+                    visualDensity: VisualDensity.compact,
+                    icon: Icon(
+                      star <= (int.tryParse(value.split('/').first) ?? 0)
+                          ? Icons.star_rounded
+                          : Icons.star_outline_rounded,
+                      color: star <=
+                              (int.tryParse(value.split('/').first) ?? 0)
+                          ? Colors.amber.shade600
+                          : AppColors.subtle(context),
+                    ),
+                    // Tapping the current rating clears it — same way out as
+                    // a chip.
+                    onPressed: () =>
+                        onChanged(value == '$star/5' ? '' : '$star/5'),
                   ),
               ],
             ),
@@ -198,21 +303,26 @@ class FormResponsesScreen extends StatelessWidget {
                             style: const TextStyle(
                                 fontSize: 15, fontWeight: FontWeight.w700)),
                         const SizedBox(height: 10),
-                        for (var q = 0; q < fields.length; q++) ...[
-                          Text(fields[q].label,
-                              style: TextStyle(
-                                  fontSize: 12.5,
-                                  color: AppColors.subtle(context))),
-                          Text(
-                            // A gap is said rather than left blank: an empty
-                            // line reads as a rendering fault.
-                            q < r.answers.length && r.answers[q].trim().isNotEmpty
-                                ? r.answers[q]
-                                : 'No answer',
-                            style: const TextStyle(fontSize: 15),
-                          ),
-                          const SizedBox(height: 10),
-                        ],
+                        for (var q = 0; q < fields.length; q++)
+                          // A question their answers folded away was never
+                          // asked of them — a "No answer" line would read as
+                          // somebody declining a question they never saw.
+                          if (FormResponse.isShown(fields, r.answers, q)) ...[
+                            Text(fields[q].label,
+                                style: TextStyle(
+                                    fontSize: 12.5,
+                                    color: AppColors.subtle(context))),
+                            Text(
+                              // A gap is said rather than left blank: an empty
+                              // line reads as a rendering fault.
+                              q < r.answers.length &&
+                                      r.answers[q].trim().isNotEmpty
+                                  ? r.answers[q]
+                                  : 'No answer',
+                              style: const TextStyle(fontSize: 15),
+                            ),
+                            const SizedBox(height: 10),
+                          ],
                       ],
                     ),
                   ),

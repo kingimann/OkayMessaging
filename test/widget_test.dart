@@ -135,6 +135,8 @@ import 'package:okay_messaging/state/status_store.dart';
 import 'package:okay_messaging/state/chat_lock.dart';
 import 'package:okay_messaging/widgets/chat_list_tile.dart';
 import 'package:okay_messaging/models/form_spec.dart';
+import 'package:okay_messaging/screens/form_builder_screen.dart';
+import 'package:okay_messaging/screens/form_fill_screen.dart';
 import 'package:okay_messaging/state/quick_replies.dart';
 import 'package:okay_messaging/state/chat_store.dart';
 import 'package:okay_messaging/state/gif_service.dart';
@@ -25063,6 +25065,237 @@ void main() {
       expect(find.text('Fill in this form'), findsOneWidget);
       expect(find.textContaining('response'), findsNothing,
           reason: 'a recipient must not be shown who else answered');
+    });
+
+    test('every kind survives the envelope, help and conditions included', () {
+      const f = FormFieldSpec(
+        label: 'Day',
+        kind: FormFieldKind.date,
+        help: 'Any weekday works',
+        showIfQ: 0,
+        showIfIs: 'Yes',
+      );
+      final round = FormFieldSpec.fromJson(Map<String, dynamic>.from(
+          jsonDecode(jsonEncode(f.toJson())) as Map));
+      expect(round.kind, FormFieldKind.date);
+      expect(round.help, 'Any weekday works');
+      expect(round.showIfQ, 0);
+      expect(round.showIfIs, 'Yes');
+      for (final kind in FormFieldKind.values) {
+        expect(
+            FormFieldSpec.fromJson(
+                    FormFieldSpec(label: 'x', kind: kind).toJson())
+                .kind,
+            kind,
+            reason: 'a kind that does not round-trip arrives as short answer');
+      }
+    });
+
+    test('a question is only asked when its condition is met', () {
+      const branching = [
+        FormFieldSpec(
+            label: 'Coming?', kind: FormFieldKind.yesNo, required: true),
+        FormFieldSpec(
+            label: 'Why not?', required: true, showIfQ: 0, showIfIs: 'No'),
+      ];
+      expect(FormResponse.isShown(branching, ['Yes', ''], 1), isFalse);
+      expect(FormResponse.isShown(branching, ['No', ''], 1), isTrue);
+      // A required question nobody was asked cannot hold up the send…
+      expect(FormResponse.isComplete(branching, ['Yes', '']), isTrue);
+      // …and one that IS asked still does.
+      expect(FormResponse.isComplete(branching, ['No', '']), isFalse);
+      expect(FormResponse.isComplete(branching, ['No', 'travel']), isTrue);
+    });
+
+    test('a hidden question hides everything gated on it', () {
+      const chain = [
+        FormFieldSpec(label: 'Eating?', kind: FormFieldKind.yesNo),
+        FormFieldSpec(
+            label: 'Course',
+            kind: FormFieldKind.choice,
+            options: ['Meat', 'Veg'],
+            showIfQ: 0,
+            showIfIs: 'Yes'),
+        FormFieldSpec(label: 'How done?', showIfQ: 1, showIfIs: 'Meat'),
+      ];
+      expect(FormResponse.isShown(chain, ['Yes', 'Meat', ''], 2), isTrue);
+      // The middle answer can still be sitting there from before the switch;
+      // its question being hidden must beat its stale answer.
+      expect(FormResponse.isShown(chain, ['No', 'Meat', ''], 2), isFalse);
+    });
+
+    test('a choose-many gate matches any one of the picks', () {
+      const f = [
+        FormFieldSpec(
+            label: 'Days',
+            kind: FormFieldKind.chooseMany,
+            options: ['Mon', 'Tue', 'Wed']),
+        FormFieldSpec(label: 'Tuesday time', showIfQ: 0, showIfIs: 'Tue'),
+      ];
+      expect(FormResponse.isShown(f, ['Mon, Tue', ''], 1), isTrue);
+      expect(FormResponse.isShown(f, ['Mon, Wed', ''], 1), isFalse);
+    });
+
+    test('a condition that cannot be evaluated is ignored, not obeyed', () {
+      // Fail open: a mangled form should still be answerable — silently
+      // unanswerable is the worse failure.
+      const forward = [
+        FormFieldSpec(label: 'A', showIfQ: 1, showIfIs: 'x'),
+        FormFieldSpec(
+            label: 'B', kind: FormFieldKind.choice, options: ['x', 'y']),
+      ];
+      expect(FormResponse.isShown(forward, ['', ''], 0), isTrue);
+      const self = [FormFieldSpec(label: 'A', showIfQ: 0, showIfIs: 'x')];
+      expect(FormResponse.isShown(self, [''], 0), isTrue);
+    });
+
+    testWidgets('a switched-away branch does not ride out with the response',
+        (t) async {
+      const branching = [
+        FormFieldSpec(label: 'Coming?', kind: FormFieldKind.yesNo),
+        FormFieldSpec(label: 'Why not?', showIfQ: 0, showIfIs: 'No'),
+      ];
+      await t.pumpWidget(const MaterialApp(
+          home: FormFillScreen(title: 'RSVP', fields: branching)));
+      await t.pumpAndSettle();
+      expect(find.text('Why not?'), findsNothing,
+          reason: 'the branch question waits for its answer');
+      await t.tap(find.text('No'));
+      await t.pumpAndSettle();
+      expect(find.text('Why not?'), findsOneWidget);
+      await t.enterText(find.byType(TextFormField), 'travel');
+      await t.tap(find.text('Yes'));
+      await t.pumpAndSettle();
+      expect(find.text('Why not?'), findsNothing);
+      // Back onto the branch: the abandoned answer did not survive the
+      // switch — it would have gone out as an answer to a question that was
+      // no longer being asked.
+      await t.tap(find.text('No'));
+      await t.pumpAndSettle();
+      expect(find.text('travel'), findsNothing);
+    });
+
+    testWidgets('picks keep the form\'s order, and stars answer as N/5',
+        (t) async {
+      const f = [
+        FormFieldSpec(
+            label: 'Days',
+            kind: FormFieldKind.chooseMany,
+            options: ['Mon', 'Tue', 'Wed']),
+        FormFieldSpec(label: 'Service', kind: FormFieldKind.rating),
+        FormFieldSpec(label: 'Day', help: 'Any weekday works'),
+      ];
+      List<String>? sent;
+      await t.pumpWidget(MaterialApp(
+        home: Builder(
+          builder: (context) => Center(
+            child: ElevatedButton(
+              onPressed: () async {
+                sent = await Navigator.of(context).push<List<String>>(
+                    MaterialPageRoute(
+                        builder: (_) =>
+                            const FormFillScreen(title: 'T', fields: f)));
+              },
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      ));
+      await t.tap(find.text('open'));
+      await t.pumpAndSettle();
+      expect(find.text('Any weekday works'), findsOneWidget,
+          reason: 'help text rides under its question');
+      // Tapped out of order; the answer reads in the form's order, so the
+      // same picks always come back as the same sentence.
+      await t.tap(find.text('Wed'));
+      await t.pump();
+      await t.tap(find.text('Mon'));
+      await t.pumpAndSettle();
+      await t.tap(find.byIcon(Icons.star_outline_rounded).at(3));
+      await t.pumpAndSettle();
+      await t.tap(find.text('Send'));
+      await t.pumpAndSettle();
+      expect(sent, ['Mon, Wed', '4/5', '']);
+    });
+
+    testWidgets('nobody is shown declining a question they were never asked',
+        (t) async {
+      const branching = [
+        FormFieldSpec(label: 'Coming?', kind: FormFieldKind.yesNo),
+        FormFieldSpec(label: 'Why not?', showIfQ: 0, showIfIs: 'No'),
+      ];
+      await t.pumpWidget(MaterialApp(
+        home: FormResponsesScreen(
+          title: 'RSVP',
+          fields: branching,
+          responses: [
+            FormResponse(
+                from: 'Ada', answers: const ['Yes', ''], at: DateTime(2026))
+          ],
+        ),
+      ));
+      await t.pumpAndSettle();
+      expect(find.text('Coming?'), findsOneWidget);
+      expect(find.text('Why not?'), findsNothing);
+      expect(find.text('No answer'), findsNothing,
+          reason: '"No answer" to a question never asked reads as declining');
+    });
+
+    testWidgets('the builder drops a condition its move made impossible',
+        (t) async {
+      t.view.physicalSize = const Size(500, 2200);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.resetPhysicalSize);
+      (String, List<FormFieldSpec>)? sent;
+      await t.pumpWidget(MaterialApp(
+        home: Builder(
+          builder: (context) => Center(
+            child: ElevatedButton(
+              onPressed: () async {
+                sent = await Navigator.of(context)
+                    .push<(String, List<FormFieldSpec>)>(MaterialPageRoute(
+                        builder: (_) => const FormBuilderScreen()));
+              },
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      ));
+      await t.tap(find.text('open'));
+      await t.pumpAndSettle();
+
+      await t.enterText(
+          find.widgetWithText(TextField, 'What is this form for?'), 'RSVP');
+      await t.enterText(find.byType(TextFormField).first, 'Coming?');
+      await t.tap(find.text('Yes or no'));
+      await t.pumpAndSettle();
+      await t.ensureVisible(find.text('Add a question'));
+      await t.tap(find.text('Add a question'));
+      await t.pumpAndSettle();
+
+      // The second question: label it, then gate it on the first.
+      final labels = find.widgetWithText(TextFormField, 'Question 2');
+      await t.enterText(labels.first, 'Why not?');
+      await t.pumpAndSettle();
+      await t.ensureVisible(find.text('Always asked'));
+      await t.tap(find.text('Always asked'));
+      await t.pumpAndSettle();
+      await t.tap(find.text('Coming?').last); // the menu item, not the field
+      await t.pumpAndSettle();
+
+      // Move the gated question above the one that gates it. The condition
+      // cannot point forwards, so it goes rather than silently inverting.
+      await t.ensureVisible(find.byTooltip('Move up').last);
+      await t.tap(find.byTooltip('Move up').last);
+      await t.pumpAndSettle();
+
+      await t.tap(find.text('Send'));
+      await t.pumpAndSettle();
+      expect(sent, isNotNull, reason: 'the reordered form still sends');
+      expect(sent!.$2.first.label, 'Why not?');
+      expect(sent!.$2.first.showIfQ, isNull,
+          reason: 'a condition cannot point at a later question');
+      expect(sent!.$2.last.label, 'Coming?');
     });
 
     test('nothing about a form reaches a server in the clear', () {

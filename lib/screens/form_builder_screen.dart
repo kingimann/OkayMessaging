@@ -22,6 +22,11 @@ class _FormBuilderScreenState extends State<FormBuilderScreen> {
     const FormFieldSpec(label: '', kind: FormFieldKind.text),
   ];
 
+  /// One stable id per question, so editor state (typed text, focus) moves
+  /// WITH a question when it is reordered instead of staying in its slot.
+  final List<int> _ids = [0];
+  int _nextId = 1;
+
   @override
   void dispose() {
     _title.dispose();
@@ -36,6 +41,65 @@ class _FormBuilderScreenState extends State<FormBuilderScreen> {
   void _send() {
     Navigator.of(context).pop((_title.text.trim(), List.of(_fields)));
   }
+
+  /// Drops any "only ask if" that no longer holds together: pointing at
+  /// itself or forwards, at a question that cannot gate, or at a value its
+  /// question no longer offers. Run after every edit — a question's kind or
+  /// options changing can orphan a condition two cards further down, where
+  /// nobody is looking.
+  void _repairConditions() {
+    for (var i = 0; i < _fields.length; i++) {
+      final q = _fields[i].showIfQ;
+      if (q == null) continue;
+      final broken = q < 0 ||
+          q >= i ||
+          !_fields[q].canGate ||
+          !_fields[q].gateValues.contains(_fields[i].showIfIs);
+      if (broken) _fields[i] = _fields[i].copyWith(clearShowIf: true);
+    }
+  }
+
+  void _update(int i, FormFieldSpec f) => setState(() {
+        _fields[i] = f;
+        _repairConditions();
+      });
+
+  void _remove(int i) => setState(() {
+        _fields.removeAt(i);
+        _ids.removeAt(i);
+        // Conditions are positional: everything after the gap moves up one,
+        // and anything gated on the removed question loses its gate.
+        for (var j = 0; j < _fields.length; j++) {
+          final q = _fields[j].showIfQ;
+          if (q == null) continue;
+          if (q == i) {
+            _fields[j] = _fields[j].copyWith(clearShowIf: true);
+          } else if (q > i) {
+            _fields[j] = _fields[j].copyWith(showIfQ: q - 1);
+          }
+        }
+        _repairConditions();
+      });
+
+  void _move(int i, int delta) => setState(() {
+        final j = i + delta;
+        if (j < 0 || j >= _fields.length) return;
+        final f = _fields.removeAt(i);
+        final id = _ids.removeAt(i);
+        _fields.insert(j, f);
+        _ids.insert(j, id);
+        // The swap renumbers both questions; conditions follow the question
+        // they name, then the repair pass drops any that now point forwards.
+        for (var k = 0; k < _fields.length; k++) {
+          final q = _fields[k].showIfQ;
+          if (q == i) {
+            _fields[k] = _fields[k].copyWith(showIfQ: j);
+          } else if (q == j) {
+            _fields[k] = _fields[k].copyWith(showIfQ: i);
+          }
+        }
+        _repairConditions();
+      });
 
   @override
   Widget build(BuildContext context) {
@@ -71,18 +135,21 @@ class _FormBuilderScreenState extends State<FormBuilderScreen> {
           const SizedBox(height: 16),
           for (var i = 0; i < _fields.length; i++)
             _FieldEditor(
-              key: ValueKey('field_$i'),
+              key: ValueKey('field_${_ids[i]}'),
               index: i,
-              field: _fields[i],
-              onChanged: (f) => setState(() => _fields[i] = f),
-              onRemove: _fields.length == 1
-                  ? null
-                  : () => setState(() => _fields.removeAt(i)),
+              fields: _fields,
+              onChanged: (f) => _update(i, f),
+              onRemove: _fields.length == 1 ? null : () => _remove(i),
+              onMoveUp: i == 0 ? null : () => _move(i, -1),
+              onMoveDown:
+                  i == _fields.length - 1 ? null : () => _move(i, 1),
             ),
           const SizedBox(height: 8),
           OutlinedButton.icon(
-            onPressed: () => setState(
-                () => _fields.add(const FormFieldSpec(label: ''))),
+            onPressed: () => setState(() {
+              _fields.add(const FormFieldSpec(label: ''));
+              _ids.add(_nextId++);
+            }),
             icon: const Icon(Icons.add),
             label: const Text('Add a question'),
           ),
@@ -96,23 +163,48 @@ class _FieldEditor extends StatelessWidget {
   const _FieldEditor({
     super.key,
     required this.index,
-    required this.field,
+    required this.fields,
     required this.onChanged,
     required this.onRemove,
+    required this.onMoveUp,
+    required this.onMoveDown,
   });
 
   final int index;
-  final FormFieldSpec field;
+
+  /// The whole form, not just this question: "only ask if" points at the
+  /// questions above this one.
+  final List<FormFieldSpec> fields;
   final ValueChanged<FormFieldSpec> onChanged;
   final VoidCallback? onRemove;
+  final VoidCallback? onMoveUp;
+  final VoidCallback? onMoveDown;
+
+  FormFieldSpec get field => fields[index];
 
   static const _labels = {
     FormFieldKind.text: 'Short answer',
     FormFieldKind.paragraph: 'Long answer',
     FormFieldKind.number: 'Number',
     FormFieldKind.choice: 'Choose one',
+    FormFieldKind.chooseMany: 'Choose many',
+    FormFieldKind.dropdown: 'Dropdown',
+    FormFieldKind.date: 'Date',
+    FormFieldKind.rating: 'Rating',
     FormFieldKind.yesNo: 'Yes or no',
   };
+
+  /// Questions above this one whose answer can gate it: a closed set of
+  /// values to match, and enough of them to be a real fork.
+  List<int> get _gates => [
+        for (var q = 0; q < index; q++)
+          if (fields[q].canGate && fields[q].gateValues.length >= 2) q
+      ];
+
+  String _gateName(int q) {
+    final label = fields[q].label.trim();
+    return label.isEmpty ? 'Question ${q + 1}' : label;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -144,7 +236,7 @@ class _FieldEditor extends StatelessWidget {
                   ),
               ],
             ),
-            if (field.kind == FormFieldKind.choice) ...[
+            if (field.takesOptions) ...[
               const SizedBox(height: 10),
               TextFormField(
                 initialValue: field.options.join(', '),
@@ -159,6 +251,82 @@ class _FieldEditor extends StatelessWidget {
                 ])),
               ),
             ],
+            const SizedBox(height: 10),
+            TextFormField(
+              initialValue: field.help,
+              textCapitalization: TextCapitalization.sentences,
+              decoration: const InputDecoration(
+                labelText: 'Help text (optional)',
+                helperText: 'Shown under the question — an example, a unit',
+                border: OutlineInputBorder(),
+              ),
+              onChanged: (v) => onChanged(field.copyWith(help: v)),
+            ),
+            if (_gates.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: DropdownButtonFormField<int>(
+                      initialValue: _gates.contains(field.showIfQ)
+                          ? field.showIfQ
+                          : null,
+                      // Sized by the slot, not the widest label — a long
+                      // question name must not overflow the half-width row.
+                      isExpanded: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Only ask if…',
+                        border: OutlineInputBorder(),
+                        isDense: true,
+                      ),
+                      items: [
+                        const DropdownMenuItem(
+                            value: null, child: Text('Always asked')),
+                        for (final q in _gates)
+                          DropdownMenuItem(
+                              value: q,
+                              child: Text(_gateName(q),
+                                  overflow: TextOverflow.ellipsis)),
+                      ],
+                      onChanged: (q) => onChanged(q == null
+                          ? field.copyWith(clearShowIf: true)
+                          : field.copyWith(
+                              showIfQ: q,
+                              // A fresh gate starts on its first value: a
+                              // condition with no value yet is not one.
+                              showIfIs: fields[q].gateValues.first)),
+                    ),
+                  ),
+                  if (_gates.contains(field.showIfQ)) ...[
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: DropdownButtonFormField<String>(
+                        initialValue: fields[field.showIfQ!]
+                                .gateValues
+                                .contains(field.showIfIs)
+                            ? field.showIfIs
+                            : null,
+                        isExpanded: true,
+                        decoration: const InputDecoration(
+                          labelText: 'answered',
+                          border: OutlineInputBorder(),
+                          isDense: true,
+                        ),
+                        items: [
+                          for (final v in fields[field.showIfQ!].gateValues)
+                            DropdownMenuItem(
+                                value: v,
+                                child: Text(v,
+                                    overflow: TextOverflow.ellipsis)),
+                        ],
+                        onChanged: (v) =>
+                            onChanged(field.copyWith(showIfIs: v ?? '')),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ],
             Row(
               children: [
                 Checkbox(
@@ -168,6 +336,16 @@ class _FieldEditor extends StatelessWidget {
                 ),
                 const Text('Required'),
                 const Spacer(),
+                IconButton(
+                  icon: const Icon(Icons.arrow_upward),
+                  tooltip: 'Move up',
+                  onPressed: onMoveUp,
+                ),
+                IconButton(
+                  icon: const Icon(Icons.arrow_downward),
+                  tooltip: 'Move down',
+                  onPressed: onMoveDown,
+                ),
                 if (onRemove != null)
                   IconButton(
                     icon: const Icon(Icons.delete_outline),
