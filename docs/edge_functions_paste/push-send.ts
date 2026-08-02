@@ -180,8 +180,17 @@ Deno.serve(async (req) => {
   if (!digits || !title) return Response.json({ error: "bad request" }, { status: 400 });
 
   const { data: row } = await admin.from("push_tokens")
-    .select("token").eq("phone", digits).maybeSingle();
+    .select("token, private").eq("phone", digits).maybeSingle();
   if (!row?.token) return Response.json({ sent: false });
+
+  // The RECIPIENT's choice, enforced here rather than trusted to the sender's
+  // app: the push is composed on the sender's device, and a preference
+  // protecting this recipient's lock screen cannot depend on somebody else's
+  // settings. `from` still rides along — it is digits inside the payload,
+  // never rendered, and it is what lets a tap open the right conversation.
+  const wantsPrivate = row.private === true;
+  const alertTitle = wantsPrivate ? "New message" : title;
+  const alertBody = wantsPrivate ? "" : (body ?? "");
 
   const host = (Deno.env.get("APNS_SANDBOX") === "true")
     ? "api.sandbox.push.apple.com" : "api.push.apple.com";
@@ -195,8 +204,14 @@ Deno.serve(async (req) => {
     },
     body: JSON.stringify({
       aps: {
-        alert: { title, body: body ?? "" },
+        alert: { title: alertTitle, body: alertBody },
         sound: "default",
+        // The app registers this category with a hidden-previews placeholder,
+        // so a locked phone (with iOS's default "Show Previews: When
+        // Unlocked") shows "New message" instead of the sender's name —
+        // whatever the private flag says, because the flag is a choice and a
+        // locked screen is not.
+        category: "okay_msg",
         ...(badge != null ? { badge } : {}),
       },
       ...(from ? { from } : {}),

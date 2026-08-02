@@ -161,8 +161,9 @@ class BackupScreen extends StatelessWidget {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    'End-to-end encrypted with AES-256. If you lose the '
-                    'passphrase, the backup can\'t be recovered.',
+                    'Always end-to-end encrypted with AES-256 — there is no '
+                    'unencrypted backup. If you lose the passphrase, the '
+                    'backup can\'t be recovered.',
                     style:
                         TextStyle(color: AppColors.subtle(context), fontSize: 12),
                   ),

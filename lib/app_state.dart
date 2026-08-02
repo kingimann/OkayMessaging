@@ -113,6 +113,17 @@ class AppState {
   static final ValueNotifier<bool> silenceUnknownCallers =
       ValueNotifier<bool>(false);
 
+  /// Private notifications: a push says "New message" and nothing else — no
+  /// sender name, no group name — and delivered alerts are cleared from
+  /// Notification Center when the app opens, so nothing lingers in history.
+  ///
+  /// Enforced by the push-send Edge Function reading the RECIPIENT's flag off
+  /// their push_tokens row, not by the sender's app: the push is composed on
+  /// the sender's device, and a preference protecting YOUR lock screen cannot
+  /// depend on somebody else's settings.
+  static final ValueNotifier<bool> privateNotifications =
+      ValueNotifier<bool>(false);
+
   /// When on, only people you already have a chat with can message you; a
   /// message from an unknown number is dropped instead of starting a new chat.
   static final ValueNotifier<bool> messagesFromContactsOnly =
@@ -218,6 +229,7 @@ class AppState {
     sendReadReceipts.value = true;
     sendTypingIndicators.value = true;
     silenceUnknownCallers.value = false;
+    privateNotifications.value = false;
     messagesFromContactsOnly.value = false;
     allowVoicemail.value = true;
     notificationsEnabled.value = true;

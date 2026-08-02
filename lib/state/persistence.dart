@@ -32,6 +32,7 @@ class Persistence {
   static const _kReadReceipts = 'send_read_receipts';
   static const _kTypingIndicators = 'send_typing_indicators';
   static const _kSilenceUnknown = 'silence_unknown_callers';
+  static const _kPrivateNotifications = 'private_notifications';
   static const _kContactsOnly = 'messages_from_contacts_only';
   static const _kAllowVoicemail = 'allow_voicemail';
   static const _kNotifications = 'notifications_enabled';
@@ -133,6 +134,10 @@ class Persistence {
       AppState.silenceUnknownCallers.value =
           prefs.getBool(_kSilenceUnknown) ?? false;
     }
+    if (prefs.containsKey(_kPrivateNotifications)) {
+      AppState.privateNotifications.value =
+          prefs.getBool(_kPrivateNotifications) ?? false;
+    }
     if (prefs.containsKey(_kContactsOnly)) {
       AppState.messagesFromContactsOnly.value =
           prefs.getBool(_kContactsOnly) ?? false;
@@ -195,6 +200,7 @@ class Persistence {
     AppState.sendReadReceipts.addListener(_saveReadReceipts);
     AppState.sendTypingIndicators.addListener(_saveTypingIndicators);
     AppState.silenceUnknownCallers.addListener(_saveSilenceUnknown);
+    AppState.privateNotifications.addListener(_savePrivateNotifications);
     AppState.messagesFromContactsOnly.addListener(_saveContactsOnly);
     AppState.allowVoicemail.addListener(_saveAllowVoicemail);
     AppState.notificationsEnabled.addListener(_saveNotifications);
@@ -236,6 +242,11 @@ class Persistence {
 
   static void _saveSilenceUnknown() {
     _prefs?.setBool(_kSilenceUnknown, AppState.silenceUnknownCallers.value);
+  }
+
+  static void _savePrivateNotifications() {
+    _prefs?.setBool(
+        _kPrivateNotifications, AppState.privateNotifications.value);
   }
 
   static void _saveContactsOnly() {

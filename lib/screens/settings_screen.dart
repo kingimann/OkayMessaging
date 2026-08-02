@@ -171,6 +171,7 @@ class SettingsView extends StatelessWidget {
         settingsSectionLabel(context, 'Notifications & calls'),
         InfoSection(children: [
           _buildNotificationsTile(),
+          _buildPrivateNotificationsTile(),
           _buildVoicemailTile(),
           InfoTile(
             leading: const Icon(Icons.notifications_paused_outlined),
@@ -382,6 +383,28 @@ class SettingsView extends StatelessWidget {
         value: on,
         shape: kSettingsTileShape,
         onChanged: (v) => AppState.notificationsEnabled.value = v,
+      ),
+    );
+  }
+
+  Widget _buildPrivateNotificationsTile() {
+    return ValueListenableBuilder<bool>(
+      valueListenable: AppState.privateNotifications,
+      builder: (context, on, _) => SwitchListTile(
+        secondary: Icon(on
+            ? Icons.notifications_paused
+            : Icons.notification_important_outlined),
+        title: const Text('Private notifications'),
+        // What each half does, said plainly. The locked-screen half is not
+        // mentioned because it is not this switch: previews hide on a locked
+        // phone whatever this says.
+        subtitle: Text(on
+            ? 'Alerts say "New message" and nothing else, and are cleared '
+                'from Notification Center when you open the app'
+            : 'Alerts show who messaged you'),
+        value: on,
+        shape: kSettingsTileShape,
+        onChanged: (v) => AppState.privateNotifications.value = v,
       ),
     );
   }

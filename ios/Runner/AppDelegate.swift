@@ -118,6 +118,22 @@ import UserNotifications
     // first push can land, and before the permission prompt, so a launch from
     // a notification is not raced by the delegate being assigned late.
     UNUserNotificationCenter.current().delegate = self
+    // When the phone is locked and iOS is hiding previews (the system's
+    // "Show Previews: When Unlocked" — its default), an alert in this
+    // category shows this placeholder instead of its title and body, so the
+    // sender's name never sits on a locked screen. Empty options: the
+    // .hiddenPreviewsShowTitle flag would put the title back, which is the
+    // opposite of the point. The initializer is iOS 11+, under this app's
+    // iOS 13 floor, so no availability guard.
+    UNUserNotificationCenter.current().setNotificationCategories([
+      UNNotificationCategory(
+        identifier: "okay_msg",
+        actions: [],
+        intentIdentifiers: [],
+        hiddenPreviewsBodyPlaceholder: "New message",
+        options: []
+      )
+    ])
     channel.setMethodCallHandler { [weak self] call, result in
       switch call.method {
       case "register":
@@ -131,6 +147,11 @@ import UserNotifications
       case "openChat":
         let digits = (call.arguments as? String) ?? ""
         self?.openChatDigits = digits.isEmpty ? nil : digits
+        result(nil)
+      case "clearDelivered":
+        // Private notifications: nothing left behind in Notification Center
+        // once the app has been opened — the alert already did its job.
+        UNUserNotificationCenter.current().removeAllDeliveredNotifications()
         result(nil)
       default:
         result(FlutterMethodNotImplemented)

@@ -107,8 +107,16 @@ create table if not exists public.push_tokens (
   phone      text primary key,           -- E.164 digits
   token      text not null,              -- APNs device token (hex)
   platform   text not null default 'ios',
+  -- The device owner's "private notifications" choice, enforced by push-send:
+  -- when true every alert to this device says "New message" and nothing else.
+  -- Stored server-side because the push is composed on the SENDER's device —
+  -- a preference protecting this lock screen cannot live in someone else's
+  -- settings.
+  private    boolean not null default false,
   updated_at timestamptz not null default now()
 );
+alter table public.push_tokens
+  add column if not exists private boolean not null default false;
 
 alter table public.push_tokens enable row level security;
 

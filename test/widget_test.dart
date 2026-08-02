@@ -24911,6 +24911,126 @@ void main() {
           reason: 'the server card must be able to withhold the line');
     });
   });
+  group('private notifications and forced-E2EE backups', () {
+    test('the recipient\'s flag is enforced by the server, not the sender',
+        () {
+      // The push is composed on the SENDER's device, so a preference
+      // protecting the RECIPIENT's lock screen has to be applied where the
+      // recipient's row lives — push-send — or it protects nothing.
+      final fn =
+          File('supabase/functions/push-send/index.ts').readAsStringSync();
+      expect(fn.contains('"token, private"'), isTrue,
+          reason: 'push-send must read the recipient\'s private flag');
+      expect(fn.contains('row.private === true'), isTrue);
+      expect(fn.contains('wantsPrivate ? "New message" : title'), isTrue,
+          reason: 'a private alert says "New message" and nothing else');
+      expect(fn.contains('category: "okay_msg"'), isTrue,
+          reason: 'the category is what hides previews on a locked phone');
+
+      final schema = File('supabase/schema.sql').readAsStringSync();
+      expect(
+          schema.contains(RegExp(
+              r'alter table public\.push_tokens\s+add column if not exists private')),
+          isTrue,
+          reason: 'existing deployments must gain the column');
+    });
+
+    test('the app uploads its choice and can clear what was delivered', () {
+      final push = File('lib/state/push_service.dart').readAsStringSync();
+      expect(push.contains("'private': AppState.privateNotifications.value"),
+          isTrue,
+          reason: 'the flag rides up with the token');
+      expect(push.contains('_onPrivateChanged'), isTrue,
+          reason: 'flipping the toggle must re-upsert, not wait for a '
+              'relaunch');
+      // The Swift side is pinned by source, like the other never-compiled
+      // native code: there is no Xcode here, so the test is what stops the
+      // Dart call from pointing at a method that does not exist.
+      final swift = File('ios/Runner/AppDelegate.swift').readAsStringSync();
+      expect(swift.contains('"clearDelivered"'), isTrue);
+      expect(swift.contains('removeAllDeliveredNotifications'), isTrue);
+      expect(swift.contains('hiddenPreviewsBodyPlaceholder: "New message"'),
+          isTrue,
+          reason: 'a locked phone must show the placeholder, not the sender');
+      final main = File('lib/main.dart').readAsStringSync();
+      expect(main.contains('clearDelivered'), isTrue,
+          reason: 'delivered alerts are cleared when the app comes forward');
+    });
+
+    testWidgets('the toggle exists and persists like every other setting',
+        (t) async {
+      addTearDown(AppState.resetForTest);
+      expect(AppState.privateNotifications.value, isFalse,
+          reason: 'off by default — hiding who writes to you is a choice');
+      final persistence =
+          File('lib/state/persistence.dart').readAsStringSync();
+      expect(persistence.contains('_kPrivateNotifications'), isTrue);
+      expect(persistence.contains('_savePrivateNotifications'), isTrue);
+    });
+
+    test('chat backups leave only as ciphertext, and come back whole',
+        () async {
+      // "Force E2EE backups" is not a switch — it is the absence of any
+      // other path. This drives the real backup pipeline into the debug
+      // server and reads what actually left the device.
+      CloudSync.debugServerOverride = {};
+      StorageStore.instance.debugSubscribe(1);
+      ChatStore.instance.reset();
+      addTearDown(() {
+        CloudSync.debugServerOverride = null;
+        CloudSync.instance.resetForTest();
+        StorageStore.instance.resetForTest();
+        ChatStore.instance.reset();
+      });
+      await CloudSync.instance
+          .configure(passphrase: 'correct horse battery', on: false);
+      ChatStore.instance.setChats([
+        Chat(
+            id: 'c',
+            contact: const AppUser(
+                id: 'p',
+                name: 'Bosworth Fieldmarshal',
+                avatarColor: '#2E7D32',
+                phone: 'p'),
+            messages: [
+              Message(
+                  id: 'm1',
+                  text: 'the safe code is 4711',
+                  time: DateTime(2026, 1, 1),
+                  isMe: true)
+            ])
+      ]);
+
+      expect(await CloudSync.instance.backUpChats(), isNull);
+      final blob = CloudSync.debugServerOverride!.values.single;
+      // Whole phrases, not short fragments — four characters of base64 can
+      // collide with anything.
+      expect(blob.contains('the safe code is 4711'), isFalse,
+          reason: 'message content must never leave in the clear');
+      expect(blob.contains('Bosworth Fieldmarshal'), isFalse,
+          reason: 'names are content too');
+
+      ChatStore.instance.reset();
+      expect(await CloudSync.instance.restoreChats(), isNull);
+      expect(
+          ChatStore.instance
+              .chatById('c')!
+              .messages
+              .single
+              .text,
+          'the safe code is 4711');
+    });
+
+    test('the backup screen says the guarantee, and cannot understate it',
+        () {
+      // Same pattern as the screenshot subtitle: the sentence is the
+      // promise, and a test is what stops it being edited into something
+      // weaker.
+      // The sentence wraps across source lines, so match its rarest part.
+      final src = File('lib/screens/backup_screen.dart').readAsStringSync();
+      expect(src.contains('unencrypted backup'), isTrue);
+    });
+  });
   group('feed thread readability', () {
     testWidgets('the post a thread is about is set larger than its replies',
         (t) async {

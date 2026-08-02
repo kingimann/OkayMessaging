@@ -14,6 +14,7 @@ import 'payments/payment_service.dart';
 import 'relay/relay_config.dart';
 import 'mesh/mesh_service.dart';
 import 'state/feed_drafts.dart';
+import 'state/push_service.dart';
 import 'relay/relay_service.dart';
 import 'models/chat.dart';
 import 'models/user.dart';
@@ -362,6 +363,13 @@ class _OkayMessagingAppState extends State<OkayMessagingApp>
       // the password stopped protecting. Shutting them on the way out is what
       // makes the lock mean anything after the first unlock.
       ChatLock.instance.closeAll();
+    }
+    // Private notifications: the alert did its job once the app is open, and
+    // a stack of "New message" rows left in Notification Center afterwards
+    // is a log of when people talked to you.
+    if (state == AppLifecycleState.resumed &&
+        AppState.privateNotifications.value) {
+      PushService.instance.clearDelivered();
     }
   }
 
