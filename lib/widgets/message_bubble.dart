@@ -1244,7 +1244,10 @@ class _FormContent extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         SizedBox(
-          width: double.infinity,
+          // The same fixed width a poll bubble uses: double.infinity here
+          // stretched every form bubble to the transcript's maximum width,
+          // however small the form.
+          width: 250,
           child: FilledButton.tonal(
             onPressed: onOpen,
             child: Text(message.isMe

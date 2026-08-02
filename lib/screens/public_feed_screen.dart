@@ -1171,12 +1171,17 @@ class _Entry extends StatelessWidget {
     this.collapseLongBody = true,
     this.threadedBelow = false,
     this.offerSelfThread = true,
+    this.focused = false,
   });
 
   final PublicPost post;
   final void Function(PublicPost target) onReply;
   final void Function(PublicPost target) onOpen;
   final bool collapseLongBody;
+
+  /// True for the one post a thread screen is about — larger body type, so
+  /// the post and its replies stop reading as the same thing.
+  final bool focused;
 
   /// Draws a line from this post's avatar down to the next one — what makes
   /// a chain of replies read as one conversation rather than a list of
@@ -1200,6 +1205,7 @@ class _Entry extends StatelessWidget {
         onReply: () => onReply(post),
         onOpen: () => onOpen(post),
         collapseLongBody: collapseLongBody,
+        focused: focused,
       );
       return threadedBelow ? _ThreadSpine(child: tile) : tile;
     }
@@ -1237,12 +1243,16 @@ class _PostTile extends StatelessWidget {
   /// are standing in.
   final bool offerSelfThread;
 
+  /// Larger body type for the one post a thread screen is about.
+  final bool focused;
+
   const _PostTile(
       {required this.post,
       required this.onReply,
       required this.onOpen,
       this.collapseLongBody = true,
-      this.offerSelfThread = true});
+      this.offerSelfThread = true,
+      this.focused = false});
 
   @override
   Widget build(BuildContext context) {
@@ -1294,6 +1304,7 @@ class _PostTile extends StatelessWidget {
                     FeedBodyText(
                       text: post.body,
                       collapse: collapseLongBody,
+                      focused: focused,
                       onTag: (t) =>
                           PublicFeedStore.instance.setTag(t.substring(1)),
                       onMention: (u) => openPublicProfile(context, u),
@@ -1643,6 +1654,7 @@ class PublicThreadScreen extends StatelessWidget {
                 post: post,
                 collapseLongBody: false,
                 offerSelfThread: false,
+                focused: true,
                 onReply: (target) => _openComposer(context,
                     replyTo: target.id, replyingToName: target.authorName),
                 onOpen: (_) {},
@@ -1656,7 +1668,18 @@ class PublicThreadScreen extends StatelessWidget {
                         style: TextStyle(color: AppColors.subtle(context))),
                   ),
                 )
-              else
+              else ...[
+                // Said, not implied: without the label the replies read as
+                // more posts, and nothing on the screen says which one
+                // everything else is answering.
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 14, 16, 4),
+                  child: Text('Replies',
+                      style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.subtle(context))),
+                ),
                 // A REPLY IS A POST. Its own reply button opens the composer
                 // for it and tapping it opens its thread — both were wired to
                 // empty callbacks, so answering somebody's comment did
@@ -1680,6 +1703,7 @@ class PublicThreadScreen extends StatelessWidget {
                   ),
                   const Divider(height: 1),
                 ],
+              ],
             ],
                 ),
               ),

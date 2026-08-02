@@ -653,40 +653,48 @@ class _AttachmentPanel extends StatelessWidget {
     return Container(
       color: isDark ? AppColors.chatBgDark : const Color(0xFFF0F0F0),
       padding: const EdgeInsets.fromLTRB(12, 14, 12, 14),
-      child: GridView.count(
-        // Five across, not four: Form made nine options, and at four they
-        // wrapped to a third row that fell off a short screen. Five keeps
-        // every option one tap away, which is the whole point of the panel.
-        crossAxisCount: 5,
-        shrinkWrap: true,
-        physics: const NeverScrollableScrollPhysics(),
-        mainAxisSpacing: 12,
-        childAspectRatio: 0.95,
-        children: [
-          for (final option in options)
-            InkWell(
-              borderRadius: BorderRadius.circular(14),
-              onTap: () {
-                onPicked();
-                option.onTap();
-              },
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  CircleAvatar(
-                    radius: 25,
-                    backgroundColor: option.color,
-                    child: Icon(option.icon, color: Colors.white, size: 24),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(option.label,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 12)),
-                ],
+      // Two rows that scroll sideways, not a taller and taller grid: this
+      // panel has grown past what one screen of rows can hold (a fixed
+      // five-across grid wrapped to a third row that fell off a short
+      // screen and pushed the composer around). A fixed height keeps the
+      // composer where it was however many options exist; scrolling keeps
+      // every option reachable.
+      child: SizedBox(
+        height: 188,
+        child: GridView.count(
+          scrollDirection: Axis.horizontal,
+          crossAxisCount: 2,
+          mainAxisSpacing: 8,
+          crossAxisSpacing: 12,
+          // height/width of a cell; slightly wide so five columns peek on a
+          // phone width and the panel visibly wants to be scrolled.
+          childAspectRatio: 1.15,
+          children: [
+            for (final option in options)
+              InkWell(
+                borderRadius: BorderRadius.circular(14),
+                onTap: () {
+                  onPicked();
+                  option.onTap();
+                },
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    CircleAvatar(
+                      radius: 25,
+                      backgroundColor: option.color,
+                      child: Icon(option.icon, color: Colors.white, size: 24),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(option.label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 12)),
+                  ],
+                ),
               ),
-            ),
-        ],
+          ],
+        ),
       ),
     );
   }

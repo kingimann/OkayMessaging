@@ -24911,6 +24911,49 @@ void main() {
           reason: 'the server card must be able to withhold the line');
     });
   });
+  group('feed thread readability', () {
+    testWidgets('the post a thread is about is set larger than its replies',
+        (t) async {
+      await t.pumpWidget(const MaterialApp(
+        home: Scaffold(
+          body: Column(children: [
+            FeedBodyText(
+                key: ValueKey('root'),
+                text: 'the post',
+                focused: true,
+                collapse: false),
+            FeedBodyText(
+                key: ValueKey('child'), text: 'a reply', collapse: false),
+          ]),
+        ),
+      ));
+      await t.pumpAndSettle();
+
+      double biggest(Key key) {
+        double out = 0;
+        void walk(InlineSpan s) {
+          final f = s.style?.fontSize;
+          if (f != null && f > out) out = f;
+          if (s is TextSpan) {
+            for (final c in s.children ?? const <InlineSpan>[]) {
+              walk(c);
+            }
+          }
+        }
+
+        for (final r in t.widgetList<RichText>(find.descendant(
+            of: find.byKey(key), matching: find.byType(RichText)))) {
+          walk(r.text);
+        }
+        return out;
+      }
+
+      expect(biggest(const ValueKey('root')),
+          greaterThan(biggest(const ValueKey('child'))),
+          reason: 'nothing else on a thread screen says which one is the '
+              'post and which are the replies');
+    });
+  });
   group('ghost messages and the pinboard', () {
     setUp(ChatStore.instance.reset);
 

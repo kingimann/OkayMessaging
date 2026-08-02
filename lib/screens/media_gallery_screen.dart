@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../models/message.dart';
 import '../state/chat_store.dart';
@@ -10,6 +9,7 @@ import '../widgets/empty_state.dart';
 import '../widgets/linkable_text.dart';
 import '../widgets/pull_to_refresh.dart';
 import 'image_view_screen.dart';
+import 'in_app_web_screen.dart';
 import 'location_map_screen.dart';
 
 /// The chat's pinboard: everything worth coming back to, without scrolling
@@ -270,9 +270,11 @@ class _LinksList extends StatelessWidget {
                 fontSize: 12.5,
               ),
             ),
+            // On one of the app's own screens, never a browser hand-off —
+            // the same rule every link in the app follows.
             onTap: () {
               final url = firstUrl(links[i].text);
-              if (url != null) launchUrl(Uri.parse(url));
+              if (url != null) InAppWebScreen.open(context, url);
             },
           );
         },

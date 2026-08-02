@@ -767,6 +767,10 @@ class _PostCard extends StatelessWidget {
   final ValueChanged<String>? onTag;
   final ValueChanged<String>? onMention;
 
+  /// True for the one post a thread screen is about: its body is set larger,
+  /// so the post and the replies under it stop reading as the same thing.
+  final bool focused;
+
   const _PostCard({
     required this.post,
     this.onOpenSelfThread,
@@ -777,6 +781,7 @@ class _PostCard extends StatelessWidget {
     this.onMore,
     this.onTag,
     this.onMention,
+    this.focused = false,
   });
 
   @override
@@ -808,10 +813,28 @@ class _PostCard extends StatelessWidget {
                   // bookmark to report.
                   onMore: onMore,
                 ),
+                // What this is a reply to — the same line the public feed
+                // draws, and only when the parent is still loadable: a wrong
+                // handle would be worse than no line at all.
+                if (post.parentId != null)
+                  if (FeedStore.instance.postById(post.parentId!)
+                      case final FeedPost parent) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      'Replying to @${parent.authorUsername}',
+                      style: TextStyle(
+                          fontSize: 12.5,
+                          color: Theme.of(context).colorScheme.primary),
+                    ),
+                  ],
                 if (post.text.isNotEmpty) ...[
                   const SizedBox(height: 4),
                   FeedBodyText(
                     text: post.text,
+                    // The focused post is the whole screen: nothing under it
+                    // to protect with a fold.
+                    collapse: !focused,
+                    focused: focused,
                     onTag: onTag,
                     onMention: onMention,
                   ),
@@ -1106,6 +1129,7 @@ class _FeedPostScreenState extends State<FeedPostScreen> {
                         _AncestorCard(post: a),
                       _PostCard(
                         post: post,
+                        focused: true,
                         onLike: () => FeedStore.instance.toggleLike(post.id),
                         onRepost: () =>
                             FeedStore.instance.toggleRepost(post.id),
@@ -1154,6 +1178,20 @@ class _FeedPostScreenState extends State<FeedPostScreen> {
                                         .colorScheme
                                         .onSurfaceVariant)),
                           ),
+                        )
+                      else
+                        // Said, not implied: without the label the replies
+                        // read as more posts, and nothing on the screen says
+                        // which one everything else is answering.
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 14, 16, 4),
+                          child: Text('Replies',
+                              style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w700,
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .onSurfaceVariant)),
                         ),
                       for (final r in replies) ...[
                         Padding(

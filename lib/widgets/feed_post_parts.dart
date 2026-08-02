@@ -43,6 +43,10 @@ class FeedPostMetrics {
   /// three-line post reads as a block.
   static const TextStyle body = TextStyle(fontSize: 15, height: 1.35);
 
+  /// The post a thread screen is about, set larger — the one visual cue
+  /// that says "this is the post, those below are the replies".
+  static const TextStyle focusedBody = TextStyle(fontSize: 18.5, height: 1.4);
+
   /// Corner rounding on an attached picture.
   static const double imageRadius = 12;
 }
@@ -248,6 +252,7 @@ class FeedBodyText extends StatefulWidget {
     super.key,
     required this.text,
     this.collapse = true,
+    this.focused = false,
     this.onTag,
     this.onMention,
   });
@@ -257,6 +262,10 @@ class FeedBodyText extends StatefulWidget {
   /// Whether a long body folds to a "Show more". False where the post is the
   /// whole screen — a thread — because there is nothing under it to protect.
   final bool collapse;
+
+  /// Larger type for the one post a thread screen is about, so the post and
+  /// its replies stop reading as the same thing.
+  final bool focused;
 
   /// Tapping `#something`, with the hash included.
   final ValueChanged<String>? onTag;
@@ -305,19 +314,22 @@ class _FeedBodyTextState extends State<FeedBodyText> {
     return r;
   }
 
+  TextStyle get _base =>
+      widget.focused ? FeedPostMetrics.focusedBody : FeedPostMetrics.body;
+
   @override
   Widget build(BuildContext context) {
     if (!widget.collapse) return _rich(context, null);
     return CollapsibleText(
       text: widget.text,
-      style: FeedPostMetrics.body,
+      style: _base,
       builder: _rich,
     );
   }
 
   Widget _rich(BuildContext context, int? maxLines) {
     _clear();
-    const base = FeedPostMetrics.body;
+    final base = _base;
     final accent = base.copyWith(
         color: Theme.of(context).colorScheme.primary,
         fontWeight: FontWeight.w600);
