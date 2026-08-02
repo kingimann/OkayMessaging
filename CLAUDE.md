@@ -221,9 +221,18 @@ Two things that look like bugs and are not:
   ($0.125/GB) would make every storage plan unprofitable. Bucket setup:
   `docs/chat_backup_bucket.sql`.
 - **GIFs**: the picker is built and tested, but GIF *search* needs a free
-  Tenor key passed at build time (`--dart-define=TENOR_API_KEY=…`). Without
-  it the GIF tab says so; emoji and everything else are unaffected, and a GIF
-  someone already sent still plays.
+  KLIPY key passed at build time (`--dart-define=KLIPY_API_KEY=…`), from
+  `partner.klipy.com/api-keys`. Without it the GIF tab says so; emoji and
+  everything else are unaffected, and a GIF someone already sent still plays.
+  **It was Tenor until Google shut that API down on 30 June 2026** — keys
+  stopped being issued that January and live ones started erroring on the
+  day. KLIPY is where Bluesky and WhatsApp went; it is Tenor-shaped on
+  purpose, so the swap was a base URL and a key. GIPHY was the other
+  candidate and no longer has a free tier. `GifService.parseResults` reads
+  *both* the Tenor-compatible response and KLIPY's native one, because the
+  two are documented inconsistently and neither can be checked without a key
+  — betting on one and losing means a GIF grid that is silently always empty.
+  **Nothing here has been run against the live API.**
 - **Cloud storage is a paid subscription** (`lib/state/storage_store.dart`):
   backup used to be free and on for everyone; now everything except chats
   (servers, feed, follows, places, score, email) rides the encrypted cloud

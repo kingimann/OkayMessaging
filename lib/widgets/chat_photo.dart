@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../util/photo_prep.dart';
 
 /// Renders a chat photo from its [url] — an inline `data:` URI (a real photo
-/// sent over the relay) or a network URL (a GIF from Tenor's CDN) — with one
+/// sent over the relay) or a network URL (a GIF from the provider's CDN) — with one
 /// [errorBuilder] contract for both.
 class ChatPhoto extends StatelessWidget {
   final String url;

@@ -505,7 +505,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   /// Sends a GIF picked from the composer. It rides as an image message with
   /// a real URL, so it animates in the bubble and travels over the relay like
-  /// any other photo — the file itself stays on Tenor's CDN.
+  /// any other photo — the file itself stays on the GIF provider's CDN.
   Future<void> _handleSendGif(String url) async {
     if (!await _confirmRecipient()) return;
     final now = DateTime.now();

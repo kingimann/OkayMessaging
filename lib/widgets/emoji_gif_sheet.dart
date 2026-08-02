@@ -295,7 +295,7 @@ class _GifPaneState extends State<GifPane> {
   }
 }
 
-/// Shown when no Tenor key was compiled in — better than an empty grid that
+/// Shown when no KLIPY key was compiled in — better than an empty grid that
 /// looks broken.
 class _GifUnconfigured extends StatelessWidget {
   const _GifUnconfigured();
@@ -314,8 +314,8 @@ class _GifUnconfigured extends StatelessWidget {
                 style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
             const SizedBox(height: 6),
             Text(
-              'This build has no Tenor API key. Add one at build time with '
-              '--dart-define=TENOR_API_KEY=… and the GIF tab starts working.',
+              'This build has no KLIPY API key. Add one at build time with '
+              '--dart-define=KLIPY_API_KEY=… and the GIF tab starts working.',
               textAlign: TextAlign.center,
               style: TextStyle(fontSize: 13.5, color: AppColors.subtle(context)),
             ),
