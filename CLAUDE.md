@@ -79,27 +79,35 @@ flutter build web --release --no-web-resources-cdn \
 
 ## Deploying
 
-Develop on `claude/whatsapp-clone-flutter-jx9ja8`. GitHub Pages only deploys
-from `main`, so every change goes to both — with a pause between pushes to
-avoid a Pages concurrency race:
+**`main` is the branch that matters.** It is what GitHub Pages deploys and
+what Codemagic builds, so nothing is shipped until it is there.
+
+A session is usually handed its own `claude/…` branch to work on. Push to
+both, with a pause between — the two Pages publishers race, and back-to-back
+pushes make it worse:
 
 ```bash
 git config user.email noreply@anthropic.com
 git config user.name Claude
 git add -A && git commit -q -m "…"
-git push -u origin claude/whatsapp-clone-flutter-jx9ja8
+git push -u origin <this session's branch>
 sleep 12
-git push origin claude/whatsapp-clone-flutter-jx9ja8:main
+git push origin <this session's branch>:main
 ```
+
+Working directly on `main` is fine when no branch was assigned. What is not
+fine is stopping at the feature branch: it deploys nothing and builds nothing.
 
 Commit trailers to include:
 
 ```
-Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
-Claude-Session: https://claude.ai/code/session_015P97LVudGW2edqtwWSjQKV
+Co-Authored-By: Claude <noreply@anthropic.com>
+Claude-Session: <this session's claude.ai/code URL>
 ```
 
-Never put a model identifier in commits, PRs, code, or anything pushed.
+Never put a model identifier in commits, PRs, code, or anything pushed — which
+is why the trailer above is plain `Claude`. An earlier version of this file
+had a model name in that very example.
 
 **Two things publish to Pages and the wrong one is faster** — still true, and
 it is the first thing to suspect when the site 404s. Every push to `main`

@@ -2,9 +2,11 @@ name: Deploy web to GitHub Pages
 
 on:
   push:
+    # main only. A feature branch used to be listed here too, which meant a
+    # push to it published over whatever main had deployed — the live site
+    # showing work nobody had merged, from a branch long since abandoned.
     branches:
       - main
-      - claude/whatsapp-clone-flutter-jx9ja8
   workflow_dispatch:
 
 permissions:
