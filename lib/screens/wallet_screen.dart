@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../payments/payment_service.dart';
+import '../payments/storage_economics.dart';
 import 'payment_controls_screen.dart';
 import 'native_onboarding_screen.dart';
 import 'payment_diagnostics_screen.dart';
@@ -180,8 +181,15 @@ class _WalletScreenState extends State<WalletScreen> {
                       const SizedBox(height: 16),
                       if (!s.canReceive)
                         _OnboardCard(onStart: _startOnboarding)
-                      else
+                      else ...[
+                        _CashOutCard(
+                          status: s,
+                          onDone: _refresh,
+                          onAddCard: _openControls,
+                        ),
+                        const SizedBox(height: 16),
                         _PayoutCard(status: s),
+                      ],
                       const SizedBox(height: 16),
                       const _TestModeTile(),
                       const SizedBox(height: 8),
@@ -308,6 +316,175 @@ class _OnboardCard extends StatelessWidget {
                 onPressed: onStart,
                 child: const Text('Set up with Stripe'),
               ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Cashing out to a debit card, in minutes rather than the usual days.
+///
+/// The fee is on the card **before** the button, not in a receipt afterwards.
+/// Stripe takes its cut out of the amount, so the number that lands is smaller
+/// than the number tapped, and an app that only mentions that once the money
+/// has moved has picked the wrong moment to be honest.
+class _CashOutCard extends StatefulWidget {
+  final WalletStatus status;
+  final VoidCallback onDone;
+  final VoidCallback onAddCard;
+  const _CashOutCard({
+    required this.status,
+    required this.onDone,
+    required this.onAddCard,
+  });
+
+  @override
+  State<_CashOutCard> createState() => _CashOutCardState();
+}
+
+class _CashOutCardState extends State<_CashOutCard> {
+  bool _busy = false;
+
+  WalletStatus get _s => widget.status;
+
+  Future<void> _cashOut() async {
+    final amount = _s.instantAvailableCents;
+    final fee = InstantPayoutEconomics.feeCents(amount, _s.country);
+    final lands = InstantPayoutEconomics.landsCents(amount, _s.country);
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Cash out instantly?'),
+        // The three numbers that matter, separately. "You get $31.68" alone
+        // invites "why not $32?" at exactly the moment nobody can ask.
+        content: Text(
+          '${_s.money(amount)} from your balance\n'
+          '− ${_s.money(fee)} Stripe\'s instant fee\n'
+          '= ${_s.money(lands)} on your '
+          '${_s.cardBrand ?? 'card'} ••${_s.cardLast4 ?? '••'}\n\n'
+          'Usually within 30 minutes. Waiting for the normal payout to your '
+          'bank costs nothing.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Cash out'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+
+    setState(() => _busy = true);
+    final outcome =
+        await PaymentService.instance.cashOutInstantly(amount, country: _s.country);
+    if (!mounted) return;
+    setState(() => _busy = false);
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(outcome.ok
+          ? 'On its way — ${_s.money(outcome.amountCents - outcome.feeCents)} '
+              'to ••${_s.cardLast4 ?? '••'}'
+          : outcome.message),
+    ));
+    if (outcome.ok) widget.onDone();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = _s;
+    final subtle = AppColors.subtle(context);
+    // Nothing to move is not a problem to explain, so this says nothing at
+    // all rather than drawing a disabled button and a reason.
+    if (s.instantAvailableCents <= 0 && s.hasDebitCard) {
+      return const SizedBox.shrink();
+    }
+
+    final canGo = s.canCashOutInstantly;
+    final fee = InstantPayoutEconomics.feeCents(s.instantAvailableCents, s.country);
+
+    return Card(
+      elevation: 0,
+      color: Theme.of(context).colorScheme.surfaceContainerHighest,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.bolt, color: Color(0xFF12B76A)),
+                const SizedBox(width: 10),
+                const Expanded(
+                  child: Text('Cash out instantly',
+                      style: TextStyle(
+                          fontSize: 15.5, fontWeight: FontWeight.w600)),
+                ),
+                if (canGo)
+                  Text(s.money(s.instantAvailableCents),
+                      style: const TextStyle(
+                          fontSize: 15.5, fontWeight: FontWeight.w700)),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              !s.hasDebitCard
+                  ? 'Add a debit card and your balance can land in minutes '
+                      'instead of waiting for the bank payout.'
+                  : !InstantPayoutEconomics.isSupportedIn(s.country)
+                      ? 'Stripe does not offer instant payouts in this '
+                          'country yet. Your balance still pays out to your '
+                          'bank on the normal schedule.'
+                      : !InstantPayoutEconomics.isWorthCashingOut(
+                              s.instantAvailableCents)
+                          ? 'At least '
+                              '${s.money(InstantPayoutEconomics.minimumCents)} '
+                              'needs to be instantly available.'
+                          : 'To your ${s.cardBrand ?? 'card'} '
+                              '••${s.cardLast4 ?? '••'}, usually within 30 '
+                              'minutes. Stripe charges '
+                              '${InstantPayoutEconomics.percentFor(s.country)}% '
+                              '(${s.money(fee)}) and takes it from the amount.',
+              style: TextStyle(color: subtle, fontSize: 13.5, height: 1.35),
+            ),
+            const SizedBox(height: 14),
+            SizedBox(
+              width: double.infinity,
+              child: canGo
+                  ? FilledButton.icon(
+                      style: FilledButton.styleFrom(
+                        backgroundColor: const Color(0xFF12B76A),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                      ),
+                      onPressed: _busy ? null : _cashOut,
+                      icon: _busy
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(
+                                  strokeWidth: 2, color: Colors.white))
+                          : const Icon(Icons.bolt),
+                      label: Text(_busy
+                          ? 'Sending'
+                          : 'Cash out ${s.money(s.instantAvailableCents)}'),
+                    )
+                  : OutlinedButton(
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                      ),
+                      // The card is attached through Stripe's own component:
+                      // debit card details must never reach this app.
+                      onPressed: s.hasDebitCard ? null : widget.onAddCard,
+                      child: Text(s.hasDebitCard
+                          ? 'Not available right now'
+                          : 'Add a debit card'),
+                    ),
             ),
           ],
         ),

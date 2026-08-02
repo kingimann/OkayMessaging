@@ -5,6 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart' hide Session;
 import '../relay/relay_config.dart';
 import '../state/account_email.dart';
 import 'connect_fields.dart';
+import 'storage_economics.dart';
 import 'stripe_sheet.dart';
 
 /// Raised when a payment Edge Function returns an error.
@@ -27,13 +28,30 @@ class WalletStatus {
   final String? payoutStatus;
   final int? payoutAmountCents;
 
+  /// What can go to a debit card in minutes. Stripe keeps this as its own
+  /// bucket, not a slice of [availableCents] — offering the ordinary balance
+  /// beside an instant button would promise money Stripe refuses to move.
+  final int instantAvailableCents;
+
+  /// The connected account's country, which sets Stripe's instant fee.
+  final String? country;
+
+  final bool hasDebitCard;
+  final String? cardLast4;
+  final String? cardBrand;
+
   const WalletStatus({
     required this.onboarded,
     required this.chargesEnabled,
     required this.payoutsEnabled,
     this.availableCents = 0,
     this.pendingCents = 0,
+    this.instantAvailableCents = 0,
     this.currency = 'cad',
+    this.country,
+    this.hasDebitCard = false,
+    this.cardLast4,
+    this.cardBrand,
     this.payoutStatus,
     this.payoutAmountCents,
   });
@@ -41,16 +59,62 @@ class WalletStatus {
   bool get canReceive => chargesEnabled && payoutsEnabled;
   String money(int cents) => '\$${(cents / 100).toStringAsFixed(2)}';
 
+  /// Whether the instant button should be offered at all. Every condition
+  /// here is one Stripe would otherwise refuse on, and a button that can only
+  /// fail is worse than one that isn't there.
+  bool get canCashOutInstantly =>
+      payoutsEnabled &&
+      hasDebitCard &&
+      InstantPayoutEconomics.isSupportedIn(country) &&
+      InstantPayoutEconomics.isWorthCashingOut(instantAvailableCents);
+
   factory WalletStatus.fromJson(Map<String, dynamic> j) => WalletStatus(
         onboarded: j['onboarded'] as bool? ?? false,
         chargesEnabled: j['chargesEnabled'] as bool? ?? false,
         payoutsEnabled: j['payoutsEnabled'] as bool? ?? false,
         availableCents: (j['available'] as num?)?.toInt() ?? 0,
         pendingCents: (j['pending'] as num?)?.toInt() ?? 0,
+        instantAvailableCents:
+            (j['instantAvailable'] as num?)?.toInt() ?? 0,
         currency: j['currency'] as String? ?? 'cad',
+        country: j['country'] as String?,
+        hasDebitCard: j['hasDebitCard'] as bool? ?? false,
+        cardLast4: j['cardLast4'] as String?,
+        cardBrand: j['cardBrand'] as String?,
         payoutStatus: (j['payout'] as Map?)?['status'] as String?,
         payoutAmountCents: ((j['payout'] as Map?)?['amount'] as num?)?.toInt(),
       );
+}
+
+/// What came back from asking to cash out.
+class PayoutOutcome {
+  final bool ok;
+  final String? error;
+  final int amountCents;
+  final int feeCents;
+  final String? arrivalDate;
+
+  const PayoutOutcome({
+    required this.ok,
+    this.error,
+    this.amountCents = 0,
+    this.feeCents = 0,
+    this.arrivalDate,
+  });
+
+  /// Stripe's refusals are specific and worth passing through, but a few have
+  /// a fix the app knows how to say better than Stripe does.
+  String get message => switch (error) {
+        null => 'On its way',
+        'no_debit_card' =>
+          'Add a debit card first — cash out to a card is the only instant one.',
+        'over_instant_balance' =>
+          'That is more than is available instantly right now.',
+        'not_onboarded' => 'Finish setting up payments first.',
+        'sender_banned' =>
+          'Cashing out is paused on this account while a dispute is open.',
+        _ => error!,
+      };
 }
 
 /// Client for the Stripe Connect payment flow. All secret-key work happens in
@@ -412,9 +476,54 @@ class PaymentService {
         payoutsEnabled: true,
         availableCents: 4215,
         pendingCents: 800,
+        // Deliberately smaller than the available balance: instant is its own
+        // bucket at Stripe, and a sandbox where the two match would hide the
+        // one thing about this screen most likely to confuse somebody.
+        instantAvailableCents: 3200,
+        country: 'CA',
+        hasDebitCard: true,
+        cardLast4: '4242',
+        cardBrand: 'visa',
       );
     }
     return WalletStatus.fromJson(await _invoke('payments-status'));
+  }
+
+  /// Moves [amountCents] to the attached debit card, arriving in minutes.
+  ///
+  /// Stripe charges the fee to the account cashing out and takes it from the
+  /// amount; the platform adds nothing. Never throws — the wallet shows what
+  /// came back, and a thrown exception at the end of a money action is the
+  /// worst possible way to say "no".
+  Future<PayoutOutcome> cashOutInstantly(int amountCents,
+      {String? country}) async {
+    if (amountCents <= 0) {
+      return const PayoutOutcome(ok: false, error: 'invalid amount');
+    }
+    if (testMode.value) {
+      return PayoutOutcome(
+        ok: true,
+        amountCents: amountCents,
+        feeCents: InstantPayoutEconomics.feeCents(amountCents, country),
+      );
+    }
+    try {
+      final res = await _invoke('payments-payout', {
+        'amountCents': amountCents,
+        'method': 'instant',
+      });
+      return PayoutOutcome(
+        ok: res['ok'] == true,
+        amountCents: (res['amountCents'] as num?)?.toInt() ?? amountCents,
+        feeCents: (res['feeCents'] as num?)?.toInt() ??
+            InstantPayoutEconomics.feeCents(amountCents, country),
+        arrivalDate: res['arrivalDate'] as String?,
+      );
+    } on PaymentException catch (e) {
+      return PayoutOutcome(ok: false, error: e.code);
+    } catch (e) {
+      return PayoutOutcome(ok: false, error: e.toString());
+    }
   }
 
   /// Full send flow: create a destination PaymentIntent for [toPhone], then

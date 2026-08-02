@@ -234,3 +234,72 @@ class PaymentEconomics {
     return left < 0 ? 0 : left;
   }
 }
+
+/// Cashing out to a debit card in minutes instead of days.
+///
+/// **The platform takes nothing here and adds nothing.** Stripe's instant
+/// payout fee is charged to the connected account — the person cashing out —
+/// and comes straight out of the amount. That is the whole reason this can be
+/// offered at all: there is no platform-side cost to clear, so no fee of ours
+/// needs inventing to cover one. What matters is that the number is *shown*
+/// before the button is pressed, because money arriving smaller than the
+/// figure you tapped is how an app loses trust in one step.
+///
+/// The rate is Stripe's published one and varies by the account's country.
+class InstantPayoutEconomics {
+  InstantPayoutEconomics._();
+
+  /// Stripe's instant payout fee, percent of the amount, by account country.
+  ///
+  /// Canada is cheaper than the US, which is unusual enough to be worth
+  /// stating rather than rounding away — this app onboards to Canadian banks
+  /// by default, so the common case is the 1% one.
+  static const Map<String, double> percentByCountry = {
+    'CA': 1.0,
+    'US': 1.5,
+    'AU': 1.5,
+    'GB': 1.0,
+    'SG': 1.0,
+  };
+
+  /// Used where the country is unknown. The HIGHEST published rate, on
+  /// purpose: an estimate that turns out generous costs somebody nothing,
+  /// and one that turns out mean is a number the app got wrong in the
+  /// direction that matters.
+  static const double fallbackPercent = 1.5;
+
+  /// Where instant payouts exist at all. Everywhere else the button should
+  /// not be offered — Stripe would refuse, and offering it anyway means a
+  /// tap that can only fail.
+  static bool isSupportedIn(String? country) =>
+      country != null && percentByCountry.containsKey(country.toUpperCase());
+
+  static double percentFor(String? country) =>
+      percentByCountry[(country ?? '').toUpperCase()] ?? fallbackPercent;
+
+  /// Stripe's cut of an instant payout, in cents. Rounded up: Stripe's own
+  /// rounding is not documented to the cent, and quoting a fee that comes in
+  /// a penny under is harmless where quoting one a penny over is a surprise.
+  static int feeCents(int amountCents, String? country) {
+    if (amountCents <= 0) return 0;
+    return (amountCents * percentFor(country) / 100).ceil();
+  }
+
+  /// What actually lands on the card.
+  static int landsCents(int amountCents, String? country) {
+    final left = amountCents - feeCents(amountCents, country);
+    return left < 0 ? 0 : left;
+  }
+
+  /// The smallest cash-out worth making.
+  ///
+  /// Not a Stripe limit — Stripe's own floor is lower and its ceiling depends
+  /// on the account, which is why the ceiling here is whatever Stripe reports
+  /// as instantly available rather than a number invented in this file. This
+  /// is the point below which the fee stops being a rounding error: at $5 a
+  /// 1.5% fee is 8¢, which is fine, and below it the whole exercise is not
+  /// worth a tap.
+  static const int minimumCents = 500;
+
+  static bool isWorthCashingOut(int amountCents) => amountCents >= minimumCents;
+}

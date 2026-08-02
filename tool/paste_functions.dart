@@ -24,6 +24,7 @@ const pasteFunctions = [
   'payments-intent-status',
   'payments-history',
   'payments-settings',
+  'payments-payout',
   'iap-validate',
   'iap-notify',
   'iap-status',

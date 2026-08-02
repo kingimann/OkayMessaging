@@ -81,6 +81,19 @@ Deno.serve(async (req) => {
         account: accountId,
         components: {
           account_onboarding: { enabled: true },
+          // Where a debit card gets attached. Card details must never reach
+          // this platform's code or the app, so instant cash-out needs
+          // Stripe's own component to collect the card — and the same
+          // component is where somebody changes or removes it later.
+          payouts: {
+            enabled: true,
+            features: {
+              instant_payouts: true,
+              standard_payouts: true,
+              edit_payout_schedule: true,
+              external_account_collection: true,
+            },
+          },
         },
       });
     } catch (e) {

@@ -156,6 +156,24 @@ Deno.serve(async (req) => {
       arr.reduce((n, b) => n + b.amount, 0);
     const currency = balance.available[0]?.currency ?? "cad";
 
+    // What can be cashed out to a debit card right now. Its own bucket, not
+    // a slice of `available` — showing the ordinary balance beside a "cash
+    // out instantly" button would offer money Stripe will refuse to move.
+    const instantAvailable = sum(
+      (balance as { instant_available?: { amount: number }[] })
+        .instant_available ?? [],
+    );
+    const externals = (account.external_accounts?.data ?? []) as {
+      object?: string;
+      last4?: string;
+      brand?: string;
+      default_for_currency?: boolean;
+    }[];
+    const cards = externals.filter((e) => e.object === "card");
+    // The default for the currency is the one Stripe would pick itself, so
+    // picking anything else would surprise somebody.
+    const card = cards.find((c) => c.default_for_currency) ?? cards[0];
+
     // Keep our cached KYC flags fresh.
     await admin.from("payment_accounts").update({
       charges_enabled: account.charges_enabled,
@@ -176,7 +194,12 @@ Deno.serve(async (req) => {
       payoutsEnabled: account.payouts_enabled,
       available: sum(balance.available),
       pending: sum(balance.pending),
+      instantAvailable,
       currency,
+      country: (account as { country?: string }).country ?? null,
+      hasDebitCard: card !== undefined,
+      cardLast4: card?.last4 ?? null,
+      cardBrand: card?.brand ?? null,
       payout: payout
         ? {
           status: payout.status,
