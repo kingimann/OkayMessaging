@@ -34,6 +34,7 @@ const pasteFunctions = [
   'moderation-act',
   'moderation-queue',
   'moderation-screen',
+  'pages',
   // No _shared imports of its own — it is here so the dashboard copy is
   // regenerated with the source rather than drifting from it, which it did.
   'push-send',

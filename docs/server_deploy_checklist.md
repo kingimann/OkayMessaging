@@ -196,7 +196,7 @@ connected account is one this app may collect for.
 | `STRIPE_WEBHOOK_SECRET` | `payments-webhook` signature check | Webhook rejects Stripe's calls |
 | `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_BUNDLE_ID` | Push notifications | Push stays inert |
 | `PLATFORM_FEE_PERCENT`, `PLATFORM_FEE_FIXED_CENTS` | Fee override | Defaults to 3.4% + 10¢ |
-| `APP_RETURN_URL` | Where hosted flows return | Defaults to the GitHub Pages site |
+| `APP_RETURN_URL` | Where hosted flows return | Defaults to `<project>/functions/v1/pages/done` — leave it unset |
 | `CONNECT_COUNTRY` | Connect account country | Defaults in code |
 | `STATEMENT_DESCRIPTOR` | Card statement text | Stripe default |
 
@@ -245,9 +245,16 @@ so the setting is still worth changing.
 
 ## 4. Not SQL or functions, but still pending
 
+- **Deploy the `pages` Edge Function, with JWT verification OFF.** It serves
+  the three web pages the app names a URL for — the email-confirmation
+  landing, the page Stripe's hosted flows return to, and the invite/share
+  target. A browser opens all three and has no Supabase session, so the gate
+  must be off (same as `payments-webhook` and `iap-notify`). It reads nothing,
+  writes nothing and takes no input.
 - **Supabase → Authentication → URL Configuration**: set Site URL and add
-  `https://kingimann.github.io/OkayMessaging/` to Redirect URLs, or email
-  confirmation links land on `localhost`.
+  `https://<project>.supabase.co/functions/v1/pages/email-confirmed` to
+  Redirect URLs. **Do this before shipping a build**, or Supabase silently
+  falls back to the Site URL and confirmation links land on `localhost`.
 - **Supabase → Authentication → Email Templates → Magic Link**: include
   `{{ .Token }}` so signing in by email shows a code.
 - **Stripe Dashboard**: enable the `amount_capturable_updated` and

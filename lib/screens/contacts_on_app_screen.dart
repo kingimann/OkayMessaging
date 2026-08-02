@@ -3,6 +3,7 @@ import '../theme/app_theme.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../models/chat.dart';
+import '../relay/app_pages.dart';
 import '../models/user.dart';
 import '../state/call_service.dart' show CallService;
 import '../state/chat_store.dart';
@@ -294,9 +295,13 @@ class _ContactsOnAppScreenState extends State<ContactsOnAppScreen> {
   }
 
   void _invite() {
-    const link = 'https://kingimann.github.io/OkayMessaging/';
-    const text = 'I\'m on OkayMessenger — a private messenger where chats '
-        'stay on your own phone. Join me: $link';
+    // No link at all rather than a broken one: a build with no backend has no
+    // page to point at, and "Join me: " trailing off is worse than a sentence
+    // that simply ends.
+    final link = AppPages.home;
+    final text = 'I\'m on OkayMessenger — a private messenger where chats '
+        'stay on your own phone.'
+        '${link.isEmpty ? '' : ' Join me: $link'}';
     final debug = debugInviteShareOverride;
     if (debug != null) {
       debug(text);

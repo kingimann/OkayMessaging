@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../relay/app_pages.dart';
 import '../relay/relay_config.dart';
 import 'two_step.dart';
 
@@ -129,11 +130,16 @@ class AccountEmail extends ChangeNotifier {
   ///
   /// It still has to be on the project's Redirect URLs allow-list; Supabase
   /// silently uses the Site URL for anything that isn't.
-  static const String emailRedirectUrl = String.fromEnvironment(
-    'EMAIL_REDIRECT_URL',
-    defaultValue:
-        'https://kingimann.github.io/OkayMessaging/email-confirmed.html',
-  );
+  /// Defaults to the `pages` Edge Function on the same Supabase project, so
+  /// the page is up whenever the backend is. It used to be a file on GitHub
+  /// Pages, which is republished as the repository's README for minutes after
+  /// every push — and this is the one link the app cannot rescue, because it
+  /// is opened in a browser on whatever device read the email.
+  static String get emailRedirectUrl =>
+      _redirectOverride.isNotEmpty ? _redirectOverride : AppPages.emailConfirmed;
+
+  static const String _redirectOverride =
+      String.fromEnvironment('EMAIL_REDIRECT_URL', defaultValue: '');
 
   /// Re-reads the signed-in user to see whether the address has since been
   /// confirmed. Safe to call on launch and on pull-to-refresh.

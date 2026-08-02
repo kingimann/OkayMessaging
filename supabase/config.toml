@@ -21,3 +21,8 @@ verify_jwt = false
 
 [functions.iap-notify]
 verify_jwt = false
+
+# A browser opens these — a confirmation link from an email, the page Stripe's
+# hosted flows return to — and a browser has no Supabase session to send.
+[functions.pages]
+verify_jwt = false

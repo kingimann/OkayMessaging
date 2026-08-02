@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 
 import '../app_state.dart';
 import '../models/platform_role.dart';
+import '../relay/app_pages.dart';
 import '../state/account_email.dart';
 import '../state/backup_service.dart';
 import '../util/build_info.dart';
@@ -620,9 +621,10 @@ class _ProfileCard extends StatelessWidget {
                   onPressed: () {
                     final who =
                         me.handle.isNotEmpty ? me.handle : me.name;
+                    final link = AppPages.home;
                     Clipboard.setData(ClipboardData(
-                        text: 'Chat with me ($who) on OkayMessenger: '
-                            'https://kingimann.github.io/OkayMessaging/'));
+                        text: 'Chat with me ($who) on OkayMessenger'
+                            '${link.isEmpty ? '' : ': $link'}'));
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
                           content: Text('Profile link copied — share it '

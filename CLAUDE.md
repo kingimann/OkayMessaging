@@ -108,10 +108,19 @@ fires `deploy-web.yml` (Flutter, ~4 min) *and* GitHub's own
 between the live site is the README and `identity.html`, `connect.html` and
 `main.dart.js` are all 404. Re-verified: `identity.html` answered 404 at
 16:27 and 200 at 16:28 on the same push. One setting fixes it and it is the
-user's to change — see `docs/server_deploy_checklist.md` §3b. **The ID check
-no longer touches the site at all** (`preferHostedIdentity` — Stripe hosts the
-same flow, in the same in-app WebView); nothing works around a missing
-`main.dart.js`.
+user's to change — see `docs/server_deploy_checklist.md` §3b.
+
+**The app itself no longer depends on any of it.** Every URL it used to name
+on that site now comes off the Supabase project it already cannot work without
+(`lib/relay/app_pages.dart` → the `pages` Edge Function): the email
+confirmation landing, the page Stripe's hosted flows return to, and the
+invite/share link. The two embedded pages that really are web-build artifacts
+(`identity.html`, `connect.html`) are off by default and have no default URL
+at all. A test asserts nothing under `lib/` or `supabase/functions/` names
+`github.io`, so a single pasted URL cannot quietly undo it. `SITE_URL`
+overrides the lot when there is a real domain. What is still exposed is the
+**web build** — a missing `main.dart.js` is a blank page and nothing in the
+code can work around that.
 
 iOS builds run on **Codemagic** (`codemagic.yaml`, workflow
 *iOS release (TestFlight)*) — the user starts those manually.

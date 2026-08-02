@@ -153,8 +153,13 @@ Deno.serve(async (req) => {
 
   // Same rule as onboarding: Stripe's hosted flow needs an http(s) URL, and
   // a custom scheme is rejected as "Not a valid URL".
+  // Defaults to the `pages` function on this same project. SUPABASE_URL is
+  // injected automatically, so the two sides agree without either being
+  // configured — and the client derives the same URL to match the navigation
+  // on. It used to default to a GitHub Pages site, which is a second system
+  // that can be mid-deploy when somebody finishes their ID check.
   const returnUrl = Deno.env.get("APP_RETURN_URL") ??
-    "https://kingimann.github.io/OkayMessaging/";
+    `${Deno.env.get("SUPABASE_URL") ?? ""}/functions/v1/pages/done`;
 
   try {
     const session = await stripe.identity.verificationSessions.create({

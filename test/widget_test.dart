@@ -21,6 +21,7 @@ import 'package:okay_messaging/state/feed_mute_store.dart';
 import 'package:okay_messaging/widgets/collapsible_text.dart';
 import 'package:okay_messaging/state/voice_presence_store.dart';
 import 'package:okay_messaging/state/channel_typing_store.dart';
+import 'package:okay_messaging/relay/app_pages.dart';
 import 'package:okay_messaging/state/identity_verification.dart';
 import 'package:okay_messaging/app_state.dart';
 import 'package:okay_messaging/crypto/e2e.dart';
@@ -4757,6 +4758,10 @@ void main() {
       ContactsSync.debugAccessLimitedOverride = () async => false;
       ContactsSync.debugNumbersOverride = () async => ['555-012-3456'];
       ContactsSync.debugLookupOverride = (_) async => const [];
+      // A test binary has no --dart-define, so without this there is no
+      // backend and therefore no page to invite anybody to.
+      addTearDown(() => AppPages.debugBaseOverride = null);
+      AppPages.debugBaseOverride = 'https://abc.supabase.co/functions/v1/pages';
       String? shared;
       debugInviteShareOverride = (t) => shared = t;
 
@@ -10954,27 +10959,35 @@ void main() {
       // With no emailRedirectTo, Supabase falls back to the project's Site
       // URL — `http://localhost:3000` until someone changes it — so the link
       // in the email opened a dead page on the reader's own phone.
-      const url = AccountEmail.emailRedirectUrl;
+      //
+      // Driven through the pure builder because a test binary carries no
+      // --dart-define, which would make every case the empty one.
+      final base = AppPages.baseFor('https://abc.supabase.co', '');
+      final url = AppPages.subFor(base, 'email-confirmed');
       expect(url.startsWith('https://'), isTrue);
       expect(url.contains('localhost'), isFalse);
       expect(url.contains('127.0.0.1'), isFalse);
 
-      // And it has to be a page that actually ships with the web build.
-      final path = Uri.parse(url).pathSegments.last;
-      expect(File('web/$path').existsSync(), isTrue,
-          reason: 'the confirmation link points at a page that does not exist');
+      // And it has to be a page the server will actually answer for. It is
+      // served by an Edge Function on the same project rather than a static
+      // file, so the check is that the function routes this leaf.
+      final leaf = Uri.parse(url).pathSegments.last;
+      final fn =
+          File('supabase/functions/pages/index.ts').readAsStringSync();
+      expect(fn.contains('case "$leaf":'), isTrue,
+          reason: 'the confirmation link points at a page nothing serves');
     });
 
     test('the confirmation page tells the truth about a failed link', () {
-      // Supabase reports an expired or already-used link in the URL fragment.
-      // A page hardcoded to say "confirmed" would send someone back to the
-      // app believing something that didn't happen.
-      final html = File('web/email-confirmed.html').readAsStringSync();
-      expect(html.contains('error_description'), isTrue);
-      expect(html.contains('Link didn’t work'), isTrue);
-      // Static by design: the confirmation already happened server-side, so
-      // there is nothing here to load the app for.
-      expect(html.contains('main.dart.js'), isFalse);
+      // Supabase reports an expired or already-used link in the URL FRAGMENT,
+      // which never reaches a server — so the page has to correct itself. One
+      // hardcoded to say "confirmed" would send someone back to the app
+      // believing something that didn't happen.
+      final fn = File('supabase/functions/pages/index.ts').readAsStringSync();
+      final page = fn.substring(fn.indexOf('const EMAIL_CONFIRMED'),
+          fn.indexOf('Deno.serve'));
+      expect(page.contains('error_description'), isTrue);
+      expect(page.contains(r'Link didn’t work'), isTrue);
     });
 
     test('validation accepts real addresses and rejects the rest', () {
@@ -16467,8 +16480,11 @@ void main() {
       expect(html.contains('location.search'), isFalse,
           reason: 'a client secret in the URL lands in history and logs');
 
-      expect(PaymentService.connectPageUrl.endsWith('/connect.html'), isTrue);
-      expect(PaymentService.connectPageUrl.startsWith('https://'), isTrue);
+      // The page still ships. What changed is that nothing points at it: it
+      // is a web-build artifact, so the only honest default is none, and
+      // preferHostedOnboarding means nothing asks for it anyway.
+      expect(PaymentService.connectPageUrl, isEmpty,
+          reason: 'a default here would be a URL on somebody else\'s host');
     });
 
     test('a client secret is fetched fresh, never reused', () {
@@ -17383,8 +17399,11 @@ void main() {
       expect(html.contains('window.okayStart'), isTrue);
       expect(html.contains('location.search'), isFalse);
 
-      expect(IdentityVerification.pageUrl.endsWith('/identity.html'), isTrue);
-      expect(IdentityVerification.pageUrl.startsWith('https://'), isTrue);
+      // Same as connect.html: it ships, and nothing points at it. The ID
+      // check runs on Stripe's own page unless a build opts in and says
+      // where its copy of this one is served from.
+      expect(IdentityVerification.pageUrl, isEmpty,
+          reason: 'a default here would be a URL on somebody else\'s host');
     });
 
     test('both pages answer to the same entry point', () {
@@ -17562,6 +17581,8 @@ void main() {
     });
 
     test('a hosted flow ends by navigating home, and only then', () {
+      addTearDown(() => AppPages.debugBaseOverride = null);
+      AppPages.debugBaseOverride = 'https://abc.supabase.co/functions/v1/pages';
       // A hosted check reports completion by going to the return URL, so that
       // navigation is what the WebView watches for. Stripe's own pages are
       // not it.
@@ -17577,19 +17598,24 @@ void main() {
           isFalse);
       // No prefix, no matching — a caller that doesn't opt in never has a
       // navigation taken away from it.
-      expect(ConnectWebView.isCompletion(IdentityVerification.pageUrl, ''),
+      expect(
+          ConnectWebView.isCompletion(
+              'https://abc.supabase.co/functions/v1/pages/done', ''),
           isFalse);
 
       // Why the WebView also waits for the first load before believing a
-      // completion: our own identity page is served from the same origin as
-      // the return URL, so its *own* initial load matches this rule. That
-      // ordering guard lives in the WebView (no WebView in a unit test), and
-      // this is the collision that makes it necessary.
+      // completion: an embedded page served under the same prefix as the
+      // return URL matches this rule on its *own* initial load. Nothing is
+      // configured that way now — the default has no embedded page at all —
+      // but IDENTITY_PAGE_URL can still point one anywhere, including there,
+      // so the ordering guard in the WebView is still load-bearing and this
+      // is the collision that makes it so.
       expect(
           ConnectWebView.isCompletion(
-              IdentityVerification.pageUrl, IdentityVerification.returnUrl),
+              '${IdentityVerification.returnUrl}/identity.html',
+              IdentityVerification.returnUrl),
           isTrue,
-          reason: 'same origin: the load-order guard is doing real work');
+          reason: 'same prefix: the load-order guard is doing real work');
     });
   });
 
@@ -19045,7 +19071,10 @@ void main() {
       // 401 before the function ran — invisible from inside, because the
       // function never executed to log anything.
       final marked = markedFunctions();
-      expect(marked, ['iap-notify', 'payments-webhook'],
+      // `pages` is here for the same reason and not a third party's: a
+      // browser opens it — a confirmation link from an email — and a browser
+      // carries no Supabase session either.
+      expect(marked, ['iap-notify', 'pages', 'payments-webhook'],
           reason: 'a function that a third party POSTs to needs the marker');
 
       final config = File('supabase/config.toml').readAsStringSync();
@@ -23861,13 +23890,106 @@ void main() {
       expect(await IdentityVerification.pageIsServed(), isFalse);
     });
 
-    test('the two pages it chooses between are on different hosts', () {
-      // The whole point: one is a static file on a site we deploy, the other
-      // is Stripe's. If ours were the only option there would be nothing to
-      // fall back to.
-      expect(IdentityVerification.pageUrl, contains('identity.html'));
-      expect(IdentityVerification.pageUrl,
-          startsWith(IdentityVerification.returnUrl));
+    test('there is no page of ours to point at by default', () {
+      // The embedded page is a web-build artifact: it only exists wherever
+      // that build is deployed, and defaulting to one particular deployment
+      // is how the GitHub dependency got here in the first place. A build
+      // that wants it has to say where its own copy is served from.
+      expect(IdentityVerification.pageUrl, isEmpty);
+
+      // And with no page named, the probe cannot report one as available —
+      // so opting in without supplying a URL still lands on Stripe's flow
+      // rather than on an empty address.
+      expect(
+          IdentityVerification.secretFor(
+              secret: 'vs_secret',
+              hostedUrl: 'https://verify.stripe.com/x',
+              pageServed: IdentityVerification.pageUrl.isNotEmpty,
+              preferHosted: false),
+          isEmpty);
+    });
+  });
+  group('the app does not depend on GitHub', () {
+    // The site those URLs pointed at republishes the repository README over
+    // the app for minutes after every push, and one of them — the email
+    // confirmation link — is opened in a browser on somebody else's device,
+    // where the app cannot intervene at all. Everything now comes off the
+    // Supabase project the app already cannot work without.
+
+    test('nothing in the app or its functions names GitHub', () {
+      // A regression test with teeth: this is the whole ask, and a single
+      // pasted URL would quietly undo it.
+      final offenders = <String>[];
+      for (final dir in [Directory('lib'), Directory('supabase/functions')]) {
+        for (final f in dir.listSync(recursive: true).whereType<File>()) {
+          if (!f.path.endsWith('.dart') && !f.path.endsWith('.ts')) continue;
+          if (f.readAsStringSync().contains('github.io')) {
+            offenders.add(f.path);
+          }
+        }
+      }
+      expect(offenders, isEmpty,
+          reason: 'these still point at GitHub Pages: $offenders');
+    });
+
+    test('the pages come off whichever Supabase project the build uses', () {
+      // Derived rather than configured, so a build pointed at a different
+      // project gets that project's pages without a second flag to forget.
+      const project = 'https://abc.supabase.co';
+      expect(AppPages.baseFor(project, ''),
+          'https://abc.supabase.co/functions/v1/pages');
+      expect(AppPages.subFor(AppPages.baseFor(project, ''), 'done'),
+          'https://abc.supabase.co/functions/v1/pages/done');
+
+      // A trailing slash on either side must not produce a double slash: the
+      // function routes on the last path segment, and '' is not 'done'.
+      expect(AppPages.baseFor('$project/', ''),
+          'https://abc.supabase.co/functions/v1/pages');
+      expect(AppPages.baseFor(project, 'https://okay.example/'),
+          'https://okay.example');
+    });
+
+    test('SITE_URL wins, so a real domain can replace all of it', () {
+      expect(AppPages.baseFor('https://abc.supabase.co', 'https://okay.example'),
+          'https://okay.example');
+    });
+
+    test('with no backend there is no URL, and callers must cope', () {
+      // Every test binary is this case, and so is a fully local build. An
+      // empty string here is load-bearing: an empty completion prefix never
+      // matches, and the share text drops the link rather than trailing off
+      // after a colon.
+      expect(AppPages.baseFor('', ''), isEmpty);
+      expect(AppPages.subFor('', 'done'), isEmpty);
+      expect(PaymentService.returnUrl, isEmpty);
+      expect(IdentityVerification.returnUrl, isEmpty);
+      expect(ConnectWebView.isCompletion('https://anything/', ''), isFalse,
+          reason: 'an empty prefix must never swallow a navigation');
+    });
+
+    test('the server defaults to the same page the client watches for', () {
+      // These are two codebases agreeing on a string. If they drift, Stripe's
+      // hosted flow ends by navigating somewhere the WebView does not
+      // recognise, and the user is left on a web page inside the app.
+      const leaf = '/functions/v1/pages/done';
+      for (final f in ['identity-start', 'payments-onboard']) {
+        final src =
+            File('supabase/functions/$f/index.ts').readAsStringSync();
+        expect(src.contains(leaf), isTrue,
+            reason: '$f no longer returns to the page the app watches for');
+      }
+      expect(AppPages.subFor(AppPages.baseFor('https://abc.supabase.co', ''),
+          'done').endsWith(leaf), isTrue);
+    });
+
+    test('the pages function needs no session, because a browser has none', () {
+      final src = File('supabase/functions/pages/index.ts').readAsStringSync();
+      expect(src.contains('verify_jwt = false'), isTrue,
+          reason: 'a confirmation link carries no Supabase JWT');
+      // It must also read nothing and write nothing: it is the one function
+      // anybody on the internet can call.
+      expect(src.contains('createClient'), isFalse);
+      expect(src.contains('SERVICE_ROLE'), isFalse);
     });
   });
 }

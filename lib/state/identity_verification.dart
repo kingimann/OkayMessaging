@@ -3,6 +3,7 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../relay/app_pages.dart';
 import '../relay/relay_config.dart';
 
 /// Where an account stands with the ID check behind the blue check.
@@ -235,21 +236,31 @@ class IdentityVerification extends ChangeNotifier {
     }
   }
 
-  /// Where the in-app verification page lives. It ships with the web build.
+  /// Where the embedded verification page lives. It ships with the *web*
+  /// build, so it can only exist wherever that is deployed — which is why
+  /// there is no default: a build that wants the embedded flow has to say
+  /// where its own copy is served from. Empty means the page is unavailable,
+  /// which [pageIsServed] reports and [secretFor] turns into the hosted flow.
   static const String pageUrl = String.fromEnvironment(
     'IDENTITY_PAGE_URL',
-    defaultValue: 'https://kingimann.github.io/OkayMessaging/identity.html',
+    defaultValue: '',
   );
 
   /// Where Stripe's own hosted flow navigates when it is done — the
-  /// `return_url` the identity-start function sets (APP_RETURN_URL, which
-  /// defaults to the site root). Hosting that flow in the app's WebView means
-  /// watching for this navigation, because a hosted flow reports completion by
-  /// going somewhere rather than by posting a message.
-  static const String returnUrl = String.fromEnvironment(
-    'APP_RETURN_URL',
-    defaultValue: 'https://kingimann.github.io/OkayMessaging/',
-  );
+  /// `return_url` the identity-start function sets. Hosting that flow in the
+  /// app's WebView means watching for this navigation, because a hosted flow
+  /// reports completion by going somewhere rather than by posting a message.
+  ///
+  /// The navigation is cancelled before it renders, so what this serves barely
+  /// matters — but it has to be the same URL the server sets, or the match
+  /// fails and the WebView leaves the app. Both sides default to the `pages`
+  /// function on the same Supabase project, so they agree without being told.
+  static String get returnUrl => _returnOverride.isNotEmpty
+      ? _returnOverride
+      : AppPages.done;
+
+  static const String _returnOverride =
+      String.fromEnvironment('APP_RETURN_URL', defaultValue: '');
 
   void _apply(IdentityStatus next) {
     if (_status == next) return;

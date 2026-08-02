@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide Session;
 
+import '../relay/app_pages.dart';
 import '../relay/relay_config.dart';
 import '../state/account_email.dart';
 import 'connect_fields.dart';
@@ -322,22 +323,26 @@ class PaymentService {
     return url;
   }
 
-  /// Where the embedded onboarding page lives. It ships with the web build,
-  /// so it sits next to the app's own deployment.
+  /// Where the embedded onboarding page lives. It ships with the *web* build,
+  /// so it only exists wherever that is deployed — hence no default. Nothing
+  /// reaches it anyway: [preferHostedOnboarding] sends setup to Stripe's own
+  /// hosted flow, and a build that wants the embedded component back has to
+  /// say where its copy of the page is served from.
   static const String connectPageUrl = String.fromEnvironment(
     'CONNECT_PAGE_URL',
-    defaultValue: 'https://kingimann.github.io/OkayMessaging/connect.html',
+    defaultValue: '',
   );
 
   /// Where Stripe's hosted onboarding navigates when it finishes — the
-  /// `return_url` payments-onboard sets (APP_RETURN_URL, defaulting to the site
-  /// root). Worth knowing client-side: that URL serves this app's own website,
-  /// so a WebView hosting the flow has to catch the navigation and come back to
-  /// the app rather than render the marketing page inside itself.
-  static const String returnUrl = String.fromEnvironment(
-    'APP_RETURN_URL',
-    defaultValue: 'https://kingimann.github.io/OkayMessaging/',
-  );
+  /// `return_url` payments-onboard sets. Worth knowing client-side because a
+  /// WebView hosting the flow has to catch that navigation and come back to
+  /// the app rather than render whatever the URL serves. Defaults to the same
+  /// `pages` function the server defaults to, so the two agree by themselves.
+  static String get returnUrl =>
+      _returnOverride.isNotEmpty ? _returnOverride : AppPages.done;
+
+  static const String _returnOverride =
+      String.fromEnvironment('APP_RETURN_URL', defaultValue: '');
 
   /// The caller's transfers, newest first, both directions.
   Future<List<PaymentRecord>> history({int limit = 100}) async {
