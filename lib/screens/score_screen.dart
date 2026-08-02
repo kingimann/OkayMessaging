@@ -671,15 +671,38 @@ class _VerifiedRow extends StatelessWidget {
 
   /// Adopts whatever the server says. The badge is never set locally: a check
   /// mark a device could grant itself would mean nothing.
+  ///
+  /// "Not verified" is THREE different things and they were all one sentence.
+  /// A pass, a check Stripe is still reading, and an answer that never
+  /// arrived are not the same news, and "Verification removed" — said to
+  /// somebody who had just finished handing over their passport — was the
+  /// wrong one twice out of three times.
   Future<void> _syncBadge(BuildContext context) async {
-    final verified = await IdentityVerification.instance.refresh() ==
-        IdentityStatus.verified;
+    final status = await IdentityVerification.instance.refresh();
     if (!context.mounted) return;
-    _setVerified(context, verified);
+    final verified = status == IdentityStatus.verified;
     if (verified) {
+      _setVerified(context, true);
       ScoreStore.instance.recordFlag('verified');
       ScoreStore.instance.recordFlag('pro');
+      return;
     }
+    // Nothing is taken away for a status that isn't a verdict. Only an
+    // explicit refusal or cancellation does that; a check still being read,
+    // or a server that could not be reached, leaves things exactly as they
+    // were and says so.
+    final message = switch (status) {
+      IdentityStatus.processing =>
+        'Still being checked — this opens as soon as Stripe is done.',
+      IdentityStatus.requiresInput =>
+        'Stripe needs another look at your ID. Try the check again.',
+      IdentityStatus.canceled => 'That check was cancelled.',
+      IdentityStatus.none => 'Couldn\'t reach the server. Nothing changed.',
+      IdentityStatus.verified => '',
+    };
+    if (status == IdentityStatus.canceled) _setVerified(context, false);
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
   }
 
   void _setVerified(BuildContext context, bool value) {

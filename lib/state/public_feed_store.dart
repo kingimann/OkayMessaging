@@ -270,20 +270,27 @@ enum ProfileTab {
       };
 }
 
-/// How the timeline is narrowed.
+/// How the timeline is narrowed. Two tabs, because two is what the timeline
+/// actually has to say: everything, or only the people you chose.
+///
+/// There used to be a third, "Top", sorting by likes. It was dropped rather
+/// than renamed: on a feed this size the most-liked post is often also the
+/// newest one, so it showed a near-identical list under a different name —
+/// and a tab that looks like the tab beside it is a tab nobody trusts.
 enum FeedFilter {
   /// Everything, newest first.
-  latest,
-
-  /// Everything, most-liked first.
-  top,
+  ///
+  /// Called "For you" because that is what it is from the reader's side, not
+  /// because anything is ranking it. Nothing here is scored, sorted by
+  /// engagement, or chosen on your behalf — it is the whole timeline, newest
+  /// first, and the name is the only thing that changed.
+  forYou,
 
   /// Only people you follow (plus yourself), newest first.
   following;
 
   String get label => switch (this) {
-        FeedFilter.latest => 'Latest',
-        FeedFilter.top => 'Top',
+        FeedFilter.forYou => 'For you',
         FeedFilter.following => 'Following',
       };
 }
@@ -385,7 +392,7 @@ class PublicFeedStore extends ChangeNotifier {
 
   /// How the timeline is narrowed. Applied server-side where the database can
   /// do it, so a filter isn't a lie about a page of already-loaded posts.
-  FeedFilter _filter = FeedFilter.latest;
+  FeedFilter _filter = FeedFilter.forYou;
   String _query = '';
   String _tag = '';
 
@@ -397,9 +404,8 @@ class PublicFeedStore extends ChangeNotifier {
   /// Whether the last page came back short, meaning there is nothing more.
   bool get reachedEnd => _reachedEnd;
 
-  /// The timeline: top-level posts (never replies), ordered by the active
-  /// filter, with muted authors left out. Top sorts by likes, then reposts,
-  /// then recency, so a tie doesn't reshuffle on every rebuild.
+  /// The timeline: top-level posts (never replies), newest first, with muted
+  /// authors left out.
   ///
   /// Muting is applied here rather than in the query because it lives on the
   /// device — there is no column for it to filter on. The consequence is that a
@@ -410,15 +416,6 @@ class PublicFeedStore extends ChangeNotifier {
         .where((p) =>
             p.replyTo == null && !FeedMuteStore.instance.isMuted(p.authorUsername))
         .toList();
-    if (_filter == FeedFilter.top) {
-      list.sort((a, b) {
-        final byLikes = b.likeCount.compareTo(a.likeCount);
-        if (byLikes != 0) return byLikes;
-        final byReposts = b.repostCount.compareTo(a.repostCount);
-        if (byReposts != 0) return byReposts;
-        return b.createdAt.compareTo(a.createdAt);
-      });
-    }
     return List.unmodifiable(list);
   }
 
@@ -1369,7 +1366,7 @@ class PublicFeedStore extends ChangeNotifier {
     debugUploadOverride = null;
     debugProfileOverride = null;
     debugByIdsOverride = null;
-    _filter = FeedFilter.latest;
+    _filter = FeedFilter.forYou;
     _query = '';
     _tag = '';
     _reachedEnd = false;

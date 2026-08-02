@@ -40,13 +40,103 @@ async function callerPhone(req: Request): Promise<string | null> {
   return phone ? phone.replace(/\D/g, "") : null;
 }
 
+import Stripe from "https://esm.sh/stripe@16.12.0?target=denonext";
+
+// The generic request plumbing lives in http.ts; re-exported so existing
+// imports from this file keep working unchanged.
+
+const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY") ?? "", {
+  apiVersion: "2024-06-20",
+  httpClient: Stripe.createFetchHttpClient(),
+});
+
+/// The platform's application fee for an [amountCents] charge, in cents.
+///
+/// Transfers are DIRECT charges — the PaymentIntent is created on the
+/// recipient's connected account — so the platform is never in the flow of
+/// funds and never pays Stripe's processing fee. That makes this fee pure
+/// revenue, and means no floor is needed: unlike a destination charge, there
+/// is no platform-side cost for it to fail to clear.
+///
+/// Stripe's cut (2.9% + 30c domestic, more on a foreign card) comes out of the
+/// recipient's account instead, which is why the send sheet quotes an
+/// approximate landing amount rather than the amount typed.
+function applicationFee(amountCents: number): number {
+  const pct = parseFloat(Deno.env.get("PLATFORM_FEE_PERCENT") ?? "3.4");
+  const fixed = parseInt(Deno.env.get("PLATFORM_FEE_FIXED_CENTS") ?? "10", 10);
+  return Math.max(0, Math.round((amountCents * pct) / 100) + fixed);
+}
+
+/// Stripe's published card rates, mirroring StorageEconomics in
+/// lib/payments/storage_economics.dart — the Dart side is the documented
+/// source of these numbers and the test suite holds it to them.
+///
+/// Not read from the environment on purpose: these are Stripe's prices, not
+/// ours. A deployment cannot negotiate them, and an env var would only offer
+/// a way to gross up against a rate Stripe isn't charging.
+const STRIPE_PERCENT = 2.9;
+const STRIPE_FIXED_CENTS = 30;
+
+/// Stripe's extra cut on a card issued abroad. The card's country is only
+/// known after the charge, so grossing up has to assume it.
+const STRIPE_INTERNATIONAL_SURCHARGE_PERCENT = 1.5;
+
+/// Stripe's own cost for a charge of [amountCents] on a domestic card. Paid by
+/// the recipient's account on a direct charge, which is why it has to be
+/// accounted for when grossing up.
+function stripeCost(amountCents: number): number {
+  return Math.round((amountCents * STRIPE_PERCENT) / 100) + STRIPE_FIXED_CENTS;
+}
+
+/// What the sender must be charged so [targetCents] actually reaches the
+/// recipient.
+///
+/// Both fees come out of the transfer, so charging exactly what was typed
+/// delivers less than that. Grossing up moves the fees onto the sender, which
+/// is what people expect when they type a number.
+///
+/// Solved by search rather than algebra: the fees round to whole cents, so a
+/// closed form lands a cent out either way. Mirrors grossUpCents() in
+/// lib/payments/storage_economics.dart.
+function grossUp(targetCents: number): number {
+  if (targetCents <= 0) return 0;
+  const pct = parseFloat(Deno.env.get("PLATFORM_FEE_PERCENT") ?? "3.4");
+  const fixed = parseInt(Deno.env.get("PLATFORM_FEE_FIXED_CENTS") ?? "10", 10);
+  // Grossed up against the WORST-case Stripe rate. The sender picks the card
+  // and its country is only known afterwards, so budgeting on the domestic
+  // rate would under-deliver every international transfer — the recipient
+  // would get less than the sender typed, which is the one promise this
+  // makes. Erring the other way costs a domestic sender a few cents and the
+  // surplus goes to the recipient, never to the platform.
+  const worst = STRIPE_PERCENT + STRIPE_INTERNATIONAL_SURCHARGE_PERCENT;
+  const worstCost = (t: number) =>
+    Math.round((t * worst) / 100) + STRIPE_FIXED_CENTS;
+  const rate = 1 - (pct + worst) / 100;
+  let total = Math.floor((targetCents + fixed + STRIPE_FIXED_CENTS) / rate);
+  for (let i = 0; i < 12; i++) {
+    if (total - worstCost(total) - applicationFee(total) >= targetCents) {
+      return total;
+    }
+    total++;
+  }
+  return total;
+}
+
 // Whether the caller has passed the ID check that earns the blue check.
 //
-// The app asks on launch and after returning from Stripe's hosted flow. The
-// answer comes from the row the webhook maintains, never from the client — a
-// badge the device could set for itself would be worth nothing.
+// IT ASKS STRIPE, not only our own table. The table is maintained by
+// payments-webhook, and a webhook is best-effort by nature: it can be
+// rejected at the door, mis-configured, or retried into an endpoint that
+// never answers. When that happens the old version of this function reported
+// "not verified" forever about somebody Stripe had already verified — and the
+// app read that as the badge being taken away. A webhook is an optimisation;
+// the authoritative answer lives at Stripe, so on anything short of a
+// recorded pass, go and get it.
 //
-// POST {} -> { verified, status }
+// A stored pass still wins: that is the cheap path and the common one, and it
+// keeps this off Stripe's rate limit on every launch.
+//
+// POST {} -> { verified, status, name? }
 
 
 Deno.serve(async (req) => {
@@ -57,10 +147,74 @@ Deno.serve(async (req) => {
 
   const { data } = await admin
     .from("identity_verifications")
-    .select("status")
+    .select("status, session_id, verified_name")
     .eq("phone", phone)
     .maybeSingle();
 
-  const status = data?.status ?? "none";
-  return json({ verified: status === "verified", status });
+  const stored = (data?.status as string | undefined) ?? "none";
+  const sessionId = data?.session_id as string | undefined;
+  const storedName = data?.verified_name as string | undefined;
+
+  // Already recorded as a pass, WITH the name payments need. Nothing to ask.
+  if (stored === "verified" && storedName) {
+    return json({ verified: true, status: stored, name: storedName });
+  }
+
+  // Never started one — there is nothing at Stripe to ask about.
+  if (!sessionId) {
+    return json({ verified: stored === "verified", status: stored });
+  }
+
+  try {
+    // verified_outputs must be asked for explicitly, and it carries the legal
+    // name off the document — the only thing a cardholder name can honestly
+    // be checked against. Without it payments-create-intent refuses, so a
+    // pass recorded without a name leaves somebody verified and still unable
+    // to send money, which from the outside looks exactly like not being
+    // verified at all.
+    const session = await stripe.identity.verificationSessions.retrieve(
+      sessionId,
+      { expand: ["verified_outputs"] },
+    );
+    const live = (session as { status?: string }).status ?? stored;
+    const name =
+      (session as { verified_outputs?: { name?: string } }).verified_outputs
+        ?.name ?? storedName ?? null;
+
+    if (live !== stored || (name && name !== storedName)) {
+      await admin.from("identity_verifications").upsert({
+        phone,
+        session_id: sessionId,
+        status: live,
+        ...(name ? { verified_name: name } : {}),
+        updated_at: new Date().toISOString(),
+      });
+      // The public half of the badge, exactly as the webhook grants it. Doing
+      // it here too means a dropped webhook costs nobody their blue check.
+      // Best-effort: the column exists only after
+      // docs/identity_directory_badge.sql has run, and a cosmetic write must
+      // not fail the answer.
+      if (live === "verified" || live === "canceled") {
+        try {
+          await admin
+            .from("usernames")
+            .update({ verified: live === "verified" })
+            .eq("phone", phone);
+        } catch (_) {
+          // Directory not migrated yet: the badge stays client-side.
+        }
+      }
+    }
+
+    return json({
+      verified: live === "verified",
+      status: live,
+      ...(name ? { name } : {}),
+    });
+  } catch (_) {
+    // Stripe unreachable, or a session that no longer exists. Fall back to
+    // what is stored rather than reporting a downgrade nobody asked for: an
+    // outage must never read as the badge being withdrawn.
+    return json({ verified: stored === "verified", status: stored });
+  }
 });

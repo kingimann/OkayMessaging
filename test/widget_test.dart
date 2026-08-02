@@ -14283,7 +14283,7 @@ void main() {
       );
     });
 
-    test('filters narrow the feed, and Top orders by likes', () async {
+    test('filters narrow the feed, and there are only two of them', () async {
       final store = PublicFeedStore.instance;
       FollowStore.instance.resetForTest();
       PublicFeedStore.debugLoadOverride = () async => [
@@ -14294,11 +14294,13 @@ void main() {
       await store.load();
       expect(store.posts.map((p) => p.id), ['a', 'b', 'c']);
 
-      await store.setFilter(FeedFilter.top);
-      expect(store.posts.map((p) => p.id), ['b', 'c', 'a'],
-          reason: 'most liked first');
+      // Two tabs and no more. "Top" sorted by likes and, on a feed this
+      // size, showed a near-identical list to the tab beside it.
+      expect(FeedFilter.values.map((f) => f.label), ['For you', 'Following']);
 
-      await store.setFilter(FeedFilter.latest);
+      await store.setFilter(FeedFilter.forYou);
+      expect(store.posts.map((p) => p.id), ['a', 'b', 'c'],
+          reason: 'For you is the whole timeline, newest first — not ranked');
       await store.setTag('fruit');
       expect(store.posts.map((p) => p.id), ['a', 'b']);
       await store.setTag('');
@@ -15547,12 +15549,14 @@ void main() {
       await t.pumpAndSettle();
       expect(find.text('open feed'), findsOneWidget, reason: 'and it works');
 
-      // Where the avatar cannot go, the route to your own profile is still
-      // there — it is never the only way in.
+      // The avatar is still the way to your own profile wherever it can be
+      // drawn — which is exactly where there is no back arrow to replace.
+      // Pushed, the You tab is one back-tap away, which is why the overflow
+      // menu that used to carry "Your profile" could be taken off this bar.
       final src = File('lib/screens/public_feed_screen.dart').readAsStringSync();
-      expect(src.contains("value: 'profile', child: Text('Your profile')"),
-          isTrue);
       expect(src.contains('Navigator.of(context).canPop()'), isTrue);
+      expect(src.contains('openPublicProfile(context, me.username'), isTrue,
+          reason: 'no route from this screen to your own profile at all');
     });
 
     testWidgets('one person has one profile, and so does everybody else',
@@ -18465,10 +18469,28 @@ void main() {
       t.view.devicePixelRatio = 1.0;
       addTearDown(t.view.resetPhysicalSize);
 
-      for (final tile in ['Newsfeed', 'Maps', 'Marketplace', 'Wallet', 'Settings']) {
+      for (final tile in [
+        'Newsfeed',
+        'Maps',
+        'Marketplace',
+        'Bookmarks',
+        'Muted accounts',
+        'Wallet',
+        'Settings',
+      ]) {
         await t.pumpWidget(const OkayMessagingApp());
         await t.pumpAndSettle();
         await t.tap(find.byTooltip('Open navigation menu'));
+        await t.pumpAndSettle();
+        // The drawer is a list and now runs past one screen at 320pt, so the
+        // last destinations have to be scrolled to — the same thing a person
+        // on that phone does. Reaching them is the assertion; fitting them
+        // all above the fold never was.
+        await t.dragUntilVisible(
+          find.text(tile),
+          find.byType(ListView).first,
+          const Offset(0, -120),
+        );
         await t.pumpAndSettle();
         await t.tap(find.text(tile));
         await t.pumpAndSettle();
@@ -19004,6 +19026,57 @@ void main() {
       expect(screen.contains('AccountService.instance.setPassword'), isTrue);
       expect(screen.contains('if (store.isSet) ...['), isTrue,
           reason: 'a password with no address is a credential with no name');
+    });
+  });
+
+  group('Reading a verdict back from Stripe', () {
+    test('identity-status asks Stripe rather than trusting a webhook', () {
+      // A dropped webhook used to mean verified-forever-unverified. Stripe
+      // verified the person; payments-webhook was rejected at Supabase's
+      // door; identity_verifications never moved off "processing"; the app
+      // read that as the badge being taken away.
+      final src =
+          File('supabase/functions/identity-status/index.ts').readAsStringSync();
+      expect(src.contains('verificationSessions.retrieve'), isTrue,
+          reason: 'the answer still comes only from our own table');
+      // And it must fetch the legal name, or payments-create-intent refuses
+      // even once the status flips — verified, and still unable to send
+      // money, which looks identical to not being verified.
+      expect(src.contains('verified_outputs'), isTrue,
+          reason: 'a pass without a name leaves payments locked');
+      expect(src.contains('verified_name'), isTrue);
+      // A stored pass short-circuits, so this does not hit Stripe on every
+      // single launch.
+      expect(
+          src.replaceAll(RegExp(r'\s+'), ' ').contains(
+              'if (stored === "verified" && storedName)'),
+          isTrue,
+          reason: 'every launch would call Stripe');
+    });
+
+    testWidgets('a check still being read is not "verification removed"',
+        (tester) async {
+      // Three different things were one sentence: a pass, a check Stripe is
+      // still reading, and an answer that never arrived. Saying "Verification
+      // removed" to somebody who has just handed over their passport is the
+      // wrong one twice out of three times.
+      IdentityVerification.instance.debugSetStatus(IdentityStatus.processing);
+      addTearDown(IdentityVerification.instance.resetForTest);
+      await tester.pumpWidget(const MaterialApp(home: ScoreScreen()));
+      await tester.pumpAndSettle();
+
+      final src = File('lib/screens/score_screen.dart').readAsStringSync();
+      expect(src.contains('Still being checked'), isTrue);
+      // Without the leading apostrophe: the Dart source escapes it.
+      expect(src.contains('reach the server. Nothing changed.'), isTrue,
+          reason: 'an outage must not read as the badge being withdrawn');
+      // And nothing is taken away except on an explicit cancellation.
+      final flat = src.replaceAll(RegExp(r'\s+'), ' ');
+      expect(
+          flat.contains(
+              'if (status == IdentityStatus.canceled) _setVerified(context, false);'),
+          isTrue,
+          reason: 'a pending or unreachable check still clears the badge');
     });
   });
 

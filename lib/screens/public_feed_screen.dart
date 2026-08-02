@@ -112,11 +112,15 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
     return Scaffold(
       appBar: AppBar(
         titleSpacing: 8,
-        // Your own avatar, top left — the same gesture the feeds people arrive
-        // from use. But ONLY when there is nothing to go back to: `leading`
-        // replaces the back arrow, and this screen used to be reachable with no
-        // way out at all. Where the avatar cannot go, "Your profile" is in the
-        // overflow instead, so it is never the only route.
+        // Your own avatar, top left — the same gesture the feeds people
+        // arrive from use. But ONLY when there is nothing to go back to:
+        // `leading` replaces the back arrow, and this screen used to be
+        // reachable with no way out at all.
+        //
+        // The overflow menu that used to carry "Your profile" for the pushed
+        // case is gone from this bar by request. That route is not lost: the
+        // You tab in the bottom bar opens the same profile, and it is one
+        // back-tap away from here.
         leading: _searching || Navigator.of(context).canPop()
             ? null
             : ValueListenableBuilder<AppUser>(
@@ -162,44 +166,6 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
               }
             },
           ),
-          if (!_searching)
-            ListenableBuilder(
-              listenable: BookmarkStore.instance,
-              builder: (context, _) => IconButton(
-                icon: Icon(BookmarkStore.instance.count == 0
-                    ? Icons.bookmark_border
-                    : Icons.bookmark),
-                tooltip: 'Bookmarks',
-                onPressed: () => Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const BookmarksScreen())),
-              ),
-            ),
-          if (!_searching)
-            PopupMenuButton<String>(
-              tooltip: 'More',
-              onSelected: (choice) {
-                if (choice == 'profile') {
-                  openPublicProfile(context, AppState.profile.value.username,
-                      name: AppState.profile.value.name);
-                }
-                if (choice == 'refresh') _refresh();
-                if (choice == 'muted') {
-                  Navigator.of(context).push(MaterialPageRoute(
-                      builder: (_) => const MutedAccountsScreen()));
-                }
-              },
-              itemBuilder: (context) => [
-                const PopupMenuItem(
-                    value: 'profile', child: Text('Your profile')),
-                const PopupMenuItem(value: 'refresh', child: Text('Refresh')),
-                PopupMenuItem(
-                  value: 'muted',
-                  child: Text(FeedMuteStore.instance.count == 0
-                      ? 'Muted accounts'
-                      : 'Muted accounts (${FeedMuteStore.instance.count})'),
-                ),
-              ],
-            ),
         ],
       ),
       // Round and iconic, where the compose button lives on a timeline like
