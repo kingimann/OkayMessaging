@@ -135,6 +135,9 @@ class _NearbyShareScreenState extends State<NearbyShareScreen> {
       reason: 'This offers files to strangers in the room, straight from your '
           'phone to theirs. Verifying your ID means the name they see is one '
           'somebody stood behind.',
+      // Ours to waive, and the one gate with no server in it at all — this is
+      // two phones and a radio.
+      ownerMayPass: true,
       child: _guarded(context),
     );
   }

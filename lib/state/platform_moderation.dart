@@ -82,6 +82,18 @@ class PlatformModeration extends ChangeNotifier {
   bool get canModerate => roleCanModeratePlatform(_role);
   bool get canAdminister => roleCanAdministerPlatform(_role);
 
+  /// Whether this account runs the app.
+  ///
+  /// Worth exactly as much as [role] is — it comes from a table no client can
+  /// write, read through a function that re-checks the caller's JWT. False on
+  /// any device that can't reach the server, which is the safe way round.
+  ///
+  /// Used to waive the ID check on the app's *own* policy gates. It cannot
+  /// waive a requirement that belongs to somebody else: sending money needs a
+  /// verified legal name to put on the Stripe intent, and no role here
+  /// conjures one. See [VerifiedGate].
+  bool get isOwner => _role == PlatformRole.owner;
+
   /// Whether this account is shut out of the app right now.
   bool get isLockedOut =>
       sanction?.blocksAccessAt(DateTime.now().toUtc()) ?? false;

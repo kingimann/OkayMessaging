@@ -108,6 +108,15 @@ class _WalletScreenState extends State<WalletScreen> {
       reason: 'This moves real money to and from real people. A card is charged '
           'and a bank account is paid out, and both need to belong to '
           'somebody the app can actually name.',
+      // Deliberately NOT waived for the owner. Every payment carries the
+      // verified legal name on the Stripe intent and the capture gate checks
+      // against it, so `payments-create-intent` refuses without one no matter
+      // who is asking. Letting an owner in here would trade an explanation
+      // for a 403 three taps later.
+      ownerReason: 'You run this app, and this is still not yours to skip. '
+          'Every payment carries the legal name from your ID check, and Stripe '
+          'refuses one without it — a role in this app cannot supply a name '
+          'that somebody else has to verify.',
       child: _guarded(context),
     );
   }

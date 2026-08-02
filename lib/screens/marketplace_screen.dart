@@ -389,6 +389,10 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
       reason: 'Money and strangers meet here: somebody buying from you is '
           'trusting a name they have never met. Verifying your ID is what '
           'makes that name answerable.',
+      // Ours to waive: nothing outside the app needs the verified identity to
+      // list or browse. Whoever runs the marketplace is already answerable
+      // for it.
+      ownerMayPass: true,
       child: _guarded(context),
     );
   }

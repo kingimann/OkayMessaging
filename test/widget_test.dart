@@ -18901,6 +18901,58 @@ void main() {
       }
     });
 
+    testWidgets('the owner walks through the two gates that are ours to waive',
+        (t) async {
+      // A rule enforcing itself against the person who set it. The marketplace
+      // and Send nearby need nothing from outside the app, so running the app
+      // is enough.
+      IdentityVerification.debugGateOverride = true;
+      PlatformModeration.instance.debugSet(role: PlatformRole.owner);
+      addTearDown(PlatformModeration.instance.resetForTest);
+      for (final (title, screen) in [
+        ('Marketplace', const MarketplaceScreen()),
+        ('Send nearby', const NearbyShareScreen()),
+      ]) {
+        await t.pumpWidget(MaterialApp(key: ValueKey(title), home: screen));
+        await t.pumpAndSettle();
+        expect(find.text('$title needs a verified account'), findsNothing,
+            reason: '$title still gated the owner');
+        expect(find.text('Even you need this one'), findsNothing, reason: title);
+      }
+    });
+
+    testWidgets('and is still held at the wallet, which is not ours to waive',
+        (t) async {
+      // Every payment carries the verified legal name on the Stripe intent and
+      // the capture gate checks against it: `payments-create-intent` returns
+      // identity_required without one whoever is asking. Opening this for an
+      // owner would trade an explanation for a 403 three taps later.
+      IdentityVerification.debugGateOverride = true;
+      PlatformModeration.instance.debugSet(role: PlatformRole.owner);
+      addTearDown(PlatformModeration.instance.resetForTest);
+      await t.pumpWidget(const MaterialApp(home: WalletScreen()));
+      await t.pumpAndSettle();
+      expect(find.text('Even you need this one'), findsOneWidget);
+      // And it says why, because "needs a verified account" reads as a bug to
+      // the person who owns the account.
+      expect(find.textContaining('cannot supply a name'), findsOneWidget);
+      expect(find.text('Get verified'), findsOneWidget);
+    });
+
+    test('a padlock is only drawn on a row that is actually shut', () {
+      // The hint mirrors the gate's own flag. A padlock on a row that opens is
+      // a worse lie than no padlock, so the two have to be set together.
+      final src = File('lib/screens/home_screen.dart').readAsStringSync();
+      final waived = RegExp(r"_VerifiedOnlyHint\(ownerMayPass: true\)")
+          .allMatches(src)
+          .length;
+      final held = RegExp(r'_VerifiedOnlyHint\(\)').allMatches(src).length;
+      // Marketplace and Send nearby waive; the wallet holds. The third match
+      // of the bare form is the constructor's own declaration.
+      expect(waived, 2, reason: 'the waived rows drifted from the gates');
+      expect(held, 1, reason: 'the wallet row stopped showing its padlock');
+    });
+
     test('the gate is on the screens, not on the buttons that open them', () {
       // A drawer row is one way in; a deep link, a listing in a chat and a
       // share sheet are others, and a gate on the row is a gate on one.

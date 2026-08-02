@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../screens/score_screen.dart';
 import '../state/identity_verification.dart';
+import '../state/platform_moderation.dart';
 import '../theme/app_theme.dart';
 
 /// Stands in front of the parts of the app that involve money or strangers.
@@ -19,13 +20,37 @@ import '../theme/app_theme.dart';
 /// It is not a lock on a door with no key: [IdentityVerification.allowsTrusted]
 /// is true wherever verification is impossible, which is every build without a
 /// server behind it.
+///
+/// **The owner waives it where it is ours to waive** ([ownerMayPass]). The
+/// check exists so a stranger has a reason to trust an account; whoever runs
+/// the app is answerable by definition, and locking them out of their own
+/// marketplace is a rule enforcing itself against the person who set it.
+///
+/// That stops at the point the requirement stops being the app's. Sending
+/// money needs a verified legal name to put on the Stripe intent, and the
+/// capture gate compares against it — `payments-create-intent` returns
+/// `identity_required` without one, whatever role the caller holds. Opening
+/// that screen for an owner would replace an explanation with a dead end, so
+/// [ownerMayPass] defaults to false and the wallet leaves it there.
 class VerifiedGate extends StatelessWidget {
   const VerifiedGate({
     super.key,
     required this.title,
     required this.reason,
     required this.child,
+    this.ownerMayPass = false,
+    this.ownerReason = '',
   });
+
+  /// Whether running the app is enough to get in. True only where the ID check
+  /// is this app's own policy — false where something outside it needs the
+  /// verified identity itself. Defaults to false so a gate added later closes
+  /// rather than opens by accident.
+  final bool ownerMayPass;
+
+  /// What to say to an owner who is still held — because "needs a verified
+  /// account" reads as a bug to the person who owns the account.
+  final String ownerReason;
 
   /// What is behind the gate, for the bar at the top and the sentence under
   /// it — "Marketplace", "Wallet", "Send nearby".
@@ -40,10 +65,12 @@ class VerifiedGate extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: IdentityVerification.instance,
+      listenable: Listenable.merge(
+          [IdentityVerification.instance, PlatformModeration.instance]),
       builder: (context, _) {
         final identity = IdentityVerification.instance;
-        if (identity.allowsTrusted) return child;
+        final owner = PlatformModeration.instance.isOwner;
+        if (identity.allowsTrusted || (owner && ownerMayPass)) return child;
         return Scaffold(
           appBar: AppBar(title: Text(title)),
           body: Center(
@@ -58,7 +85,9 @@ class VerifiedGate extends StatelessWidget {
                   Text(
                     identity.isPending
                         ? 'Your ID check is still being read'
-                        : '$title needs a verified account',
+                        : owner
+                            ? 'Even you need this one'
+                            : '$title needs a verified account',
                     textAlign: TextAlign.center,
                     style: const TextStyle(
                         fontSize: 19, fontWeight: FontWeight.w700),
@@ -68,7 +97,9 @@ class VerifiedGate extends StatelessWidget {
                     identity.isPending
                         ? 'Stripe is still working through your documents. '
                             'This opens as soon as they are done.'
-                        : reason,
+                        : owner && ownerReason.isNotEmpty
+                            ? ownerReason
+                            : reason,
                     textAlign: TextAlign.center,
                     style: TextStyle(
                         fontSize: 14.5,

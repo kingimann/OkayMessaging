@@ -31,6 +31,7 @@ import '../app_state.dart';
 import '../util/build_info.dart';
 import '../widgets/user_avatar.dart';
 import '../state/identity_verification.dart';
+import '../state/platform_moderation.dart';
 
 /// The top-level screen: a modern pill bottom bar switching between Chats and
 /// Calls, with a compose FAB.
@@ -547,7 +548,7 @@ class _AppSideBar extends StatelessWidget {
               ListTile(
                 leading: const Icon(Icons.storefront_outlined),
                 title: const Text('Marketplace'),
-                trailing: const _VerifiedOnlyHint(),
+                trailing: const _VerifiedOnlyHint(ownerMayPass: true),
                 subtitle: const Text('Buy and sell with your servers'),
                 onTap: () => _go(context, const MarketplaceScreen()),
               ),
@@ -575,7 +576,7 @@ class _AppSideBar extends StatelessWidget {
               ListTile(
                 leading: const Icon(Icons.wifi_tethering),
                 title: const Text('Send nearby'),
-                trailing: const _VerifiedOnlyHint(),
+                trailing: const _VerifiedOnlyHint(ownerMayPass: true),
                 // One line on the narrowest phone still sold — the drawer
                 // test taps every destination, and a second line here pushes
                 // the last one off the bottom.
@@ -748,14 +749,22 @@ class _IconWithBadge extends StatelessWidget {
 /// A quiet padlock on the drawer rows that lead somewhere verified-only, so
 /// the gate is not a surprise at the end of a tap. Nothing at all once the
 /// account is verified, or on a build where verification is impossible.
+///
+/// [ownerMayPass] mirrors the same flag on the [VerifiedGate] each row opens,
+/// and has to keep mirroring it: a padlock on a row that opens is a worse lie
+/// than no padlock at all.
 class _VerifiedOnlyHint extends StatelessWidget {
-  const _VerifiedOnlyHint();
+  const _VerifiedOnlyHint({this.ownerMayPass = false});
+
+  final bool ownerMayPass;
 
   @override
   Widget build(BuildContext context) => ListenableBuilder(
-        listenable: IdentityVerification.instance,
+        listenable: Listenable.merge(
+            [IdentityVerification.instance, PlatformModeration.instance]),
         builder: (context, _) =>
-            IdentityVerification.instance.allowsTrusted
+            IdentityVerification.instance.allowsTrusted ||
+                    (ownerMayPass && PlatformModeration.instance.isOwner)
                 ? const SizedBox.shrink()
                 : Tooltip(
                     message: 'Needs a verified account',
