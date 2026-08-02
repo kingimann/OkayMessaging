@@ -751,6 +751,33 @@ class FeedStore extends ChangeNotifier {
     return list.take(limit).toList();
   }
 
+  /// Seeds the store with posts by arbitrary authors, which [add] cannot do
+  /// — it always posts as the signed-in user, so a stranger's reply is
+  /// unreachable without this.
+  @visibleForTesting
+  void debugSetPosts(List<FeedPost> posts) {
+    _posts
+      ..clear()
+      ..addAll(posts);
+    notifyListeners();
+  }
+
+  /// The author's own replies to [postId], oldest first — a self-thread.
+  /// Same idea and same reasoning as the public feed's [selfThreadOf]: one
+  /// piece of writing that ran past a post's length, rather than other people
+  /// answering.
+  List<FeedPost> selfThreadOf(String postId) {
+    final root = postById(postId);
+    if (root == null) return const [];
+    final list = _posts
+        .where((p) =>
+            p.parentId == postId &&
+            p.authorUsername == root.authorUsername)
+        .toList()
+      ..sort((a, b) => a.time.compareTo(b.time));
+    return list;
+  }
+
   /// The replies under a post, oldest first (thread order).
   /// The chain of posts [postId] is a reply to, ROOT FIRST. Same contract,
   /// same reasoning and same guards as the public feed's — see

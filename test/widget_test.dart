@@ -24760,4 +24760,97 @@ void main() {
       expect(find.text('1 reply'), findsNothing);
     });
   });
+  group('self-threads on both feeds', () {
+    // X's move, and the one thing both feeds were missing: somebody
+    // continuing their own post is ONE piece of writing that ran past a
+    // post's length, not strangers answering it. The reply count already
+    // covers everybody; this covers the author.
+
+    test('the public feed tells an author continuing from anyone replying',
+        () async {
+      final store = PublicFeedStore.instance;
+      addTearDown(() {
+        PublicFeedStore.debugLoadOverride = null;
+        store.resetForTest();
+      });
+      PublicFeedStore.debugLoadOverride = () async => [
+            PublicPost(
+                id: 'p1',
+                authorUsername: 'ada',
+                authorName: 'Ada',
+                body: 'first half',
+                createdAt: DateTime(2026, 1, 1)),
+            PublicPost(
+                id: 'p2',
+                authorUsername: 'ada',
+                authorName: 'Ada',
+                body: 'second half',
+                replyTo: 'p1',
+                createdAt: DateTime(2026, 1, 1, 0, 1)),
+            PublicPost(
+                id: 'p3',
+                authorUsername: 'bo',
+                authorName: 'Bo',
+                body: 'a stranger answering',
+                replyTo: 'p1',
+                createdAt: DateTime(2026, 1, 1, 0, 2)),
+          ];
+      await store.load();
+      expect(store.selfThreadOf('p1').map((p) => p.id), ['p2'],
+          reason: 'a reply by somebody else is not the author continuing');
+      // And the reply that continues it has nothing under it of its own.
+      expect(store.selfThreadOf('p2'), isEmpty);
+      // A post nobody has replied to, and one that does not exist.
+      expect(store.selfThreadOf('p3'), isEmpty);
+      expect(store.selfThreadOf('nope'), isEmpty);
+
+      // The timeline is still only top-level posts: a self-thread is a way
+      // IN to the rest, not a second copy of it in the feed.
+      expect(store.posts.map((p) => p.id), ['p1']);
+    });
+
+    test('the server feed answers the same question the same way', () {
+      final store = FeedStore.instance;
+      store.debugSetPosts([
+        FeedPost(
+            id: 'f1',
+            communityId: 'c',
+            authorUsername: 'ada',
+            authorName: 'Ada',
+            text: 'first half',
+            time: DateTime(2026, 1, 1)),
+        FeedPost(
+            id: 'f2',
+            communityId: 'c',
+            authorUsername: 'ada',
+            authorName: 'Ada',
+            text: 'second half',
+            parentId: 'f1',
+            time: DateTime(2026, 1, 1, 0, 1)),
+        FeedPost(
+            id: 'f3',
+            communityId: 'c',
+            authorUsername: 'bo',
+            authorName: 'Bo',
+            text: 'a stranger answering',
+            parentId: 'f1',
+            time: DateTime(2026, 1, 1, 0, 2)),
+      ]);
+      expect(store.selfThreadOf('f1').map((p) => p.id), ['f2']);
+      expect(store.selfThreadOf('f3'), isEmpty);
+      expect(store.selfThreadOf('nope'), isEmpty);
+      expect(store.postsFor('c').map((p) => p.id), ['f1']);
+    });
+
+    test('the line is not drawn on the thread it would open', () {
+      // A door into the room you are standing in. Both feeds pass a flag or
+      // a null callback for the post that is already the screen.
+      final pub = File('lib/screens/public_feed_screen.dart').readAsStringSync();
+      expect(pub.contains('offerSelfThread: false'), isTrue,
+          reason: 'the focused post in a thread still offers to open it');
+      final srv = File('lib/screens/feed_screen.dart').readAsStringSync();
+      expect(srv.contains('onOpenSelfThread != null &&'), isTrue,
+          reason: 'the server card must be able to withhold the line');
+    });
+  });
 }

@@ -413,6 +413,7 @@ class _FeedScreenState extends State<FeedScreen> {
       onLongPress: () => _postOptions(post),
       child: _PostCard(
         post: post,
+        onOpenSelfThread: () => _openThread(post),
         onLike: () => FeedStore.instance.toggleLike(post.id),
         onRepost: () => _repostOptions(post),
         // The same gesture as the public timeline: a composer titled with
@@ -757,12 +758,18 @@ class _PostCard extends StatelessWidget {
   /// affordance.
   final VoidCallback? onMore;
 
+  /// Opens this post's thread. Null where the post already IS the thread on
+  /// screen — a line offering to open where you are is a door into the room
+  /// you are standing in, so the line is not drawn at all.
+  final VoidCallback? onOpenSelfThread;
+
   /// Tapping a #hashtag / @mention in the text.
   final ValueChanged<String>? onTag;
   final ValueChanged<String>? onMention;
 
   const _PostCard({
     required this.post,
+    this.onOpenSelfThread,
     required this.onLike,
     required this.onRepost,
     required this.onReply,
@@ -861,6 +868,21 @@ class _PostCard extends StatelessWidget {
                         : const _VideoElsewhere(),
                   ),
                 ],
+                // Same as the public feed: the author continuing their own
+                // post is one piece of writing, not other people answering.
+                if (onOpenSelfThread != null &&
+                    FeedStore.instance.selfThreadOf(post.id).isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: InkWell(
+                      onTap: onOpenSelfThread,
+                      child: Text('Show this thread',
+                          style: TextStyle(
+                              fontSize: 13.5,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.accentOn(context))),
+                    ),
+                  ),
                 const SizedBox(height: 2),
                 FeedPostActions(
                   replyCount: post.replies,
@@ -1145,6 +1167,10 @@ class _FeedPostScreenState extends State<FeedPostScreen> {
                                         FeedPostScreen(postId: r.id))),
                             child: _PostCard(
                               post: r,
+                              onOpenSelfThread: () => Navigator.of(context)
+                                  .push(MaterialPageRoute(
+                                      builder: (_) =>
+                                          FeedPostScreen(postId: r.id))),
                               onLike: () => FeedStore.instance.toggleLike(r.id),
                               onRepost: () =>
                                   FeedStore.instance.toggleRepost(r.id),

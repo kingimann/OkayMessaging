@@ -937,6 +937,22 @@ class PublicFeedStore extends ChangeNotifier {
     return chain.reversed.toList();
   }
 
+  /// The author's own replies to [postId], oldest first — a self-thread.
+  ///
+  /// Somebody continuing their own post is a different thing from strangers
+  /// answering it: it is one piece of writing that ran past a post's length,
+  /// so the timeline offers to open it rather than leaving the rest of the
+  /// sentence somewhere you have to go looking. Replies BY OTHERS are not
+  /// this, and the count on the card already covers them.
+  List<PublicPost> selfThreadOf(String postId) {
+    final root = byId(postId);
+    if (root == null) return const [];
+    return [
+      for (final p in _posts)
+        if (p.replyTo == postId && p.authorUsername == root.authorUsername) p
+    ].reversed.toList();
+  }
+
   /// Replies to [postId], oldest first.
   List<PublicPost> repliesTo(String postId) => [
         for (final p in _posts)

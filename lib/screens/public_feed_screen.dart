@@ -1170,6 +1170,7 @@ class _Entry extends StatelessWidget {
     required this.onOpen,
     this.collapseLongBody = true,
     this.threadedBelow = false,
+    this.offerSelfThread = true,
   });
 
   final PublicPost post;
@@ -1182,6 +1183,9 @@ class _Entry extends StatelessWidget {
   /// unrelated posts stacked up.
   final bool threadedBelow;
 
+  /// Passed straight through to [_PostTile.offerSelfThread].
+  final bool offerSelfThread;
+
   @override
   Widget build(BuildContext context) {
     // Only when the original is loaded. A header over a post that is not
@@ -1192,6 +1196,7 @@ class _Entry extends StatelessWidget {
     if (original == null) {
       final tile = _PostTile(
         post: post,
+        offerSelfThread: offerSelfThread,
         onReply: () => onReply(post),
         onOpen: () => onOpen(post),
         collapseLongBody: collapseLongBody,
@@ -1226,11 +1231,18 @@ class _PostTile extends StatelessWidget {
   /// whole screen — a thread — because there is nothing under it to protect.
   final bool collapseLongBody;
 
+  /// Whether to offer "Show this thread" when the author continued their own
+  /// post. False where the post is already the thread being read — a line
+  /// offering to open the screen you are on is a door back into the room you
+  /// are standing in.
+  final bool offerSelfThread;
+
   const _PostTile(
       {required this.post,
       required this.onReply,
       required this.onOpen,
-      this.collapseLongBody = true});
+      this.collapseLongBody = true,
+      this.offerSelfThread = true});
 
   @override
   Widget build(BuildContext context) {
@@ -1349,6 +1361,23 @@ class _PostTile extends StatelessWidget {
                     _Poll(post: post),
                   ],
                   if (post.repostOf != null) _Quoted(postId: post.repostOf!),
+                  // X's move, and the right one: somebody continuing their
+                  // own post is one piece of writing that ran past a post's
+                  // length, not strangers answering it. Offering to open it
+                  // is different from the reply count, which is everybody.
+                  if (offerSelfThread &&
+                      PublicFeedStore.instance.selfThreadOf(post.id).isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 6),
+                      child: InkWell(
+                        onTap: onOpen,
+                        child: Text('Show this thread',
+                            style: TextStyle(
+                                fontSize: 13.5,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.accentOn(context))),
+                      ),
+                    ),
                   const SizedBox(height: 2),
                   FeedPostActions(
                     replyCount: post.replyCount,
@@ -1613,6 +1642,7 @@ class PublicThreadScreen extends StatelessWidget {
               _Entry(
                 post: post,
                 collapseLongBody: false,
+                offerSelfThread: false,
                 onReply: (target) => _openComposer(context,
                     replyTo: target.id, replyingToName: target.authorName),
                 onOpen: (_) {},
