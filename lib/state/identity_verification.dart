@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -144,10 +145,59 @@ class IdentityVerification extends ChangeNotifier {
     // The session exists but nothing is decided yet.
     _apply(IdentityStatus.processing);
     return IdentitySession(
-      clientSecret: secret,
+      clientSecret: secretFor(
+        secret: secret,
+        hostedUrl: url,
+        // Only worth asking when there is something to fall back to.
+        pageServed: url.isEmpty || await pageIsServed(),
+      ),
       hostedUrl: url,
       publishableKey: result['publishableKey'] as String? ?? '',
     );
+  }
+
+  /// The client secret to keep, given whether our own page is being served.
+  ///
+  /// Dropping it is what makes the screen load Stripe's hosted flow instead —
+  /// so it is only ever dropped when there is a hosted flow to drop to.
+  /// Otherwise a site that is briefly missing would turn a working check into
+  /// no check at all, which is worse than an unthemed one.
+  @visibleForTesting
+  static String secretFor({
+    required String secret,
+    required String hostedUrl,
+    required bool pageServed,
+  }) =>
+      pageServed || hostedUrl.isEmpty ? secret : '';
+
+  @visibleForTesting
+  static Future<bool> Function(String url)? debugPageProbe;
+
+  /// Whether [pageUrl] is actually being served right now.
+  ///
+  /// It ships with the web build, and that build is published by a GitHub
+  /// Actions run taking minutes — while GitHub's own branch build republishes
+  /// the repository's README over the top of it in seconds. Every push leaves
+  /// a window where the site is the README and every file the app expects on
+  /// it is a 404, and a check started inside that window showed GitHub's
+  /// "File not found" page under the words "Verify your identity", with
+  /// nowhere to go from there.
+  ///
+  /// Stripe's hosted flow is on Stripe's servers and has no such window, so
+  /// the honest thing to do is ask before choosing. Failing closed — treating
+  /// an unanswered probe as "not served" — costs only the app's theming, and
+  /// the hosted page runs in the same WebView.
+  static Future<bool> pageIsServed() async {
+    final probe = debugPageProbe;
+    if (probe != null) return probe(pageUrl);
+    try {
+      final res = await http
+          .head(Uri.parse(pageUrl))
+          .timeout(const Duration(seconds: 6));
+      return res.statusCode == 200;
+    } catch (_) {
+      return false;
+    }
   }
 
   /// Where the in-app verification page lives. It ships with the web build.

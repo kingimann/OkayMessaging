@@ -23785,4 +23785,66 @@ void main() {
       expect(find.text('Check push setup'), findsOneWidget);
     });
   });
+  group('the ID check when our own site is mid-deploy', () {
+    // What this is about: the web build is published by a GitHub Actions run
+    // that takes minutes, and GitHub's own branch build republishes the
+    // repository's README over the top of it in seconds. Every push to main
+    // leaves a window where identity.html is a 404 — and a check started
+    // inside that window rendered GitHub's "File not found" page under the
+    // words "Verify your identity", with no way forward.
+
+    test('a missing page falls back to Stripe\'s hosted flow', () {
+      // Dropping the secret is the fallback: the screen runs Stripe.js only
+      // when it has one, and loads the hosted URL otherwise.
+      expect(
+          IdentityVerification.secretFor(
+              secret: 'vs_secret',
+              hostedUrl: 'https://verify.stripe.com/x',
+              pageServed: false),
+          isEmpty);
+      expect(
+          IdentityVerification.secretFor(
+              secret: 'vs_secret',
+              hostedUrl: 'https://verify.stripe.com/x',
+              pageServed: true),
+          'vs_secret',
+          reason: 'a served page is the themed, in-app flow — keep it');
+    });
+
+    test('with nothing to fall back to, the secret is kept', () {
+      // Stripe returned no hosted URL. Dropping the secret here would turn a
+      // check that works into no check at all, which is worse than an
+      // unthemed one.
+      expect(
+          IdentityVerification.secretFor(
+              secret: 'vs_secret', hostedUrl: '', pageServed: false),
+          'vs_secret');
+    });
+
+    test('the page probe decides, and an unanswered probe fails closed', () async {
+      addTearDown(() => IdentityVerification.debugPageProbe = null);
+      var asked = '';
+      IdentityVerification.debugPageProbe = (url) async {
+        asked = url;
+        return true;
+      };
+      expect(await IdentityVerification.pageIsServed(), isTrue);
+      expect(asked, IdentityVerification.pageUrl,
+          reason: 'it must probe the page it is deciding about');
+
+      // Unreachable is not "fine": the cost of being wrong the other way is a
+      // dead end inside the check.
+      IdentityVerification.debugPageProbe = (_) async => false;
+      expect(await IdentityVerification.pageIsServed(), isFalse);
+    });
+
+    test('the two pages it chooses between are on different hosts', () {
+      // The whole point: one is a static file on a site we deploy, the other
+      // is Stripe's. If ours were the only option there would be nothing to
+      // fall back to.
+      expect(IdentityVerification.pageUrl, contains('identity.html'));
+      expect(IdentityVerification.pageUrl,
+          startsWith(IdentityVerification.returnUrl));
+    });
+  });
 }

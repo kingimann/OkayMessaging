@@ -20,7 +20,10 @@ import '../theme/app_theme.dart';
 ///    WebView. This is the path that used to launch an external browser,
 ///    which happens whenever the deployed identity-start predates client
 ///    secrets — a server old enough to only return a URL should still not
-///    throw the user out of the app.
+///    throw the user out of the app. It is also where
+///    [IdentityVerification.pageIsServed] sends a check that starts while our
+///    own site is mid-deploy: Stripe's page cannot 404 the way a static file
+///    of ours can.
 class IdentityCheckScreen extends StatefulWidget {
   final IdentitySession session;
   const IdentityCheckScreen({super.key, required this.session});

@@ -226,6 +226,17 @@ publishes.
 Until that is changed, the app and `connect.html` will keep disappearing for
 minutes at a time after each push, with no error anywhere to explain it.
 
+**Still not changed, and it has now cost something.** Re-verified on the same
+push: `identity.html` answered 404 at 16:27 UTC and 200 at 16:28. In between,
+tapping *Get verified* showed GitHub's "File not found" page under the words
+"Verify your identity", with no way forward — the ID check simply could not be
+started. The app now works around that one case:
+`IdentityVerification.pageIsServed` asks whether our page is really being
+served and drops the client secret if it is not, which sends the check to
+Stripe's own hosted flow in the same WebView. That is a workaround for a
+single screen. The web app itself has no equivalent — a missing `main.dart.js`
+is a blank page — so the setting is still worth changing.
+
 ## 4. Not SQL or functions, but still pending
 
 - **Supabase → Authentication → URL Configuration**: set Site URL and add

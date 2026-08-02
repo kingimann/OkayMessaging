@@ -101,6 +101,17 @@ Claude-Session: https://claude.ai/code/session_015P97LVudGW2edqtwWSjQKV
 
 Never put a model identifier in commits, PRs, code, or anything pushed.
 
+**Two things publish to Pages and the wrong one is faster** — still true, and
+it is the first thing to suspect when the site 404s. Every push to `main`
+fires `deploy-web.yml` (Flutter, ~4 min) *and* GitHub's own
+`pages-build-deployment` (README through Jekyll, ~40 s), so for the minutes in
+between the live site is the README and `identity.html`, `connect.html` and
+`main.dart.js` are all 404. Re-verified: `identity.html` answered 404 at
+16:27 and 200 at 16:28 on the same push. One setting fixes it and it is the
+user's to change — see `docs/server_deploy_checklist.md` §3b. The ID check
+works around it (`IdentityVerification.pageIsServed` falls back to Stripe's
+hosted page); nothing works around a missing `main.dart.js`.
+
 iOS builds run on **Codemagic** (`codemagic.yaml`, workflow
 *iOS release (TestFlight)*) — the user starts those manually.
 
