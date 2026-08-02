@@ -1,4 +1,6 @@
 import '../state/smart_replies.dart';
+import 'quick_replies_screen.dart';
+import '../state/quick_replies.dart';
 import '../state/session.dart';
 import 'form_fill_screen.dart';
 import 'form_builder_screen.dart';
@@ -1334,6 +1336,23 @@ class _ChatScreenState extends State<ChatScreen> {
                   },
                 ),
                 const Divider(height: 1),
+                if (message.text.trim().isNotEmpty &&
+                    _mayLeaveChat(message) &&
+                    !QuickReplies.instance.isFull)
+                  ListTile(
+                    leading: const Icon(Icons.bolt_outlined),
+                    title: const Text('Save as quick reply'),
+                    onTap: () async {
+                      Navigator.of(sheetContext).pop();
+                      final saved =
+                          await QuickReplies.instance.add(message.text);
+                      if (!mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                          content: Text(saved
+                              ? 'Saved as a quick reply'
+                              : 'That is already saved')));
+                    },
+                  ),
                 ListTile(
                   leading: const Icon(Icons.reply),
                   title: const Text('Reply'),
@@ -2023,6 +2042,19 @@ class _ChatScreenState extends State<ChatScreen> {
     ));
   }
 
+  /// Puts a saved reply in the box — not into the chat.
+  ///
+  /// Inserted rather than sent, so a word can be changed first: a canned
+  /// reply that sends itself is a message nobody read before it left. It
+  /// appends to whatever is already typed rather than replacing it.
+  Future<void> _handleQuickReply() async {
+    final reply = await pickQuickReply(context);
+    if (reply == null || !mounted) return;
+    final existing = _store.draftFor(_chatId).trimRight();
+    _store.setDraft(
+        _chatId, existing.isEmpty ? reply : '$existing $reply');
+  }
+
   /// Builds a form and sends it as a message.
   Future<void> _handleCreateForm() async {
     final result =
@@ -2145,6 +2177,11 @@ class _ChatScreenState extends State<ChatScreen> {
             label: 'Poll',
             color: const Color(0xFF7F66FF),
             onTap: _handleCreatePoll),
+        AttachmentOption(
+            icon: Icons.bolt_outlined,
+            label: 'Quick reply',
+            color: const Color(0xFFF79009),
+            onTap: _handleQuickReply),
         AttachmentOption(
             icon: Icons.assignment_outlined,
             label: 'Form',

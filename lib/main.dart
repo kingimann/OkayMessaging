@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'state/quick_replies.dart';
 import 'state/chat_lock.dart';
 
 import 'package:flutter/foundation.dart' show kReleaseMode;
@@ -87,6 +88,7 @@ Future<void> main() async {
   await _boot('keys', SecureKeyExchange.instance.load);
   await _boot('lock', AppLock.instance.load);
   await _boot('chat locks', ChatLock.instance.load);
+  await _boot('quick replies', QuickReplies.instance.load);
   await _boot('two-step', TwoStepVerification.instance.load);
   await _boot('legal', LegalConsent.instance.load);
   await _boot('email', AccountEmail.instance.load);

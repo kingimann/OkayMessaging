@@ -30,6 +30,7 @@ import 'permissions_screen.dart';
 import 'privacy_settings_screen.dart';
 import 'public_feed_screen.dart' show BookmarksScreen, MutedAccountsScreen;
 import 'profile_screen.dart';
+import 'quick_replies_screen.dart';
 import 'score_screen.dart';
 import 'self_test_screen.dart';
 import 'settings_widgets.dart';
@@ -110,6 +111,14 @@ class SettingsView extends StatelessWidget {
               subtitle: 'People whose posts you hid on the newsfeed',
               onTap: () => Navigator.of(context).push(
                 MaterialPageRoute(builder: (_) => const MutedAccountsScreen()),
+              ),
+            ),
+            InfoTile(
+              leading: const Icon(Icons.bolt_outlined),
+              title: 'Quick replies',
+              subtitle: 'Saved answers, one tap away in any chat',
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const QuickRepliesScreen()),
               ),
             ),
             InfoTile(

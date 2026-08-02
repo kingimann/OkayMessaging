@@ -135,6 +135,7 @@ import 'package:okay_messaging/state/status_store.dart';
 import 'package:okay_messaging/state/chat_lock.dart';
 import 'package:okay_messaging/widgets/chat_list_tile.dart';
 import 'package:okay_messaging/models/form_spec.dart';
+import 'package:okay_messaging/state/quick_replies.dart';
 import 'package:okay_messaging/state/chat_store.dart';
 import 'package:okay_messaging/state/gif_service.dart';
 import 'package:okay_messaging/mesh/mesh_chunks.dart';
@@ -25031,6 +25032,127 @@ void main() {
         expect(text.contains('supabase'), isFalse, reason: path);
         expect(text.contains('http'), isFalse, reason: path);
       }
+    });
+  });
+  group('quick replies', () {
+    setUp(() {
+      QuickReplies.instance.resetForTest();
+      SharedPreferences.setMockInitialValues({});
+    });
+    tearDown(QuickReplies.instance.resetForTest);
+
+    final store = QuickReplies.instance;
+
+    test('newest first, and the same sentence is never saved twice', () async {
+      expect(await store.add('On my way'), isTrue);
+      expect(await store.add('Thanks'), isTrue);
+      expect(store.all, ['Thanks', 'On my way'],
+          reason: 'the one just saved is the one about to be used');
+
+      // Duplicates make the picker longer without making it more useful, and
+      // case is not a difference somebody means.
+      expect(await store.add('thanks'), isFalse);
+      expect(await store.add('  Thanks  '), isFalse);
+      expect(store.all.length, 2);
+
+      // Nothing is not a reply.
+      expect(await store.add('   '), isFalse);
+      expect(store.all.length, 2);
+    });
+
+    test('editing to nothing removes it rather than leaving a blank row',
+        () async {
+      await store.add('Thanks');
+      await store.edit(0, '   ');
+      expect(store.all, isEmpty,
+          reason: 'a blank quick reply is a row that inserts nothing');
+    });
+
+    test('out-of-range edits and removes change nothing', () async {
+      await store.add('Thanks');
+      await store.edit(9, 'x');
+      await store.removeAt(-1);
+      await store.reorder(5, 0);
+      // The destination is bounded too — a drop past the end would otherwise
+      // throw out of insert() rather than being ignored.
+      await store.reorder(0, 9);
+      expect(store.all, ['Thanks']);
+    });
+
+    test('reordering puts the ones actually used at the top', () async {
+      for (final r in ['third', 'second', 'first']) {
+        await store.add(r);
+      }
+      expect(store.all, ['first', 'second', 'third']);
+      // onReorderItem hands over the index AFTER the item is lifted out, so
+      // there is no off-by-one to compensate for — doing it anyway swaps the
+      // wrong pair and looks like the list ignoring the drag.
+      await store.reorder(0, 2);
+      expect(store.all, ['second', 'third', 'first']);
+      await store.reorder(2, 0);
+      expect(store.all, ['first', 'second', 'third']);
+    });
+
+    test('the list is capped, and says so before it is full', () async {
+      for (var i = 0; i < QuickReplies.max; i++) {
+        expect(await store.add('reply $i'), isTrue);
+      }
+      expect(store.isFull, isTrue);
+      expect(await store.add('one more'), isFalse);
+      expect(store.all.length, QuickReplies.max);
+    });
+
+    test('matching narrows on what has been typed', () async {
+      await store.add('On my way');
+      await store.add('Running late, sorry');
+      expect(store.matching('').length, 2, reason: 'empty offers everything');
+      expect(store.matching('LATE'), ['Running late, sorry']);
+      expect(store.matching('nothing like this'), isEmpty);
+    });
+
+    test('they survive a restart, and blanks do not come back', () async {
+      SharedPreferences.setMockInitialValues({
+        'quick_replies_v1': ['Thanks', '   ', 'On my way'],
+      });
+      await store.load();
+      expect(store.all, ['Thanks', 'On my way']);
+    });
+
+    test('nothing about them leaves the device', () {
+      // The list of sentences somebody uses most is a fair description of
+      // their life. It is not in the backup and not on a server.
+      final src = File('lib/state/quick_replies.dart').readAsStringSync();
+      expect(src.contains('supabase'), isFalse);
+      expect(src.contains('RelayService'), isFalse);
+      expect(File('lib/state/cloud_sync.dart').readAsStringSync()
+          .contains('quick_replies'), isFalse,
+          reason: 'they rode the cloud sync, which is not where they belong');
+    });
+
+    test('the suggestions are offered, never seeded', () {
+      // Writing them in would be inventing content in somebody's own words,
+      // which is the no-fake-data rule.
+      expect(QuickReplies.suggestions, isNotEmpty);
+      expect(store.all, isEmpty);
+      final src = File('lib/screens/quick_replies_screen.dart')
+          .readAsStringSync();
+      expect(src.contains('onPressed: () => QuickReplies.instance.add(s)'),
+          isTrue,
+          reason: 'a suggestion has to be tapped to become a reply');
+    });
+
+    testWidgets('a saved reply is inserted, never sent', (t) async {
+      // A canned reply that sends itself is a message nobody read before it
+      // left.
+      final src = File('lib/screens/chat_screen.dart').readAsStringSync();
+      final fn = src.substring(src.indexOf('Future<void> _handleQuickReply()'),
+          src.indexOf('/// Builds a form and sends it as a message.'));
+      expect(fn.contains('_store.setDraft'), isTrue);
+      expect(fn.contains('_deliver('), isFalse,
+          reason: 'the picker sent the message instead of typing it');
+      // And it appends rather than replacing what is already typed.
+      expect(fn.contains("existing.isEmpty ? reply : '\$existing \$reply'"),
+          isTrue);
     });
   });
 }
