@@ -24399,4 +24399,148 @@ void main() {
       expect(paused.contains('ChatLock.instance.closeAll()'), isTrue);
     });
   });
+  group('screenshot and forward protection', () {
+    setUp(() {
+      ChatStore.instance.reset();
+      ChatLock.instance.resetForTest();
+    });
+
+    Chat chatWith(String id) => Chat(
+          id: id,
+          contact: const AppUser(
+              id: '15551230000',
+              name: 'Ada',
+              avatarColor: '#2E7D32',
+              phone: '15551230000'),
+          messages: const [],
+        );
+
+    test('the flag rides out with the message, and survives the envelope', () {
+      // The setting belongs to whoever wrote the words. Reading it from the
+      // recipient's own chat instead would mean turning your copy off
+      // unlocked what somebody else sent you under theirs.
+      final m = Message(
+          id: 'm1',
+          text: 'hi',
+          isMe: true,
+          time: DateTime(2026, 1, 1),
+          protected: true);
+      expect(m.toJson()['protected'], isTrue);
+      expect(Message.fromJson(m.toJson()).protected, isTrue);
+
+      // And an old sender who never heard of the flag is not protected by
+      // accident, which would make their messages unforwardable for ever.
+      final old = Map<String, dynamic>.from(m.toJson())..remove('protected');
+      expect(Message.fromJson(old).protected, isFalse);
+    });
+
+    test('the chat setting persists, so protection is not a session', () {
+      final chat = chatWith('a').copyWith(protectContent: true);
+      expect(chat.toJson()['protectContent'], isTrue);
+      expect(Chat.fromJson(chat.toJson()).protectContent, isTrue);
+      // Absent means off: an existing chat must not become protected by an
+      // upgrade nobody asked for.
+      final old = Map<String, dynamic>.from(chat.toJson())
+        ..remove('protectContent');
+      expect(Chat.fromJson(old).protectContent, isFalse);
+    });
+
+    test('every send path is stamped, because one funnel does it', () {
+      // Stamped in _deliver rather than at each of the places a message is
+      // built, so a send path added later cannot forget.
+      final src = File('lib/screens/chat_screen.dart').readAsStringSync();
+      final deliver = src.substring(src.indexOf('void _deliver('));
+      expect(deliver.contains('copyWith(protected: true)'), isTrue);
+      expect(RegExp(r'_store\.isProtected\(_chatId\)').hasMatch(deliver), isTrue);
+    });
+
+    test('a protected message cannot leave, whichever side protected it', () {
+      // Two independent reasons, and either is enough.
+      final src = File('lib/screens/chat_screen.dart').readAsStringSync();
+      final fn = src.substring(src.indexOf('bool _mayLeaveChat('),
+          src.indexOf('bool get _selectionMayLeave'));
+      final collapsed = fn.replaceAll(RegExp(r'\s+'), ' ');
+      expect(
+          collapsed.contains(
+              '!_store.isProtected(_chatId) && !message.protected'),
+          isTrue,
+          reason: 'the received-message half is what stops somebody turning '
+              'their own setting off to unlock what you sent them');
+
+      // Forward and Copy are both behind it: blocking one and leaving the
+      // other is a lock next to an open window.
+      for (final guard in [
+        "if ((message.isImage || message.text.trim().isNotEmpty) &&\n                    _mayLeaveChat(message))",
+        "if (message.text.trim().isNotEmpty && _mayLeaveChat(message))",
+      ]) {
+        expect(src.contains(guard), isTrue, reason: guard);
+      }
+      expect(src.contains('if (_selectionMayLeave)'), isTrue);
+    });
+
+    test('a screenshot notice is itself unforwardable', () {
+      ChatStore.instance.setChats([chatWith('a')]);
+      ChatStore.instance.noteScreenshot('a', byMe: true);
+      final m = ChatStore.instance.chatById('a')!.messages.last;
+      expect(m.text, contains('You took a screenshot'));
+      expect(m.isMe, isTrue);
+      // It is about this conversation and means nothing outside it — and it
+      // must stay unforwardable even if protection is later switched off.
+      expect(m.protected, isTrue);
+
+      ChatStore.instance.noteScreenshot('a', byMe: false);
+      final theirs = ChatStore.instance.chatById('a')!.messages.last;
+      expect(theirs.text, contains('They took a screenshot'));
+      expect(theirs.isMe, isFalse);
+    });
+
+    test('the notice carries nothing but who took it', () {
+      // No image, no message id, nothing about what was on the screen. It
+      // rides the same fire-and-forget ping as typing.
+      final src = File('lib/relay/relay_service.dart').readAsStringSync();
+      expect(src.contains("_ping(contactPhone, 'shot')"), isTrue);
+      expect(src.contains("event: 'shot'"), isTrue,
+          reason: 'sent but never subscribed to is a notice nobody receives');
+    });
+
+    testWidgets('a screenshot on another screen is not attributed to a chat',
+        (t) async {
+      // The notifier fires app-wide. A chat that acted on it while buried
+      // would announce a screenshot of the chat list as one of itself.
+      final src = File('lib/screens/chat_screen.dart').readAsStringSync();
+      final fn = src.substring(src.indexOf('void _onScreenshot()'),
+          src.indexOf('void _onRemoteScreenshot()'));
+      expect(fn.contains('ModalRoute.of(context)!.isCurrent'), isTrue);
+      expect(fn.contains('_store.isProtected(_chatId)'), isTrue,
+          reason: 'an unprotected chat announces nothing');
+    });
+
+    test('the native side is registered and needs no availability guard', () {
+      // iOS gives no way to BLOCK a screenshot, only this notification.
+      // userDidTakeScreenshotNotification is iOS 7+, so unlike the two APIs
+      // that have broken the archive before, it needs no #available.
+      final swift = File('ios/Runner/AppDelegate.swift').readAsStringSync();
+      expect(swift.contains('okay/screenshot'), isTrue);
+      expect(swift.contains('UIApplication.userDidTakeScreenshotNotification'),
+          isTrue);
+      // Registered once: a second observer reports every screenshot twice,
+      // which reads as two screenshots.
+      expect(swift.contains('watchingScreenshots'), isTrue);
+      // And the Dart side has to ask for it, or the observer never exists.
+      expect(
+          File('lib/state/screenshot_watch.dart')
+              .readAsStringSync()
+              .contains("invokeMethod<void>('watch')"),
+          isTrue);
+    });
+
+    test('the toggle says what it cannot do', () {
+      // A control that implied iOS can block screenshots would be worse than
+      // no control: somebody would rely on it.
+      final src =
+          File('lib/screens/contact_info_screen.dart').readAsStringSync();
+      final tile = src.substring(src.indexOf('Screenshot & forward protection'));
+      expect(tile.contains('cannot be blocked'), isTrue);
+    });
+  });
 }

@@ -1,4 +1,5 @@
 import '../state/smart_replies.dart';
+import '../state/screenshot_watch.dart';
 import 'dart:async';
 
 import 'package:file_picker/file_picker.dart';
@@ -264,6 +265,8 @@ class _ChatScreenState extends State<ChatScreen> {
   void dispose() {
     PushService.instance.setOpenChat(null);
     _store.removeListener(_refreshSuggestions);
+    ScreenshotWatch.instance.taken.removeListener(_onScreenshot);
+    RelayService.instance.screenshotPing.removeListener(_onRemoteScreenshot);
     if (RelayConfig.isEnabled) {
       RelayService.instance.typingPing.removeListener(_onTypingPing);
       RelayService.instance.presencePing.removeListener(_onPresencePing);
@@ -780,7 +783,53 @@ class _ChatScreenState extends State<ChatScreen> {
     return ok ?? false;
   }
 
-  void _deliver(Message message) {
+  /// Whether [message] may leave this conversation by forward or copy.
+  ///
+  /// Two ways it may not: this chat is protected, or the message arrived
+  /// carrying the sender's own protection. The second is the one that
+  /// matters — turning your own setting off must not unlock what somebody
+  /// else sent you under theirs.
+  bool _mayLeaveChat(Message message) =>
+      !_store.isProtected(_chatId) && !message.protected;
+
+  /// The same question for a selection, which is only exportable if every
+  /// message in it is.
+  bool get _selectionMayLeave => _selectedMessages.every(_mayLeaveChat);
+
+  /// Watches for a screenshot while this conversation is on screen, and only
+  /// when it is protected.
+  ///
+  /// Attributed to whatever was actually being looked at: the notifier fires
+  /// app-wide, so a screen that is not on top must ignore it or a screenshot
+  /// of the chat list would be announced as a screenshot of a conversation.
+  void _onScreenshot() {
+    if (!mounted || !ModalRoute.of(context)!.isCurrent) return;
+    if (!_store.isProtected(_chatId)) return;
+    _store.noteScreenshot(_chatId, byMe: true);
+    if (RelayConfig.isEnabled && _isRealPeer(widget.chat.contact)) {
+      RelayService.instance.sendScreenshotNotice(widget.chat.contact.phone);
+    }
+  }
+
+  /// The far end screenshotted this conversation.
+  void _onRemoteScreenshot() {
+    if (!mounted) return;
+    final from = RelayService.instance.screenshotFromDigits;
+    if (from.isEmpty ||
+        from != RelayService.digits(widget.chat.contact.phone)) {
+      return;
+    }
+    _store.noteScreenshot(_chatId, byMe: false);
+  }
+
+  void _deliver(Message rawMessage) {
+    // Stamped here rather than at each of the eight places a message is
+    // built, so a send path added later carries the flag without anybody
+    // remembering to add it. The setting belongs to whoever wrote the words,
+    // which is why it is read from this chat and then travels.
+    final message = _store.isProtected(_chatId)
+        ? rawMessage.copyWith(protected: true)
+        : rawMessage;
     _store.addMessage(_chatId, message);
     WidgetsBinding.instance.addPostFrameCallback((_) => _animateToBottom());
     if (!RelayConfig.isEnabled) return;
@@ -1171,7 +1220,8 @@ class _ChatScreenState extends State<ChatScreen> {
                 // A photo forwards as a photo. It used to forward
                 // `message.text`, which for a picture sent without a caption
                 // is an empty bubble at the other end.
-                if (message.isImage || message.text.trim().isNotEmpty)
+                if ((message.isImage || message.text.trim().isNotEmpty) &&
+                    _mayLeaveChat(message))
                   ListTile(
                     leading: const Icon(Icons.shortcut),
                     title: const Text('Forward'),
@@ -1222,7 +1272,7 @@ class _ChatScreenState extends State<ChatScreen> {
                       _editMessage(message);
                     },
                   ),
-                if (message.text.trim().isNotEmpty)
+                if (message.text.trim().isNotEmpty && _mayLeaveChat(message))
                   ListTile(
                     leading: const Icon(Icons.copy),
                     title: const Text('Copy'),
@@ -1942,16 +1992,29 @@ class _ChatScreenState extends State<ChatScreen> {
                     tooltip: 'Delete',
                     onPressed: _deleteSelected,
                   ),
-                  IconButton(
-                    icon: const Icon(Icons.shortcut),
-                    tooltip: 'Forward',
-                    onPressed: _forwardSelected,
-                  ),
-                  if (_selectedIds.length == 1)
+                  if (_selectionMayLeave) ...[
                     IconButton(
-                      icon: const Icon(Icons.copy),
-                      tooltip: 'Copy',
-                      onPressed: _copySelected,
+                      icon: const Icon(Icons.shortcut),
+                      tooltip: 'Forward',
+                      onPressed: _forwardSelected,
+                    ),
+                    if (_selectedIds.length == 1)
+                      IconButton(
+                        icon: const Icon(Icons.copy),
+                        tooltip: 'Copy',
+                        onPressed: _copySelected,
+                      ),
+                  ] else
+                    // Absent rather than disabled: a greyed-out Forward is a
+                    // button somebody taps twice before believing it.
+                    IconButton(
+                      icon: const Icon(Icons.lock_outline),
+                      tooltip: 'Protected — this cannot be forwarded or copied',
+                      onPressed: () => ScaffoldMessenger.of(context)
+                          .showSnackBar(const SnackBar(
+                              content: Text('This conversation is protected. '
+                                  'Messages in it cannot be forwarded or '
+                                  'copied.'))),
                     ),
                 ],
               )

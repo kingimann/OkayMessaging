@@ -132,6 +132,7 @@ class RelayService {
       'voiceSeconds': message.voiceSeconds,
       'isVoicemail': message.isVoicemail,
       'forwarded': message.forwarded,
+      'protected': message.protected,
       'replyTo': message.replyTo?.toJson(),
       'isLocation': message.isLocation,
       'locationLat': message.locationLat,
@@ -364,6 +365,7 @@ class RelayService {
         voiceSeconds: content['voiceSeconds'] as int? ?? 0,
         isVoicemail: content['isVoicemail'] as bool? ?? false,
         forwarded: content['forwarded'] as bool? ?? false,
+        protected: content['protected'] as bool? ?? false,
         replyTo: replyJson is Map
             ? ReplyInfo.fromJson(Map<String, dynamic>.from(replyJson))
             : null,
@@ -724,6 +726,15 @@ class RelayService {
             SecureKeyExchange.instance.rememberPeer(from, pub);
             // Reply with our key once so both sides can derive the secret.
             _ensureKeyShared(from);
+          },
+        )
+        .onBroadcast(
+          event: 'shot',
+          callback: (payload) {
+            final from = payload['from'] as String?;
+            if (from == null || digits(from) == digits(me)) return;
+            screenshotFromDigits = digits(from);
+            screenshotPing.value++;
           },
         )
         .onBroadcast(
@@ -1728,9 +1739,25 @@ class RelayService {
   Future<void> sendTyping(String contactPhone) async =>
       _ping(contactPhone, 'typing');
 
+  /// Tells [contactPhone] that a screenshot was just taken of the
+  /// conversation with them.
+  ///
+  /// Carries nothing but who: no image, no message id, nothing about what was
+  /// on the screen. The point is that the other person finds out, which is
+  /// the only thing any app can do about a screenshot.
+  Future<void> sendScreenshotNotice(String contactPhone) async =>
+      _ping(contactPhone, 'shot');
+
   /// Sends an "online" presence ping to [contactPhone]'s inbox.
   Future<void> sendPresence(String contactPhone) async =>
       _ping(contactPhone, 'presence');
+
+  /// Bumped when the far end says they screenshotted the conversation;
+  /// [screenshotFromDigits] is whose. Same shape as the typing ping, because
+  /// it is the same kind of thing: a fact about a conversation with no
+  /// message behind it.
+  final ValueNotifier<int> screenshotPing = ValueNotifier<int>(0);
+  String screenshotFromDigits = '';
 
   Future<void> _ping(String contactPhone, String event) async {
     if (!_initialized || digits(contactPhone).isEmpty) return;

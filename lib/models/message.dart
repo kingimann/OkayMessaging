@@ -55,6 +55,18 @@ class Message {
   /// True when this message was forwarded from another chat.
   final bool forwarded;
 
+  /// True when the sender had protection on for the conversation this was
+  /// sent in — so the receiving app hides Forward and Copy for it too.
+  ///
+  /// It travels with the message rather than being read from the local chat
+  /// because the setting belongs to whoever wrote the words. Turning it off
+  /// on your side does not unlock what somebody else sent you under it.
+  ///
+  /// A REQUEST THE OTHER APP HONOURS, and nothing stronger. A modified client
+  /// can ignore it and a camera pointed at the screen never sees it. Saying
+  /// otherwise would promise something no messenger can deliver.
+  final bool protected;
+
   /// True for voice messages; [voiceSeconds] then holds the clip length.
   final bool isVoice;
   final int voiceSeconds;
@@ -148,6 +160,7 @@ class Message {
     this.reactions = const [],
     this.replyTo,
     this.forwarded = false,
+    this.protected = false,
     this.isVoice = false,
     this.voiceSeconds = 0,
     this.isVoicemail = false,
@@ -201,6 +214,7 @@ class Message {
         'reactions': reactions,
         'replyTo': replyTo?.toJson(),
         'forwarded': forwarded,
+        'protected': protected,
         'isVoice': isVoice,
         'voiceSeconds': voiceSeconds,
         'isVoicemail': isVoicemail,
@@ -248,6 +262,7 @@ class Message {
             : ReplyInfo.fromJson(
                 Map<String, dynamic>.from(json['replyTo'] as Map)),
         forwarded: json['forwarded'] as bool? ?? false,
+        protected: json['protected'] as bool? ?? false,
         isVoice: json['isVoice'] as bool? ?? false,
         voiceSeconds: json['voiceSeconds'] as int? ?? 0,
         isVoicemail: json['isVoicemail'] as bool? ?? false,
@@ -289,6 +304,7 @@ class Message {
       );
 
   Message copyWith({
+    bool? protected,
     String? text,
     MessageStatus? status,
     List<String>? reactions,
@@ -311,6 +327,7 @@ class Message {
       reactions: reactions ?? this.reactions,
       replyTo: replyTo,
       forwarded: forwarded,
+      protected: protected ?? this.protected,
       isVoice: isVoice,
       voiceSeconds: voiceSeconds,
       isVoicemail: isVoicemail,

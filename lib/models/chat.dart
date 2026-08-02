@@ -16,6 +16,16 @@ class Chat {
   /// a guard against accidentally messaging the wrong person.
   final bool confirmBeforeSend;
 
+  /// When true, this conversation is treated as one that should not leave it:
+  /// forwarding and copying are off, and a screenshot is announced to the
+  /// other person rather than passing unnoticed.
+  ///
+  /// Set on EITHER side and it applies to both — the flag rides out with each
+  /// message, so the other app enforces it on what you sent even if they
+  /// never turned it on themselves. It is a request their app honours, not a
+  /// guarantee about their device; see [Message.protected].
+  final bool protectContent;
+
   /// Ids of messages pinned to the top of this chat, oldest first. Free
   /// accounts can pin a few; Okay Pro lifts the limit.
   final List<String> pinnedMessageIds;
@@ -37,6 +47,7 @@ class Chat {
     this.isArchived = false,
     this.isFavorite = false,
     this.confirmBeforeSend = false,
+    this.protectContent = false,
     this.pinnedMessageIds = const [],
     this.members = const [],
     this.disappearingSeconds = 0,
@@ -84,6 +95,7 @@ class Chat {
         'isPinned': isPinned,
         'isMuted': isMuted,
         'isArchived': isArchived,
+        'protectContent': protectContent,
         'isFavorite': isFavorite,
         'confirmBeforeSend': confirmBeforeSend,
         'pinnedMessageIds': pinnedMessageIds,
@@ -102,6 +114,7 @@ class Chat {
         isPinned: json['isPinned'] as bool? ?? false,
         isMuted: json['isMuted'] as bool? ?? false,
         isArchived: json['isArchived'] as bool? ?? false,
+        protectContent: json['protectContent'] as bool? ?? false,
         isFavorite: json['isFavorite'] as bool? ?? false,
         confirmBeforeSend: json['confirmBeforeSend'] as bool? ?? false,
         pinnedMessageIds: _readPinned(json),
@@ -118,6 +131,7 @@ class Chat {
     bool? isPinned,
     bool? isMuted,
     bool? isArchived,
+    bool? protectContent,
     bool? isFavorite,
     bool? confirmBeforeSend,
     List<String>? pinnedMessageIds,
@@ -133,6 +147,7 @@ class Chat {
       isPinned: isPinned ?? this.isPinned,
       isMuted: isMuted ?? this.isMuted,
       isArchived: isArchived ?? this.isArchived,
+      protectContent: protectContent ?? this.protectContent,
       isFavorite: isFavorite ?? this.isFavorite,
       confirmBeforeSend: confirmBeforeSend ?? this.confirmBeforeSend,
       pinnedMessageIds:

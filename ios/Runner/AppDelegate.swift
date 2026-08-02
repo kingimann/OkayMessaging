@@ -7,6 +7,7 @@ import UserNotifications
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
   private var pushChannel: FlutterMethodChannel?
+  private var screenshotChannel: FlutterMethodChannel?
 
   /// Digits of the conversation on screen right now, or nil. Dart keeps this
   /// up to date so a push for the chat you are already reading does not draw
@@ -135,7 +136,39 @@ import UserNotifications
         result(FlutterMethodNotImplemented)
       }
     }
+
+    // Screenshots. iOS gives NO way to prevent one — only this notification
+    // after the fact — so the app's answer is to tell the other person rather
+    // than to pretend it can block anything. userDidTakeScreenshotNotification
+    // is iOS 7+, so no availability guard is needed here.
+    let shotMessenger = engineBridge.pluginRegistry
+      .registrar(forPlugin: "OkayScreenshot")!.messenger()
+    let shots = FlutterMethodChannel(
+      name: "okay/screenshot", binaryMessenger: shotMessenger)
+    screenshotChannel = shots
+    shots.setMethodCallHandler { [weak self] call, result in
+      switch call.method {
+      case "watch":
+        // Registered once. A second observer would report every screenshot
+        // twice, which reads as two screenshots.
+        if self?.watchingScreenshots != true {
+          self?.watchingScreenshots = true
+          NotificationCenter.default.addObserver(
+            forName: UIApplication.userDidTakeScreenshotNotification,
+            object: nil,
+            queue: .main
+          ) { [weak self] _ in
+            self?.screenshotChannel?.invokeMethod("taken", arguments: nil)
+          }
+        }
+        result(nil)
+      default:
+        result(FlutterMethodNotImplemented)
+      }
+    }
   }
+
+  private var watchingScreenshots = false
 
   /// The conversation a push belongs to, as the im: URL the app already knows
   /// how to open — the same path a default-messaging-app tap arrives on, so

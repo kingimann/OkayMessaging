@@ -284,6 +284,19 @@ class ChatStore extends ChangeNotifier {
       _chats.any((c) => c.isFavorite && !c.isArchived);
 
   /// Turns the "confirm before sending" safeguard on or off for a chat.
+  /// Turns forward/copy protection and screenshot notices on or off for one
+  /// conversation.
+  void setProtectContent(String id, bool value) {
+    final i = _indexOf(id);
+    if (i != -1 && _chats[i].protectContent != value) {
+      _replace(i, _chats[i].copyWith(protectContent: value));
+    }
+  }
+
+  /// Whether [id] is protected — false for a chat that no longer exists, so
+  /// callers can ask without a null check.
+  bool isProtected(String id) => chatById(id)?.protectContent ?? false;
+
   void setConfirmBeforeSend(String id, bool value) {
     final i = _indexOf(id);
     if (i != -1 && _chats[i].confirmBeforeSend != value) {
@@ -467,6 +480,31 @@ class ChatStore extends ChangeNotifier {
           emoji: g.emoji,
         ),
         members: nextMembers,
+      ),
+    );
+  }
+
+  /// Puts a line in [chatId] saying a screenshot was taken.
+  ///
+  /// A plain message rather than a new kind, so it persists, scrolls and
+  /// exports like everything else — and so an old build reading a newer
+  /// backup shows a sentence rather than an empty bubble. [byMe] decides
+  /// which side it sits on and which way round it reads.
+  void noteScreenshot(String chatId, {required bool byMe}) {
+    if (_indexOf(chatId) == -1) return;
+    final now = DateTime.now();
+    addMessage(
+      chatId,
+      Message(
+        id: 'shot_\${now.microsecondsSinceEpoch}',
+        text: byMe
+            ? 'You took a screenshot of this chat.'
+            : 'They took a screenshot of this chat.',
+        time: now,
+        isMe: byMe,
+        // Never forwardable, whatever the chat's setting is now: the notice
+        // is about this conversation and means nothing outside it.
+        protected: true,
       ),
     );
   }

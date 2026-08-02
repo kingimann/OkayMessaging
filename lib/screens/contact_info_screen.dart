@@ -555,6 +555,23 @@ class _ConfirmBeforeSendSection extends StatelessWidget {
               onChanged: (v) =>
                   ChatStore.instance.setConfirmBeforeSend(chatId, v),
             ),
+            SwitchListTile(
+              secondary: Icon(chat?.protectContent ?? false
+                  ? Icons.no_photography
+                  : Icons.no_photography_outlined),
+              title: const Text('Screenshot & forward protection'),
+              // Says what it does AND what it cannot do. iOS gives no way to
+              // stop a screenshot — only to notice one — and a toggle that
+              // implied otherwise would be worse than no toggle.
+              subtitle: Text(chat?.protectContent ?? false
+                  ? 'Forwarding and copying are off, and screenshots are '
+                      'announced in the chat. Screenshots cannot be blocked.'
+                  : 'Turn off forwarding and copying, and announce '
+                      'screenshots to both of you'),
+              value: chat?.protectContent ?? false,
+              onChanged: (v) =>
+                  ChatStore.instance.setProtectContent(chatId, v),
+            ),
           ],
         );
       },

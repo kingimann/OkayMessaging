@@ -252,6 +252,33 @@ instead of private only if somebody remembered. `allChats` still returns
 everything and is what delivery uses: a hidden chat keeps receiving messages.
 `ChatLock.closeAll()` runs on background, so an unlock lasts a session.
 
+## Screenshot & forward protection (per chat)
+
+One toggle on a conversation (contact info), `Chat.protectContent`. Two
+different kinds of promise, and the UI says which is which:
+
+- **Forward and copy are off**, both ends. The flag rides out on every
+  message (`Message.protected`, stamped once in `ChatScreen._deliver` so a
+  send path added later cannot forget) and the receiving app honours it — so
+  turning your own setting off does not unlock what somebody sent you under
+  theirs. It is a request their app honours, not a guarantee about their
+  device.
+- **A screenshot is announced** to both sides, as an ordinary message in the
+  conversation. `okay/screenshot` → `ScreenshotWatch` → a `shot` relay ping
+  (the same fire-and-forget shape as `typing`, carrying only who).
+
+**iOS cannot prevent a screenshot** — there is no public API, and the private
+`UITextField` trick is undocumented and an App Review risk. Detection after
+the fact is all there is, so the toggle's own subtitle says "Screenshots
+cannot be blocked". Don't let that sentence get edited out; a test asserts it.
+
+`UIApplication.userDidTakeScreenshotNotification` is iOS 7+, so unlike the two
+APIs that have broken the archive it needs no `#available`. The observer is
+registered once (`watchingScreenshots`) — a second one reports every
+screenshot twice, which reads as two screenshots. The chat only acts on the
+app-wide notifier when its route `isCurrent`, or a screenshot of the chat list
+would be announced as one of the conversation.
+
 ## Verified-only features
 
 The **marketplace, wallet and Okay Drop** are behind
