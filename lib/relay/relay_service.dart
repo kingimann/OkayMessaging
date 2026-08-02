@@ -1,4 +1,5 @@
 import 'dart:async';
+import '../models/form_spec.dart';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -134,6 +135,9 @@ class RelayService {
       'forwarded': message.forwarded,
       'protected': message.protected,
       'threadRootId': message.threadRootId,
+      'isForm': message.isForm,
+      'formTitle': message.formTitle,
+      'formFields': [for (final f in message.formFields) f.toJson()],
       'replyTo': message.replyTo?.toJson(),
       'isLocation': message.isLocation,
       'locationLat': message.locationLat,
@@ -368,6 +372,12 @@ class RelayService {
         forwarded: content['forwarded'] as bool? ?? false,
         protected: content['protected'] as bool? ?? false,
         threadRootId: content['threadRootId'] as String?,
+        isForm: content['isForm'] as bool? ?? false,
+        formTitle: content['formTitle'] as String? ?? '',
+        formFields: [
+          for (final f in (content['formFields'] as List?) ?? const [])
+            FormFieldSpec.fromJson(Map<String, dynamic>.from(f as Map))
+        ],
         replyTo: replyJson is Map
             ? ReplyInfo.fromJson(Map<String, dynamic>.from(replyJson))
             : null,
@@ -441,6 +451,21 @@ class RelayService {
         if (emoji == null) return false;
         target.setReactionState(
             chat.id, id, emoji, payload['add'] as bool? ?? true);
+        return true;
+      case 'form':
+        final answers = payload['answers'];
+        if (answers is! List) return false;
+        target.applyFormResponse(
+          chat.id,
+          id,
+          FormResponse(
+            from: (payload['name'] as String?)?.trim().isNotEmpty == true
+                ? payload['name'] as String
+                : (payload['from'] as String? ?? ''),
+            answers: [for (final a in answers) '$a'],
+            at: DateTime.now(),
+          ),
+        );
         return true;
       case 'poll':
         target.applyRemotePollVote(
@@ -638,7 +663,7 @@ class RelayService {
             case 'receipt':
               applyReceipt(payload, myPhone: me);
             case 'edit' || 'delete' || 'reaction' || 'poll' || 'payst' ||
-                  'vopen':
+                  'form' || 'vopen':
               applyMessageEvent(event, payload, myPhone: me);
             case 'gupd':
               applyGroupUpdate(payload, myPhone: me);
@@ -1650,6 +1675,23 @@ class RelayService {
 
   /// Broadcasts a poll vote on [messageId] to [contactPhone]: increments
   /// [addOption] and decrements a prior [removeOption] (-1 for none).
+  /// Sends one person's answers back to whoever sent the form.
+  ///
+  /// Answers only — the form itself is already on their device, and echoing
+  /// the questions back would put the same content through the relay twice.
+  Future<void> sendFormResponse(
+      String contactPhone, String messageId, List<String> answers) async {
+    if (!_initialized) return;
+    final me = Session.instance.user.value;
+    if (me == null) return;
+    await _sendInboxEvent(contactPhone, 'form', {
+      'from': me.phone,
+      'id': messageId,
+      'name': me.name,
+      'answers': answers,
+    });
+  }
+
   Future<void> sendPollVote(
       String contactPhone, String messageId, int addOption,
       int removeOption) async {

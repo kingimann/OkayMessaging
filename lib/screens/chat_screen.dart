@@ -1,4 +1,8 @@
 import '../state/smart_replies.dart';
+import '../state/session.dart';
+import 'form_fill_screen.dart';
+import 'form_builder_screen.dart';
+import '../models/form_spec.dart';
 import '../state/screenshot_watch.dart';
 import 'dart:async';
 
@@ -1096,6 +1100,10 @@ class _ChatScreenState extends State<ChatScreen> {
             m.isContact && !_selectionMode ? () => _openSharedContact(m) : null,
         onPollVote:
             m.isPoll && !_selectionMode ? (i) => _handleVotePoll(m, i) : null,
+        // The sender reads what came back; everybody else fills it in.
+        onOpenForm: m.isForm && !_selectionMode
+            ? () => m.isMe ? _openFormResponses(m) : _handleFillForm(m)
+            : null,
         // A call record is the natural place to return the call from.
         onCallBack: m.isCallEvent &&
                 !_selectionMode &&
@@ -2015,6 +2023,64 @@ class _ChatScreenState extends State<ChatScreen> {
     ));
   }
 
+  /// Builds a form and sends it as a message.
+  Future<void> _handleCreateForm() async {
+    final result =
+        await Navigator.of(context).push<(String, List<FormFieldSpec>)>(
+      MaterialPageRoute(builder: (_) => const FormBuilderScreen()),
+    );
+    if (result == null || !mounted) return;
+    final now = DateTime.now();
+    _deliver(Message(
+      id: 'form_${now.microsecondsSinceEpoch}',
+      text: '',
+      time: now,
+      isMe: true,
+      status: MessageStatus.sent,
+      isForm: true,
+      formTitle: result.$1,
+      formFields: result.$2,
+    ));
+  }
+
+  /// Fills in somebody's form and sends the answers back.
+  Future<void> _handleFillForm(Message message) async {
+    final mine = Session.instance.user.value?.name ?? '';
+    final previous = message.formResponses
+        .where((r) => r.from == mine)
+        .map((r) => r.answers)
+        .toList();
+    final answers = await Navigator.of(context).push<List<String>>(
+      MaterialPageRoute(
+        builder: (_) => FormFillScreen(
+          title: message.formTitle,
+          fields: message.formFields,
+          initial: previous.isEmpty ? const [] : previous.first,
+        ),
+      ),
+    );
+    if (answers == null || !mounted) return;
+    // Recorded here too, so the sender sees their own answers in the same
+    // list as everybody's rather than only the people who replied to them.
+    _store.applyFormResponse(_chatId, message.id,
+        FormResponse(from: mine, answers: answers, at: DateTime.now()));
+    if (RelayConfig.isEnabled && _isRealPeer(widget.chat.contact)) {
+      RelayService.instance
+          .sendFormResponse(widget.chat.contact.phone, message.id, answers);
+    }
+  }
+
+  /// Shows what came back.
+  void _openFormResponses(Message message) {
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => FormResponsesScreen(
+        title: message.formTitle,
+        fields: message.formFields,
+        responses: message.formResponses,
+      ),
+    ));
+  }
+
   /// Records the local vote and syncs it to everyone the chat reaches.
   void _handleVotePoll(Message message, int option) {
     final previous = _store.votePoll(_chatId, message.id, option);
@@ -2079,6 +2145,11 @@ class _ChatScreenState extends State<ChatScreen> {
             label: 'Poll',
             color: const Color(0xFF7F66FF),
             onTap: _handleCreatePoll),
+        AttachmentOption(
+            icon: Icons.assignment_outlined,
+            label: 'Form',
+            color: const Color(0xFF2E90FA),
+            onTap: _handleCreateForm),
       ];
 
   @override

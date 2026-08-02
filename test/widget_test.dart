@@ -134,6 +134,7 @@ import 'package:okay_messaging/screens/status_screen.dart';
 import 'package:okay_messaging/state/status_store.dart';
 import 'package:okay_messaging/state/chat_lock.dart';
 import 'package:okay_messaging/widgets/chat_list_tile.dart';
+import 'package:okay_messaging/models/form_spec.dart';
 import 'package:okay_messaging/state/chat_store.dart';
 import 'package:okay_messaging/state/gif_service.dart';
 import 'package:okay_messaging/mesh/mesh_chunks.dart';
@@ -24851,6 +24852,185 @@ void main() {
       final srv = File('lib/screens/feed_screen.dart').readAsStringSync();
       expect(srv.contains('onOpenSelfThread != null &&'), isTrue,
           reason: 'the server card must be able to withhold the line');
+    });
+  });
+  group('custom forms', () {
+    setUp(ChatStore.instance.reset);
+
+    const fields = [
+      FormFieldSpec(label: 'Your name', required: true),
+      FormFieldSpec(
+          label: 'Size', kind: FormFieldKind.choice, options: ['S', 'M']),
+      FormFieldSpec(label: 'Notes', kind: FormFieldKind.paragraph),
+    ];
+
+    Message form(String id) => Message(
+          id: id,
+          text: '',
+          isMe: true,
+          time: DateTime(2026, 1, 1),
+          isForm: true,
+          formTitle: 'Order',
+          formFields: fields,
+        );
+
+    test('a form that cannot be answered is not sendable', () {
+      // An unlabelled question or a choice with nothing to choose from is a
+      // dead end at the other end, and finding out there is too late.
+      expect(const FormFieldSpec(label: 'Name').isUsable, isTrue);
+      expect(const FormFieldSpec(label: '  ').isUsable, isFalse);
+      expect(
+          const FormFieldSpec(
+                  label: 'Size', kind: FormFieldKind.choice, options: ['S'])
+              .isUsable,
+          isFalse,
+          reason: 'one choice is not a choice');
+      expect(
+          const FormFieldSpec(
+                  label: 'Size',
+                  kind: FormFieldKind.choice,
+                  options: ['S', 'M'])
+              .isUsable,
+          isTrue);
+    });
+
+    test('only the required questions hold up a send', () {
+      expect(FormResponse.isComplete(fields, ['Ada', '', '']), isTrue);
+      expect(FormResponse.isComplete(fields, ['', 'S', 'x']), isFalse);
+      expect(FormResponse.isComplete(fields, ['   ', 'S', 'x']), isFalse,
+          reason: 'whitespace is not an answer');
+      // Short lists must not read as answered — a missing entry is missing.
+      expect(FormResponse.isComplete(fields, const []), isFalse);
+    });
+
+    test('the form travels but the answers do not travel back twice', () {
+      final src = File('lib/relay/relay_service.dart').readAsStringSync();
+      // Questions go out with the message...
+      expect(src.contains("'formFields': [for (final f in message.formFields)"),
+          isTrue);
+      // ...and the response carries answers only, because the form is
+      // already on the far device.
+      final send = src.substring(src.indexOf('Future<void> sendFormResponse'),
+          src.indexOf('Future<void> sendPollVote'));
+      expect(send.contains("'answers': answers"), isTrue);
+      expect(send.contains('formFields'), isFalse,
+          reason: 'echoing the questions back sends the same content twice');
+    });
+
+    test('a form survives the envelope, and an old build sees no form', () {
+      final m = form('f1');
+      final round = Message.fromJson(m.toJson());
+      expect(round.isForm, isTrue);
+      expect(round.formTitle, 'Order');
+      expect(round.formFields.length, 3);
+      expect(round.formFields[1].options, ['S', 'M']);
+      expect(round.formFields[0].required, isTrue);
+
+      final old = Map<String, dynamic>.from(m.toJson())..remove('isForm');
+      expect(Message.fromJson(old).isForm, isFalse);
+    });
+
+    test('answering twice corrects rather than duplicates', () {
+      // Somebody filling a form again meant to fix it, and two rows under one
+      // name is a worse answer than one.
+      ChatStore.instance.setChats([
+        Chat(
+            id: 'c',
+            contact: const AppUser(
+                id: 'p', name: 'Bo', avatarColor: '#2E7D32', phone: 'p'),
+            messages: [form('f1')])
+      ]);
+      void answer(String who, List<String> a) =>
+          ChatStore.instance.applyFormResponse(
+              'c',
+              'f1',
+              FormResponse(from: who, answers: a, at: DateTime(2026, 1, 2)));
+
+      answer('Ada', ['Ada', 'S', '']);
+      answer('Bo', ['Bo', 'M', '']);
+      answer('Ada', ['Ada Lovelace', 'M', 'changed my mind']);
+
+      final responses =
+          ChatStore.instance.chatById('c')!.messages.first.formResponses;
+      expect(responses.length, 2);
+      final ada = responses.firstWhere((r) => r.from == 'Ada');
+      expect(ada.answers.first, 'Ada Lovelace');
+      expect(ada.answers.last, 'changed my mind');
+      // And the correction goes last, so the list reads newest-answered.
+      expect(responses.last.from, 'Ada');
+    });
+
+    test('a response never lands on the wrong message', () {
+      ChatStore.instance.setChats([
+        Chat(
+            id: 'c',
+            contact: const AppUser(
+                id: 'p', name: 'Bo', avatarColor: '#2E7D32', phone: 'p'),
+            messages: [form('f1'), form('f2')])
+      ]);
+      ChatStore.instance.applyFormResponse('c', 'f2',
+          FormResponse(from: 'Ada', answers: const ['x'], at: DateTime(2026)));
+      final messages = ChatStore.instance.chatById('c')!.messages;
+      expect(messages[0].formResponses, isEmpty);
+      expect(messages[1].formResponses.length, 1);
+    });
+
+    testWidgets('the sender sees responses, everyone else sees the form',
+        (t) async {
+      // The one thing each side is waiting for, and they are not the same
+      // thing: the sender wants to know who answered, the recipient wants to
+      // answer.
+      final answered = [
+        FormResponse(from: 'Ada', answers: const ['Ada'], at: DateTime(2026))
+      ];
+
+      Future<void> show({required bool mine}) async {
+        await t.pumpWidget(MaterialApp(
+          home: Scaffold(
+            body: MessageBubble(
+              message: Message(
+                id: 'f1',
+                text: '',
+                isMe: mine,
+                time: DateTime(2026, 1, 1),
+                isForm: true,
+                formTitle: 'Order',
+                formFields: fields,
+                formResponses: answered,
+              ),
+            ),
+          ),
+        ));
+        await t.pumpAndSettle();
+      }
+
+      await show(mine: true);
+      expect(find.text('Order'), findsOneWidget);
+      expect(find.text('3 questions'), findsOneWidget);
+      expect(find.text('View 1 response'), findsOneWidget);
+      expect(find.text('Fill in this form'), findsNothing);
+
+      await show(mine: false);
+      expect(find.text('Fill in this form'), findsOneWidget);
+      expect(find.textContaining('response'), findsNothing,
+          reason: 'a recipient must not be shown who else answered');
+    });
+
+    test('nothing about a form reaches a server in the clear', () {
+      // The rule this feature is most able to break: forms collect exactly
+      // the kind of answer worth protecting, so they ride the encrypted
+      // message path and never a table.
+      final src = File('lib/state/chat_store.dart').readAsStringSync();
+      expect(src.contains('applyFormResponse'), isTrue);
+      for (final path in [
+        'lib/models/form_spec.dart',
+        'lib/screens/form_builder_screen.dart',
+        'lib/screens/form_fill_screen.dart',
+      ]) {
+        final text = File(path).readAsStringSync();
+        expect(text.contains('supabase'), isFalse, reason: path);
+        expect(text.contains('http'), isFalse, reason: path);
+      }
     });
   });
 }

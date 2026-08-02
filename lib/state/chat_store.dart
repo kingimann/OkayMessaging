@@ -1,4 +1,5 @@
 import 'dart:async';
+import '../models/form_spec.dart';
 import 'chat_lock.dart';
 import 'dart:ui' show Color;
 
@@ -523,6 +524,29 @@ class ChatStore extends ChangeNotifier {
   /// How many replies [rootId] has, for the line under it in the transcript.
   int threadReplyCount(String chatId, String rootId) =>
       threadReplies(chatId, rootId).length;
+
+  /// Records one person's answers on the form message [messageId].
+  ///
+  /// Last answer wins per person: somebody who fills a form twice meant to
+  /// correct it, and two rows under one name is a worse answer than one.
+  void applyFormResponse(
+      String chatId, String messageId, FormResponse response) {
+    final i = _indexOf(chatId);
+    if (i == -1) return;
+    final chat = _chats[i];
+    final messages = [
+      for (final m in chat.messages)
+        if (m.id != messageId || !m.isForm)
+          m
+        else
+          m.copyWith(formResponses: [
+            for (final r in m.formResponses)
+              if (r.from != response.from) r,
+            response,
+          ])
+    ];
+    _replace(i, chat.copyWith(messages: messages));
+  }
 
   void addMessage(String chatId, Message message) {
     final i = _indexOf(chatId);

@@ -654,7 +654,10 @@ class _AttachmentPanel extends StatelessWidget {
       color: isDark ? AppColors.chatBgDark : const Color(0xFFF0F0F0),
       padding: const EdgeInsets.fromLTRB(12, 14, 12, 14),
       child: GridView.count(
-        crossAxisCount: 4,
+        // Five across, not four: Form made nine options, and at four they
+        // wrapped to a third row that fell off a short screen. Five keeps
+        // every option one tap away, which is the whole point of the panel.
+        crossAxisCount: 5,
         shrinkWrap: true,
         physics: const NeverScrollableScrollPhysics(),
         mainAxisSpacing: 12,

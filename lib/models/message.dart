@@ -1,3 +1,4 @@
+import 'form_spec.dart';
 /// Delivery state of an outgoing message, mirroring WhatsApp's tick system.
 enum MessageStatus { sending, sent, delivered, read }
 
@@ -159,6 +160,17 @@ class Message {
   /// holds the tally per option, and [pollMyVote] is this device's choice
   /// (-1 = not voted yet).
   final bool isPoll;
+
+  /// A custom form: [formTitle] names it, [formFields] are the questions, and
+  /// [formResponses] are the answers as they come back.
+  ///
+  /// The responses live on the message the same way poll votes do — the chat
+  /// IS the store, so a form's answers are E2E encrypted, on the two devices
+  /// that took part, and nowhere else.
+  final bool isForm;
+  final String formTitle;
+  final List<FormFieldSpec> formFields;
+  final List<FormResponse> formResponses;
   final String pollQuestion;
   final List<String> pollOptions;
   final List<int> pollVotes;
@@ -201,6 +213,10 @@ class Message {
     this.paymentStatus = '',
     this.serverInvite = '',
     this.isPoll = false,
+    this.isForm = false,
+    this.formTitle = '',
+    this.formFields = const [],
+    this.formResponses = const [],
     this.pollQuestion = '',
     this.pollOptions = const [],
     this.pollVotes = const [],
@@ -256,6 +272,10 @@ class Message {
         'paymentStatus': paymentStatus,
         'serverInvite': serverInvite,
         'isPoll': isPoll,
+        'isForm': isForm,
+        'formTitle': formTitle,
+        'formFields': [for (final f in formFields) f.toJson()],
+        'formResponses': [for (final r in formResponses) r.toJson()],
         'pollQuestion': pollQuestion,
         'pollOptions': pollOptions,
         'pollVotes': pollVotes,
@@ -307,6 +327,16 @@ class Message {
         paymentStatus: json['paymentStatus'] as String? ?? '',
         serverInvite: json['serverInvite'] as String? ?? '',
         isPoll: json['isPoll'] as bool? ?? false,
+        isForm: json['isForm'] as bool? ?? false,
+        formTitle: json['formTitle'] as String? ?? '',
+        formFields: [
+          for (final f in (json['formFields'] as List?) ?? const [])
+            FormFieldSpec.fromJson(Map<String, dynamic>.from(f as Map))
+        ],
+        formResponses: [
+          for (final r in (json['formResponses'] as List?) ?? const [])
+            FormResponse.fromJson(Map<String, dynamic>.from(r as Map))
+        ],
         pollQuestion: json['pollQuestion'] as String? ?? '',
         pollOptions:
             (json['pollOptions'] as List?)?.cast<String>() ?? const [],
@@ -321,6 +351,7 @@ class Message {
       );
 
   Message copyWith({
+    List<FormResponse>? formResponses,
     bool? protected,
     String? threadRootId,
     String? text,
@@ -346,6 +377,7 @@ class Message {
       replyTo: replyTo,
       forwarded: forwarded,
       protected: protected ?? this.protected,
+      formResponses: formResponses ?? this.formResponses,
       threadRootId: threadRootId ?? this.threadRootId,
       isVoice: isVoice,
       voiceSeconds: voiceSeconds,
@@ -372,6 +404,9 @@ class Message {
       paymentStatus: paymentStatus ?? this.paymentStatus,
       serverInvite: serverInvite,
       isPoll: isPoll,
+      isForm: isForm,
+      formTitle: formTitle,
+      formFields: formFields,
       pollQuestion: pollQuestion,
       pollOptions: pollOptions,
       pollVotes: pollVotes ?? this.pollVotes,

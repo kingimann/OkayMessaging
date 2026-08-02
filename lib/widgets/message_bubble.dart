@@ -45,6 +45,11 @@ class MessageBubble extends StatelessWidget {
   /// Called with the chosen option index when the user votes on a poll.
   final ValueChanged<int>? onPollVote;
 
+  /// Opens a form — to fill in, or to read what came back. Which of those it
+  /// is belongs to the chat screen, not here: the bubble only knows there is
+  /// a form and who sent it.
+  final VoidCallback? onOpenForm;
+
   /// Tapping a call-record chip calls that person back.
   final VoidCallback? onCallBack;
 
@@ -60,6 +65,7 @@ class MessageBubble extends StatelessWidget {
     this.onOpenLocation,
     this.onOpenContact,
     this.onPollVote,
+    this.onOpenForm,
     this.onCallBack,
   });
 
@@ -260,7 +266,14 @@ class MessageBubble extends StatelessWidget {
                           ],
                         ),
                       ),
-                    if (message.isPoll)
+                    if (message.isForm)
+                      _FormContent(
+                        message: message,
+                        textColor: textColor,
+                        metaColor: metaColor,
+                        onOpen: onOpenForm,
+                      )
+                    else if (message.isPoll)
                       PollBubble(
                         message: message,
                         textColor: textColor,
@@ -1171,6 +1184,73 @@ class _ReactionPill extends StatelessWidget {
         reactions.join(' '),
         style: const TextStyle(fontSize: 12.5),
       ),
+    );
+  }
+}
+
+/// A form inside a bubble: what it is called, how many questions, and the one
+/// button that matters — which differs by who is looking.
+///
+/// The sender sees how many people answered, because that is the thing they
+/// are waiting for. Everybody else sees an invitation to answer, or that they
+/// already did.
+class _FormContent extends StatelessWidget {
+  const _FormContent({
+    required this.message,
+    required this.textColor,
+    required this.metaColor,
+    required this.onOpen,
+  });
+
+  final Message message;
+  final Color textColor;
+  final Color metaColor;
+  final VoidCallback? onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final count = message.formResponses.length;
+    final questions = message.formFields.length;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.assignment_outlined, size: 17, color: textColor),
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text(
+                message.formTitle.isEmpty ? 'Form' : message.formTitle,
+                style: TextStyle(
+                    fontSize: 15.5,
+                    fontWeight: FontWeight.w700,
+                    color: textColor),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 2),
+        Text(
+          questions == 1 ? '1 question' : '$questions questions',
+          style: TextStyle(fontSize: 12.5, color: metaColor),
+        ),
+        const SizedBox(height: 8),
+        SizedBox(
+          width: double.infinity,
+          child: FilledButton.tonal(
+            onPressed: onOpen,
+            child: Text(message.isMe
+                ? (count == 0
+                    ? 'No responses yet'
+                    : count == 1
+                        ? 'View 1 response'
+                        : 'View $count responses')
+                : 'Fill in this form'),
+          ),
+        ),
+      ],
     );
   }
 }
