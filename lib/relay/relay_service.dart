@@ -104,8 +104,6 @@ class RelayService {
     String groupId = '',
     String groupName = '',
     List<AppUser> groupMembers = const [],
-    List<int>? ecdhSecret,
-    String? senderPublicKey,
     DoubleRatchet? ratchet,
   }) {
     // Everything sensitive goes inside this blob — nothing but routing leaks.
@@ -168,37 +166,103 @@ class RelayService {
       'expiresAt': message.expiresAt?.toIso8601String(),
     });
 
-    var c = content;
-    var enc = 0;
-    String? spk;
-    Map<String, dynamic>? rh;
-    // Best first: the ratchet declines (returns null) when it may not start
-    // a session from this side, and the static paths below stay the floor.
-    final sealed = ratchet?.encrypt(fromPhone, toPhone, content);
-    if (sealed != null) {
-      c = sealed.blob;
-      enc = 3;
-      rh = sealed.header;
-      // The identity key still rides along: it is what lets the responder
-      // bootstrap their half, and what keeps rememberPeer current.
-      spk = senderPublicKey;
-    } else if (ecdhSecret != null && senderPublicKey != null) {
-      c = E2eCrypto.encrypt(ecdhSecret, content);
-      enc = 2;
-      spk = senderPublicKey;
-    } else if (toPhone.isNotEmpty) {
-      c = E2eCrypto.encrypt(E2eCrypto.keyFor(fromPhone, toPhone), content);
-      enc = 1;
-    }
+    final sealed =
+        sealContent(fromPhone, toPhone, content, ratchet: ratchet);
     return {
       'id': message.id,
       'from': fromPhone,
-      'c': c,
-      'enc': enc,
-      if (spk != null) 'spk': spk,
-      if (rh != null) 'rh': rh,
+      ...sealed,
       'ts': message.time.toIso8601String(),
     };
+  }
+
+  /// Seals [plaintext] for [toPhone] into the `{c, enc, spk?, rh?}` fragment
+  /// every pairwise payload carries — message content, group updates and call
+  /// signaling all go through this one ladder, so the encryption a surface
+  /// gets is never an accident of which method built its payload.
+  ///
+  /// The ladder, strongest first: the Double Ratchet (enc 3) whenever the
+  /// peer's identity key is in hand and this side may drive a session, then
+  /// static ECDH (enc 2), then the phone-derived key (enc 1), then plaintext
+  /// (enc 0) only when there is no recipient to key to at all.
+  static Map<String, dynamic> sealContent(
+      String fromPhone, String toPhone, String plaintext,
+      {DoubleRatchet? ratchet}) {
+    final kx = SecureKeyExchange.instance;
+    final peerPub = kx.peerKey(toPhone);
+    final haveKey = kx.isReady && peerPub != null;
+    // The ratchet declines internally (null) when this side may not start a
+    // session; the static rungs below are the floor it never drops beneath.
+    final r = haveKey ? (ratchet ?? DoubleRatchet.instance) : null;
+    final sealed = r?.encrypt(fromPhone, toPhone, plaintext);
+    if (sealed != null) {
+      return {
+        'c': sealed.blob,
+        'enc': 3,
+        // The identity key still rides along: it bootstraps the responder's
+        // half and keeps rememberPeer current.
+        if (kx.myPublicKey != null) 'spk': kx.myPublicKey,
+        'rh': sealed.header,
+      };
+    }
+    if (haveKey) {
+      final secret = kx.sharedSecretWith(peerPub);
+      if (secret != null) {
+        return {
+          'c': E2eCrypto.encrypt(secret, plaintext),
+          'enc': 2,
+          if (kx.myPublicKey != null) 'spk': kx.myPublicKey,
+        };
+      }
+    }
+    if (toPhone.isNotEmpty) {
+      return {
+        'c': E2eCrypto.encrypt(E2eCrypto.keyFor(fromPhone, toPhone), plaintext),
+        'enc': 1,
+      };
+    }
+    return {'c': plaintext, 'enc': 0};
+  }
+
+  /// Reverses [sealContent]: recovers the plaintext from a `{c, enc, spk?,
+  /// rh?}` fragment sent by [from], or null when the key is missing (wrong
+  /// session, replay, or a header wound past the skip bound). Every pairwise
+  /// decode — message, group update, call signal — funnels through here.
+  static String? openContent(
+      String from, String myPhone, Map<String, dynamic> f,
+      {DoubleRatchet? ratchet}) {
+    final blob = f['c'] as String?;
+    if (blob == null) return null;
+    final encRaw = f['enc'];
+    if (encRaw == 3 || encRaw == '3') {
+      // Remember the identity key FIRST: a changed key means the old session
+      // is a session with the wrong person, and the responder bootstrap
+      // needs the current key in place.
+      final r = ratchet ?? DoubleRatchet.instance;
+      final spk = f['spk'] as String?;
+      if (spk != null && SecureKeyExchange.instance.rememberPeer(from, spk)) {
+        r.resetPeer(from);
+      }
+      final rh = f['rh'];
+      if (rh is Map) {
+        return r.decrypt(myPhone, from, Map<String, dynamic>.from(rh), blob);
+      }
+      return null;
+    }
+    if (encRaw == 2 || encRaw == '2') {
+      final spk = f['spk'] as String?;
+      final secret =
+          spk == null ? null : SecureKeyExchange.instance.sharedSecretWith(spk);
+      if (secret == null) return null;
+      if (SecureKeyExchange.instance.rememberPeer(from, spk!)) {
+        (ratchet ?? DoubleRatchet.instance).resetPeer(from);
+      }
+      return E2eCrypto.decrypt(secret, blob);
+    }
+    if (encRaw == 1 || encRaw == true) {
+      return E2eCrypto.decrypt(E2eCrypto.keyFor(from, myPhone), blob);
+    }
+    return blob; // enc 0: never sealed.
   }
 
   /// The minimum a member needs to be shown and reachable in someone else's
@@ -557,41 +621,11 @@ class RelayService {
       };
     }
 
-    var json = blob;
-    // enc may arrive as int or bool depending on JSON transport.
-    final encRaw = payload['enc'];
-    if (encRaw == 3 || encRaw == '3') {
-      // Double Ratchet. Remember the identity key FIRST: a changed key means
-      // every session under the old one is a session with the wrong person,
-      // and the responder's bootstrap below needs the current key in place.
-      final r = ratchet ?? DoubleRatchet.instance;
-      final spk = payload['spk'] as String?;
-      if (spk != null &&
-          SecureKeyExchange.instance.rememberPeer(from, spk)) {
-        r.resetPeer(from);
-      }
-      final rh = payload['rh'];
-      if (rh is Map) {
-        json = r.decrypt(
-                myPhone, from, Map<String, dynamic>.from(rh), blob) ??
-            blob;
-      }
-    } else if (encRaw == 2 || encRaw == '2') {
-      // ECDH path: derive the shared secret from the sender's public key.
-      final spk = payload['spk'] as String?;
-      final secret =
-          spk == null ? null : SecureKeyExchange.instance.sharedSecretWith(spk);
-      if (secret != null) {
-        json = E2eCrypto.decrypt(secret, blob) ?? blob;
-        if (SecureKeyExchange.instance.rememberPeer(from, spk!)) {
-          // The old identity's ratchet session dies with the old identity,
-          // whichever path this particular message rode.
-          (ratchet ?? DoubleRatchet.instance).resetPeer(from);
-        }
-      }
-    } else if (encRaw == 1 || encRaw == true) {
-      json = E2eCrypto.decrypt(E2eCrypto.keyFor(from, myPhone), blob) ?? blob;
-    }
+    // The one pairwise un-ladder, shared with group updates and signaling.
+    // A failed decrypt (missing key, replay) leaves the raw blob, which the
+    // JSON parse below turns into the undecryptable placeholder.
+    final json =
+        openContent(from, myPhone, payload, ratchet: ratchet) ?? blob;
 
     try {
       final decoded = jsonDecode(json);
@@ -1482,52 +1516,49 @@ class RelayService {
   /// handshake (which carries DTLS fingerprints and network candidates). Uses
   /// the ECDH shared secret when known, else the phone-derived key. Returns the
   /// ciphertext, the enc mode, and (for ECDH) our public key.
-  ({String data, int enc, String? spk}) _sealSignal(
-      String contactPhone, String plaintext) {
-    final kx = SecureKeyExchange.instance;
-    final peerPub = kx.peerKey(contactPhone);
-    if (kx.isReady && peerPub != null) {
-      final secret = kx.sharedSecretWith(peerPub);
-      if (secret != null) {
-        return (
-          data: E2eCrypto.encrypt(secret, plaintext),
-          enc: 2,
-          spk: kx.myPublicKey
-        );
-      }
-    }
+  /// Seals a signaling string ([plaintext] — an SDP, ICE candidate, or group
+  /// blob) into a `{c, enc, spk?, rh?}` fragment, on the SAME per-peer
+  /// ratchet session chat uses: the call handshake (DTLS fingerprints, the
+  /// candidate IPs) gets the same forward secrecy the messages do. (The call
+  /// MEDIA is separately DTLS-SRTP encrypted by WebRTC — a layer below this.)
+  Map<String, dynamic> _sealSignal(String contactPhone, String plaintext) {
     final me = Session.instance.user.value;
-    if (me != null) {
-      return (
-        data: E2eCrypto.encrypt(E2eCrypto.keyFor(me.phone, contactPhone),
-            plaintext),
-        enc: 1,
-        spk: null,
-      );
-    }
-    return (data: plaintext, enc: 0, spk: null);
+    return sealContent(me?.phone ?? '', contactPhone, plaintext);
   }
 
-  /// Reverses [_sealSignal] for a signal received from [from]. Returns the
-  /// plaintext, or the input unchanged when it wasn't (or couldn't be) sealed.
-  String? _openSignal(String from, String? data, Object? encRaw, String? spk) {
-    if (data == null) return null;
-    if (encRaw == 2 || encRaw == '2') {
-      final secret =
-          spk == null ? null : SecureKeyExchange.instance.sharedSecretWith(spk);
-      if (secret != null) {
-        if (spk != null) SecureKeyExchange.instance.rememberPeer(from, spk);
-        return E2eCrypto.decrypt(secret, data) ?? data;
-      }
-      return data;
-    }
-    if (encRaw == 1 || encRaw == true) {
-      final me = Session.instance.user.value;
-      if (me != null) {
-        return E2eCrypto.decrypt(E2eCrypto.keyFor(from, me.phone), data) ?? data;
-      }
-    }
-    return data;
+  /// Reverses a signaling seal for a signal received from [from]. Returns the
+  /// plaintext, or null when it cannot be opened (missing key, replay).
+  String? _openSignal(String from, Map<String, dynamic> fragment) {
+    final me = Session.instance.user.value;
+    if (fragment['c'] == null || me == null) return null;
+    return openContent(from, me.phone, fragment);
+  }
+
+  /// Packs a signaling seal under a payload's per-slot keys — `sdp/senc/sspk/
+  /// srh`, `ice/i…`, `grp/g…` — so one payload can carry more than one sealed
+  /// blob without their fields colliding.
+  Map<String, dynamic> _packSignal(
+      String contactPhone, String dataKey, String letter, String plaintext) {
+    final f = _sealSignal(contactPhone, plaintext);
+    return {
+      dataKey: f['c'],
+      '${letter}enc': f['enc'],
+      if (f['spk'] != null) '${letter}spk': f['spk'],
+      if (f['rh'] != null) '${letter}rh': f['rh'],
+    };
+  }
+
+  /// Reverses [_packSignal] for one slot.
+  String? _unpackSignal(String from, Map<String, dynamic> payload,
+      String dataKey, String letter) {
+    final data = payload[dataKey];
+    if (data is! String) return null;
+    return _openSignal(from, {
+      'c': data,
+      'enc': payload['${letter}enc'],
+      if (payload['${letter}spk'] != null) 'spk': payload['${letter}spk'],
+      if (payload['${letter}rh'] != null) 'rh': payload['${letter}rh'],
+    });
   }
 
   /// The active file-transfer id, so ICE candidates can be tagged with it.
@@ -1577,24 +1608,17 @@ class RelayService {
   }) {
     final out = <String, dynamic>{};
     if (sdp != null) {
-      final s = _sealSignal(contactPhone, sdp);
-      out['sdp'] = s.data;
-      out['senc'] = s.enc;
-      if (s.spk != null) out['sspk'] = s.spk;
+      out.addAll(_packSignal(contactPhone, 'sdp', 's', sdp));
     }
     if (ice != null) {
-      final s = _sealSignal(contactPhone, jsonEncode(ice));
-      out['ice'] = s.data;
-      out['ienc'] = s.enc;
-      if (s.spk != null) out['ispk'] = s.spk;
+      out.addAll(_packSignal(contactPhone, 'ice', 'i', jsonEncode(ice)));
     }
     return out;
   }
 
   /// Recovers an SDP string from a sealed signaling [payload].
   String? _openSdp(String from, Map<String, dynamic> payload) =>
-      _openSignal(from, payload['sdp'] as String?, payload['senc'],
-          payload['sspk'] as String?);
+      _unpackSignal(from, payload, 'sdp', 's');
 
   /// Recovers an ICE-candidate map from a sealed signaling [payload].
   Map<String, dynamic>? _openIce(String from, Map<String, dynamic> payload) {
@@ -1602,8 +1626,7 @@ class RelayService {
     if (raw == null) return null;
     // New sealed form: an encrypted JSON string. Legacy form: a raw Map.
     if (raw is Map) return Map<String, dynamic>.from(raw);
-    final json = _openSignal(from, raw as String?, payload['ienc'],
-        payload['ispk'] as String?);
+    final json = _unpackSignal(from, payload, 'ice', 'i');
     if (json == null) return null;
     try {
       final decoded = jsonDecode(json);
@@ -1633,10 +1656,6 @@ class RelayService {
         _sendChannels.putIfAbsent(name, () => _client.channel(name));
     // Group-call metadata (which group, who's in it) is sealed like an SDP,
     // so the relay can't tell a group call from a one-to-one one.
-    ({String data, int enc, String? spk})? sealedGroup;
-    if (group != null) {
-      sealedGroup = _sealSignal(contactPhone, jsonEncode(group));
-    }
     await channel.sendBroadcastMessage(
       event: 'call',
       payload: {
@@ -1648,9 +1667,8 @@ class RelayService {
         'video': video,
         if (emoji != null) 'emoji': emoji,
         if (media != null) 'media': media,
-        if (sealedGroup != null) 'grp': sealedGroup.data,
-        if (sealedGroup != null) 'genc': sealedGroup.enc,
-        if (sealedGroup?.spk != null) 'gspk': sealedGroup!.spk,
+        if (group != null)
+          ..._packSignal(contactPhone, 'grp', 'g', jsonEncode(group)),
         ..._sealSignalPair(contactPhone, sdp: sdp),
       },
     );
@@ -1668,8 +1686,7 @@ class RelayService {
   /// Opens the sealed group blob of a call payload, or null for 1:1 calls.
   Map<String, dynamic>? _openGroupInfo(
       String from, Map<String, dynamic> payload) {
-    final raw = _openSignal(
-        from, payload['grp'] as String?, payload['genc'], payload['gspk'] as String?);
+    final raw = _unpackSignal(from, payload, 'grp', 'g');
     if (raw == null) return null;
     try {
       final decoded = jsonDecode(raw);
@@ -1914,12 +1931,7 @@ class RelayService {
 
     final kx = SecureKeyExchange.instance;
     final peerPub = kx.peerKey(contactPhone);
-    List<int>? ecdhSecret;
-    String? senderPublicKey;
-    if (kx.isReady && peerPub != null) {
-      ecdhSecret = kx.sharedSecretWith(peerPub);
-      senderPublicKey = kx.myPublicKey;
-    } else {
+    if (peerPub == null || !kx.isReady) {
       await _ensureKeyShared(contactPhone); // bootstrap for future messages
     }
 
@@ -1957,12 +1969,9 @@ class RelayService {
       groupId: group?.id ?? '',
       groupName: group?.contact.name ?? '',
       groupMembers: group?.members ?? const [],
-      ecdhSecret: ecdhSecret,
-      senderPublicKey: senderPublicKey,
-      // The ratchet runs only where the static ECDH path could: with the
-      // peer's identity key in hand. It declines internally when this side
-      // may not initiate, and the static paths stay the floor.
-      ratchet: (kx.isReady && peerPub != null) ? DoubleRatchet.instance : null,
+      // sealContent inside encode picks the ratchet / ECDH / static ladder
+      // off the key exchange itself; the default DoubleRatchet.instance is
+      // what it reaches for.
     );
     await channel.sendBroadcastMessage(event: 'msg', payload: payload);
     // Also queue the sealed envelope so an offline recipient still gets it
@@ -2019,35 +2028,19 @@ class RelayService {
       ...groupRecipients(group),
       ...?extraRecipients,
     }..removeWhere((p) => digits(p).isEmpty || digits(p) == digits(me.phone));
+    final blob = jsonEncode({
+      'groupId': group.id,
+      'groupName': group.contact.name,
+      'groupAbout': group.contact.about,
+      'groupMembers': group.members.map(_memberSummary).toList(),
+    });
     for (final phone in recipients) {
-      final kx = SecureKeyExchange.instance;
-      final peerPub = kx.peerKey(phone);
-      final blob = jsonEncode({
-        'groupId': group.id,
-        'groupName': group.contact.name,
-        'groupAbout': group.contact.about,
-        'groupMembers': group.members.map(_memberSummary).toList(),
-      });
-      var c = blob;
-      var enc = 0;
-      String? spk;
-      if (kx.isReady && peerPub != null) {
-        final secret = kx.sharedSecretWith(peerPub);
-        if (secret != null) {
-          c = E2eCrypto.encrypt(secret, blob);
-          enc = 2;
-          spk = kx.myPublicKey;
-        }
-      }
-      if (enc == 0) {
-        c = E2eCrypto.encrypt(E2eCrypto.keyFor(me.phone, phone), blob);
-        enc = 1;
-      }
+      // The same pairwise ladder messages ride — ratchet first, sealed once
+      // per recipient. applyGroupUpdate decodes it through _decodeContent,
+      // which already understands every rung.
       await _sendInboxEvent(phone, 'gupd', {
         'from': me.phone,
-        'c': c,
-        'enc': enc,
-        if (spk != null) 'spk': spk,
+        ...sealContent(me.phone, phone, blob),
       });
     }
   }

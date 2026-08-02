@@ -3361,15 +3361,19 @@ void main() {
       );
     });
 
-    test('ECDH (enc-2) message round-trips: encode with a shared secret, '
-        'decode with the sender public key', () {
+    test('ECDH (enc-2) message round-trips when the ratchet stands aside', () {
+      // The seal ladder now lives in sealContent, keyed off the exchange
+      // itself. This direction (sender 0199 > recipient 0100) makes 0199 the
+      // ratchet RESPONDER, which may not open a session — so encode drops to
+      // the ECDH rung, which is what this test still pins. A self-pair (one
+      // identity standing in for both ends) keeps it in-process.
       ChatStore.instance.reset();
       final kx = SecureKeyExchange.instance;
       kx.resetForTest();
-      kx.ensureKeys(); // acts as the recipient's identity for this test
+      kx.ensureKeys();
+      DoubleRatchet.instance.resetForTest();
       final myPub = kx.myPublicKey!;
-      // The "sender" derives the shared secret against our public key.
-      final secret = kx.sharedSecretWith(myPub)!; // self-pair for the test
+      kx.rememberPeer('+1 555 0100', myPub); // recipient's key is known
 
       final msg = Message(
         id: 'x2',
@@ -3381,8 +3385,7 @@ void main() {
         message: msg,
         fromPhone: '+1 555 0199',
         fromName: 'Grace',
-        ecdhSecret: secret,
-        senderPublicKey: myPub,
+        toPhone: '+1 555 0100',
       );
       expect(payload['enc'], 2);
       expect(payload['spk'], myPub);
@@ -3397,6 +3400,7 @@ void main() {
           ChatStore.instance.chatWithContact('+1 555 0199')!.messages.single;
       expect(got.text, 'sent under an ECDH key');
       kx.resetForTest();
+      DoubleRatchet.instance.resetForTest();
     });
 
     test('end-to-end encrypted text round-trips through encode/applyIncoming',
@@ -25052,18 +25056,39 @@ void main() {
 
     test('the relay actually uses it, on both sides', () {
       final src = File('lib/relay/relay_service.dart').readAsStringSync();
-      expect(src.contains('enc = 3'), isTrue);
-      expect(src.contains("'rh': rh"), isTrue,
+      // The one shared ladder every pairwise surface goes through.
+      expect(src.contains("'enc': 3"), isTrue);
+      expect(src.contains("'rh': sealed.header"), isTrue,
           reason: 'the ratchet header must ride the payload');
       expect(src.contains("encRaw == 3 || encRaw == '3'"), isTrue,
           reason: 'and be understood on arrival');
-      expect(src.contains('ratchet: (kx.isReady && peerPub != null)'), isTrue,
-          reason: 'send must offer the ratchet wherever ECDH was possible');
+      expect(src.contains('static Map<String, dynamic> sealContent'), isTrue,
+          reason: 'message content, group updates and signaling share it');
       expect(src.contains('r.resetPeer(from)'), isTrue,
           reason: 'a changed identity key must bury the old session');
       final main = File('lib/main.dart').readAsStringSync();
       expect(main.contains('DoubleRatchet.instance.load'), isTrue,
           reason: 'sessions must survive a restart');
+    });
+
+    test('call signaling and group updates ride the same ladder', () {
+      // The point of the refactor: no pairwise surface gets its encryption
+      // by accident of which method built its payload. Both route through
+      // sealContent, so both inherit the ratchet.
+      final src = File('lib/relay/relay_service.dart').readAsStringSync();
+      // Group updates:
+      expect(src.contains('...sealContent(me.phone, phone, blob)'), isTrue,
+          reason: 'sendGroupUpdate must seal through the shared ladder');
+      // Call / file signaling:
+      expect(src.contains('return sealContent(me?.phone ?? \'\', contactPhone'),
+          isTrue,
+          reason: '_sealSignal must seal through the shared ladder');
+      expect(src.contains('return openContent(from, me.phone, fragment)'),
+          isTrue,
+          reason: '_openSignal must open through the shared ladder');
+      // And the old bespoke ECDH-only ladders are gone from both.
+      expect(src.contains("out['sspk'] = s.spk"), isFalse,
+          reason: 'the hand-rolled signal seal should be retired');
     });
   });
   group('private notifications and forced-E2EE backups', () {
