@@ -226,16 +226,22 @@ publishes.
 Until that is changed, the app and `connect.html` will keep disappearing for
 minutes at a time after each push, with no error anywhere to explain it.
 
-**Still not changed, and it has now cost something.** Re-verified on the same
-push: `identity.html` answered 404 at 16:27 UTC and 200 at 16:28. In between,
-tapping *Get verified* showed GitHub's "File not found" page under the words
-"Verify your identity", with no way forward — the ID check simply could not be
-started. The app now works around that one case:
-`IdentityVerification.pageIsServed` asks whether our page is really being
-served and drops the client secret if it is not, which sends the check to
-Stripe's own hosted flow in the same WebView. That is a workaround for a
-single screen. The web app itself has no equivalent — a missing `main.dart.js`
-is a blank page — so the setting is still worth changing.
+**Still not changed, and it cost something.** Re-verified on the same push:
+`identity.html` answered 404 at 16:27 UTC and 200 at 16:28. In between, tapping
+*Get verified* showed GitHub's "File not found" page under the words "Verify
+your identity", with no way forward — the ID check simply could not be started.
+
+**The ID check no longer depends on this site.** `preferHostedIdentity` sends
+it to Stripe's own hosted flow, which runs in the same in-app WebView on the
+same screen; `identity.html` only ever added the app's colours around a modal
+Stripe opens itself, and that was not worth a second origin that can be
+missing. The embedded page is still there behind
+`--dart-define=PREFER_EMBEDDED_IDENTITY=true`, and that path checks whether it
+is really being served before using it.
+
+That closes the one iOS-facing case. It does not fix the site: a missing
+`main.dart.js` is a blank web app and nothing in the code can work around it,
+so the setting is still worth changing.
 
 ## 4. Not SQL or functions, but still pending
 

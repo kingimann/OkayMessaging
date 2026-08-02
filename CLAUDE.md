@@ -108,9 +108,10 @@ fires `deploy-web.yml` (Flutter, ~4 min) *and* GitHub's own
 between the live site is the README and `identity.html`, `connect.html` and
 `main.dart.js` are all 404. Re-verified: `identity.html` answered 404 at
 16:27 and 200 at 16:28 on the same push. One setting fixes it and it is the
-user's to change — see `docs/server_deploy_checklist.md` §3b. The ID check
-works around it (`IdentityVerification.pageIsServed` falls back to Stripe's
-hosted page); nothing works around a missing `main.dart.js`.
+user's to change — see `docs/server_deploy_checklist.md` §3b. **The ID check
+no longer touches the site at all** (`preferHostedIdentity` — Stripe hosts the
+same flow, in the same in-app WebView); nothing works around a missing
+`main.dart.js`.
 
 iOS builds run on **Codemagic** (`codemagic.yaml`, workflow
 *iOS release (TestFlight)*) — the user starts those manually.

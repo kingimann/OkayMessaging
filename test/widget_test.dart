@@ -23785,40 +23785,63 @@ void main() {
       expect(find.text('Check push setup'), findsOneWidget);
     });
   });
-  group('the ID check when our own site is mid-deploy', () {
-    // What this is about: the web build is published by a GitHub Actions run
-    // that takes minutes, and GitHub's own branch build republishes the
-    // repository's README over the top of it in seconds. Every push to main
-    // leaves a window where identity.html is a 404 — and a check started
-    // inside that window rendered GitHub's "File not found" page under the
-    // words "Verify your identity", with no way forward.
+  group('the ID check does not depend on a page of ours', () {
+    // What this is about: identity.html is a static file on GitHub Pages, and
+    // GitHub's own branch build republishes the repository's README over the
+    // app for minutes after every push. A check started in that window showed
+    // GitHub's "File not found" page under the words "Verify your identity",
+    // with no way forward. Stripe hosts the same check itself, so the app
+    // stopped needing a page of its own.
 
-    test('a missing page falls back to Stripe\'s hosted flow', () {
-      // Dropping the secret is the fallback: the screen runs Stripe.js only
-      // when it has one, and loads the hosted URL otherwise.
+    test('by default nothing of ours is in the path at all', () {
+      // No secret means the screen loads Stripe's hosted flow. Asserted
+      // against the shipped constant rather than a literal, so turning the
+      // default around would fail here rather than silently reinstate the
+      // dependency.
+      expect(preferHostedIdentity, isTrue);
       expect(
           IdentityVerification.secretFor(
               secret: 'vs_secret',
               hostedUrl: 'https://verify.stripe.com/x',
-              pageServed: false),
+              pageServed: true,
+              preferHosted: preferHostedIdentity),
+          isEmpty,
+          reason: 'even a page that IS being served is not used by default');
+    });
+
+    test('a missing page falls back to Stripe\'s hosted flow', () {
+      // The opt-in embedded path still checks. Dropping the secret is the
+      // fallback: the screen runs Stripe.js only when it has one.
+      expect(
+          IdentityVerification.secretFor(
+              secret: 'vs_secret',
+              hostedUrl: 'https://verify.stripe.com/x',
+              pageServed: false,
+              preferHosted: false),
           isEmpty);
       expect(
           IdentityVerification.secretFor(
               secret: 'vs_secret',
               hostedUrl: 'https://verify.stripe.com/x',
-              pageServed: true),
+              pageServed: true,
+              preferHosted: false),
           'vs_secret',
-          reason: 'a served page is the themed, in-app flow — keep it');
+          reason: 'opted in, and the page is there — run the themed flow');
     });
 
     test('with nothing to fall back to, the secret is kept', () {
       // Stripe returned no hosted URL. Dropping the secret here would turn a
       // check that works into no check at all, which is worse than an
-      // unthemed one.
-      expect(
-          IdentityVerification.secretFor(
-              secret: 'vs_secret', hostedUrl: '', pageServed: false),
-          'vs_secret');
+      // unthemed one — so this outranks even preferring the hosted flow.
+      for (final prefer in [true, false]) {
+        expect(
+            IdentityVerification.secretFor(
+                secret: 'vs_secret',
+                hostedUrl: '',
+                pageServed: false,
+                preferHosted: prefer),
+            'vs_secret');
+      }
     });
 
     test('the page probe decides, and an unanswered probe fails closed', () async {

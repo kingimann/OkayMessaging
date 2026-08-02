@@ -31,6 +31,31 @@ IdentityStatus _statusFrom(String? raw) => switch (raw) {
       _ => IdentityStatus.none,
     };
 
+/// Whether the ID check runs on Stripe's own page rather than on one of ours.
+///
+/// It does, and the reason is that ours was never worth what it cost. The only
+/// thing `web/identity.html` adds is the app's colours around a modal Stripe
+/// opens itself — and to get that, the check had to fetch a static file from
+/// GitHub Pages, which republishes the repository's README over the app for
+/// minutes after every push (docs/server_deploy_checklist.md §3b). Somebody
+/// tapping "Get verified" in that window got GitHub's "File not found" page
+/// under the words "Verify your identity" and no way forward.
+///
+/// Stripe's hosted flow has no such window. It is the same check, run by the
+/// same company on their own servers, and it loads in this app's own WebView
+/// on this app's own screen — no browser, no handoff, no page of ours in the
+/// path at all. Losing the theming is the whole price.
+///
+/// Same decision, and the same reasoning, as [preferHostedOnboarding] in
+/// connect_onboarding_screen.dart.
+///
+/// Flip it with --dart-define=PREFER_EMBEDDED_IDENTITY=true; that path still
+/// works and still checks whether the page is really being served first.
+const bool preferHostedIdentity = !bool.fromEnvironment(
+  'PREFER_EMBEDDED_IDENTITY',
+  defaultValue: false,
+);
+
 /// A started ID check: the secret drives the in-app flow, the hosted URL is
 /// the fallback for anywhere a WebView can't run.
 class IdentitySession {
@@ -148,27 +173,37 @@ class IdentityVerification extends ChangeNotifier {
       clientSecret: secretFor(
         secret: secret,
         hostedUrl: url,
-        // Only worth asking when there is something to fall back to.
-        pageServed: url.isEmpty || await pageIsServed(),
+        preferHosted: preferHostedIdentity,
+        // Not asked on the default path, so our own page is never even
+        // fetched. Only an opt-in build with something to fall back to pays
+        // for the round trip.
+        pageServed: preferHostedIdentity || url.isEmpty
+            ? false
+            : await pageIsServed(),
       ),
       hostedUrl: url,
       publishableKey: result['publishableKey'] as String? ?? '',
     );
   }
 
-  /// The client secret to keep, given whether our own page is being served.
+  /// The client secret to keep, which is what decides where the check runs.
   ///
-  /// Dropping it is what makes the screen load Stripe's hosted flow instead —
-  /// so it is only ever dropped when there is a hosted flow to drop to.
-  /// Otherwise a site that is briefly missing would turn a working check into
-  /// no check at all, which is worse than an unthemed one.
+  /// A secret means the screen loads [pageUrl] and runs Stripe.js on it; no
+  /// secret means it loads Stripe's own hosted flow, in the same WebView, on
+  /// the same screen. So dropping it is how the app steps away from a page of
+  /// its own — and it is only ever dropped when there is a hosted flow to
+  /// drop to, because no check at all is worse than an unthemed one.
   @visibleForTesting
   static String secretFor({
     required String secret,
     required String hostedUrl,
     required bool pageServed,
-  }) =>
-      pageServed || hostedUrl.isEmpty ? secret : '';
+    required bool preferHosted,
+  }) {
+    if (hostedUrl.isEmpty) return secret;
+    if (preferHosted) return '';
+    return pageServed ? secret : '';
+  }
 
   @visibleForTesting
   static Future<bool> Function(String url)? debugPageProbe;
