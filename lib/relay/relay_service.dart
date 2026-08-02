@@ -729,6 +729,15 @@ class RelayService {
           },
         )
         .onBroadcast(
+          event: 'cap',
+          callback: (payload) {
+            final from = payload['from'] as String?;
+            if (from == null || digits(from) == digits(me)) return;
+            recordingFromDigits = digits(from);
+            recordingPing.value++;
+          },
+        )
+        .onBroadcast(
           event: 'shot',
           callback: (payload) {
             final from = payload['from'] as String?;
@@ -1748,6 +1757,12 @@ class RelayService {
   Future<void> sendScreenshotNotice(String contactPhone) async =>
       _ping(contactPhone, 'shot');
 
+  /// Tells [contactPhone] that the conversation with them is being recorded
+  /// or mirrored. Its own event rather than a flag on 'shot', because
+  /// announcing a recording as a screenshot would be a wrong sentence.
+  Future<void> sendRecordingNotice(String contactPhone) async =>
+      _ping(contactPhone, 'cap');
+
   /// Sends an "online" presence ping to [contactPhone]'s inbox.
   Future<void> sendPresence(String contactPhone) async =>
       _ping(contactPhone, 'presence');
@@ -1758,6 +1773,10 @@ class RelayService {
   /// message behind it.
   final ValueNotifier<int> screenshotPing = ValueNotifier<int>(0);
   String screenshotFromDigits = '';
+
+  /// The same, for a screen recording rather than a single screenshot.
+  final ValueNotifier<int> recordingPing = ValueNotifier<int>(0);
+  String recordingFromDigits = '';
 
   Future<void> _ping(String contactPhone, String event) async {
     if (!_initialized || digits(contactPhone).isEmpty) return;

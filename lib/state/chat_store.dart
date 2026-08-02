@@ -490,16 +490,21 @@ class ChatStore extends ChangeNotifier {
   /// exports like everything else — and so an old build reading a newer
   /// backup shows a sentence rather than an empty bubble. [byMe] decides
   /// which side it sits on and which way round it reads.
-  void noteScreenshot(String chatId, {required bool byMe}) {
+  void noteScreenshot(String chatId,
+      {required bool byMe, bool recording = false}) {
     if (_indexOf(chatId) == -1) return;
     final now = DateTime.now();
     addMessage(
       chatId,
       Message(
         id: 'shot_\${now.microsecondsSinceEpoch}',
-        text: byMe
-            ? 'You took a screenshot of this chat.'
-            : 'They took a screenshot of this chat.',
+        text: recording
+            ? (byMe
+                ? 'You started recording or mirroring this chat.'
+                : 'They started recording or mirroring this chat.')
+            : (byMe
+                ? 'You took a screenshot of this chat.'
+                : 'They took a screenshot of this chat.'),
         time: now,
         isMe: byMe,
         // Never forwardable, whatever the chat's setting is now: the notice

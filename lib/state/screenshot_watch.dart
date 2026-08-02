@@ -26,11 +26,23 @@ class ScreenshotWatch {
   /// whatever was actually being looked at.
   final ValueNotifier<int> taken = ValueNotifier<int>(0);
 
+  /// Whether the screen is being recorded or mirrored right now.
+  ///
+  /// A separate thing from [taken] and the one that matters more: a recording
+  /// never fires the screenshot notification, so before this the one form of
+  /// capture that keeps running was the one nothing noticed. Unlike a
+  /// screenshot it can be acted on *while* it happens, which is why a
+  /// protected chat blanks itself rather than only announcing.
+  final ValueNotifier<bool> capturing = ValueNotifier<bool>(false);
+
   bool _started = false;
 
   /// Lets a test drive the whole thing without a platform channel.
   @visibleForTesting
   void debugFire() => taken.value++;
+
+  @visibleForTesting
+  void debugSetCapturing(bool value) => capturing.value = value;
 
   Future<void> start() async {
     if (_started || kIsWeb || defaultTargetPlatform != TargetPlatform.iOS) {
@@ -39,9 +51,13 @@ class ScreenshotWatch {
     _started = true;
     _channel.setMethodCallHandler((call) async {
       if (call.method == 'taken') taken.value++;
+      if (call.method == 'captured') capturing.value = call.arguments == true;
     });
     try {
-      await _channel.invokeMethod<void>('watch');
+      // Answers with the state NOW, not just future changes: a recording
+      // already running when the app opens has fired its notification
+      // already, and waiting for the next one would miss the whole session.
+      capturing.value = await _channel.invokeMethod<bool>('watch') ?? false;
     } catch (_) {
       // No native side (simulator, older binary): screenshots simply pass
       // unnoticed, which is what happened before this existed.

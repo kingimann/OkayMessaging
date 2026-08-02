@@ -279,6 +279,26 @@ screenshot twice, which reads as two screenshots. The chat only acts on the
 app-wide notifier when its route `isCurrent`, or a screenshot of the chat list
 would be announced as one of the conversation.
 
+**Screen recording and mirroring** are the capture nothing used to notice: they
+never fire the screenshot notification. `UIScreen.capturedDidChangeNotification`
++ `isCaptured` (iOS 11+, under the iOS 13 floor) drive
+`ScreenshotWatch.capturing`, and a protected chat **replaces itself** with a
+notice for as long as it lasts — a recording is still going, so announcing and
+carrying on would be filming somebody while telling them they are being filmed.
+Announced on the edge only, and as its own sentence over its own relay event
+(`cap`), because calling a recording a screenshot is a wrong sentence. The
+state is read at `watch` time, not only on the next change: a recording already
+running has fired its notification already.
+
+**The app-switcher snapshot is covered app-wide** (`watchAppSwitcher` in
+`AppDelegate`), on `UIApplication.willResignActive`/`didBecomeActive` rather
+than by overriding the scene delegate — those notifications predate scenes,
+fire in a scene app anyway, and need no assumption about what
+`FlutterSceneDelegate` implements. Not per chat: the chat *list* is names and
+previews too. This is the leak people mistake for screenshot blocking in
+banking apps, and unlike a screenshot it really is preventable — iOS writes
+that snapshot to disk and it outlives the session.
+
 ## Verified-only features
 
 The **marketplace, wallet and Okay Drop** are behind

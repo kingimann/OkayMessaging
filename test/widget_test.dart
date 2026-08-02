@@ -24530,8 +24530,73 @@ void main() {
       expect(
           File('lib/state/screenshot_watch.dart')
               .readAsStringSync()
-              .contains("invokeMethod<void>('watch')"),
+              .contains("invokeMethod<bool>('watch')"),
           isTrue);
+    });
+
+    test('a recording is announced as a recording, not a screenshot', () {
+      ChatStore.instance.setChats([chatWith('a')]);
+      ChatStore.instance.noteScreenshot('a', byMe: true, recording: true);
+      final mine = ChatStore.instance.chatById('a')!.messages.last;
+      expect(mine.text, contains('recording or mirroring'));
+      expect(mine.text, isNot(contains('screenshot')),
+          reason: 'announcing a recording as a screenshot is a wrong sentence');
+
+      ChatStore.instance.noteScreenshot('a', byMe: false, recording: true);
+      expect(ChatStore.instance.chatById('a')!.messages.last.text,
+          startsWith('They'));
+    });
+
+    test('a recording has its own event, because it is its own sentence', () {
+      final src = File('lib/relay/relay_service.dart').readAsStringSync();
+      expect(src.contains("_ping(contactPhone, 'cap')"), isTrue);
+      expect(src.contains("event: 'cap'"), isTrue,
+          reason: 'sent but never subscribed to is a notice nobody receives');
+    });
+
+    testWidgets('a protected chat blanks itself while the screen is captured',
+        (t) async {
+      // A screenshot can only be announced afterwards. A recording is still
+      // going, so announcing and carrying on would be telling somebody their
+      // messages are being filmed while filming them.
+      final src = File('lib/screens/chat_screen.dart').readAsStringSync();
+      final collapsed = src.replaceAll(RegExp(r'\s+'), ' ');
+      expect(
+          collapsed.contains('body: _store.isProtected(_chatId) && '
+              'ScreenshotWatch.instance.capturing.value ? '
+              '_capturedNotice(context)'),
+          isTrue,
+          reason: 'the conversation is drawn while it is being recorded');
+    });
+
+    test('recording state is read at startup, not only on the next change',
+        () {
+      // A recording already running when the app opens has fired its
+      // notification already; waiting for the next one misses the session.
+      final src =
+          File('lib/state/screenshot_watch.dart').readAsStringSync();
+      expect(
+          src.contains(
+              "capturing.value = await _channel.invokeMethod<bool>('watch')"),
+          isTrue);
+      final swift = File('ios/Runner/AppDelegate.swift').readAsStringSync();
+      expect(swift.contains('result(UIScreen.main.isCaptured)'), isTrue);
+      expect(swift.contains('UIScreen.capturedDidChangeNotification'), isTrue);
+    });
+
+    test('the app switcher snapshot is covered, for every screen', () {
+      // The leak people mistake for screenshot blocking in banking apps, and
+      // unlike a screenshot it really is preventable — the snapshot is
+      // written to disk and outlives the session.
+      final swift = File('ios/Runner/AppDelegate.swift').readAsStringSync();
+      expect(swift.contains('UIApplication.willResignActiveNotification'),
+          isTrue);
+      expect(swift.contains('UIApplication.didBecomeActiveNotification'),
+          isTrue,
+          reason: 'a cover that is never removed is a permanently blank app');
+      // App-wide rather than per chat: the chat LIST is names and previews.
+      expect(swift.contains('isProtected'), isFalse,
+          reason: 'the cover must not depend on which chat is open');
     });
 
     test('the toggle says what it cannot do', () {

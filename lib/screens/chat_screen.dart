@@ -266,7 +266,9 @@ class _ChatScreenState extends State<ChatScreen> {
     PushService.instance.setOpenChat(null);
     _store.removeListener(_refreshSuggestions);
     ScreenshotWatch.instance.taken.removeListener(_onScreenshot);
+    ScreenshotWatch.instance.capturing.removeListener(_onCapturing);
     RelayService.instance.screenshotPing.removeListener(_onRemoteScreenshot);
+    RelayService.instance.recordingPing.removeListener(_onRemoteRecording);
     if (RelayConfig.isEnabled) {
       RelayService.instance.typingPing.removeListener(_onTypingPing);
       RelayService.instance.presencePing.removeListener(_onPresencePing);
@@ -809,6 +811,62 @@ class _ChatScreenState extends State<ChatScreen> {
     if (RelayConfig.isEnabled && _isRealPeer(widget.chat.contact)) {
       RelayService.instance.sendScreenshotNotice(widget.chat.contact.phone);
     }
+  }
+
+  /// What sits where the conversation was while the screen is being captured.
+  Widget _capturedNotice(BuildContext context) => Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.screenshot_monitor_outlined,
+                  size: 54, color: AppColors.subtle(context)),
+              const SizedBox(height: 18),
+              const Text('Hidden while the screen is being captured',
+                  textAlign: TextAlign.center,
+                  style:
+                      TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+              const SizedBox(height: 10),
+              Text(
+                'This chat is protected, and the screen is being recorded or '
+                'mirrored. The conversation comes back on its own when that '
+                'stops. The other person has been told.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                    fontSize: 14.5,
+                    height: 1.45,
+                    color: AppColors.subtle(context)),
+              ),
+            ],
+          ),
+        ),
+      );
+
+  /// A recording started or stopped. Announced ONCE per recording, on the
+  /// edge rather than on every rebuild — a notice per frame would bury the
+  /// conversation it is warning about.
+  void _onCapturing() {
+    if (!mounted) return;
+    final on = ScreenshotWatch.instance.capturing.value;
+    setState(() {});
+    if (!on || !_store.isProtected(_chatId)) return;
+    if (!ModalRoute.of(context)!.isCurrent) return;
+    _store.noteScreenshot(_chatId, byMe: true, recording: true);
+    if (RelayConfig.isEnabled && _isRealPeer(widget.chat.contact)) {
+      RelayService.instance.sendRecordingNotice(widget.chat.contact.phone);
+    }
+  }
+
+  /// The far end is recording this conversation.
+  void _onRemoteRecording() {
+    if (!mounted) return;
+    final from = RelayService.instance.recordingFromDigits;
+    if (from.isEmpty ||
+        from != RelayService.digits(widget.chat.contact.phone)) {
+      return;
+    }
+    _store.noteScreenshot(_chatId, byMe: false, recording: true);
   }
 
   /// The far end screenshotted this conversation.
@@ -2206,7 +2264,15 @@ class _ChatScreenState extends State<ChatScreen> {
                       ),
                     ],
                   ),
-        body: Column(
+        // A screenshot can only be announced after the fact. A recording is
+        // still going, so the honest thing is to take the conversation off
+        // the screen for as long as it lasts — announcing and carrying on
+        // would be telling somebody their messages are being filmed while
+        // filming them.
+        body: _store.isProtected(_chatId) &&
+                ScreenshotWatch.instance.capturing.value
+            ? _capturedNotice(context)
+            : Column(
           children: [
             ListenableBuilder(
               listenable: _store,

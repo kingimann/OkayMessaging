@@ -160,8 +160,23 @@ import UserNotifications
           ) { [weak self] _ in
             self?.screenshotChannel?.invokeMethod("taken", arguments: nil)
           }
+          // Screen RECORDING and AirPlay mirroring never fire the screenshot
+          // notification, so without this the one capture that keeps running
+          // is the one nothing notices. isCaptured is iOS 11+, below this
+          // app's iOS 13 floor, so no availability guard is needed.
+          NotificationCenter.default.addObserver(
+            forName: UIScreen.capturedDidChangeNotification,
+            object: nil,
+            queue: .main
+          ) { [weak self] _ in
+            self?.screenshotChannel?.invokeMethod(
+              "captured", arguments: UIScreen.main.isCaptured)
+          }
+          self?.watchAppSwitcher()
         }
-        result(nil)
+        // The answer, not just future changes: a recording already running
+        // when a chat opens has already fired its notification.
+        result(UIScreen.main.isCaptured)
       default:
         result(FlutterMethodNotImplemented)
       }
@@ -169,6 +184,63 @@ import UserNotifications
   }
 
   private var watchingScreenshots = false
+  private var privacyCover: UIView?
+
+  /// Covers the app while it is not frontmost, so the snapshot iOS takes for
+  /// the app switcher is not a page of somebody's conversations.
+  ///
+  /// This is the leak people mistake for screenshot blocking in banking apps,
+  /// and unlike a screenshot it is genuinely preventable: the snapshot is
+  /// taken after willResignActive and written to disk, where it outlives the
+  /// session. Always on rather than per chat — the chat LIST is a page of
+  /// names and message previews too.
+  ///
+  /// Driven off UIApplication's notifications rather than by overriding the
+  /// scene delegate: these predate scenes, fire in a scene app all the same,
+  /// and need no assumption about what FlutterSceneDelegate implements.
+  private func watchAppSwitcher() {
+    let center = NotificationCenter.default
+    center.addObserver(
+      forName: UIApplication.willResignActiveNotification,
+      object: nil, queue: .main
+    ) { [weak self] _ in self?.showPrivacyCover() }
+    center.addObserver(
+      forName: UIApplication.didBecomeActiveNotification,
+      object: nil, queue: .main
+    ) { [weak self] _ in
+      self?.privacyCover?.removeFromSuperview()
+      self?.privacyCover = nil
+    }
+  }
+
+  private func showPrivacyCover() {
+    guard privacyCover == nil, let host = coveredWindow() else { return }
+    let cover = UIView(frame: host.bounds)
+    cover.backgroundColor = UIColor.systemBackground
+    cover.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+    let label = UILabel()
+    label.text = "OkayMessenger"
+    label.font = .systemFont(ofSize: 20, weight: .semibold)
+    label.textColor = .label
+    label.translatesAutoresizingMaskIntoConstraints = false
+    cover.addSubview(label)
+    NSLayoutConstraint.activate([
+      label.centerXAnchor.constraint(equalTo: cover.centerXAnchor),
+      label.centerYAnchor.constraint(equalTo: cover.centerYAnchor),
+    ])
+    host.addSubview(cover)
+    privacyCover = cover
+  }
+
+  /// The window to cover. `window` is nil in a scene-based app, so fall back
+  /// to whichever connected scene owns the key window.
+  private func coveredWindow() -> UIWindow? {
+    if let w = window { return w }
+    return UIApplication.shared.connectedScenes
+      .compactMap { $0 as? UIWindowScene }
+      .flatMap { $0.windows }
+      .first { $0.isKeyWindow }
+  }
 
   /// The conversation a push belongs to, as the im: URL the app already knows
   /// how to open — the same path a default-messaging-app tap arrives on, so
