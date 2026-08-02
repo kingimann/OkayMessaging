@@ -133,6 +133,7 @@ class RelayService {
       'isVoicemail': message.isVoicemail,
       'forwarded': message.forwarded,
       'protected': message.protected,
+      'threadRootId': message.threadRootId,
       'replyTo': message.replyTo?.toJson(),
       'isLocation': message.isLocation,
       'locationLat': message.locationLat,
@@ -366,6 +367,7 @@ class RelayService {
         isVoicemail: content['isVoicemail'] as bool? ?? false,
         forwarded: content['forwarded'] as bool? ?? false,
         protected: content['protected'] as bool? ?? false,
+        threadRootId: content['threadRootId'] as String?,
         replyTo: replyJson is Map
             ? ReplyInfo.fromJson(Map<String, dynamic>.from(replyJson))
             : null,

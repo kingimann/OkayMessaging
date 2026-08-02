@@ -55,6 +55,20 @@ class Message {
   /// True when this message was forwarded from another chat.
   final bool forwarded;
 
+  /// The id of the message this one hangs under, when it was sent into a
+  /// thread rather than into the room.
+  ///
+  /// Null for everything in the main transcript, which is the point: a thread
+  /// exists so a long exchange between two people does not push a group's
+  /// conversation off the screen. Messages carrying this are drawn only
+  /// inside the thread, and the message they hang under says how many there
+  /// are.
+  ///
+  /// Flat by design — a reply in a thread joins that thread rather than
+  /// starting one of its own. Threads of threads are how a group ends up with
+  /// somewhere else to lose a conversation.
+  final String? threadRootId;
+
   /// True when the sender had protection on for the conversation this was
   /// sent in — so the receiving app hides Forward and Copy for it too.
   ///
@@ -160,6 +174,7 @@ class Message {
     this.reactions = const [],
     this.replyTo,
     this.forwarded = false,
+    this.threadRootId,
     this.protected = false,
     this.isVoice = false,
     this.voiceSeconds = 0,
@@ -214,6 +229,7 @@ class Message {
         'reactions': reactions,
         'replyTo': replyTo?.toJson(),
         'forwarded': forwarded,
+        'threadRootId': threadRootId,
         'protected': protected,
         'isVoice': isVoice,
         'voiceSeconds': voiceSeconds,
@@ -262,6 +278,7 @@ class Message {
             : ReplyInfo.fromJson(
                 Map<String, dynamic>.from(json['replyTo'] as Map)),
         forwarded: json['forwarded'] as bool? ?? false,
+        threadRootId: json['threadRootId'] as String?,
         protected: json['protected'] as bool? ?? false,
         isVoice: json['isVoice'] as bool? ?? false,
         voiceSeconds: json['voiceSeconds'] as int? ?? 0,
@@ -305,6 +322,7 @@ class Message {
 
   Message copyWith({
     bool? protected,
+    String? threadRootId,
     String? text,
     MessageStatus? status,
     List<String>? reactions,
@@ -328,6 +346,7 @@ class Message {
       replyTo: replyTo,
       forwarded: forwarded,
       protected: protected ?? this.protected,
+      threadRootId: threadRootId ?? this.threadRootId,
       isVoice: isVoice,
       voiceSeconds: voiceSeconds,
       isVoicemail: isVoicemail,

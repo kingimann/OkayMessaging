@@ -53,8 +53,18 @@ class Chat {
     this.disappearingSeconds = 0,
   });
 
-  /// Most recent message, or null when the conversation is empty.
-  Message? get lastMessage => messages.isEmpty ? null : messages.last;
+  /// Most recent message in the ROOM, or null when there is none.
+  ///
+  /// Thread replies are skipped on purpose: they are the thing a thread
+  /// exists to keep out of the way, and a chat list whose preview is the
+  /// latest reply to a side conversation is the same spam one screen further
+  /// out. The thread's own count is how you see it has moved.
+  Message? get lastMessage {
+    for (var i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].threadRootId == null) return messages[i];
+    }
+    return null;
+  }
 
   /// The most recently pinned message id, or null when nothing is pinned.
   String? get pinnedMessageId =>

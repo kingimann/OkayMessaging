@@ -299,6 +299,28 @@ previews too. This is the leak people mistake for screenshot blocking in
 banking apps, and unlike a screenshot it really is preventable — iOS writes
 that snapshot to disk and it outlives the session.
 
+## Threads in a group chat
+
+`Message.threadRootId`. A reply sent into a thread is defined by where it does
+**not** appear: not in the room's transcript, and not as the chat list's
+preview (`Chat.lastMessage` skips them — otherwise it is the same spam one
+screen further out). The message it hangs under grows a quiet "N replies"
+line, which is the only way in.
+
+**A thread is the same `ChatScreen`**, opened with `threadRootId` set: the
+transcript becomes the root plus its replies, and `_deliver` — the one funnel
+every outgoing message already passes through — stamps the id on the way out.
+A separate, thinner thread screen would have drifted from this one the first
+time either changed, and would have needed its own composer, attachments,
+reactions and delivery.
+
+**Flat, groups only.** "Reply in thread" is hidden in a 1:1 (the room is the
+two of you, there is nothing to spare it from) and inside a thread (a thread
+of threads is a second place to lose a conversation). The header says
+"Thread · Stays out of <group>", because the same avatar and name as the group
+would leave somebody typing into a side conversation believing they were
+talking to everyone.
+
 ## Verified-only features
 
 The **marketplace, wallet and Okay Drop** are behind

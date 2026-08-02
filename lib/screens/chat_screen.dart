@@ -57,7 +57,22 @@ class ChatScreen extends StatefulWidget {
   /// highlights this message after it opens.
   final String? initialMessageId;
 
-  const ChatScreen({super.key, required this.chat, this.initialMessageId});
+  /// When set, this is a THREAD under that message rather than the room:
+  /// the transcript is the root plus its replies, and anything sent joins
+  /// them instead of the main conversation.
+  ///
+  /// The same screen rather than a new one, so a thread gets the composer,
+  /// the attachments, reactions, editing and delivery exactly as the room
+  /// has them — a second, thinner chat screen would drift from this one the
+  /// first time either changed.
+  final String? threadRootId;
+
+  const ChatScreen({
+    super.key,
+    required this.chat,
+    this.initialMessageId,
+    this.threadRootId,
+  });
 
   @override
   State<ChatScreen> createState() => _ChatScreenState();
@@ -305,7 +320,23 @@ class _ChatScreenState extends State<ChatScreen> {
         () => _jumpToMessage(messageId));
   }
 
-  List<Message> get _messages => _store.chatById(_chatId)?.messages ?? const [];
+  /// Whether this screen is showing a thread rather than the room.
+  bool get _inThread => widget.threadRootId != null;
+
+  /// The transcript. In the room, everything that is not in a thread — a
+  /// thread's whole purpose is that its replies are not here. In a thread,
+  /// the message it hangs under followed by its replies.
+  List<Message> get _messages {
+    final all = _store.chatById(_chatId)?.messages ?? const <Message>[];
+    final root = widget.threadRootId;
+    if (root == null) {
+      return [for (final m in all) if (m.threadRootId == null) m];
+    }
+    return [
+      for (final m in all)
+        if (m.id == root || m.threadRootId == root) m
+    ];
+  }
 
   void _jumpToBottom() {
     if (!_scrollController.hasClients) return;
@@ -885,9 +916,15 @@ class _ChatScreenState extends State<ChatScreen> {
     // built, so a send path added later carries the flag without anybody
     // remembering to add it. The setting belongs to whoever wrote the words,
     // which is why it is read from this chat and then travels.
-    final message = _store.isProtected(_chatId)
-        ? rawMessage.copyWith(protected: true)
-        : rawMessage;
+    var message = rawMessage;
+    if (_store.isProtected(_chatId)) {
+      message = message.copyWith(protected: true);
+    }
+    // Same funnel, same reason: every send path lands here, so a thread reply
+    // cannot escape into the room because one of them forgot.
+    if (_inThread) {
+      message = message.copyWith(threadRootId: widget.threadRootId);
+    }
     _store.addMessage(_chatId, message);
     WidgetsBinding.instance.addPostFrameCallback((_) => _animateToBottom());
     if (!RelayConfig.isEnabled) return;
@@ -1114,8 +1151,30 @@ class _ChatScreenState extends State<ChatScreen> {
       // Keyed by message id so each message animates in exactly once and
       // never re-animates on later rebuilds (reactions, status, etc.).
       items.add(_MessageEntrance(key: ValueKey('anim_${m.id}'), child: row));
+
+      // The thread hanging under this message, if any. Only in the room —
+      // inside a thread the root is the thing you are already reading, and a
+      // line offering to open it would lead back to here.
+      if (!_inThread && !_selectionMode) {
+        final replies = _store.threadReplyCount(_chatId, m.id);
+        if (replies > 0) {
+          items.add(_ThreadLine(
+            count: replies,
+            isMe: m.isMe,
+            onTap: () => _openThread(m),
+          ));
+        }
+      }
     }
     return items;
+  }
+
+  /// Opens the thread hanging under [message] — the same screen, showing the
+  /// root and its replies instead of the room.
+  void _openThread(Message message) {
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => ChatScreen(chat: widget.chat, threadRootId: message.id),
+    ));
   }
 
   /// Scrolls to the original [messageId] (the quoted message) and flashes it.
@@ -1275,6 +1334,22 @@ class _ChatScreenState extends State<ChatScreen> {
                     _startReply(message);
                   },
                 ),
+                // Groups only, and never from inside a thread: a thread of
+                // threads is how a group gets a second place to lose a
+                // conversation. In a 1:1 there is nothing to spare the room
+                // from — the room is the two of you.
+                if (widget.chat.contact.isGroup &&
+                    !_inThread &&
+                    message.threadRootId == null)
+                  ListTile(
+                    leading: const Icon(Icons.forum_outlined),
+                    title: const Text('Reply in thread'),
+                    subtitle: const Text('Keeps it out of the main group'),
+                    onTap: () {
+                      Navigator.of(sheetContext).pop();
+                      _openThread(message);
+                    },
+                  ),
                 // A photo forwards as a photo. It used to forward
                 // `message.text`, which for a picture sent without a caption
                 // is an empty bubble at the other end.
@@ -2116,7 +2191,31 @@ class _ChatScreenState extends State<ChatScreen> {
                         ),
                     ],
                   )
-                : AppBar(
+                : _inThread
+                    // A thread is a different room to be in, and the header
+                    // has to say so — the same name and avatar as the group
+                    // would leave somebody typing into a side conversation
+                    // believing they were talking to everyone.
+                    ? AppBar(
+                        title: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Text('Thread',
+                                style: TextStyle(
+                                    fontSize: 17,
+                                    fontWeight: FontWeight.w600)),
+                            Text(
+                              'Stays out of ${contact.name}',
+                              style: TextStyle(
+                                  fontSize: 12.5,
+                                  fontWeight: FontWeight.normal,
+                                  color: AppColors.subtle(context)),
+                            ),
+                          ],
+                        ),
+                      )
+                    : AppBar(
                     titleSpacing: 0,
                     title: InkWell(
                       onTap: () => Navigator.of(context).push(
@@ -2693,6 +2792,56 @@ class _DayHeader extends StatelessWidget {
           style: TextStyle(
             fontSize: 12.5,
             color: isDark ? Colors.white70 : Colors.black54,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The "N replies" line under a message that has a thread.
+///
+/// Deliberately quiet and deliberately not a bubble: it is a door into the
+/// conversation, not part of it. Aligned with the message it belongs to so it
+/// reads as attached to that one rather than floating between two.
+class _ThreadLine extends StatelessWidget {
+  const _ThreadLine({
+    required this.count,
+    required this.isMe,
+    required this.onTap,
+  });
+
+  final int count;
+  final bool isMe;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = AppColors.accentOn(context);
+    return Align(
+      alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+      child: Padding(
+        padding: EdgeInsets.only(
+            left: isMe ? 0 : 18, right: isMe ? 18 : 0, bottom: 6),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(20),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.forum_outlined, size: 15, color: accent),
+                const SizedBox(width: 6),
+                Text(
+                  count == 1 ? '1 reply' : '$count replies',
+                  style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: accent),
+                ),
+              ],
+            ),
           ),
         ),
       ),

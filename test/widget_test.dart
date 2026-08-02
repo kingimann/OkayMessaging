@@ -24608,4 +24608,156 @@ void main() {
       expect(tile.contains('cannot be blocked'), isTrue);
     });
   });
+  group('threads inside a group chat', () {
+    // The point is subtraction: a long exchange between two people in a group
+    // should not push everybody else's conversation off the screen. So a
+    // thread reply is defined by where it does NOT appear.
+
+    setUp(ChatStore.instance.reset);
+
+    Message msg(String id, {String? thread, String text = 'hi'}) => Message(
+          id: id,
+          text: text,
+          isMe: false,
+          time: DateTime(2026, 1, 1, 12, int.parse(id.substring(1))),
+          threadRootId: thread,
+        );
+
+    Chat group(List<Message> messages) => Chat(
+          id: 'g',
+          contact: const AppUser(
+              id: 'g', name: 'Team', avatarColor: '#2E7D32', isGroup: true),
+          messages: messages,
+        );
+
+    test('a thread reply never becomes the chat list preview', () {
+      // The same spam one screen further out: a chat list whose preview is
+      // the latest reply to a side conversation.
+      final chat = group([
+        msg('m1', text: 'room message'),
+        msg('m2', thread: 'm1', text: 'thread reply'),
+      ]);
+      expect(chat.lastMessage!.id, 'm1');
+      expect(chat.preview, contains('room message'));
+
+      // With nothing but thread replies there is no room message to show,
+      // and inventing one would be worse than none.
+      expect(group([msg('m2', thread: 'm1')]).lastMessage, isNull);
+    });
+
+    test('the store hands back a thread, and counts it', () {
+      ChatStore.instance.setChats([
+        group([
+          msg('m1'),
+          msg('m2', thread: 'm1'),
+          msg('m3'),
+          msg('m4', thread: 'm1'),
+          msg('m5', thread: 'm3'),
+        ])
+      ]);
+      expect(ChatStore.instance.threadReplies('g', 'm1').map((m) => m.id),
+          ['m2', 'm4']);
+      expect(ChatStore.instance.threadReplyCount('g', 'm1'), 2);
+      expect(ChatStore.instance.threadReplyCount('g', 'm3'), 1);
+      // A message with no thread under it has none, rather than all of them.
+      expect(ChatStore.instance.threadReplyCount('g', 'm5'), 0);
+    });
+
+    test('the flag survives the envelope, and an old sender has none', () {
+      final m = msg('m2', thread: 'm1');
+      expect(m.toJson()['threadRootId'], 'm1');
+      expect(Message.fromJson(m.toJson()).threadRootId, 'm1');
+      final old = Map<String, dynamic>.from(m.toJson())..remove('threadRootId');
+      expect(Message.fromJson(old).threadRootId, isNull,
+          reason: 'a message from a build without threads belongs to the room');
+
+      final src = File('lib/relay/relay_service.dart').readAsStringSync();
+      expect(src.contains("'threadRootId': message.threadRootId"), isTrue);
+      expect(src.contains("threadRootId: content['threadRootId'] as String?"),
+          isTrue,
+          reason: 'sent but never read back means the far end sees a reply '
+              'land in the room');
+    });
+
+    test('the room shows what is not in a thread, and a thread its own', () {
+      // Both halves of the same rule, and this is the rule the feature IS.
+      final src = File('lib/screens/chat_screen.dart').readAsStringSync();
+      final fn = src.substring(src.indexOf('List<Message> get _messages {'),
+          src.indexOf('void _jumpToBottom()'));
+      final collapsed = fn.replaceAll(RegExp(r'\s+'), ' ');
+      expect(collapsed.contains('if (m.threadRootId == null) m'), isTrue,
+          reason: 'the room stopped filtering thread replies out');
+      expect(collapsed.contains('if (m.id == root || m.threadRootId == root) m'),
+          isTrue,
+          reason: 'a thread must show the message it hangs under');
+    });
+
+    test('every send path in a thread is stamped by the one funnel', () {
+      final src = File('lib/screens/chat_screen.dart').readAsStringSync();
+      final deliver = src.substring(src.indexOf('void _deliver('));
+      final collapsed = deliver.replaceAll(RegExp(r'\s+'), ' ');
+      expect(
+          collapsed.contains(
+              'if (_inThread) { message = message.copyWith('
+              'threadRootId: widget.threadRootId); }'),
+          isTrue,
+          reason: 'a reply could escape into the room from a path that '
+              'forgot to stamp it');
+    });
+
+    test('threads are flat, and only offered where they help', () {
+      final src = File('lib/screens/chat_screen.dart').readAsStringSync();
+      final action = src.substring(src.indexOf("'Reply in thread'") - 400,
+          src.indexOf("'Reply in thread'"));
+      final collapsed = action.replaceAll(RegExp(r'\s+'), ' ');
+      // A 1:1 has no room to spare — the room is the two of you.
+      expect(collapsed.contains('widget.chat.contact.isGroup'), isTrue);
+      // A thread of threads is a second place to lose a conversation.
+      expect(collapsed.contains('!_inThread'), isTrue);
+      expect(collapsed.contains('message.threadRootId == null'), isTrue);
+    });
+
+    testWidgets('the room lists a thread rather than its replies', (t) async {
+      ChatStore.instance.setChats([
+        group([
+          msg('m1', text: 'what shall we do'),
+          msg('m2', thread: 'm1', text: 'a long side argument'),
+          msg('m3', thread: 'm1', text: 'still arguing'),
+        ])
+      ]);
+      await t.pumpWidget(MaterialApp(
+          home: ChatScreen(chat: ChatStore.instance.chatById('g')!)));
+      await t.pumpAndSettle();
+
+      expect(find.text('what shall we do'), findsOneWidget);
+      expect(find.text('a long side argument'), findsNothing,
+          reason: 'the replies are exactly what the room is spared');
+      expect(find.text('2 replies'), findsOneWidget);
+    });
+
+    testWidgets('the thread shows the root and its replies, and says so',
+        (t) async {
+      ChatStore.instance.setChats([
+        group([
+          msg('m1', text: 'what shall we do'),
+          msg('m2', thread: 'm1', text: 'a long side argument'),
+          msg('m9', text: 'unrelated room chatter'),
+        ])
+      ]);
+      await t.pumpWidget(MaterialApp(
+          home: ChatScreen(
+              chat: ChatStore.instance.chatById('g')!, threadRootId: 'm1')));
+      await t.pumpAndSettle();
+
+      expect(find.text('what shall we do'), findsOneWidget);
+      expect(find.text('a long side argument'), findsOneWidget);
+      expect(find.text('unrelated room chatter'), findsNothing);
+      // The header has to say where you are, or somebody types into a side
+      // conversation believing they are talking to everyone.
+      expect(find.text('Thread'), findsOneWidget);
+      expect(find.textContaining('Stays out of Team'), findsOneWidget);
+      // And no door back into itself.
+      expect(find.text('1 reply'), findsNothing);
+    });
+  });
 }

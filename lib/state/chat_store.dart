@@ -514,6 +514,16 @@ class ChatStore extends ChangeNotifier {
     );
   }
 
+  /// The replies hanging under [rootId], oldest first.
+  List<Message> threadReplies(String chatId, String rootId) => [
+        for (final m in chatById(chatId)?.messages ?? const <Message>[])
+          if (m.threadRootId == rootId) m
+      ];
+
+  /// How many replies [rootId] has, for the line under it in the transcript.
+  int threadReplyCount(String chatId, String rootId) =>
+      threadReplies(chatId, rootId).length;
+
   void addMessage(String chatId, Message message) {
     final i = _indexOf(chatId);
     if (i == -1) return;
