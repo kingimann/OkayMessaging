@@ -34,6 +34,7 @@ import 'saved_places_store.dart';
 import 'scheduler.dart';
 import 'score_store.dart';
 import 'status_store.dart';
+import 'sticker_store.dart';
 import 'storage_store.dart';
 import 'streak_store.dart';
 import 'two_step.dart';
@@ -126,6 +127,7 @@ class AccountWipe {
     CloudSync.instance.resetForTest();
     TwoStepVerification.instance.resetForTest();
     QuickReplies.instance.resetForTest();
+    StickerStore.instance.resetForTest();
     NotesStore.instance.resetForTest();
     BookmarkStore.instance.resetForTest();
     FavouritesStore.instance.resetForTest();

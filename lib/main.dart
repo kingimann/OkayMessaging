@@ -56,6 +56,7 @@ import 'state/score_store.dart';
 import 'state/session.dart';
 import 'state/storage_store.dart';
 import 'state/status_store.dart';
+import 'state/sticker_store.dart';
 import 'state/streak_store.dart';
 import 'state/channel_typing_store.dart';
 import 'state/identity_verification.dart';
@@ -147,6 +148,7 @@ Future<void> main() async {
   // Whether the recovery code is squared away — the flag the first-message
   // gate reads, so it has to be known before any chat can open.
   await _boot('recovery', IdentityRecovery.load);
+  await _boot('stickers', StickerStore.instance.load);
   ChannelTypingStore.instance.onTyping = (communityId, channelId) =>
       RelayService.instance.sendChannelTyping(communityId, channelId);
   VoicePresenceStore.instance.onPresence = (communityId, channelId,

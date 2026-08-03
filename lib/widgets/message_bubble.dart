@@ -23,6 +23,7 @@ import 'message_status_icon.dart';
 import 'osm_map.dart';
 import 'poll_widgets.dart';
 import 'rich_message_text.dart';
+import 'sticker_sheet.dart';
 
 /// A single chat bubble, aligned left for incoming and right for outgoing.
 class MessageBubble extends StatelessWidget {
@@ -178,6 +179,46 @@ class MessageBubble extends StatelessWidget {
         metaColor: metaColor,
         onLongPress: onLongPress,
         onTap: onTap,
+      );
+    }
+
+    if (message.isSticker) {
+      // A sticker has no bubble on purpose — the whole point of the form is
+      // the thing itself, big and bare. Emoji stickers are drawn as type
+      // (identical on both ends because they ARE the emoji); photo stickers
+      // are the same sealed data URI a photo rides, drawn compact.
+      final bytes = message.isImage && message.imageUrl != null
+          ? stickerBytes(message.imageUrl!)
+          : null;
+      return Align(
+        alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+        child: GestureDetector(
+          onLongPress: onLongPress,
+          onTap: onTap,
+          onDoubleTap: onDoubleTap,
+          onDoubleTapDown: onDoubleTapDown,
+          child: Padding(
+            padding: EdgeInsets.only(
+                left: 12, right: 12, top: 4, bottom: hasReactions ? 18 : 4),
+            child: Column(
+              crossAxisAlignment:
+                  isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (!isMe && message.senderName.isNotEmpty)
+                  _SenderLabel(name: message.senderName),
+                bytes != null
+                    ? ClipRRect(
+                        borderRadius: BorderRadius.circular(18),
+                        child: Image.memory(bytes,
+                            width: 150, height: 150, fit: BoxFit.cover),
+                      )
+                    : Text(message.text,
+                        style: const TextStyle(fontSize: 84)),
+              ],
+            ),
+          ),
+        ),
       );
     }
 

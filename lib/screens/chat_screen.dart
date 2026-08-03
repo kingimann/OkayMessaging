@@ -37,6 +37,7 @@ import '../utils/date_formatter.dart';
 import '../widgets/chat_input_bar.dart';
 import '../widgets/recovery_gate.dart';
 import '../widgets/spark_sheet.dart';
+import '../widgets/sticker_sheet.dart';
 import '../widgets/emoji_data.dart';
 import '../widgets/emoji_gif_sheet.dart';
 import '../widgets/heart_burst.dart';
@@ -57,6 +58,7 @@ import 'media_gallery_screen.dart';
 import '../util/geocoding.dart';
 import 'explore_map_screen.dart';
 import '../state/identity_verification.dart';
+import '../state/sticker_store.dart';
 import 'score_screen.dart';
 
 /// The conversation screen for a single [Chat], backed by [ChatStore].
@@ -2618,6 +2620,54 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
+  /// Sends a sticker: an emoji drawn huge, or one of the user's own photos
+  /// — both riding the same sealed paths words and photos already use.
+  Future<void> _handleSendSticker() async {
+    final choice = await showStickerSheet(context);
+    if (choice == null || !mounted) return;
+    String? photoUri = choice.photoUri;
+    if (choice.newPhoto) {
+      try {
+        photoUri = await PhotoPrep.pickPhoto();
+      } on FileRejected catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context)
+              .showSnackBar(SnackBar(content: Text(e.reason)));
+        }
+        return;
+      }
+      if (photoUri == null || !mounted) return;
+      // Saved on send, so reusing it never means re-picking it.
+      StickerStore.instance.savePhoto(photoUri);
+    }
+    if (!mounted) return;
+    final now = DateTime.now();
+    if (photoUri != null) {
+      _deliver(Message(
+        id: 'stk_${now.microsecondsSinceEpoch}',
+        text: '',
+        time: now,
+        isMe: true,
+        status: MessageStatus.sent,
+        isSticker: true,
+        isImage: true,
+        imageUrl: photoUri,
+      ));
+      return;
+    }
+    final emoji = choice.emoji;
+    if (emoji == null) return;
+    StickerStore.instance.noteUsed(emoji);
+    _deliver(Message(
+      id: 'stk_${now.microsecondsSinceEpoch}',
+      text: emoji,
+      time: now,
+      isMe: true,
+      status: MessageStatus.sent,
+      isSticker: true,
+    ));
+  }
+
   /// GIFs moved off the composer bar and into the attachment panel — the
   /// bar was drowning in buttons.
   Future<void> _pickGifAttachment() async {
@@ -2638,6 +2688,11 @@ class _ChatScreenState extends State<ChatScreen> {
             label: 'GIF',
             color: const Color(0xFFF97052),
             onTap: _pickGifAttachment),
+        AttachmentOption(
+            icon: Icons.emoji_emotions_outlined,
+            label: 'Sticker',
+            color: const Color(0xFFFF5C8A),
+            onTap: _handleSendSticker),
         AttachmentOption(
             icon: Icons.timer_outlined,
             label: 'View once',

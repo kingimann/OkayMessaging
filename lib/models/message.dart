@@ -122,6 +122,11 @@ class Message {
   /// as a "This message was deleted" tombstone instead of disappearing.
   final bool isDeleted;
 
+  /// True for a sticker: an emoji sticker carries the emoji in [text] and is
+  /// drawn huge with no bubble; a photo sticker also sets [isImage] and rides
+  /// the same sealed data-URI path a photo does, drawn compact and bare.
+  final bool isSticker;
+
   /// True for image messages; [imageSeed] picks a placeholder gradient when
   /// there is no real [imageUrl] (e.g. in the local demo).
   final bool isImage;
@@ -222,6 +227,7 @@ class Message {
     this.isVoicemail = false,
     this.isFile = false,
     this.fileName = '',
+    this.isSticker = false,
     this.isImage = false,
     this.imageSeed = 0,
     this.imageUrl,
@@ -287,6 +293,7 @@ class Message {
         'isVoicemail': isVoicemail,
         if (isFile) 'isFile': true,
         if (isFile) 'fileName': fileName,
+        if (isSticker) 'isSticker': true,
         'isImage': isImage,
         'imageSeed': imageSeed,
         'imageUrl': imageUrl,
@@ -346,6 +353,7 @@ class Message {
         isVoicemail: json['isVoicemail'] as bool? ?? false,
         isFile: json['isFile'] as bool? ?? false,
         fileName: json['fileName'] as String? ?? '',
+        isSticker: json['isSticker'] as bool? ?? false,
         isImage: json['isImage'] as bool? ?? false,
         imageSeed: json['imageSeed'] as int? ?? 0,
         imageUrl: json['imageUrl'] as String?,
@@ -431,6 +439,7 @@ class Message {
       isVoicemail: isVoicemail,
       isFile: isFile,
       fileName: fileName,
+      isSticker: isSticker,
       isImage: isImage,
       imageSeed: imageSeed,
       imageUrl: imageUrl,

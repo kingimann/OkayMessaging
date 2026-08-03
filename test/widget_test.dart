@@ -105,6 +105,8 @@ import 'package:okay_messaging/tabs/chats_tab.dart';
 import 'package:okay_messaging/utils/maps_link.dart';
 import 'package:okay_messaging/widgets/info_section.dart';
 import 'package:okay_messaging/widgets/message_bubble.dart';
+import 'package:okay_messaging/state/sticker_store.dart';
+import 'package:okay_messaging/widgets/sticker_sheet.dart';
 import 'package:okay_messaging/widgets/osm_map.dart';
 import 'package:okay_messaging/screens/score_screen.dart';
 import 'package:okay_messaging/models/chat.dart';
@@ -6470,6 +6472,128 @@ void main() {
       SecureKeyExchange.instance
           .rememberPeer('+1 555 0171', first.myPublicKey!);
       expect(store.chatById('chat_keychg')!.messages.length, 1);
+    });
+  });
+
+  group('Stickers', () {
+    test('a sticker message survives the wire and copyWith', () {
+      final m = Message(
+        id: 'stk_1',
+        text: '🔥',
+        time: DateTime(2026, 1, 1),
+        isMe: true,
+        isSticker: true,
+      );
+      final back = Message.fromJson(m.toJson());
+      expect(back.isSticker, isTrue);
+      expect(back.text, '🔥');
+      expect(m.copyWith(status: MessageStatus.read).isSticker, isTrue,
+          reason: 'a status update must not strip stickerhood');
+      // A plain message never gains the flag by accident.
+      final plain =
+          Message(id: 'p', text: 'hi', time: DateTime(2026, 1, 1), isMe: true);
+      expect(plain.toJson().containsKey('isSticker'), isFalse);
+      // And the relay carries it both directions — encode and decode.
+      final relay = File('lib/relay/relay_service.dart').readAsStringSync();
+      expect(RegExp('isSticker').allMatches(relay).length >= 2, isTrue,
+          reason: 'the flag must ride the relay out AND be read back in, or '
+              'a sticker arrives as an ordinary message');
+    });
+
+    test('the sticker store offers, never seeds — and keeps what you use', () {
+      final store = StickerStore.instance;
+      store.resetForTest();
+      // Fresh account: the curated grid is offered, but nothing claims use.
+      expect(StickerStore.curated, isNotEmpty);
+      expect(store.recent, isEmpty,
+          reason: 'no invented activity — the quick-reply rule again');
+      expect(store.photos, isEmpty);
+      // Recents float to the front, dedupe, and respect the cap.
+      store.noteUsed('🔥');
+      store.noteUsed('❤️');
+      store.noteUsed('🔥');
+      expect(store.recent.take(2), ['🔥', '❤️']);
+      expect(store.recent.length, 2, reason: 're-use reorders, not duplicates');
+      for (var i = 0; i < StickerStore.maxRecent + 10; i++) {
+        store.noteUsed('emoji_$i');
+      }
+      expect(store.recent.length, StickerStore.maxRecent);
+      // Photo stickers: dedupe by content, newest first, capped, removable.
+      store.savePhoto('data:image/jpeg;base64,AAAA');
+      store.savePhoto('data:image/jpeg;base64,BBBB');
+      store.savePhoto('data:image/jpeg;base64,AAAA');
+      expect(store.photos.first, 'data:image/jpeg;base64,AAAA');
+      expect(store.photos.length, 2);
+      for (var i = 0; i < StickerStore.maxPhotos + 5; i++) {
+        store.savePhoto('data:image/jpeg;base64,P$i');
+      }
+      expect(store.photos.length, StickerStore.maxPhotos);
+      final gone = store.photos.last;
+      store.removePhoto(gone);
+      expect(store.photos, isNot(contains(gone)));
+      store.resetForTest();
+    });
+
+    testWidgets('the sheet offers a new-photo path and hands back an emoji',
+        (tester) async {
+      StickerStore.instance.resetForTest();
+      StickerChoice? picked;
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => Center(
+              child: ElevatedButton(
+                onPressed: () async {
+                  picked = await showStickerSheet(context);
+                },
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+      ));
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      expect(find.text('New sticker from a photo'), findsOneWidget);
+      expect(find.text('STICKERS'), findsOneWidget);
+      expect(find.text('RECENT'), findsNothing,
+          reason: 'a fresh account has no recents to show');
+      expect(find.text('YOUR STICKERS'), findsNothing);
+      await tester.tap(find.text('🔥'));
+      await tester.pumpAndSettle();
+      expect(picked?.emoji, '🔥');
+      expect(picked?.newPhoto, isFalse);
+    });
+
+    testWidgets('an emoji sticker renders big and bare — no bubble',
+        (tester) async {
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: MessageBubble(
+            message: Message(
+              id: 'stk_2',
+              text: '🔥',
+              time: DateTime(2026, 1, 1, 10),
+              isMe: true,
+              isSticker: true,
+            ),
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      final glyph = tester.widget<Text>(find.text('🔥'));
+      expect(glyph.style?.fontSize, 84,
+          reason: 'the sticker IS the content — drawn huge, not bubble-sized');
+    });
+
+    test('the chat wires stickers through the one delivery funnel', () {
+      final chat = File('lib/screens/chat_screen.dart').readAsStringSync();
+      expect(chat, contains('_handleSendSticker'));
+      expect(chat, contains("'Sticker'"),
+          reason: 'the attachment panel offers it by name');
+      final mainSrc = File('lib/main.dart').readAsStringSync();
+      expect(mainSrc, contains('StickerStore.instance.load'),
+          reason: 'saved stickers must survive a relaunch');
     });
   });
 
