@@ -58,6 +58,23 @@ class RelayService {
   /// on every ping so listeners always fire (even for the same sender).
   String? typingFromDigits;
   final ValueNotifier<int> typingPing = ValueNotifier<int>(0);
+  Timer? _typingExpire;
+
+  /// Records a live typing ping — and expires it. A ping is a moment, not a
+  /// state: the chat list drew 'typing…' straight off the last ping and
+  /// nothing ever unset it, so one keystroke read as typing for the rest of
+  /// the session (the chat screen had its own 3-second timer; the list had
+  /// none). A real typer re-pings every 2 seconds, so 4 keeps them lit.
+  @visibleForTesting
+  void noteTypingPing(String fromDigits) {
+    typingFromDigits = fromDigits;
+    typingPing.value++;
+    _typingExpire?.cancel();
+    _typingExpire = Timer(const Duration(seconds: 4), () {
+      typingFromDigits = null;
+      typingPing.value++;
+    });
+  }
 
   /// Same pattern for "online" presence pings.
   String? presenceFromDigits;
@@ -972,8 +989,7 @@ class RelayService {
             final payload = unwrapBroadcast(rawEnvelope);
             final from = payload['from'] as String?;
             if (from == null || digits(from) == digits(me)) return;
-            typingFromDigits = digits(from);
-            typingPing.value++;
+            noteTypingPing(digits(from));
           },
         )
         .onBroadcast(

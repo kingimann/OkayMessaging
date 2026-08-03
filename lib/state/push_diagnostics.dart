@@ -111,6 +111,12 @@ class PushSelfTest {
   @visibleForTesting
   static Future<Object?> Function()? debugCheckProbe;
 
+  /// Sentinel for "the server refused this phone's session token, even
+  /// after a refresh". The local session object existing means nothing to
+  /// the server once its refresh token is dead — which is exactly the state
+  /// a phone signed in long ago and left in a drawer ends up in.
+  static const String kSessionExpired = 'session-expired';
+
   static Future<SelfTestReport> run() async {
     PushCheck? check;
     String? error;
@@ -120,7 +126,7 @@ class PushSelfTest {
         check = PushCheck.fromJson(raw);
         if (check == null) error = 'old-deployment';
       } catch (e) {
-        error = '$e';
+        error = isAuthFailure(e) ? kSessionExpired : '$e';
       }
     }
     final verdict = verdictFor(
@@ -152,15 +158,43 @@ class PushSelfTest {
       !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
 
   static Future<Object?> _probe() async {
-    final res = await Supabase.instance.client.functions
-        .invoke('push-send', body: {'what': 'check'}).timeout(
-            // Two round trips to Apple happen inside; generous, but bounded,
-            // because this is the screen somebody opens when nothing works.
-            const Duration(seconds: 30));
-    if (res.status >= 400) {
-      throw StateError('the server answered ${res.status}');
+    Future<Object?> ask() async {
+      final res = await Supabase.instance.client.functions
+          .invoke('push-send', body: {'what': 'check'}).timeout(
+              // Two round trips to Apple happen inside; generous, but
+              // bounded, because this is the screen somebody opens when
+              // nothing works.
+              const Duration(seconds: 30));
+      if (res.status >= 400) {
+        throw StateError('the server answered ${res.status}');
+      }
+      return res.data;
     }
-    return res.data;
+
+    try {
+      return await ask();
+    } catch (e) {
+      if (!isAuthFailure(e)) rethrow;
+      // A stale access token the SDK failed to rotate is indistinguishable
+      // from a sign-in that is dead server-side — until a refresh is tried.
+      // One refresh, one retry; only a second refusal is conclusive.
+      var refreshed = false;
+      try {
+        await Supabase.instance.client.auth.refreshSession();
+        refreshed = true;
+      } catch (_) {}
+      if (!refreshed) rethrow; // the original 401 stands confirmed
+      return await ask();
+    }
+  }
+
+  /// Whether [e] is the server refusing the caller's session token. The
+  /// functions client throws FunctionException for non-2xx answers; the
+  /// string check covers the manual status path above.
+  @visibleForTesting
+  static bool isAuthFailure(Object e) {
+    if (e is FunctionException) return e.status == 401;
+    return '$e'.contains('401');
   }
 
   /// Every line of the report. Pure, so the interesting combinations are
@@ -183,13 +217,22 @@ class PushSelfTest {
               'No Supabase project is configured in this build, so there is '
                   'nothing to send a push.',
               CheckState.fail),
-      signedIn
+      // Holding a session locally and the server still accepting it are two
+      // different facts, and saying "Signed in ✓" above "unauthorized ✗" was
+      // this report contradicting itself.
+      error == PushSelfTest.kSessionExpired
           ? const DiagnosticStep(
-              'Signed in', 'This device has a session.', CheckState.pass)
-          : const DiagnosticStep(
               'Signed in',
-              'Not signed in, so the server cannot tell who is asking.',
-              CheckState.fail),
+              'This phone holds a sign-in the server no longer accepts — '
+                  'the session has expired. Sign out and sign back in.',
+              CheckState.fail)
+          : signedIn
+              ? const DiagnosticStep(
+                  'Signed in', 'This device has a session.', CheckState.pass)
+              : const DiagnosticStep(
+                  'Signed in',
+                  'Not signed in, so the server cannot tell who is asking.',
+                  CheckState.fail),
       pushablePlatform
           ? const DiagnosticStep('This device',
               'iOS — it can receive pushes.', CheckState.pass)
@@ -206,10 +249,14 @@ class PushSelfTest {
         error == 'old-deployment'
             ? 'This deployment of push-send is too old to check itself. '
                 'Re-paste it in Edge Functions and run this again.'
-            : error == null
-                ? 'Not asked — see above.'
-                : 'push-send could not be asked: ${_short(error)}',
-        error == null ? CheckState.unknown : CheckState.fail,
+            : error == PushSelfTest.kSessionExpired
+                ? 'Not asked — the sign-in has to be fixed first.'
+                : error == null
+                    ? 'Not asked — see above.'
+                    : 'push-send could not be asked: ${_short(error)}',
+        error == null || error == PushSelfTest.kSessionExpired
+            ? CheckState.unknown
+            : CheckState.fail,
       ));
       return steps;
     }
@@ -331,6 +378,15 @@ class PushSelfTest {
     if (!signedIn) {
       return ('Sign in first — the server cannot check push for an unknown '
           'device.', true);
+    }
+    if (error == kSessionExpired) {
+      return (
+        'This phone\'s sign-in has expired on the server (a refresh was '
+            'tried and refused), so it cannot ask about push — or receive '
+            'one. Sign out in Settings and sign back in with the same '
+            'number, then run this again.',
+        true
+      );
     }
     if (error == 'old-deployment') {
       return (

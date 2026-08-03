@@ -3531,6 +3531,25 @@ void main() {
           reason: 'said once, not once per failure');
     });
 
+    testWidgets('typing… expires on its own instead of sticking forever',
+        (tester) async {
+      // The chat list drew 'typing…' off the LAST ping, and nothing ever
+      // unset it: one keystroke read as typing for the rest of the session.
+      // The chat screen had its own 3-second timer; the list had none.
+      RelayService.instance.noteTypingPing('15550142');
+      expect(RelayService.instance.typingFromDigits, '15550142');
+      // A re-ping inside the window keeps a real typer lit (the sender
+      // re-pings every 2 seconds while typing).
+      await tester.pump(const Duration(seconds: 3));
+      RelayService.instance.noteTypingPing('15550142');
+      await tester.pump(const Duration(seconds: 3));
+      expect(RelayService.instance.typingFromDigits, '15550142');
+      // Silence clears it.
+      await tester.pump(const Duration(seconds: 5));
+      expect(RelayService.instance.typingFromDigits, isNull,
+          reason: 'a ping is a moment, not a state');
+    });
+
     test('an enc-1 first message announces the new identity before harm',
         () async {
       // A freshly re-minted identity holds nobody's keys, so its first
@@ -25256,6 +25275,38 @@ void main() {
           allOf(contains('APNS_KEY_ID'), isNot(contains('APNS_TEAM_ID'))));
       expect(verdict(check(teamId: false)).$1,
           allOf(contains('APNS_TEAM_ID'), isNot(contains('APNS_KEY_ID'))));
+    });
+
+    test('an expired sign-in is named, not dumped as an exception', () {
+      // The report used to say "Signed in ✓ This device has a session" one
+      // line above "unauthorized ✗" — both true, together a contradiction
+      // that dumped a raw FunctionException at whoever opened the screen.
+      // A local session the server refuses is an EXPIRED sign-in, and the
+      // fix worth saying is sign out, sign back in.
+      final (text, faulty) = verdict(null, error: PushSelfTest.kSessionExpired);
+      expect(faulty, isTrue);
+      expect(text, contains('expired'));
+      expect(text.toLowerCase(), contains('sign out'));
+      expect(text, isNot(contains('FunctionException')));
+
+      final steps = PushSelfTest.stepsFor(
+        relayEnabled: true,
+        signedIn: true,
+        releaseBuild: true,
+        pushablePlatform: true,
+        check: null,
+        error: PushSelfTest.kSessionExpired,
+      );
+      final signedIn = steps.firstWhere((s) => s.title == 'Signed in');
+      expect(signedIn.state, CheckState.fail,
+          reason: 'a session the server refuses is not a green tick');
+      expect(signedIn.detail, contains('expired'));
+
+      // And the mapping recognises what the client actually throws.
+      expect(PushSelfTest.isAuthFailure(StateError('the server answered 401')),
+          isTrue);
+      expect(PushSelfTest.isAuthFailure(StateError('the server answered 500')),
+          isFalse);
     });
 
     test('sandbox is judged against the build that is asking', () {
