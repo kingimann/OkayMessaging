@@ -490,8 +490,11 @@ class RelayService {
             DateTime.now(),
         isMe: false,
         status: MessageStatus.delivered,
-        // Only groups need the "who said this" label above the bubble.
+        // Only groups need the "who said this" label above the bubble — and
+        // the digits under the label, so their message can be sparked. A 1:1
+        // carries neither: the chat's contact IS the sender.
         senderName: groupId.isEmpty ? '' : senderName,
+        senderPhone: groupId.isEmpty ? '' : digits(from),
         isImage: content['isImage'] as bool? ?? false,
         imageSeed: content['imageSeed'] as int? ?? 0,
         imageUrl: content['imageUrl'] as String?,
@@ -1350,6 +1353,10 @@ class RelayService {
               isMe: false,
               status: MessageStatus.delivered,
               senderName: body['senderName'] as String? ?? 'Member',
+              // The envelope's sender, kept on the message so a channel
+              // message can be sparked — the same digits the sender-key
+              // chain and signature were just checked against.
+              senderPhone: digits(payload['from'] as String? ?? ''),
               isImage: msg.isImage,
               imageUrl: msg.imageUrl,
               replyTo: msg.replyTo,

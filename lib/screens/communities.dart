@@ -29,7 +29,9 @@ import '../widgets/emoji_gif_sheet.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/pull_to_refresh.dart';
 import '../widgets/poll_widgets.dart';
+import '../payments/payment_service.dart';
 import '../widgets/rich_message_text.dart';
+import '../widgets/spark_sheet.dart';
 import '../widgets/user_avatar.dart';
 import 'community_settings_screen.dart';
 import 'create_server_screen.dart';
@@ -2990,6 +2992,27 @@ class _ChannelBubble extends StatelessWidget {
                   onTap: () {
                     Navigator.pop(sheetContext);
                     onReply!();
+                  },
+                ),
+              // Spark: real money to whoever said this, the same transfer
+              // the feeds' bolt makes. Offered only when the sender's
+              // digits rode on the message — an older message carries none
+              // and shows no bolt, same rule as legacy feed posts.
+              if (!message.isMe &&
+                  message.senderPhone.isNotEmpty &&
+                  PaymentService.instance.isConfigured)
+                ListTile(
+                  leading: const Icon(Icons.bolt, color: Color(0xFFF7931A)),
+                  title: const Text('Spark'),
+                  subtitle: Text('Send money to '
+                      '${message.senderName.isEmpty ? 'the sender' : message.senderName}'),
+                  onTap: () {
+                    Navigator.pop(sheetContext);
+                    offerSparkTo(context,
+                        toPhone: message.senderPhone,
+                        toName: message.senderName.isEmpty
+                            ? 'the sender'
+                            : message.senderName);
                   },
                 ),
               // A channel pin is on a banner every member sees, so it is a

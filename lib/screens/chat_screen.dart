@@ -1576,19 +1576,25 @@ class _ChatScreenState extends State<ChatScreen> {
                     },
                   ),
                 // Spark: money pinned to something they said, same rails as
-                // Send money. Their messages, 1:1 only — a group message
-                // names its sender without carrying their number.
+                // Send money. Their messages only. In a group it pays the
+                // SENDER — offered only when their digits rode on the
+                // message, so an old message without them shows no bolt.
                 if (!message.isMe &&
-                    !widget.chat.contact.isGroup &&
                     !_isNoteToSelf &&
+                    (!widget.chat.contact.isGroup ||
+                        message.senderPhone.isNotEmpty) &&
                     PaymentService.instance.isConfigured)
                   ListTile(
                     leading:
                         const Icon(Icons.bolt, color: Color(0xFFF7931A)),
                     title: const Text('Spark'),
+                    subtitle: widget.chat.contact.isGroup
+                        ? Text('Send money to '
+                            '${message.senderName.isEmpty ? 'the sender' : message.senderName}')
+                        : null,
                     onTap: () {
                       Navigator.of(sheetContext).pop();
-                      _sparkMessage();
+                      _sparkMessage(message);
                     },
                   ),
                 ListTile(
@@ -2341,11 +2347,13 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  /// Sparks whoever this 1:1 conversation is with — the same real transfer
-  /// as Send money, at one-tap amounts, pinned to something they said.
-  /// Offered on THEIR messages only: sparking yourself is nonsense, and a
-  /// group message names its sender without carrying their number.
-  Future<void> _sparkMessage() async {
+  /// Sparks whoever sent [message] — the same real transfer as Send money,
+  /// at one-tap amounts, pinned to something they said. Offered on THEIR
+  /// messages only (sparking yourself is nonsense). In a group the money
+  /// goes to the message's SENDER, not the room: their digits ride on the
+  /// message (senderPhone), so a group message from a build that carried
+  /// none simply doesn't offer the bolt.
+  Future<void> _sparkMessage(Message message) async {
     final svc = PaymentService.instance;
     if (!svc.isConfigured ||
         (!svc.canSendOnThisDevice && !svc.testMode.value)) {
@@ -2363,7 +2371,8 @@ class _ChatScreenState extends State<ChatScreen> {
       ));
       return;
     }
-    final recipient = widget.chat.contact;
+    final recipient = _sparkRecipientFor(message);
+    if (recipient == null) return;
     if (!svc.testMode.value && !await svc.canReceive(recipient.phone)) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -2377,6 +2386,24 @@ class _ChatScreenState extends State<ChatScreen> {
     if (cents == null || cents <= 0 || !mounted) return;
     await _payRecipient(recipient,
         cents: cents, note: 'Spark ⚡', acknowledged: true);
+  }
+
+  /// Who a spark on [message] pays: the conversation's contact in a 1:1, the
+  /// message's sender in a group — resolved from the roster when the digits
+  /// match a member (their real card), built from the message when not.
+  AppUser? _sparkRecipientFor(Message message) {
+    if (!widget.chat.contact.isGroup) return widget.chat.contact;
+    final digits = message.senderPhone.replaceAll(RegExp(r'\D'), '');
+    if (digits.isEmpty) return null;
+    for (final m in widget.chat.members) {
+      if (m.phone.replaceAll(RegExp(r'\D'), '') == digits) return m;
+    }
+    return AppUser(
+      id: 'u_$digits',
+      name: message.senderName.isEmpty ? 'Member' : message.senderName,
+      avatarColor: '#7A5CFF',
+      phone: digits,
+    );
   }
 
   /// A payment request from the other side that is still waiting for an

@@ -47,6 +47,13 @@ class Message {
   /// group so members can tell each other apart. Empty in one-to-one chats.
   final String senderName;
 
+  /// Digits of whoever sent this, where the room itself doesn't say — group
+  /// and channel messages, whose sender is otherwise only a display name.
+  /// Empty in 1:1 chats (the chat's contact IS the sender) and on messages
+  /// from builds before this field. What it exists for: sparking somebody's
+  /// message needs an address for the money, and a name is not one.
+  final String senderPhone;
+
   /// Emoji reactions attached to this message (e.g. ['👍', '❤️']).
   final List<String> reactions;
 
@@ -214,6 +221,7 @@ class Message {
     required this.isMe,
     this.status = MessageStatus.read,
     this.senderName = '',
+    this.senderPhone = '',
     this.reactions = const [],
     this.replyTo,
     this.forwarded = false,
@@ -280,6 +288,7 @@ class Message {
         'isMe': isMe,
         'status': status.index,
         'senderName': senderName,
+        if (senderPhone.isNotEmpty) 'senderPhone': senderPhone,
         'reactions': reactions,
         'replyTo': replyTo?.toJson(),
         'forwarded': forwarded,
@@ -337,6 +346,7 @@ class Message {
         isMe: json['isMe'] as bool,
         status: MessageStatus.values[json['status'] as int? ?? 3],
         senderName: json['senderName'] as String? ?? '',
+        senderPhone: json['senderPhone'] as String? ?? '',
         reactions: (json['reactions'] as List?)?.cast<String>() ?? const [],
         replyTo: json['replyTo'] == null
             ? null
@@ -425,6 +435,7 @@ class Message {
       isMe: isMe,
       status: status ?? this.status,
       senderName: senderName,
+      senderPhone: senderPhone,
       reactions: reactions ?? this.reactions,
       replyTo: replyTo,
       forwarded: forwarded,

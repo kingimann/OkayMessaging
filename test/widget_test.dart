@@ -6682,6 +6682,89 @@ void main() {
     });
   });
 
+  group('Sparks everywhere', () {
+    test('a received channel message carries its sender\'s digits', () {
+      CommunityStore.instance.resetForTest();
+      addTearDown(CommunityStore.instance.resetForTest);
+      final community = CommunityStore.instance.createCommunity('Guild');
+      final channel = CommunityStore.instance
+          .byId(community.id)!
+          .channels
+          .firstWhere((c) => c.type == ChannelType.text);
+      final secret = CommunityStore.instance.byId(community.id)!.secretBytes!;
+
+      RelayService.instance.debugApplyCommunityEvent(
+        'chmsg',
+        {
+          'from': '+1 555 010 2222',
+          'communityId': community.id,
+          'data': E2eCrypto.encrypt(
+              secret,
+              jsonEncode({
+                'channelId': channel.id,
+                'senderName': 'Ada',
+                'message': Message(
+                  id: 'spk_ch1',
+                  text: 'hello channel',
+                  time: DateTime(2026, 1, 3),
+                  isMe: true,
+                ).toJson(),
+              })),
+        },
+        '+15550101111',
+      );
+
+      final got = CommunityStore.instance
+          .messageInChannel(community.id, channel.id, 'spk_ch1')!;
+      expect(got.senderPhone, '15550102222',
+          reason: 'the envelope\'s sender rides on the message, so the '
+              'channel can offer Spark with somewhere to send the money');
+      expect(got.senderName, 'Ada');
+    });
+
+    test('senderPhone survives the wire and never appears uninvited', () {
+      final m = Message(
+        id: 'g1',
+        text: 'from the group',
+        time: DateTime(2026, 1, 3),
+        isMe: false,
+        senderName: 'Grace',
+        senderPhone: '15550103333',
+      );
+      final back = Message.fromJson(m.toJson());
+      expect(back.senderPhone, '15550103333');
+      expect(back.copyWith(status: MessageStatus.read).senderPhone,
+          '15550103333');
+      // A 1:1 message carries no sender digits — the chat's contact IS the
+      // sender, and a key that is always there invites reading it where it
+      // means nothing.
+      final plain =
+          Message(id: 'p', text: 'hi', time: DateTime(2026, 1, 3), isMe: true);
+      expect(plain.toJson().containsKey('senderPhone'), isFalse);
+    });
+
+    test('every surface offers the bolt where the money has somewhere to go',
+        () {
+      // Group receive stamps the envelope sender; 1:1 deliberately not.
+      final relay = File('lib/relay/relay_service.dart').readAsStringSync();
+      expect(relay, contains("senderPhone: groupId.isEmpty ? '' : digits(from)"));
+      // The chat menu sparks group senders through the roster.
+      final chat = File('lib/screens/chat_screen.dart').readAsStringSync();
+      expect(chat, contains('_sparkRecipientFor'));
+      expect(chat, contains('message.senderPhone.isNotEmpty'));
+      // Channels offer it through the shared flow.
+      final channels =
+          File('lib/screens/communities.dart').readAsStringSync();
+      expect(channels, contains('offerSparkTo('));
+      // And both feeds already had it — pinned so a refactor cannot quietly
+      // drop one surface's bolt.
+      expect(File('lib/screens/feed_screen.dart').readAsStringSync(),
+          contains('offerSpark('));
+      expect(File('lib/screens/public_feed_screen.dart').readAsStringSync(),
+          contains('offerPublicSpark('));
+    });
+  });
+
   group('Custom bubble color', () {
     Color outgoingBubbleColor(WidgetTester tester) {
       final containers = tester.widgetList<Container>(

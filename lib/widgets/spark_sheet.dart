@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
 
+import '../app_state.dart';
+import '../payments/payment_service.dart';
+import '../state/identity_verification.dart';
+import '../state/push_service.dart';
 import '../theme/app_theme.dart';
 
 /// One-tap preset amounts for a Spark — 21 is the community's number.
@@ -10,6 +14,66 @@ Future<int?> showSparkSheet(BuildContext context, {required String toLabel}) {
     context: context,
     builder: (_) => _SparkSheet(toLabel: toLabel),
   );
+}
+
+/// The whole spark flow against a known recipient — the same ladder the
+/// feeds walk (can this device send, is the sender verified, can the
+/// receiver be paid), then the one-tap sheet, then the REAL transfer, then
+/// the push that tells them. Used wherever a message's sender can be
+/// sparked directly: server channels, and anywhere else that holds a name
+/// and digits rather than a post id. Returns true when money moved.
+Future<bool> offerSparkTo(BuildContext context,
+    {required String toPhone, required String toName}) async {
+  final svc = PaymentService.instance;
+  final messenger = ScaffoldMessenger.of(context);
+  if (!svc.isConfigured) return false;
+  if (!svc.canSendOnThisDevice && !svc.testMode.value) {
+    messenger.showSnackBar(
+        const SnackBar(content: Text('Sparks are sent from the iPhone app.')));
+    return false;
+  }
+  if (!IdentityVerification.instance.allowsTrusted) {
+    messenger.showSnackBar(
+        const SnackBar(content: Text('Verify your ID to send money.')));
+    return false;
+  }
+  if (!svc.testMode.value && !await svc.canReceive(toPhone)) {
+    messenger.showSnackBar(SnackBar(
+        content: Text('$toName hasn\'t set up payments, so sparks can\'t '
+            'reach them yet.')));
+    return false;
+  }
+  if (!context.mounted) return false;
+  final cents = await showSparkSheet(context, toLabel: toName);
+  if (cents == null || cents <= 0) return false;
+  bool ok;
+  try {
+    ok = await svc.sendMoney(
+      toPhone: toPhone,
+      amountCents: cents,
+      note: 'Spark ⚡',
+      // The sheet said sparks are final before offering an amount.
+      acknowledged: true,
+    );
+  } on PaymentException catch (e) {
+    messenger.showSnackBar(SnackBar(
+        content: Text(e.code == 'receiver_not_onboarded'
+            ? '$toName hasn\'t set up payments, so sparks can\'t reach '
+                'them yet.'
+            : 'The spark couldn\'t be sent — ${e.code}.')));
+    return false;
+  } catch (_) {
+    return false;
+  }
+  if (!ok) return false;
+  final myName = AppState.profile.value.name;
+  PushService.instance.notify(toPhone,
+      title: myName.isEmpty ? 'Spark' : myName,
+      body: 'Sparked you \$${(cents / 100).toStringAsFixed(2)} ⚡');
+  messenger.showSnackBar(SnackBar(
+      content:
+          Text('Sparked $toName \$${(cents / 100).toStringAsFixed(2)} ⚡')));
+  return true;
 }
 
 class _SparkSheet extends StatelessWidget {
