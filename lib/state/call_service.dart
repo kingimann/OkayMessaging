@@ -491,6 +491,11 @@ class CallService {
       if (sdp != null) _answerRenegotiation(active, sdp);
       return;
     }
+    // The SAME offer again while this call is already ringing (broadcast
+    // and the mailbox both deliver it, and a VoIP wake fetches the queued
+    // copy right after the live one): a duplicate is a no-op. It used to
+    // fall through to the busy check, which declined the call with itself.
+    if (active != null && active.callId == callId) return;
     if (isBusy) {
       // We're already on a call — tell them we're busy (a decline).
       RelayService.instance

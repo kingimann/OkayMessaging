@@ -1216,7 +1216,20 @@ class RelayService {
         .subscribe();
     // Catch up on whatever arrived while the app was closed.
     fetchMailbox();
+    // The socket dies silently mid-foreground too (network blips, carrier
+    // NAT timeouts) and "sometimes works" is what that looks like. Check
+    // the join every half minute and rebuild the moment it is gone, instead
+    // of waiting for the next backgrounding to notice.
+    _socketWatch?.cancel();
+    _socketWatch = Timer.periodic(const Duration(seconds: 30), (_) {
+      final inbox = _inbox;
+      if (inbox != null && !inbox.isJoined && !inbox.isJoining) {
+        wake();
+      }
+    });
   }
+
+  Timer? _socketWatch;
 
   /// Routes one sealed community event ([event] = chmsg/chjoin/chupd) into
   /// the store — shared by the live bus and the offline mailbox, so the
@@ -2572,6 +2585,8 @@ class RelayService {
 
   /// Tears down all subscriptions (on sign-out).
   Future<void> stop() async {
+    _socketWatch?.cancel();
+    _socketWatch = null;
     final inbox = _inbox;
     _inbox = null;
     if (inbox != null) await _client.removeChannel(inbox);

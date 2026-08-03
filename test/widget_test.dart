@@ -1005,6 +1005,19 @@ void main() {
               'for a call already refused on the lock screen');
     });
 
+    test('a duplicate offer for the ringing call never declines it', () {
+      // Broadcast and the mailbox both deliver the offer, and a VoIP wake
+      // fetches the queued copy right after the live one. The echo used to
+      // fall through to the busy check — the call declined ITSELF, which
+      // read as "calls sometimes don't go through".
+      final call = CallService.instance;
+      call.onRemoteOffer(peer(), 'c_dup', false);
+      expect(call.current.value?.status, CallStatus.ringing);
+      call.onRemoteOffer(peer(), 'c_dup', false); // the mailbox echo
+      expect(call.current.value?.status, CallStatus.ringing,
+          reason: 'the echo must not decline the call with itself');
+    });
+
     test('a callmiss notice files a missed call once, log and chat both', () {
       // The live offer is never queued, so a call to a closed app only
       // exists on the callee's side through this notice — and a mailbox
@@ -3305,6 +3318,28 @@ void main() {
       expect(RelayService.inboxChannel('+1 (555) 0199'), 'inbox_15550199');
       expect(RelayService.inboxChannel('15550199'),
           RelayService.inboxChannel('+1 555 0199'));
+    });
+
+    test('a chat is found by bare digits, the way a push addresses one', () {
+      // A notification tap hands over '15550170170'; the chat was created
+      // as '+1 555 017 0170'. An exact-id miss used to read as "no chat"
+      // and bounce the tap to the system SMS handler — our own alert
+      // opening iMessage.
+      final store = ChatStore.instance;
+      store.hydrate(const {'chats': []});
+      addTearDown(store.reset);
+      store.upsert(const Chat(
+        id: 'chat_fmt',
+        contact: AppUser(
+            id: '+1 555 017 0170',
+            name: 'Pia',
+            avatarColor: '#111111',
+            phone: '+1 555 017 0170'),
+        messages: [],
+      ));
+      expect(store.chatWithContact('15550170170')?.id, 'chat_fmt');
+      expect(store.chatWithContact('+15550170170')?.id, 'chat_fmt');
+      expect(store.chatWithContact('15559999999'), isNull);
     });
 
     test('an undecryptable message never shows its ciphertext', () {

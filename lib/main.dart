@@ -275,7 +275,8 @@ final GlobalKey<NavigatorState> rootNavigatorKey = GlobalKey<NavigatorState>();
 /// app get a chat under their real identity; everyone else bounces to the
 /// system's sms: handler so the text still happens — Apple's documented
 /// fallback, which reaches Messages even when we're the default.
-Future<void> openChatForPhone(String phone) async {
+Future<void> openChatForPhone(String phone,
+    {bool systemFallback = true}) async {
   final store = ChatStore.instance;
   var chat = store.chatWithContact(phone);
   AppUser? contact;
@@ -285,7 +286,15 @@ Future<void> openChatForPhone(String phone) async {
           ContactsSync.hashesFor([phone],
               countryCode: ContactsSync.defaultCountryCode()));
       if (matches.isEmpty) {
-        if (await launchUrl(Uri.parse('sms:$phone'))) return;
+        // Only for default-messaging-app taps about people NOT on the app.
+        // A tap on OUR OWN notification sets [systemFallback] false: the
+        // sender is on the app by definition (they just messaged through
+        // it), and a directory miss — numberless sender, empty directory,
+        // no session to read it with — was bouncing our own alerts to
+        // iMessage.
+        if (systemFallback && await launchUrl(Uri.parse('sms:$phone'))) {
+          return;
+        }
       } else {
         contact = matches.first;
       }
@@ -344,8 +353,11 @@ class _OkayMessagingAppState extends State<OkayMessagingApp>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    IncomingLinks.instance
-        .init(onPhone: openChatForPhone, onCall: openCallForPhone);
+    IncomingLinks.instance.init(
+      onPhone: openChatForPhone,
+      onCall: openCallForPhone,
+      onPushChat: (phone) => openChatForPhone(phone, systemFallback: false),
+    );
     CallKitBridge.instance.init();
     // Structural server edits fan out to the other members live.
     CommunityStore.instance.onStructureChanged = (id) {

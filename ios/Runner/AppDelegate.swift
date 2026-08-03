@@ -306,7 +306,11 @@ import WebRTC
     guard let from = payload["from"] as? String else { return nil }
     let digits = from.filter(\.isNumber)
     guard !digits.isEmpty else { return nil }
-    return URL(string: "im:+\(digits)")
+    // src=okay marks this as a tap on OUR OWN notification: it must open
+    // the in-app chat and may never bounce to the system SMS handler —
+    // that bounce exists for default-messaging-app taps about strangers,
+    // and applying it here sent people to iMessage off our own alerts.
+    return URL(string: "im:+\(digits)?src=okay")
   }
 
   override func application(

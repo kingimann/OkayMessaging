@@ -88,9 +88,15 @@ class IncomingLinks {
   /// Starts listening. [onPhone] receives the normalized number of every
   /// message tap and [onCall] of every call tap — including ones that
   /// launched the app cold.
+  /// Whether [url] is a tap on this app's own notification (the native side
+  /// stamps src=okay) — those must open in-app, never bounce to SMS.
+  static bool isOwnPushTap(String url) =>
+      Uri.tryParse(url.trim())?.queryParameters['src'] == 'okay';
+
   Future<void> init({
     required void Function(String phone) onPhone,
     required void Function(String phone) onCall,
+    void Function(String phone)? onPushChat,
   }) async {
     if (_started || kIsWeb) return;
     _started = true;
@@ -99,7 +105,11 @@ class IncomingLinks {
       if (url == null) return;
       final message = imPhone(url);
       if (message != null) {
-        onPhone(message);
+        if (isOwnPushTap(url) && onPushChat != null) {
+          onPushChat(message);
+        } else {
+          onPhone(message);
+        }
         return;
       }
       final call = telPhone(url);

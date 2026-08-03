@@ -252,10 +252,22 @@ class ChatStore extends ChangeNotifier {
     return null;
   }
 
-  /// The existing conversation with [contactId], if one exists.
+  /// The existing conversation with [contactId], if one exists. Falls back
+  /// to digit-normalized matching: a push (and the relay generally)
+  /// addresses people by bare digits, while the chat was created from a
+  /// formatted number — same digits, same person. An exact-id miss used to
+  /// read as "no chat", which sent a notification tap off to the system's
+  /// SMS handler: our own alert opening iMessage.
   Chat? chatWithContact(String contactId) {
     final i = _chats.indexWhere((c) => c.contact.id == contactId);
-    return i == -1 ? null : _chats[i];
+    if (i != -1) return _chats[i];
+    final d = contactId.replaceAll(RegExp(r'\D'), '');
+    if (d.length < 7) return null;
+    final j = _chats.indexWhere((c) =>
+        !c.contact.isGroup &&
+        (c.contact.phone.replaceAll(RegExp(r'\D'), '') == d ||
+            c.contact.id.replaceAll(RegExp(r'\D'), '') == d));
+    return j == -1 ? null : _chats[j];
   }
 
   void _replace(int index, Chat chat) {
