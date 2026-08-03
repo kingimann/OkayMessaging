@@ -189,6 +189,9 @@ class CallService {
       type: c.video ? log.CallType.video : log.CallType.voice,
       direction: dir,
       durationSeconds: duration,
+      // The link's last reading, so "that call was choppy" leaves
+      // something checkable in the log instead of only a memory.
+      quality: connected ? CallMedia.instance.quality.value : 0,
     ));
     _recordInChat(c, connected: connected, duration: duration);
   }

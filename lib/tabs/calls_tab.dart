@@ -786,6 +786,16 @@ class _CallTile extends StatelessWidget {
             Text(record.durationLabel!,
                 style: TextStyle(color: AppColors.subtle(context))),
           ],
+          // Only a POOR link is worth a word in the log — good is the
+          // default and two bars is a call that still worked.
+          if (record.quality == 1) ...[
+            const SizedBox(width: 6),
+            const Icon(Icons.signal_cellular_connected_no_internet_0_bar,
+                size: 13, color: Color(0xFFF7931A)),
+            const SizedBox(width: 2),
+            const Text('poor connection',
+                style: TextStyle(color: Color(0xFFF7931A), fontSize: 12)),
+          ],
         ],
       ),
       trailing: IconButton(

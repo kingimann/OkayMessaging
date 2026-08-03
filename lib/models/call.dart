@@ -15,6 +15,11 @@ class CallRecord {
   /// How long the call was connected, in seconds (0 for missed/unanswered).
   final int durationSeconds;
 
+  /// The link's last quality reading when the call ended (3 good … 1 poor,
+  /// 0 unknown/never connected). A call that was bad should leave a trace —
+  /// "it was choppy" is a report worth being able to check against.
+  final int quality;
+
   const CallRecord({
     required this.id,
     required this.user,
@@ -22,6 +27,7 @@ class CallRecord {
     required this.type,
     required this.direction,
     this.durationSeconds = 0,
+    this.quality = 0,
   });
 
   bool get isMissed => direction == CallDirection.missed;
@@ -43,6 +49,7 @@ class CallRecord {
         'type': type.name,
         'direction': direction.name,
         'durationSeconds': durationSeconds,
+        if (quality != 0) 'quality': quality,
       };
 
   factory CallRecord.fromJson(Map<String, dynamic> json) => CallRecord(
@@ -58,5 +65,6 @@ class CallRecord {
           orElse: () => CallDirection.incoming,
         ),
         durationSeconds: (json['durationSeconds'] as num?)?.toInt() ?? 0,
+        quality: (json['quality'] as num?)?.toInt() ?? 0,
       );
 }

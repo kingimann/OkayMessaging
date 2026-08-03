@@ -210,7 +210,12 @@ class _CallScreenState extends State<CallScreen>
           switch (CallMedia.instance.connectionState.value) {
             case 'new':
             case 'connecting':
-              return 'Connecting…';
+              // Past the stall window, waiting is no longer the plan —
+              // point at the tool that names what this network is missing.
+              return CallMedia.instance.connectStalled.value
+                  ? 'Can\'t connect — this network may block calls. '
+                      'See Settings → Check call setup.'
+                  : 'Connecting…';
             case 'disconnected':
               return 'Reconnecting…';
             case 'failed':

@@ -7203,6 +7203,61 @@ void main() {
           contains('_onShareFailure'));
     });
 
+    test('the mesh has a stated ceiling, and every device picks the same '
+        'room', () {
+      // Under the cap: everyone connects to everyone.
+      expect(RoomMedia.legsFor({'2', '3'}, '1'), {'2', '3'});
+      // Over it: the first eight by digit-sort mesh; the rest are presence
+      // only — and every member computes the SAME subset, or each phone
+      // would connect to a different eight.
+      final present = {for (var i = 2; i <= 10; i++) '$i'.padLeft(2, '0')};
+      final legs = RoomMedia.legsFor(present, '01');
+      expect(legs.length, RoomMedia.maxRoomSize - 1);
+      expect(legs, isNot(contains('10')),
+          reason: 'the sorted overflow member stays presence-only');
+      // A member outside the first eight holds no legs at all rather than
+      // half a room.
+      expect(RoomMedia.legsFor({for (var i = 1; i <= 9; i++) '0$i'}, '99'),
+          isEmpty);
+      // And the join path refuses a full room BEFORE presence lists a
+      // member nobody can hear.
+      final screens =
+          File('lib/screens/communities.dart').readAsStringSync();
+      expect(screens, contains('full for voice'));
+      final room = File('lib/state/room_media.dart').readAsStringSync();
+      expect(room, contains('maxRoomSize'));
+    });
+
+    test('a stalled call points at the diagnosis instead of spinning', () {
+      final media = File('lib/state/call_media.dart').readAsStringSync();
+      expect(media, contains('connectStalled'));
+      final screen = File('lib/screens/call_screen.dart').readAsStringSync();
+      expect(screen, contains('Check call setup'),
+          reason: '"Connecting…" forever must name the tool that explains '
+              'it');
+    });
+
+    test('a bad call leaves a trace in the log', () {
+      final rec = callmodel.CallRecord(
+        id: 'q1',
+        user: MockData.contacts().first,
+        time: DateTime(2026, 1, 1),
+        type: callmodel.CallType.voice,
+        direction: callmodel.CallDirection.incoming,
+        durationSeconds: 60,
+        quality: 1,
+      );
+      final back = callmodel.CallRecord.fromJson(rec.toJson());
+      expect(back.quality, 1, reason: 'the reading survives persistence');
+      // An old record without the field reads as unknown, not as poor.
+      final legacy = callmodel.CallRecord.fromJson(
+          rec.toJson()..remove('quality'));
+      expect(legacy.quality, 0);
+      // And only POOR gets words in the log — good is the default state.
+      final tab = File('lib/tabs/calls_tab.dart').readAsStringSync();
+      expect(tab, contains('record.quality == 1'));
+    });
+
     test('a number the directory has never heard of gets an invite, not a '
         'chat', () async {
       // Unknown is not "no": with no session (this test env) the check must

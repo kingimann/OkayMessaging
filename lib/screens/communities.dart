@@ -1149,6 +1149,16 @@ class _VoiceChannelScreenState extends State<VoiceChannelScreen> {
   }
 
   void _join() {
+    // Full is full, before presence says otherwise: joining the roster of
+    // a room the mesh cannot seat would show a member nobody can hear.
+    if (!_voice.amIn(widget.channelId) &&
+        _voice.countIn(widget.channelId) >= RoomMedia.maxRoomSize) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('This room is full for voice — device-to-device '
+              'audio holds ${RoomMedia.maxRoomSize} people. A spot opens '
+              'when somebody leaves.')));
+      return;
+    }
     _voice.join(
       communityId: widget.communityId,
       channelId: widget.channelId,

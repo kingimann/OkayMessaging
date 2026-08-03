@@ -56,6 +56,27 @@ class RoomMedia extends ChangeNotifier {
   static String roomIdFor(String communityId, String channelId) =>
       'vc|$communityId|$channelId';
 
+  /// The mesh's honest ceiling. Every member sends to every other, so a
+  /// room of N costs each phone N-1 encodes of everything — at eight that
+  /// is already a hot phone, and past it the room degrades for EVERYONE,
+  /// not just the weakest device. Discord holds bigger rooms with a media
+  /// server; this app keeps media end-to-end instead, and says the price
+  /// out loud rather than melting quietly.
+  static const int maxRoomSize = 8;
+
+  /// The legs this device should hold, given who presence shows: everyone,
+  /// up to the cap — and when the room is over it, the FIRST [maxRoomSize]
+  /// occupants by digit-sort, so every member picks the same subset instead
+  /// of each connecting to a different eight. Pure, so a test can pin it.
+  static Set<String> legsFor(Set<String> present, String myDigits,
+      {int cap = maxRoomSize}) {
+    final everyone = {...present, myDigits}.toList()..sort();
+    final room = everyone.take(cap).toSet();
+    if (!room.contains(myDigits)) return const {};
+    room.remove(myDigits);
+    return room;
+  }
+
   /// The pair-role rule, pinned pure: for any two digit-strings exactly one
   /// side initiates, both sides agree which, and nobody initiates to
   /// themselves.
@@ -85,6 +106,15 @@ class RoomMedia extends ChangeNotifier {
     if (!isSupported) return null; // tests / unsupported: silently inert
     final roomId = roomIdFor(communityId, channelId);
     if (_roomId == roomId) return null;
+    // Full is full, said before the mic opens: joining voice in a room
+    // already at the mesh's ceiling would mean sitting in silence while
+    // appearing connected.
+    final inVoice = VoicePresenceStore.instance.countIn(channelId);
+    if (inVoice >= maxRoomSize) {
+      return 'This room is full for voice — device-to-device audio holds '
+          '$maxRoomSize people. You can still read the channel; a spot '
+          'opens when somebody leaves.';
+    }
     await leaveRoom();
     try {
       _localStream = await navigator.mediaDevices
@@ -297,7 +327,11 @@ class RoomMedia extends ChangeNotifier {
       for (final o in VoicePresenceStore.instance.occupantsIn(channelId))
         if (!o.isMe && o.digits.isNotEmpty) o.digits
     };
-    final diff = diffPeers(_peers.keys.toSet(), present);
+    // The cap, applied the same way on every device: an over-full room
+    // meshes its first eight by digit-sort and carries the rest as
+    // presence only, instead of every phone melting a different way.
+    final wanted = legsFor(present, _myDigits);
+    final diff = diffPeers(_peers.keys.toSet(), wanted);
     for (final digits in diff.drop) {
       _closePeer(digits);
     }

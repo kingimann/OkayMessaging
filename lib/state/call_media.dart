@@ -39,6 +39,12 @@ class CallMedia {
   /// user sees "Connecting…" / "Reconnecting…" rather than silence.
   final ValueNotifier<String> connectionState = ValueNotifier<String>('new');
 
+  /// Set when the media path has negotiated for so long that waiting is no
+  /// longer the plan — with WHERE to look, because "Connecting…" forever
+  /// was this app's most opaque failure until the call self-test existed.
+  final ValueNotifier<bool> connectStalled = ValueNotifier<bool>(false);
+  Timer? _stallTimer;
+
   /// WebRTC media is available on every real platform flutter_webrtc supports
   /// (web + mobile/desktop). It is only inert on unsupported targets. All calls
   /// are additionally wrapped in try/catch, so the Dart VM used by unit tests
@@ -173,9 +179,18 @@ class CallMedia {
     };
     pc.onConnectionState = (state) {
       connectionState.value = _mapState(state);
+      if (connectionState.value == 'connected') {
+        _stallTimer?.cancel();
+        connectStalled.value = false;
+      }
       _watchForDeadLink(connectionState.value);
     };
     connectionState.value = 'connecting';
+    _stallTimer?.cancel();
+    _stallTimer = Timer(const Duration(seconds: 25), () {
+      final s = connectionState.value;
+      if (s == 'new' || s == 'connecting') connectStalled.value = true;
+    });
     localVideo.value = video;
     if (video) {
       unawaited(CallQuality.tuneVideoSenders(pc, screen: false));
@@ -675,6 +690,9 @@ class CallMedia {
     _abr = null;
     _disconnectTimer?.cancel();
     _disconnectTimer = null;
+    _stallTimer?.cancel();
+    _stallTimer = null;
+    connectStalled.value = false;
     _lastRestartAsk = null;
     quality.value = 0;
     try {
