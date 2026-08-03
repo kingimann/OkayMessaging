@@ -7,6 +7,7 @@ import '../app_state.dart';
 import '../models/feed_notification.dart';
 import '../payments/payment_service.dart';
 import '../relay/relay_config.dart';
+import 'feed_prefs.dart';
 import '../relay/relay_service.dart';
 import 'session.dart';
 
@@ -815,6 +816,9 @@ class FeedStore extends ChangeNotifier {
         !p.isListing &&
         (!isSparkBotPost(p.id) || PaymentService.instance.testMode.value) &&
         !_hiddenIds.contains(p.id) &&
+        // The reader's own shape: muted words and (optionally) reposts.
+        !FeedPrefs.instance.hides(p.text) &&
+        !(FeedPrefs.instance.hideReposts && p.repostOfId != null) &&
         !_mutedUsernames.contains(p.authorUsername.toLowerCase()));
     if (onlyUsernames != null) {
       posts = posts.where((p) =>

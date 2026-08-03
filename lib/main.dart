@@ -41,6 +41,7 @@ import 'state/favourites_store.dart';
 import 'state/incoming_links.dart';
 import 'state/bookmark_store.dart';
 import 'state/feed_mute_store.dart';
+import 'state/feed_prefs.dart';
 import 'state/notes_store.dart';
 import 'state/follow_store.dart';
 import 'state/legal_consent.dart';
@@ -110,6 +111,7 @@ Future<void> main() async {
   await _boot('follows', FollowStore.instance.load);
   await _boot('bookmarks', BookmarkStore.instance.load);
   await _boot('feed mutes', FeedMuteStore.instance.load);
+  await _boot('feed prefs', FeedPrefs.instance.load);
   await _boot('notes', NotesStore.instance.load);
   await _boot('feed', FeedStore.instance.load);
   await _boot('drafts', FeedDrafts.instance.load);

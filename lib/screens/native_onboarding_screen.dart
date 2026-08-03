@@ -248,14 +248,22 @@ class _NativeOnboardingScreenState extends State<NativeOnboardingScreen> {
         Navigator.of(context).pop(true);
         return;
       }
-      // Stripe asks in rounds: satisfying one set can reveal another. Show what
-      // is left rather than claiming to be finished.
+      // Stripe asks in rounds: satisfying one set can reveal another. Show
+      // what is left rather than claiming to be finished — and when the
+      // round moved NOTHING, say that too. A submission the server quietly
+      // ignored used to redraw this same screen with no words at all, which
+      // reads as a button that does nothing.
       setState(() {
         _req = after;
         _submitting = false;
-        _submitError = after.errors.isEmpty
-            ? null
-            : after.errors.map((e) => e.reason).join('\n');
+        _submitError = after.errors.isNotEmpty
+            ? after.errors.map((e) => e.reason).join('\n')
+            : ConnectRequirements.stalledMessage(
+                before: {...req.pastDue, ...req.currentlyDue},
+                after: {...after.pastDue, ...after.currentlyDue},
+                complete: after.complete,
+                hasErrors: after.errors.isNotEmpty,
+              );
       });
     } catch (e) {
       if (!mounted) return;

@@ -1,5 +1,6 @@
 import '../theme/app_theme.dart';
 import '../widgets/phone_gate.dart';
+import '../widgets/feed_prefs_sheet.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -178,6 +179,20 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
               }
             },
           ),
+          if (!_searching)
+            IconButton(
+              icon: const Icon(Icons.tune),
+              tooltip: 'Shape your feed',
+              onPressed: () => showFeedPrefsSheet(
+                context,
+                mutedPeople: FeedMuteStore.instance.muted,
+                onUnmute: (u) {
+                  if (FeedMuteStore.instance.isMuted(u)) {
+                    FeedMuteStore.instance.toggle(u);
+                  }
+                },
+              ),
+            ),
         ],
       ),
       // Round and iconic, where the compose button lives on a timeline like

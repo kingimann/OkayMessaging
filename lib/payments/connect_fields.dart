@@ -158,6 +158,30 @@ class ConnectRequirements {
   /// Nothing left to ask for.
   bool get complete => currentlyDue.isEmpty && pastDue.isEmpty;
 
+  /// What to say when a submission round moved nothing: Stripe took the
+  /// submission, reported no errors, and still asks for the same things.
+  ///
+  /// Returns null when there was progress (or a plain error, which speaks
+  /// for itself). Non-null is the sentence that turns an invisible loop
+  /// into words — this exact silence has happened: the deployed Edge
+  /// Function was older than the form, quietly ignored the fields it did
+  /// not know, and Submit "did nothing" forever.
+  static String? stalledMessage({
+    required Set<String> before,
+    required Set<String> after,
+    required bool complete,
+    required bool hasErrors,
+  }) {
+    if (complete || hasErrors) return null;
+    if (after.length < before.length) return null;
+    if (!after.every(before.contains)) return null; // new asks = progress
+    return 'Stripe accepted the submission but still asks for the same '
+        'details (${after.join(', ')}). That usually means the server\'s '
+        'payments-connect-fields function is older than this app — '
+        're-paste it from docs/edge_functions_paste in the Supabase '
+        'dashboard, then try again.';
+  }
+
   /// The form sections still needed, in the order they are asked.
   List<ConnectField> get fieldsNeeded {
     final wanted = <ConnectField>{};

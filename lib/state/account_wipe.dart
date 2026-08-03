@@ -21,6 +21,7 @@ import 'community_store.dart';
 import 'favourites_store.dart';
 import 'feed_drafts.dart';
 import 'feed_mute_store.dart';
+import 'feed_prefs.dart';
 import 'feed_store.dart';
 import 'follow_store.dart';
 import 'identity_verification.dart';
@@ -111,6 +112,7 @@ class AccountWipe {
     FeedStore.instance.resetForTest();
     FollowStore.instance.resetForTest();
     FeedMuteStore.instance.resetForTest();
+    FeedPrefs.instance.resetForTest();
     FeedDrafts.instance.resetForTest();
     CommunityStore.instance.resetForTest();
     ScoreStore.instance.resetForTest();

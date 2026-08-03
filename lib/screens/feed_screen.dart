@@ -22,6 +22,7 @@ import '../payments/payment_service.dart';
 import '../state/identity_verification.dart';
 import '../state/push_service.dart';
 import '../widgets/feed_post_actions.dart';
+import '../widgets/feed_prefs_sheet.dart';
 import '../widgets/feed_post_parts.dart';
 import '../widgets/poll_widgets.dart';
 import '../widgets/pull_to_refresh.dart';
@@ -493,6 +494,20 @@ class _FeedScreenState extends State<FeedScreen> {
               tooltip: 'Add and follow people',
               onPressed: () => Navigator.of(context).push(
                 MaterialPageRoute(builder: (_) => const PeopleScreen()),
+              ),
+            ),
+          if (!_searching)
+            IconButton(
+              icon: const Icon(Icons.tune),
+              tooltip: 'Shape your feed',
+              onPressed: () => showFeedPrefsSheet(
+                context,
+                mutedPeople: FeedStore.instance.mutedUsernames,
+                onUnmute: (u) {
+                  if (FeedStore.instance.isMuted(u)) {
+                    FeedStore.instance.toggleMute(u);
+                  }
+                },
               ),
             ),
         ],

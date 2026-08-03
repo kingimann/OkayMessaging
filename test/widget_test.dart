@@ -18,6 +18,7 @@ import 'package:okay_messaging/state/notes_store.dart';
 import 'package:okay_messaging/state/bookmark_store.dart';
 import 'package:okay_messaging/state/feed_drafts.dart';
 import 'package:okay_messaging/state/feed_mute_store.dart';
+import 'package:okay_messaging/state/feed_prefs.dart';
 import 'package:okay_messaging/widgets/collapsible_text.dart';
 import 'package:okay_messaging/state/voice_presence_store.dart';
 import 'package:okay_messaging/widgets/voice_channel_banner.dart';
@@ -18909,6 +18910,43 @@ void main() {
           reason: 'transfer_data would route the money through the platform');
     });
 
+    test('a no-progress onboarding round says so instead of redrawing', () {
+      // Same asks back, no errors, not complete: the silent loop — worded.
+      final stalled = ConnectRequirements.stalledMessage(
+        before: {'business_profile.product_description',
+            'individual.relationship.title'},
+        after: {'business_profile.product_description',
+            'individual.relationship.title'},
+        complete: false,
+        hasErrors: false,
+      );
+      expect(stalled, contains('payments-connect-fields'));
+      // Any real movement is not a stall: fewer asks, new asks, done, or an
+      // error that already speaks for itself.
+      expect(
+          ConnectRequirements.stalledMessage(
+              before: {'a', 'b'},
+              after: {'a'},
+              complete: false,
+              hasErrors: false),
+          isNull);
+      expect(
+          ConnectRequirements.stalledMessage(
+              before: {'a'},
+              after: {'a', 'external_account'},
+              complete: false,
+              hasErrors: false),
+          isNull);
+      expect(
+          ConnectRequirements.stalledMessage(
+              before: {'a'}, after: {}, complete: true, hasErrors: false),
+          isNull);
+      expect(
+          ConnectRequirements.stalledMessage(
+              before: {'a'}, after: {'a'}, complete: false, hasErrors: true),
+          isNull);
+    });
+
     test('the tips store check names the broken link, not a generic failure',
         () {
       // No store at all (web, signed-out device).
@@ -19042,6 +19080,65 @@ void main() {
               time: DateTime(2024),
               text: 'mine')),
           isFalse);
+    });
+
+    test('muted words and hidden reposts shape both timelines', () async {
+      addTearDown(FeedPrefs.instance.resetForTest);
+      // The matcher is pure: case-insensitive, and a phrase is a phrase.
+      expect(FeedPrefs.hidesText('Big CRYPTO news', ['crypto']), isTrue);
+      expect(FeedPrefs.hidesText('cryptic', ['crypto']), isFalse);
+      expect(
+          FeedPrefs.hidesText('great crypto tips here', ['crypto tips']),
+          isTrue);
+      expect(FeedPrefs.hidesText('crypto and tips', ['crypto tips']), isFalse);
+      expect(FeedPrefs.hidesText('anything', []), isFalse);
+
+      // Server feed: a muted word hides the post; unmuting brings it back.
+      final store = FeedStore.instance;
+      store.resetForTest();
+      store.add('c1', 'the weather is lovely');
+      store.add('c1', 'one weird crypto trick');
+      await FeedPrefs.instance.muteWord('crypto');
+      expect(FeedPrefs.instance.mutedWords, ['crypto']);
+      expect(store.postsFor('c1').map((p) => p.text),
+          ['the weather is lovely']);
+      await FeedPrefs.instance.unmuteWord('crypto');
+      expect(store.postsFor('c1'), hasLength(2));
+      // Blanks and duplicates don't grow the list.
+      expect(await FeedPrefs.instance.muteWord('  '), isFalse);
+      await FeedPrefs.instance.muteWord('Spam');
+      expect(await FeedPrefs.instance.muteWord('spam'), isFalse);
+      await FeedPrefs.instance.unmuteWord('spam');
+
+      // Hide reposts: the repost entry goes, the original stays.
+      final original = store.add('c1', 'worth repeating');
+      store.toggleRepost(original.id);
+      expect(store.postsFor('c1').where((p) => p.repostOfId != null),
+          hasLength(1));
+      await FeedPrefs.instance.setHideReposts(true);
+      expect(store.postsFor('c1').where((p) => p.repostOfId != null),
+          isEmpty);
+      expect(store.postsFor('c1').any((p) => p.id == original.id), isTrue);
+
+      // The public timeline follows the same rules.
+      PublicFeedStore.debugLoadOverride = () async => [
+            PublicPost(
+                id: 'p1',
+                authorUsername: 'ada',
+                authorName: 'Ada',
+                body: 'hello world',
+                createdAt: DateTime.now()),
+            PublicPost(
+                id: 'p2',
+                authorUsername: 'ada',
+                authorName: 'Ada',
+                body: 'crypto giveaway',
+                createdAt: DateTime.now()),
+          ];
+      addTearDown(() => PublicFeedStore.debugLoadOverride = null);
+      await PublicFeedStore.instance.load();
+      await FeedPrefs.instance.muteWord('crypto');
+      expect(PublicFeedStore.instance.posts.map((p) => p.id), ['p1']);
     });
 
     test('the Spark practice bot exists only inside payments test mode', () {

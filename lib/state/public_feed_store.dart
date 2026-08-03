@@ -8,6 +8,7 @@ import '../app_state.dart';
 import '../relay/relay_config.dart';
 import 'account_service.dart';
 import 'feed_mute_store.dart';
+import 'feed_prefs.dart';
 import 'market_media.dart';
 import 'follow_store.dart';
 import 'session.dart' as local;
@@ -414,7 +415,11 @@ class PublicFeedStore extends ChangeNotifier {
   List<PublicPost> get posts {
     final list = _posts
         .where((p) =>
-            p.replyTo == null && !FeedMuteStore.instance.isMuted(p.authorUsername))
+            p.replyTo == null &&
+            !FeedMuteStore.instance.isMuted(p.authorUsername) &&
+            // The reader's own shape, same rules as the server feeds.
+            !FeedPrefs.instance.hides(p.body) &&
+            !(FeedPrefs.instance.hideReposts && p.repostOf != null))
         .toList();
     return List.unmodifiable(list);
   }
