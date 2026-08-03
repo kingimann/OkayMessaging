@@ -31,6 +31,13 @@ dependencies:
   # RECORD_AUDIO). Both packages support iOS/Android/web.
   record: ^5.1.2
   audioplayers: ^6.1.0
+  # record 5.x lets record_platform_interface float to 1.6.0 but pins
+  # record_linux <1.0.0, whose 0.7.2 predates the interface's startStream /
+  # hasPermission(request:) — the mismatch fails kernel_snapshot on EVERY
+  # platform's release build (the Dart plugin registrant compiles all
+  # platform implementations). record_linux 1.3.1 implements interface
+  # ^1.5.0 and 1.6.0 added no abstract members, so it closes the gap.
+  # (Override lives at the bottom of this file.)
   # Browser interop (Web Share API + downloads) for saving the encrypted chat
   # backup on the web build. Guarded by a conditional import.
   web: ^1.1.0
@@ -69,6 +76,13 @@ dev_dependencies:
   flutter_lints: ^3.0.0
   flutter_launcher_icons: ^0.14.1
   flutter_native_splash: ^2.4.4
+
+# See the note above `record:` — record 5.x's own constraints resolve to an
+# incompatible record_linux, and this is the pub-sanctioned way past a
+# publisher's stale pin. Drop this when record is bumped to 7.x (whose
+# federated set is self-consistent).
+dependency_overrides:
+  record_linux: 1.3.1
 
 # Native launch screen. Regenerate after changing the art with:
 #   dart run flutter_native_splash:create
