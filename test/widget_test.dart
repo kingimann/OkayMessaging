@@ -3860,6 +3860,52 @@ void main() {
       expect(find.textContaining('Encryption restored'), findsOneWidget);
     });
 
+    test('key material moves to the keychain, out of the backed-up plist',
+        () async {
+      // SharedPreferences is an NSUserDefaults plist that rides device
+      // backups; the identity private key used to live there. In tests
+      // there is no keychain channel, so SecureStore falls back to prefs
+      // under a 'sec_' prefix — which is exactly what lets this test watch
+      // the migration happen.
+      SharedPreferences.setMockInitialValues({
+        'device_ec_priv_v1': 'deadbeef01',
+      });
+      // ignore: invalid_use_of_visible_for_testing_member
+      addTearDown(SecureKeyExchange.instance.resetForTest);
+      await SecureKeyExchange.instance.load();
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getString('device_ec_priv_v1'), isNull,
+          reason: 'the plist copy must be DELETED — the next backup must '
+              'not carry the one secret everything hangs off');
+      expect(prefs.getString('sec_device_ec_priv'), 'deadbeef01',
+          reason: 'migrated into the secure store, same identity');
+      expect(SecureKeyExchange.instance.exportPrivate(), 'deadbeef01');
+
+      // A fresh identity is born straight into the secure store — the
+      // plist never sees it at all.
+      SharedPreferences.setMockInitialValues({});
+      SecureKeyExchange.instance.resetForTest();
+      await SecureKeyExchange.instance.load();
+      final fresh = await SharedPreferences.getInstance();
+      expect(fresh.getString('device_ec_priv_v1'), isNull);
+      expect(fresh.getString('sec_device_ec_priv'), isNotNull);
+
+      // The ratchet's chain keys follow the same road.
+      SharedPreferences.setMockInitialValues({
+        'double_ratchet_v1': '{}',
+        'sender_keys_v1': '{}',
+      });
+      // ignore: invalid_use_of_visible_for_testing_member
+      addTearDown(DoubleRatchet.instance.resetForTest);
+      await DoubleRatchet.instance.load();
+      await SenderKeyStore.instance.load();
+      final after = await SharedPreferences.getInstance();
+      expect(after.getString('double_ratchet_v1'), isNull);
+      expect(after.getString('sender_keys_v1'), isNull);
+      expect(after.getString('sec_double_ratchet'), '{}');
+      expect(after.getString('sec_sender_keys'), '{}');
+    });
+
     testWidgets('messaging waits for the recovery code, X-style',
         (tester) async {
       SharedPreferences.setMockInitialValues({});

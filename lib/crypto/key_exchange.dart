@@ -5,6 +5,7 @@ import 'dart:math';
 
 import 'package:pointycastle/export.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../state/secure_store.dart';
 
 /// Elliptic-curve (P-256) key agreement for stronger end-to-end encryption.
 ///
@@ -39,12 +40,19 @@ class SecureKeyExchange {
 
   /// Loads (or creates and persists) this device's identity key pair plus any
   /// cached peer public keys. Safe to call once at startup.
+  ///
+  /// The PRIVATE key reads from the keychain — a copy that predates it is
+  /// migrated in and deleted from SharedPreferences, so the next device
+  /// backup no longer carries the one secret everything else hangs off.
+  /// Peer PUBLIC keys stay in prefs; they are public.
   Future<void> load() async {
     final prefs = await SharedPreferences.getInstance();
     _prefs = prefs;
-    ensureKeys(restorePrivateHex: prefs.getString(_kPriv));
-    if (prefs.getString(_kPriv) == null) {
-      await prefs.setString(_kPriv, exportPrivate());
+    final priv =
+        await SecureStore.instance.readMigrating('device_ec_priv', _kPriv);
+    ensureKeys(restorePrivateHex: priv);
+    if (priv == null) {
+      await SecureStore.instance.write('device_ec_priv', exportPrivate());
     }
     final raw = prefs.getString(_kPeers);
     if (raw != null) {
@@ -121,8 +129,10 @@ class SecureKeyExchange {
     _priv = ECPrivateKey(d, _domain);
     _pub = ECPublicKey(_domain.G * d, _domain);
     _publicKeyB64 = base64.encode(_pub!.Q!.getEncoded(false));
+    await SecureStore.instance.write('device_ec_priv', privateHex);
+    // Never leave a stale copy where backups can reach it.
     _prefs ??= await SharedPreferences.getInstance();
-    await _prefs!.setString(_kPriv, privateHex);
+    await _prefs!.remove(_kPriv);
   }
 
   /// Derives the 32-byte shared secret with a peer's base64 public key, or

@@ -8,8 +8,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../app_state.dart';
 import '../crypto/double_ratchet.dart';
+import '../crypto/identity_recovery.dart';
 import '../crypto/key_exchange.dart';
 import '../crypto/sender_key.dart';
+import 'secure_store.dart';
 import 'account_email.dart';
 import 'backup_service.dart';
 import 'bookmark_store.dart';
@@ -134,6 +136,16 @@ class AccountWipe {
     SecureKeyExchange.instance.resetForTest();
     DoubleRatchet.instance.resetForTest();
     SenderKeyStore.instance.resetForTest();
+    IdentityRecovery.resetReadyForTest();
     AppState.resetForTest();
+
+    // The keychain too: prefs.clear() no longer reaches the key material
+    // now that it lives where backups can't. The identity keypair, ratchet
+    // sessions and sender chains all belong to the account that left —
+    // keeping the keypair would let peers correlate two accounts as one
+    // device, and iOS keychains survive even a reinstall.
+    await SecureStore.instance.delete('device_ec_priv');
+    await SecureStore.instance.delete('double_ratchet');
+    await SecureStore.instance.delete('sender_keys');
   }
 }

@@ -4,10 +4,10 @@ import 'dart:math';
 import 'package:crypto/crypto.dart' show Hmac, sha256;
 import 'package:flutter/foundation.dart';
 import 'package:pointycastle/export.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import 'e2e.dart';
 import 'key_exchange.dart';
+import '../state/secure_store.dart';
 
 /// The Signal Double Ratchet, as published — with two parameter substitutions
 /// this file must be honest about.
@@ -71,14 +71,15 @@ class DoubleRatchet {
   static final ECDomainParameters _domain = ECDomainParameters('secp256r1');
 
   final Map<String, _Session> _sessions = {};
-  SharedPreferences? _prefs;
 
   static String _digits(String phone) => phone.replaceAll(RegExp(r'\D'), '');
 
-  /// Loads persisted sessions. Safe to call once at startup.
+  /// Loads persisted sessions — from the keychain, where chain keys belong;
+  /// a copy that predates it migrates in and leaves the backed-up plist.
+  /// Safe to call once at startup.
   Future<void> load() async {
-    _prefs = await SharedPreferences.getInstance();
-    final raw = _prefs?.getString(_kStore);
+    final raw =
+        await SecureStore.instance.readMigrating('double_ratchet', _kStore);
     if (raw == null) return;
     try {
       (jsonDecode(raw) as Map<String, dynamic>).forEach((peer, s) {
@@ -88,8 +89,8 @@ class DoubleRatchet {
   }
 
   void _persist() {
-    _prefs?.setString(
-        _kStore,
+    SecureStore.instance.writeLater(
+        'double_ratchet',
         jsonEncode(
             {for (final e in _sessions.entries) e.key: e.value.toJson()}));
   }

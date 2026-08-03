@@ -4,9 +4,9 @@ import 'dart:math';
 import 'package:crypto/crypto.dart' show Hmac, sha256;
 import 'package:flutter/foundation.dart';
 import 'package:pointycastle/export.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import 'e2e.dart';
+import '../state/secure_store.dart';
 
 /// Signal's **Sender Keys** — the group half of the protocol, for the one
 /// surface the pairwise Double Ratchet cannot cover: the server/community
@@ -76,13 +76,14 @@ class SenderKeyStore {
   /// A chain I'm receiving on, per 'serverId|senderDigits'.
   final Map<String, _Chain> _recv = {};
 
-  SharedPreferences? _prefs;
-
   static String _rk(String serverId, String sender) => '$serverId|$sender';
 
+  /// Chain roots and the per-sender SIGNING private key live in the
+  /// keychain, not the backed-up SharedPreferences plist — a copy that
+  /// predates the keychain is migrated in and removed from the plist.
   Future<void> load() async {
-    _prefs = await SharedPreferences.getInstance();
-    final raw = _prefs?.getString(_kStore);
+    final raw =
+        await SecureStore.instance.readMigrating('sender_keys', _kStore);
     if (raw == null) return;
     try {
       final j = jsonDecode(raw) as Map<String, dynamic>;
@@ -94,8 +95,8 @@ class SenderKeyStore {
   }
 
   void _persist() {
-    _prefs?.setString(
-        _kStore,
+    SecureStore.instance.writeLater(
+        'sender_keys',
         jsonEncode({
           'own': {for (final e in _own.entries) e.key: e.value.toJson()},
           'recv': {for (final e in _recv.entries) e.key: e.value.toJson()},
@@ -321,7 +322,11 @@ class _Chain {
         'n': n,
         if (signPriv != null) 'sp': signPriv,
         if (signPub != null) 'sP': signPub,
-        'skipped': skipped,
+        // Stringified keys: jsonEncode refuses int keys, and this map used
+        // to reach it raw — so a chain with ANY shelved out-of-order key
+        // silently failed to persist at all (the encode threw inside a
+        // swallowed callback). fromJson always parsed them back as ints.
+        'skipped': {for (final e in skipped.entries) '${e.key}': e.value},
       };
 
   factory _Chain.fromJson(Map<String, dynamic> j) {
