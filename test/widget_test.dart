@@ -3307,6 +3307,29 @@ void main() {
           RelayService.inboxChannel('+1 555 0199'));
     });
 
+    test('an undecryptable message never shows its ciphertext', () {
+      // Sealed to a key this device no longer holds (an account switch
+      // minted a fresh identity, the old build kept encrypting to the
+      // ghost) — the chat used to render the raw base64 as the message.
+      final store = ChatStore.instance;
+      store.hydrate(const {'chats': []});
+      addTearDown(store.reset);
+      final blob = base64Encode(List.generate(96, (i) => (i * 37) % 256));
+      final added = RelayService.applyIncoming({
+        'from': '+1 555 0166',
+        'id': 'sealed_old_key_1',
+        'c': blob,
+        'enc': 2,
+        'spk': base64Encode(List.filled(65, 4)),
+      }, myPhone: '+1 555 0100', store: store);
+      expect(added, isTrue);
+      final msg = store.chatWithContact('+1 555 0166')!.messages.single;
+      expect(msg.text.contains(blob), isFalse,
+          reason: 'ciphertext must never be rendered as a message');
+      expect(msg.text, contains('Couldn\'t unlock'),
+          reason: 'the failure is said in words the reader can act on');
+    });
+
     test('encode/applyIncoming round-trip preserves image and voice', () {
       ChatStore.instance.reset();
       final photo = Message(

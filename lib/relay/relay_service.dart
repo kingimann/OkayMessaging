@@ -510,6 +510,13 @@ class RelayService {
             DateTime.now(),
       );
     }
+    // The message could not be unlocked: start the repair. Rate-limited and
+    // SAFE on false alarms — a peer whose cached key already matches ours
+    // ignores the re-introduction entirely, so a replayed envelope cannot
+    // hurt a healthy pairing.
+    if (content['sealedToOldKey'] == true) {
+      RelayService.instance.healPeer(from);
+    }
     return true;
   }
 
@@ -630,16 +637,29 @@ class RelayService {
     }
 
     // The one pairwise un-ladder, shared with group updates and signaling.
-    // A failed decrypt (missing key, replay) leaves the raw blob, which the
-    // JSON parse below turns into the undecryptable placeholder.
-    final json = openContent(from, myPhone, payload, ratchet: ratchet) ?? blob;
+    final json = openContent(from, myPhone, payload, ratchet: ratchet);
+    if (json == null) {
+      // A failed decrypt used to fall back to the RAW CIPHERTEXT, which the
+      // chat then rendered — screens full of base64, which is exactly how
+      // the bug was reported. Say what happened in words instead, and mark
+      // the content so applyIncoming can start the key repair: the usual
+      // cause is the far side sealing to an identity key this device no
+      // longer holds (an account switch minted a fresh one, and their build
+      // kept encrypting to the ghost).
+      return {
+        'text': '🔒 Couldn\'t unlock this message — it was sealed to a key '
+            'this device no longer has. New messages will come through '
+            'shortly; ask them to resend this one.',
+        'sealedToOldKey': true,
+      };
+    }
 
     try {
       final decoded = jsonDecode(json);
       if (decoded is Map<String, dynamic>) return decoded;
       if (decoded is Map) return Map<String, dynamic>.from(decoded);
     } catch (_) {
-      // Undecryptable (missing key) — surface a placeholder rather than crash.
+      // Plaintext that isn't JSON (the oldest wire format): it IS the text.
     }
     return {'text': json};
   }
@@ -887,7 +907,16 @@ class RelayService {
             if (from == null || pub == null || digits(from) == digits(me)) {
               return;
             }
-            SecureKeyExchange.instance.rememberPeer(from, pub);
+            if (SecureKeyExchange.instance.rememberPeer(from, pub)) {
+              // A CHANGED key buries the ratchet session: the old one
+              // belongs to an identity that no longer exists, and holding
+              // it means sealing every future message to a ghost — which
+              // the far end renders as a screen of base64. Also forget that
+              // we ever introduced ourselves, so the reply below really
+              // goes out.
+              DoubleRatchet.instance.resetPeer(from);
+              _sentKeyTo.remove(digits(from));
+            }
             // Reply with our key once so both sides can derive the secret.
             _ensureKeyShared(from);
           },
@@ -2491,6 +2520,29 @@ class RelayService {
     // The send channels never joined the socket (an unsubscribed channel
     // broadcasts over HTTP), so they survive the rebuild untouched.
     start(); // rebuilds both subscriptions and drains the mailbox
+  }
+
+  /// When something from [from] cannot be decrypted, re-introduce this
+  /// device's CURRENT identity key, bypassing the once-per-run cache. The
+  /// usual cause is their device sealing to a key this one no longer holds
+  /// (an account switch minted a fresh identity); the moment their side
+  /// sees the changed key it buries its stale session, and everything after
+  /// arrives readable. Rate-limited per peer, and deliberately does nothing
+  /// destructive here: a replayed envelope also fails to decrypt, and a
+  /// healthy pairing must shrug this off.
+  final Map<String, DateTime> _healAsked = {};
+  void healPeer(String from) {
+    if (!_initialized) return;
+    final d = digits(from);
+    if (d.isEmpty) return;
+    final last = _healAsked[d];
+    if (last != null &&
+        DateTime.now().difference(last) < const Duration(minutes: 2)) {
+      return;
+    }
+    _healAsked[d] = DateTime.now();
+    _sentKeyTo.remove(d);
+    _ensureKeyShared(from);
   }
 
   /// Re-establishes the inbox subscription and re-announces presence to the
