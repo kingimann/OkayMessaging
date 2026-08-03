@@ -450,17 +450,17 @@ probing with the anon key (a missing column answers 42703, a missing bucket
    view**, not `public_posts`: the tallies are view columns computed by the
    counter functions, and probing the table reads as "sparks missing" when
    nothing is.
-3. **Create the three missing Storage buckets** — all verified absent:
-   `docs/voice_notes_bucket.sql` (long voice notes fall back to inline),
-   `docs/chat_backup_bucket.sql` (paid cloud backup has nowhere to write),
-   `docs/market_media_bucket.sql` (server-feed/listing media broken).
+3. The three Storage buckets (`voice-notes`, `chat-backups`,
+   `market-media`) EXIST — verified 2026-08-03 by a tiny upload+delete, the
+   only probe that works: they are PRIVATE buckets, and the public-object
+   endpoint answers "Bucket not found" for a private bucket that exists,
+   which misled a whole session. Done, do not raise again.
 4. The payments functions + `push-send` were re-pasted 2026-08-03 (user
    said; versions cannot be read through the JWT gate from here).
-5. **`KLIPY_API_KEY`** into the Codemagic `test` variable group and the GitHub
-   Actions secret.
-6. **Deploy `moderation-screen`** (verified still 404; fails open, needs
-   `OPENAI_API_KEY`).
-7. **Settings → Pages → Source → GitHub Actions** (`docs/server_deploy_checklist.md` §3b).
+5. `KLIPY_API_KEY`, `moderation-screen` (+`OPENAI_API_KEY`), and the Pages
+   Source setting: the user said to IGNORE these (2026-08-03) — do not
+   raise them unless asked. GIF search stays off and image moderation
+   fails open until they choose otherwise.
 8. `pages` is DEPLOYED with JWT off (answers 200 unauthenticated — done, do
    not raise again). What cannot be checked from here: whether
    `…/functions/v1/pages/email-confirmed` was added to Supabase →
