@@ -246,6 +246,7 @@ class CallService {
     RelayService.instance.currentCallId = id;
     minimized.value = false;
     peerMedia.value = (video: false, screen: false);
+    peerOnHold.value = false;
     current.value = CallSession(
       callId: id,
       peer: peer,
@@ -324,6 +325,7 @@ class CallService {
     RelayService.instance.currentCallId = id;
     minimized.value = false;
     peerMedia.value = (video: false, screen: false);
+    peerOnHold.value = false;
     current.value = CallSession(
       callId: id,
       peer: group.contact,
@@ -453,6 +455,7 @@ class CallService {
     current.value = null;
     minimized.value = false;
     peerMedia.value = (video: false, screen: false);
+    peerOnHold.value = false;
   }
 
   /// Leaves a voicemail for [peer] after an unanswered call: records a voice
@@ -520,6 +523,7 @@ class CallService {
     RelayService.instance.currentCallId = callId;
     minimized.value = false;
     peerMedia.value = (video: false, screen: false);
+    peerOnHold.value = false;
     current.value = CallSession(
       callId: callId,
       peer: peer,
@@ -604,6 +608,7 @@ class CallService {
     RelayService.instance.currentCallId = callId;
     minimized.value = false;
     peerMedia.value = (video: false, screen: false);
+    peerOnHold.value = false;
     final callerDigits = RelayService.digits(caller.phone);
     current.value = CallSession(
       callId: callId,
@@ -830,7 +835,20 @@ class CallService {
         queue: false);
   }
 
-  /// Announces this side's camera/screen state so the peer's UI can show it.
+  /// Whether the PEER put the call on hold — their silence is deliberate,
+  /// and a silence with no label reads as a broken call.
+  final ValueNotifier<bool> peerOnHold = ValueNotifier<bool>(false);
+
+  /// Holds/resumes and TELLS the other side. A hold that only acted
+  /// locally left the peer talking into an unexplained void.
+  void setHold(bool held) {
+    final c = current.value;
+    CallMedia.instance.setHold(held);
+    if (c != null && !c.isGroup) _announceMedia(c);
+  }
+
+  /// Announces this side's camera/screen/hold state so the peer's UI can
+  /// show it.
   void _announceMedia(CallSession c) {
     RelayService.instance.sendCall(c.peer.phone,
         kind: 'media',
@@ -839,15 +857,17 @@ class CallService {
         media: {
           'video': CallMedia.instance.localVideo.value,
           'screen': CallMedia.instance.screenSharing.value,
+          'hold': CallMedia.instance.onHold.value,
         });
   }
 
-  /// The peer announced their camera/screen state.
+  /// The peer announced their camera/screen/hold state.
   void onRemoteMediaState(String callId, Map<String, dynamic>? media) {
     final c = current.value;
     if (c == null || c.callId != callId || media == null) return;
     peerMedia.value =
         (video: media['video'] == true, screen: media['screen'] == true);
+    peerOnHold.value = media['hold'] == true;
   }
 
   // --- In-call reactions (floating emoji) ---
@@ -882,6 +902,7 @@ class CallService {
     minimized.value = false;
     reaction.value = null;
     peerMedia.value = (video: false, screen: false);
+    peerOnHold.value = false;
     _seq = 0;
     _reactionSeq = 0;
     _loggedCallIds.clear();

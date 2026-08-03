@@ -205,6 +205,9 @@ class _CallScreenState extends State<CallScreen>
               '$m:${sec.toString().padLeft(2, '0')}';
         }
         if (CallMedia.instance.onHold.value) return 'On hold';
+        if (CallService.instance.peerOnHold.value) {
+          return 'They put you on hold';
+        }
         // Reflect the live WebRTC media state so a still-negotiating or
         // dropped connection isn't shown as a running call.
         if (CallMedia.instance.isSupported) {
@@ -725,7 +728,10 @@ class _CallScreenState extends State<CallScreen>
                   icon: held ? Icons.play_arrow : Icons.pause,
                   label: held ? 'Resume' : 'Hold',
                   active: held,
-                  onTap: () => CallMedia.instance.setHold(!held),
+                  // Through the service, not the media layer: hold also
+                  // has to be ANNOUNCED, or the peer talks into a silence
+                  // that reads as a broken call.
+                  onTap: () => CallService.instance.setHold(!held),
                 ),
               ),
               _CallControl(

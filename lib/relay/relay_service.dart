@@ -1235,6 +1235,14 @@ class RelayService {
           },
         )
         .onBroadcast(
+          event: 'fbcat',
+          callback: (rawEnvelope) {
+            final payload = unwrapBroadcast(rawEnvelope);
+            _applyCommunityEvent(
+                'fbcat', Map<String, dynamic>.from(payload), me);
+          },
+        )
+        .onBroadcast(
           event: 'chtyp',
           callback: (rawEnvelope) {
             final payload = unwrapBroadcast(rawEnvelope);
@@ -1430,6 +1438,8 @@ class RelayService {
             video: body['video'] as bool? ?? false,
             screen: body['screen'] as bool? ?? false,
           );
+        case 'fbcat':
+          applyFbcat(cid, body, myPhone: me);
         case 'fpost':
           final rawPost = body['post'];
           if (rawPost is! Map) return;
@@ -1652,7 +1662,8 @@ class RelayService {
   /// and all of them re-sending the same posts would stampede one mailbox.
   /// Receiving is the ordinary 'fpost' path, whose id/rev dedup makes any
   /// overlap harmless.
-  Future<void> backfillFeedTo(String communityId, String joinerWireId) async {
+  Future<void> backfillFeedTo(String communityId, String joinerWireId,
+      {bool authoredOnly = false}) async {
     if (!_initialized) return;
     final me = Session.instance.user.value;
     if (me == null) return;
@@ -1660,7 +1671,15 @@ class RelayService {
     if (community == null || community.secretBytes == null) return;
     final d = CommunityStore.digitsOfWireId(joinerWireId);
     if (d == null || d == digits(me.phone)) return;
+    final myDigits = digits(me.phone);
     for (final post in FeedStore.instance.backfillFor(communityId)) {
+      // A catch-up answer carries only what THIS device wrote — every
+      // author re-sending their own is complete without n-fold duplicates.
+      if (authoredOnly &&
+          digits(post.authorPhone) != myDigits &&
+          post.authorUsername != 'you') {
+        continue;
+      }
       final payload = {
         'from': me.phone,
         'communityId': communityId,
@@ -1805,6 +1824,48 @@ class RelayService {
     final wire = CommunityStore.wireId(digits(from));
     if (!community.members.any((m) => m.id == wire)) return;
     unawaited(backfillFeedTo(cid, wire));
+  }
+
+  /// Pull-to-refresh's reach into every joined server: broadcasts a
+  /// catch-up ask ('fbcat') on the community bus, and every member online
+  /// answers with the posts THEY authored — each author re-sending their
+  /// own is complete coverage without every member re-sending everything.
+  /// This is the on-demand repair for "the marketplace shows no listings":
+  /// broadcast has no history, the automatic backfills only fire on chain
+  /// events, and a listing posted while everything else was misaligned
+  /// otherwise stayed invisible with no way to ASK for it.
+  Future<void> requestFeedCatchup() async {
+    final me = Session.instance.user.value;
+    if (me == null) return;
+    for (final community in CommunityStore.instance.communities) {
+      if (community.secretBytes == null) continue;
+      await _broadcastCommunityEvent('fbcat', community.id, {
+        'wire': CommunityStore.wireId(digits(me.phone)),
+      });
+    }
+  }
+
+  /// Answers an fbcat with the posts this device AUTHORED, rate-limited per
+  /// asker — a refresh spammed in a loop must not stampede a mailbox.
+  final Map<String, DateTime> _fbcatAnswered = {};
+  void applyFbcat(String cid, Map<String, dynamic> body,
+      {required String myPhone}) {
+    final wire = body['wire'] as String?;
+    if (wire == null) return;
+    final d = CommunityStore.digitsOfWireId(wire);
+    if (d == null || d == digits(myPhone)) return;
+    final community = CommunityStore.instance.byId(cid);
+    if (community == null || !community.members.any((m) => m.id == wire)) {
+      return;
+    }
+    final key = '$cid|$d';
+    final last = _fbcatAnswered[key];
+    if (last != null &&
+        DateTime.now().difference(last) < const Duration(minutes: 5)) {
+      return;
+    }
+    _fbcatAnswered[key] = DateTime.now();
+    unawaited(backfillFeedTo(cid, wire, authoredOnly: true));
   }
 
   /// Answers an skreq: a member saw our sender-key traffic before our SKDM

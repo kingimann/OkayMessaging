@@ -11,8 +11,10 @@ import '../models/community.dart';
 import '../models/user.dart';
 import '../state/account_service.dart';
 import '../state/chat_store.dart';
+import '../relay/relay_service.dart';
 import '../state/parental_controls.dart';
 import '../widgets/parental_gate.dart';
+import '../widgets/pull_to_refresh.dart';
 import '../state/community_store.dart';
 import '../state/feed_store.dart';
 import '../state/market_media.dart';
@@ -706,25 +708,38 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
                   ),
                 ),
               Expanded(
+                // Pull-to-refresh ASKS: a catch-up broadcast to every joined
+                // server, answered by each member online with the posts they
+                // authored. Broadcast has no history, so an empty grid was
+                // otherwise unfixable from this side — which read as "the
+                // marketplace doesn't show listings".
                 child: listings.isEmpty
-                    ? _empty(context)
-                    : GridView.builder(
-                        padding: const EdgeInsets.fromLTRB(12, 12, 12, 96),
-                        gridDelegate:
-                            const SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: 2,
-                          mainAxisSpacing: 10,
-                          crossAxisSpacing: 10,
-                          childAspectRatio: 0.72,
-                        ),
-                        itemCount: listings.length,
-                        itemBuilder: (context, i) => _ListingCard(
-                          listing: listings[i],
-                          serverName: _serverName(listings[i].communityId),
-                          onTap: () => _open(listings[i]),
-                          onOptions: _mine(listings[i])
-                              ? null
-                              : () => _listingOptions(listings[i]),
+                    ? PullToRefresh.emptyState(
+                        onRefresh: () =>
+                            RelayService.instance.requestFeedCatchup(),
+                        child: _empty(context),
+                      )
+                    : PullToRefresh(
+                        onRefresh: () =>
+                            RelayService.instance.requestFeedCatchup(),
+                        child: GridView.builder(
+                          padding: const EdgeInsets.fromLTRB(12, 12, 12, 96),
+                          gridDelegate:
+                              const SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: 2,
+                            mainAxisSpacing: 10,
+                            crossAxisSpacing: 10,
+                            childAspectRatio: 0.72,
+                          ),
+                          itemCount: listings.length,
+                          itemBuilder: (context, i) => _ListingCard(
+                            listing: listings[i],
+                            serverName: _serverName(listings[i].communityId),
+                            onTap: () => _open(listings[i]),
+                            onOptions: _mine(listings[i])
+                                ? null
+                                : () => _listingOptions(listings[i]),
+                          ),
                         ),
                       ),
               ),

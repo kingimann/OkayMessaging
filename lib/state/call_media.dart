@@ -661,7 +661,13 @@ class CallMedia {
   void setHold(bool held) {
     onHold.value = held;
     _localStream?.getTracks().forEach((t) => t.enabled = !held);
+    // Silence what ARRIVES by disabling the remote tracks themselves.
+    // `renderer.muted` is a web semantic — on the phone, remote audio
+    // plays through the audio session with or without a renderer, which
+    // is why hold used to mute you and leave them perfectly audible.
     try {
+      final remote = remoteRenderer?.srcObject;
+      remote?.getAudioTracks().forEach((t) => t.enabled = !held);
       remoteRenderer?.muted = held;
     } catch (_) {}
   }

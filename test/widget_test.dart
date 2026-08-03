@@ -7374,6 +7374,43 @@ void main() {
           isTrue);
     });
 
+    test('hold silences BOTH directions and tells the other side', () {
+      final media = File('lib/state/call_media.dart').readAsStringSync();
+      // renderer.muted is a web semantic — on the phone remote audio plays
+      // through the audio session regardless, which is why hold used to
+      // mute you and leave them perfectly audible.
+      expect(media, contains('getAudioTracks().forEach((t) => t.enabled = !held)'));
+      final service = File('lib/state/call_service.dart').readAsStringSync();
+      expect(service, contains("'hold': CallMedia.instance.onHold.value"),
+          reason: 'a hold that only acts locally leaves the peer talking '
+              'into an unexplained void');
+      expect(service, contains('peerOnHold'));
+      final screen = File('lib/screens/call_screen.dart').readAsStringSync();
+      expect(screen, contains('They put you on hold'));
+      expect(screen, contains('CallService.instance.setHold'),
+          reason: 'the button must go through the announcing path');
+    });
+
+    test('pull-to-refresh on the marketplace asks every server for its '
+        'listings', () {
+      final relay = File('lib/relay/relay_service.dart').readAsStringSync();
+      // The ask is broadcast per server; each member answers with what THEY
+      // authored — complete coverage without n-fold duplicates — and the
+      // answer path is membership-checked and rate-limited.
+      expect(relay, contains('requestFeedCatchup'));
+      expect(relay, contains("event: 'fbcat'"));
+      expect(relay, contains('applyFbcat'));
+      expect(relay, contains('authoredOnly: true'));
+      final fbcat = relay.substring(relay.indexOf('void applyFbcat'));
+      expect(fbcat.substring(0, fbcat.indexOf('applySkreq')),
+          contains('members.any'),
+          reason: 'a non-member must not be able to drain the feed');
+      final market =
+          File('lib/screens/marketplace_screen.dart').readAsStringSync();
+      expect(market, contains('PullToRefresh'));
+      expect(market, contains('requestFeedCatchup'));
+    });
+
     test('a number the directory has never heard of gets an invite, not a '
         'chat', () async {
       // Unknown is not "no": with no session (this test env) the check must
