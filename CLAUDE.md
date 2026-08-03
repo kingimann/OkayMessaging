@@ -434,22 +434,39 @@ Two things that look like bugs and are not:
 
 ## Waiting on the user (nothing here is code)
 
-Carried across several sessions; none of it can be done from this box.
+Carried across several sessions; none of it can be done from this box. The
+SQL/bucket/function facts below were re-verified live on 2026-08-03 by
+probing with the anon key (a missing column answers 42703, a missing bucket
+404s, a missing function 404s) — trust them over older notes.
 
 1. **Start a Codemagic build.** Everything since the last one is unbuilt,
    including ~115 lines of new Swift (`okay/screenshot`, the capture observer,
    the app-switcher cover) plus `Mesh.swift` and `NearbyFast.swift`, which have
    still never been compiled anywhere.
-2. **Deploy the `pages` Edge Function with JWT verification OFF**, and add
-   `https://<project>.supabase.co/functions/v1/pages/email-confirmed` to
-   Supabase → Authentication → Redirect URLs. Do the second one *before*
-   shipping a build or confirmation links land on `localhost`.
-3. **Re-paste `push-send`** — the deployed copy predates the self-test.
-4. **`KLIPY_API_KEY`** into the Codemagic `test` variable group and the GitHub
+2. **Run in the SQL editor, in this order, before re-pasting functions:**
+   `docs/payment_controls.sql` (live `payment_transactions` has no `note`
+   column — the new create-intent/history would error against it) and
+   `docs/public_feed.sql` (live `public_posts` has no `spark_count` /
+   `spark_cents`, so public-feed sparks are off; the media columns and
+   `public_post_sparks` are already there).
+3. **Create the three missing Storage buckets** — all verified absent:
+   `docs/voice_notes_bucket.sql` (long voice notes fall back to inline),
+   `docs/chat_backup_bucket.sql` (paid cloud backup has nowhere to write),
+   `docs/market_media_bucket.sql` (server-feed/listing media broken).
+4. **Re-paste from `docs/edge_functions_paste/`:** `payments-create-intent`,
+   `payments-history`, `payments-connect-fields`, `payments-payout`,
+   `payments-status` (all changed across the card/bank-security and
+   currency/history sessions), and `push-send` (deployed copy predates the
+   self-test).
+5. **`KLIPY_API_KEY`** into the Codemagic `test` variable group and the GitHub
    Actions secret.
-5. **Deploy `moderation-screen`** (still 404; fails open, needs
+6. **Deploy `moderation-screen`** (verified still 404; fails open, needs
    `OPENAI_API_KEY`).
-6. **Settings → Pages → Source → GitHub Actions** (`docs/server_deploy_checklist.md` §3b).
+7. **Settings → Pages → Source → GitHub Actions** (`docs/server_deploy_checklist.md` §3b).
+8. `pages` is DEPLOYED with JWT off (answers 200 unauthenticated — done, do
+   not raise again). What cannot be checked from here: whether
+   `…/functions/v1/pages/email-confirmed` was added to Supabase →
+   Authentication → Redirect URLs; confirm before shipping a build.
 
 ## Open items (verify before assuming)
 

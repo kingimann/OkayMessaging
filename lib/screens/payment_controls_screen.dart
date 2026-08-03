@@ -149,6 +149,43 @@ class _PaymentControlsScreenState extends State<PaymentControlsScreen> {
                 trailing: const Icon(Icons.chevron_right),
                 onTap: _busy ? null : () => _pickLimit(c),
               ),
+              _header('Currency'),
+              // A device preference, not a server control: it changes what
+              // the sender's amounts mean, and the recipient's account
+              // settles in its own currency either way.
+              ValueListenableBuilder<String>(
+                valueListenable: PaymentService.instance.sendCurrency,
+                builder: (context, current, _) => Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Wrap(
+                    spacing: 8,
+                    children: [
+                      for (final code in PaymentService.sendCurrencies)
+                        ChoiceChip(
+                          label: Text(
+                              '${PaymentService.symbolFor(code)} '
+                              '${code.toUpperCase()}'),
+                          selected: current == code,
+                          onSelected: (v) {
+                            if (v) {
+                              PaymentService.instance.setSendCurrency(code);
+                            }
+                          },
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+                child: Text(
+                  'New transfers are charged in this currency. Whoever you '
+                  'pay still receives money in their own account\'s currency '
+                  '— Stripe converts at its rate.',
+                  style:
+                      TextStyle(fontSize: 12.5, color: AppColors.subtle(context)),
+                ),
+              ),
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
                 child: Text(

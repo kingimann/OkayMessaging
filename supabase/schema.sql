@@ -82,6 +82,7 @@ create table if not exists public.payment_transactions (
   fee_cents         integer not null default 0,
   currency          text not null default 'cad',
   status            text not null default 'requires_payment',
+  note              text not null default '',  -- what the sender said it was for
   created_at        timestamptz not null default now(),
   updated_at        timestamptz not null default now()
 );

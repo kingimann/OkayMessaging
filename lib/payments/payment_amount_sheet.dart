@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 
 import '../util/phone_format.dart';
+import 'payment_service.dart';
 import 'storage_economics.dart';
 import 'package:flutter/services.dart';
 
@@ -9,7 +10,13 @@ import 'package:flutter/services.dart';
 /// Returns `(cents, note, acknowledged)` on confirm, or null on cancel.
 class PaymentAmountSheet extends StatefulWidget {
   final String peerName;
-  const PaymentAmountSheet({super.key, required this.peerName});
+
+  /// Asking for money instead of sending it. No charge happens here — the
+  /// sheet just shapes the ask — so the fee breakdown and the "this is
+  /// final" tick have nothing to attach to and stay hidden.
+  final bool requestMode;
+  const PaymentAmountSheet(
+      {super.key, required this.peerName, this.requestMode = false});
 
   @override
   State<PaymentAmountSheet> createState() => _PaymentAmountSheetState();
@@ -158,7 +165,10 @@ class _PaymentAmountSheetState extends State<PaymentAmountSheet> {
                     children: [
                       const SizedBox(width: 44),
                       Expanded(
-                        child: Text('Send money to $_peer',
+                        child: Text(
+                            widget.requestMode
+                                ? 'Request money from $_peer'
+                                : 'Send money to $_peer',
                             textAlign: TextAlign.center,
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
@@ -181,10 +191,12 @@ class _PaymentAmountSheetState extends State<PaymentAmountSheet> {
                     mainAxisAlignment: MainAxisAlignment.center,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Padding(
-                        padding: EdgeInsets.only(top: 8),
-                        child: Text('\$',
-                            style: TextStyle(
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Text(
+                            PaymentService.symbolFor(
+                                PaymentService.instance.sendCurrency.value),
+                            style: const TextStyle(
                                 fontSize: 30, fontWeight: FontWeight.w600)),
                       ),
                       const SizedBox(width: 4),
@@ -219,8 +231,11 @@ class _PaymentAmountSheetState extends State<PaymentAmountSheet> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      const Text('CAD',
-                          style: TextStyle(color: Colors.grey, fontSize: 13)),
+                      Text(
+                          PaymentService.instance.sendCurrency.value
+                              .toUpperCase(),
+                          style: const TextStyle(
+                              color: Colors.grey, fontSize: 13)),
                       if (_amountFocus.hasFocus) ...[
                         const SizedBox(width: 12),
                         // A full-size tap target on purpose: shrink-wrapping
@@ -254,7 +269,7 @@ class _PaymentAmountSheetState extends State<PaymentAmountSheet> {
                   // The fee comes out of the transfer, so the amount typed and the
                   // amount that lands are different numbers — saying so plainly is
                   // the only honest way to show this.
-                  if (_valid) ...[
+                  if (_valid && !widget.requestMode) ...[
                     const SizedBox(height: 18),
                     Container(
                       padding: const EdgeInsets.symmetric(
@@ -295,7 +310,7 @@ class _PaymentAmountSheetState extends State<PaymentAmountSheet> {
                   // this is final. It exists to stop the dispute rather than win
                   // it: most chargebacks on transfers like this are people who
                   // changed their mind, not fraud.
-                  if (_valid) ...[
+                  if (_valid && !widget.requestMode) ...[
                     const SizedBox(height: 12),
                     InkWell(
                       borderRadius: BorderRadius.circular(10),
@@ -338,11 +353,13 @@ class _PaymentAmountSheetState extends State<PaymentAmountSheet> {
                       shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(14)),
                     ),
-                    onPressed: _valid && _acknowledged
+                    onPressed: _valid && (_acknowledged || widget.requestMode)
                         ? () => Navigator.of(context).pop((
                               cents: _cents,
                               note: _note.text.trim(),
-                              acknowledged: _acknowledged,
+                              // A request commits the sender to nothing, so
+                              // there is no finality to acknowledge.
+                              acknowledged: widget.requestMode || _acknowledged,
                             ))
                         : null,
                     child: Text(
@@ -350,9 +367,11 @@ class _PaymentAmountSheetState extends State<PaymentAmountSheet> {
                           ? 'Minimum \$${(PaymentEconomics.minimumSendCents / 100).toStringAsFixed(2)}'
                           : !_valid
                               ? 'Enter an amount'
-                              : (_acknowledged
-                                  ? 'Pay \$${(_totalCents / 100).toStringAsFixed(2)}'
-                                  : 'Confirm to continue'),
+                              : widget.requestMode
+                                  ? 'Request \$${(_cents / 100).toStringAsFixed(2)}'
+                                  : (_acknowledged
+                                      ? 'Pay \$${(_totalCents / 100).toStringAsFixed(2)}'
+                                      : 'Confirm to continue'),
                       style: const TextStyle(
                           fontSize: 16, fontWeight: FontWeight.w600),
                     ),
@@ -384,8 +403,13 @@ class PaymentBubble extends StatelessWidget {
   final String note;
   final bool isMe;
 
+  /// A request rather than a transfer: nothing has been charged, and the
+  /// bubble's job is to ask. Runs 'requested' → 'paid' / 'declined'.
+  final bool isRequest;
+
   /// 'pending', 'paid', 'failed', or '' (treated as settled for older
-  /// receipts that predate status tracking).
+  /// receipts that predate status tracking). Requests use 'requested',
+  /// 'paid' and 'declined'.
   final String status;
 
   const PaymentBubble({
@@ -393,25 +417,38 @@ class PaymentBubble extends StatelessWidget {
     required this.amountCents,
     required this.note,
     required this.isMe,
+    this.isRequest = false,
     this.status = '',
   });
 
   bool get _pending => status == 'pending';
   bool get _failed => status == 'failed';
+  bool get _requested => isRequest && (status == 'requested' || status.isEmpty);
+  bool get _declined => isRequest && status == 'declined';
 
   @override
   Widget build(BuildContext context) {
     final amount = '\$${(amountCents / 100).toStringAsFixed(2)}';
-    final colors = _failed
+    final colors = _failed || _declined
         ? const [Color(0xFF9AA4AE), Color(0xFF7E8892)]
-        : _pending
-            ? const [Color(0xFF3F8F6B), Color(0xFF2E7D5B)]
-            : const [Color(0xFF12B76A), Color(0xFF0E9F63)];
-    final title = _failed
-        ? 'Payment failed'
-        : isMe
-            ? 'Payment sent'
-            : 'Payment received';
+        : _requested
+            // Blue on purpose: green is money that moved, and a request is
+            // exactly the bubble where nothing has.
+            ? const [Color(0xFF5B6BF0), Color(0xFF4450DD)]
+            : _pending
+                ? const [Color(0xFF3F8F6B), Color(0xFF2E7D5B)]
+                : const [Color(0xFF12B76A), Color(0xFF0E9F63)];
+    final title = isRequest
+        ? (_declined
+            ? 'Request declined'
+            : isMe
+                ? 'You requested'
+                : 'Payment request')
+        : _failed
+            ? 'Payment failed'
+            : isMe
+                ? 'Payment sent'
+                : 'Payment received';
     return Container(
       width: 210,
       padding: const EdgeInsets.all(14),
@@ -429,14 +466,26 @@ class PaymentBubble extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(_failed ? Icons.error_outline : Icons.payments_rounded,
-                  color: Colors.white, size: 20),
+              Icon(
+                  _failed || _declined
+                      ? Icons.error_outline
+                      : isRequest
+                          ? Icons.request_quote_rounded
+                          : Icons.payments_rounded,
+                  color: Colors.white,
+                  size: 20),
               const SizedBox(width: 8),
-              Text(title,
-                  style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w600,
-                      fontSize: 13)),
+              // Flexible because the request titles run longer than the
+              // receipt ones, and a fixed-width card clips rather than grows.
+              Expanded(
+                child: Text(title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13)),
+              ),
             ],
           ),
           const SizedBox(height: 10),
@@ -451,10 +500,22 @@ class PaymentBubble extends StatelessWidget {
                 style: TextStyle(
                     color: Colors.white.withValues(alpha: 0.9), fontSize: 13)),
           ],
+          if (_requested && !isMe) ...[
+            const SizedBox(height: 6),
+            Text('Tap to pay or decline',
+                style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.9),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600)),
+          ],
           const SizedBox(height: 8),
           Row(
             children: [
-              _StatusPill(status: status),
+              Flexible(
+                child: _StatusPill(
+                    status: isRequest && status.isEmpty ? 'requested' : status,
+                    isRequest: isRequest),
+              ),
               const Spacer(),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
@@ -476,13 +537,19 @@ class PaymentBubble extends StatelessWidget {
 /// A small status chip inside the payment bubble.
 class _StatusPill extends StatelessWidget {
   final String status;
-  const _StatusPill({required this.status});
+  final bool isRequest;
+  const _StatusPill({required this.status, this.isRequest = false});
 
   @override
   Widget build(BuildContext context) {
+    // 'paid' means "Completed" on a transfer receipt but "Paid" on a request
+    // — the request's whole story is whether the ask was answered.
     final (icon, label) = switch (status) {
       'pending' => (Icons.schedule, 'Pending'),
       'failed' => (Icons.close, 'Failed'),
+      'requested' => (Icons.schedule, 'Waiting'),
+      'declined' => (Icons.close, 'Declined'),
+      'paid' when isRequest => (Icons.check_circle, 'Paid'),
       _ => (Icons.check_circle, 'Completed'),
     };
     return Container(
@@ -496,11 +563,15 @@ class _StatusPill extends StatelessWidget {
         children: [
           Icon(icon, color: Colors.white, size: 12),
           const SizedBox(width: 3),
-          Text(label,
-              style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 10.5,
-                  fontWeight: FontWeight.w600)),
+          Flexible(
+            child: Text(label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w600)),
+          ),
         ],
       ),
     );

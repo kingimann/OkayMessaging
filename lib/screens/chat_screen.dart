@@ -1202,7 +1202,9 @@ class _ChatScreenState extends State<ChatScreen> {
                 ? () => _openImage(m)
                 : (_canOpenGhost(m) && !_selectionMode
                     ? () => _openGhost(m)
-                    : null)),
+                    : (_canAnswerRequest(m) && !_selectionMode
+                        ? () => _answerPaymentRequest(m)
+                        : null))),
         onDoubleTapDown:
             _selectionMode ? null : (d) => _lastDoubleTapPos = d.globalPosition,
         onDoubleTap: _selectionMode ? null : () => _quickReact(m),
@@ -2210,13 +2212,16 @@ class _ChatScreenState extends State<ChatScreen> {
         acknowledged: result.acknowledged);
   }
 
-  /// The payment itself, shared by Send money and Spark: the optimistic
-  /// pending receipt in the chat, the real Stripe transfer, and the settle
-  /// loop that keeps the receipt honest about what actually happened.
+  /// The payment itself, shared by Send money, Spark and paying a request:
+  /// the optimistic pending receipt in the chat, the real Stripe transfer,
+  /// and the settle loop that keeps the receipt honest about what actually
+  /// happened. [onSettled] hears every status the receipt takes, so a
+  /// request bubble can flip to paid only once the money really moved.
   Future<void> _payRecipient(AppUser recipient,
       {required int cents,
       required String note,
-      required bool acknowledged}) async {
+      required bool acknowledged,
+      void Function(String status)? onSettled}) async {
     final svc = PaymentService.instance;
     final messenger = ScaffoldMessenger.of(context);
     final phone = recipient.phone;
@@ -2239,13 +2244,14 @@ class _ChatScreenState extends State<ChatScreen> {
       status: MessageStatus.sent,
       isPayment: true,
       paymentAmountCents: cents,
-      paymentCurrency: 'cad',
+      paymentCurrency: svc.sendCurrency.value,
       paymentStatus: 'pending',
     ));
 
     void settle(String status) {
       _store.setPaymentStatus(_chatId, payId, status);
       RelayService.instance.sendPaymentStatus(phone, payId, status);
+      onSettled?.call(status);
     }
 
     try {
@@ -2306,6 +2312,9 @@ class _ChatScreenState extends State<ChatScreen> {
           // A spark whose post was deleted between the tap and the charge.
           'post_not_found' =>
             'That post is gone, so its spark has nowhere to go.',
+          'bad_currency' =>
+            'That currency isn\'t supported. Pick another in Wallet → '
+                'Payment controls.',
           _ => 'Payment failed: ${e.code}',
         }),
       ));
@@ -2352,6 +2361,143 @@ class _ChatScreenState extends State<ChatScreen> {
     if (cents == null || cents <= 0 || !mounted) return;
     await _payRecipient(recipient,
         cents: cents, note: 'Spark ⚡', acknowledged: true);
+  }
+
+  /// A payment request from the other side that is still waiting for an
+  /// answer — the one payment bubble a tap acts on. 1:1 only: a group
+  /// request has no single payer, and the contact is not a person to pay.
+  bool _canAnswerRequest(Message m) =>
+      m.isPayment &&
+      m.isPaymentRequest &&
+      !m.isMe &&
+      !widget.chat.contact.isGroup &&
+      (m.paymentStatus == 'requested' || m.paymentStatus.isEmpty);
+
+  /// Asks the other person for money. Nothing is charged here — the request
+  /// is only a message, and a charge exists only if they tap Pay on it.
+  /// That is also why it needs none of Send money's gates: asking moves
+  /// nothing, and every check runs on the payer's side when they answer.
+  Future<void> _requestMoney() async {
+    final svc = PaymentService.instance;
+    if (!svc.isConfigured ||
+        (!svc.canSendOnThisDevice && !svc.testMode.value)) {
+      _showComingSoon(context, 'Payments');
+      return;
+    }
+    final result = await showModalBottomSheet<
+        ({int cents, String note, bool acknowledged})>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => PaymentAmountSheet(
+          peerName: widget.chat.contact.name, requestMode: true),
+    );
+    if (result == null || result.cents <= 0 || !mounted) return;
+    final now = DateTime.now();
+    _deliver(Message(
+      id: 'req_${now.microsecondsSinceEpoch}',
+      text: result.note,
+      time: now,
+      isMe: true,
+      status: MessageStatus.sent,
+      isPayment: true,
+      isPaymentRequest: true,
+      paymentAmountCents: result.cents,
+      paymentCurrency: svc.sendCurrency.value,
+      paymentStatus: 'requested',
+    ));
+  }
+
+  /// The receiving end of a payment request. Pay runs the same rails as Send
+  /// money — verification, fees grossed up, the real Stripe charge — and
+  /// Decline answers without moving anything. Either answer flips the
+  /// request bubble on both phones over the same 'payst' event a receipt
+  /// already uses, keyed by the request message's id.
+  Future<void> _answerPaymentRequest(Message m) async {
+    final svc = PaymentService.instance;
+    final recipient = widget.chat.contact;
+    final amount = '\$${(m.paymentAmountCents / 100).toStringAsFixed(2)}';
+    final answer = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading:
+                  const Icon(Icons.payments_rounded, color: Color(0xFF12B76A)),
+              title: Text('Pay $amount'),
+              subtitle: Text(m.text.trim().isEmpty
+                  ? 'To ${recipient.name}'
+                  : 'To ${recipient.name} — ${m.text.trim()}'),
+              onTap: () => Navigator.pop(sheetContext, 'pay'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.close, color: Colors.red),
+              title: const Text('Decline'),
+              subtitle: const Text('They\'ll see the request was declined'),
+              onTap: () => Navigator.pop(sheetContext, 'decline'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (answer == null || !mounted) return;
+    if (answer == 'decline') {
+      _store.setPaymentStatus(_chatId, m.id, 'declined');
+      RelayService.instance
+          .sendPaymentStatus(recipient.phone, m.id, 'declined');
+      return;
+    }
+    // Paying is sending money, so it carries every gate sending carries.
+    if (!svc.isConfigured ||
+        (!svc.canSendOnThisDevice && !svc.testMode.value)) {
+      _showComingSoon(context, 'Payments');
+      return;
+    }
+    if (!IdentityVerification.instance.allowsTrusted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: const Text('Verify your ID to send money.'),
+        action: SnackBarAction(
+          label: 'Verify',
+          onPressed: () => Navigator.of(context)
+              .push(MaterialPageRoute(builder: (_) => const ScoreScreen())),
+        ),
+      ));
+      return;
+    }
+    if (!svc.testMode.value && !await svc.canReceive(recipient.phone)) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('${recipient.name} hasn\'t set up payments, so '
+                'money can\'t reach them yet.')));
+      }
+      return;
+    }
+    if (!mounted) return;
+    // The confirm carries what the acknowledgement checkbox carries on the
+    // amount sheet: the total with fees, and that it is final.
+    final total = PaymentEconomics.grossUpCents(m.paymentAmountCents);
+    final sure = await showAppConfirmDialog(
+      context,
+      icon: Icons.payments_rounded,
+      title: 'Pay $amount?',
+      message: '${recipient.name} receives the full $amount; with fees you '
+          'pay \$${(total / 100).toStringAsFixed(2)}. This goes straight to '
+          'them and cannot be reversed from here.',
+      confirmLabel: 'Pay',
+      cancelLabel: 'Go back',
+    );
+    if (!sure || !mounted) return;
+    await _payRecipient(recipient,
+        cents: m.paymentAmountCents,
+        note: m.text.trim(),
+        acknowledged: true,
+        onSettled: (status) {
+          if (status != 'paid') return;
+          _store.setPaymentStatus(_chatId, m.id, 'paid');
+          RelayService.instance.sendPaymentStatus(recipient.phone, m.id, 'paid');
+        });
   }
 
   /// Composes and sends a poll into the conversation.
@@ -2512,6 +2658,14 @@ class _ChatScreenState extends State<ChatScreen> {
               label: 'Payment',
               color: const Color(0xFF12B76A),
               onTap: _handleSendMoney),
+        // Asking, not sending — 1:1 only, because a group request has no
+        // single payer to answer it.
+        if (!_isNoteToSelf && !widget.chat.contact.isGroup)
+          AttachmentOption(
+              icon: Icons.request_quote_outlined,
+              label: 'Request',
+              color: const Color(0xFF5B6BF0),
+              onTap: _requestMoney),
         AttachmentOption(
             icon: Icons.poll_outlined,
             label: 'Poll',

@@ -4,7 +4,33 @@ import '../theme/app_theme.dart';
 import '../payments/payment_service.dart';
 import '../util/phone_format.dart';
 
-/// Every transfer this account has been part of, sent and received.
+/// The lenses the history can be read through. 'all' is the timeline;
+/// the rest each answer one question — what did I spark, what is still in
+/// flight, what left for my bank, what never moved.
+const List<(String, String)> paymentHistoryFilters = [
+  ('all', 'All'),
+  ('sparks', 'Sparks'),
+  ('pending', 'Pending'),
+  ('payouts', 'Cash outs'),
+  ('canceled', 'Canceled'),
+];
+
+/// Applies one filter key to the records. Pure, so a test can hold each
+/// lens to a known list without pumping the screen.
+List<PaymentRecord> filterPaymentRecords(
+    List<PaymentRecord> records, String filter) {
+  return switch (filter) {
+    'sparks' => [for (final r in records) if (r.isSpark) r],
+    'pending' => [for (final r in records) if (r.isPending) r],
+    'payouts' => [for (final r in records) if (r.isPayout) r],
+    'canceled' => [for (final r in records) if (r.isCanceled) r],
+    _ => records,
+  };
+}
+
+/// Every movement of money this account has been part of: transfers sent and
+/// received, sparks, and the cash-outs that took the balance to a bank or
+/// card.
 ///
 /// Read from the server rather than the device: a transfer has two sides and
 /// only one of them is this phone, so the chat alone can never show the whole
@@ -19,6 +45,7 @@ class PaymentHistoryScreen extends StatefulWidget {
 
 class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
   late Future<List<PaymentRecord>> _future = PaymentService.instance.history();
+  String _filter = 'all';
 
   Future<void> _refresh() async {
     setState(() => _future = PaymentService.instance.history());
@@ -29,24 +56,59 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Transactions')),
-      body: RefreshIndicator(
-        onRefresh: _refresh,
-        child: FutureBuilder<List<PaymentRecord>>(
-          future: _future,
-          builder: (context, snap) {
-            if (snap.connectionState != ConnectionState.done) {
-              return const Center(child: CircularProgressIndicator());
-            }
-            final items = snap.data ?? const <PaymentRecord>[];
-            if (snap.hasError) return _empty('Could not load transactions.');
-            if (items.isEmpty) return _empty('No transfers yet.');
-            return ListView.separated(
-              itemCount: items.length,
-              separatorBuilder: (_, __) => const Divider(height: 1),
-              itemBuilder: (context, i) => _row(context, items[i]),
-            );
-          },
-        ),
+      body: Column(
+        children: [
+          SizedBox(
+            height: 48,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              children: [
+                for (final (key, label) in paymentHistoryFilters)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: ChoiceChip(
+                      label: Text(label),
+                      selected: _filter == key,
+                      onSelected: (_) => setState(() => _filter = key),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: RefreshIndicator(
+              onRefresh: _refresh,
+              child: FutureBuilder<List<PaymentRecord>>(
+                future: _future,
+                builder: (context, snap) {
+                  if (snap.connectionState != ConnectionState.done) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  if (snap.hasError) {
+                    return _empty('Could not load transactions.');
+                  }
+                  final items = filterPaymentRecords(
+                      snap.data ?? const <PaymentRecord>[], _filter);
+                  if (items.isEmpty) {
+                    return _empty(switch (_filter) {
+                      'sparks' => 'No sparks yet.',
+                      'pending' => 'Nothing pending.',
+                      'payouts' => 'No cash outs yet.',
+                      'canceled' => 'Nothing canceled.',
+                      _ => 'No transfers yet.',
+                    });
+                  }
+                  return ListView.separated(
+                    itemCount: items.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemBuilder: (context, i) => _row(context, items[i]),
+                  );
+                },
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -75,32 +137,53 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
       colour = Colors.orange.shade700;
       icon = Icons.block;
       label = t.blockedReason;
+    } else if (t.isCanceled) {
+      colour = Colors.red.shade400;
+      icon = Icons.close;
+      label = t.status == 'canceled' ? 'Canceled' : 'Failed';
     } else if (t.isPending) {
       colour = Colors.grey;
       icon = Icons.schedule;
-      label = 'Pending';
+      label = t.status == 'in_transit' ? 'On its way' : 'Pending';
     } else if (!t.isComplete) {
       colour = Colors.red.shade400;
       icon = Icons.close;
       label = 'Failed';
+    } else if (t.isPayout) {
+      colour = const Color(0xFF2E90FA);
+      icon = Icons.account_balance;
+      label = 'Paid out';
+    } else if (t.isSpark) {
+      colour = const Color(0xFFF7931A);
+      icon = Icons.bolt;
+      label = sent ? 'Sparked' : 'Spark received';
     } else {
       colour = sent ? Colors.red.shade400 : const Color(0xFF12B76A);
       icon = sent ? Icons.arrow_upward : Icons.arrow_downward;
       label = sent ? 'Sent' : 'Received';
     }
+    // A payout's counterparty is this account's own bank or card — there is
+    // no other phone to name.
+    final title = t.isPayout
+        ? 'Cash out (${t.method == 'instant' ? 'instant' : 'standard'})'
+        : formatPhoneForDisplay(t.otherPhone);
+    final note = t.isSpark || t.isPayout ? '' : t.note.trim();
     return ListTile(
       leading: CircleAvatar(
         backgroundColor: colour.withValues(alpha: 0.15),
         child: Icon(icon, color: colour, size: 20),
       ),
-      title: Text(formatPhoneForDisplay(t.otherPhone)),
+      title: Text(title),
       subtitle: Text(
-        t.at == null ? label : '$label · ${_when(t.at!)}',
+        [
+          if (note.isNotEmpty) note,
+          t.at == null ? label : '$label · ${_when(t.at!)}',
+        ].join('\n'),
         style: TextStyle(fontSize: 12.5, color: AppColors.subtle(context)),
       ),
+      isThreeLine: note.isNotEmpty,
       trailing: Text(
-        // Only a completed send actually left the account, so only that
-        // carries a minus sign.
+        // Only money that actually left the account carries a minus sign.
         '${t.isComplete && sent ? '−' : ''}$amount',
         style: TextStyle(
           fontWeight: FontWeight.w700,

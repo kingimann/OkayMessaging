@@ -132,6 +132,7 @@ import 'package:okay_messaging/payments/payment_service.dart';
 import 'package:okay_messaging/payments/connect_webview.dart';
 import 'package:okay_messaging/payments/connect_webview_stub.dart' as stub;
 import 'package:okay_messaging/payments/payment_amount_sheet.dart';
+import 'package:okay_messaging/screens/payment_history_screen.dart';
 import 'package:okay_messaging/screens/wallet_screen.dart';
 import 'package:okay_messaging/payments/storage_economics.dart';
 import 'package:okay_messaging/payments/purchase_outcome.dart';
@@ -13633,6 +13634,198 @@ void main() {
         expect(t.isComplete, isFalse);
         expect(t.blockedReason.toLowerCase(), contains(words.toLowerCase()));
       }
+    });
+
+    test('the send currency is a whitelist with cad as the floor', () async {
+      SharedPreferences.setMockInitialValues({});
+      final svc = PaymentService.instance;
+      await svc.load();
+      expect(svc.sendCurrency.value, 'cad');
+      await svc.setSendCurrency('USD');
+      expect(svc.sendCurrency.value, 'usd', reason: 'case is normalised');
+      await svc.setSendCurrency('btc');
+      expect(svc.sendCurrency.value, 'usd',
+          reason: 'an unknown code is refused, not stored');
+      // Persisted: a fresh load reads the choice back.
+      await svc.load();
+      expect(svc.sendCurrency.value, 'usd');
+      // A poisoned pref falls back rather than asking the server for a
+      // currency it would refuse.
+      SharedPreferences.setMockInitialValues(
+          {'payments_send_currency_v1': 'xyz'});
+      await svc.load();
+      expect(svc.sendCurrency.value, 'cad');
+      // Every offered currency has a symbol the amount can read in.
+      for (final c in PaymentService.sendCurrencies) {
+        expect(PaymentService.symbolFor(c), isNotEmpty);
+      }
+      expect(PaymentService.symbolFor('gbp'), '£');
+      expect(PaymentService.symbolFor('cad'), r'$');
+    });
+
+    test('the client currency list matches the server whitelist', () {
+      // A currency the sheet offers but the server refuses is a payment
+      // that fails only at the end, with money-shaped hope built up.
+      final intent = File('supabase/functions/payments-create-intent/index.ts')
+          .readAsStringSync();
+      for (final c in PaymentService.sendCurrencies) {
+        expect(intent.contains('"$c"'), isTrue,
+            reason: '$c is offered client-side, so the server must take it');
+      }
+      expect(intent.contains('bad_currency'), isTrue,
+          reason: 'anything else is refused by name');
+    });
+
+    test('a payment request survives the wire and keeps its identity', () {
+      final req = Message(
+        id: 'req_1',
+        text: 'lunch',
+        time: DateTime(2026, 8, 1),
+        isMe: true,
+        isPayment: true,
+        isPaymentRequest: true,
+        paymentAmountCents: 1200,
+        paymentStatus: 'requested',
+      );
+      final back = Message.fromJson(
+          jsonDecode(jsonEncode(req.toJson())) as Map<String, dynamic>);
+      expect(back.isPaymentRequest, isTrue);
+      expect(back.paymentStatus, 'requested');
+      expect(back.paymentAmountCents, 1200);
+      // The answer arrives as a status change, which must not turn the
+      // request into a receipt.
+      final paid = back.copyWith(paymentStatus: 'paid');
+      expect(paid.isPaymentRequest, isTrue);
+      expect(paid.paymentStatus, 'paid');
+      // And an ordinary message never becomes one by accident.
+      expect(
+          Message.fromJson(const {
+            'id': 'x',
+            'text': '',
+            'time': '2026-08-01T00:00:00.000',
+            'isMe': true,
+          }).isPaymentRequest,
+          isFalse);
+      // The relay both sends the bit and reads it back — one without the
+      // other is a request that arrives as a payment receipt.
+      final relay = File('lib/relay/relay_service.dart').readAsStringSync();
+      expect(RegExp('isPaymentRequest').allMatches(relay).length >= 2, isTrue);
+    });
+
+    testWidgets('a request bubble asks, and its answers read differently',
+        (tester) async {
+      await tester.pumpWidget(const MaterialApp(
+        home: Scaffold(
+          body: Column(children: [
+            PaymentBubble(
+                amountCents: 1200,
+                note: 'lunch',
+                isMe: false,
+                isRequest: true,
+                status: 'requested'),
+            PaymentBubble(
+                amountCents: 1200,
+                note: '',
+                isMe: true,
+                isRequest: true,
+                status: 'declined'),
+            PaymentBubble(
+                amountCents: 1200,
+                note: '',
+                isMe: true,
+                isRequest: true,
+                status: 'paid'),
+          ]),
+        ),
+      ));
+      expect(find.text('Payment request'), findsOneWidget);
+      expect(find.text('Tap to pay or decline'), findsOneWidget,
+          reason: 'the receiving side is told the bubble is actionable');
+      expect(find.text('Waiting'), findsOneWidget);
+      expect(find.text('Request declined'), findsOneWidget);
+      expect(find.text('Paid'), findsOneWidget,
+          reason: 'a paid request says paid, not completed');
+    });
+
+    testWidgets('the request sheet asks without fees or finality',
+        (tester) async {
+      await tester.pumpWidget(const MaterialApp(
+        home: Scaffold(
+          body: PaymentAmountSheet(peerName: 'Ana', requestMode: true),
+        ),
+      ));
+      await tester.pump();
+      expect(find.textContaining('Request money from'), findsOneWidget);
+      await tester.enterText(find.byType(TextField).first, '12');
+      await tester.pump();
+      expect(find.textContaining('Request \$12.00'), findsOneWidget);
+      // No charge happens here, so there is no fee to break down and
+      // nothing final to acknowledge.
+      expect(find.byType(Checkbox), findsNothing);
+      expect(find.textContaining('Our fee'), findsNothing);
+    });
+
+    test('the history filters each answer one question', () {
+      PaymentRecord rec(String id,
+              {String status = 'succeeded',
+              String kind = 'transfer',
+              String note = '',
+              String method = ''}) =>
+          PaymentRecord(
+              id: id,
+              sent: true,
+              otherPhone: '1555',
+              amountCents: 100,
+              feeCents: 0,
+              currency: 'CAD',
+              status: status,
+              note: note,
+              kind: kind,
+              method: method);
+      final records = [
+        rec('a'),
+        rec('b', note: 'Spark ⚡'),
+        rec('c', status: 'pending'),
+        rec('d', status: 'in_transit', kind: 'payout', method: 'standard'),
+        rec('e', status: 'canceled'),
+        rec('f', status: 'blocked_prepaid'),
+        rec('g', status: 'paid', kind: 'payout', method: 'instant'),
+      ];
+      expect(filterPaymentRecords(records, 'all').length, records.length);
+      expect([for (final r in filterPaymentRecords(records, 'sparks')) r.id],
+          ['b']);
+      // A payout still in transit is pending money like any other.
+      expect([for (final r in filterPaymentRecords(records, 'pending')) r.id],
+          ['c', 'd']);
+      expect([for (final r in filterPaymentRecords(records, 'payouts')) r.id],
+          ['d', 'g']);
+      // Canceled means "never moved, never will": canceled, failed, or
+      // refused by a card rule — one bucket, one answer.
+      expect([for (final r in filterPaymentRecords(records, 'canceled')) r.id],
+          ['e', 'f']);
+    });
+
+    test('a payout row reads as a cash out, not a person', () {
+      final p = PaymentRecord.fromJson(const {
+        'id': 'po_1',
+        'amountCents': 5000,
+        'feeCents': 75,
+        'currency': 'cad',
+        'status': 'paid',
+        'method': 'instant',
+        'at': '2026-08-01T00:00:00.000Z',
+      }, kind: 'payout');
+      expect(p.isPayout, isTrue);
+      expect(p.sent, isTrue, reason: 'a payout is always money leaving');
+      expect(p.isComplete, isTrue);
+      expect(p.method, 'instant');
+      expect(p.isSpark, isFalse, reason: 'only transfers can be sparks');
+      // And the server actually serves both halves of the history.
+      final history = File('supabase/functions/payments-history/index.ts')
+          .readAsStringSync();
+      expect(history.contains('payouts'), isTrue);
+      expect(history.contains('note'), isTrue,
+          reason: 'the note is how the history says what a transfer was for');
     });
 
     test('controls default to open, and parse what the server says', () {

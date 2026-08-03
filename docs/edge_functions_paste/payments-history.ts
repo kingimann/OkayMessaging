@@ -40,14 +40,101 @@ async function callerPhone(req: Request): Promise<string | null> {
   return phone ? phone.replace(/\D/g, "") : null;
 }
 
-// The caller's transfers, sent and received.
+import Stripe from "https://esm.sh/stripe@16.12.0?target=denonext";
+
+// The generic request plumbing lives in http.ts; re-exported so existing
+// imports from this file keep working unchanged.
+
+const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY") ?? "", {
+  apiVersion: "2024-06-20",
+  httpClient: Stripe.createFetchHttpClient(),
+});
+
+/// The platform's application fee for an [amountCents] charge, in cents.
+///
+/// Transfers are DIRECT charges — the PaymentIntent is created on the
+/// recipient's connected account — so the platform is never in the flow of
+/// funds and never pays Stripe's processing fee. That makes this fee pure
+/// revenue, and means no floor is needed: unlike a destination charge, there
+/// is no platform-side cost for it to fail to clear.
+///
+/// Stripe's cut (2.9% + 30c domestic, more on a foreign card) comes out of the
+/// recipient's account instead, which is why the send sheet quotes an
+/// approximate landing amount rather than the amount typed.
+function applicationFee(amountCents: number): number {
+  const pct = parseFloat(Deno.env.get("PLATFORM_FEE_PERCENT") ?? "3.4");
+  const fixed = parseInt(Deno.env.get("PLATFORM_FEE_FIXED_CENTS") ?? "10", 10);
+  return Math.max(0, Math.round((amountCents * pct) / 100) + fixed);
+}
+
+/// Stripe's published card rates, mirroring StorageEconomics in
+/// lib/payments/storage_economics.dart — the Dart side is the documented
+/// source of these numbers and the test suite holds it to them.
+///
+/// Not read from the environment on purpose: these are Stripe's prices, not
+/// ours. A deployment cannot negotiate them, and an env var would only offer
+/// a way to gross up against a rate Stripe isn't charging.
+const STRIPE_PERCENT = 2.9;
+const STRIPE_FIXED_CENTS = 30;
+
+/// Stripe's extra cut on a card issued abroad. The card's country is only
+/// known after the charge, so grossing up has to assume it.
+const STRIPE_INTERNATIONAL_SURCHARGE_PERCENT = 1.5;
+
+/// Stripe's own cost for a charge of [amountCents] on a domestic card. Paid by
+/// the recipient's account on a direct charge, which is why it has to be
+/// accounted for when grossing up.
+function stripeCost(amountCents: number): number {
+  return Math.round((amountCents * STRIPE_PERCENT) / 100) + STRIPE_FIXED_CENTS;
+}
+
+/// What the sender must be charged so [targetCents] actually reaches the
+/// recipient.
+///
+/// Both fees come out of the transfer, so charging exactly what was typed
+/// delivers less than that. Grossing up moves the fees onto the sender, which
+/// is what people expect when they type a number.
+///
+/// Solved by search rather than algebra: the fees round to whole cents, so a
+/// closed form lands a cent out either way. Mirrors grossUpCents() in
+/// lib/payments/storage_economics.dart.
+function grossUp(targetCents: number): number {
+  if (targetCents <= 0) return 0;
+  const pct = parseFloat(Deno.env.get("PLATFORM_FEE_PERCENT") ?? "3.4");
+  const fixed = parseInt(Deno.env.get("PLATFORM_FEE_FIXED_CENTS") ?? "10", 10);
+  // Grossed up against the WORST-case Stripe rate. The sender picks the card
+  // and its country is only known afterwards, so budgeting on the domestic
+  // rate would under-deliver every international transfer — the recipient
+  // would get less than the sender typed, which is the one promise this
+  // makes. Erring the other way costs a domestic sender a few cents and the
+  // surplus goes to the recipient, never to the platform.
+  const worst = STRIPE_PERCENT + STRIPE_INTERNATIONAL_SURCHARGE_PERCENT;
+  const worstCost = (t: number) =>
+    Math.round((t * worst) / 100) + STRIPE_FIXED_CENTS;
+  const rate = 1 - (pct + worst) / 100;
+  let total = Math.floor((targetCents + fixed + STRIPE_FIXED_CENTS) / rate);
+  for (let i = 0; i < 12; i++) {
+    if (total - worstCost(total) - applicationFee(total) >= targetCents) {
+      return total;
+    }
+    total++;
+  }
+  return total;
+}
+
+// The caller's money history: transfers sent and received, and cash-outs.
 //
-// Reads payment_transactions, which the webhook keeps current, and returns
-// both directions in one list so the app can show a single history. Only the
-// caller's own rows — the table is RLS-locked and this is the only way in.
+// Transfers come from payment_transactions, which the webhook keeps current
+// — only the caller's own rows; the table is RLS-locked and this is the only
+// way in. Cash-outs come from Stripe directly: payouts live on the connected
+// account, not in our database, and mirroring them into a table would be a
+// second copy that drifts.
 //
-// POST { limit? } -> { transactions: [{ id, direction, otherPhone,
-//                       amountCents, feeCents, status, at }] }
+// POST { limit? } -> {
+//   transactions: [{ id, direction, otherPhone, amountCents, feeCents,
+//                    currency, status, note, at }],
+//   payouts:      [{ id, amountCents, feeCents, currency, status, method, at }],
+// }
 
 
 Deno.serve(async (req) => {
@@ -66,10 +153,49 @@ Deno.serve(async (req) => {
 
   const { data } = await admin
     .from("payment_transactions")
-    .select("id, from_phone, to_phone, amount_cents, fee_cents, currency, status, updated_at")
+    .select(
+      "id, from_phone, to_phone, amount_cents, fee_cents, currency, status, note, updated_at",
+    )
     .or(`from_phone.eq.${phone},to_phone.eq.${phone}`)
     .order("updated_at", { ascending: false })
     .limit(limit);
+
+  // Cash-outs, straight from the connected account. Best-effort: an account
+  // that was never onboarded has no payouts, and a Stripe hiccup should not
+  // take the transfer list down with it.
+  let payouts: Record<string, unknown>[] = [];
+  try {
+    const { data: acct } = await admin
+      .from("payment_accounts")
+      .select("stripe_account_id")
+      .eq("phone", phone)
+      .maybeSingle();
+    if (acct?.stripe_account_id) {
+      const listed = await stripe.payouts.list(
+        { limit: 30 },
+        { stripeAccount: acct.stripe_account_id as string },
+      );
+      payouts = (listed.data ?? []).map((p: {
+        id: string;
+        amount: number;
+        currency: string;
+        status: string;
+        method: string;
+        created: number;
+        metadata?: Record<string, string> | null;
+      }) => ({
+        id: p.id,
+        amountCents: p.amount,
+        // What the payout was quoted at the time it was made — the fee is
+        // not a Stripe field, so it rides the payout's own metadata.
+        feeCents: Number(p.metadata?.quoted_fee_cents ?? 0) || 0,
+        currency: p.currency,
+        status: p.status,
+        method: p.method,
+        at: new Date(p.created * 1000).toISOString(),
+      }));
+    }
+  } catch { /* payouts stay empty */ }
 
   return json({
     transactions: (data ?? []).map((t: Record<string, unknown>) => {
@@ -84,8 +210,10 @@ Deno.serve(async (req) => {
         feeCents: t.fee_cents,
         currency: t.currency,
         status: t.status,
+        note: t.note ?? "",
         at: t.updated_at,
       };
     }),
+    payouts,
   });
 });

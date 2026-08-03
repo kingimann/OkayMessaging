@@ -396,6 +396,10 @@ Deno.serve(async (req) => {
   }
   const amountCents = Math.round(Number(body.amountCents ?? 0));
   const currency = (body.currency ?? "cad").toLowerCase();
+  // The client offers exactly this list; anything else is a modified client.
+  if (!["cad", "usd", "gbp", "eur", "aud"].includes(currency)) {
+    return json({ error: "bad_currency" }, 400);
+  }
   if (!toPhone || amountCents <= 0) return json({ error: "invalid amount" }, 400);
   if (toPhone === fromPhone) return json({ error: "cannot pay yourself" }, 400);
 
@@ -540,6 +544,10 @@ Deno.serve(async (req) => {
       fee_cents: feeCents,
       currency,
       status: intent.status,
+      // So the history can say what a transfer was for (and recognise a
+      // spark). Already plaintext on the intent's metadata — payment notes
+      // are payment data, not message content, and were never sealed.
+      note: body.note ?? "",
       updated_at: new Date().toISOString(),
     });
 

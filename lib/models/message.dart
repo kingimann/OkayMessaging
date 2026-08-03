@@ -161,6 +161,11 @@ class Message {
   final int paymentAmountCents;
   final String paymentCurrency;
 
+  /// True when this payment message ASKS for money rather than moves it —
+  /// no charge exists until the other side taps Pay. [paymentStatus] runs
+  /// 'requested' → 'paid' / 'declined' instead of the send lifecycle.
+  final bool isPaymentRequest;
+
   /// Lifecycle of an in-chat payment: 'pending' while it's being confirmed,
   /// 'paid' once it settles, or 'failed'. Empty for non-payment messages.
   final String paymentStatus;
@@ -236,6 +241,7 @@ class Message {
     this.isPayment = false,
     this.paymentAmountCents = 0,
     this.paymentCurrency = 'cad',
+    this.isPaymentRequest = false,
     this.paymentStatus = '',
     this.serverInvite = '',
     this.isPoll = false,
@@ -300,6 +306,7 @@ class Message {
         'isPayment': isPayment,
         'paymentAmountCents': paymentAmountCents,
         'paymentCurrency': paymentCurrency,
+        'isPaymentRequest': isPaymentRequest,
         'paymentStatus': paymentStatus,
         'serverInvite': serverInvite,
         'isPoll': isPoll,
@@ -360,6 +367,7 @@ class Message {
         isPayment: json['isPayment'] as bool? ?? false,
         paymentAmountCents: json['paymentAmountCents'] as int? ?? 0,
         paymentCurrency: json['paymentCurrency'] as String? ?? 'cad',
+        isPaymentRequest: json['isPaymentRequest'] as bool? ?? false,
         paymentStatus: json['paymentStatus'] as String? ?? '',
         serverInvite: json['serverInvite'] as String? ?? '',
         isPoll: json['isPoll'] as bool? ?? false,
@@ -442,6 +450,7 @@ class Message {
       isPayment: isPayment,
       paymentAmountCents: paymentAmountCents,
       paymentCurrency: paymentCurrency,
+      isPaymentRequest: isPaymentRequest,
       paymentStatus: paymentStatus ?? this.paymentStatus,
       serverInvite: serverInvite,
       isPoll: isPoll,

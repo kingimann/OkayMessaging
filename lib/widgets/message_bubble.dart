@@ -198,12 +198,15 @@ class MessageBubble extends StatelessWidget {
         alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
         child: GestureDetector(
           onLongPress: onLongPress,
+          // A request is answered by tapping it, so the tap has to reach it.
+          onTap: onTap,
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
             child: PaymentBubble(
               amountCents: message.paymentAmountCents,
               note: message.text,
               isMe: isMe,
+              isRequest: message.isPaymentRequest,
               status: message.paymentStatus,
             ),
           ),

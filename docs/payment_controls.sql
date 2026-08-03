@@ -79,6 +79,13 @@ drop policy if exists payment_blocks_all on public.payment_blocks;
 create index if not exists payment_transactions_from_created_idx
   on public.payment_transactions (from_phone, updated_at);
 
+-- What a transfer said it was for, so the history can show it (and mark
+-- sparks). The note was always plaintext payment data — it already rides the
+-- Stripe intent's metadata — so storing it here exposes nothing new. The
+-- table stays RLS-locked; payments-history is still the only way to read it.
+alter table public.payment_transactions
+  add column if not exists note text not null default '';
+
 -- ---------------------------------------------------------------------------
 -- Debit-card attach history — the record behind two safeguards: a newly
 -- attached card waits seven business days before instant payouts (an account

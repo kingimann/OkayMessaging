@@ -160,7 +160,8 @@ class PayoutOutcome {
 /// Client for the Stripe Connect payment flow. All secret-key work happens in
 /// Supabase Edge Functions; this only calls them (with the user's session) and
 /// drives the native payment sheet. The platform never holds funds or card data.
-/// One transfer, from this account's point of view.
+/// One line of the money history: a transfer or a cash-out, from this
+/// account's point of view.
 class PaymentRecord {
   final String id;
   final bool sent;
@@ -171,6 +172,16 @@ class PaymentRecord {
   final String status;
   final DateTime? at;
 
+  /// What the transfer said it was for. Sparks are recognised by it.
+  final String note;
+
+  /// 'transfer' (money between two people) or 'payout' (money leaving for
+  /// this account's own bank or card).
+  final String kind;
+
+  /// For a payout: 'instant' or 'standard'. Empty on transfers.
+  final String method;
+
   const PaymentRecord({
     required this.id,
     required this.sent,
@@ -180,6 +191,9 @@ class PaymentRecord {
     required this.currency,
     required this.status,
     this.at,
+    this.note = '',
+    this.kind = 'transfer',
+    this.method = '',
   });
 
   /// Whether the money actually moved.
@@ -188,7 +202,20 @@ class PaymentRecord {
   /// Refused by a card rule rather than failing on its own.
   bool get isBlocked => status.startsWith('blocked_');
 
-  bool get isPending => status == 'pending' || status == 'requires_capture';
+  bool get isPending =>
+      status == 'pending' || status == 'requires_capture' ||
+      status == 'in_transit';
+
+  /// Went nowhere and never will: cancelled outright, failed, or refused by
+  /// a card rule. One bucket on purpose — the question a history answers is
+  /// "did this money move", and for all three the answer is no, for good.
+  bool get isCanceled =>
+      status == 'canceled' || status == 'failed' || isBlocked;
+
+  bool get isPayout => kind == 'payout';
+
+  /// A spark rides the same rails as any transfer; the note is what marks it.
+  bool get isSpark => kind == 'transfer' && note.startsWith('Spark');
 
   /// Why it was refused, in words.
   String get blockedReason => switch (status) {
@@ -198,15 +225,21 @@ class PaymentRecord {
         _ => 'Blocked',
       };
 
-  factory PaymentRecord.fromJson(Map<String, dynamic> j) => PaymentRecord(
+  factory PaymentRecord.fromJson(Map<String, dynamic> j,
+          {String kind = 'transfer'}) =>
+      PaymentRecord(
         id: j['id'] as String? ?? '',
-        sent: j['direction'] == 'sent',
+        // A payout is always money leaving; a transfer says which way.
+        sent: kind == 'payout' || j['direction'] == 'sent',
         otherPhone: j['otherPhone'] as String? ?? '',
         amountCents: (j['amountCents'] as num?)?.toInt() ?? 0,
         feeCents: (j['feeCents'] as num?)?.toInt() ?? 0,
         currency: (j['currency'] as String? ?? 'cad').toUpperCase(),
         status: j['status'] as String? ?? '',
         at: DateTime.tryParse(j['at'] as String? ?? '')?.toLocal(),
+        note: j['note'] as String? ?? '',
+        kind: kind,
+        method: j['method'] as String? ?? '',
       );
 }
 
@@ -303,11 +336,44 @@ class PaymentService {
   /// call and no money movement, so payments can be tried anywhere. Persisted.
   final ValueNotifier<bool> testMode = ValueNotifier<bool>(false);
 
+  /// The currency transfers are charged in. The recipient's Stripe account
+  /// settles in its own currency either way (Stripe converts), so this is
+  /// about the SENDER seeing the number they mean. Persisted.
+  final ValueNotifier<String> sendCurrency = ValueNotifier<String>('cad');
+  static const _kSendCurrency = 'payments_send_currency_v1';
+
+  /// The currencies the sheet offers, matching the server's whitelist.
+  static const List<String> sendCurrencies = [
+    'cad',
+    'usd',
+    'gbp',
+    'eur',
+    'aud',
+  ];
+
+  /// The symbol the amount reads in, per currency.
+  static String symbolFor(String code) => switch (code.toLowerCase()) {
+        'usd' => 'US\$',
+        'gbp' => '£',
+        'eur' => '€',
+        'aud' => 'A\$',
+        _ => '\$',
+      };
+
+  Future<void> setSendCurrency(String code) async {
+    final c = code.toLowerCase();
+    if (!sendCurrencies.contains(c) || sendCurrency.value == c) return;
+    sendCurrency.value = c;
+    await _prefs?.setString(_kSendCurrency, c);
+  }
+
   SharedPreferences? _prefs;
 
   Future<void> load() async {
     _prefs = await SharedPreferences.getInstance();
     testMode.value = _prefs!.getBool(_kTestMode) ?? false;
+    final c = _prefs!.getString(_kSendCurrency) ?? 'cad';
+    sendCurrency.value = sendCurrencies.contains(c) ? c : 'cad';
   }
 
   /// Whether [phone] can receive money right now — the courtesy question a
@@ -400,15 +466,27 @@ class PaymentService {
   static const String _returnOverride =
       String.fromEnvironment('APP_RETURN_URL', defaultValue: '');
 
-  /// The caller's transfers, newest first, both directions.
+  /// The caller's money history, newest first: transfers both ways, and the
+  /// cash-outs that took the balance to their own bank or card.
   Future<List<PaymentRecord>> history({int limit = 100}) async {
     final r = await _invoke('payments-history', {'limit': limit});
-    final raw = r['transactions'];
-    if (raw is! List) return const [];
-    return [
-      for (final t in raw.whereType<Map>())
-        PaymentRecord.fromJson(Map<String, dynamic>.from(t))
+    final records = <PaymentRecord>[
+      if (r['transactions'] is List)
+        for (final t in (r['transactions'] as List).whereType<Map>())
+          PaymentRecord.fromJson(Map<String, dynamic>.from(t)),
+      if (r['payouts'] is List)
+        for (final p in (r['payouts'] as List).whereType<Map>())
+          PaymentRecord.fromJson(Map<String, dynamic>.from(p),
+              kind: 'payout'),
     ];
+    // One timeline, not two lists: a cash-out happened between transfers and
+    // should read in place. Undated rows sink to the bottom.
+    records.sort((a, b) {
+      if (a.at == null) return 1;
+      if (b.at == null) return -1;
+      return b.at!.compareTo(a.at!);
+    });
+    return records;
   }
 
   /// Reads the account's payment controls. Passing values updates them.
@@ -609,7 +687,7 @@ class PaymentService {
       if (toPhone.isNotEmpty) 'toPhone': toPhone,
       if (sparkPostId != null) 'sparkPostId': sparkPostId,
       'amountCents': amountCents,
-      'currency': 'cad',
+      'currency': sendCurrency.value,
       if (note != null && note.isNotEmpty) 'note': note,
       // Stripe emails the receipt. A charge the sender has no record of is a
       // charge worth disputing, so give them one.
