@@ -21,4 +21,8 @@ class AppleIap {
       const PurchaseResult(PurchaseOutcome.unavailable);
 
   static Future<void> restore() async {}
+
+  /// No store to ask on this platform.
+  static Future<StoreQueryResult> query(Set<String> ids) async =>
+      StoreQueryResult(storeReachable: false, notOffered: ids.toList());
 }

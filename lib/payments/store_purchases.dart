@@ -71,4 +71,43 @@ class StorePurchases {
     }
     return AppleIap.buy(productId, consumable: true);
   }
+
+  /// Asks the store which tip products it will sell here.
+  Future<StoreQueryResult> checkTips() =>
+      AppleIap.query({for (final t in tipProducts) t.id});
+
+  /// Turns the store's answer into the sentence that names the broken link.
+  /// Pure, because "products exist in App Store Connect but the store says
+  /// not on sale" has four different causes and a failed purchase alone
+  /// cannot tell them apart.
+  static String tipsCheckVerdict(StoreQueryResult r) {
+    if (!r.storeReachable) {
+      return 'The App Store isn\'t reachable from here. On an iPhone, check '
+          'that this device is signed in to the App Store; anywhere else '
+          'there is no store to ask.';
+    }
+    if (r.notOffered.isEmpty) {
+      return 'Every tip product is on sale, at the store\'s own prices above. '
+          'If sending a tip still fails, the store sheet itself is refusing — '
+          'that is a different error and it will say so.';
+    }
+    if (r.onSale.isEmpty) {
+      return 'The App Store has never heard of ANY tip product, which points '
+          'at the account rather than the products. In App Store Connect '
+          'check, in order:\n'
+          '1. Agreements → the Paid Applications agreement must be Active '
+          '(banking and tax complete) — every in-app product is invisible '
+          'until it is.\n'
+          '2. Each product\'s status must be "Ready to Submit" — "Missing '
+          'Metadata" means a name, price or description is still blank.\n'
+          '3. Newly created products can take a few hours to reach the '
+          'store.\n'
+          '4. The products must be under this app (com.okaymessaging), not '
+          'another app record.';
+    }
+    return 'The store offers some tips but has never heard of: '
+        '${r.notOffered.join(', ')}. Those exact product IDs must exist in '
+        'App Store Connect — a product created under a different ID is a '
+        'different product.';
+  }
 }

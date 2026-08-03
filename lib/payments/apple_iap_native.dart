@@ -79,6 +79,24 @@ class AppleIap {
 
   static Future<void> restore() => _iap.restorePurchases();
 
+  /// Asks the store which of [ids] it will actually sell here, without
+  /// opening any sheet. This is the diagnostic behind "it's set up in App
+  /// Store Connect but says it isn't on sale": the store's answer separates
+  /// an ID mismatch (some found, some not) from an account-level problem
+  /// like an inactive Paid Apps agreement (none found).
+  static Future<StoreQueryResult> query(Set<String> ids) async {
+    await init();
+    if (!await _iap.isAvailable()) {
+      return StoreQueryResult(storeReachable: false, notOffered: ids.toList());
+    }
+    final resp = await _iap.queryProductDetails(ids);
+    return StoreQueryResult(
+      storeReachable: true,
+      onSale: {for (final p in resp.productDetails) p.id: p.price},
+      notOffered: resp.notFoundIDs,
+    );
+  }
+
   static void _onPurchases(List<PurchaseDetails> purchases) {
     for (final p in purchases) {
       switch (p.status) {

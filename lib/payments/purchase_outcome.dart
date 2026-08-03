@@ -44,6 +44,27 @@ enum PurchaseOutcome {
       };
 }
 
+/// What the store answered when asked which of a set of products it sells
+/// here — the difference between "the ID doesn't match", "the store can't be
+/// reached" and "Apple isn't offering it yet", which a failed purchase alone
+/// cannot tell apart.
+class StoreQueryResult {
+  /// False when there is no store on this device or nobody is signed in to it.
+  final bool storeReachable;
+
+  /// Product id → the store's own localized price, for everything it offered.
+  final Map<String, String> onSale;
+
+  /// The ids the store has never heard of.
+  final List<String> notOffered;
+
+  const StoreQueryResult({
+    required this.storeReachable,
+    this.onSale = const {},
+    this.notOffered = const [],
+  });
+}
+
 /// A purchase attempt: how it ended, and Apple's signed transaction when it
 /// ended in a purchase.
 class PurchaseResult {

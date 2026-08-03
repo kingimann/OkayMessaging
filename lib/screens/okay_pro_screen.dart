@@ -27,6 +27,31 @@ class _OkayProScreenState extends State<OkayProScreen> {
   int get _amountCents => _tips[_selected].cents;
   String get _amountLabel => '\$${(_amountCents / 100).toStringAsFixed(2)}';
 
+  bool _checking = false;
+
+  /// Asks the App Store which tip products it will sell here and says so,
+  /// per product — the answer to "I created them in App Store Connect but
+  /// it says they're not on sale".
+  Future<void> _checkStore() async {
+    setState(() => _checking = true);
+    final r = await StorePurchases.instance.checkTips();
+    if (!mounted) return;
+    setState(() => _checking = false);
+    final lines = [
+      for (final t in _tips)
+        '${t.emoji} ${t.label} — ${r.onSale[t.id] ?? 'not offered'}',
+    ];
+    await showAppConfirmDialog(
+      context,
+      icon: Icons.storefront_outlined,
+      title: 'What the App Store says',
+      message: '${lines.join('\n')}\n\n'
+          '${StorePurchases.tipsCheckVerdict(r)}',
+      confirmLabel: 'Done',
+      cancelLabel: null,
+    );
+  }
+
   Future<void> _send() async {
     final messenger = ScaffoldMessenger.of(context);
     if (!StorePurchases.instance.isSupported) {
@@ -156,6 +181,14 @@ class _OkayProScreenState extends State<OkayProScreen> {
                   : 'Billed by the App Store. 100% optional.',
               textAlign: TextAlign.center,
               style: TextStyle(color: AppColors.subtle(context), fontSize: 12),
+            ),
+          ),
+          Center(
+            child: TextButton(
+              onPressed: _checking ? null : _checkStore,
+              child: Text(_checking
+                  ? 'Asking the App Store…'
+                  : 'Says it\'s not on sale? Check the store'),
             ),
           ),
         ],

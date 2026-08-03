@@ -18753,6 +18753,33 @@ void main() {
       expect(intent.contains('transfer_data'), isFalse,
           reason: 'transfer_data would route the money through the platform');
     });
+
+    test('the tips store check names the broken link, not a generic failure',
+        () {
+      // No store at all (web, signed-out device).
+      expect(
+          StorePurchases.tipsCheckVerdict(const StoreQueryResult(
+              storeReachable: false, notOffered: ['a'])),
+          contains('isn\'t reachable'));
+      // Everything on sale: the products are fine, say so.
+      expect(
+          StorePurchases.tipsCheckVerdict(const StoreQueryResult(
+              storeReachable: true, onSale: {'a': '\$2.99'})),
+          contains('on sale'));
+      // Nothing on sale points at the account — the Paid Apps agreement is
+      // the first thing to check, and the verdict must say it.
+      final none = StorePurchases.tipsCheckVerdict(const StoreQueryResult(
+          storeReachable: true, notOffered: ['a', 'b']));
+      expect(none, contains('Paid Applications'));
+      expect(none, contains('Ready to Submit'));
+      // A partial answer is an ID mismatch, and the verdict names the ids.
+      expect(
+          StorePurchases.tipsCheckVerdict(const StoreQueryResult(
+              storeReachable: true,
+              onSale: {'a': '\$2.99'},
+              notOffered: ['com.okaymessaging.tip.snack'])),
+          contains('com.okaymessaging.tip.snack'));
+    });
   });
 
   group('Sync and replay safety', () {
