@@ -121,6 +121,64 @@ alter table public.push_tokens
 -- CallKit on a closed app's lock screen. Alert pushes keep using `token`.
 alter table public.push_tokens
   add column if not exists voip_token text;
+-- How many alerts landed since the app was last opened — the app icon's
+-- badge number. APNs can only SET a badge, never increment one, and the
+-- sender's device cannot know the recipient's count, so the server keeps
+-- it: push-send bumps it per alert, the app zeroes it on open.
+alter table public.push_tokens
+  add column if not exists unseen integer not null default 0;
+
+-- Atomic bump-and-read for push-send (service role only — the badge is
+-- bookkeeping between the server and the recipient's own device).
+create or replace function public.bump_unseen(p text) returns integer
+language sql security definer set search_path = public as $$
+  update public.push_tokens
+     set unseen = coalesce(unseen, 0) + 1
+   where phone = p
+  returning unseen;
+$$;
+
+revoke all on function public.bump_unseen(text) from public;
+revoke execute on function public.bump_unseen(text) from anon, authenticated;
+grant execute on function public.bump_unseen(text) to service_role;
+
+-- Whether an account can currently RECEIVE money — asked by a sender's app
+-- BEFORE the amount sheet opens, so "they haven't set up payments" is said
+-- up front instead of after somebody typed an amount and confirmed.
+-- payments-create-intent re-checks all of it authoritatively; this is the
+-- courtesy answer, and it deliberately says only yes or no. Answering yes
+-- while accepts_from is 'contacts'-style nuance is fine: the intent applies
+-- the recipient's fine-grained rules and refuses with the precise reason.
+create or replace function public.can_receive_payments(p text)
+returns boolean
+language plpgsql security definer set search_path = public as $$
+declare
+  acct record;
+  s record;
+begin
+  if p is null or p = '' then
+    return false;
+  end if;
+  select stripe_account_id, charges_enabled into acct
+    from public.payment_accounts where phone = p;
+  if acct is null or coalesce(acct.stripe_account_id, '') = ''
+     or not coalesce(acct.charges_enabled, false) then
+    return false;
+  end if;
+  select accepts_from, paused into s
+    from public.payment_settings where phone = p;
+  if s is not null and
+     (coalesce(s.paused, false) or s.accepts_from = 'nobody') then
+    return false;
+  end if;
+  if public.is_locked_out(p) then
+    return false;
+  end if;
+  return true;
+end $$;
+
+revoke all on function public.can_receive_payments(text) from public;
+grant execute on function public.can_receive_payments(text) to authenticated;
 
 alter table public.push_tokens enable row level security;
 
@@ -191,6 +249,10 @@ begin
   on conflict (phone) do update
     set private = excluded.private,
         voip_token = coalesce(excluded.voip_token, push_tokens.voip_token),
+        -- Registration happens at app open, which is when the badge's
+        -- count has been seen — and a numberless account has no session
+        -- to zero its row any other way.
+        unseen = 0,
         updated_at = now()
     where push_tokens.token = excluded.token;
   delete from public.push_tokens where token = t and phone <> code;

@@ -55,6 +55,29 @@ class PushService {
   /// existed, and nothing else would ever re-attach it.
   Future<void> reupload() => _upload(_lastToken);
 
+  /// Zeroes the app-icon badge and the server's count behind it. Called
+  /// when the app comes to the foreground: whatever the badge was counting
+  /// has been seen, and a badge that never clears is a badge people learn
+  /// to ignore.
+  Future<void> clearBadge() async {
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
+      try {
+        await _channel.invokeMethod<void>('clearBadge');
+      } catch (_) {}
+    }
+    final me = Session.instance.user.value;
+    if (me == null || !RelayConfig.isEnabled) return;
+    // Numberless rows reset through their register RPC on next launch; a
+    // session-holding account resets its own row directly.
+    if (Session.instance.isNumberless) return;
+    try {
+      await Supabase.instance.client
+          .from('push_tokens')
+          .update({'unseen': 0}).eq(
+              'phone', me.phone.replaceAll(RegExp(r'\D'), ''));
+    } catch (_) {}
+  }
+
   /// Removes this device's token row on sign-out, so the account that just
   /// left stops buzzing this phone. Best-effort — sign-out never blocks on
   /// the network.

@@ -163,10 +163,23 @@ import WebRTC
         UNUserNotificationCenter.current().requestAuthorization(
           options: [.alert, .badge, .sound]) { granted, _ in
           DispatchQueue.main.async {
-            if granted { UIApplication.shared.registerForRemoteNotifications() }
+            // Registered EVEN WHEN DENIED: a device token needs no alert
+            // permission, and without one the server has no row at all —
+            // so a person who later flips notifications on in iOS Settings
+            // stayed silent forever. With the token uploaded, the grant in
+            // Settings is the only thing missing, and it works the moment
+            // they give it.
+            UIApplication.shared.registerForRemoteNotifications()
             result(granted)
           }
         }
+      case "clearBadge":
+        if #available(iOS 16.0, *) {
+          UNUserNotificationCenter.current().setBadgeCount(0)
+        } else {
+          UIApplication.shared.applicationIconBadgeNumber = 0
+        }
+        result(nil)
       case "openChat":
         let digits = (call.arguments as? String) ?? ""
         self?.openChatDigits = digits.isEmpty ? nil : digits

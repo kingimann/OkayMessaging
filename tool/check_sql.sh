@@ -551,6 +551,31 @@ do $$ begin
   raise notice '  ok   numberless push registers codes only, first claim wins';
 end $$;
 
+-- can_receive_payments: the courtesy pre-check answers what create-intent
+-- would refuse anyway — no account, not enabled, or paused means no.
+reset role;
+insert into public.payment_accounts (phone, stripe_account_id, charges_enabled)
+  values ('15550007777', 'acct_ok', true),
+         ('15550008888', 'acct_off', false)
+  on conflict (phone) do update
+    set stripe_account_id = excluded.stripe_account_id,
+        charges_enabled = excluded.charges_enabled;
+set role authenticated;
+select pg_temp.as_user('15550001111');
+do $$ begin
+  if not (select public.can_receive_payments('15550007777')) then
+    raise exception 'CHECK FAILED: an onboarded account reads as unable to receive';
+  end if;
+  if (select public.can_receive_payments('15550008888')) then
+    raise exception 'CHECK FAILED: charges-disabled account reads as able to receive';
+  end if;
+  if (select public.can_receive_payments('15550006666')) then
+    raise exception 'CHECK FAILED: an account with no payments setup reads as able to receive';
+  end if;
+  raise notice '  ok   senders learn up front who cannot receive money';
+end $$;
+reset role;
+
 -- Numberless directory (directory_numberless.sql): the RPCs are anon's only
 -- door, and the claim only ever opens account-code rows.
 reset role;

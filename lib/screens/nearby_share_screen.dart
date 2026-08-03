@@ -271,14 +271,18 @@ class _NearbyShareScreenState extends State<NearbyShareScreen> {
               const SizedBox(height: 4),
               if (people.isEmpty)
                 Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 20),
+                  padding: const EdgeInsets.symmetric(vertical: 12),
                   child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      // The AirDrop feel: the screen is visibly LOOKING, not
+                      // sitting there empty. Pull down restarts the radios.
+                      const _ScanningPulse(),
+                      const SizedBox(height: 14),
                       Text(
-                        'Nobody yet. They need the app open, Bluetooth on, '
-                        'and to have made themselves findable — the same '
+                        'Looking around…\nThey need the app open, Bluetooth '
+                        'on, and to have made themselves findable — the same '
                         'three things you do.',
+                        textAlign: TextAlign.center,
                         style: TextStyle(
                             fontSize: 13.5,
                             height: 1.4,
@@ -297,13 +301,22 @@ class _NearbyShareScreenState extends State<NearbyShareScreen> {
                   ),
                 )
               else
-                for (final person in people)
-                  _PersonRow(
-                    person: person,
-                    hasItem: _item != null,
-                    fits: _fitsFor(person),
-                    onSend: () => _send(person),
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Wrap(
+                    spacing: 14,
+                    runSpacing: 16,
+                    children: [
+                      for (final person in people)
+                        _PersonBubble(
+                          person: person,
+                          hasItem: _item != null,
+                          fits: _fitsFor(person),
+                          onSend: () => _send(person),
+                        ),
+                    ],
                   ),
+                ),
               if (transfers.isNotEmpty) ...[
                 const SizedBox(height: 22),
                 _sectionLabel(context, 'TRANSFERS'),
@@ -448,7 +461,11 @@ class _NearbyShareScreenState extends State<NearbyShareScreen> {
   }
 }
 
-class _PersonRow extends StatelessWidget {
+/// One person as an AirDrop-style bubble: their avatar IS the send button.
+/// The transport still gets said — which way it would go is the difference
+/// between one second and half a minute, and between "a video fits" and "it
+/// cannot" — just under the name instead of across a whole row.
+class _PersonBubble extends StatelessWidget {
   final NearbyPerson person;
 
   /// Whether anything is chosen yet.
@@ -458,56 +475,156 @@ class _PersonRow extends StatelessWidget {
   final bool fits;
 
   final VoidCallback onSend;
-  const _PersonRow({
+  const _PersonBubble({
     required this.person,
     required this.hasItem,
     required this.fits,
     required this.onSend,
   });
 
+  Color get _color {
+    var hex = person.avatarColor.replaceFirst('#', '');
+    if (hex.length == 6) hex = 'FF$hex';
+    return Color(int.tryParse(hex, radix: 16) ?? 0xFF9E9E9E);
+  }
+
   @override
   Widget build(BuildContext context) {
     final fast = NearbyFast.instance.hasPeer(person.digits);
     final tooBig = hasItem && !fits;
-    return ListTile(
-      contentPadding: EdgeInsets.zero,
-      leading: CircleAvatar(
-        backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
-        child: Text(
-            person.name.isEmpty ? '?' : person.name[0].toUpperCase(),
-            style: const TextStyle(fontWeight: FontWeight.w700)),
-      ),
-      title: Text(person.name,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(fontWeight: FontWeight.w600)),
-      // Worth saying which way it will go: one is about a second and one is
-      // half a minute of standing still, and that changes what somebody does
-      // next. The difference is not cosmetic: one of these can take a video
-      // and the other cannot.
-      //
-      // And when the thing already chosen cannot cross this particular link,
-      // that is what the row says instead. Two people in the room can be on
-      // different links, so this is a fact about the pair — it used to be
-      // discovered by tapping Send and reading the failure.
-      subtitle: Text(
-        tooBig
-            ? (fast
-                ? 'Nearby · too big to hand over'
-                : 'Nearby · too big for Bluetooth alone')
-            : fast
-                ? 'Nearby · quick link, files and video'
-                : 'Nearby · Bluetooth only, photos and small files',
-        style: tooBig
-            ? TextStyle(color: Theme.of(context).colorScheme.error)
-            : null,
-      ),
-      trailing: FilledButton(
-        onPressed: hasItem && fits ? onSend : null,
-        child: const Text('Send'),
+    final sendable = hasItem && fits;
+    final scheme = Theme.of(context).colorScheme;
+    final label = tooBig
+        ? (fast ? 'Too big' : 'Too big for Bluetooth')
+        : fast
+            ? 'Fast link'
+            : 'Bluetooth';
+    return SizedBox(
+      width: 86,
+      child: Column(
+        children: [
+          Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Material(
+                color: Colors.transparent,
+                shape: const CircleBorder(),
+                child: InkWell(
+                  customBorder: const CircleBorder(),
+                  onTap: sendable ? onSend : null,
+                  child: Opacity(
+                    opacity: tooBig ? 0.4 : 1,
+                    child: CircleAvatar(
+                      radius: 30,
+                      backgroundColor: _color,
+                      child: sendable
+                          ? const Icon(Icons.arrow_upward_rounded,
+                              color: Colors.white, size: 28)
+                          : Text(
+                              person.name.isEmpty
+                                  ? '?'
+                                  : person.name[0].toUpperCase(),
+                              style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 22,
+                                  fontWeight: FontWeight.w700)),
+                    ),
+                  ),
+                ),
+              ),
+              // The fast link earns its bolt: it is what makes a video
+              // possible at all.
+              if (fast)
+                Positioned(
+                  right: -3,
+                  bottom: -3,
+                  child: Container(
+                    padding: const EdgeInsets.all(3),
+                    decoration: BoxDecoration(
+                      color: scheme.surface,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(Icons.bolt,
+                        size: 14, color: scheme.primary),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(person.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style:
+                  const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600)),
+          Text(label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                  fontSize: 10.5,
+                  color: tooBig ? scheme.error : AppColors.subtle(context))),
+        ],
       ),
     );
   }
+}
+
+/// Two soft rings breathing around a Bluetooth mark — the screen saying "I
+/// am looking" instead of sitting empty.
+class _ScanningPulse extends StatefulWidget {
+  const _ScanningPulse();
+
+  @override
+  State<_ScanningPulse> createState() => _ScanningPulseState();
+}
+
+class _ScanningPulseState extends State<_ScanningPulse>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c =
+      AnimationController(vsync: this, duration: const Duration(seconds: 2))
+        ..repeat();
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final color = Theme.of(context).colorScheme.primary;
+    return SizedBox(
+      width: 110,
+      height: 110,
+      child: AnimatedBuilder(
+        animation: _c,
+        builder: (context, _) => Stack(
+          alignment: Alignment.center,
+          children: [
+            for (final phase in [0.0, 0.5])
+              _ring(((_c.value + phase) % 1.0), color),
+            CircleAvatar(
+              radius: 26,
+              backgroundColor: color.withValues(alpha: 0.12),
+              child:
+                  Icon(Icons.bluetooth_searching, color: color, size: 26),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _ring(double t, Color color) => Container(
+        width: 54 + t * 56,
+        height: 54 + t * 56,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          border: Border.all(
+              color: color.withValues(alpha: (1 - t) * 0.35), width: 2),
+        ),
+      );
 }
 
 /// One transfer, with how far along it is.
@@ -517,6 +634,7 @@ class _TransferRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     final subtitle = switch (transfer.state) {
       TransferState.offered => 'Waiting for ${transfer.peerName} to accept',
       TransferState.incoming => 'Waiting for you',
@@ -524,27 +642,65 @@ class _TransferRow extends StatelessWidget {
         'Sending — ${(transfer.progress * 100).round()}%',
       TransferState.receiving =>
         'Receiving — ${(transfer.progress * 100).round()}%',
-      TransferState.done => 'Sent',
+      TransferState.done => 'Done',
       TransferState.declined => '${transfer.peerName} said no',
       TransferState.cancelled => 'Stopped',
-      TransferState.failed => 'Did not finish',
+      TransferState.failed => NearbyShare.instance.canRetry(transfer.id)
+          ? 'Didn\'t finish'
+          : 'Didn\'t finish — ask them to send again',
     };
     final moving = transfer.state == TransferState.sending ||
         transfer.state == TransferState.receiving;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
+    final failed = transfer.state == TransferState.failed;
+    final done = transfer.state == TransferState.done;
+    final statusColor = failed
+        ? scheme.error
+        : done
+            ? Colors.green
+            : AppColors.subtle(context);
+    final kindIcon = switch (transfer.kind) {
+      'image' => Icons.photo_outlined,
+      'video' => Icons.videocam_outlined,
+      _ => Icons.insert_drive_file_outlined,
+    };
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(14),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('${transfer.fileName} · ${transfer.peerName}',
-              style: const TextStyle(fontWeight: FontWeight.w600)),
-          const SizedBox(height: 2),
           Row(
             children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: scheme.primary.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                    done ? Icons.check_rounded : kindIcon,
+                    size: 21,
+                    color: done ? Colors.green : scheme.primary),
+              ),
+              const SizedBox(width: 10),
               Expanded(
-                child: Text(subtitle,
-                    style: TextStyle(
-                        fontSize: 12.5, color: AppColors.subtle(context))),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('${transfer.fileName} · ${transfer.peerName}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontWeight: FontWeight.w600)),
+                    Text(subtitle,
+                        style:
+                            TextStyle(fontSize: 12.5, color: statusColor)),
+                  ],
+                ),
               ),
               if (moving)
                 TextButton(
@@ -554,10 +710,20 @@ class _TransferRow extends StatelessWidget {
                       padding: const EdgeInsets.symmetric(horizontal: 8)),
                   child: const Text('Stop'),
                 ),
+              // The radio dropped it: the bytes are still held, so trying
+              // again costs one tap rather than re-picking the file.
+              if (failed && NearbyShare.instance.canRetry(transfer.id))
+                TextButton(
+                  onPressed: () => NearbyShare.instance.retry(transfer.id),
+                  style: TextButton.styleFrom(
+                      visualDensity: VisualDensity.compact,
+                      padding: const EdgeInsets.symmetric(horizontal: 8)),
+                  child: const Text('Send again'),
+                ),
             ],
           ),
           if (moving) ...[
-            const SizedBox(height: 6),
+            const SizedBox(height: 8),
             ClipRRect(
               borderRadius: BorderRadius.circular(4),
               child: LinearProgressIndicator(

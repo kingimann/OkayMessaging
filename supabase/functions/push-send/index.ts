@@ -217,6 +217,16 @@ Deno.serve(async (req) => {
   const alertTitle = wantsPrivate ? "New message" : title;
   const alertBody = wantsPrivate ? "" : (body ?? "");
 
+  // The badge: APNs can only SET a number, and the sender cannot know the
+  // recipient's, so the server counts alerts since the app was last opened
+  // (the app zeroes the row on open). An explicit badge from the caller
+  // wins; a project missing the function just sends unbadged.
+  let badgeCount: number | null = typeof badge === "number" ? badge : null;
+  if (badgeCount == null) {
+    const { data: bumped } = await admin.rpc("bump_unseen", { p: digits });
+    if (typeof bumped === "number") badgeCount = bumped;
+  }
+
   const host = (Deno.env.get("APNS_SANDBOX") === "true")
     ? "api.sandbox.push.apple.com" : "api.push.apple.com";
   const res = await fetch(`https://${host}/3/device/${row.token}`, {
@@ -237,7 +247,7 @@ Deno.serve(async (req) => {
         // whatever the private flag says, because the flag is a choice and a
         // locked screen is not.
         category: "okay_msg",
-        ...(badge != null ? { badge } : {}),
+        ...(badgeCount != null ? { badge: badgeCount } : {}),
       },
       ...(from ? { from } : {}),
     }),

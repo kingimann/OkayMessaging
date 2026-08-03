@@ -41,6 +41,9 @@ class _AuthGateState extends State<AuthGate> {
           _startedForPhone = user.phone;
           RelayService.instance.start();
           PushService.instance.register();
+          // Launching IS seeing: the badge's count is stale the moment the
+          // app is open.
+          PushService.instance.clearBadge();
           // Both of these are answers about *this account*, keyed on the
           // phone in the session JWT — so they have to be asked again when
           // the account changes, and when one appears at all. The launch-time

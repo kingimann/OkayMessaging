@@ -221,7 +221,22 @@ class _ChatScreenState extends State<ChatScreen> {
     for (final phone in phones) {
       RelayService.instance.sendTyping(phone);
     }
+    // The Snapchat move: a closed app finds out someone STARTED typing to
+    // them. Once per minute at most — the live pings above carry the
+    // moment-to-moment state for an open app; this is one nudge, not a
+    // keystroke feed. 1:1 only: a group where everyone's phone buzzes for
+    // every composer is a group people mute.
+    if (!widget.chat.contact.isGroup &&
+        (_lastTypingPush == null ||
+            now.difference(_lastTypingPush!) > const Duration(minutes: 1))) {
+      _lastTypingPush = now;
+      final myName = AppState.profile.value.name;
+      PushService.instance.notify(widget.chat.contact.phone,
+          title: myName.isEmpty ? 'Typing…' : myName, body: 'Typing…');
+    }
   }
+
+  DateTime? _lastTypingPush;
 
   /// Shows the typing indicator when someone in *this* chat is typing — the
   /// peer of a 1:1 conversation, or any member of a group (who gets named).
@@ -865,6 +880,12 @@ class _ChatScreenState extends State<ChatScreen> {
     _store.noteScreenshot(_chatId, byMe: true);
     if (RelayConfig.isEnabled && _isRealPeer(widget.chat.contact)) {
       RelayService.instance.sendScreenshotNotice(widget.chat.contact.phone);
+      // The Snapchat promise, kept even for a closed app: being told about
+      // a screenshot only when you happen to be looking is not being told.
+      final myName = AppState.profile.value.name;
+      PushService.instance.notify(widget.chat.contact.phone,
+          title: myName.isEmpty ? 'Screenshot' : myName,
+          body: 'Took a screenshot!');
     }
   }
 
@@ -1829,8 +1850,14 @@ class _ChatScreenState extends State<ChatScreen> {
           senderName: message.isMe ? 'You' : widget.chat.contact.name,
           onScreenshot: () {
             _store.noteScreenshot(_chatId, byMe: true, ghost: true);
+            final myName = AppState.profile.value.name;
             for (final phone in _relayPhones()) {
               RelayService.instance.sendGhostShotNotice(phone);
+              // A kept ghost message is exactly what its sender most wants
+              // to hear about, whether or not their app is open.
+              PushService.instance.notify(phone,
+                  title: myName.isEmpty ? 'Screenshot' : myName,
+                  body: 'Screenshotted your ghost message!');
             }
           },
         ),
@@ -2061,6 +2088,19 @@ class _ChatScreenState extends State<ChatScreen> {
       _showComingSoon(context, 'Payments (needs a real contact)');
       return;
     }
+    // Said BEFORE the amount sheet, not after: a person who typed a number
+    // and confirmed it has already committed, and "they haven't set up
+    // payments" is a fact that was knowable up front. The server re-checks
+    // authoritatively either way.
+    if (!svc.testMode.value && !await svc.canReceive(recipient.phone)) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('${recipient.name} hasn\'t set up payments, so '
+                'money can\'t reach them yet.')));
+      }
+      return;
+    }
+    if (!mounted) return;
     if (!widget.chat.contact.isGroup && !await _confirmRecipient()) return;
     if (!mounted) return;
     final result = await showModalBottomSheet<({int cents, String note, bool acknowledged})>(

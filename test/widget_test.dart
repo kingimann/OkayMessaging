@@ -23403,13 +23403,11 @@ void main() {
       await t.pump();
 
       expect(find.text('Ada'), findsOneWidget);
-      expect(find.textContaining('too big for Bluetooth alone'), findsOneWidget,
-          reason: 'the row never said the file cannot cross this link');
-      expect(
-          t.widget<FilledButton>(find.widgetWithText(FilledButton, 'Send'))
-              .onPressed,
-          isNull,
-          reason: 'Send was tappable for a transfer that cannot happen');
+      expect(find.textContaining('Too big for Bluetooth'), findsOneWidget,
+          reason: 'the bubble never said the file cannot cross this link');
+      // No send arrow: the bubble stays an initial, visibly not a button.
+      expect(find.byIcon(Icons.arrow_upward_rounded), findsNothing,
+          reason: 'send was offered for a transfer that cannot happen');
     });
 
     testWidgets('and is offered once the link that can carry it exists',
@@ -23439,12 +23437,12 @@ void main() {
               dataUri: big, kind: 'video', key: const ValueKey('fast'))));
       await t.pump();
 
-      expect(find.textContaining('too big'), findsNothing);
-      expect(
-          t.widget<FilledButton>(find.widgetWithText(FilledButton, 'Send'))
-              .onPressed,
-          isNotNull,
-          reason: 'the fast link can carry this and the button should work');
+      expect(find.textContaining('Too big'), findsNothing);
+      // Sendable: the person's bubble shows the send arrow instead of their
+      // initial — the avatar IS the send button now.
+      expect(find.byIcon(Icons.arrow_upward_rounded), findsOneWidget,
+          reason: 'the fast link can carry this and the bubble should offer '
+              'to send');
     });
 
     testWidgets('opening the screen shows the room, not a photo picker',
@@ -23485,11 +23483,9 @@ void main() {
           reason: 'the screen hijacked the first frame with a picker');
       expect(find.text('Ada'), findsOneWidget,
           reason: 'the room should be visible immediately');
-      // And with nothing chosen there is nothing to send yet.
-      expect(
-          t.widget<FilledButton>(find.widgetWithText(FilledButton, 'Send'))
-              .onPressed,
-          isNull);
+      // And with nothing chosen there is nothing to send yet: the bubble
+      // shows Ada's initial, not the send arrow.
+      expect(find.byIcon(Icons.arrow_upward_rounded), findsNothing);
     });
 
     test('the ceiling is the transport, not a number somebody picked', () async {
@@ -24033,9 +24029,15 @@ void main() {
       final major = int.parse(target.split('.').first);
       if (major >= 14) return; // the guards stop being necessary
 
-      // Symbols that do not exist below iOS 14. Not exhaustive — it is the
-      // list of ones this codebase has actually reached for.
-      const needsFourteen = ['.banner', '.list', 'CXProviderConfiguration()'];
+      // Symbols that do not exist below iOS 14 (or, for setBadgeCount, 16).
+      // Not exhaustive — it is the list of ones this codebase has actually
+      // reached for.
+      const needsFourteen = [
+        '.banner',
+        '.list',
+        'CXProviderConfiguration()',
+        'setBadgeCount(',
+      ];
 
       for (final file in Directory('ios/Runner')
           .listSync()
@@ -24050,12 +24052,15 @@ void main() {
           for (final symbol in needsFourteen) {
             if (!lines[i].contains(symbol)) continue;
             final from = i - 10 < 0 ? 0 : i - 10;
+            // Any #available(iOS …) counts: the symbols here span iOS 14
+            // (.banner) to 16 (setBadgeCount), and each is guarded at its
+            // own floor.
             final guarded = lines
-                .sublist(from, i)
-                .any((l) => l.contains('#available(iOS 14'));
+                .sublist(from, i + 1)
+                .any((l) => l.contains('#available(iOS 1'));
             expect(guarded, isTrue,
                 reason: '${file.path}:${i + 1} uses $symbol with no '
-                    '#available(iOS 14) above it, and the target is $target');
+                    '#available(iOS …) above it, and the target is $target');
           }
         }
       }

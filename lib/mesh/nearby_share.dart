@@ -86,6 +86,10 @@ class NearbyShare extends ChangeNotifier {
   /// pump finishes, in case the far end asks again.
   final Map<String, Timer> _retention = {};
 
+  /// Bytes of outgoing transfers that FAILED, kept so "Send again" is one
+  /// tap instead of re-picking the file.
+  final Map<String, String> _failedOutgoing = {};
+
   static const Duration watchdogTick = Duration(seconds: 8);
   static const int _stalledTicksAllowed = 4;
   static const Duration _retainAfterSend = Duration(minutes: 2);
@@ -249,6 +253,25 @@ class NearbyShare extends ChangeNotifier {
     await _send(t.peerDigits, MeshPacket.kindAnswer, {'id': id, 'ok': false});
   }
 
+  /// Whether [retry] has the bytes to re-offer this failed transfer.
+  bool canRetry(String id) => _failedOutgoing.containsKey(id);
+
+  /// Re-offers a failed outgoing transfer as a FRESH one — same file, same
+  /// person, new id. Returns null when the bytes are gone (app restarted)
+  /// or the person has left the room.
+  Future<NearbyTransfer?> retry(String id) async {
+    final t = _transfers[id];
+    final data = _failedOutgoing.remove(id);
+    if (t == null || data == null) return null;
+    final person = NearbyPeople.instance.byDigits(t.peerDigits);
+    if (person == null) {
+      _failedOutgoing[id] = data; // still gone-able later
+      return null;
+    }
+    return offer(person, data,
+        fileName: t.fileName, kind: t.kind, bytes: t.bytes);
+  }
+
   /// Stops a transfer that is already moving, from either end.
   ///
   /// A photo went in a second and there was nothing to stop. A video over
@@ -388,7 +411,8 @@ class NearbyShare extends ChangeNotifier {
       if (current == null || current.state != TransferState.sending) return;
       if (!ok) {
         _update(current.copyWith(state: TransferState.failed));
-        _outgoing.remove(id);
+        final kept = _outgoing.remove(id);
+        if (kept != null) _failedOutgoing[id] = kept;
         return;
       }
       _update(current.copyWith(sent: i + 1));
@@ -544,6 +568,7 @@ class NearbyShare extends ChangeNotifier {
       t.cancel();
     }
     _retention.clear();
+    _failedOutgoing.clear();
     notifyListeners();
   }
 }

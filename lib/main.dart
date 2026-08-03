@@ -395,6 +395,8 @@ class _OkayMessagingAppState extends State<OkayMessagingApp>
       // process; without this, messages only arrive again after a manual
       // refresh (the subscription looks alive and isn't).
       if (RelayConfig.isEnabled) RelayService.instance.wake();
+      // Whatever the app-icon badge was counting has now been seen.
+      PushService.instance.clearBadge();
     }
     // Private notifications: the alert did its job once the app is open, and
     // a stack of "New message" rows left in Notification Center afterwards

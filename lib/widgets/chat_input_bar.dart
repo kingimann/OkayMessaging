@@ -487,9 +487,31 @@ class _ChatInputBarState extends State<ChatInputBar> {
                       ),
                     ),
                   ),
-                  // One attach button owns everything that isn't typing —
-                  // photos, GIFs, documents, and the rest live in its panel,
-                  // so the bar stays two icons and a field.
+                  // GIFs are a one-tap thing everywhere people know them
+                  // from; buried in the attachment panel they read as
+                  // missing. Straight onto the picker's GIF tab — which
+                  // also has emoji, so the whole expressive kit is one tap.
+                  if (widget.onSendGif != null)
+                    IconButton(
+                      icon: const Icon(Icons.gif_box_outlined),
+                      color: Colors.grey,
+                      tooltip: 'GIF',
+                      onPressed: () async {
+                        setState(() {
+                          _emojiOpen = false;
+                          _attachOpen = false;
+                        });
+                        final picked =
+                            await showEmojiGifSheet(context, initialTab: 1);
+                        final url = picked?.gif?.url;
+                        if (url != null) widget.onSendGif?.call(url);
+                        final emoji = picked?.emoji;
+                        if (emoji != null) _insertEmoji(emoji);
+                      },
+                    ),
+                  // One attach button owns everything else that isn't
+                  // typing — photos, documents, and the rest live in its
+                  // panel, so the bar stays lean.
                   IconButton(
                     icon: Icon(_attachOpen ? Icons.close : Icons.attach_file),
                     color: Colors.grey,

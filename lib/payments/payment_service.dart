@@ -271,6 +271,23 @@ class PaymentService {
     testMode.value = _prefs!.getBool(_kTestMode) ?? false;
   }
 
+  /// Whether [phone] can receive money right now — the courtesy question a
+  /// sender's app asks BEFORE opening the amount sheet, so "they haven't
+  /// set up payments" is said up front. Fail-open: the server re-checks
+  /// authoritatively inside payments-create-intent, so an unreachable
+  /// probe must never block a payment that would have worked.
+  Future<bool> canReceive(String phone) async {
+    final digits = phone.replaceAll(RegExp(r'\D'), '');
+    if (digits.isEmpty) return false;
+    try {
+      final res = await Supabase.instance.client
+          .rpc('can_receive_payments', params: {'p': digits});
+      return res != false;
+    } catch (_) {
+      return true;
+    }
+  }
+
   void setTestMode(bool value) {
     testMode.value = value;
     _prefs?.setBool(_kTestMode, value);
