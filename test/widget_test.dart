@@ -7126,9 +7126,11 @@ void main() {
       expect(media, contains('configureAudioSession(speaker: true)'),
           reason: 'a camera turning on mid-call moves to the speaker');
       final room = File('lib/state/room_media.dart').readAsStringSync();
-      expect(room, contains('configureAudioSession(speaker: true)'),
+      expect(room, contains('configureAudioSession(speaker: speaker)'),
+          reason: 'the room routes by what it is serving');
+      expect(room, contains('speaker: true'),
           reason: 'a voice channel held to the ear is a phone call '
-              'pretending');
+              'pretending — channels are speaker-first');
       // Each mesh leg adapts its own bitrate; the room reports its worst
       // link in words instead of silently degrading.
       expect(room, contains('_abrByPeer'));
@@ -7256,6 +7258,46 @@ void main() {
       // And only POOR gets words in the log — good is the default state.
       final tab = File('lib/tabs/calls_tab.dart').readAsStringSync();
       expect(tab, contains('record.quality == 1'));
+    });
+
+    test('group calls finally carry sound: the mesh follows the roster', () {
+      // The roster→mesh mapping is pure: joined members and nobody else.
+      final ada = MockData.contacts()[0];
+      final grace = MockData.contacts()[1];
+      final c = CallSession(
+        callId: 'gc1',
+        peer: ada,
+        video: false,
+        direction: CallDirection.outgoing,
+        status: CallStatus.connected,
+        members: [
+          GroupCallMember(ada, GroupCallMemberState.joined),
+          GroupCallMember(grace, GroupCallMemberState.ringing),
+        ],
+      );
+      final digits = CallService.joinedDigits(c);
+      expect(digits, {ada.phone.replaceAll(RegExp(r'\D'), '')},
+          reason: 'someone still ringing has no leg to connect');
+
+      // The lifecycle drives the mesh: joins open it, updates re-aim it,
+      // every way out closes it — and only ITS room, never a voice channel
+      // joined since.
+      final service = File('lib/state/call_service.dart').readAsStringSync();
+      expect(service, contains('_startGroupMedia'));
+      expect(service, contains('updateCallPeers'));
+      expect(service, contains('leaveCall'));
+      final room = File('lib/state/room_media.dart').readAsStringSync();
+      expect(room, contains("'gc|"));
+      final leaveBody = room.substring(room.indexOf('Future<void> leaveCall'));
+      expect(leaveBody.substring(0, leaveBody.indexOf('}')),
+          contains('roomIdForCall'),
+          reason: 'a group call ending must not tear down a voice channel');
+      // Mute reaches whichever transport is live, and the roster shows a
+      // member\'s video only when their leg really carries pictures.
+      final screen = File('lib/screens/call_screen.dart').readAsStringSync();
+      expect(screen, contains('RoomMedia.instance.setMuted'));
+      expect(screen, contains('getVideoTracks().isNotEmpty'),
+          reason: 'an audio-only stream keeps the avatar, not a black box');
     });
 
     test('a number the directory has never heard of gets an invite, not a '

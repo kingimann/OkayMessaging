@@ -12,6 +12,7 @@ import '../relay/relay_service.dart';
 import 'call_log.dart';
 import 'call_media.dart';
 import 'push_service.dart';
+import 'room_media.dart';
 import 'score_store.dart';
 import 'session.dart';
 import 'chat_store.dart';
@@ -382,6 +383,7 @@ class CallService {
         RelayService.instance.sendCall(m.user.phone,
             kind: 'joined', callId: c.callId, video: c.video);
       }
+      unawaited(_startGroupMedia(current.value ?? c));
       return;
     }
     _beginAnswer(c);
@@ -440,6 +442,7 @@ class CallService {
     _logCall(c);
     _pendingOfferSdp = null;
     CallMedia.instance.hangUp();
+    if (c.isGroup) unawaited(RoomMedia.instance.leaveCall(c.callId));
     current.value = null;
     minimized.value = false;
   }
@@ -550,6 +553,27 @@ class CallService {
     if (_pendingVoipAnswer == callId) _pendingVoipAnswer = null;
   }
 
+  /// The mesh roster for a group call: everyone known to be ON it. The
+  /// mesh's own pair rules (smaller digits dials, glare-free renegotiation)
+  /// do the rest.
+  static Set<String> joinedDigits(CallSession c) => {
+        for (final m in c.members)
+          if (m.state == GroupCallMemberState.joined)
+            RelayService.digits(m.user.phone)
+      }..remove('');
+
+  /// Opens this device's leg of the group-call mesh: mic on, connections
+  /// to whoever already joined, camera too when the call is video. Group
+  /// calls carried NO media at all before the mesh existed — signaling and
+  /// roster were real, sound was not.
+  Future<void> _startGroupMedia(CallSession c) async {
+    final problem = await RoomMedia.instance
+        .joinCall(c.callId, joinedDigits(c), speaker: c.video);
+    if (problem == null && c.video) {
+      await RoomMedia.instance.enableCamera(true);
+    }
+  }
+
   /// A group call invitation arrived: [caller] is ringing us into
   /// [group], whose [members] came sealed inside the offer.
   void onRemoteGroupOffer(
@@ -607,14 +631,18 @@ class CallService {
     final c = current.value;
     if (c == null || c.callId != callId || !c.isGroup) return;
     var next = c.withMemberState(fromPhone, GroupCallMemberState.joined);
-    // The first join answers an outgoing group call.
+    // The first join answers an outgoing group call — and opens the
+    // caller's own leg of the mesh, which was pointless while the roster
+    // was only ringing.
     if (next.status == CallStatus.ringing &&
         c.direction == CallDirection.outgoing) {
       _ringTimer?.cancel();
       next = next.copyWith(
           status: CallStatus.connected, connectedAt: DateTime.now());
+      unawaited(_startGroupMedia(next));
     }
     current.value = next;
+    RoomMedia.instance.updateCallPeers(callId, joinedDigits(next));
   }
 
   /// A member of the current group call left it (or declined the invite).
@@ -635,6 +663,9 @@ class CallService {
     if (callerLeft || (next.status == CallStatus.connected && everyoneGone)) {
       _logCall(next);
       next = next.copyWith(status: CallStatus.ended);
+      unawaited(RoomMedia.instance.leaveCall(callId));
+    } else {
+      RoomMedia.instance.updateCallPeers(callId, joinedDigits(next));
     }
     current.value = next;
   }

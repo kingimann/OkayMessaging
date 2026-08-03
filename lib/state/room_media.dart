@@ -56,6 +56,15 @@ class RoomMedia extends ChangeNotifier {
   static String roomIdFor(String communityId, String channelId) =>
       'vc|$communityId|$channelId';
 
+  /// A ringing group call's room — same mesh, roster fed by CallService
+  /// instead of channel presence.
+  static String roomIdForCall(String callId) => 'gc|$callId';
+
+  /// Non-null while the mesh is serving a GROUP CALL: the joined members'
+  /// digits, updated by CallService as joins and leaves arrive. Voice
+  /// channels leave this null and follow presence instead.
+  Set<String>? _explicitPeers;
+
   /// The mesh's honest ceiling. Every member sends to every other, so a
   /// room of N costs each phone N-1 encodes of everything — at eight that
   /// is already a hot phone, and past it the room degrades for EVERYONE,
@@ -103,7 +112,6 @@ class RoomMedia extends ChangeNotifier {
   /// Opens the mic and starts connecting to everyone already in the room.
   /// Returns null on success or a human-readable reason (mic permission).
   Future<String?> joinRoom(String communityId, String channelId) async {
-    if (!isSupported) return null; // tests / unsupported: silently inert
     final roomId = roomIdFor(communityId, channelId);
     if (_roomId == roomId) return null;
     // Full is full, said before the mic opens: joining voice in a room
@@ -115,6 +123,40 @@ class RoomMedia extends ChangeNotifier {
           '$maxRoomSize people. You can still read the channel; a spot '
           'opens when somebody leaves.';
     }
+    return _openRoom(roomId, channelId: channelId, speaker: true);
+  }
+
+  /// The same mesh serving a GROUP CALL: the roster is whoever CallService
+  /// says has joined, updated by [updateCallPeers] as the call moves.
+  /// [speaker] follows the call's shape — video calls are held at arm's
+  /// length, voice calls at the ear.
+  Future<String?> joinCall(String callId, Set<String> peerDigits,
+      {required bool speaker}) async {
+    final roomId = roomIdForCall(callId);
+    if (_roomId == roomId) return null;
+    return _openRoom(roomId,
+        explicitPeers: peerDigits, speaker: speaker);
+  }
+
+  /// CallService's join/leave bookkeeping reaching the mesh. A no-op
+  /// outside call mode, so a stray late event cannot touch a voice channel.
+  void updateCallPeers(String callId, Set<String> peerDigits) {
+    if (_roomId != roomIdForCall(callId) || _explicitPeers == null) return;
+    _explicitPeers = Set.of(peerDigits);
+    _syncPeers();
+  }
+
+  /// Tears the mesh down only when it is serving [callId] — the group call
+  /// ending must never take down a voice channel joined since.
+  Future<void> leaveCall(String callId) async {
+    if (_roomId == roomIdForCall(callId)) await leaveRoom();
+  }
+
+  Future<String?> _openRoom(String roomId,
+      {String? channelId,
+      Set<String>? explicitPeers,
+      required bool speaker}) async {
+    if (!isSupported) return null; // tests / unsupported: silently inert
     await leaveRoom();
     try {
       _localStream = await navigator.mediaDevices
@@ -125,9 +167,11 @@ class RoomMedia extends ChangeNotifier {
     }
     _roomId = roomId;
     _channelId = channelId;
+    _explicitPeers = explicitPeers == null ? null : Set.of(explicitPeers);
     // A room plays out of the SPEAKER, like Discord — a voice channel held
-    // to your ear is a phone call pretending.
-    unawaited(CallQuality.configureAudioSession(speaker: true));
+    // to your ear is a phone call pretending. A group VOICE call stays at
+    // the ear, like any call.
+    unawaited(CallQuality.configureAudioSession(speaker: speaker));
     _syncPeers();
     _startVoiceMeter();
     notifyListeners();
@@ -259,6 +303,7 @@ class RoomMedia extends ChangeNotifier {
     final roomId = _roomId;
     _roomId = null;
     _channelId = null;
+    _explicitPeers = null;
     _voiceTimer?.cancel();
     _voiceTimer = null;
     _lastAudible.clear();
@@ -313,20 +358,29 @@ class RoomMedia extends ChangeNotifier {
   /// The renderer showing [digits]'s video, or null when they send none.
   RTCVideoRenderer? rendererFor(String digits) => _remoteRenderers[digits];
 
-  /// Reconciles connections with presence — the mesh follows the room.
+  /// Reconciles connections with the roster — presence for a voice
+  /// channel, CallService's joined list for a group call. The mesh follows
+  /// the room either way.
   void _syncPeers() {
     final roomId = _roomId;
-    final channelId = _channelId;
-    if (roomId == null || channelId == null) return;
-    // Left the room through ANY door (sign-out included): media follows.
-    if (VoicePresenceStore.instance.myChannelId != channelId) {
-      unawaited(leaveRoom());
-      return;
+    if (roomId == null) return;
+    final Set<String> present;
+    final explicit = _explicitPeers;
+    if (explicit != null) {
+      present = explicit;
+    } else {
+      final channelId = _channelId;
+      if (channelId == null) return;
+      // Left the room through ANY door (sign-out included): media follows.
+      if (VoicePresenceStore.instance.myChannelId != channelId) {
+        unawaited(leaveRoom());
+        return;
+      }
+      present = <String>{
+        for (final o in VoicePresenceStore.instance.occupantsIn(channelId))
+          if (!o.isMe && o.digits.isNotEmpty) o.digits
+      };
     }
-    final present = <String>{
-      for (final o in VoicePresenceStore.instance.occupantsIn(channelId))
-        if (!o.isMe && o.digits.isNotEmpty) o.digits
-    };
     // The cap, applied the same way on every device: an over-full room
     // meshes its first eight by digit-sort and carries the rest as
     // presence only, instead of every phone melting a different way.
@@ -769,6 +823,7 @@ class RoomMedia extends ChangeNotifier {
     _meSpeakingNow = false;
     _roomId = null;
     _channelId = null;
+    _explicitPeers = null;
     _localStream = null;
     _screenStream = null;
     _deafened = false;

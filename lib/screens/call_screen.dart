@@ -11,6 +11,7 @@ import '../relay/relay_config.dart';
 import '../relay/relay_service.dart';
 import '../state/call_media.dart';
 import '../state/call_service.dart';
+import '../state/room_media.dart';
 import '../state/chat_store.dart';
 import '../theme/app_theme.dart';
 import '../util/phone_format.dart';
@@ -710,7 +711,10 @@ class _CallScreenState extends State<CallScreen>
                 active: _muted,
                 onTap: () {
                   setState(() => _muted = !_muted);
+                  // A group call's sound rides the mesh, a 1:1's rides
+                  // CallMedia; muting hits whichever is live.
                   CallMedia.instance.setMuted(_muted);
+                  RoomMedia.instance.setMuted(_muted);
                 },
               ),
               // Hold: stop sending and hearing anything without dropping
@@ -834,6 +838,18 @@ class _GroupRoster extends StatelessWidget {
         GroupCallMemberState.left => ('Left', Colors.white38),
       };
 
+  /// This member's renderer, when their mesh leg is actually carrying
+  /// video — an audio-only stream must keep the avatar, not a black box.
+  RTCVideoRenderer? _liveVideo(GroupCallMember m) {
+    if (m.state != GroupCallMemberState.joined) return null;
+    final digits = m.user.phone.replaceAll(RegExp(r'\D'), '');
+    final renderer = RoomMedia.instance.rendererFor(digits);
+    if (renderer == null) return null;
+    final hasVideo =
+        renderer.srcObject?.getVideoTracks().isNotEmpty ?? false;
+    return hasVideo ? renderer : null;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Padding(
@@ -853,11 +869,25 @@ class _GroupRoster extends StatelessWidget {
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Opacity(
-                    opacity:
-                        m.state == GroupCallMemberState.joined ? 1.0 : 0.55,
-                    child: UserAvatar(user: m.user, radius: 16),
-                  ),
+                  // Live pictures when this member's mesh leg carries
+                  // video; the avatar otherwise.
+                  if (_liveVideo(m) case final renderer?)
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(10),
+                      child: SizedBox(
+                        width: 72,
+                        height: 54,
+                        child: RTCVideoView(renderer,
+                            objectFit: RTCVideoViewObjectFit
+                                .RTCVideoViewObjectFitCover),
+                      ),
+                    )
+                  else
+                    Opacity(
+                      opacity:
+                          m.state == GroupCallMemberState.joined ? 1.0 : 0.55,
+                      child: UserAvatar(user: m.user, radius: 16),
+                    ),
                   const SizedBox(width: 8),
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
