@@ -18990,6 +18990,20 @@ void main() {
           reason: 'transfer_data would route the money through the platform');
     });
 
+    test('a business description ships with a URL Stripe will accept', () {
+      // business_profile.url is required and a description does not reliably
+      // stand in for it — the account looped on that exact requirement. An
+      // individual has no website, so the platform's page is the default.
+      final src = File('docs/edge_functions_paste/payments-connect-fields.ts')
+          .readAsStringSync();
+      expect(src.contains('url?: string'), isTrue,
+          reason: 'the submission must be able to carry a URL');
+      expect(src.contains('"SITE_URL"'), isTrue,
+          reason: 'a configured site wins');
+      expect(src.contains('/functions/v1/pages'), isTrue,
+          reason: 'else the project\'s own landing page stands in');
+    });
+
     test('a no-progress onboarding round says so instead of redrawing', () {
       // Same asks back, no errors, not complete: the silent loop — worded.
       final stalled = ConnectRequirements.stalledMessage(

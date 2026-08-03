@@ -207,6 +207,10 @@ type Submission = {
   documentBackFileId?: string;
   productDescription?: string;
   mcc?: string;
+  // The business website. Optional from the client: an individual receiving
+  // money from friends has none, so when a description arrives without one,
+  // the platform's own page stands in below.
+  url?: string;
   acceptedTos?: boolean;
 };
 
@@ -412,12 +416,25 @@ Deno.serve(async (req) => {
 
       const update: Record<string, unknown> = {};
       if (Object.keys(individual).length) update.individual = individual;
-      if (submit.productDescription || submit.mcc) {
+      if (submit.productDescription || submit.mcc || submit.url) {
+        // Stripe also requires business_profile.url, and on real accounts a
+        // product description does not reliably stand in for it — the
+        // requirement came straight back and the form looped on "What the
+        // money is for". A person receiving money from friends has no
+        // website, so the platform's page is the truthful answer: SITE_URL
+        // when configured, else this project's own landing page.
+        const defaultUrl = Deno.env.get("SITE_URL") ??
+          `${Deno.env.get("SUPABASE_URL") ?? ""}/functions/v1/pages`;
         update.business_profile = {
           ...(submit.mcc ? { mcc: submit.mcc } : {}),
           ...(submit.productDescription
             ? { product_description: submit.productDescription }
             : {}),
+          ...(submit.url
+            ? { url: submit.url }
+            : (submit.productDescription && defaultUrl.startsWith("http")
+              ? { url: defaultUrl }
+              : {})),
         };
       }
       if (submit.acceptedTos) {
