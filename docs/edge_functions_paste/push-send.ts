@@ -259,6 +259,13 @@ Deno.serve(async (req) => {
         // locked screen is not.
         category: "okay_msg",
         ...(badgeCount != null ? { badge: badgeCount } : {}),
+        // Wakes the app in the background alongside showing the alert, so
+        // it drains the mailbox and the message is SITTING THERE when the
+        // person opens up — and the sender's ticks advance to delivered
+        // without waiting for that open. iOS throttles these wakes and
+        // skips force-quit apps; the mailbox catches whatever the wake
+        // missed, so this is a head start, never a dependency.
+        "content-available": 1,
       },
       ...(from ? { from } : {}),
     }),

@@ -1,7 +1,9 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/chat.dart';
 import '../models/message.dart';
@@ -601,6 +603,41 @@ class _CallScreenState extends State<CallScreen>
   }
 
   /// A quick emoji picker; the chosen emoji floats up on both devices.
+  /// Once per install, before the first screen share on a phone: what iOS
+  /// is about to ask, and what "sharing the screen" honestly means here.
+  /// Returns whether to go ahead.
+  Future<bool> _explainFirstShare() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (prefs.getBool('screen_share_explained_v1') ?? false) return true;
+    if (!mounted) return false;
+    final go = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Share your screen?'),
+        content: const Text(
+            'iOS will ask to record the screen — allowing it is what makes '
+            'sharing work.\n\nOnly OkayMessenger\'s own screen is shared: '
+            'switching to another app pauses the picture until you come '
+            'back.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Not now'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Share'),
+          ),
+        ],
+      ),
+    );
+    if (go == true) {
+      await prefs.setBool('screen_share_explained_v1', true);
+      return true;
+    }
+    return false;
+  }
+
   void _showReactions(BuildContext context) {
     const emojis = ['👍', '❤️', '😂', '😮', '🎉', '👏', '🔥', '😢'];
     showModalBottomSheet<void>(
@@ -707,6 +744,15 @@ class _CallScreenState extends State<CallScreen>
                   label: sharing ? 'Stop share' : 'Share screen',
                   active: sharing,
                   onTap: () async {
+                    // Said ONCE, before the first share, because iOS's
+                    // in-app capture surprises twice: the system asks to
+                    // record the screen (a "no" looks like sharing a black
+                    // screen), and only THIS app's screen is shared —
+                    // switching away pauses the picture. Neither is
+                    // discoverable from a black rectangle on the far end.
+                    if (!sharing && !kIsWeb && !await _explainFirstShare()) {
+                      return;
+                    }
                     final error =
                         await CallService.instance.toggleScreenShare();
                     if (error != null && context.mounted) {

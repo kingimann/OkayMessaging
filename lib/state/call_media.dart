@@ -370,9 +370,15 @@ class CallMedia {
       screenSharing.value = true;
       return null;
     } catch (_) {
-      return 'Screen sharing isn\'t available in this browser — iPhone '
-          'Safari doesn\'t allow web screen capture; Android Chrome and '
-          'desktop browsers do.';
+      // Say the failure the PLATFORM actually has. On the phone it is a
+      // permission (or ReplayKit being unavailable); the browser sentence
+      // on an iPhone app read as "this feature is fake".
+      return kIsWeb
+          ? 'Screen sharing isn\'t available in this browser — iPhone '
+              'Safari doesn\'t allow web screen capture; Android Chrome and '
+              'desktop browsers do.'
+          : 'Screen sharing couldn\'t start. If iOS asked to record the '
+              'screen, it needs to be allowed.';
     }
   }
 

@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart' hide Session;
 
 import '../app_state.dart';
 import '../relay/relay_config.dart';
+import '../relay/relay_service.dart';
 import 'session.dart';
 
 /// Registers this iPhone for APNs push and uploads the device token to the
@@ -39,6 +40,16 @@ class PushService {
         _voipToken = call.arguments as String?;
         await _upload(_lastToken);
       }
+      // A background wake off a message push: drain the mailbox NOW, so
+      // the message is in the chat before the person opens the app and the
+      // sender's ticks advance to delivered.
+      if (call.method == 'sync') {
+        try {
+          await RelayService.instance.fetchMailbox();
+        } catch (_) {}
+        return true;
+      }
+      return null;
     });
     AppState.privateNotifications.addListener(_onPrivateChanged);
     try {

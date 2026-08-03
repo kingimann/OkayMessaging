@@ -369,6 +369,34 @@ extension AppDelegate {
   }
 }
 
+extension AppDelegate {
+  /// A message push carries content-available, so iOS hands the woken app a
+  /// moment of background time: Dart drains the relay mailbox, the message
+  /// is in the chat before the person opens up, and the sender's ticks
+  /// advance to delivered. Best-effort by design — iOS throttles these and
+  /// skips force-quit apps, and the mailbox catches whatever a wake missed.
+  override func application(
+    _ application: UIApplication,
+    didReceiveRemoteNotification userInfo: [AnyHashable: Any],
+    fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
+  ) {
+    guard let channel = pushChannel else {
+      completionHandler(.noData)
+      return
+    }
+    var finished = false
+    let finish: (UIBackgroundFetchResult) -> Void = { r in
+      if !finished {
+        finished = true
+        completionHandler(r)
+      }
+    }
+    // iOS allows ~30 seconds; answer well inside it even if Dart stalls.
+    DispatchQueue.main.asyncAfter(deadline: .now() + 20) { finish(.noData) }
+    channel.invokeMethod("sync", arguments: nil) { _ in finish(.newData) }
+  }
+}
+
 extension AppDelegate: PKPushRegistryDelegate {
   func pushRegistry(
     _ registry: PKPushRegistry,
