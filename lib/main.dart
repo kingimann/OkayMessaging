@@ -375,6 +375,14 @@ class _OkayMessagingAppState extends State<OkayMessagingApp>
         RelayService.instance.rotateServerKey(id);
       }
     };
+    // Forum activity fans out to every member — and their offline mailboxes —
+    // like the feed. It used to stay on the device it happened on, which
+    // made a delete look like it worked while everybody else kept the post.
+    CommunityStore.instance.onForumEvent = (id, event, body) {
+      if (RelayConfig.isEnabled) {
+        RelayService.instance.sendForumEvent(id, event, body);
+      }
+    };
     // A member arriving gets the feed history from the owner's device —
     // broadcast has no history, so without this a listing posted before
     // they joined would never exist for them.

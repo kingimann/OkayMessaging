@@ -36,6 +36,14 @@ class CommunityStore extends ChangeNotifier {
   /// Remote applies never fire it.
   void Function(String communityId)? onMemberRemoved;
 
+  /// Fired after any forum action taken on THIS device (post, comment,
+  /// vote, edit, delete, pin, lock) so the relay can carry it to the other
+  /// members. The forum used to be per-device: a delete only ever happened
+  /// on the screen it was tapped on, and everybody else kept the post
+  /// forever. Remote applies never fire it — no echo storms.
+  void Function(String communityId, String event, Map<String, dynamic> body)?
+      onForumEvent;
+
   /// How many messages of each channel this device has seen, for unread
   /// badges. Persisted separately from the communities themselves.
   static const _seenKey = 'community_seen_v1';
@@ -727,6 +735,8 @@ class CommunityStore extends ChangeNotifier {
     _replace(community.copyWith(channels: channels));
     ScoreStore.instance.award(ScoreStore.pointsPerForumPost);
     ScoreStore.instance.recordFlag('forum_post');
+    onForumEvent?.call(communityId, 'frpost',
+        {'channelId': channelId, 'post': post.toJson()});
   }
 
   /// Applies a [dir] (+1/-1) vote to a forum post.
@@ -734,16 +744,25 @@ class CommunityStore extends ChangeNotifier {
       String communityId, String channelId, String postId, int dir) {
     final community = byId(communityId);
     if (community == null) return;
+    var delta = 0;
     final channels = community.channels.map((ch) {
       if (ch.id != channelId) return ch;
       final posts = ch.posts.map((p) {
         if (p.id != postId) return p;
         final (score, myVote) = applyVote(p.score, p.myVote, dir);
+        delta = score - p.score;
         return p.copyWith(score: score, myVote: myVote);
       }).toList();
       return ch.copyWith(posts: posts);
     }).toList();
     _replace(community.copyWith(channels: channels));
+    // The DELTA travels, not the new total: every member keeps their own
+    // running score, and totals would let two crossing votes erase each
+    // other.
+    if (delta != 0) {
+      onForumEvent?.call(communityId, 'frvote',
+          {'channelId': channelId, 'postId': postId, 'delta': delta});
+    }
   }
 
   /// Adds a [comment] under a forum post.
@@ -764,6 +783,11 @@ class CommunityStore extends ChangeNotifier {
     }).toList();
     _replace(community.copyWith(channels: channels));
     ScoreStore.instance.award(ScoreStore.pointsPerForumComment);
+    onForumEvent?.call(communityId, 'frcom', {
+      'channelId': channelId,
+      'postId': postId,
+      'comment': comment.toJson(),
+    });
     return true;
   }
 
@@ -786,14 +810,23 @@ class CommunityStore extends ChangeNotifier {
       String communityId, String channelId, String postId) {
     final community = byId(communityId);
     if (community == null || !canModerate(communityId)) return;
+    bool? now;
     final channels = community.channels.map((ch) {
       if (ch.id != channelId) return ch;
-      final posts = ch.posts
-          .map((p) => p.id == postId ? p.copyWith(locked: !p.locked) : p)
-          .toList();
+      final posts = ch.posts.map((p) {
+        if (p.id != postId) return p;
+        now = !p.locked;
+        return p.copyWith(locked: now);
+      }).toList();
       return ch.copyWith(posts: posts);
     }).toList();
     _replace(community.copyWith(channels: channels));
+    // The resulting STATE travels, not the toggle: two crossing toggles
+    // must converge rather than flip each other back.
+    if (now != null) {
+      onForumEvent?.call(communityId, 'frlock',
+          {'channelId': channelId, 'postId': postId, 'locked': now});
+    }
   }
 
   /// Applies a [dir] (+1/-1) vote to a comment under a forum post.
@@ -801,6 +834,7 @@ class CommunityStore extends ChangeNotifier {
       String commentId, int dir) {
     final community = byId(communityId);
     if (community == null) return;
+    var delta = 0;
     final channels = community.channels.map((ch) {
       if (ch.id != channelId) return ch;
       final posts = ch.posts.map((p) {
@@ -808,6 +842,7 @@ class CommunityStore extends ChangeNotifier {
         final comments = p.comments.map((c) {
           if (c.id != commentId) return c;
           final (score, myVote) = applyVote(c.score, c.myVote, dir);
+          delta = score - c.score;
           return c.copyWith(score: score, myVote: myVote);
         }).toList();
         return p.copyWith(comments: comments);
@@ -815,10 +850,26 @@ class CommunityStore extends ChangeNotifier {
       return ch.copyWith(posts: posts);
     }).toList();
     _replace(community.copyWith(channels: channels));
+    if (delta != 0) {
+      onForumEvent?.call(communityId, 'frvote', {
+        'channelId': channelId,
+        'postId': postId,
+        'commentId': commentId,
+        'delta': delta,
+      });
+    }
   }
 
-  /// Removes a forum post entirely.
+  /// Removes a forum post entirely — here and, through the relay, on every
+  /// member's device.
   void deleteForumPost(String communityId, String channelId, String postId) {
+    _deleteForumPostLocal(communityId, channelId, postId);
+    onForumEvent?.call(
+        communityId, 'frdel', {'channelId': channelId, 'postId': postId});
+  }
+
+  void _deleteForumPostLocal(
+      String communityId, String channelId, String postId) {
     final community = byId(communityId);
     if (community == null) return;
     final channels = community.channels.map((ch) {
@@ -832,9 +883,21 @@ class CommunityStore extends ChangeNotifier {
   /// Rewrites the body of the local user's own forum comment.
   void editForumComment(String communityId, String channelId, String postId,
       String commentId, String body) {
-    final community = byId(communityId);
     final text = body.trim();
-    if (community == null || text.isEmpty) return;
+    if (text.isEmpty) return;
+    _editForumCommentLocal(communityId, channelId, postId, commentId, text);
+    onForumEvent?.call(communityId, 'frcedt', {
+      'channelId': channelId,
+      'postId': postId,
+      'commentId': commentId,
+      'body': text,
+    });
+  }
+
+  void _editForumCommentLocal(String communityId, String channelId,
+      String postId, String commentId, String text) {
+    final community = byId(communityId);
+    if (community == null) return;
     final channels = community.channels.map((ch) {
       if (ch.id != channelId) return ch;
       final posts = ch.posts.map((p) {
@@ -850,9 +913,19 @@ class CommunityStore extends ChangeNotifier {
     _replace(community.copyWith(channels: channels));
   }
 
-  /// Removes a comment from a forum post.
+  /// Removes a comment from a forum post — everywhere, like the post itself.
   void deleteForumComment(String communityId, String channelId, String postId,
       String commentId) {
+    _deleteForumCommentLocal(communityId, channelId, postId, commentId);
+    onForumEvent?.call(communityId, 'frcdel', {
+      'channelId': channelId,
+      'postId': postId,
+      'commentId': commentId,
+    });
+  }
+
+  void _deleteForumCommentLocal(String communityId, String channelId,
+      String postId, String commentId) {
     final community = byId(communityId);
     if (community == null) return;
     final channels = community.channels.map((ch) {
@@ -886,11 +959,114 @@ class CommunityStore extends ChangeNotifier {
       String communityId, String channelId, String postId) {
     final community = byId(communityId);
     if (community == null) return;
+    bool? now;
     final channels = community.channels.map((ch) {
       if (ch.id != channelId) return ch;
       final posts = ch.posts.map((p) {
         if (p.id != postId) return p;
-        return p.copyWith(pinned: !p.pinned);
+        now = !p.pinned;
+        return p.copyWith(pinned: now);
+      }).toList();
+      return ch.copyWith(posts: posts);
+    }).toList();
+    _replace(community.copyWith(channels: channels));
+    if (now != null) {
+      onForumEvent?.call(communityId, 'frpin',
+          {'channelId': channelId, 'postId': postId, 'pinned': now});
+    }
+  }
+
+  // --- Remote forum events (applied, never re-broadcast) ------------------
+
+  /// A post another member wrote. Idempotent: the same post can arrive live
+  /// AND from the offline mailbox, and once is enough.
+  void applyRemoteForumPost(
+      String communityId, String channelId, ForumPost post) {
+    final community = byId(communityId);
+    if (community == null) return;
+    if (community.channels.any((ch) => ch.posts.any((p) => p.id == post.id))) {
+      return;
+    }
+    final channels = community.channels.map((ch) {
+      if (ch.id != channelId) return ch;
+      // The author's self-upvote arrives inside the score; the VOTE itself
+      // is theirs — this device hasn't cast one.
+      return ch.copyWith(posts: [post.copyWith(myVote: 0), ...ch.posts]);
+    }).toList();
+    _replace(community.copyWith(channels: channels));
+  }
+
+  /// A comment another member wrote. Dropped silently when its post isn't
+  /// here (the mailbox drains in order, so that means the post was deleted).
+  /// A locked thread still accepts it — the comment was sent before the
+  /// lock reached its author, and dropping it would fork the two copies.
+  void applyRemoteForumComment(String communityId, String channelId,
+      String postId, ForumComment comment) {
+    final community = byId(communityId);
+    if (community == null) return;
+    final channels = community.channels.map((ch) {
+      if (ch.id != channelId) return ch;
+      final posts = ch.posts.map((p) {
+        if (p.id != postId) return p;
+        if (p.comments.any((c) => c.id == comment.id)) return p;
+        return p.copyWith(
+            comments: [...p.comments, comment.copyWith(myVote: 0)]);
+      }).toList();
+      return ch.copyWith(posts: posts);
+    }).toList();
+    _replace(community.copyWith(channels: channels));
+  }
+
+  /// Another member's vote, as a score delta.
+  void applyRemoteForumVote(
+      String communityId, String channelId, String postId,
+      {String? commentId, required int delta}) {
+    final community = byId(communityId);
+    if (community == null || delta == 0) return;
+    final channels = community.channels.map((ch) {
+      if (ch.id != channelId) return ch;
+      final posts = ch.posts.map((p) {
+        if (p.id != postId) return p;
+        if (commentId == null) return p.copyWith(score: p.score + delta);
+        return p.copyWith(comments: [
+          for (final c in p.comments)
+            c.id == commentId ? c.copyWith(score: c.score + delta) : c
+        ]);
+      }).toList();
+      return ch.copyWith(posts: posts);
+    }).toList();
+    _replace(community.copyWith(channels: channels));
+  }
+
+  void applyRemoteForumPostDelete(
+          String communityId, String channelId, String postId) =>
+      _deleteForumPostLocal(communityId, channelId, postId);
+
+  void applyRemoteForumCommentDelete(String communityId, String channelId,
+          String postId, String commentId) =>
+      _deleteForumCommentLocal(communityId, channelId, postId, commentId);
+
+  void applyRemoteForumPostEdit(String communityId, String channelId,
+          String postId, String title, String body,
+          {String? tag, String? gifUrl}) =>
+      _editForumPostLocal(communityId, channelId, postId, title, body,
+          tag: tag, gifUrl: gifUrl);
+
+  void applyRemoteForumCommentEdit(String communityId, String channelId,
+          String postId, String commentId, String body) =>
+      _editForumCommentLocal(communityId, channelId, postId, commentId, body);
+
+  /// A moderator's pin or lock, as absolute state.
+  void applyRemoteForumFlag(
+      String communityId, String channelId, String postId,
+      {bool? pinned, bool? locked}) {
+    final community = byId(communityId);
+    if (community == null) return;
+    final channels = community.channels.map((ch) {
+      if (ch.id != channelId) return ch;
+      final posts = ch.posts.map((p) {
+        if (p.id != postId) return p;
+        return p.copyWith(pinned: pinned, locked: locked);
       }).toList();
       return ch.copyWith(posts: posts);
     }).toList();
@@ -1129,18 +1305,31 @@ class CommunityStore extends ChangeNotifier {
   void editForumPost(String communityId, String channelId, String postId,
       String title, String body,
       {String? tag, String? gifUrl}) {
+    if (title.trim().isEmpty) return;
+    _editForumPostLocal(communityId, channelId, postId, title.trim(),
+        body.trim(),
+        tag: tag, gifUrl: gifUrl);
+    onForumEvent?.call(communityId, 'fredt', {
+      'channelId': channelId,
+      'postId': postId,
+      'title': title.trim(),
+      'body': body.trim(),
+      if (tag != null) 'tag': tag,
+      if (gifUrl != null) 'gifUrl': gifUrl,
+    });
+  }
+
+  void _editForumPostLocal(String communityId, String channelId,
+      String postId, String title, String body,
+      {String? tag, String? gifUrl}) {
     final community = byId(communityId);
-    if (community == null || title.trim().isEmpty) return;
+    if (community == null) return;
     final channels = community.channels.map((ch) {
       if (ch.id != channelId) return ch;
       final posts = ch.posts.map((p) {
         if (p.id != postId) return p;
         return p.copyWith(
-            title: title.trim(),
-            body: body.trim(),
-            edited: true,
-            tag: tag,
-            gifUrl: gifUrl);
+            title: title, body: body, edited: true, tag: tag, gifUrl: gifUrl);
       }).toList();
       return ch.copyWith(posts: posts);
     }).toList();

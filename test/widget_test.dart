@@ -2005,6 +2005,183 @@ void main() {
       expect(remaining.any((p) => p.id == 'seed_post_1'), isFalse);
     });
 
+    test('every forum action leaves the device through the relay hook', () {
+      // The forum used to be per-device: a delete only ever happened on the
+      // screen it was tapped on, so "deleted" posts lived on for everybody
+      // else. Every action now fires the hook the relay carries out.
+      CommunityStore.instance.resetForTest();
+      final events = <(String, Map<String, dynamic>)>[];
+      CommunityStore.instance.onForumEvent =
+          (id, event, body) => events.add((event, body));
+      addTearDown(() => CommunityStore.instance.onForumEvent = null);
+
+      final c = CommunityStore.instance.createCommunity('Sync');
+      CommunityStore.instance
+          .addChannel(c.id, 'forum', type: ChannelType.forum);
+      final chId = CommunityStore.instance
+          .byId(c.id)!
+          .channels
+          .firstWhere((ch) => ch.type == ChannelType.forum)
+          .id;
+      events.clear(); // channel creation fires structure, not forum, events
+
+      CommunityStore.instance.addForumPost(
+          c.id,
+          chId,
+          ForumPost(
+              id: 'p1',
+              authorId: 'me',
+              authorName: 'You',
+              time: DateTime(2024, 2, 1),
+              title: 'Hello'));
+      expect(events.last.$1, 'frpost');
+
+      CommunityStore.instance.addForumComment(
+          c.id,
+          chId,
+          'p1',
+          ForumComment(
+              id: 'c1',
+              authorId: 'me',
+              authorName: 'You',
+              time: DateTime(2024, 2, 1, 1),
+              body: 'first'));
+      expect(events.last.$1, 'frcom');
+
+      // Down from the author's own +1: the score moves by -2, and the DELTA
+      // is what travels — totals would let crossing votes erase each other.
+      CommunityStore.instance.voteForumPost(c.id, chId, 'p1', -1);
+      expect(events.last.$1, 'frvote');
+      expect(events.last.$2['delta'], -2);
+
+      CommunityStore.instance
+          .editForumPost(c.id, chId, 'p1', 'Hello again', 'body');
+      expect(events.last.$1, 'fredt');
+      CommunityStore.instance.editForumComment(c.id, chId, 'p1', 'c1', 'fix');
+      expect(events.last.$1, 'frcedt');
+
+      CommunityStore.instance.togglePinForumPost(c.id, chId, 'p1');
+      expect(events.last.$1, 'frpin');
+      expect(events.last.$2['pinned'], isTrue,
+          reason: 'the resulting STATE travels, not the toggle');
+      CommunityStore.instance.toggleLockForumPost(c.id, chId, 'p1');
+      expect(events.last.$1, 'frlock');
+      expect(events.last.$2['locked'], isTrue);
+
+      CommunityStore.instance.deleteForumComment(c.id, chId, 'p1', 'c1');
+      expect(events.last.$1, 'frcdel');
+      CommunityStore.instance.deleteForumPost(c.id, chId, 'p1');
+      expect(events.last.$1, 'frdel');
+
+      // Every event fired is one the relay knows how to carry and apply.
+      for (final (event, _) in events) {
+        expect(RelayService.forumEvents.contains(event), isTrue,
+            reason: '$event fired but the relay does not carry it');
+      }
+      final relay = File('lib/relay/relay_service.dart').readAsStringSync();
+      final squished = relay.replaceAll(RegExp(r'\s+'), ' ');
+      for (final event in RelayService.forumEvents) {
+        expect(relay.contains("case '$event'"), isTrue,
+            reason: '$event must be applied on arrival');
+        expect(
+            squished.contains("'$event' ||") ||
+                squished.contains("|| '$event':"),
+            isTrue,
+            reason: '$event must also drain from the offline mailbox');
+      }
+      final mainSrc = File('lib/main.dart').readAsStringSync();
+      expect(mainSrc.contains('onForumEvent'), isTrue,
+          reason: 'the hook must actually be wired to the relay');
+    });
+
+    test('remote forum events apply idempotently, and a delete deletes', () {
+      CommunityStore.instance.resetForTest();
+      final c = CommunityStore.instance.createCommunity('Sync2');
+      CommunityStore.instance
+          .addChannel(c.id, 'forum', type: ChannelType.forum);
+      final chId = CommunityStore.instance
+          .byId(c.id)!
+          .channels
+          .firstWhere((ch) => ch.type == ChannelType.forum)
+          .id;
+      ForumPost post() => CommunityStore.instance
+          .byId(c.id)!
+          .channels
+          .firstWhere((ch) => ch.id == chId)
+          .posts
+          .single;
+
+      final remote = ForumPost(
+          id: 'rp',
+          authorId: 'them',
+          authorName: 'Ada',
+          time: DateTime(2024, 3, 1),
+          title: 'From another phone');
+      CommunityStore.instance.applyRemoteForumPost(c.id, chId, remote);
+      // The same post arrives live AND from the mailbox — once is enough.
+      CommunityStore.instance.applyRemoteForumPost(c.id, chId, remote);
+      expect(post().id, 'rp');
+      expect(post().myVote, 0,
+          reason: 'the author\'s self-upvote is not THIS device\'s vote');
+      expect(post().score, 1, reason: 'but their upvote still counts');
+
+      final comment = ForumComment(
+          id: 'rc',
+          authorId: 'them',
+          authorName: 'Ada',
+          time: DateTime(2024, 3, 1, 1),
+          body: 'hi',
+          myVote: 1);
+      CommunityStore.instance
+          .applyRemoteForumComment(c.id, chId, 'rp', comment);
+      CommunityStore.instance
+          .applyRemoteForumComment(c.id, chId, 'rp', comment);
+      expect(post().comments.single.myVote, 0);
+
+      CommunityStore.instance
+          .applyRemoteForumVote(c.id, chId, 'rp', delta: 2);
+      expect(post().score, 3);
+      CommunityStore.instance.applyRemoteForumVote(c.id, chId, 'rp',
+          commentId: 'rc', delta: -1);
+      expect(post().comments.single.score, -1);
+
+      CommunityStore.instance.applyRemoteForumPostEdit(
+          c.id, chId, 'rp', 'Edited elsewhere', 'new body');
+      expect(post().title, 'Edited elsewhere');
+      expect(post().edited, isTrue);
+
+      CommunityStore.instance
+          .applyRemoteForumFlag(c.id, chId, 'rp', locked: true);
+      expect(post().locked, isTrue);
+
+      // A remote comment delete takes the reply subtree, same as a local one.
+      CommunityStore.instance.applyRemoteForumComment(
+          c.id,
+          chId,
+          'rp',
+          ForumComment(
+              id: 'rc2',
+              authorId: 'x',
+              authorName: 'X',
+              time: DateTime(2024, 3, 1, 2),
+              body: 'reply',
+              parentId: 'rc'));
+      CommunityStore.instance
+          .applyRemoteForumCommentDelete(c.id, chId, 'rp', 'rc');
+      expect(post().comments, isEmpty,
+          reason: 'the reply subtree goes with its parent');
+
+      CommunityStore.instance.applyRemoteForumPostDelete(c.id, chId, 'rp');
+      expect(
+          CommunityStore.instance
+              .byId(c.id)!
+              .channels
+              .firstWhere((ch) => ch.id == chId)
+              .posts,
+          isEmpty,
+          reason: 'a delete from another phone deletes here too');
+    });
+
     test('editing a forum post updates it and flags edited', () {
       CommunityStore.instance.resetForTest();
       CommunityStore.instance.editForumPost('seed_design', 'seed_forum',

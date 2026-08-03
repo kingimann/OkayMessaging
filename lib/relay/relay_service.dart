@@ -836,7 +836,16 @@ class RelayService {
                   'chdel' ||
                   'chedt' ||
                   'chrxn' ||
-                  'chpin':
+                  'chpin' ||
+                  'frpost' ||
+                  'frcom' ||
+                  'frvote' ||
+                  'frdel' ||
+                  'frcdel' ||
+                  'fredt' ||
+                  'frcedt' ||
+                  'frpin' ||
+                  'frlock':
               _applyCommunityEvent(event, payload, me);
           }
         } catch (_) {
@@ -1123,7 +1132,7 @@ class RelayService {
     // server's own secret, so only members can read any of it. The bare
     // 'post' event below is the legacy plaintext feed path, kept only so
     // pre-secret servers and old builds still interoperate.
-    _feedChannel = _client
+    var channel = _client
         .channel('server_feed')
         .onBroadcast(
           event: 'post',
@@ -1251,8 +1260,20 @@ class RelayService {
             _applyCommunityEvent(
                 'fvote', Map<String, dynamic>.from(payload), me);
           },
-        )
-        .subscribe((status, [error]) {
+        );
+    // Forum activity, registered off the shared list so a new event cannot
+    // be sent and never heard.
+    for (final event in forumEvents) {
+      channel = channel.onBroadcast(
+        event: event,
+        callback: (rawEnvelope) {
+          final payload = unwrapBroadcast(rawEnvelope);
+          _applyCommunityEvent(event, Map<String, dynamic>.from(payload), me);
+        },
+      );
+    }
+    _feedChannel = channel;
+    channel.subscribe((status, [error]) {
       // Tracked here rather than read off the channel: the channel's own
       // state getters are package-internal, and the callback is told about
       // every transition anyway — including the errored/closed ones the
@@ -1427,6 +1448,84 @@ class RelayService {
               voterUsername: body['username'] as String? ?? '',
             );
           }
+        case 'frpost':
+          final channelId = body['channelId'];
+          final raw = body['post'];
+          if (channelId is! String || raw is! Map) return;
+          try {
+            CommunityStore.instance.applyRemoteForumPost(cid, channelId,
+                ForumPost.fromJson(Map<String, dynamic>.from(raw)));
+          } catch (_) {}
+        case 'frcom':
+          final channelId = body['channelId'];
+          final postId = body['postId'];
+          final raw = body['comment'];
+          if (channelId is! String || postId is! String || raw is! Map) {
+            return;
+          }
+          try {
+            CommunityStore.instance.applyRemoteForumComment(cid, channelId,
+                postId, ForumComment.fromJson(Map<String, dynamic>.from(raw)));
+          } catch (_) {}
+        case 'frvote':
+          final channelId = body['channelId'];
+          final postId = body['postId'];
+          if (channelId is! String || postId is! String) return;
+          CommunityStore.instance.applyRemoteForumVote(cid, channelId, postId,
+              commentId: body['commentId'] as String?,
+              delta: (body['delta'] as num?)?.toInt() ?? 0);
+        case 'frdel':
+          final channelId = body['channelId'];
+          final postId = body['postId'];
+          if (channelId is! String || postId is! String) return;
+          CommunityStore.instance
+              .applyRemoteForumPostDelete(cid, channelId, postId);
+        case 'frcdel':
+          final channelId = body['channelId'];
+          final postId = body['postId'];
+          final commentId = body['commentId'];
+          if (channelId is! String ||
+              postId is! String ||
+              commentId is! String) {
+            return;
+          }
+          CommunityStore.instance
+              .applyRemoteForumCommentDelete(cid, channelId, postId, commentId);
+        case 'fredt':
+          final channelId = body['channelId'];
+          final postId = body['postId'];
+          final title = body['title'];
+          if (channelId is! String || postId is! String || title is! String) {
+            return;
+          }
+          CommunityStore.instance.applyRemoteForumPostEdit(
+              cid, channelId, postId, title, body['body'] as String? ?? '',
+              tag: body['tag'] as String?, gifUrl: body['gifUrl'] as String?);
+        case 'frcedt':
+          final channelId = body['channelId'];
+          final postId = body['postId'];
+          final commentId = body['commentId'];
+          final text = body['body'];
+          if (channelId is! String ||
+              postId is! String ||
+              commentId is! String ||
+              text is! String) {
+            return;
+          }
+          CommunityStore.instance.applyRemoteForumCommentEdit(
+              cid, channelId, postId, commentId, text);
+        case 'frpin':
+          final channelId = body['channelId'];
+          final postId = body['postId'];
+          if (channelId is! String || postId is! String) return;
+          CommunityStore.instance.applyRemoteForumFlag(cid, channelId, postId,
+              pinned: body['pinned'] as bool? ?? false);
+        case 'frlock':
+          final channelId = body['channelId'];
+          final postId = body['postId'];
+          if (channelId is! String || postId is! String) return;
+          CommunityStore.instance.applyRemoteForumFlag(cid, channelId, postId,
+              locked: body['locked'] as bool? ?? false);
       }
     });
   }
@@ -1754,6 +1853,30 @@ class RelayService {
   /// sealed servers can do this; legacy ones delete locally alone.
   Future<void> sendFeedDelete(String communityId, String postId) =>
       _sendCommunityEvent('fdel', communityId, {'id': postId});
+
+  /// Every forum event name that rides the community bus. One list, used by
+  /// the live subscription, so adding an event cannot silently skip a leg.
+  static const List<String> forumEvents = [
+    'frpost', // new post
+    'frcom', // new comment
+    'frvote', // a vote, as a score delta
+    'frdel', // post deleted (with its comments)
+    'frcdel', // comment deleted (with its reply subtree)
+    'fredt', // post edited
+    'frcedt', // comment edited
+    'frpin', // pinned / unpinned
+    'frlock', // thread locked / unlocked
+  ];
+
+  /// Carries one forum action to every member over the sealed community bus,
+  /// live and into offline mailboxes. Wired to CommunityStore.onForumEvent —
+  /// the forum used to be per-device, so a delete only ever happened on the
+  /// screen it was tapped on and everybody else kept the post forever.
+  Future<void> sendForumEvent(
+          String communityId, String event, Map<String, dynamic> body) =>
+      forumEvents.contains(event)
+          ? _sendCommunityEvent(event, communityId, body)
+          : Future.value();
 
   /// Broadcasts a like/unlike, carrying who so the author's count moves and
   /// they can be notified. Sealed with the server key like all feed traffic.
