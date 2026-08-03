@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide Session;
 
 import '../relay/relay_config.dart';
+import 'push_service.dart';
 import 'self_test.dart';
 import 'session.dart';
 
@@ -136,6 +137,9 @@ class PushSelfTest {
       pushablePlatform: pushablePlatform,
       check: check,
       error: error,
+      tokenReceived: PushService.instance.tokenReceived,
+      registrationError: PushService.instance.registrationError,
+      uploadError: PushService.instance.lastUploadError,
     );
     return SelfTestReport(
       title: 'Push self-test',
@@ -146,6 +150,9 @@ class PushSelfTest {
         pushablePlatform: pushablePlatform,
         check: check,
         error: error,
+        tokenReceived: PushService.instance.tokenReceived,
+        registrationError: PushService.instance.registrationError,
+        uploadError: PushService.instance.lastUploadError,
       ),
       verdict: verdict.$1,
       faulty: verdict.$2,
@@ -207,6 +214,9 @@ class PushSelfTest {
     required bool pushablePlatform,
     required PushCheck? check,
     required String? error,
+    bool tokenReceived = false,
+    String? registrationError,
+    String? uploadError,
   }) {
     final steps = <DiagnosticStep>[
       relayEnabled
@@ -319,10 +329,22 @@ class PushSelfTest {
       'This device\'s token',
       check.deviceRegistered
           ? 'Registered — the server knows where to send.'
-          : pushablePlatform
-              ? 'Never uploaded. iOS has not granted notification permission '
-                  'to this build, or it was declined.'
-              : 'None, because this build cannot register one.',
+          : !pushablePlatform
+              ? 'None, because this build cannot register one.'
+              : registrationError != null
+                  ? _isEntitlementError(registrationError)
+                      ? 'iOS refused to issue one: this build was signed '
+                          'without the push entitlement. Only a new build '
+                          'can fix that — no setting on this phone can.'
+                      : 'iOS refused to issue one: '
+                          '${_short(registrationError)}'
+                  : tokenReceived
+                      ? 'iOS handed this app a token, but uploading it to '
+                          'the server failed'
+                          '${uploadError == null ? '.' : ': ${_short(uploadError)}'}'
+                      : 'iOS has not handed this app a token this launch. '
+                          'Allow notifications in iOS Settings, then close '
+                          'the app fully and reopen it.',
       check.deviceRegistered
           ? CheckState.pass
           : pushablePlatform
@@ -331,6 +353,12 @@ class PushSelfTest {
     ));
     return steps;
   }
+
+  /// Apple's wording for "the binary has no aps-environment entitlement" —
+  /// the one registration failure with a definite cause and a definite fix
+  /// (a rebuild with a push-capable provisioning profile).
+  static bool _isEntitlementError(String e) =>
+      e.contains('aps-environment') || e.contains('entitlement');
 
   static String _appleDetail(ApnsProbe p) {
     if (p.status == 0) {
@@ -367,6 +395,9 @@ class PushSelfTest {
     required bool pushablePlatform,
     required PushCheck? check,
     required String? error,
+    bool tokenReceived = false,
+    String? registrationError,
+    String? uploadError,
   }) {
     if (!relayEnabled) {
       return (
@@ -492,10 +523,38 @@ class PushSelfTest {
       );
     }
     if (!check.deviceRegistered) {
+      if (registrationError != null && _isEntitlementError(registrationError)) {
+        return (
+          'Every APNs secret is right, but iOS refused to issue this build '
+              'a push token: it was signed without the push entitlement. '
+              'That is baked into the binary — install a build made after '
+              'the Push capability was enabled. No setting on this phone '
+              'can fix it.',
+          true
+        );
+      }
+      if (registrationError != null) {
+        return (
+          'Every APNs secret is right, but iOS refused to issue a push '
+              'token: ${_short(registrationError)}',
+          true
+        );
+      }
+      if (tokenReceived) {
+        return (
+          'Every APNs secret is right and iOS issued a token, but uploading '
+              'it to the server failed'
+              '${uploadError == null ? '' : ': ${_short(uploadError)}'}. '
+              'Check the connection and reopen the app to retry.',
+          true
+        );
+      }
       return (
         'Every APNs secret is right, but this device has never uploaded a '
             'token — so nothing can be sent to it. Allow notifications for '
-            'the app in iOS Settings, then reopen the app.',
+            'the app in iOS Settings, then close the app fully and reopen '
+            'it. If this stays red after that, the installed build predates '
+            'the push setup — install a newer build.',
         true
       );
     }

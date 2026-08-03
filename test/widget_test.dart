@@ -26095,6 +26095,74 @@ void main() {
       expect(web.$2, isFalse);
     });
 
+    test('iOS refusing a token is told apart from permission never asked', () {
+      (String, bool) v({String? regError, bool token = false, String? up}) =>
+          PushSelfTest.verdictFor(
+            relayEnabled: true,
+            signedIn: true,
+            releaseBuild: true,
+            pushablePlatform: true,
+            check: check(registered: false),
+            error: null,
+            tokenReceived: token,
+            registrationError: regError,
+            uploadError: up,
+          );
+
+      // The entitlement failure has exactly one fix and it is not on the
+      // phone: the build was signed without push. Sending somebody to iOS
+      // Settings for it wastes their toggle and their trust.
+      final entitlement = v(
+          regError: 'no valid \'aps-environment\' entitlement string found '
+              'for application');
+      expect(entitlement.$2, isTrue);
+      expect(entitlement.$1, contains('entitlement'));
+      expect(entitlement.$1.toLowerCase(), contains('build'));
+      expect(entitlement.$1, isNot(contains('Allow notifications')),
+          reason: 'Settings cannot fix a binary signed without push');
+
+      // Any other refusal at least shows its reason instead of guessing.
+      expect(v(regError: 'simulator').$1, contains('simulator'));
+
+      // A token that arrived but never stuck server-side is an upload
+      // fault, and the reason it failed is the whole diagnosis.
+      final upload = v(token: true, up: 'row-level security');
+      expect(upload.$2, isTrue);
+      expect(upload.$1, contains('uploading'));
+      expect(upload.$1, contains('row-level security'));
+
+      // And the steps say the same thing the verdict does.
+      List<DiagnosticStep> steps(
+              {String? regError, bool token = false, String? up}) =>
+          PushSelfTest.stepsFor(
+            relayEnabled: true,
+            signedIn: true,
+            releaseBuild: true,
+            pushablePlatform: true,
+            check: check(registered: false),
+            error: null,
+            tokenReceived: token,
+            registrationError: regError,
+            uploadError: up,
+          );
+      DiagnosticStep tokenStep(List<DiagnosticStep> s) =>
+          s.firstWhere((x) => x.title == 'This device\'s token');
+      expect(tokenStep(steps(regError: 'aps-environment ...')).detail,
+          contains('new build'));
+      expect(tokenStep(steps(token: true, up: 'denied')).detail,
+          contains('denied'));
+      expect(tokenStep(steps()).detail, contains('Allow notifications'));
+
+      // The native side reports the refusal at all — the failure used to be
+      // swallowed, which left this screen guessing about permissions.
+      final swift =
+          File('ios/Runner/AppDelegate.swift').readAsStringSync();
+      expect(swift, contains('didFailToRegisterForRemoteNotificationsWithError'));
+      expect(swift, contains('"tokenError"'));
+      final dart = File('lib/state/push_service.dart').readAsStringSync();
+      expect(dart, contains('tokenError'));
+    });
+
     test('an old deployment is told apart from a broken one', () {
       // push-send before this change answers { sent: false } — a valid reply
       // that is not a self-test. Reading it as "no secrets set" would be a

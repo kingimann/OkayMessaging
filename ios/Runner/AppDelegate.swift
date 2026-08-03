@@ -57,6 +57,13 @@ import WebRTC
   /// about it; held here until Dart's push channel is up.
   private var pendingVoipToken: String?
 
+  /// Whether APNs has handed this process a device token yet. Drives the
+  /// retry below: registration is otherwise asked exactly once per launch,
+  /// so somebody who flips notifications on in iOS Settings and comes back
+  /// stayed tokenless until they happened to force-quit.
+  private var pushTokenDelivered = false
+  private var watchingPushRetry = false
+
   override func application(
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
@@ -171,6 +178,20 @@ import WebRTC
             // they give it.
             UIApplication.shared.registerForRemoteNotifications()
             result(granted)
+          }
+        }
+        // Retry on every return to the foreground until a token arrives —
+        // the person who was sent to iOS Settings comes BACK, and asking
+        // again is free while a token is missing and a no-op once it isn't.
+        if self?.watchingPushRetry != true {
+          self?.watchingPushRetry = true
+          NotificationCenter.default.addObserver(
+            forName: UIApplication.didBecomeActiveNotification,
+            object: nil, queue: .main
+          ) { [weak self] _ in
+            if self?.pushTokenDelivered != true {
+              UIApplication.shared.registerForRemoteNotifications()
+            }
           }
         }
       case "clearBadge":
@@ -331,9 +352,24 @@ import WebRTC
     didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
   ) {
     let hex = deviceToken.map { String(format: "%02x", $0) }.joined()
+    pushTokenDelivered = true
     pushChannel?.invokeMethod("token", arguments: hex)
     super.application(application,
         didRegisterForRemoteNotificationsWithDeviceToken: deviceToken)
+  }
+
+  /// The failure that used to be invisible: iOS refusing to issue a token at
+  /// all. The one cause that matters is a build signed without the push
+  /// entitlement ("no valid 'aps-environment' entitlement"), which no amount
+  /// of Settings-toggling can fix — so the error's own words go to Dart and
+  /// the Check push setup screen says which it is.
+  override func application(
+    _ application: UIApplication,
+    didFailToRegisterForRemoteNotificationsWithError error: Error
+  ) {
+    pushChannel?.invokeMethod("tokenError", arguments: error.localizedDescription)
+    super.application(application,
+        didFailToRegisterForRemoteNotificationsWithError: error)
   }
 }
 

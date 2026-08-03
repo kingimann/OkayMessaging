@@ -28,6 +28,19 @@ class PushService {
   /// incoming call ring CallKit on the lock screen of a closed app.
   String? _voipToken;
 
+  /// What iOS said when it REFUSED to issue a token — the failure that used
+  /// to be invisible. "no valid 'aps-environment' entitlement" here means
+  /// the build was signed without the Push capability, which only a new
+  /// build can fix; the diagnostics screen reads this to say so.
+  String? registrationError;
+
+  /// Why the last token upload didn't stick, or null after a clean one.
+  String? lastUploadError;
+
+  /// Whether iOS has handed this process a device token. With this true and
+  /// the server still reporting no row, the fault is the upload, not iOS.
+  bool get tokenReceived => (_lastToken ?? '').isNotEmpty;
+
   Future<void> register() async {
     if (_started || kIsWeb || defaultTargetPlatform != TargetPlatform.iOS) {
       return;
@@ -35,7 +48,13 @@ class PushService {
     if (!RelayConfig.isEnabled) return;
     _started = true;
     _channel.setMethodCallHandler((call) async {
-      if (call.method == 'token') await _upload(call.arguments as String?);
+      if (call.method == 'token') {
+        registrationError = null;
+        await _upload(call.arguments as String?);
+      }
+      if (call.method == 'tokenError') {
+        registrationError = '${call.arguments ?? 'unknown'}';
+      }
       if (call.method == 'voipToken') {
         _voipToken = call.arguments as String?;
         await _upload(_lastToken);
@@ -153,10 +172,19 @@ class PushService {
         if ((_voipToken ?? '').isNotEmpty) 'voip_token': _voipToken,
         'updated_at': DateTime.now().toUtc().toIso8601String(),
       });
-      // One device, one owner: release any OTHER account's row still naming
-      // this device's token (the table is keyed by phone, so a previous
-      // account's row survives an account switch and its messages would
-      // keep arriving on this lock screen).
+      lastUploadError = null;
+    } catch (e) {
+      // Kept, not just swallowed: "iOS handed a token but the server has no
+      // row" is undiagnosable without the reason the write failed.
+      lastUploadError = '$e';
+      return;
+    }
+    // One device, one owner: release any OTHER account's row still naming
+    // this device's token (the table is keyed by phone, so a previous
+    // account's row survives an account switch and its messages would
+    // keep arriving on this lock screen). Best-effort — the row above
+    // already exists, so a failure here is not an upload failure.
+    try {
       await Supabase.instance.client
           .rpc('claim_push_token', params: {'t': token});
     } catch (_) {}
