@@ -368,6 +368,8 @@ class CallMedia {
       track.onEnded = () => _stopScreenShare();
       _screenStream = display;
       screenSharing.value = true;
+      shareFailure.value = null;
+      unawaited(_verifyShareMovesFrames());
       return null;
     } catch (_) {
       // Say the failure the PLATFORM actually has. On the phone it is a
@@ -380,6 +382,48 @@ class CallMedia {
           : 'Screen sharing couldn\'t start. If iOS asked to record the '
               'screen, it needs to be allowed.';
     }
+  }
+
+  /// Set when screen sharing started and then visibly produced NOTHING —
+  /// the far end was seeing a black rectangle while this side showed
+  /// "sharing". The UI surfaces it; the share is already stopped.
+  final ValueNotifier<String?> shareFailure = ValueNotifier<String?>(null);
+
+  /// Cumulative outbound video frames encoded, or -1 when there is no video
+  /// sender to read.
+  Future<int> _outboundVideoFrames() async {
+    final pc = _pc;
+    if (pc == null) return -1;
+    try {
+      final reports = await pc.getStats();
+      for (final r in reports) {
+        if (r.type != 'outbound-rtp') continue;
+        final kind =
+            (r.values['kind'] ?? r.values['mediaType'])?.toString();
+        if (kind != 'video') continue;
+        return (r.values['framesEncoded'] as num?)?.toInt() ?? 0;
+      }
+    } catch (_) {}
+    return -1;
+  }
+
+  /// Proves the share is actually moving pictures. iOS's in-app capture can
+  /// start "successfully" and deliver zero frames — a denied recording
+  /// permission or a Screen Time block — and the only symptom is a black
+  /// rectangle on the far end. Compare the encoder's frame count across a
+  /// few seconds; if it did not move, stop the share and say why. The DELTA
+  /// matters: on a video call the counter already includes camera frames.
+  Future<void> _verifyShareMovesFrames() async {
+    final before = await _outboundVideoFrames();
+    await Future<void>.delayed(const Duration(seconds: 6));
+    if (!screenSharing.value || _pc == null) return;
+    final after = await _outboundVideoFrames();
+    if (after > before) return; // pictures are flowing
+    await _stopScreenShare();
+    shareFailure.value =
+        'Screen sharing produced no picture, so it was stopped. iOS may '
+        'have refused screen recording — try again and allow it (and check '
+        'Settings → Screen Time → Content & Privacy restrictions).';
   }
 
   Future<void> _stopScreenShare() async {

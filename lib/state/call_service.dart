@@ -647,7 +647,8 @@ class CallService {
     final answer = await CallMedia.instance.answerRenegotiation(offerSdp);
     if (answer == null) return;
     RelayService.instance.sendCall(c.peer.phone,
-        kind: 'answer', callId: c.callId, video: c.video, sdp: answer);
+        kind: 'answer', callId: c.callId, video: c.video, sdp: answer,
+        queue: false);
   }
 
   void onRemoteAnswer(String callId, {String? sdp}) {
@@ -770,7 +771,8 @@ class CallService {
     final sdp = await CallMedia.instance.createRenegotiationOffer();
     if (sdp == null) return;
     RelayService.instance.sendCall(c.peer.phone,
-        kind: 'offer', callId: c.callId, video: c.video, sdp: sdp);
+        kind: 'offer', callId: c.callId, video: c.video, sdp: sdp,
+        queue: false);
   }
 
   /// Announces this side's camera/screen state so the peer's UI can show it.

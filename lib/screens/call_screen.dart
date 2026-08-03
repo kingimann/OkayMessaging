@@ -64,6 +64,17 @@ class _CallScreenState extends State<CallScreen>
     CallMedia.instance.localVideo.addListener(_onRemoteReady);
     CallMedia.instance.screenSharing.addListener(_onRemoteReady);
     CallService.instance.peerMedia.addListener(_onRemoteReady);
+    CallMedia.instance.shareFailure.addListener(_onShareFailure);
+  }
+
+  /// The share started and then moved no pictures — it has already been
+  /// stopped; this is where the person finds out why.
+  void _onShareFailure() {
+    final why = CallMedia.instance.shareFailure.value;
+    if (why == null || !mounted) return;
+    CallMedia.instance.shareFailure.value = null;
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(why)));
   }
 
   void _onRemoteReady() {
@@ -163,6 +174,7 @@ class _CallScreenState extends State<CallScreen>
     CallMedia.instance.localVideo.removeListener(_onRemoteReady);
     CallMedia.instance.screenSharing.removeListener(_onRemoteReady);
     CallService.instance.peerMedia.removeListener(_onRemoteReady);
+    CallMedia.instance.shareFailure.removeListener(_onShareFailure);
     super.dispose();
   }
 

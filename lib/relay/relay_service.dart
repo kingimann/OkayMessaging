@@ -1973,6 +1973,7 @@ class RelayService {
     String? emoji,
     Map<String, dynamic>? media,
     Map<String, dynamic>? group,
+    bool queue = true,
   }) async {
     if (!_initialized) return;
     final me = Session.instance.user.value;
@@ -2001,8 +2002,11 @@ class RelayService {
     // with no app running, and the mailbox is how the woken app learns what
     // it is answering. Stale offers die by the ts guard on the way back in;
     // presence-flavoured kinds (joined/reaction/media) stay live-only —
-    // replayed hours later they would be nonsense.
-    if (const {'offer', 'answer', 'end', 'decline'}.contains(kind)) {
+    // replayed hours later they would be nonsense. [queue] false is for
+    // MID-CALL renegotiation (camera on, screen share): the peer is on the
+    // call and therefore online, and a queued copy replaying on the next
+    // mailbox sweep would shove a stale SDP into a live connection.
+    if (queue && const {'offer', 'answer', 'end', 'decline'}.contains(kind)) {
       _mailboxPut(contactPhone, payload, event: 'call');
     }
   }
