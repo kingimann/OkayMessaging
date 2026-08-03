@@ -443,21 +443,18 @@ probing with the anon key (a missing column answers 42703, a missing bucket
    including ~115 lines of new Swift (`okay/screenshot`, the capture observer,
    the app-switcher cover) plus `Mesh.swift` and `NearbyFast.swift`, which have
    still never been compiled anywhere.
-2. **Run in the SQL editor, in this order, before re-pasting functions:**
-   `docs/payment_controls.sql` (live `payment_transactions` has no `note`
-   column — the new create-intent/history would error against it) and
-   `docs/public_feed.sql` (live `public_posts` has no `spark_count` /
-   `spark_cents`, so public-feed sparks are off; the media columns and
-   `public_post_sparks` are already there).
+2. `docs/payment_controls.sql` and `docs/public_feed.sql` are RUN (the
+   `note` column and the view's spark tallies both answer live — done, do
+   not raise again). When probing feed columns, ask the **`public_feed`
+   view**, not `public_posts`: the tallies are view columns computed by the
+   counter functions, and probing the table reads as "sparks missing" when
+   nothing is.
 3. **Create the three missing Storage buckets** — all verified absent:
    `docs/voice_notes_bucket.sql` (long voice notes fall back to inline),
    `docs/chat_backup_bucket.sql` (paid cloud backup has nowhere to write),
    `docs/market_media_bucket.sql` (server-feed/listing media broken).
-4. **Re-paste from `docs/edge_functions_paste/`:** `payments-create-intent`,
-   `payments-history`, `payments-connect-fields`, `payments-payout`,
-   `payments-status` (all changed across the card/bank-security and
-   currency/history sessions), and `push-send` (deployed copy predates the
-   self-test).
+4. The payments functions + `push-send` were re-pasted 2026-08-03 (user
+   said; versions cannot be read through the JWT gate from here).
 5. **`KLIPY_API_KEY`** into the Codemagic `test` variable group and the GitHub
    Actions secret.
 6. **Deploy `moderation-screen`** (verified still 404; fails open, needs
