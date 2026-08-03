@@ -3735,6 +3735,17 @@ void main() {
       expect(IdentityRecovery.openIdentity(blob, IdentityRecovery.mintCode()),
           isNull);
       expect(IdentityRecovery.openIdentity('not json', code), isNull);
+
+      // The PIN path: 4–6 digits, the user's own choice — Messenger's
+      // shape. The same seal, the same forgiveness for separators.
+      expect(IdentityRecovery.pinProblem('1234'), isNull);
+      expect(IdentityRecovery.pinProblem('432198'), isNull);
+      expect(IdentityRecovery.pinProblem('123'), isNotNull);
+      expect(IdentityRecovery.pinProblem('1234567'), isNotNull);
+      expect(IdentityRecovery.pinProblem('12a4'), isNotNull);
+      final pinBlob = IdentityRecovery.sealIdentity(secretHex, '432198');
+      expect(IdentityRecovery.openIdentity(pinBlob, ' 43-21 98 '), secretHex);
+      expect(IdentityRecovery.openIdentity(pinBlob, '432199'), isNull);
     });
 
     test('a restored identity is the SAME identity, and old seals open again',
@@ -3782,8 +3793,8 @@ void main() {
       expect(kx.myPublicKey, originalPub);
     });
 
-    testWidgets('the recovery screen mints, stores sealed, and restores',
-        (tester) async {
+    testWidgets('the recovery screen takes a chosen PIN, stores sealed, '
+        'and restores', (tester) async {
       SharedPreferences.setMockInitialValues({});
       // ignore: invalid_use_of_visible_for_testing_member
       addTearDown(SecureKeyExchange.instance.resetForTest);
@@ -3802,6 +3813,8 @@ void main() {
         expect(inbox, '15550100');
         expect(blob.contains(myHex), isFalse,
             reason: 'the private key must never leave the device readable');
+        expect(blob.contains('432198'), isFalse,
+            reason: 'and neither may the PIN');
         storedBlob = blob;
         return true;
       };
@@ -3811,14 +3824,24 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('No backup yet.'), findsOneWidget);
 
-      await tester.tap(find.text('Create recovery code'));
+      await tester.tap(find.text('Create recovery PIN'));
       await tester.pumpAndSettle();
-      // The dialog shows the code exactly once; it must open what was stored.
-      final shown =
-          tester.widget<SelectableText>(find.byType(SelectableText)).data!;
+      // Choose the PIN: mismatched confirm is refused in place.
+      final dialogFields = find.descendant(
+          of: find.byType(AlertDialog), matching: find.byType(TextField));
+      await tester.enterText(dialogFields.at(0), '432198');
+      await tester.enterText(dialogFields.at(1), '432199');
+      await tester.tap(find.text('Save PIN'));
+      await tester.pumpAndSettle();
+      expect(find.text('The PINs don\'t match.'), findsOneWidget);
+      await tester.enterText(dialogFields.at(1), '432198');
+      await tester.tap(find.text('Save PIN'));
+      await tester.pumpAndSettle();
       expect(storedBlob, isNotNull);
-      expect(IdentityRecovery.openIdentity(storedBlob!, shown), myHex);
-      await tester.tap(find.text('I saved it'));
+      expect(IdentityRecovery.openIdentity(storedBlob!, '432198'), myHex);
+      // Let the "Recovery PIN saved" snackbar run out, or the restore's own
+      // snackbar queues invisibly behind it.
+      await tester.pump(const Duration(seconds: 5));
       await tester.pumpAndSettle();
 
       // A "new phone": a different current identity, then a typed restore.
@@ -3828,13 +3851,12 @@ void main() {
       await SecureKeyExchange.instance.load();
       expect(SecureKeyExchange.instance.myPublicKey, isNot(original));
 
-      await tester.enterText(
-          find.byType(TextField), shown.toLowerCase().replaceAll('-', ''));
+      await tester.enterText(find.byType(TextField), '4321 98');
       await tester.pumpAndSettle();
       await tester.tap(find.text('Restore encryption'));
       await tester.pumpAndSettle();
       expect(SecureKeyExchange.instance.myPublicKey, original,
-          reason: 'typing the code brings the old identity back');
+          reason: 'typing the PIN brings the old identity back');
       expect(find.textContaining('Encryption restored'), findsOneWidget);
     });
 
@@ -3885,26 +3907,28 @@ void main() {
       // A fresh account gets the CREATE flow, and declining blocks the send.
       await tester.tap(find.text('send'));
       await tester.pumpAndSettle();
-      expect(find.text('Create your recovery code'), findsOneWidget);
+      expect(find.text('Create your recovery PIN'), findsOneWidget);
       await tester.tap(find.text('Not now'));
       await tester.pumpAndSettle();
-      expect(allowed, isFalse, reason: 'no code, no messaging');
+      expect(allowed, isFalse, reason: 'no PIN, no messaging');
 
-      // Accepting mints the code, stores the sealed blob, and unblocks.
+      // Accepting asks for a chosen PIN, stores the sealed blob, unblocks.
       await tester.tap(find.text('send'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Create code'));
+      await tester.tap(find.text('Choose PIN'));
       await tester.pumpAndSettle();
-      final shown =
-          tester.widget<SelectableText>(find.byType(SelectableText)).data!;
-      await tester.tap(find.text('I saved it'));
+      final pinFields = find.descendant(
+          of: find.byType(AlertDialog), matching: find.byType(TextField));
+      await tester.enterText(pinFields.at(0), '4321');
+      await tester.enterText(pinFields.at(1), '4321');
+      await tester.tap(find.text('Save PIN'));
       await tester.pumpAndSettle();
       expect(allowed, isTrue);
       expect(IdentityRecovery.ready.value, isTrue);
-      expect(IdentityRecovery.openIdentity(storedBlob!, shown),
+      expect(IdentityRecovery.openIdentity(storedBlob!, '4321'),
           SecureKeyExchange.instance.exportPrivate());
 
-      // A "new phone": the backup exists, so the gate asks to TYPE the code
+      // A "new phone": the backup exists, so the gate asks to TYPE the PIN
       // — and a wrong one is refused in place, not accepted quietly.
       // ignore: invalid_use_of_visible_for_testing_member
       IdentityRecovery.resetReadyForTest();
@@ -3917,23 +3941,57 @@ void main() {
       allowed = false;
       await tester.tap(find.text('send'));
       await tester.pumpAndSettle();
-      expect(find.text('Enter your recovery code'), findsOneWidget);
-      await tester.enterText(find.byType(TextField), 'WRONGWRONGWRONGW');
+      expect(find.text('Enter your recovery PIN'), findsOneWidget);
+      await tester.enterText(find.byType(TextField), '9999');
       await tester.tap(find.text('Restore'));
       await tester.pumpAndSettle();
       expect(find.textContaining('doesn\'t open'), findsOneWidget);
-      await tester.enterText(find.byType(TextField), shown);
+      await tester.enterText(find.byType(TextField), '4321');
       await tester.tap(find.text('Restore'));
       await tester.pumpAndSettle();
       expect(allowed, isTrue);
       expect(SecureKeyExchange.instance.myPublicKey, original,
-          reason: 'typing the code brings the old keys to the new phone');
+          reason: 'typing the PIN brings the old keys to the new phone');
 
       // And the chat screen actually stands behind the rule: offered when a
       // chat opens, enforced when a message is sent.
       final chat = File('lib/screens/chat_screen.dart').readAsStringSync();
       expect(chat.contains('maybePromptRecoverySetup'), isTrue);
       expect(chat.contains('recoveryGateNeeded()'), isTrue);
+    });
+
+    test('numberless accounts: a way back in, and no false verified claims',
+        () {
+      // Signing out of a numberless account used to be goodbye: the
+      // username lookup read the directory table as anon (which RLS answers
+      // with nothing), and even a found account would have been texted an
+      // SMS at a number that does not exist.
+      final login = File('lib/screens/auth/phone_login_screen.dart')
+          .readAsStringSync();
+      expect(login.contains('AccountCode.isCode(phone)'), isTrue,
+          reason: 'a username resolving to an account code must not be '
+              'sent an SMS');
+      expect(login.contains('_numberlessPinSignIn'), isTrue,
+          reason: 'the recovery PIN is the numberless way back in');
+      final svc =
+          File('lib/state/account_service.dart').readAsStringSync();
+      final lookup = svc.substring(svc.indexOf('accountForUsername'));
+      expect(
+          lookup
+              .substring(0, lookup.indexOf('sendEmailCode'))
+              .contains("rpc('find_people'"),
+          isTrue,
+          reason: 'a signed-out lookup must go through the RPC — the table '
+              'answers anon with empty rows, which read as "no account"');
+      // And the account never claims a verification it cannot have.
+      final profile =
+          File('lib/screens/profile_screen.dart').readAsStringSync();
+      expect(profile.contains("'No phone number'"), isTrue,
+          reason: 'a numberless profile must not say "Phone verified"');
+      final score = File('lib/screens/score_screen.dart').readAsStringSync();
+      expect(score.contains('isNumberless'), isTrue,
+          reason: 'Get verified says why it cannot run for a numberless '
+              'account instead of failing into a snackbar');
     });
 
     testWidgets('typing… expires on its own instead of sticking forever',

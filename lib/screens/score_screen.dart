@@ -612,6 +612,29 @@ class _VerifiedRow extends StatelessWidget {
   }
 
   Future<void> _getVerified(BuildContext context) async {
+    // The check needs a server session, and Supabase only issues one for a
+    // verified phone number. Saying so beats a spinner that ends nowhere.
+    if (Session.instance.isNumberless) {
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('ID verification needs a number'),
+          content: const Text(
+            'The ID check runs on a phone account — the server has to know '
+            'who passed, and it authenticates a phone number. This account '
+            'has none, and a number can\'t be added to it: the number IS '
+            'the account, so verifying means creating one.',
+          ),
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
     final ok = await showAppConfirmDialog(
       context,
       icon: Icons.verified_outlined,

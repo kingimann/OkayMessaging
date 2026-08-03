@@ -3,6 +3,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../crypto/double_ratchet.dart';
+import '../../crypto/identity_recovery.dart';
+import '../../crypto/key_exchange.dart';
 import '../../models/user.dart';
 import '../../relay/relay_config.dart';
 import '../../state/account_service.dart';
@@ -10,6 +13,7 @@ import '../../state/session.dart';
 import '../../state/two_step.dart';
 import '../../util/account_code.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/recovery_gate.dart';
 import '../../widgets/user_avatar.dart';
 
 /// Phone-number sign-in.
@@ -390,6 +394,12 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
             return;
           }
           final (phone, name) = account;
+          // A numberless account has no number to text a code to — its
+          // recovery PIN is the way back in.
+          if (AccountCode.isCode(phone)) {
+            await _numberlessPinSignIn(phone, raw, name);
+            return;
+          }
           _identifierPhone = phone;
           _resolvedName = name;
           await AccountService.instance.sendCode(phone);
@@ -421,6 +431,50 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
       }
       await _finishIdentifierSignIn(phone);
     });
+  }
+
+  /// The way back into an account that has no number to text: the recovery
+  /// PIN. Opening the backup IS the authentication — it proves the person
+  /// holds the one secret the account owner chose — and it hands back the
+  /// same encryption identity in the same motion, so the account signs in
+  /// able to read what was sealed to it. This used to be impossible: a
+  /// signed-out numberless account had no way back in at all.
+  Future<void> _numberlessPinSignIn(
+      String code, String rawUsername, String name) async {
+    final username = AccountService.normalizeUsername(rawUsername);
+    final blob =
+        await IdentityRecovery.fetch(code.replaceAll(RegExp(r'\D'), ''));
+    if (!mounted) return;
+    if (blob == null) {
+      setState(() => _error =
+          '@$username has no recovery backup, so it can\'t be signed back '
+          'into. An account with no number signs back in with the recovery '
+          'PIN it created.');
+      return;
+    }
+    final hex = await showDialog<String>(
+      context: context,
+      builder: (_) => RestorePinDialog(blob: blob),
+    );
+    if (hex == null || !mounted) return;
+    if (hex == 'lost') {
+      // Nothing dishonest to offer: the backup opens with the PIN or not at
+      // all, and an anonymous account cannot replace it.
+      setState(() => _error =
+          'Without the PIN, @$username can\'t be signed back into — the '
+          'backup only opens with it.');
+      return;
+    }
+    if (!await _passTwoStep()) return;
+    await SecureKeyExchange.instance.adoptIdentity(hex);
+    DoubleRatchet.instance.resetAllSessions();
+    await IdentityRecovery.markReady();
+    await Session.instance.signInWithoutNumber(
+      name: name,
+      username: username,
+      code: code,
+    );
+    // The auth gate reacts to the new session and shows the home screen.
   }
 
   /// What both email routes end in: the account behind the address, signed

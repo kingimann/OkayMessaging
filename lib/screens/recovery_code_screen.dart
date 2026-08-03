@@ -9,56 +9,108 @@ import '../state/session.dart';
 import '../theme/app_theme.dart';
 import '../widgets/info_section.dart';
 
-/// Shows a freshly minted recovery code, once — the dialog every create
-/// path shares, because the warning text and the copy button must not
-/// drift between the settings screen and the first-message gate.
-Future<void> showRecoveryCodeDialog(BuildContext context, String code) =>
-    showDialog<void>(
+/// Asks the user to choose (and confirm) their 4–6 digit recovery PIN —
+/// the dialog every create path shares, so the rules and the warning
+/// cannot drift between the settings screen and the first-message gate.
+/// Returns the PIN, or null on cancel.
+Future<String?> showChoosePinDialog(BuildContext context) => showDialog<String>(
       context: context,
       barrierDismissible: false,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Your recovery code'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Selectable AND monospaced: this is the one string in the app
-            // somebody will write on paper.
-            SelectableText(
-              code,
-              style: const TextStyle(
-                  fontFamily: 'monospace',
-                  fontSize: 18,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 1.2),
-            ),
-            const SizedBox(height: 12),
-            const Text(
-              'Write it down somewhere safe. It is shown only this once, '
-              'and it is the only thing that can restore your encryption '
-              'on a new phone — nobody can recover it for you, including '
-              'us. That is what keeps the backup unreadable to everyone '
-              'but you.',
-              style: TextStyle(fontSize: 13),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Clipboard.setData(ClipboardData(text: code));
-              ScaffoldMessenger.of(dialogContext).showSnackBar(
-                  const SnackBar(content: Text('Code copied')));
-            },
-            child: const Text('Copy'),
+      builder: (_) => const _ChoosePinDialog(),
+    );
+
+class _ChoosePinDialog extends StatefulWidget {
+  const _ChoosePinDialog();
+
+  @override
+  State<_ChoosePinDialog> createState() => _ChoosePinDialogState();
+}
+
+class _ChoosePinDialogState extends State<_ChoosePinDialog> {
+  final _pin = TextEditingController();
+  final _confirm = TextEditingController();
+  String? _error;
+
+  @override
+  void dispose() {
+    _pin.dispose();
+    _confirm.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final problem = IdentityRecovery.pinProblem(_pin.text);
+    if (problem != null) {
+      setState(() => _error = problem);
+      return;
+    }
+    if (_pin.text.trim() != _confirm.text.trim()) {
+      setState(() => _error = 'The PINs don\'t match.');
+      return;
+    }
+    Navigator.of(context).pop(_pin.text.trim());
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Choose a recovery PIN'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            '4–6 digits. It seals the backup of your encryption keys, and '
+            'it is the only thing that opens it — if you forget it, nobody '
+            'can recover it for you, including us.',
+            style: TextStyle(fontSize: 13),
           ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('I saved it'),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _pin,
+            autofocus: true,
+            keyboardType: TextInputType.number,
+            obscureText: true,
+            maxLength: IdentityRecovery.maxPinLength,
+            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+            decoration: const InputDecoration(
+              labelText: 'PIN',
+              border: OutlineInputBorder(),
+              isDense: true,
+              counterText: '',
+            ),
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            controller: _confirm,
+            keyboardType: TextInputType.number,
+            obscureText: true,
+            maxLength: IdentityRecovery.maxPinLength,
+            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+            onSubmitted: (_) => _submit(),
+            decoration: InputDecoration(
+              labelText: 'Confirm PIN',
+              border: const OutlineInputBorder(),
+              isDense: true,
+              counterText: '',
+              errorText: _error,
+            ),
           ),
         ],
       ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: _submit,
+          child: const Text('Save PIN'),
+        ),
+      ],
     );
+  }
+}
 
 /// The recovery code: what makes encryption survive a new phone.
 ///
@@ -116,12 +168,13 @@ class _RecoveryCodeScreenState extends State<RecoveryCodeScreen> {
       _say('This account\'s backup already exists and can\'t be replaced.');
       return;
     }
+    final pin = await showChoosePinDialog(context);
+    if (pin == null || !mounted) return;
     setState(() => _busy = true);
     try {
       final kx = SecureKeyExchange.instance;
       if (!kx.isReady) await kx.load();
-      final code = IdentityRecovery.mintCode();
-      final blob = IdentityRecovery.sealIdentity(kx.exportPrivate(), code);
+      final blob = IdentityRecovery.sealIdentity(kx.exportPrivate(), pin);
       final ok = await IdentityRecovery.store(inbox, blob);
       if (!mounted) return;
       if (!ok) {
@@ -129,16 +182,11 @@ class _RecoveryCodeScreenState extends State<RecoveryCodeScreen> {
             'again.');
         return;
       }
-      // The work is done; the dialog is reading, not waiting. Ending the
-      // busy state here also stops the restore button's spinner from
-      // animating behind the dialog forever.
-      setState(() {
-        _backupExists = true;
-        _busy = false;
-      });
+      setState(() => _backupExists = true);
       await IdentityRecovery.markReady();
       if (!mounted) return;
-      await showRecoveryCodeDialog(context, code);
+      _say('Recovery PIN saved. Your keys can now follow you to a new '
+          'phone.');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -158,7 +206,7 @@ class _RecoveryCodeScreenState extends State<RecoveryCodeScreen> {
       }
       final hex = IdentityRecovery.openIdentity(blob, typed);
       if (hex == null) {
-        _say('That code doesn\'t open the backup. Check it and try again.');
+        _say('That PIN doesn\'t open the backup. Check it and try again.');
         return;
       }
       await SecureKeyExchange.instance.adoptIdentity(hex);
@@ -182,14 +230,14 @@ class _RecoveryCodeScreenState extends State<RecoveryCodeScreen> {
   Widget build(BuildContext context) {
     final signedIn = _inbox.isNotEmpty;
     return Scaffold(
-      appBar: AppBar(title: const Text('Encryption recovery code')),
+      appBar: AppBar(title: const Text('Encryption recovery PIN')),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
           Text(
             'Your messages are sealed to keys that live only on this phone. '
-            'A recovery code backs those keys up — encrypted so that only '
-            'the code opens them — and brings them back on a new phone or '
+            'A recovery PIN backs those keys up — encrypted so that only '
+            'the PIN opens them — and brings them back on a new phone or '
             'after a reinstall, so old conversations stay readable and '
             'nobody sees a key change.',
             style: TextStyle(color: AppColors.subtle(context), fontSize: 13.5),
@@ -206,13 +254,13 @@ class _RecoveryCodeScreenState extends State<RecoveryCodeScreen> {
           const SizedBox(height: 16),
           InfoSection(children: [
             ListTile(
-              leading: const Icon(Icons.key_outlined),
+              leading: const Icon(Icons.pin_outlined),
               title: Text(_backupExists == true
-                  ? 'Create a new code'
-                  : 'Create recovery code'),
+                  ? 'Choose a new PIN'
+                  : 'Create recovery PIN'),
               subtitle: Text(_backupExists == true
-                  ? 'Replaces the old backup — the old code stops working'
-                  : 'Shown once. Write it down somewhere safe.'),
+                  ? 'Replaces the old backup — the old PIN stops working'
+                  : '4–6 digits only you know'),
               enabled: signedIn && !_busy,
               onTap: _create,
             ),
@@ -231,8 +279,8 @@ class _RecoveryCodeScreenState extends State<RecoveryCodeScreen> {
             textCapitalization: TextCapitalization.characters,
             autocorrect: false,
             decoration: const InputDecoration(
-              labelText: 'Recovery code',
-              hintText: 'XXXX-XXXX-XXXX-XXXX',
+              labelText: 'Recovery PIN',
+              hintText: '4–6 digits (or an old recovery code)',
               border: OutlineInputBorder(),
               isDense: true,
             ),
@@ -242,7 +290,8 @@ class _RecoveryCodeScreenState extends State<RecoveryCodeScreen> {
           FilledButton(
             onPressed: signedIn &&
                     !_busy &&
-                    IdentityRecovery.normalize(_code.text).length == 16
+                    IdentityRecovery.normalize(_code.text).length >=
+                        IdentityRecovery.minPinLength
                 ? _restore
                 : null,
             child: _busy

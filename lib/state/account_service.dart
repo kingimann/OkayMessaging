@@ -337,6 +337,27 @@ class AccountService {
   Future<(String, String)?> accountForUsername(String username) async {
     final normalized = normalizeUsername(username);
     if (!isValidUsername(normalized)) return null;
+    // The RPC first, for the same reason searchByUsername asks it first: at
+    // the sign-in screen the caller is ANONYMOUS, and the directory's RLS
+    // answers anon with empty rows — so the table read below found nobody,
+    // ever, and every signed-out username lookup (numberless accounts above
+    // all, which have no other way back in) died with "no account found".
+    try {
+      final raw = await _client.rpc('find_people', params: {'q': normalized});
+      if (raw is List) {
+        for (final r in raw) {
+          if (r is! Map) continue;
+          if ((r['username'] as String?) != normalized) continue;
+          final phone = r['phone'] as String?;
+          if (phone != null && phone.isNotEmpty) {
+            return (phone, (r['name'] as String?)?.trim() ?? '');
+          }
+        }
+      }
+    } catch (_) {
+      // The migration may not be run — the table read below still answers
+      // for signed-in callers.
+    }
     try {
       final rows = await _client
           .from(_table)

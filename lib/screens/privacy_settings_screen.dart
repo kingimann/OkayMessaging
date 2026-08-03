@@ -91,8 +91,8 @@ class PrivacySettingsScreen extends StatelessWidget {
             _AppLockTile(),
             _buildBlockScreenshotsTile(),
             InfoTile(
-              leading: const Icon(Icons.key_outlined),
-              title: 'Encryption recovery code',
+              leading: const Icon(Icons.pin_outlined),
+              title: 'Encryption recovery PIN',
               subtitle: 'Keep your keys through a new phone or reinstall',
               onTap: () => Navigator.of(context).push(
                 MaterialPageRoute(builder: (_) => const RecoveryCodeScreen()),

@@ -59,19 +59,18 @@ Future<bool> ensureRecoveryReady(BuildContext context,
   return ok;
 }
 
-/// A fresh account: mint the code, store the sealed identity, show the code
-/// once. Nothing to type — losing a code you never chose is the failure the
-/// minted code exists to prevent.
+/// A fresh account: the user chooses a 4–6 digit PIN, and the sealed
+/// identity goes to the server under it before the first message leaves.
 Future<bool> _createFlow(BuildContext context, String inbox) async {
   final create = await showDialog<bool>(
     context: context,
     builder: (dialogContext) => AlertDialog(
-      title: const Text('Create your recovery code'),
+      title: const Text('Create your recovery PIN'),
       content: const Text(
         'Messages here are end-to-end encrypted with keys that live only '
-        'on this phone. Before your first message, create the recovery '
-        'code that can bring those keys to a new phone — without it, '
-        'losing this phone means losing every conversation on it.',
+        'on this phone. Before your first message, choose the PIN that '
+        'can bring those keys to a new phone — without it, losing this '
+        'phone means losing every conversation on it.',
       ),
       actions: [
         TextButton(
@@ -80,16 +79,23 @@ Future<bool> _createFlow(BuildContext context, String inbox) async {
         ),
         FilledButton(
           onPressed: () => Navigator.of(dialogContext).pop(true),
-          child: const Text('Create code'),
+          child: const Text('Choose PIN'),
         ),
       ],
     ),
   );
   if (create != true || !context.mounted) return false;
+  return createPinBackup(context, inbox);
+}
+
+/// Chooses a PIN and stores the sealed identity under it. Shared by the
+/// gate's create flow, the lost-PIN restart, and the sign-in screens.
+Future<bool> createPinBackup(BuildContext context, String inbox) async {
+  final pin = await showChoosePinDialog(context);
+  if (pin == null || !context.mounted) return false;
   final kx = SecureKeyExchange.instance;
   if (!kx.isReady) await kx.load();
-  final code = IdentityRecovery.mintCode();
-  final blob = IdentityRecovery.sealIdentity(kx.exportPrivate(), code);
+  final blob = IdentityRecovery.sealIdentity(kx.exportPrivate(), pin);
   final stored = await IdentityRecovery.store(inbox, blob);
   if (!context.mounted) return false;
   if (!stored) {
@@ -98,7 +104,6 @@ Future<bool> _createFlow(BuildContext context, String inbox) async {
             'connection and try again.')));
     return false;
   }
-  await showRecoveryCodeDialog(context, code);
   return true;
 }
 
@@ -110,7 +115,7 @@ Future<bool> _restoreFlow(
     BuildContext context, String inbox, String blob) async {
   final result = await showDialog<String>(
     context: context,
-    builder: (_) => _RestoreCodeDialog(blob: blob),
+    builder: (_) => RestorePinDialog(blob: blob),
   );
   if (result == null || !context.mounted) return false;
   if (result == 'lost') return _lostCodeFlow(context, inbox);
@@ -123,20 +128,24 @@ Future<bool> _restoreFlow(
   return true;
 }
 
+/// Asks for the PIN (or a legacy code) that opens [blob], validating in
+/// place. Public because the numberless sign-in flow asks the same
+/// question with the same rules.
+///
 /// A widget rather than a `showDialog` closure so the controller is
 /// disposed when the dialog leaves the tree — disposing it as soon as
 /// `showDialog` returns kills it while the route is still animating out.
 /// Validation happens in place: a wrong code shows its error under the
 /// field instead of closing and reopening the dialog.
-class _RestoreCodeDialog extends StatefulWidget {
+class RestorePinDialog extends StatefulWidget {
   final String blob;
-  const _RestoreCodeDialog({required this.blob});
+  const RestorePinDialog({super.key, required this.blob});
 
   @override
-  State<_RestoreCodeDialog> createState() => _RestoreCodeDialogState();
+  State<RestorePinDialog> createState() => _RestorePinDialogState();
 }
 
-class _RestoreCodeDialogState extends State<_RestoreCodeDialog> {
+class _RestorePinDialogState extends State<RestorePinDialog> {
   final _code = TextEditingController();
   String? _error;
 
@@ -150,7 +159,7 @@ class _RestoreCodeDialogState extends State<_RestoreCodeDialog> {
     final hex = IdentityRecovery.openIdentity(
         widget.blob, IdentityRecovery.normalize(_code.text));
     if (hex == null) {
-      setState(() => _error = 'That code doesn\'t open the backup.');
+      setState(() => _error = 'That PIN doesn\'t open the backup.');
       return;
     }
     Navigator.of(context).pop(hex);
@@ -159,14 +168,14 @@ class _RestoreCodeDialogState extends State<_RestoreCodeDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('Enter your recovery code'),
+      title: const Text('Enter your recovery PIN'),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
             'This account has an encryption backup. Type the recovery '
-            'code to bring your keys to this phone, so your conversations '
+            'PIN to bring your keys to this phone, so your conversations '
             'pick up where they left off.',
             style: TextStyle(fontSize: 13.5),
           ),
@@ -177,8 +186,8 @@ class _RestoreCodeDialogState extends State<_RestoreCodeDialog> {
             textCapitalization: TextCapitalization.characters,
             autocorrect: false,
             decoration: InputDecoration(
-              labelText: 'Recovery code',
-              hintText: 'XXXX-XXXX-XXXX-XXXX',
+              labelText: 'Recovery PIN',
+              hintText: '4–6 digits (or an old recovery code)',
               border: const OutlineInputBorder(),
               isDense: true,
               errorText: _error,
@@ -190,7 +199,7 @@ class _RestoreCodeDialogState extends State<_RestoreCodeDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop('lost'),
-          child: const Text('I lost my code'),
+          child: const Text('I lost my PIN'),
         ),
         FilledButton(
           onPressed: _tryRestore,
@@ -211,7 +220,7 @@ Future<bool> _lostCodeFlow(BuildContext context, String inbox) async {
       builder: (dialogContext) => AlertDialog(
         title: const Text('Keep this phone\'s keys?'),
         content: const Text(
-          'Without the code, the old backup can\'t be opened — and this '
+          'Without the PIN, the old backup can\'t be opened — and this '
           'kind of account can\'t replace it. You can keep messaging with '
           'the keys this phone already has; messages sealed to the old '
           'keys stay unreadable.',
@@ -233,10 +242,10 @@ Future<bool> _lostCodeFlow(BuildContext context, String inbox) async {
   final replace = await showDialog<bool>(
     context: context,
     builder: (dialogContext) => AlertDialog(
-      title: const Text('Start over with a new code?'),
+      title: const Text('Start over with a new PIN?'),
       content: const Text(
-        'Without the code, the old backup can\'t be opened by anyone — '
-        'that is what makes it safe. A new code backs up THIS phone\'s '
+        'Without the PIN, the old backup can\'t be opened by anyone — '
+        'that is what makes it safe. A new PIN backs up THIS phone\'s '
         'keys instead. Messages sealed to the old keys stay unreadable.',
       ),
       actions: [
@@ -246,24 +255,11 @@ Future<bool> _lostCodeFlow(BuildContext context, String inbox) async {
         ),
         FilledButton(
           onPressed: () => Navigator.of(dialogContext).pop(true),
-          child: const Text('New code'),
+          child: const Text('New PIN'),
         ),
       ],
     ),
   );
   if (replace != true || !context.mounted) return false;
-  final kx = SecureKeyExchange.instance;
-  if (!kx.isReady) await kx.load();
-  final code = IdentityRecovery.mintCode();
-  final sealed = IdentityRecovery.sealIdentity(kx.exportPrivate(), code);
-  final stored = await IdentityRecovery.store(inbox, sealed);
-  if (!context.mounted) return false;
-  if (!stored) {
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('The backup could not be stored — check the '
-            'connection and try again.')));
-    return false;
-  }
-  await showRecoveryCodeDialog(context, code);
-  return true;
+  return createPinBackup(context, inbox);
 }

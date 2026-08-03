@@ -66,9 +66,14 @@ class ProfileVerificationRow extends StatelessWidget {
           [AccountEmail.instance, IdentityVerification.instance]),
       builder: (context, _) {
         // The phone is verified when sign-in went through the SMS code —
-        // that is what "verified" means here. Local mode never claims it.
-        final phoneVerified =
-            AccountService.isEnabled && Session.instance.isSignedIn;
+        // that is what "verified" means here. Local mode never claims it,
+        // and neither does an account that HAS no number: isSignedIn is
+        // true for numberless accounts too, and this chip used to read
+        // "Phone verified" on a profile with no phone anywhere near it.
+        final numberless = Session.instance.isNumberless;
+        final phoneVerified = AccountService.isEnabled &&
+            Session.instance.isSignedIn &&
+            !numberless;
         final email = AccountEmail.instance;
         final identity = IdentityVerification.instance;
         return Wrap(
@@ -82,7 +87,11 @@ class ProfileVerificationRow extends StatelessWidget {
             _chip(
               context,
               icon: Icons.sms_outlined,
-              label: phoneVerified ? 'Phone verified' : 'Verify phone',
+              label: numberless
+                  ? 'No phone number'
+                  : phoneVerified
+                      ? 'Phone verified'
+                      : 'Verify phone',
               done: phoneVerified,
               onTap: null, // nothing to do from here; sign-in decides it
             ),
@@ -104,14 +113,42 @@ class ProfileVerificationRow extends StatelessWidget {
               // Short enough that all three fit one line on a 390pt phone.
               // "Get the blue check" is what the score screen calls it, but
               // spelled out here it pushed the third chip onto a second row.
-              label: identity.isVerified
-                  ? 'ID verified'
-                  : identity.isPending
-                      ? 'ID pending'
-                      : 'Get verified',
+              // The ID check runs on a phone account (it needs a server
+              // session, which Supabase only issues for a verified number),
+              // so a numberless profile says that instead of offering a
+              // button that can only fail.
+              label: numberless
+                  ? 'ID needs a number'
+                  : identity.isVerified
+                      ? 'ID verified'
+                      : identity.isPending
+                          ? 'ID pending'
+                          : 'Get verified',
               done: identity.isVerified,
-              onTap: () => Navigator.of(context)
-                  .push(MaterialPageRoute(builder: (_) => const ScoreScreen())),
+              onTap: numberless
+                  ? () => showDialog<void>(
+                        context: context,
+                        builder: (dialogContext) => AlertDialog(
+                          title: const Text('ID verification needs a number'),
+                          content: const Text(
+                            'The ID check runs on a phone account — the '
+                            'server has to know who passed, and it '
+                            'authenticates a phone number. This account '
+                            'has none, and a number can\'t be added to it: '
+                            'the number IS the account, so that means '
+                            'creating one.',
+                          ),
+                          actions: [
+                            FilledButton(
+                              onPressed: () =>
+                                  Navigator.of(dialogContext).pop(),
+                              child: const Text('OK'),
+                            ),
+                          ],
+                        ),
+                      )
+                  : () => Navigator.of(context).push(MaterialPageRoute(
+                      builder: (_) => const ScoreScreen())),
             ),
           ],
         );

@@ -71,9 +71,31 @@ class IdentityRecovery {
   }
 
   /// What the user typed, forgiven: case, spaces and separators all drop
-  /// out, so `abcd efgh…` and `ABCD-EFGH…` are the same code.
+  /// out, so `abcd efgh…` and `ABCD-EFGH…` are the same code — and a PIN's
+  /// digits pass straight through. Letters and digits both survive so a
+  /// legacy 16-character code (whose alphabet never contained 0/1/O/I)
+  /// normalizes exactly as it always did.
   static String normalize(String raw) =>
-      raw.toUpperCase().replaceAll(RegExp('[^$alphabet]'), '');
+      raw.toUpperCase().replaceAll(RegExp('[^A-Z0-9]'), '');
+
+  /// PINs are 4–6 digits, chosen by the user — Messenger's shape, at the
+  /// user's request. The honest cost, said once here: a 6-digit PIN under
+  /// PBKDF2 can be ground offline by whoever obtains the sealed blob, which
+  /// an 80-bit code could not. What contains that: a phone account's blob
+  /// is fetchable only by its own session, and a numberless blob only by
+  /// whoever already knows the account code.
+  static const int minPinLength = 4;
+  static const int maxPinLength = 6;
+
+  /// Why [pin] can't be used, or null when it can.
+  static String? pinProblem(String pin) {
+    final p = pin.trim();
+    if (p.length < minPinLength || p.length > maxPinLength) {
+      return 'Use $minPinLength–$maxPinLength digits.';
+    }
+    if (!RegExp(r'^\d+$').hasMatch(p)) return 'Digits only.';
+    return null;
+  }
 
   static Uint8List _randomBytes(int n) =>
       Uint8List.fromList(List.generate(n, (_) => _rng.nextInt(256)));
