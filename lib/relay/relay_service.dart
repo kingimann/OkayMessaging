@@ -823,6 +823,8 @@ class RelayService {
               applySkdm(payload, myPhone: me);
             case 'skreq':
               applySkreq(payload, myPhone: me);
+            case 'fbreq':
+              applyFbreq(payload, myPhone: me);
             case 'key':
               applyKeyEvent(payload, myPhone: me);
             case 'chmsg' ||
@@ -953,6 +955,13 @@ class RelayService {
           callback: (rawEnvelope) {
             final payload = unwrapBroadcast(rawEnvelope);
             applySkreq(Map<String, dynamic>.from(payload), myPhone: me);
+          },
+        )
+        .onBroadcast(
+          event: 'fbreq',
+          callback: (rawEnvelope) {
+            final payload = unwrapBroadcast(rawEnvelope);
+            applyFbreq(Map<String, dynamic>.from(payload), myPhone: me);
           },
         )
         .onBroadcast(
@@ -1740,8 +1749,46 @@ class RelayService {
       final n = (body['n'] as num?)?.toInt();
       final sig = body['sig'] as String?;
       if (cid == null || ck == null || n == null || sig == null) return;
-      SenderKeyStore.instance.acceptSkdm(cid, digits(from), ck, n, sig);
+      final fresh =
+          SenderKeyStore.instance.acceptSkdm(cid, digits(from), ck, n, sig);
+      // A chain we never had means everything this sender sealed before now
+      // was dropped unread — the mailbox deletes what it cannot open, so a
+      // listing posted while the pairing was broken simply never existed
+      // here. Ask them to re-send the feed; id/rev dedup on the receiving
+      // path makes any overlap harmless.
+      if (fresh) _requestFeedBackfill(cid, digits(from));
     } catch (_) {}
+  }
+
+  /// Once per (server, sender) per run: the ask is answered with the whole
+  /// feed, and a healthy pairing must not be able to stampede a mailbox.
+  final Set<String> _backfillAsked = {};
+  void _requestFeedBackfill(String communityId, String senderDigits) {
+    final me = Session.instance.user.value;
+    if (me == null) return;
+    final key = '$communityId|$senderDigits';
+    if (_backfillAsked.contains(key)) return;
+    _backfillAsked.add(key);
+    unawaited(_sendInboxEvent(senderDigits, 'fbreq', {
+      'from': me.phone,
+      'communityId': communityId,
+    }));
+  }
+
+  /// Answers an fbreq: a member's copy of the server feed has holes (their
+  /// first chain from us just arrived, so everything sealed before it was
+  /// dropped) — re-send them the feed, membership-checked first.
+  void applyFbreq(Map<String, dynamic> payload, {required String myPhone}) {
+    final from = payload['from'] as String?;
+    final cid = payload['communityId'] as String?;
+    if (from == null || cid == null || digits(from) == digits(myPhone)) {
+      return;
+    }
+    final community = CommunityStore.instance.byId(cid);
+    if (community == null) return;
+    final wire = CommunityStore.wireId(digits(from));
+    if (!community.members.any((m) => m.id == wire)) return;
+    unawaited(backfillFeedTo(cid, wire));
   }
 
   /// Answers an skreq: a member saw our sender-key traffic before our SKDM

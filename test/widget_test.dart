@@ -27367,6 +27367,39 @@ void main() {
           bbb.open(sid, 'aaa', SenderKeyStore.maxSkip + 10, m.ct, m.sg), isNull);
     });
 
+    test('a first-ever chain triggers the feed re-ask, replacements do not',
+        () {
+      // The mailbox deletes what it cannot open, so a listing sealed while
+      // the pairing was broken never existed on the receiving phone — and
+      // no amount of chain repair brings the CONTENT back. The first SKDM
+      // from a sender is the moment to ask for their feed again.
+      final skdm = aaa.mySkdm(sid);
+      expect(bbb.acceptSkdm(sid, 'aaa', skdm.ck, skdm.n, skdm.sig), isTrue,
+          reason: 'no chain before = everything earlier was dropped unread');
+      expect(bbb.acceptSkdm(sid, 'aaa', skdm.ck, skdm.n, skdm.sig), isFalse,
+          reason: 'a re-delivery of the same chain misses nothing');
+      aaa.rotate(sid);
+      final rotated = aaa.mySkdm(sid);
+      expect(
+          bbb.acceptSkdm(sid, 'aaa', rotated.ck, rotated.n, rotated.sig),
+          isFalse,
+          reason: 'a rotation replaces a chain that was already readable');
+
+      // And the wiring exists end to end: the SKDM handler asks, the ask is
+      // routed live and from the mailbox, and the answer checks membership.
+      final relay = File('lib/relay/relay_service.dart').readAsStringSync();
+      expect(relay.contains('_requestFeedBackfill(cid'), isTrue);
+      expect(relay.contains("event: 'fbreq'"), isTrue);
+      expect(
+          relay.replaceAll(RegExp(r'\s+'), ' ').contains(
+              "case 'fbreq': applyFbreq(payload, myPhone: me);"),
+          isTrue,
+          reason: 'a queued fbreq must drain from the mailbox too');
+      expect(relay.contains('community.members.any((m) => m.id == wire)'),
+          isTrue,
+          reason: 'only members may be handed the feed');
+    });
+
     test('a tampered server/iteration binding fails the tag', () {
       distribute(aaa, 'aaa', [bbb]);
       final m = aaa.seal(sid, 'bound to place');

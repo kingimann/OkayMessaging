@@ -202,13 +202,18 @@ class SenderKeyStore {
   /// (they rotated, or re-sent a fresher key) — but never rolls an existing
   /// chain BACKWARDS, which would re-open message keys a compromise-recovery
   /// rotation just closed.
-  void acceptSkdm(String serverId, String senderDigits, String ck, int n,
+  /// Returns true when this stored a chain for a sender we had NONE for —
+  /// the signal that everything they sealed before now was dropped
+  /// undecryptable (the mailbox deletes what it cannot open), and their
+  /// feed is worth asking for again.
+  bool acceptSkdm(String serverId, String senderDigits, String ck, int n,
       String signPub) {
     final key = _rk(serverId, senderDigits);
     final existing = _recv[key];
-    if (existing != null && n < existing.n) return;
+    if (existing != null && n < existing.n) return false;
     _recv[key] = _Chain(base64.decode(ck), n: n, signPub: signPub);
     _persist();
+    return existing == null;
   }
 
   /// Whether this device holds [senderDigits]'s chain for [serverId] — i.e.
