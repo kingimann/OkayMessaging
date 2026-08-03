@@ -23,7 +23,10 @@ import '../util/photo_prep.dart';
 import '../utils/date_formatter.dart';
 import '../widgets/sanction_notice.dart';
 import '../widgets/user_avatar.dart';
+import '../payments/payment_service.dart';
+import '../state/identity_verification.dart';
 import '../widgets/feed_post_actions.dart';
+import '../widgets/spark_sheet.dart';
 import '../mesh/nearby_pick.dart';
 import '../widgets/chat_photo.dart';
 import '../widgets/emoji_gif_sheet.dart';
@@ -58,6 +61,62 @@ void openPublicProfile(BuildContext context, String username, {String? name}) {
 /// Unlike a server's feed, there is no shared key here and no membership —
 /// which is the point, and also means everything on this screen is public. The
 /// composer says so, once, where somebody is about to type.
+
+/// Whether the bolt is offered on a public [post]: someone else's, on a
+/// server whose feed carries the tallies, with payments wired into this
+/// build. The author's payment address is never known here — the server
+/// resolves it from the post id, which is the whole privacy design.
+bool canSparkPublicPost(PublicPost post) =>
+    !post.mine &&
+    PublicFeedStore.instance.sparksSupported &&
+    PaymentService.instance.isConfigured;
+
+/// The public-feed spark flow: the same identity ladder as the server
+/// feed's, then the shared one-tap sheet, then the REAL payment — with the
+/// recipient resolved server-side from the post id, so no phone number ever
+/// reaches this device. The tally moves only after Stripe says the money
+/// did.
+Future<void> offerPublicSpark(BuildContext context, PublicPost post) async {
+  final svc = PaymentService.instance;
+  final messenger = ScaffoldMessenger.of(context);
+  if (!svc.canSendOnThisDevice && !svc.testMode.value) {
+    messenger.showSnackBar(
+        const SnackBar(content: Text('Sparks are sent from the iPhone app.')));
+    return;
+  }
+  if (!IdentityVerification.instance.allowsTrusted) {
+    messenger.showSnackBar(
+        const SnackBar(content: Text('Verify your ID to send money.')));
+    return;
+  }
+  if (!context.mounted) return;
+  final cents = await showSparkSheet(context, toLabel: '@${post.authorUsername}');
+  if (cents == null || cents <= 0 || !context.mounted) return;
+  bool ok;
+  try {
+    ok = await svc.sendMoney(
+      sparkPostId: post.id,
+      amountCents: cents,
+      note: 'Spark ⚡',
+      acknowledged: true,
+    );
+  } on PaymentException catch (e) {
+    messenger.showSnackBar(SnackBar(
+        content: Text(e.code == 'receiver_not_onboarded'
+            ? '@${post.authorUsername} hasn\'t set up payments, so sparks '
+                'can\'t reach them yet.'
+            : 'The spark couldn\'t be sent — ${e.code}.')));
+    return;
+  } catch (_) {
+    return;
+  }
+  if (!ok) return;
+  await PublicFeedStore.instance.recordSpark(post.id, cents);
+  messenger.showSnackBar(SnackBar(
+      content: Text(
+          'Sparked @${post.authorUsername} \$${(cents / 100).toStringAsFixed(2)} ⚡')));
+}
+
 class PublicFeedScreen extends StatefulWidget {
   const PublicFeedScreen({super.key});
 
@@ -1412,6 +1471,12 @@ class _PostTile extends StatelessWidget {
                     liked: post.liked,
                     reposted:
                         PublicFeedStore.instance.myRepostOf(post.id) != null,
+                    sparkCount: post.sparkCount,
+                    sparkCents: post.sparkCents,
+                    sparked: PublicFeedStore.instance.sparkedByMe(post.id),
+                    onSpark: canSparkPublicPost(post)
+                        ? () => offerPublicSpark(context, post)
+                        : null,
                     onReply: onReply,
                     // A repeat is two different intentions — pass it on as it
                     // is, or pass it on with something to say — so it asks

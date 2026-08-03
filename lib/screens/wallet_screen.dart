@@ -3,6 +3,7 @@ import '../widgets/phone_gate.dart';
 
 import '../payments/payment_service.dart';
 import '../payments/storage_economics.dart';
+import 'add_debit_card_screen.dart';
 import 'payment_controls_screen.dart';
 import 'native_onboarding_screen.dart';
 import 'payment_diagnostics_screen.dart';
@@ -84,6 +85,15 @@ class _WalletScreenState extends State<WalletScreen> {
     await Navigator.of(context).push(
         MaterialPageRoute(builder: (_) => const PaymentControlsScreen()));
     if (mounted) setState(() => _controlsEpoch++);
+  }
+
+  /// The card form itself. "Add a debit card" used to open Payment controls,
+  /// which has no card in it anywhere — a button that answered a different
+  /// question than the one it asked.
+  Future<void> _openAddCard(String currency) async {
+    final added = await Navigator.of(context).push<bool>(MaterialPageRoute(
+        builder: (_) => AddDebitCardScreen(currency: currency)));
+    if (added == true && mounted) _refresh();
   }
 
   Future<void> _startOnboarding() async {
@@ -193,7 +203,8 @@ class _WalletScreenState extends State<WalletScreen> {
                         _CashOutCard(
                           status: s,
                           onDone: _refresh,
-                          onAddCard: _openControls,
+                          onAddCard: () =>
+                              _openAddCard(s.currency.toLowerCase()),
                         ),
                         const SizedBox(height: 16),
                         _PayoutCard(status: s),

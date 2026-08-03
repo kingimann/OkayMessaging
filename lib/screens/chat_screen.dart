@@ -35,6 +35,7 @@ import '../state/scheduler.dart';
 import '../theme/app_theme.dart';
 import '../utils/date_formatter.dart';
 import '../widgets/chat_input_bar.dart';
+import '../widgets/spark_sheet.dart';
 import '../widgets/emoji_data.dart';
 import '../widgets/emoji_gif_sheet.dart';
 import '../widgets/heart_burst.dart';
@@ -1556,6 +1557,22 @@ class _ChatScreenState extends State<ChatScreen> {
                       );
                     },
                   ),
+                // Spark: money pinned to something they said, same rails as
+                // Send money. Their messages, 1:1 only — a group message
+                // names its sender without carrying their number.
+                if (!message.isMe &&
+                    !widget.chat.contact.isGroup &&
+                    !_isNoteToSelf &&
+                    PaymentService.instance.isConfigured)
+                  ListTile(
+                    leading:
+                        const Icon(Icons.bolt, color: Color(0xFFF7931A)),
+                    title: const Text('Spark'),
+                    onTap: () {
+                      Navigator.of(sheetContext).pop();
+                      _sparkMessage();
+                    },
+                  ),
                 ListTile(
                   leading: Icon(_store.isStarred(_chatId, message.id)
                       ? Icons.star
@@ -2187,6 +2204,20 @@ class _ChatScreenState extends State<ChatScreen> {
       if (!sure || !mounted) return;
     }
 
+    await _payRecipient(recipient,
+        cents: result.cents,
+        note: result.note,
+        acknowledged: result.acknowledged);
+  }
+
+  /// The payment itself, shared by Send money and Spark: the optimistic
+  /// pending receipt in the chat, the real Stripe transfer, and the settle
+  /// loop that keeps the receipt honest about what actually happened.
+  Future<void> _payRecipient(AppUser recipient,
+      {required int cents,
+      required String note,
+      required bool acknowledged}) async {
+    final svc = PaymentService.instance;
     final messenger = ScaffoldMessenger.of(context);
     final phone = recipient.phone;
     final now = DateTime.now();
@@ -2199,15 +2230,15 @@ class _ChatScreenState extends State<ChatScreen> {
       // In a group the receipt is visible to everyone, so it has to say who
       // was paid — otherwise it reads as a payment to the room.
       text: widget.chat.contact.isGroup
-          ? (result.note.isEmpty
+          ? (note.isEmpty
               ? 'To ${recipient.name}'
-              : 'To ${recipient.name} — ${result.note}')
-          : result.note,
+              : 'To ${recipient.name} — $note')
+          : note,
       time: now,
       isMe: true,
       status: MessageStatus.sent,
       isPayment: true,
-      paymentAmountCents: result.cents,
+      paymentAmountCents: cents,
       paymentCurrency: 'cad',
       paymentStatus: 'pending',
     ));
@@ -2220,9 +2251,9 @@ class _ChatScreenState extends State<ChatScreen> {
     try {
       final ok = await svc.sendMoney(
         toPhone: phone,
-        amountCents: result.cents,
-        note: result.note,
-        acknowledged: result.acknowledged,
+        amountCents: cents,
+        note: note,
+        acknowledged: acknowledged,
       );
       // The sheet returning true means the card authorised, not that it was
       // charged: capture waits on the cardholder check. Saying "paid" here
@@ -2272,6 +2303,9 @@ class _ChatScreenState extends State<ChatScreen> {
           'payments_paused' =>
             'Your payments are paused. Turn that off in Wallet → Payment '
                 'controls.',
+          // A spark whose post was deleted between the tap and the charge.
+          'post_not_found' =>
+            'That post is gone, so its spark has nowhere to go.',
           _ => 'Payment failed: ${e.code}',
         }),
       ));
@@ -2280,6 +2314,44 @@ class _ChatScreenState extends State<ChatScreen> {
       messenger.showSnackBar(
           const SnackBar(content: Text('Payment could not be completed')));
     }
+  }
+
+  /// Sparks whoever this 1:1 conversation is with — the same real transfer
+  /// as Send money, at one-tap amounts, pinned to something they said.
+  /// Offered on THEIR messages only: sparking yourself is nonsense, and a
+  /// group message names its sender without carrying their number.
+  Future<void> _sparkMessage() async {
+    final svc = PaymentService.instance;
+    if (!svc.isConfigured ||
+        (!svc.canSendOnThisDevice && !svc.testMode.value)) {
+      _showComingSoon(context, 'Payments');
+      return;
+    }
+    if (!IdentityVerification.instance.allowsTrusted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: const Text('Verify your ID to send money.'),
+        action: SnackBarAction(
+          label: 'Verify',
+          onPressed: () => Navigator.of(context)
+              .push(MaterialPageRoute(builder: (_) => const ScoreScreen())),
+        ),
+      ));
+      return;
+    }
+    final recipient = widget.chat.contact;
+    if (!svc.testMode.value && !await svc.canReceive(recipient.phone)) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('${recipient.name} hasn\'t set up payments, so '
+                'sparks can\'t reach them yet.')));
+      }
+      return;
+    }
+    if (!mounted) return;
+    final cents = await showSparkSheet(context, toLabel: recipient.name);
+    if (cents == null || cents <= 0 || !mounted) return;
+    await _payRecipient(recipient,
+        cents: cents, note: 'Spark ⚡', acknowledged: true);
   }
 
   /// Composes and sends a poll into the conversation.

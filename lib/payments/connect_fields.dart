@@ -331,6 +331,38 @@ class ConnectValidation {
     return null;
   }
 
+  /// A debit card number: 12-19 digits and Luhn-valid, the same check the
+  /// card printed on it passed. Catches the transposed pair before Stripe
+  /// has to.
+  static String? cardNumber(String? value) {
+    final d = digitsOf(value ?? '');
+    if (d.isEmpty) return 'Enter the card number.';
+    if (d.length < 12 || d.length > 19) {
+      return 'That doesn\'t look like a card number.';
+    }
+    if (!_luhnOk(d)) return 'Check that number — the digits don\'t add up.';
+    return null;
+  }
+
+  /// A card expiry that is a real month and not already past. [now] injected
+  /// so the rule is testable rather than time-dependent.
+  static String? cardExpiry(int? month, int? year, {required DateTime now}) {
+    if (month == null || year == null) return 'Enter the expiry.';
+    if (month < 1 || month > 12) return 'That month isn\'t valid.';
+    final y = year < 100 ? 2000 + year : year;
+    if (y < now.year || (y == now.year && month < now.month)) {
+      return 'That card has expired.';
+    }
+    if (y > now.year + 30) return 'Check the year.';
+    return null;
+  }
+
+  static String? cardCvc(String? value) {
+    final d = digitsOf(value ?? '');
+    if (d.length < 3 || d.length > 4) return 'The code is 3 or 4 digits.';
+    return null;
+  }
+
   /// The SIN check digit. Canada's numbers are Luhn-valid, so this catches a
   /// transposed pair, which is the commonest typo of all.
   static bool _luhnOk(String digits) {

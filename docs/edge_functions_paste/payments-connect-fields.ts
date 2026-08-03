@@ -201,6 +201,9 @@ type Submission = {
   /// What this person is to the account — Stripe's individual.relationship.title.
   title?: string;
   bankToken?: string;
+  // A card token for instant payouts, tokenised on the device like the bank
+  // account — the card number itself must never reach this function.
+  cardToken?: string;
   // Ids of files already uploaded to Stripe FROM THE DEVICE. The photo of
   // somebody's licence never passes through here either.
   documentFrontFileId?: string;
@@ -358,6 +361,11 @@ Deno.serve(async (req) => {
       // Refuse raw secrets outright rather than forwarding them. If a future
       // client ever sends an account number here by mistake, this is the line
       // that stops it reaching Stripe's logs through our server.
+      if (submit.cardToken && !submit.cardToken.startsWith("tok_")) {
+        return json({
+          error: "card_must_be_tokenised: send a tok_ from the device",
+        }, 400);
+      }
       if (submit.bankToken && !submit.bankToken.startsWith("btok_")) {
         return json({
           error: "bank_details_must_be_tokenised: send a btok_ from the device, " +
@@ -455,6 +463,13 @@ Deno.serve(async (req) => {
       if (submit.bankToken) {
         await stripe.accounts.createExternalAccount(accountId, {
           external_account: submit.bankToken,
+        });
+      }
+      // A debit card rides the same door: it is an external account too,
+      // the one instant payouts land on.
+      if (submit.cardToken) {
+        await stripe.accounts.createExternalAccount(accountId, {
+          external_account: submit.cardToken,
         });
       }
     }

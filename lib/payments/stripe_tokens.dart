@@ -97,6 +97,28 @@ class StripeTokens {
     return _idOf(body, 'file_', 'document');
   }
 
+  /// A token standing in for a debit card, for instant payouts. Same rule
+  /// as the bank account: the number goes from this device to Stripe and to
+  /// nowhere else — the server only ever sees `tok_…`.
+  static Future<String> debitCard({
+    required String number,
+    required int expMonth,
+    required int expYear,
+    required String cvc,
+    required String currency,
+  }) async {
+    final body = await _post('tokens', {
+      'card[number]': number,
+      'card[exp_month]': '$expMonth',
+      'card[exp_year]': '$expYear',
+      'card[cvc]': cvc,
+      // Marks the card as a payout destination in this currency, which is
+      // what an external account card is.
+      'card[currency]': currency,
+    });
+    return _idOf(body, 'tok_', 'card');
+  }
+
   /// A token standing in for a government ID number.
   static Future<String> idNumber(String number) async {
     final body = await _post('tokens', {'pii[id_number]': number});

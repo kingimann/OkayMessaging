@@ -156,6 +156,52 @@ select pg_temp.expect_fail(
     values ('t_p1','15550002222')$$,
   'you cannot like as somebody else');
 
+-- Sparks: the tally rows behind the amber bolt. The money itself moves over
+-- Stripe; these assertions hold the tally to the same standards as likes.
+select pg_temp.expect_ok(
+  $$select id, spark_count, spark_cents from public.public_feed$$,
+  'the feed view carries the spark tallies');
+
+select pg_temp.expect_fail(
+  $$select sparker_phone from public.public_post_sparks$$,
+  'a client cannot read who sparked something');
+
+-- A post by a SECOND user, so there is somebody else's post to spark.
+select pg_temp.as_user('15550002222');
+select pg_temp.expect_ok(
+  $$insert into public.public_posts (id, author_phone, author_username, body)
+    values ('t_ps','15550002222','bob','sparkable')$$,
+  'the second user can post');
+select pg_temp.as_user('15550001111');
+
+select pg_temp.expect_ok(
+  $$insert into public.public_post_sparks (post_id, sparker_phone, cents)
+    values ('t_ps','15550001111', 500)$$,
+  'you can spark somebody else''s post');
+
+select pg_temp.expect_fail(
+  $$insert into public.public_post_sparks (post_id, sparker_phone, cents)
+    values ('t_ps','15550002222', 500)$$,
+  'you cannot spark as somebody else');
+
+select pg_temp.expect_fail(
+  $$insert into public.public_post_sparks (post_id, sparker_phone, cents)
+    values ('t_p1','15550001111', 500)$$,
+  'you cannot spark your own post');
+
+select pg_temp.expect_fail(
+  $$insert into public.public_post_sparks (post_id, sparker_phone, cents)
+    values ('t_ps','15550001111', 0)$$,
+  'a spark of nothing is refused');
+
+do $$ begin
+  if (select spark_count from public.public_feed where id='t_ps') <> 1
+     or (select spark_cents from public.public_feed where id='t_ps') <> 500 then
+    raise exception 'spark tallies wrong';
+  end if;
+  raise notice '  ok   the tallies total what was sparked';
+end $$;
+
 -- A timed-out account is refused at the database, not merely in the UI.
 select pg_temp.as_user('15550003333');
 select pg_temp.expect_fail(

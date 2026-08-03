@@ -552,7 +552,12 @@ class PaymentService {
   /// present the native sheet. Returns true when the payment completes. In
   /// test mode the charge is simulated (brief delay, always succeeds).
   Future<bool> sendMoney({
-    required String toPhone,
+    String toPhone = '',
+    // A public-feed post to spark instead of a phone: the recipient is the
+    // post's author, resolved by the server — the author's number is a
+    // column no client may read, and a spark must not become the way to
+    // learn one.
+    String? sparkPostId,
     required int amountCents,
     String? note,
     bool acknowledged = false,
@@ -562,7 +567,8 @@ class PaymentService {
       return true;
     }
     final intent = await _invoke('payments-create-intent', {
-      'toPhone': toPhone,
+      if (toPhone.isNotEmpty) 'toPhone': toPhone,
+      if (sparkPostId != null) 'sparkPostId': sparkPostId,
       'amountCents': amountCents,
       'currency': 'cad',
       if (note != null && note.isNotEmpty) 'note': note,

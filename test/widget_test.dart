@@ -15283,6 +15283,70 @@ void main() {
       }
     });
 
+    test('spark tallies survive the whole public-feed round trip', () {
+      // The SQL, the newest column set, and the parser all have to agree —
+      // one missing link and the bolt lies or the whole fetch fails.
+      final sql = File('docs/public_feed.sql').readAsStringSync();
+      for (final piece in [
+        'public_post_sparks',
+        'spark_count',
+        'spark_cents',
+        'is_post_author'
+      ]) {
+        expect(sql.contains(piece), isTrue,
+            reason: '$piece missing from the public feed SQL');
+      }
+      expect(
+          PublicFeedStore.debugColumnSets.first.contains('spark_count'), isTrue);
+      expect(
+          PublicFeedStore.debugColumnSets.first.contains('spark_cents'), isTrue);
+      // An unmigrated server steps down one generation and the bolt hides.
+      expect(PublicFeedStore.debugColumnSets[1].contains('spark_count'),
+          isFalse);
+
+      final post = PublicPost.fromRow({
+        'id': 'p',
+        'body': 'b',
+        'created_at': DateTime.now().toIso8601String(),
+        'spark_count': 3,
+        'spark_cents': 542,
+      });
+      expect(post.sparkCount, 3);
+      expect(post.sparkCents, 542);
+      expect(post.copyWith(sparkCount: 4, sparkCents: 563).sparkCents, 563);
+
+      // The intent function resolves the recipient FROM THE POST ID, so the
+      // author's number never reaches the sparker — the privacy design that
+      // makes a bolt on a world-readable feed possible at all.
+      final intent =
+          File('docs/edge_functions_paste/payments-create-intent.ts')
+              .readAsStringSync();
+      expect(intent.contains('sparkPostId'), isTrue);
+      expect(intent.contains('author_phone'), isTrue);
+    });
+
+    test('a public spark in test mode never touches the real tally',
+        () async {
+      addTearDown(() => PaymentService.instance.testMode.value = false);
+      addTearDown(() => PublicFeedStore.debugLoadOverride = null);
+      PaymentService.instance.testMode.value = true;
+      PublicFeedStore.debugLoadOverride = () async => [
+            PublicPost(
+                id: 'sp1',
+                authorUsername: 'ada',
+                body: 'sparkable',
+                createdAt: DateTime.now()),
+          ];
+      await PublicFeedStore.instance.load();
+      await PublicFeedStore.instance.recordSpark('sp1', 2100);
+      final p = PublicFeedStore.instance.byId('sp1')!;
+      expect(p.sparkCount, 1);
+      expect(p.sparkCents, 2100);
+      expect(PublicFeedStore.instance.sparkedByMe('sp1'), isTrue);
+      // Your own post never grows a bolt, whatever the other gates say.
+      expect(canSparkPublicPost(p.copyWith(mine: true)), isFalse);
+    });
+
     testWidgets('a timed-out account is told, not silently ignored',
         (tester) async {
       PublicFeedStore.debugLoadOverride = () async => [];
@@ -19002,6 +19066,35 @@ void main() {
           reason: 'a configured site wins');
       expect(src.contains('/functions/v1/pages'), isTrue,
           reason: 'else the project\'s own landing page stands in');
+    });
+
+    test('the debit card form validates before Stripe has to', () {
+      // Stripe's own Visa-debit test number is Luhn-valid; a transposed
+      // digit is not — caught on the device, with the field highlighted.
+      expect(ConnectValidation.cardNumber('4000 0566 5566 5556'), isNull);
+      expect(ConnectValidation.cardNumber('4000 0566 5566 5557'), isNotNull);
+      expect(ConnectValidation.cardNumber('123'), isNotNull);
+      expect(ConnectValidation.cardCvc('123'), isNull);
+      expect(ConnectValidation.cardCvc('12345'), isNotNull);
+      final now = DateTime(2026, 8);
+      expect(ConnectValidation.cardExpiry(12, 30, now: now), isNull,
+          reason: 'two-digit years are how cards print them');
+      expect(ConnectValidation.cardExpiry(7, 2026, now: now), isNotNull,
+          reason: 'last month is expired');
+      expect(ConnectValidation.cardExpiry(8, 2026, now: now), isNull,
+          reason: 'a card expiring this month still works');
+      expect(ConnectValidation.cardExpiry(13, 2027, now: now), isNotNull);
+
+      // "Add a debit card" opens the card form now — it used to open
+      // Payment controls, which has no card in it anywhere.
+      final wallet =
+          File('lib/screens/wallet_screen.dart').readAsStringSync();
+      expect(wallet.contains('AddDebitCardScreen('), isTrue);
+      // And the server accepts only a token, never a number.
+      final fn = File('docs/edge_functions_paste/payments-connect-fields.ts')
+          .readAsStringSync();
+      expect(fn.contains('cardToken'), isTrue);
+      expect(fn.contains('card_must_be_tokenised'), isTrue);
     });
 
     test('a no-progress onboarding round says so instead of redrawing', () {

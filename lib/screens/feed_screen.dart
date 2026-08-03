@@ -23,6 +23,7 @@ import '../state/identity_verification.dart';
 import '../state/push_service.dart';
 import '../widgets/feed_post_actions.dart';
 import '../widgets/feed_prefs_sheet.dart';
+import '../widgets/spark_sheet.dart';
 import '../widgets/feed_post_parts.dart';
 import '../widgets/poll_widgets.dart';
 import '../widgets/pull_to_refresh.dart';
@@ -1038,10 +1039,7 @@ Future<void> offerSpark(BuildContext context, FeedPost post) async {
     return;
   }
   if (!context.mounted) return;
-  final cents = await showModalBottomSheet<int>(
-    context: context,
-    builder: (_) => _SparkSheet(username: post.authorUsername),
-  );
+  final cents = await showSparkSheet(context, toLabel: '@${post.authorUsername}');
   if (cents == null || cents <= 0 || !context.mounted) return;
   final ok = await svc.sendMoney(
     toPhone: post.authorPhone,
@@ -1062,67 +1060,6 @@ Future<void> offerSpark(BuildContext context, FeedPost post) async {
   messenger.showSnackBar(SnackBar(
       content: Text(
           'Sparked @${post.authorUsername} \$${(cents / 100).toStringAsFixed(2)} ⚡')));
-}
-
-/// One-tap preset amounts, Damus-style — 21 is the community's number.
-class _SparkSheet extends StatelessWidget {
-  final String username;
-  const _SparkSheet({required this.username});
-
-  static const presets = <int>[21, 100, 500, 2100];
-
-  @override
-  Widget build(BuildContext context) {
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 18, 20, 16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                const Icon(Icons.bolt, color: Color(0xFFF7931A)),
-                const SizedBox(width: 8),
-                Text('Spark @$username',
-                    style: const TextStyle(
-                        fontSize: 17, fontWeight: FontWeight.w700)),
-              ],
-            ),
-            const SizedBox(height: 6),
-            Text(
-              'Real money, straight to them — the same person-to-person '
-              'transfer as Send money in a chat. Sparks are final.',
-              style:
-                  TextStyle(fontSize: 12.5, color: AppColors.subtle(context)),
-            ),
-            const SizedBox(height: 14),
-            Row(
-              children: [
-                for (final cents in presets) ...[
-                  Expanded(
-                    child: OutlinedButton(
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                      ),
-                      onPressed: () => Navigator.of(context).pop(cents),
-                      child: Text(
-                        cents % 100 == 0
-                            ? '\$${cents ~/ 100}'
-                            : '\$${(cents / 100).toStringAsFixed(2)}',
-                        style: const TextStyle(fontWeight: FontWeight.w700),
-                      ),
-                    ),
-                  ),
-                  if (cents != presets.last) const SizedBox(width: 8),
-                ],
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 }
 
 /// Opens the reply composer for [post] — the same screen a new post gets,

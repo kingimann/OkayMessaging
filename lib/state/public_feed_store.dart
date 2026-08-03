@@ -11,6 +11,7 @@ import 'feed_mute_store.dart';
 import 'feed_prefs.dart';
 import 'market_media.dart';
 import 'follow_store.dart';
+import '../payments/payment_service.dart';
 import 'session.dart' as local;
 
 /// One post on the public feed.
@@ -71,6 +72,11 @@ class PublicPost {
   /// own vote row; nobody can see anyone else's.
   final int? myVote;
 
+  /// Sparks — real-money tips pinned to this post. Counts only: who sparked
+  /// is readable by nobody, and the money itself moved over Stripe.
+  final int sparkCount;
+  final int sparkCents;
+
   const PublicPost({
     required this.id,
     this.authorUsername = '',
@@ -92,6 +98,8 @@ class PublicPost {
     this.pollClosesAt,
     this.pollVotes = const [],
     this.myVote,
+    this.sparkCount = 0,
+    this.sparkCents = 0,
   });
 
   /// Whether this carries an image.
@@ -151,6 +159,8 @@ class PublicPost {
     bool? mine,
     List<int>? pollVotes,
     int? myVote,
+    int? sparkCount,
+    int? sparkCents,
   }) =>
       PublicPost(
         id: id,
@@ -173,6 +183,8 @@ class PublicPost {
         pollClosesAt: pollClosesAt,
         pollVotes: pollVotes ?? this.pollVotes,
         myVote: myVote ?? this.myVote,
+        sparkCount: sparkCount ?? this.sparkCount,
+        sparkCents: sparkCents ?? this.sparkCents,
       );
 
   /// The same post with this account's vote removed. A separate method
@@ -198,6 +210,8 @@ class PublicPost {
         pollOptions: pollOptions,
         pollClosesAt: pollClosesAt,
         pollVotes: pollVotes,
+        sparkCount: sparkCount,
+        sparkCents: sparkCents,
       );
 
   factory PublicPost.fromRow(Map<String, dynamic> r) => PublicPost(
@@ -227,6 +241,8 @@ class PublicPost {
           for (final v in (r['poll_votes'] as List? ?? const []))
             (v as num?)?.toInt() ?? 0
         ],
+        sparkCount: (r['spark_count'] as num?)?.toInt() ?? 0,
+        sparkCents: (r['spark_cents'] as num?)?.toInt() ?? 0,
       );
 }
 
@@ -331,7 +347,12 @@ class PublicFeedStore extends ChangeNotifier {
   /// down a generation and tries again. This used to be a single boolean,
   /// which could only ever describe two schemas; polls made a third.
   static const List<String> _columnSets = [
-    // Current: GIFs and video.
+    // Current: sparks.
+    'id, author_username, author_name, author_verified, body, reply_to, '
+        'repost_of, image_path, gif_url, video_path, poll_options, '
+        'poll_closes_at, created_at, like_count, reply_count, repost_count, '
+        'poll_votes, spark_count, spark_cents',
+    // Before sparks: GIFs and video.
     'id, author_username, author_name, author_verified, body, reply_to, '
         'repost_of, image_path, gif_url, video_path, poll_options, '
         'poll_closes_at, created_at, like_count, reply_count, repost_count, '
@@ -364,12 +385,17 @@ class PublicFeedStore extends ChangeNotifier {
   bool get legacyView => _columnLevel > 0;
 
   /// Whether the server's feed knows about polls.
-  bool get pollsSupported => _columnLevel <= 1;
+  bool get pollsSupported => _columnLevel <= 2;
 
   /// Whether the server's feed knows about GIFs and video. False until the
   /// migration is pasted in — the composer hides both rather than offering a
   /// button whose post the insert would reject.
-  bool get mediaSupported => _columnLevel == 0;
+  bool get mediaSupported => _columnLevel <= 1;
+
+  /// Whether the server's feed carries the spark tallies. False until the
+  /// migration is pasted in — the bolt hides rather than offering a tip the
+  /// tally could not record.
+  bool get sparksSupported => _columnLevel == 0;
 
   /// Steps down one schema generation. Returns false when there is nothing
   /// older to try, so the caller rethrows rather than looping.
@@ -1351,6 +1377,37 @@ class PublicFeedStore extends ChangeNotifier {
       _apply(postId, (p) => p.copyWith(
           liked: !wantLiked,
           likeCount: (p.likeCount + (wantLiked ? -1 : 1)).clamp(0, 1 << 30)));
+    }
+  }
+
+  /// Posts this device sparked, this session — what lights the bolt amber.
+  final Set<String> _sparkedIds = {};
+  bool sparkedByMe(String postId) => _sparkedIds.contains(postId);
+
+  /// Records MY spark, called only AFTER its payment succeeded: bumps the
+  /// tally on the local copy and writes the tally row. In payments test mode
+  /// nothing is written — a simulated payment must not move a real,
+  /// world-readable tally — so the bump stays on this device.
+  Future<void> recordSpark(String postId, int cents) async {
+    if (cents <= 0) return;
+    _sparkedIds.add(postId);
+    _apply(
+        postId,
+        (p) => p.copyWith(
+            sparkCount: p.sparkCount + 1, sparkCents: p.sparkCents + cents));
+    if (PaymentService.instance.testMode.value) return;
+    try {
+      final client = _client;
+      final phone = local.Session.instance.user.value?.phone ?? '';
+      if (client == null || phone.isEmpty) return;
+      await client.from('public_post_sparks').insert({
+        'post_id': postId,
+        'sparker_phone': AccountService.e164(phone),
+        'cents': cents,
+      });
+    } catch (_) {
+      // The MONEY moved; a tally row that bounced is not worth alarming
+      // anyone over. The counters recount from the table on the next fetch.
     }
   }
 

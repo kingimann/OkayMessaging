@@ -338,6 +338,11 @@ Deno.serve(async (req) => {
 
   let body: {
     toPhone?: string;
+    // A public-feed post to spark: the recipient is that post's author,
+    // resolved HERE with the service role. The author's phone is a column
+    // no client may read — a spark must not become the way to learn it —
+    // so the client sends only the post id and never sees the number.
+    sparkPostId?: string;
     amountCents?: number;
     currency?: string;
     note?: string;
@@ -379,7 +384,16 @@ Deno.serve(async (req) => {
     return json({ error: "identity_required" }, 403);
   }
 
-  const toPhone = (body.toPhone ?? "").replace(/\D/g, "");
+  let toPhone = (body.toPhone ?? "").replace(/\D/g, "");
+  if (!toPhone && body.sparkPostId) {
+    const { data: post } = await admin
+      .from("public_posts")
+      .select("author_phone")
+      .eq("id", body.sparkPostId)
+      .maybeSingle();
+    toPhone = (post?.author_phone ?? "").replace(/\D/g, "");
+    if (!toPhone) return json({ error: "post_not_found" }, 404);
+  }
   const amountCents = Math.round(Number(body.amountCents ?? 0));
   const currency = (body.currency ?? "cad").toLowerCase();
   if (!toPhone || amountCents <= 0) return json({ error: "invalid amount" }, 400);

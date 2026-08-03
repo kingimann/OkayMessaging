@@ -163,9 +163,24 @@ create index if not exists public_posts_reposts_idx
 create index if not exists public_posts_username_idx
   on public.public_posts (author_username, created_at desc);
 
+-- Sparks: real-money tips pinned to a post. The MONEY moves person-to-person
+-- over Stripe (payments-create-intent resolves the author server-side, so the
+-- sparker never learns a phone number); this table is only the public tally.
+-- Not keyed like likes on purpose — the same person may spark twice.
+create table if not exists public.public_post_sparks (
+  id            bigint generated always as identity primary key,
+  post_id       text not null references public.public_posts(id) on delete cascade,
+  sparker_phone text not null,
+  cents         int not null check (cents > 0 and cents <= 50000),
+  created_at    timestamptz not null default now()
+);
+create index if not exists public_post_sparks_post_idx
+  on public.public_post_sparks (post_id);
+
 alter table public.public_posts enable row level security;
 alter table public.public_post_likes enable row level security;
 alter table public.public_post_votes enable row level security;
+alter table public.public_post_sparks enable row level security;
 
 -- ---------------------------------------------------------------------------
 -- 2. Functions (the tables above have to exist first)
@@ -243,6 +258,45 @@ as $$
      order by i);
 $$;
 
+-- Spark tallies, same shape as the like counter: rows are readable only by
+-- the person who sparked, so counting as the caller would report your own
+-- sparks and nothing else. The totals are true while who sparked stays
+-- private.
+create or replace function public.public_post_spark_count(p text)
+returns bigint
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select count(*) from public.public_post_sparks where post_id = p;
+$$;
+
+-- Whether [digitsv] wrote post [p]. SECURITY DEFINER because the spark
+-- policy needs the answer and the caller is (rightly) not allowed to read
+-- author_phone — a plain subquery in the policy dies on the column grant.
+create or replace function public.is_post_author(p text, digitsv text)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1 from public.public_posts
+     where id = p and author_phone = digitsv);
+$$;
+
+create or replace function public.public_post_spark_cents(p text)
+returns bigint
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select coalesce(sum(cents), 0) from public.public_post_sparks where post_id = p;
+$$;
+
 -- Whether a set of answers is one a poll may have. A CHECK cannot hold a
 -- subquery, so the per-answer rules live in an immutable function it can call.
 create or replace function public.poll_options_ok(opts text[])
@@ -303,11 +357,19 @@ revoke select on table public.public_post_votes from anon, authenticated;
 grant select (post_id, choice, created_at)
   on public.public_post_votes to authenticated;
 
+-- Your own sparks come back so the app can show the amber bolt; who else
+-- sparked is nobody's business — totals come from the counters.
+revoke select on table public.public_post_sparks from anon, authenticated;
+grant select (post_id, cents, created_at)
+  on public.public_post_sparks to authenticated;
+
 -- Writing is by whole row; the policies below decide whose row it may be.
 grant insert, delete on public.public_posts to authenticated;
 grant insert, delete on public.public_post_likes to authenticated;
 -- Insert only. A vote is cast once and stands.
 grant insert on public.public_post_votes to authenticated;
+-- Insert only, likewise: a spark is money that moved — it does not un-move.
+grant insert on public.public_post_sparks to authenticated;
 
 -- No UPDATE for anyone. There is no update policy either, but relying on that
 -- alone makes an edit fail *silently* — an UPDATE matching no policy affects
@@ -316,6 +378,7 @@ grant insert on public.public_post_votes to authenticated;
 revoke update on public.public_posts from anon, authenticated;
 revoke update on public.public_post_likes from anon, authenticated;
 revoke update, delete on public.public_post_votes from anon, authenticated;
+revoke update, delete on public.public_post_sparks from anon, authenticated;
 
 -- ---------------------------------------------------------------------------
 -- 4. Policies (the functions above have to exist first)
@@ -391,6 +454,23 @@ create policy public_post_votes_insert_own on public.public_post_votes
          and choice < coalesce(array_length(p.poll_options, 1), 0)
          and p.poll_closes_at > now()));
 
+-- Sparks: you may record only your own, only while allowed to interact, and
+-- never on your own post — self-sparking is a fake tally with your own money.
+drop policy if exists public_post_sparks_read_own on public.public_post_sparks;
+create policy public_post_sparks_read_own on public.public_post_sparks
+  for select to authenticated
+  using (sparker_phone = (auth.jwt() ->> 'phone'));
+
+drop policy if exists public_post_sparks_insert_own on public.public_post_sparks;
+create policy public_post_sparks_insert_own on public.public_post_sparks
+  for insert to authenticated
+  with check (
+    sparker_phone = (auth.jwt() ->> 'phone')
+    and not public.is_silenced(sparker_phone)
+    -- The FK guarantees the post exists; the definer function answers the
+    -- one question the caller may not ask directly.
+    and not public.is_post_author(post_id, sparker_phone));
+
 -- ---------------------------------------------------------------------------
 -- 5. What clients actually read
 -- ---------------------------------------------------------------------------
@@ -428,7 +508,9 @@ select
   public.public_post_like_count(p.id)   as like_count,
   public.public_post_reply_count(p.id)  as reply_count,
   public.public_post_repost_count(p.id) as repost_count,
-  public.public_post_vote_counts(p.id)  as poll_votes
+  public.public_post_vote_counts(p.id)  as poll_votes,
+  public.public_post_spark_count(p.id)  as spark_count,
+  public.public_post_spark_cents(p.id)  as spark_cents
 from public.public_posts p;
 
 grant select on public.public_feed to anon, authenticated;
