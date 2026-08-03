@@ -335,6 +335,11 @@ void openCallForPhone(String phone) {
 
 class _OkayMessagingAppState extends State<OkayMessagingApp>
     with WidgetsBindingObserver {
+  /// True once the app really went to the background (not just an inactive
+  /// blip from a permission dialog or the app switcher opening), so the
+  /// resume handler only rebuilds the relay when the socket plausibly died.
+  bool _wasSuspended = false;
+
   @override
   void initState() {
     super.initState();
@@ -369,11 +374,19 @@ class _OkayMessagingAppState extends State<OkayMessagingApp>
     // return: drop focus on the way out so the app comes back clean.
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.hidden) {
+      _wasSuspended = true;
       FocusManager.instance.primaryFocus?.unfocus();
       // A chat opened with its password an hour ago and left there is a chat
       // the password stopped protecting. Shutting them on the way out is what
       // makes the lock mean anything after the first unlock.
       ChatLock.instance.closeAll();
+    }
+    if (state == AppLifecycleState.resumed && _wasSuspended) {
+      _wasSuspended = false;
+      // The background froze the Realtime socket along with the rest of the
+      // process; without this, messages only arrive again after a manual
+      // refresh (the subscription looks alive and isn't).
+      if (RelayConfig.isEnabled) RelayService.instance.wake();
     }
     // Private notifications: the alert did its job once the app is open, and
     // a stack of "New message" rows left in Notification Center afterwards

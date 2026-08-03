@@ -2263,13 +2263,41 @@ class RelayService {
     );
   }
 
+  /// Recovers live delivery after the app was suspended. iOS freezes the
+  /// process in the background and the Realtime socket dies out from under
+  /// the joined channels — and depending on how it died, the client can sit
+  /// on a stale "joined" state until a heartbeat notices, long after the
+  /// user is staring at the chat wondering why nothing arrives. Deterministic
+  /// beats eventual here: tear the channels down, rejoin over a fresh
+  /// socket, and drain the mailbox for everything sent while the socket was
+  /// dead. Safe to call any time — it no-ops unless start() already ran.
+  Future<void> wake() async {
+    if (!_initialized || _inbox == null) return;
+    final inbox = _inbox;
+    final feed = _feedChannel;
+    _inbox = null;
+    _feedChannel = null;
+    try {
+      if (inbox != null) await _client.removeChannel(inbox);
+      if (feed != null) await _client.removeChannel(feed);
+    } catch (_) {}
+    // The send channels never joined the socket (an unsubscribed channel
+    // broadcasts over HTTP), so they survive the rebuild untouched.
+    start(); // rebuilds both subscriptions and drains the mailbox
+  }
+
   /// Re-establishes the inbox subscription and re-announces presence to the
   /// people you have chats with. Backs pull-to-refresh: it gives the relay a
   /// nudge so a device that just came online re-syncs delivery and presence.
   Future<void> resync() async {
     if (!_initialized) return;
-    start(); // idempotent — subscribes only if not already listening
+    // Rebuild the live subscription rather than trusting it: the one time a
+    // user pulls to refresh is exactly when it has silently died.
+    await wake();
+    start(); // first-run path: wake() no-ops before start() has ever run
     // Anything sent while this device was away is waiting in the mailbox.
+    // (wake() started a drain already; the dedup + claimed-row delete make
+    // the overlap safe, and this one can be awaited.)
     await fetchMailbox();
     for (final chat in ChatStore.instance.chats) {
       final phone = chat.contact.phone;
@@ -2284,6 +2312,9 @@ class RelayService {
     final inbox = _inbox;
     _inbox = null;
     if (inbox != null) await _client.removeChannel(inbox);
+    final feed = _feedChannel;
+    _feedChannel = null;
+    if (feed != null) await _client.removeChannel(feed);
     for (final channel in _sendChannels.values) {
       await _client.removeChannel(channel);
     }

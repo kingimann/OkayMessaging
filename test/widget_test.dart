@@ -4672,6 +4672,15 @@ void main() {
       expect(formatPhoneForDisplay(''), '');
     });
 
+    test('relay wake/resync are safe no-ops before the relay ever starts',
+        () async {
+      // wake() runs on every return from the background — including on
+      // builds with no relay configured and before sign-in — so it must
+      // never throw or touch the network when there is nothing to rebuild.
+      await RelayService.instance.wake();
+      await RelayService.instance.resync();
+    });
+
     test('CallKit uuids are stable per call and version-4 shaped', () {
       addTearDown(CallKitBridge.instance.resetForTest);
       final a = CallKitBridge.instance.uuidFor('call_1');
