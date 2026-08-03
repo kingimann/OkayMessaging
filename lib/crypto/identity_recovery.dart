@@ -3,6 +3,7 @@ import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:pointycastle/export.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide Session;
 
 import '../relay/relay_config.dart';
@@ -30,6 +31,27 @@ class IdentityRecovery {
   /// No 0/O, no 1/I — a code someone reads back over the phone or off a
   /// sticky note must not have two characters that print the same.
   static const String alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
+  /// Whether this device has a recovery code squared away — created here, or
+  /// typed in to restore. X's rule for encrypted DMs, adopted: messaging
+  /// waits until this is true, because the one moment a backup can still be
+  /// made is BEFORE the phone that holds the only keys is lost.
+  static final ValueNotifier<bool> ready = ValueNotifier<bool>(false);
+  static const String _kReady = 'recovery_ready_v1';
+
+  static Future<void> load() async {
+    final prefs = await SharedPreferences.getInstance();
+    ready.value = prefs.getBool(_kReady) ?? false;
+  }
+
+  static Future<void> markReady() async {
+    ready.value = true;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kReady, true);
+  }
+
+  @visibleForTesting
+  static void resetReadyForTest() => ready.value = false;
 
   /// Matches the encrypted backup's stretch, for the same reason it is that
   /// high there: this blob's only defense after a leak is the derivation.

@@ -30,6 +30,7 @@ import 'package:okay_messaging/app_state.dart';
 import 'package:okay_messaging/crypto/e2e.dart';
 import 'package:okay_messaging/crypto/identity_recovery.dart';
 import 'package:okay_messaging/screens/recovery_code_screen.dart';
+import 'package:okay_messaging/widgets/recovery_gate.dart';
 import 'package:okay_messaging/data/mock_data.dart';
 import 'package:okay_messaging/crypto/key_exchange.dart';
 import 'package:okay_messaging/main.dart';
@@ -3835,6 +3836,104 @@ void main() {
       expect(SecureKeyExchange.instance.myPublicKey, original,
           reason: 'typing the code brings the old identity back');
       expect(find.textContaining('Encryption restored'), findsOneWidget);
+    });
+
+    testWidgets('messaging waits for the recovery code, X-style',
+        (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      // ignore: invalid_use_of_visible_for_testing_member
+      addTearDown(SecureKeyExchange.instance.resetForTest);
+      // ignore: invalid_use_of_visible_for_testing_member
+      addTearDown(DoubleRatchet.instance.resetForTest);
+      addTearDown(() {
+        IdentityRecovery.debugStore = null;
+        IdentityRecovery.debugFetch = null;
+        debugRecoveryGateNeeded = null;
+        // ignore: invalid_use_of_visible_for_testing_member
+        IdentityRecovery.resetReadyForTest();
+      });
+      await SecureKeyExchange.instance.load();
+
+      // Where there is nothing to protect the gate never fires — this build
+      // has no relay, and the whole test suite messages freely because of
+      // exactly this property.
+      expect(recoveryGateNeeded(), isFalse);
+
+      debugRecoveryGateNeeded = true;
+      String? storedBlob;
+      IdentityRecovery.debugFetch = (_) async => storedBlob;
+      IdentityRecovery.debugStore = (_, blob) async {
+        storedBlob = blob;
+        return true;
+      };
+
+      var allowed = false;
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => FilledButton(
+              onPressed: () async {
+                allowed =
+                    await ensureRecoveryReady(context, debugInbox: '15550100');
+              },
+              child: const Text('send'),
+            ),
+          ),
+        ),
+      ));
+
+      // A fresh account gets the CREATE flow, and declining blocks the send.
+      await tester.tap(find.text('send'));
+      await tester.pumpAndSettle();
+      expect(find.text('Create your recovery code'), findsOneWidget);
+      await tester.tap(find.text('Not now'));
+      await tester.pumpAndSettle();
+      expect(allowed, isFalse, reason: 'no code, no messaging');
+
+      // Accepting mints the code, stores the sealed blob, and unblocks.
+      await tester.tap(find.text('send'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Create code'));
+      await tester.pumpAndSettle();
+      final shown =
+          tester.widget<SelectableText>(find.byType(SelectableText)).data!;
+      await tester.tap(find.text('I saved it'));
+      await tester.pumpAndSettle();
+      expect(allowed, isTrue);
+      expect(IdentityRecovery.ready.value, isTrue);
+      expect(IdentityRecovery.openIdentity(storedBlob!, shown),
+          SecureKeyExchange.instance.exportPrivate());
+
+      // A "new phone": the backup exists, so the gate asks to TYPE the code
+      // — and a wrong one is refused in place, not accepted quietly.
+      // ignore: invalid_use_of_visible_for_testing_member
+      IdentityRecovery.resetReadyForTest();
+      final original = SecureKeyExchange.instance.myPublicKey;
+      SharedPreferences.setMockInitialValues({});
+      SecureKeyExchange.instance.resetForTest();
+      await SecureKeyExchange.instance.load();
+      expect(SecureKeyExchange.instance.myPublicKey, isNot(original));
+
+      allowed = false;
+      await tester.tap(find.text('send'));
+      await tester.pumpAndSettle();
+      expect(find.text('Enter your recovery code'), findsOneWidget);
+      await tester.enterText(find.byType(TextField), 'WRONGWRONGWRONGW');
+      await tester.tap(find.text('Restore'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('doesn\'t open'), findsOneWidget);
+      await tester.enterText(find.byType(TextField), shown);
+      await tester.tap(find.text('Restore'));
+      await tester.pumpAndSettle();
+      expect(allowed, isTrue);
+      expect(SecureKeyExchange.instance.myPublicKey, original,
+          reason: 'typing the code brings the old keys to the new phone');
+
+      // And the chat screen actually stands behind the rule: offered when a
+      // chat opens, enforced when a message is sent.
+      final chat = File('lib/screens/chat_screen.dart').readAsStringSync();
+      expect(chat.contains('maybePromptRecoverySetup'), isTrue);
+      expect(chat.contains('recoveryGateNeeded()'), isTrue);
     });
 
     testWidgets('typing… expires on its own instead of sticking forever',

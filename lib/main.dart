@@ -9,6 +9,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import 'app_state.dart';
 import 'crypto/double_ratchet.dart';
+import 'crypto/identity_recovery.dart';
 import 'crypto/key_exchange.dart';
 import 'crypto/sender_key.dart';
 import 'payments/iap_entitlement.dart';
@@ -143,6 +144,9 @@ Future<void> main() async {
   // these read the session JWT through a client that does not exist until it
   // has run.
   await IdentityVerification.instance.load();
+  // Whether the recovery code is squared away — the flag the first-message
+  // gate reads, so it has to be known before any chat can open.
+  await _boot('recovery', IdentityRecovery.load);
   ChannelTypingStore.instance.onTyping = (communityId, channelId) =>
       RelayService.instance.sendChannelTyping(communityId, channelId);
   VoicePresenceStore.instance.onPresence = (communityId, channelId,

@@ -35,6 +35,7 @@ import '../state/scheduler.dart';
 import '../theme/app_theme.dart';
 import '../utils/date_formatter.dart';
 import '../widgets/chat_input_bar.dart';
+import '../widgets/recovery_gate.dart';
 import '../widgets/spark_sheet.dart';
 import '../widgets/emoji_data.dart';
 import '../widgets/emoji_gif_sheet.dart';
@@ -194,6 +195,10 @@ class _ChatScreenState extends State<ChatScreen> {
       // Opened from search, the matched message is the destination — the
       // opening jump would fight the jump to the match.
       if (widget.initialMessageId == null) _jumpToBottom();
+      // X's rule: the recovery code gets squared away before the first
+      // message — offered here, enforced at send. Not in your own notes;
+      // there is nothing pairwise to protect.
+      if (!_isNoteToSelf && mounted) maybePromptRecoverySetup(context);
     });
   }
 
@@ -497,6 +502,15 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   void _handleSend(String text) {
+    // No messaging until the recovery code exists (X's rule for encrypted
+    // DMs). The typed message rides through the gate: set the code up once
+    // and this very message sends, rather than being lost to the prompt.
+    if (!_isNoteToSelf && recoveryGateNeeded()) {
+      ensureRecoveryReady(context).then((ok) {
+        if (ok && mounted) _handleSend(text);
+      });
+      return;
+    }
     final now = DateTime.now();
     _deliver(Message(
       id: 'local_${now.microsecondsSinceEpoch}',

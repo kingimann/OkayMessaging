@@ -9,6 +9,57 @@ import '../state/session.dart';
 import '../theme/app_theme.dart';
 import '../widgets/info_section.dart';
 
+/// Shows a freshly minted recovery code, once — the dialog every create
+/// path shares, because the warning text and the copy button must not
+/// drift between the settings screen and the first-message gate.
+Future<void> showRecoveryCodeDialog(BuildContext context, String code) =>
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Your recovery code'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Selectable AND monospaced: this is the one string in the app
+            // somebody will write on paper.
+            SelectableText(
+              code,
+              style: const TextStyle(
+                  fontFamily: 'monospace',
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 1.2),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'Write it down somewhere safe. It is shown only this once, '
+              'and it is the only thing that can restore your encryption '
+              'on a new phone — nobody can recover it for you, including '
+              'us. That is what keeps the backup unreadable to everyone '
+              'but you.',
+              style: TextStyle(fontSize: 13),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Clipboard.setData(ClipboardData(text: code));
+              ScaffoldMessenger.of(dialogContext).showSnackBar(
+                  const SnackBar(content: Text('Code copied')));
+            },
+            child: const Text('Copy'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('I saved it'),
+          ),
+        ],
+      ),
+    );
+
 /// The recovery code: what makes encryption survive a new phone.
 ///
 /// Without one, a reinstall mints a fresh identity and every message sealed
@@ -85,52 +136,9 @@ class _RecoveryCodeScreenState extends State<RecoveryCodeScreen> {
         _backupExists = true;
         _busy = false;
       });
-      await showDialog<void>(
-        context: context,
-        barrierDismissible: false,
-        builder: (dialogContext) => AlertDialog(
-          title: const Text('Your recovery code'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Selectable AND monospaced: this is the one string in the app
-              // somebody will write on paper.
-              SelectableText(
-                code,
-                style: const TextStyle(
-                    fontFamily: 'monospace',
-                    fontSize: 18,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 1.2),
-              ),
-              const SizedBox(height: 12),
-              const Text(
-                'Write it down somewhere safe. It is shown only this once, '
-                'and it is the only thing that can restore your encryption '
-                'on a new phone — nobody can recover it for you, including '
-                'us. That is what keeps the backup unreadable to everyone '
-                'but you.',
-                style: TextStyle(fontSize: 13),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Clipboard.setData(ClipboardData(text: code));
-                ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Code copied')));
-              },
-              child: const Text('Copy'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('I saved it'),
-            ),
-          ],
-        ),
-      );
+      await IdentityRecovery.markReady();
+      if (!mounted) return;
+      await showRecoveryCodeDialog(context, code);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -157,6 +165,7 @@ class _RecoveryCodeScreenState extends State<RecoveryCodeScreen> {
       // Every ratchet session was keyed under the identity just discarded;
       // fresh ones form on the next exchange, against the restored keys.
       DoubleRatchet.instance.resetAllSessions();
+      await IdentityRecovery.markReady();
       if (!mounted) return;
       _code.clear();
       _say('Encryption restored. Messages sealed to this account\'s '
