@@ -47,6 +47,16 @@ class Session {
             AppUser.fromJson(jsonDecode(rawLast) as Map<String, dynamic>);
       } catch (_) {}
     }
+    // Builds from before the account wipe never recorded who the device's
+    // data belongs to. Stamp it from whoever is (or was last) signed in, or
+    // the FIRST sign-in on an upgraded install finds no owner on record,
+    // skips the wipe, and inherits everything — the exact bug the wipe
+    // exists to stop, surviving one build longer through the upgrade.
+    final owner = user.value ?? lastAccount;
+    if (owner != null && !_prefs!.containsKey(AccountWipe.ownerKey)) {
+      await _prefs!.setString(
+          AccountWipe.ownerKey, owner.phone.replaceAll(RegExp(r'\D'), ''));
+    }
   }
 
   /// Signs in with a phone number, display name, and optional username,
@@ -74,6 +84,13 @@ class Session {
     await _prefs!.setString(_key, jsonEncode(me.toJson()));
     user.value = me;
     AppState.profile.value = me;
+    // Attach this device's push token to the account that now owns it (and
+    // release any previous account's claim on it, server-side).
+    if (RelayConfig.isEnabled) {
+      try {
+        await PushService.instance.reupload();
+      } catch (_) {}
+    }
   }
 
   /// Signs in with no phone number at all.
@@ -195,6 +212,11 @@ class Session {
     if (current != null) {
       lastAccount = current;
       await _prefs!.setString(_kLast, jsonEncode(current.toJson()));
+      // Belt and braces for the upgrade path: whoever is leaving owns the
+      // data they leave behind, so the next sign-in can tell whether it is
+      // them coming back.
+      await _prefs!.setString(AccountWipe.ownerKey,
+          current.phone.replaceAll(RegExp(r'\D'), ''));
     }
     await _prefs!.remove(_key);
     user.value = null;

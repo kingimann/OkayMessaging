@@ -41,6 +41,11 @@ class PushService {
 
   void _onPrivateChanged() => _upload(_lastToken);
 
+  /// Re-uploads the last known token for the CURRENT account — called after
+  /// sign-in, because iOS handed the token over long before this account
+  /// existed, and nothing else would ever re-attach it.
+  Future<void> reupload() => _upload(_lastToken);
+
   /// Removes this device's token row on sign-out, so the account that just
   /// left stops buzzing this phone. Best-effort — sign-out never blocks on
   /// the network.
@@ -70,6 +75,12 @@ class PushService {
         'private': AppState.privateNotifications.value,
         'updated_at': DateTime.now().toUtc().toIso8601String(),
       });
+      // One device, one owner: release any OTHER account's row still naming
+      // this device's token (the table is keyed by phone, so a previous
+      // account's row survives an account switch and its messages would
+      // keep arriving on this lock screen).
+      await Supabase.instance.client
+          .rpc('claim_push_token', params: {'t': token});
     } catch (_) {}
   }
 

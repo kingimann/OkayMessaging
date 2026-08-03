@@ -502,6 +502,35 @@ do $$ begin
   raise notice '  ok   a banned account leaves the directory';
 end $$;
 
+-- Push tokens follow the device's CURRENT account. B's claim releases A's
+-- row for the same token; a different token stays put; deleting your own
+-- row works and deleting another's does not.
+reset role;
+insert into public.push_tokens (phone, token) values
+  ('15550001111', 'tok_shared'), ('15550004444', 'tok_other')
+  on conflict (phone) do update set token = excluded.token;
+set role authenticated;
+select pg_temp.as_user('15550002222');
+select public.claim_push_token('tok_shared');
+-- RLS makes a delete of somebody else's row a silent no-op; prove it stayed.
+delete from public.push_tokens where phone = '15550004444';
+reset role;
+do $$ begin
+  if exists (select 1 from public.push_tokens where phone = '15550001111') then
+    raise exception 'SECURITY CHECK FAILED: the old account still holds the device token';
+  end if;
+  if not exists (select 1 from public.push_tokens where phone = '15550004444') then
+    raise exception 'SECURITY CHECK FAILED: an account deleted another account''s push token';
+  end if;
+  raise notice '  ok   a device token follows the account that signs in';
+end $$;
+set role authenticated;
+select pg_temp.as_user('15550004444');
+select pg_temp.expect_ok(
+  $$delete from public.push_tokens where token = 'tok_other'$$,
+  'sign-out can delete this device''s own token row');
+reset role;
+
 -- Numberless directory (directory_numberless.sql): the RPCs are anon's only
 -- door, and the claim only ever opens account-code rows.
 reset role;

@@ -131,6 +131,34 @@ create policy push_tokens_update_own on public.push_tokens
   using (phone = (auth.jwt() ->> 'phone'))
   with check (phone = (auth.jwt() ->> 'phone'));
 
+-- Sign-out deletes the device's row so the departing account stops buzzing
+-- this phone. Without this policy that delete silently removed nothing —
+-- RLS filters a delete to the rows a policy grants, and there were none.
+drop policy if exists push_tokens_delete_own on public.push_tokens;
+create policy push_tokens_delete_own on public.push_tokens
+  for delete to authenticated
+  using (phone = (auth.jwt() ->> 'phone'));
+
+-- One device, one owner. The table is keyed by phone, so when account B
+-- signs in on a phone whose token account A registered, A's row still holds
+-- this device's token and A's messages keep arriving on B's lock screen.
+-- B can't delete A's row through RLS (nor should it broadly), so this
+-- definer function releases exactly the rows that name the CALLER's own
+-- device token under somebody else's phone.
+create or replace function public.claim_push_token(t text)
+returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if coalesce(auth.jwt() ->> 'phone', '') = '' or coalesce(t, '') = '' then
+    return;
+  end if;
+  delete from public.push_tokens
+    where token = t and phone <> (auth.jwt() ->> 'phone');
+end $$;
+
+revoke all on function public.claim_push_token(text) from public;
+grant execute on function public.claim_push_token(text) to authenticated;
+
 -- YOUR OWN ROW HAS TO BE VISIBLE TO YOU, and it is worth saying why because
 -- the obvious reading is that it should not be.
 --
