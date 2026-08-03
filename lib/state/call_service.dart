@@ -341,6 +341,10 @@ class CallService {
     _ringTimer?.cancel();
     final c = current.value;
     if (c == null || c.direction != CallDirection.incoming) return;
+    // Answering can arrive twice — once from the in-app UI and once echoed
+    // back through CallKit's CXAnswerCallAction — and answering an already
+    // connected call would tear down and redo the WebRTC handshake.
+    if (c.status != CallStatus.ringing) return;
     RelayService.instance.currentCallId = c.callId;
     current.value = c.copyWith(
       status: CallStatus.connected,

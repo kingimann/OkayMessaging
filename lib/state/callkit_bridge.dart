@@ -111,7 +111,17 @@ class CallKitBridge {
     if (c.status == CallStatus.connected &&
         _reportedStatus != CallStatus.connected) {
       _reportedStatus = CallStatus.connected;
-      _invoke('connected', {'uuid': uuidFor(c.callId)});
+      // An incoming call answered in the app's own UI must also be answered
+      // in CallKit ('accepted' requests a CXAnswerCallAction): the system
+      // stops ringing, AND — since CallKit owns the audio session once a
+      // call is reported — iOS activates audio for WebRTC. Without it the
+      // system call stays "ringing" and the voice path stays silent. When
+      // the answer already came FROM CallKit the duplicate action errors
+      // harmlessly. Outgoing calls just report the connect time.
+      _invoke(
+        c.direction == CallDirection.incoming ? 'accepted' : 'connected',
+        {'uuid': uuidFor(c.callId)},
+      );
     }
   }
 

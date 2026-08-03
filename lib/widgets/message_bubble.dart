@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
+import 'dart:io';
 
 import 'package:audioplayers/audioplayers.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
 
 import '../app_state.dart';
 import '../models/community.dart';
@@ -1116,6 +1118,10 @@ class _VoiceContentState extends State<_VoiceContent> {
   /// so a replay doesn't download again.
   Uint8List? _fetched;
 
+  /// Native platforms play the clip from a temp file (written once per
+  /// bubble); web plays the bytes directly.
+  String? _tempPath;
+
   // A fixed pseudo-waveform so bubbles look varied but stable.
   static const _heights = [
     6.0, 12.0, 18.0, 10.0, 22.0, 14.0, 8.0, 20.0, 16.0, 11.0,
@@ -1136,6 +1142,10 @@ class _VoiceContentState extends State<_VoiceContent> {
       s.cancel();
     }
     _player?.dispose();
+    final temp = _tempPath;
+    if (temp != null) {
+      File(temp).delete().catchError((_) => File(temp));
+    }
     super.dispose();
   }
 
@@ -1192,8 +1202,31 @@ class _VoiceContentState extends State<_VoiceContent> {
     if (_position >= _total && _total > Duration.zero) {
       await p.seek(Duration.zero);
     }
-    // BytesSource plays without a file on disk, web and native alike.
-    await p.play(BytesSource(bytes, mimeType: 'audio/mp4'));
+    try {
+      await p.play(await _sourceFor(bytes));
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Couldn\'t play that voice note.')));
+      }
+    }
+  }
+
+  /// Where the player reads the clip from. BytesSource only exists on web
+  /// and Android — audioplayers' iOS side answers `setSourceBytes is not
+  /// currently implemented` — so native platforms write the decoded clip to
+  /// a temp file once and play from that.
+  Future<Source> _sourceFor(Uint8List bytes) async {
+    if (kIsWeb) return BytesSource(bytes, mimeType: 'audio/mp4');
+    var path = _tempPath;
+    if (path == null) {
+      final dir = await getTemporaryDirectory();
+      path = '${dir.path}/vn_play_'
+          '${DateTime.now().microsecondsSinceEpoch}.m4a';
+      await File(path).writeAsBytes(bytes, flush: true);
+      _tempPath = path;
+    }
+    return DeviceFileSource(path, mimeType: 'audio/mp4');
   }
 
   /// The elapsed/total counter — real once playing, the recorded length at

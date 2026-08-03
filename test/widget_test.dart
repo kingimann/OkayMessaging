@@ -950,6 +950,39 @@ void main() {
       expect(call.current.value?.status, CallStatus.connected);
     });
 
+    test('answering in-app reaches CallKit, and the echo cannot re-answer',
+        () async {
+      // The system call must be answered too ('accepted' → CXAnswerCallAction)
+      // or iOS never activates the audio session and the call stays silent.
+      // That action echoes back as a second accept(), which must be a no-op —
+      // re-answering would tear down the WebRTC handshake mid-call.
+      addTearDown(CallKitBridge.instance.resetForTest);
+      CallKitBridge.instance.init();
+      const channel = MethodChannel('okay/callkit');
+      final invoked = <String>[];
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (c) async {
+        invoked.add(c.method);
+        return null;
+      });
+      addTearDown(() => TestDefaultBinaryMessengerBinding
+          .instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null));
+
+      final call = CallService.instance;
+      call.onRemoteOffer(peer(), 'call_ck', false);
+      call.accept();
+      final connectedAt = call.current.value?.connectedAt;
+      call.accept(); // the CallKit echo
+      expect(call.current.value?.status, CallStatus.connected);
+      expect(call.current.value?.connectedAt, connectedAt,
+          reason: 'a second accept must not restart the call');
+      await Future<void>.delayed(Duration.zero);
+      expect(invoked, contains('incoming'));
+      expect(invoked, contains('accepted'));
+      expect(invoked.where((m) => m == 'accepted').length, 1);
+    });
+
     test('a remote hang-up ends the connected call', () {
       final call = CallService.instance;
       call.onRemoteOffer(peer(), 'call_xyz', false);

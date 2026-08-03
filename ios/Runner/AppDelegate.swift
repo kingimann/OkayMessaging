@@ -1,8 +1,10 @@
 import AudioToolbox
+import AVFoundation
 import CallKit
 import Flutter
 import UIKit
 import UserNotifications
+import WebRTC
 
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
@@ -334,9 +336,15 @@ extension AppDelegate {
 }
 
 /// Reports OkayMessenger calls to CallKit and forwards the system's call
-/// actions back to Dart. Audio stays owned by WebRTC — the provider's
-/// audio-session hooks deliberately do nothing, since flutter_webrtc
-/// configures its own AVAudioSession.
+/// actions back to Dart.
+///
+/// Audio: once a call is reported to CallKit, iOS owns the AVAudioSession —
+/// it activates it when the call is answered and hands it over through
+/// `provider(_:didActivate:)`. WebRTC must wait for that handoff, so the
+/// bridge puts RTCAudioSession in manual mode and only enables the audio
+/// unit inside didActivate. Starting it any earlier fails against the
+/// not-yet-active session and the call connects silent — which is exactly
+/// what the deliberately-empty hooks here used to cause.
 class CallKitBridge: NSObject, CXProviderDelegate {
   private let provider: CXProvider
   private let controller = CXCallController()
@@ -358,6 +366,18 @@ class CallKitBridge: NSObject, CXProviderDelegate {
     provider = CXProvider(configuration: config)
     super.init()
     provider.setDelegate(self, queue: nil)
+    let rtc = RTCAudioSession.sharedInstance()
+    rtc.useManualAudio = true
+    rtc.isAudioEnabled = false
+  }
+
+  /// A CallKit report failed (blocked caller, call-group limit), so the
+  /// didActivate handoff will never come: let WebRTC drive its own audio
+  /// session again or the call would stay silent forever.
+  private func audioWithoutCallKit() {
+    let rtc = RTCAudioSession.sharedInstance()
+    rtc.useManualAudio = false
+    rtc.isAudioEnabled = true
   }
 
   func attach(_ channel: FlutterMethodChannel) {
@@ -377,14 +397,26 @@ class CallKitBridge: NSObject, CXProviderDelegate {
         let handle = CXHandle(type: .generic, value: name)
         let start = CXStartCallAction(call: uuid, handle: handle)
         start.isVideo = video
-        self.controller.request(CXTransaction(action: start)) { _ in }
+        self.controller.request(CXTransaction(action: start)) { error in
+          if error != nil { self.audioWithoutCallKit() }
+        }
         result(nil)
       case "incoming":
         let update = CXCallUpdate()
         update.remoteHandle = CXHandle(type: .generic, value: name)
         update.localizedCallerName = name
         update.hasVideo = video
-        self.provider.reportNewIncomingCall(with: uuid, update: update) { _ in }
+        self.provider.reportNewIncomingCall(with: uuid, update: update) { error in
+          if error != nil { self.audioWithoutCallKit() }
+        }
+        result(nil)
+      case "accepted":
+        // The user answered in the app's own UI. Answer the CallKit call too,
+        // so the system stops ringing and activates the audio session (the
+        // didActivate below). When the answer originated from CallKit this
+        // duplicate action just errors, which is the desired no-op.
+        self.controller.request(
+            CXTransaction(action: CXAnswerCallAction(call: uuid))) { _ in }
         result(nil)
       case "connected":
         self.provider.reportOutgoingCall(with: uuid, connectedAt: Date())
@@ -428,5 +460,20 @@ class CallKitBridge: NSObject, CXProviderDelegate {
   func provider(_ provider: CXProvider, perform action: CXSetMutedCallAction) {
     channel?.invokeMethod("mute", arguments: action.isMuted)
     action.fulfill()
+  }
+
+  // The audio-session handoff. iOS activates the session when the call is
+  // answered (or the outgoing call starts) and only then may WebRTC's audio
+  // unit run.
+  func provider(_ provider: CXProvider, didActivate audioSession: AVAudioSession) {
+    let rtc = RTCAudioSession.sharedInstance()
+    rtc.audioSessionDidActivate(audioSession)
+    rtc.isAudioEnabled = true
+  }
+
+  func provider(_ provider: CXProvider, didDeactivate audioSession: AVAudioSession) {
+    let rtc = RTCAudioSession.sharedInstance()
+    rtc.audioSessionDidDeactivate(audioSession)
+    rtc.isAudioEnabled = false
   }
 }
