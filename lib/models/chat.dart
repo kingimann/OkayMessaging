@@ -26,6 +26,12 @@ class Chat {
   /// guarantee about their device; see [Message.protected].
   final bool protectContent;
 
+  /// A first contact from someone you've never talked to: the conversation
+  /// exists and receives messages, but it sits in Message requests instead of
+  /// the chat list, and nothing is sent back — no read receipts, no typing,
+  /// no presence — until you accept. Replying accepts implicitly.
+  final bool isRequest;
+
   /// Ids of messages pinned to the top of this chat, oldest first. Free
   /// accounts can pin a few; Okay Pro lifts the limit.
   final List<String> pinnedMessageIds;
@@ -48,6 +54,7 @@ class Chat {
     this.isFavorite = false,
     this.confirmBeforeSend = false,
     this.protectContent = false,
+    this.isRequest = false,
     this.pinnedMessageIds = const [],
     this.members = const [],
     this.disappearingSeconds = 0,
@@ -108,6 +115,7 @@ class Chat {
         'protectContent': protectContent,
         'isFavorite': isFavorite,
         'confirmBeforeSend': confirmBeforeSend,
+        if (isRequest) 'isRequest': true,
         'pinnedMessageIds': pinnedMessageIds,
         'members': members.map((m) => m.toJson()).toList(),
         'disappearingSeconds': disappearingSeconds,
@@ -127,6 +135,7 @@ class Chat {
         protectContent: json['protectContent'] as bool? ?? false,
         isFavorite: json['isFavorite'] as bool? ?? false,
         confirmBeforeSend: json['confirmBeforeSend'] as bool? ?? false,
+        isRequest: json['isRequest'] as bool? ?? false,
         pinnedMessageIds: _readPinned(json),
         members: (json['members'] as List? ?? const [])
             .map((m) => AppUser.fromJson(Map<String, dynamic>.from(m as Map)))
@@ -144,6 +153,7 @@ class Chat {
     bool? protectContent,
     bool? isFavorite,
     bool? confirmBeforeSend,
+    bool? isRequest,
     List<String>? pinnedMessageIds,
     bool clearPinned = false,
     List<AppUser>? members,
@@ -160,6 +170,7 @@ class Chat {
       protectContent: protectContent ?? this.protectContent,
       isFavorite: isFavorite ?? this.isFavorite,
       confirmBeforeSend: confirmBeforeSend ?? this.confirmBeforeSend,
+      isRequest: isRequest ?? this.isRequest,
       pinnedMessageIds:
           clearPinned ? const [] : (pinnedMessageIds ?? this.pinnedMessageIds),
       members: members ?? this.members,

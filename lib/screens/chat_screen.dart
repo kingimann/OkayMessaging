@@ -193,6 +193,9 @@ class _ChatScreenState extends State<ChatScreen> {
   /// while this chat is open (once per message, so no receipt ping-pong).
   void _maybeSendReadReceipt() {
     if (!AppState.sendReadReceipts.value) return;
+    // A request tells its sender nothing — not even that it was read —
+    // until it is accepted. Read live so accepting mid-screen lifts it.
+    if (_store.chatById(_chatId)?.isRequest ?? false) return;
     final incoming =
         _store.chatById(_chatId)?.messages.where((m) => !m.isMe).toList();
     if (incoming == null || incoming.isEmpty) return;
@@ -210,6 +213,9 @@ class _ChatScreenState extends State<ChatScreen> {
   void _onTyping() {
     // Respect the privacy setting: don't leak "typing…" when it's off.
     if (!AppState.sendTypingIndicators.value) return;
+    // Typing in an unaccepted request leaks that you saw it. Sending the
+    // reply is the moment the conversation is accepted, not composing it.
+    if (_store.chatById(_chatId)?.isRequest ?? false) return;
     final now = DateTime.now();
     if (_lastTypingSent != null &&
         now.difference(_lastTypingSent!) < const Duration(seconds: 2)) {
@@ -266,6 +272,9 @@ class _ChatScreenState extends State<ChatScreen> {
 
   void _broadcastPresence() {
     if (!AppState.shareLastSeen.value) return;
+    // Presence is "I am here, looking at our chat" — exactly the thing an
+    // unaccepted request must not learn. Checked live on every tick.
+    if (_store.chatById(_chatId)?.isRequest ?? false) return;
     RelayService.instance.sendPresence(widget.chat.contact.phone);
   }
 
@@ -2821,6 +2830,26 @@ class _ChatScreenState extends State<ChatScreen> {
                 );
               },
             ),
+            // A request explains itself where the reply would happen:
+            // reading is free, replying accepts, blocking is one tap.
+            if (!_selectionMode)
+              ListenableBuilder(
+                listenable: _store,
+                builder: (context, _) {
+                  if (!(_store.chatById(_chatId)?.isRequest ?? false)) {
+                    return const SizedBox.shrink();
+                  }
+                  return _RequestBanner(
+                    name: widget.chat.contact.name,
+                    onAccept: () => _store.acceptRequest(_chatId),
+                    onBlock: () {
+                      AppState.setBlocked(widget.chat.contact.phone, true);
+                      _store.deleteChat(_chatId);
+                      Navigator.of(context).pop();
+                    },
+                  );
+                },
+              ),
             if (!_selectionMode)
               ValueListenableBuilder<Set<String>>(
                 valueListenable: AppState.blockedContacts,
@@ -2859,6 +2888,66 @@ class _ChatScreenState extends State<ChatScreen> {
   void _showComingSoon(BuildContext context, String feature) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('$feature is not available in this demo')),
+    );
+  }
+}
+
+/// Shown above the composer while this conversation is an unaccepted
+/// message request.
+class _RequestBanner extends StatelessWidget {
+  final String name;
+  final VoidCallback onAccept;
+  final VoidCallback onBlock;
+
+  const _RequestBanner({
+    required this.name,
+    required this.onAccept,
+    required this.onBlock,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
+      color: Theme.of(context)
+          .colorScheme
+          .surfaceContainerHighest
+          .withValues(alpha: 0.5),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('$name wants to message you',
+              style:
+                  const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700)),
+          const SizedBox(height: 3),
+          Text(
+              'They can\'t see that you\'ve read this, or that you\'re '
+              'online, until you accept. Replying accepts.',
+              style:
+                  TextStyle(fontSize: 12, color: AppColors.subtle(context))),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              FilledButton(
+                style: FilledButton.styleFrom(
+                    visualDensity: VisualDensity.compact),
+                onPressed: onAccept,
+                child: const Text('Accept'),
+              ),
+              const SizedBox(width: 10),
+              OutlinedButton(
+                style: OutlinedButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                    foregroundColor: Colors.red),
+                onPressed: onBlock,
+                child: const Text('Block'),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 }

@@ -3403,6 +3403,94 @@ void main() {
           reason: 'the failure is said in words the reader can act on');
     });
 
+    test('a stranger\'s first message files as a request, not a chat', () {
+      final store = ChatStore.instance;
+      store.hydrate(const {'chats': []});
+      addTearDown(store.reset);
+      RelayService.applyIncoming({
+        'from': '+1 555 0177',
+        'id': 'req_1',
+        'text': 'hey, we met at the thing',
+      }, myPhone: '+1 555 0100', store: store);
+
+      final chat = store.chatWithContact('+1 555 0177')!;
+      expect(chat.isRequest, isTrue);
+      // Off every surface a stranger could put themselves on…
+      expect(store.chats.where((c) => c.id == chat.id), isEmpty);
+      expect(store.searchableChats.where((c) => c.id == chat.id), isEmpty);
+      // …but on the requests shelf, and still receiving.
+      expect(store.requests.single.id, chat.id);
+      expect(store.requestCount, 1);
+      RelayService.applyIncoming({
+        'from': '+1 555 0177',
+        'id': 'req_2',
+        'text': 'hello?',
+      }, myPhone: '+1 555 0100', store: store);
+      expect(store.requests.single.messages, hasLength(2));
+
+      // Replying IS accepting — the one funnel every send passes through.
+      store.addMessage(
+          chat.id,
+          Message(
+              id: 'my_reply',
+              text: 'hi!',
+              time: DateTime(2024, 1, 2),
+              isMe: true));
+      expect(store.chatById(chat.id)!.isRequest, isFalse);
+      expect(store.requestCount, 0);
+      expect(store.chats.single.id, chat.id);
+
+      // The flag survives a JSON round-trip, so a restart cannot promote a
+      // stranger into the chat list.
+      final again = Chat.fromJson(const Chat(
+              id: 'chat_x',
+              contact: AppUser(
+                  id: 'x', name: 'X', avatarColor: '#000000', phone: 'x'),
+              messages: [],
+              isRequest: true)
+          .toJson());
+      expect(again.isRequest, isTrue);
+    });
+
+    test('sharing a group means a first 1:1 message is not a request', () {
+      final store = ChatStore.instance;
+      store.hydrate(const {'chats': []});
+      addTearDown(store.reset);
+      store.upsert(const Chat(
+        id: 'group_g1',
+        contact: AppUser(
+            id: 'group_g1',
+            name: 'Hiking crew',
+            avatarColor: '#00AA00',
+            phone: '',
+            isGroup: true),
+        messages: [],
+        members: [
+          AppUser(
+              id: '+1 555 0142',
+              name: 'Dana',
+              avatarColor: '#123456',
+              phone: '+1 555 0142'),
+        ],
+      ));
+      RelayService.applyIncoming({
+        'from': '+15550142',
+        'id': 'known_1',
+        'text': 'splitting off from the group thread',
+      }, myPhone: '+1 555 0100', store: store);
+      expect(store.chatWithContact('+15550142')!.isRequest, isFalse,
+          reason: 'a group you are both in is an introduction');
+      // acceptRequest is also directly callable (the Accept button).
+      store.upsert(const Chat(
+          id: 'chat_y',
+          contact: AppUser(
+              id: 'y', name: 'Y', avatarColor: '#000000', phone: 'y'),
+          messages: [],
+          isRequest: true));
+      store.acceptRequest('chat_y');
+      expect(store.chatById('chat_y')!.isRequest, isFalse);
+    });
+
     test('encode/applyIncoming round-trip preserves image and voice', () {
       ChatStore.instance.reset();
       final photo = Message(

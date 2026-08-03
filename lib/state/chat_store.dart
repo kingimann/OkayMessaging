@@ -207,16 +207,34 @@ class ChatStore extends ChangeNotifier {
   /// so a screen added later is private by default instead of private only if
   /// somebody remembered. The ones that must see everything ask for
   /// [allChats] by name, which reads as the deliberate choice it is.
-  List<Chat> get chats =>
-      _sorted(_chats.where((c) => !c.isArchived && !_concealed(c.id)));
+  List<Chat> get chats => _sorted(
+      _chats.where((c) => !c.isArchived && !c.isRequest && !_concealed(c.id)));
 
   /// Archived AND hidden is a real combination, and hiding wins: somebody who
   /// archived a chat and then hid it did not mean "unless you look here".
-  List<Chat> get archivedChats =>
-      _sorted(_chats.where((c) => c.isArchived && !_concealed(c.id)));
+  List<Chat> get archivedChats => _sorted(
+      _chats.where((c) => c.isArchived && !c.isRequest && !_concealed(c.id)));
 
-  int get archivedCount =>
-      _chats.where((c) => c.isArchived && !_concealed(c.id)).length;
+  int get archivedCount => _chats
+      .where((c) => c.isArchived && !c.isRequest && !_concealed(c.id))
+      .length;
+
+  /// First contacts from strangers, waiting to be accepted — kept off the
+  /// chat list so an unknown number cannot put itself in front of you.
+  List<Chat> get requests =>
+      _sorted(_chats.where((c) => c.isRequest && !_concealed(c.id)));
+
+  int get requestCount =>
+      _chats.where((c) => c.isRequest && !_concealed(c.id)).length;
+
+  /// Moves a request into the chat list. From here on receipts, typing and
+  /// presence flow like any other conversation.
+  void acceptRequest(String id) {
+    final i = _indexOf(id);
+    if (i != -1 && _chats[i].isRequest) {
+      _replace(i, _chats[i].copyWith(isRequest: false));
+    }
+  }
 
   /// Every conversation regardless of archived state — including hidden ones.
   /// Delivery, dedup and the sweeper use this: a hidden chat still receives
@@ -233,8 +251,11 @@ class ChatStore extends ChangeNotifier {
   /// search reading them would be a way round the lock that never asks for
   /// it. The rule lives here rather than in the search screen because the
   /// next thing to search over would otherwise have to remember it too.
-  List<Chat> get searchableChats =>
-      _chats.where((c) => ChatLock.instance.isOpen(c.id)).toList();
+  /// Requests stay out too: search is how chats are found to message, and a
+  /// stranger should not be able to place themselves in its results.
+  List<Chat> get searchableChats => _chats
+      .where((c) => !c.isRequest && ChatLock.instance.isOpen(c.id))
+      .toList();
 
   /// The conversation holding [messageId]: the 1:1 chat with [senderId] when
   /// it has the message, else whichever chat does — which is how an event for
@@ -585,6 +606,10 @@ class ChatStore extends ChangeNotifier {
         // screen clears it straight back via markRead).
         unreadCount:
             msg.isMe ? _chats[i].unreadCount : _chats[i].unreadCount + 1,
+        // Replying IS accepting: stamped on the one funnel every outgoing
+        // message passes through, so no send path can leave a conversation
+        // half-request.
+        isRequest: msg.isMe ? false : _chats[i].isRequest,
       ),
     );
     // Grow the Okay Score for real conversation activity.

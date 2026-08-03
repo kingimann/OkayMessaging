@@ -8,6 +8,7 @@ import '../models/user.dart';
 import '../screens/chat_screen.dart';
 import '../screens/contacts_on_app_screen.dart';
 import '../screens/edit_profile_screen.dart';
+import '../screens/message_requests_screen.dart';
 import '../screens/new_chat_screen.dart';
 import '../screens/find_people_screen.dart';
 import '../state/chat_store.dart';
@@ -201,6 +202,10 @@ class _ChatsTabState extends State<ChatsTab> {
             const SanctionNotice(),
             if (!OnboardingStore.instance.done)
               _GetStartedCard(onDismiss: OnboardingStore.instance.complete),
+            // Only exists while there is something waiting: a permanent empty
+            // folder would advertise a feature; a row with a count is news.
+            if (store.requestCount > 0)
+              _RequestsRow(count: store.requestCount),
             Expanded(child: content),
           ],
         );
@@ -309,6 +314,45 @@ class _ChatsTabState extends State<ChatsTab> {
             },
           ),
         );
+  }
+}
+
+/// The "Message requests (N)" row pinned above the chat list while any
+/// stranger's first message is waiting on a decision.
+class _RequestsRow extends StatelessWidget {
+  final int count;
+  const _RequestsRow({required this.count});
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = Theme.of(context).colorScheme.primary;
+    return ListTile(
+      leading: CircleAvatar(
+        radius: 22,
+        backgroundColor: accent.withValues(alpha: 0.14),
+        child: Icon(Icons.mark_email_unread_outlined, color: accent),
+      ),
+      title: const Text('Message requests',
+          style: TextStyle(fontWeight: FontWeight.w600)),
+      subtitle: Text(
+          '$count ${count == 1 ? 'person' : 'people'} you haven\'t talked to',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis),
+      trailing: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+        decoration: BoxDecoration(
+          color: accent,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Text('$count',
+            style: const TextStyle(
+                color: Colors.white,
+                fontSize: 12.5,
+                fontWeight: FontWeight.w700)),
+      ),
+      onTap: () => Navigator.of(context).push(MaterialPageRoute(
+          builder: (_) => const MessageRequestsScreen())),
+    );
   }
 }
 

@@ -417,7 +417,16 @@ class RelayService {
         pronouns: sharedPronouns,
         link: sharedLink,
       );
-      chat = Chat(id: 'chat_$from', contact: contact, messages: const []);
+      // Born a request: a stranger's first message lands in Message requests,
+      // not the chat list, and earns no receipts until it is accepted.
+      // Sharing a group with them counts as knowing them.
+      chat = Chat(
+          id: 'chat_$from',
+          contact: contact,
+          messages: const [],
+          isRequest: !target.allChats.any((c) =>
+              c.contact.isGroup &&
+              c.members.any((m) => digits(m.phone) == digits(from))));
       target.upsert(chat);
     } else {
       chat = knownChat;
