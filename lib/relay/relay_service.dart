@@ -139,6 +139,7 @@ class RelayService {
       'viewOnce': message.viewOnce,
       'isVoice': message.isVoice,
       'voiceSeconds': message.voiceSeconds,
+      if (message.audioUrl != null) 'audioUrl': message.audioUrl,
       'isVoicemail': message.isVoicemail,
       'forwarded': message.forwarded,
       'protected': message.protected,
@@ -455,6 +456,7 @@ class RelayService {
         viewOnce: content['viewOnce'] as bool? ?? false,
         isVoice: content['isVoice'] as bool? ?? false,
         voiceSeconds: content['voiceSeconds'] as int? ?? 0,
+        audioUrl: content['audioUrl'] as String?,
         isVoicemail: content['isVoicemail'] as bool? ?? false,
         forwarded: content['forwarded'] as bool? ?? false,
         protected: content['protected'] as bool? ?? false,
@@ -619,6 +621,7 @@ class RelayService {
         'imageUrl': payload['imageUrl'],
         'isVoice': payload['isVoice'],
         'voiceSeconds': payload['voiceSeconds'],
+        'audioUrl': payload['audioUrl'],
       };
     }
 

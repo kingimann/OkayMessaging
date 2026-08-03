@@ -569,7 +569,10 @@ class _ChatScreenState extends State<ChatScreen> {
     setState(() => _replyTo = null);
   }
 
-  void _handleSendVoice(int seconds) {
+  void _handleSendVoice(int seconds, String? audioUrl) {
+    // No audio, no message: the input bar only calls back with a null clip
+    // when capture failed, and it has already said so.
+    if (audioUrl == null) return;
     final now = DateTime.now();
     _deliver(Message(
       id: 'voice_${now.microsecondsSinceEpoch}',
@@ -579,6 +582,7 @@ class _ChatScreenState extends State<ChatScreen> {
       status: MessageStatus.sent,
       isVoice: true,
       voiceSeconds: seconds,
+      audioUrl: audioUrl,
     ));
   }
 

@@ -26,6 +26,11 @@ dependencies:
   video_player: ^2.9.2
   image: ^4.3.0
   path_provider: ^2.1.6
+  # Voice notes: capture with the mic (record), play back (audioplayers).
+  # Mic permission already ships for calls (NSMicrophoneUsageDescription /
+  # RECORD_AUDIO). Both packages support iOS/Android/web.
+  record: ^5.1.2
+  audioplayers: ^6.1.0
   # Browser interop (Web Share API + downloads) for saving the encrypted chat
   # backup on the web build. Guarded by a conditional import.
   web: ^1.1.0

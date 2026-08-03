@@ -456,6 +456,12 @@ void main() {
 
   testWidgets('Recording and sending a voice message adds it to the chat',
       (tester) async {
+    // No microphone in a test, so the capture seam stands in for it and
+    // hands back a real (tiny) clip — the message must carry it, not just a
+    // duration, or the other end has nothing to play.
+    ChatInputBar.debugCaptureOverride = () async => 'data:audio/mp4;base64,QUJD';
+    addTearDown(() => ChatInputBar.debugCaptureOverride = null);
+
     await tester.pumpWidget(const OkayMessagingApp());
     await tester.pumpAndSettle();
 
@@ -472,7 +478,10 @@ void main() {
     await tester.pump();
 
     final bob = ChatStore.instance.chatWithContact('u_bob');
-    expect(bob!.messages.any((m) => m.isVoice), isTrue);
+    final voice = bob!.messages.where((m) => m.isVoice);
+    expect(voice, isNotEmpty);
+    expect(voice.last.audioUrl, 'data:audio/mp4;base64,QUJD',
+        reason: 'the clip must ride the message, not just its length');
 
     await tester.pump(const Duration(seconds: 2));
     await tester.pumpAndSettle();
@@ -3249,6 +3258,7 @@ void main() {
         isMe: true,
         isVoice: true,
         voiceSeconds: 12,
+        audioUrl: 'data:audio/mp4;base64,QUJD',
       );
       RelayService.applyIncoming(
         RelayService.encode(
@@ -3261,6 +3271,9 @@ void main() {
           .firstWhere((m) => m.id == 'v1');
       expect(v.isVoice, isTrue);
       expect(v.voiceSeconds, 12);
+      // The actual sound rides the sealed message, so the far end has
+      // something to play — the whole point of the fix.
+      expect(v.audioUrl, 'data:audio/mp4;base64,QUJD');
     });
 
     test('applyIncoming creates a chat and appends the message', () {
@@ -3570,6 +3583,42 @@ void main() {
       expect(got.isVoicemail, isTrue);
       expect(got.isVoice, isTrue);
       expect(got.voiceSeconds, 12);
+    });
+
+    testWidgets('a voice bubble plays a real clip, and says so when it can\'t',
+        (t) async {
+      // With a clip the bubble offers play; a legacy note that only ever
+      // carried a duration says it can't be played rather than showing a
+      // waveform that does nothing (the bug this fixes).
+      Future<void> show(Message m) async {
+        await t.pumpWidget(
+            MaterialApp(home: Scaffold(body: MessageBubble(message: m))));
+        await t.pumpAndSettle();
+      }
+
+      await show(Message(
+        id: 'vp',
+        text: '',
+        time: DateTime(2026, 1, 1),
+        isMe: false,
+        isVoice: true,
+        voiceSeconds: 3,
+        audioUrl: 'data:audio/mp4;base64,QUJD',
+      ));
+      expect(find.byIcon(Icons.play_arrow), findsOneWidget);
+      expect(find.text('Can\'t be played'), findsNothing);
+
+      await show(Message(
+        id: 'vl',
+        text: '',
+        time: DateTime(2026, 1, 1),
+        isMe: false,
+        isVoice: true,
+        voiceSeconds: 3,
+      ));
+      expect(find.byIcon(Icons.play_arrow), findsNothing);
+      expect(find.byIcon(Icons.mic_off_outlined), findsOneWidget);
+      expect(find.text('Can\'t be played'), findsOneWidget);
     });
 
     test('allowVoicemail=false drops an incoming voicemail', () {

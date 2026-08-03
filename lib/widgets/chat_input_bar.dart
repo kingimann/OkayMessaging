@@ -1,10 +1,17 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';
+import 'package:record/record.dart';
 
 import '../app_state.dart';
 import '../models/message.dart';
 import '../theme/app_theme.dart';
+import '../util/photo_prep.dart';
 import 'emoji_gif_sheet.dart';
 
 /// One entry in the composer's inline attachment panel.
@@ -25,6 +32,12 @@ class AttachmentOption {
 /// The bottom input area: an optional reply preview, an optional emoji picker,
 /// attachment icons, a text field and a send/mic button.
 class ChatInputBar extends StatefulWidget {
+  /// Test seam: when set, recording skips the real microphone and this
+  /// supplies the captured clip's data URI. Mirrors
+  /// [PhotoPrep.debugPickOverride] — there is no mic in a test.
+  @visibleForTesting
+  static Future<String?> Function()? debugCaptureOverride;
+
   final ValueChanged<String> onSend;
 
   /// Tapping the paperclip opens these inline (in the keyboard's space)
@@ -33,8 +46,10 @@ class ChatInputBar extends StatefulWidget {
   final List<AttachmentOption> attachments;
   final VoidCallback? onAttach;
 
-  /// Called with the recorded length in seconds when a voice message is sent.
-  final ValueChanged<int>? onSendVoice;
+  /// Called when a voice message is sent, with the recorded length in seconds
+  /// and the clip as a `data:audio/…` URI (null when capture failed or was
+  /// unavailable, so the caller can decide whether to send anything).
+  final void Function(int seconds, String? audioUrl)? onSendVoice;
 
   /// The message currently being replied to (shows a quote banner).
   final ReplyInfo? replyTo;
@@ -101,6 +116,14 @@ class _ChatInputBarState extends State<ChatInputBar> {
   bool _recording = false;
   int _recordSeconds = 0;
   Timer? _recordTimer;
+  final AudioRecorder _recorder = AudioRecorder();
+
+  /// A voice note has to fit the same sealed relay envelope a photo does, so
+  /// it auto-stops before it can grow past what will send.
+  static const int _maxVoiceSeconds = 60;
+
+  Future<String?> Function()? get debugCaptureOverride =>
+      ChatInputBar.debugCaptureOverride;
 
   List<String> _mentionMatches = const [];
 
@@ -165,32 +188,109 @@ class _ChatInputBarState extends State<ChatInputBar> {
   @override
   void dispose() {
     _recordTimer?.cancel();
+    _recorder.dispose();
     _controller.dispose();
     super.dispose();
   }
 
-  void _startRecording() {
+  Future<void> _startRecording() async {
+    // No permission, no recording — and no fake bubble either. Better to do
+    // nothing than to record silence the other end can't play. Skipped under
+    // the test seam, which has no mic to ask.
+    if (debugCaptureOverride == null && !await _recorder.hasPermission()) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Microphone access is needed for voice notes.')));
+      }
+      return;
+    }
     setState(() {
       _recording = true;
       _recordSeconds = 0;
       _emojiOpen = false;
     });
+    if (debugCaptureOverride == null) {
+      try {
+        // Low-bitrate mono AAC: a voice note is speech, and it has to fit the
+        // relay envelope; a path is needed off the web, ignored on it.
+        final path = kIsWeb
+            ? ''
+            : '${(await getTemporaryDirectory()).path}/'
+                'vn_${DateTime.now().microsecondsSinceEpoch}.m4a';
+        await _recorder.start(
+          const RecordConfig(
+              encoder: AudioEncoder.aacLc,
+              bitRate: 20000,
+              sampleRate: 22050,
+              numChannels: 1),
+          path: path,
+        );
+      } catch (_) {
+        _recordTimer?.cancel();
+        if (mounted) setState(() => _recording = false);
+        return;
+      }
+    }
     _recordTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
       setState(() => _recordSeconds++);
+      // Auto-stop at the ceiling so the clip always fits the envelope.
+      if (_recordSeconds >= _maxVoiceSeconds) _finishRecording();
     });
   }
 
-  void _cancelRecording() {
+  Future<void> _cancelRecording() async {
     _recordTimer?.cancel();
-    setState(() => _recording = false);
+    if (debugCaptureOverride == null) {
+      try {
+        await _recorder.stop();
+      } catch (_) {}
+    }
+    if (mounted) setState(() => _recording = false);
   }
 
   Future<void> _finishRecording() async {
     _recordTimer?.cancel();
     final seconds = _recordSeconds < 1 ? 1 : _recordSeconds;
-    setState(() => _recording = false);
+    if (mounted) setState(() => _recording = false);
+    String? audioUrl;
+    if (debugCaptureOverride != null) {
+      audioUrl = await debugCaptureOverride!();
+    } else {
+      String? path;
+      try {
+        path = await _recorder.stop();
+      } catch (_) {}
+      audioUrl = path == null ? null : await _audioDataUri(path);
+    }
+    if (audioUrl == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Couldn\'t save that voice note — try again.')));
+      }
+      return;
+    }
     if (widget.confirmSend != null && !await widget.confirmSend!()) return;
-    widget.onSendVoice?.call(seconds);
+    widget.onSendVoice?.call(seconds, audioUrl);
+  }
+
+  /// The recorded clip as a `data:audio/mp4;base64,…` URI, or null when it
+  /// can't be read or won't fit the relay envelope. On the web `stop()` hands
+  /// back a `blob:` URL whose bytes are fetched; elsewhere it is a file path.
+  Future<String?> _audioDataUri(String path) async {
+    try {
+      final Uint8List bytes = kIsWeb
+          ? (await http.get(Uri.parse(path))).bodyBytes
+          : await File(path).readAsBytes();
+      if (bytes.isEmpty) return null;
+      final b64 = base64Encode(bytes);
+      // The same budget a chat photo has: over it, the sealed message would
+      // be refused by the relay, so refuse it here where we can say why.
+      if (b64.length > PhotoPrep.maxBase64Length) return null;
+      return 'data:audio/mp4;base64,$b64';
+    } catch (_) {
+      return null;
+    }
   }
 
   String get _recordLabel {

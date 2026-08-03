@@ -1,5 +1,8 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
+import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 
 import '../app_state.dart';
@@ -285,6 +288,7 @@ class MessageBubble extends StatelessWidget {
                     else if (message.isVoice)
                       _VoiceContent(
                         seconds: message.voiceSeconds,
+                        audioUrl: message.audioUrl,
                         textColor: textColor,
                         metaColor: metaColor,
                       )
@@ -1072,11 +1076,13 @@ class _ContactContent extends StatelessWidget {
 /// clip length. Playback is simulated (no real audio in this UI demo).
 class _VoiceContent extends StatefulWidget {
   final int seconds;
+  final String? audioUrl;
   final Color textColor;
   final Color metaColor;
 
   const _VoiceContent({
     required this.seconds,
+    required this.audioUrl,
     required this.textColor,
     required this.metaColor,
   });
@@ -1086,73 +1092,139 @@ class _VoiceContent extends StatefulWidget {
 }
 
 class _VoiceContentState extends State<_VoiceContent> {
+  // One player per bubble, made only when there is real audio to play.
+  AudioPlayer? _player;
   bool _playing = false;
+  Duration _position = Duration.zero;
+  Duration _total = Duration.zero;
+  final List<StreamSubscription<dynamic>> _subs = [];
 
   // A fixed pseudo-waveform so bubbles look varied but stable.
   static const _heights = [
-    6.0,
-    12.0,
-    18.0,
-    10.0,
-    22.0,
-    14.0,
-    8.0,
-    20.0,
-    16.0,
-    11.0,
-    24.0,
-    9.0,
-    15.0,
-    19.0,
-    7.0,
-    13.0,
-    21.0,
-    10.0,
-    17.0,
-    12.0,
+    6.0, 12.0, 18.0, 10.0, 22.0, 14.0, 8.0, 20.0, 16.0, 11.0,
+    24.0, 9.0, 15.0, 19.0, 7.0, 13.0, 21.0, 10.0, 17.0, 12.0,
   ];
 
+  /// Whether there is a clip to play at all. Old voice messages carried only
+  /// a duration, so their bubble says so rather than pretending to play.
+  bool get _playable => (widget.audioUrl ?? '').isNotEmpty;
+
+  @override
+  void dispose() {
+    for (final s in _subs) {
+      s.cancel();
+    }
+    _player?.dispose();
+    super.dispose();
+  }
+
+  AudioPlayer _ensurePlayer() {
+    final existing = _player;
+    if (existing != null) return existing;
+    final p = AudioPlayer();
+    _subs.add(p.onPlayerStateChanged.listen((s) {
+      if (mounted) setState(() => _playing = s == PlayerState.playing);
+    }));
+    _subs.add(p.onDurationChanged.listen((d) {
+      if (mounted) setState(() => _total = d);
+    }));
+    _subs.add(p.onPositionChanged.listen((d) {
+      if (mounted) setState(() => _position = d);
+    }));
+    _subs.add(p.onPlayerComplete.listen((_) {
+      if (mounted) setState(() => _position = Duration.zero);
+    }));
+    _player = p;
+    return p;
+  }
+
+  Future<void> _toggle() async {
+    if (!_playable) return;
+    final p = _ensurePlayer();
+    if (_playing) {
+      await p.pause();
+      return;
+    }
+    if (_position >= _total && _total > Duration.zero) {
+      await p.seek(Duration.zero);
+    }
+    // Both ends store the clip as a data: URI; BytesSource plays it without a
+    // file on disk, on web and native alike.
+    await p.play(_dataSource(widget.audioUrl!));
+  }
+
+  Source _dataSource(String dataUri) {
+    final comma = dataUri.indexOf(',');
+    final bytes = base64Decode(dataUri.substring(comma + 1));
+    return BytesSource(Uint8List.fromList(bytes), mimeType: 'audio/mp4');
+  }
+
+  /// The elapsed/total counter — real once playing, the recorded length at
+  /// rest so the bubble still says how long the note is.
   String get _label {
-    final m = widget.seconds ~/ 60;
-    final s = widget.seconds % 60;
+    final shown = _playing || _position > Duration.zero
+        ? _position.inSeconds
+        : widget.seconds;
+    final m = shown ~/ 60;
+    final s = shown % 60;
     return '$m:${s.toString().padLeft(2, '0')}';
+  }
+
+  /// 0..1 through the clip, for lighting the waveform as it plays.
+  double get _progress {
+    final total = _total.inMilliseconds;
+    if (total <= 0) return 0;
+    return (_position.inMilliseconds / total).clamp(0.0, 1.0);
   }
 
   @override
   Widget build(BuildContext context) {
+    final accent = AppColors.accentOn(context);
     return SizedBox(
       width: 210,
       child: Row(
         children: [
           GestureDetector(
-            onTap: () => setState(() => _playing = !_playing),
+            onTap: _playable ? _toggle : null,
             child: Icon(
-              _playing ? Icons.pause : Icons.play_arrow,
-              color: AppColors.accentOn(context),
+              !_playable
+                  ? Icons.mic_off_outlined
+                  : (_playing ? Icons.pause : Icons.play_arrow),
+              color: _playable ? accent : widget.metaColor,
               size: 30,
             ),
           ),
           const SizedBox(width: 6),
           Expanded(
-            child: SizedBox(
-              height: 26,
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  for (final h in _heights)
-                    Expanded(
-                      child: Container(
-                        margin: const EdgeInsets.symmetric(horizontal: 0.5),
-                        height: h,
-                        decoration: BoxDecoration(
-                          color: widget.metaColor,
-                          borderRadius: BorderRadius.circular(2),
-                        ),
-                      ),
+            child: !_playable
+                // An old note with no clip: say it plainly instead of a
+                // waveform that does nothing.
+                ? Text('Can\'t be played',
+                    style: TextStyle(color: widget.metaColor, fontSize: 12.5))
+                : SizedBox(
+                    height: 26,
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        for (var i = 0; i < _heights.length; i++)
+                          Expanded(
+                            child: Container(
+                              margin:
+                                  const EdgeInsets.symmetric(horizontal: 0.5),
+                              height: _heights[i],
+                              decoration: BoxDecoration(
+                                // The bars up to the play head take the accent;
+                                // the rest stay muted.
+                                color: (i / _heights.length) <= _progress
+                                    ? accent
+                                    : widget.metaColor,
+                                borderRadius: BorderRadius.circular(2),
+                              ),
+                            ),
+                          ),
+                      ],
                     ),
-                ],
-              ),
-            ),
+                  ),
           ),
           const SizedBox(width: 8),
           Text(_label, style: TextStyle(color: widget.metaColor, fontSize: 12)),
