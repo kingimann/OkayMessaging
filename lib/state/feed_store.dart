@@ -1203,11 +1203,11 @@ class FeedStore extends ChangeNotifier {
   }
 
   /// A threaded reply: lives under its parent and bumps its reply count.
-  void reply(String postId, String text) {
+  void reply(String postId, String text, {String? gifUrl}) {
     final i = _posts.indexWhere((p) => p.id == postId);
     if (i < 0) return;
     final original = _posts[i];
-    add(original.communityId, text, parentId: postId);
+    add(original.communityId, text, parentId: postId, gifUrl: gifUrl);
     _posts[i] = original.copyWith(replies: original.replies + 1);
     _save();
     notifyListeners();

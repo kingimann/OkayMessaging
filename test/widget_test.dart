@@ -2453,6 +2453,44 @@ void main() {
       expect(back.posts.single.score, 3);
       expect(back.posts.single.comments.single.body, 'nice');
     });
+
+    test('forum media: gifUrl rides posts and comments through JSON and edits',
+        () {
+      final post = ForumPost(
+        id: 'p1',
+        authorId: 'me',
+        authorName: 'You',
+        time: DateTime(2024, 1, 1),
+        title: 'Look',
+        gifUrl: 'https://media.example/fun.gif',
+        comments: [
+          ForumComment(
+            id: 'c1',
+            authorId: 'a',
+            authorName: 'A',
+            time: DateTime(2024, 1, 1, 1),
+            // A GIF alone is a complete comment — no body required.
+            body: '',
+            gifUrl: 'data:image/jpeg;base64,YWJj',
+          ),
+        ],
+      );
+      final back = ForumPost.fromJson(post.toJson());
+      expect(back.gifUrl, 'https://media.example/fun.gif');
+      expect(back.comments.single.gifUrl, 'data:image/jpeg;base64,YWJj');
+      // An edit that says nothing about the media keeps it; '' removes it.
+      expect(back.copyWith(title: 'Look again').gifUrl,
+          'https://media.example/fun.gif');
+      expect(back.copyWith(gifUrl: '').gifUrl, '');
+      // Media-free posts don't bloat the community JSON with empty fields.
+      expect(ForumComment(
+        id: 'c2',
+        authorId: 'a',
+        authorName: 'A',
+        time: DateTime(2024, 1, 2),
+        body: 'words',
+      ).toJson().containsKey('gifUrl'), isFalse);
+    });
   });
 
   test('Communities: voice channels keep their casing and group by category',
@@ -8580,6 +8618,11 @@ void main() {
       expect(store.repliesTo(reply.id).single.text, 'nested reply');
       expect(store.repliesTo(root.id), hasLength(1));
       expect(store.postById(reply.id)!.replies, 1);
+
+      // A reply carries a GIF (or photo data: URI) in the same field a
+      // timeline post does, so the cards render it with no extra path.
+      store.reply(reply.id, 'with a gif', gifUrl: 'https://g.example/x.gif');
+      expect(store.repliesTo(reply.id).last.gifUrl, 'https://g.example/x.gif');
 
       // Mention prefix extraction from the composer text.
       expect(activeMentionPrefix('hey @gra'), 'gra');

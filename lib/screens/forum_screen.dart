@@ -4,8 +4,12 @@ import '../theme/app_theme.dart';
 import '../app_state.dart';
 import '../models/community.dart';
 import '../state/community_store.dart';
+import '../util/file_moderation.dart';
+import '../util/photo_prep.dart';
 import '../utils/date_formatter.dart';
 import '../widgets/app_dialogs.dart';
+import '../widgets/chat_photo.dart';
+import '../widgets/emoji_gif_sheet.dart';
 import '../widgets/pull_to_refresh.dart';
 import '../widgets/rich_message_text.dart';
 
@@ -362,6 +366,19 @@ class _PostCard extends StatelessWidget {
                           style: TextStyle(
                               fontSize: 13.5, color: AppColors.subtle(context))),
                     ],
+                    if (post.gifUrl.isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(10),
+                        child: ChatPhoto(
+                          url: post.gifUrl,
+                          width: double.infinity,
+                          height: 140,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_) => const SizedBox.shrink(),
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 8),
                     Row(
                       children: [
@@ -552,6 +569,10 @@ class _ForumPostScreenState extends State<ForumPostScreen> {
   /// The top-level comment the composer is replying to, if any.
   ForumComment? _replyingTo;
 
+  /// A GIF (or an attached photo as a data: URI) waiting to ride out with
+  /// the next comment. '' when nothing is attached.
+  String _commentGif = '';
+
   @override
   void dispose() {
     _comment.dispose();
@@ -560,7 +581,8 @@ class _ForumPostScreenState extends State<ForumPostScreen> {
 
   void _addComment() {
     final body = _comment.text.trim();
-    if (body.isEmpty) return;
+    // A GIF alone is a complete comment, the same as it is in chat.
+    if (body.isEmpty && _commentGif.isEmpty) return;
     final hit = CommunityStore.instance.filterHit(widget.communityId, body);
     if (hit != null) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -581,6 +603,7 @@ class _ForumPostScreenState extends State<ForumPostScreen> {
         score: 1,
         myVote: 1,
         parentId: _replyingTo?.id,
+        gifUrl: _commentGif,
       ),
     );
     if (!added) {
@@ -589,8 +612,37 @@ class _ForumPostScreenState extends State<ForumPostScreen> {
       return;
     }
     _comment.clear();
-    setState(() => _replyingTo = null);
+    setState(() {
+      _replyingTo = null;
+      _commentGif = '';
+    });
     FocusScope.of(context).unfocus();
+  }
+
+  /// Opens the shared emoji/GIF sheet on the GIF tab; an emoji picked from
+  /// the other tab goes into the text instead.
+  Future<void> _pickCommentGif() async {
+    final picked = await showEmojiGifSheet(context, initialTab: 1);
+    if (picked == null || !mounted) return;
+    final gif = picked.gif;
+    if (gif != null) setState(() => _commentGif = gif.url);
+    final emoji = picked.emoji;
+    if (emoji != null) _comment.text += emoji;
+  }
+
+  Future<void> _attachCommentPhoto() async {
+    String? dataUri;
+    try {
+      dataUri = await PhotoPrep.pickPhoto();
+    } on FileRejected catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.reason)));
+      }
+      return;
+    }
+    if (dataUri == null || !mounted) return;
+    setState(() => _commentGif = dataUri!);
   }
 
   Future<void> _editComment(ForumComment c) async {
@@ -690,6 +742,19 @@ class _ForumPostScreenState extends State<ForumPostScreen> {
                                       .onSurface,
                                   linkColor:
                                       Theme.of(context).colorScheme.primary,
+                                ),
+                              ],
+                              if (post.gifUrl.isNotEmpty) ...[
+                                const SizedBox(height: 10),
+                                ClipRRect(
+                                  borderRadius: BorderRadius.circular(12),
+                                  child: ChatPhoto(
+                                    url: post.gifUrl,
+                                    width: double.infinity,
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (_) =>
+                                        const SizedBox.shrink(),
+                                  ),
                                 ),
                               ],
                             ],
@@ -818,10 +883,46 @@ class _ForumPostScreenState extends State<ForumPostScreen> {
                           ],
                         ),
                       ),
+                    if (_commentGif.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(12, 4, 8, 0),
+                        child: Row(
+                          children: [
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(8),
+                              child: ChatPhoto(
+                                url: _commentGif,
+                                width: 72,
+                                height: 72,
+                                fit: BoxFit.cover,
+                                errorBuilder: (_) => const SizedBox.shrink(),
+                              ),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.close, size: 18),
+                              tooltip: 'Remove attachment',
+                              onPressed: () =>
+                                  setState(() => _commentGif = ''),
+                            ),
+                          ],
+                        ),
+                      ),
                     Padding(
-                      padding: const EdgeInsets.fromLTRB(12, 4, 8, 8),
+                      padding: const EdgeInsets.fromLTRB(4, 4, 8, 8),
                       child: Row(
                         children: [
+                          IconButton(
+                            icon: const Icon(Icons.gif_box_outlined),
+                            tooltip: 'GIFs & emoji',
+                            visualDensity: VisualDensity.compact,
+                            onPressed: _pickCommentGif,
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.image_outlined),
+                            tooltip: 'Attach photo',
+                            visualDensity: VisualDensity.compact,
+                            onPressed: _attachCommentPhoto,
+                          ),
                           Expanded(
                             child: TextField(
                               controller: _comment,
@@ -919,7 +1020,21 @@ class _CommentTile extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 3),
-                Text(comment.body, style: const TextStyle(fontSize: 14.5)),
+                if (comment.body.isNotEmpty)
+                  Text(comment.body, style: const TextStyle(fontSize: 14.5)),
+                if (comment.gifUrl.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 5),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(10),
+                      child: ChatPhoto(
+                        url: comment.gifUrl,
+                        width: 200,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_) => const SizedBox.shrink(),
+                      ),
+                    ),
+                  ),
                 if (onReply != null)
                   InkWell(
                     onTap: onReply,
@@ -969,6 +1084,10 @@ class _CreateForumPostScreenState extends State<CreateForumPostScreen> {
   late final _body = TextEditingController(text: widget.existing?.body ?? '');
   late String _tag = widget.existing?.tag ?? '';
 
+  /// A GIF (or an attached photo as a data: URI) going out with the post.
+  /// Editing starts from what the post already carries.
+  late String _gifUrl = widget.existing?.gifUrl ?? '';
+
   bool get _isEdit => widget.existing != null;
 
   @override
@@ -982,6 +1101,32 @@ class _CreateForumPostScreenState extends State<CreateForumPostScreen> {
     _title.dispose();
     _body.dispose();
     super.dispose();
+  }
+
+  /// Opens the shared emoji/GIF sheet on the GIF tab; an emoji picked from
+  /// the other tab lands in the body text.
+  Future<void> _pickGif() async {
+    final picked = await showEmojiGifSheet(context, initialTab: 1);
+    if (picked == null || !mounted) return;
+    final gif = picked.gif;
+    if (gif != null) setState(() => _gifUrl = gif.url);
+    final emoji = picked.emoji;
+    if (emoji != null) _body.text += emoji;
+  }
+
+  Future<void> _attachPhoto() async {
+    String? dataUri;
+    try {
+      dataUri = await PhotoPrep.pickPhoto();
+    } on FileRejected catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.reason)));
+      }
+      return;
+    }
+    if (dataUri == null || !mounted) return;
+    setState(() => _gifUrl = dataUri!);
   }
 
   void _post() {
@@ -998,7 +1143,7 @@ class _CreateForumPostScreenState extends State<CreateForumPostScreen> {
       CommunityStore.instance.editForumPost(
           widget.communityId, widget.channelId, widget.existing!.id, title,
           _body.text.trim(),
-          tag: _tag);
+          tag: _tag, gifUrl: _gifUrl);
     } else {
       final me = AppState.profile.value;
       CommunityStore.instance.addForumPost(
@@ -1014,6 +1159,7 @@ class _CreateForumPostScreenState extends State<CreateForumPostScreen> {
           score: 1,
           myVote: 1,
           tag: _tag,
+          gifUrl: _gifUrl,
         ),
       );
     }
@@ -1056,6 +1202,45 @@ class _CreateForumPostScreenState extends State<CreateForumPostScreen> {
               alignLabelWithHint: true,
               border: OutlineInputBorder(),
             ),
+          ),
+          const SizedBox(height: 10),
+          if (_gifUrl.isNotEmpty) ...[
+            Stack(
+              alignment: Alignment.topRight,
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: ChatPhoto(
+                    url: _gifUrl,
+                    width: double.infinity,
+                    height: 180,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_) => const SizedBox.shrink(),
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.cancel, color: Colors.white),
+                  tooltip: 'Remove attachment',
+                  onPressed: () => setState(() => _gifUrl = ''),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+          ],
+          Row(
+            children: [
+              OutlinedButton.icon(
+                onPressed: _pickGif,
+                icon: const Icon(Icons.gif_box_outlined, size: 20),
+                label: const Text('GIF'),
+              ),
+              const SizedBox(width: 8),
+              OutlinedButton.icon(
+                onPressed: _attachPhoto,
+                icon: const Icon(Icons.image_outlined, size: 20),
+                label: const Text('Photo'),
+              ),
+            ],
           ),
           const SizedBox(height: 14),
           Text('TAG (OPTIONAL)',

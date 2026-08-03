@@ -1128,7 +1128,7 @@ class CommunityStore extends ChangeNotifier {
   /// Edits a forum post's title/body (author or moderator) and flags it edited.
   void editForumPost(String communityId, String channelId, String postId,
       String title, String body,
-      {String? tag}) {
+      {String? tag, String? gifUrl}) {
     final community = byId(communityId);
     if (community == null || title.trim().isEmpty) return;
     final channels = community.channels.map((ch) {
@@ -1136,7 +1136,11 @@ class CommunityStore extends ChangeNotifier {
       final posts = ch.posts.map((p) {
         if (p.id != postId) return p;
         return p.copyWith(
-            title: title.trim(), body: body.trim(), edited: true, tag: tag);
+            title: title.trim(),
+            body: body.trim(),
+            edited: true,
+            tag: tag,
+            gifUrl: gifUrl);
       }).toList();
       return ch.copyWith(posts: posts);
     }).toList();

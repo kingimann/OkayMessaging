@@ -51,6 +51,10 @@ class ForumComment {
   final String? parentId;
   final bool edited;
 
+  /// A GIF (or an attached photo as a data: URI) riding with the comment.
+  /// Empty when it is words alone.
+  final String gifUrl;
+
   const ForumComment({
     required this.id,
     required this.authorId,
@@ -61,6 +65,7 @@ class ForumComment {
     this.myVote = 0,
     this.parentId,
     this.edited = false,
+    this.gifUrl = '',
   });
 
   ForumComment copyWith({String? body, int? score, int? myVote, bool? edited}) =>
@@ -74,6 +79,7 @@ class ForumComment {
         myVote: myVote ?? this.myVote,
         parentId: parentId,
         edited: edited ?? this.edited,
+        gifUrl: gifUrl,
       );
 
   Map<String, dynamic> toJson() => {
@@ -86,6 +92,7 @@ class ForumComment {
         'myVote': myVote,
         'parentId': parentId,
         'edited': edited,
+        if (gifUrl.isNotEmpty) 'gifUrl': gifUrl,
       };
 
   factory ForumComment.fromJson(Map<String, dynamic> j) => ForumComment(
@@ -98,6 +105,7 @@ class ForumComment {
         myVote: (j['myVote'] as num?)?.toInt() ?? 0,
         parentId: j['parentId'] as String?,
         edited: j['edited'] as bool? ?? false,
+        gifUrl: j['gifUrl'] as String? ?? '',
       );
 }
 
@@ -124,6 +132,9 @@ class ForumPost {
 
   /// One of [forumTags], or '' for an untagged post.
   final String tag;
+
+  /// A GIF (or an attached photo as a data: URI) riding with the post.
+  final String gifUrl;
   final List<ForumComment> comments;
 
   const ForumPost({
@@ -139,6 +150,7 @@ class ForumPost {
     this.edited = false,
     this.locked = false,
     this.tag = '',
+    this.gifUrl = '',
     this.comments = const [],
   });
 
@@ -151,6 +163,7 @@ class ForumPost {
     bool? edited,
     bool? locked,
     String? tag,
+    String? gifUrl,
     List<ForumComment>? comments,
   }) =>
       ForumPost(
@@ -166,6 +179,7 @@ class ForumPost {
         edited: edited ?? this.edited,
         locked: locked ?? this.locked,
         tag: tag ?? this.tag,
+        gifUrl: gifUrl ?? this.gifUrl,
         comments: comments ?? this.comments,
       );
 
@@ -182,6 +196,7 @@ class ForumPost {
         'edited': edited,
         if (locked) 'locked': true,
         'tag': tag,
+        if (gifUrl.isNotEmpty) 'gifUrl': gifUrl,
         'comments': comments.map((c) => c.toJson()).toList(),
       };
 
@@ -198,6 +213,7 @@ class ForumPost {
         edited: j['edited'] as bool? ?? false,
         locked: j['locked'] as bool? ?? false,
         tag: j['tag'] as String? ?? '',
+        gifUrl: j['gifUrl'] as String? ?? '',
         comments: (j['comments'] as List? ?? const [])
             .map((c) => ForumComment.fromJson(Map<String, dynamic>.from(c as Map)))
             .toList(),

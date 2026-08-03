@@ -1056,9 +1056,10 @@ class _FeedReplyComposerState extends State<_FeedReplyComposer> {
     super.dispose();
   }
 
-  void _send() {
+  void _send({String? gifUrl}) {
     final text = _text.text.trim();
-    if (text.isEmpty) return;
+    // A GIF or photo alone is a complete reply, like it is on the timeline.
+    if (text.isEmpty && (gifUrl == null || gifUrl.isEmpty)) return;
     // A reply is a post, so the server's word filter applies to it. It did
     // not before: the pinned bar called through to the store with nothing in
     // between.
@@ -1069,10 +1070,27 @@ class _FeedReplyComposerState extends State<_FeedReplyComposer> {
           content: Text('"$hit" is blocked by this server\'s word filter')));
       return;
     }
-    FeedStore.instance.reply(widget.post.id, text);
+    FeedStore.instance.reply(widget.post.id, text, gifUrl: gifUrl);
     _text.removeListener(_save);
     FeedDrafts.instance.clear(_key);
     Navigator.of(context).pop();
+  }
+
+  /// A photo replies the way a GIF does: the picked shot rides as a data:
+  /// URI in the same field, with whatever was typed as its caption.
+  Future<void> _attachPhoto() async {
+    String? dataUri;
+    try {
+      dataUri = await PhotoPrep.pickPhoto();
+    } on FileRejected catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.reason)));
+      }
+      return;
+    }
+    if (dataUri == null || !mounted) return;
+    _send(gifUrl: dataUri);
   }
 
   @override
@@ -1088,6 +1106,8 @@ class _FeedReplyComposerState extends State<_FeedReplyComposer> {
             if (c.contact.username.isNotEmpty) c.contact.username,
         ]),
         onPost: _send,
+        onPostGif: (url) => _send(gifUrl: url),
+        onAttachPhoto: _attachPhoto,
       );
 }
 
