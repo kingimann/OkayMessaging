@@ -151,6 +151,9 @@ class CallMedia {
       'video': video ? CallQuality.cameraConstraints() : false,
     });
     localRenderer!.srcObject = _localStream;
+    // Apple's own call-audio pipeline under WebRTC's: voiceChat to the
+    // earpiece for a voice call, videoChat to the speaker for video.
+    unawaited(CallQuality.configureAudioSession(speaker: video));
     for (final track in _localStream!.getTracks()) {
       await pc.addTrack(track, _localStream!);
     }
@@ -392,6 +395,8 @@ class CallMedia {
       if (_pc != null) {
         unawaited(CallQuality.tuneVideoSenders(_pc!, screen: false));
       }
+      // A voice call growing a camera becomes a video call — speaker too.
+      unawaited(CallQuality.configureAudioSession(speaker: true));
       localVideo.value = true;
       return _renegotiateNeeded;
     } catch (_) {

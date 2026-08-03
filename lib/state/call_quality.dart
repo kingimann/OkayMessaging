@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 
 /// The clarity knobs Discord turns and stock WebRTC leaves alone, in one
@@ -118,6 +119,22 @@ class CallQuality {
   /// Whether a stats audio level means somebody is talking. 0.02 is well
   /// above processed-mic noise floors and well below any actual speech.
   static bool audible(double? level) => (level ?? 0) > 0.02;
+
+  /// Puts iOS's audio session into the right MODE for the call at hand.
+  ///
+  /// This is the knob most WebRTC apps forget and every native call app
+  /// sets: `.voiceChat` turns on Apple's own voice processing (a second,
+  /// hardware-tuned echo/AGC stage under WebRTC's) and routes to the
+  /// earpiece; `.videoChat` is the same processing out of the SPEAKER —
+  /// where video calls and Discord-style rooms both live. Bluetooth
+  /// headsets are allowed in both. No-op everywhere but iOS.
+  static Future<void> configureAudioSession({required bool speaker}) async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.iOS) return;
+    try {
+      await Helper.setAppleAudioIOMode(AppleAudioIOMode.localAndRemote,
+          preferSpeakerOutput: speaker);
+    } catch (_) {}
+  }
 }
 
 /// Video bitrate that follows the link — AIMD, the shape TCP and every

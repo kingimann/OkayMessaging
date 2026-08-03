@@ -7114,6 +7114,28 @@ void main() {
           reason: 'the gap between two words must not flicker the ring');
     });
 
+    test('iOS gets a real call audio session, and rooms play out loud', () {
+      // The knob most WebRTC apps forget: Apple's own voice pipeline under
+      // WebRTC's, earpiece for voice calls, speaker for video and rooms.
+      final quality = File('lib/state/call_quality.dart').readAsStringSync();
+      expect(quality, contains('setAppleAudioIOMode'));
+      final media = File('lib/state/call_media.dart').readAsStringSync();
+      expect(media, contains('configureAudioSession(speaker: video)'),
+          reason: 'a voice call belongs on the earpiece, video on speaker');
+      expect(media, contains('configureAudioSession(speaker: true)'),
+          reason: 'a camera turning on mid-call moves to the speaker');
+      final room = File('lib/state/room_media.dart').readAsStringSync();
+      expect(room, contains('configureAudioSession(speaker: true)'),
+          reason: 'a voice channel held to the ear is a phone call '
+              'pretending');
+      // Each mesh leg adapts its own bitrate; the room reports its worst
+      // link in words instead of silently degrading.
+      expect(room, contains('_abrByPeer'));
+      expect(room, contains('roomQuality'));
+      expect(File('lib/screens/communities.dart').readAsStringSync(),
+          contains('poor connection'));
+    });
+
     test('a number the directory has never heard of gets an invite, not a '
         'chat', () async {
       // Unknown is not "no": with no session (this test env) the check must

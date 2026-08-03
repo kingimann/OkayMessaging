@@ -1219,9 +1219,23 @@ class _VoiceChannelScreenState extends State<VoiceChannelScreen> {
                           style: const TextStyle(
                               fontSize: 17, color: Colors.white)),
                       if (_joined)
-                        Text('Connected · $_elapsed',
-                            style: const TextStyle(
-                                fontSize: 12, color: Color(0xFF1DB954)))
+                        // The weakest leg of the mesh, said in words when
+                        // it is worth saying — silence about a bad link
+                        // reads as "the app is broken".
+                        Text(
+                            switch (RoomMedia.instance.roomQuality.value) {
+                              1 => 'Connected · $_elapsed · poor connection',
+                              2 => 'Connected · $_elapsed · weak connection',
+                              _ => 'Connected · $_elapsed',
+                            },
+                            style: TextStyle(
+                                fontSize: 12,
+                                color: switch (
+                                    RoomMedia.instance.roomQuality.value) {
+                                  1 => const Color(0xFFFF6B6B),
+                                  2 => const Color(0xFFF7931A),
+                                  _ => const Color(0xFF1DB954),
+                                }))
                       else if (occupants.isNotEmpty)
                         Text(
                             '${occupants.length} '

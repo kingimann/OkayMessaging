@@ -95,6 +95,9 @@ class RoomMedia extends ChangeNotifier {
     }
     _roomId = roomId;
     _channelId = channelId;
+    // A room plays out of the SPEAKER, like Discord — a voice channel held
+    // to your ear is a phone call pretending.
+    unawaited(CallQuality.configureAudioSession(speaker: true));
     _syncPeers();
     _startVoiceMeter();
     notifyListeners();
@@ -111,6 +114,14 @@ class RoomMedia extends ChangeNotifier {
   DateTime? _meLastAudible;
   Set<String> _speakingNow = const {};
   bool _meSpeakingNow = false;
+  int _meterTick = 0;
+  final Map<String, int> _lastLost = {};
+  final Map<String, int> _lastReceived = {};
+  final Map<String, AdaptiveBitrate> _abrByPeer = {};
+
+  /// The room's link, as bars: the WORST leg decides (3 good … 1 poor,
+  /// 0 unknown) — a mesh is only as good as the leg you can't hear.
+  final ValueNotifier<int> roomQuality = ValueNotifier<int>(0);
 
   /// How long the ring lingers after the last audible sample — the gap
   /// between two words must not flicker it off.
@@ -131,11 +142,32 @@ class RoomMedia extends ChangeNotifier {
   Future<void> _sampleVoice() async {
     if (_roomId == null) return;
     final now = DateTime.now();
+    // Loss over 700 ms is noise; judge links on a ~3 s window instead.
+    _meterTick += 1;
+    final judgeLinks = _meterTick % 4 == 0;
+    var worst = 0;
     var sampledLocal = false;
     for (final entry in _peers.entries) {
       try {
         final reports = await entry.value.getStats();
+        var lost = 0;
+        var received = 0;
+        double? rttMs;
         for (final r in reports) {
+          if (r.type == 'candidate-pair') {
+            final rtt =
+                (r.values['currentRoundTripTime'] as num?)?.toDouble();
+            if (rtt != null && rtt > 0) {
+              final ms = rtt * 1000;
+              rttMs = rttMs == null || ms > rttMs ? ms : rttMs;
+            }
+            continue;
+          }
+          if (r.type == 'inbound-rtp') {
+            lost += (r.values['packetsLost'] as num?)?.toInt() ?? 0;
+            received +=
+                (r.values['packetsReceived'] as num?)?.toInt() ?? 0;
+          }
           final kind =
               (r.values['kind'] ?? r.values['mediaType'])?.toString();
           if (kind != 'audio') continue;
@@ -150,8 +182,35 @@ class RoomMedia extends ChangeNotifier {
             if (CallQuality.audible(level)) _meLastAudible = now;
           }
         }
+        if (judgeLinks) {
+          final dLost =
+              (lost - (_lastLost[entry.key] ?? 0)).clamp(0, 1 << 30);
+          final dReceived = (received - (_lastReceived[entry.key] ?? 0))
+              .clamp(0, 1 << 30);
+          _lastLost[entry.key] = lost;
+          _lastReceived[entry.key] = received;
+          final total = dLost + dReceived;
+          if (total > 0) {
+            final loss = dLost / total;
+            final q = CallMedia.qualityFor(loss, rttMs: rttMs);
+            worst = worst == 0 || q < worst ? q : worst;
+            // Each leg's video cap follows ITS link — the weak leg backs
+            // off without dragging the strong ones down with it.
+            if (cameraOn.value || screenSharing.value) {
+              final abr = _abrByPeer.putIfAbsent(
+                  entry.key,
+                  () => AdaptiveBitrate(
+                      floor: 250000, ceiling: 2500000, start: 1200000));
+              if (abr.sample(loss)) {
+                unawaited(CallQuality.tuneVideoSenders(entry.value,
+                    screen: screenSharing.value, bitrateOverride: abr.rate));
+              }
+            }
+          }
+        }
       } catch (_) {}
     }
+    if (judgeLinks && _peers.isNotEmpty) roomQuality.value = worst;
     final speaking = <String>{
       for (final e in _lastAudible.entries)
         if (now.difference(e.value) < _speechHold) e.key
@@ -174,6 +233,11 @@ class RoomMedia extends ChangeNotifier {
     _voiceTimer = null;
     _lastAudible.clear();
     _lastRestart.clear();
+    _lastLost.clear();
+    _lastReceived.clear();
+    _abrByPeer.clear();
+    _meterTick = 0;
+    roomQuality.value = 0;
     _meLastAudible = null;
     _speakingNow = const {};
     _meSpeakingNow = false;
@@ -398,6 +462,11 @@ class RoomMedia extends ChangeNotifier {
     }
     _pendingIce.remove(digits);
     _remoteDescribed.remove(digits);
+    _lastLost.remove(digits);
+    _lastReceived.remove(digits);
+    _abrByPeer.remove(digits);
+    _lastAudible.remove(digits);
+    _lastRestart.remove(digits);
     final renderer = _remoteRenderers.remove(digits);
     if (renderer != null) {
       try {
@@ -596,6 +665,11 @@ class RoomMedia extends ChangeNotifier {
     _voiceTimer = null;
     _lastAudible.clear();
     _lastRestart.clear();
+    _lastLost.clear();
+    _lastReceived.clear();
+    _abrByPeer.clear();
+    _meterTick = 0;
+    roomQuality.value = 0;
     _meLastAudible = null;
     _speakingNow = const {};
     _meSpeakingNow = false;
