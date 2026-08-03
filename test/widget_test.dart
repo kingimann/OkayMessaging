@@ -6307,15 +6307,78 @@ void main() {
       expect(E2eCrypto.decrypt(key, base64.encode(bytes)), isNull);
     });
 
-    test('safety number is stable, symmetric, and 12 groups of 5 digits', () {
-      final a = E2eCrypto.safetyNumber('+1 555 0199', '+1 555 0100');
-      final b = E2eCrypto.safetyNumber('15550100', '15550199');
-      expect(a, b); // order-independent
+    test('the safety number fingerprints the KEYS, and fails when it should',
+        () {
+      // It used to be derived from the two phone numbers — which an
+      // interceptor also has, so the codes matched through any attack and
+      // the comparison verified nothing. A check that cannot fail is not a
+      // check.
+      final alice = SecureKeyExchange.freshForTest();
+      final bob = SecureKeyExchange.freshForTest();
+      final mallory = SecureKeyExchange.freshForTest();
+      final a = E2eCrypto.safetyNumberForKeys(
+          alice.myPublicKey!, bob.myPublicKey!);
+      final b = E2eCrypto.safetyNumberForKeys(
+          bob.myPublicKey!, alice.myPublicKey!);
+      expect(a, b, reason: 'both sides compute the same code');
       final groups = a.split(' ');
       expect(groups.length, 12);
       expect(groups.every((g) => RegExp(r'^\d{5}$').hasMatch(g)), isTrue);
-      // A different pair yields a different code.
-      expect(a, isNot(E2eCrypto.safetyNumber('+1 555 0199', '+1 555 0123')));
+      // The point of the whole exercise: a middle-man holds different keys,
+      // so each victim computes a DIFFERENT code and comparing catches it.
+      expect(
+          E2eCrypto.safetyNumberForKeys(
+              alice.myPublicKey!, mallory.myPublicKey!),
+          isNot(a));
+      expect(
+          E2eCrypto.safetyNumberForKeys(
+              mallory.myPublicKey!, bob.myPublicKey!),
+          isNot(a));
+    });
+
+    test('a changed identity key is said in the conversation', () async {
+      // The crypto layer already handles a key change safely; this is the
+      // HUMAN being told it happened — Signal's warning. First learn stays
+      // silent (that is every new contact introducing themselves).
+      SharedPreferences.setMockInitialValues({});
+      // ignore: invalid_use_of_visible_for_testing_member
+      addTearDown(SecureKeyExchange.instance.resetForTest);
+      addTearDown(() => SecureKeyExchange.instance.onPeerKeyChanged = null);
+      await SecureKeyExchange.instance.load();
+      SecureKeyExchange.instance.onPeerKeyChanged =
+          (digits) => ChatStore.instance.noteIdentityChange(digits);
+
+      final store = ChatStore.instance;
+      store.upsert(const Chat(
+        id: 'chat_keychg',
+        contact: AppUser(
+            id: 'kc',
+            name: 'Kai',
+            avatarColor: '#7A5CFF',
+            about: '',
+            phone: '+1 555 0171'),
+        messages: [],
+      ));
+      addTearDown(() => store.deleteChat('chat_keychg'));
+
+      final first = SecureKeyExchange.freshForTest();
+      final second = SecureKeyExchange.freshForTest();
+      SecureKeyExchange.instance
+          .rememberPeer('+1 555 0171', first.myPublicKey!);
+      expect(store.chatById('chat_keychg')!.messages, isEmpty,
+          reason: 'meeting someone is not a warning');
+      SecureKeyExchange.instance
+          .rememberPeer('+1 555 0171', second.myPublicKey!);
+      final msgs = store.chatById('chat_keychg')!.messages;
+      expect(msgs.length, 1);
+      expect(msgs.single.text, contains('security code changed'));
+      expect(msgs.single.text, contains('compare security codes'),
+          reason: 'the warning names the action, not just the event');
+      // Repeats within a run stay quiet — a two-device pairing alternating
+      // keys would otherwise fill the chat with warnings.
+      SecureKeyExchange.instance
+          .rememberPeer('+1 555 0171', first.myPublicKey!);
+      expect(store.chatById('chat_keychg')!.messages.length, 1);
     });
   });
 

@@ -45,12 +45,21 @@ class E2eCrypto {
     return sha256.convert(utf8.encode('$_context|$ordered')).bytes;
   }
 
-  /// A stable 60-digit "security code" (safety number) for the conversation
-  /// between two numbers, shown as 12 groups of 5 digits. Both devices compute
-  /// the same value from the shared secret; if they match, the chat's
-  /// encryption is verified (the classic Signal-style comparison).
-  static String safetyNumber(String phoneA, String phoneB) {
-    final base = keyFor(phoneA, phoneB);
+  /// A 60-digit security code (safety number) fingerprinting BOTH devices'
+  /// identity public keys, shown as 12 groups of 5 digits — the classic
+  /// Signal comparison. Order-independent, so both sides compute the same
+  /// value; a person-in-the-middle holds different keys and produces a
+  /// different code, which is the entire point.
+  ///
+  /// It used to be derived from the two PHONE NUMBERS, which both sides —
+  /// and any interceptor between them — always agree on by construction, so
+  /// the codes always matched and the comparison verified nothing. A code
+  /// that cannot fail is not a check; this one fails exactly when it should.
+  static String safetyNumberForKeys(String pubKeyA, String pubKeyB) {
+    final ordered = (pubKeyA.compareTo(pubKeyB) <= 0)
+        ? '$pubKeyA|$pubKeyB'
+        : '$pubKeyB|$pubKeyA';
+    final base = sha256.convert(utf8.encode('$_context|ids|$ordered')).bytes;
     // Two hash rounds give us plenty of bytes to map to 60 decimal digits.
     final h1 = sha256.convert([...base, ...utf8.encode('safety-1')]).bytes;
     final h2 = sha256.convert([...base, ...utf8.encode('safety-2')]).bytes;

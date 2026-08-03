@@ -366,6 +366,43 @@ class ChatStore extends ChangeNotifier {
     }
   }
 
+  /// Digits of peers whose key change has been said this run — once is a
+  /// warning, every alternation of a two-device pairing would be noise.
+  final Set<String> _keyChangeNoted = {};
+
+  /// Posts Signal's warning into the 1:1 chat when a contact's identity key
+  /// CHANGED: usually their reinstall or new phone, and once in a while the
+  /// one event a safety-number comparison exists to catch. Said in the
+  /// conversation, where the person deciding whether to keep talking is.
+  void noteIdentityChange(String digits) {
+    if (_keyChangeNoted.contains(digits)) return;
+    String d(String phone) => phone.replaceAll(RegExp(r'\D'), '');
+    Chat? chat;
+    for (final c in allChats) {
+      if (!c.contact.isGroup && d(c.contact.phone) == digits) {
+        chat = c;
+        break;
+      }
+    }
+    // No conversation, nothing to warn in — and not marked as said, so the
+    // warning still lands if a chat forms later and the key changes again.
+    if (chat == null) return;
+    _keyChangeNoted.add(digits);
+    addMessage(
+      chat.id,
+      Message(
+        id: 'keychg_${digits}_${DateTime.now().microsecondsSinceEpoch}',
+        text: '🔒 ${chat.contact.name}\'s security code changed — usually a '
+            'new phone, a reinstall, or a restored backup on their side. To '
+            'be sure nobody is in the middle, compare security codes in '
+            'contact info.',
+        time: DateTime.now(),
+        isMe: false,
+        status: MessageStatus.read,
+      ),
+    );
+  }
+
   void deleteChat(String id) {
     final i = _indexOf(id);
     if (i != -1) {

@@ -387,6 +387,11 @@ class _OkayMessagingAppState extends State<OkayMessagingApp>
         RelayService.instance.sendForumEvent(id, event, body);
       }
     };
+    // A contact's CHANGED identity key gets said in the conversation —
+    // Signal's warning. The crypto layer handles the change safely either
+    // way; this is the human being told it happened.
+    SecureKeyExchange.instance.onPeerKeyChanged =
+        (digits) => ChatStore.instance.noteIdentityChange(digits);
     // A member arriving gets the feed history from the owner's device —
     // broadcast has no history, so without this a listing posted before
     // they joined would never exist for them.

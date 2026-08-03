@@ -6,7 +6,6 @@ import '../crypto/double_ratchet.dart';
 import '../crypto/e2e.dart';
 import '../crypto/key_exchange.dart';
 import '../models/user.dart';
-import '../state/session.dart';
 import '../widgets/user_avatar.dart';
 
 /// Shows the conversation's security code (safety number). If it matches on
@@ -19,16 +18,22 @@ class SecurityCodeScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final myPhone = Session.instance.user.value?.phone ?? '';
-    final code = E2eCrypto.safetyNumber(myPhone, contact.phone);
-    final groups = code.split(' ');
+    // The code fingerprints BOTH devices' identity keys — it exists only
+    // once the peer's key has arrived. It used to be derived from the two
+    // phone numbers, which an interceptor also has, so it matched through
+    // any attack and verified nothing. No code beats a code that lies.
+    final myPub = SecureKeyExchange.instance.myPublicKey;
+    final peerPub = SecureKeyExchange.instance.peerKey(contact.phone);
+    final code = (myPub != null && peerPub != null)
+        ? E2eCrypto.safetyNumberForKeys(myPub, peerPub)
+        : null;
+    final groups = code?.split(' ') ?? const <String>[];
     // Say which rung of the encryption ladder this conversation is really
     // on, instead of one static sentence for all three. The ladder only
     // climbs: a chat starts against the number, steps up when the peer's
     // device introduces its key, and lands on the ratchet as you message.
     final ratchet = DoubleRatchet.instance.hasSession(contact.phone);
-    final ecdh =
-        SecureKeyExchange.instance.peerKey(contact.phone) != null;
+    final ecdh = peerPub != null;
     final level = ratchet
         ? 'Signal protocol — Double Ratchet active'
         : ecdh
@@ -67,54 +72,67 @@ class SecurityCodeScreen extends StatelessWidget {
           const SizedBox(height: 12),
           Center(
             child: Text(
-              'Messages and calls with ${contact.name} are $how. Compare '
-              'this code on both devices to verify — if they match, no one '
-              'else can read this chat.',
+              code == null
+                  ? 'Messages and calls with ${contact.name} are $how. The '
+                      'security code appears once your devices have '
+                      'exchanged keys — send a message each way, then '
+                      'compare it here.'
+                  : 'Messages and calls with ${contact.name} are $how. This '
+                      'code is a fingerprint of both devices\' encryption '
+                      'keys — compare it on both phones, and if it matches, '
+                      'nobody is between you.',
               textAlign: TextAlign.center,
               style: TextStyle(color: AppColors.subtle(context), height: 1.4),
             ),
           ),
           const SizedBox(height: 26),
-          Container(
-            padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 12),
-            decoration: BoxDecoration(
-              color: Theme.of(context).brightness == Brightness.dark
-                  ? const Color(0xFF23262B)
-                  : const Color(0xFFF4F6F7),
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: Wrap(
-              alignment: WrapAlignment.center,
-              spacing: 18,
-              runSpacing: 12,
-              children: [
-                for (final g in groups)
-                  Text(
-                    g,
-                    style: const TextStyle(
-                      fontFamily: 'monospace',
-                      fontSize: 20,
-                      letterSpacing: 2,
-                      fontWeight: FontWeight.w600,
+          if (code != null) ...[
+            Container(
+              padding:
+                  const EdgeInsets.symmetric(vertical: 20, horizontal: 12),
+              decoration: BoxDecoration(
+                color: Theme.of(context).brightness == Brightness.dark
+                    ? const Color(0xFF23262B)
+                    : const Color(0xFFF4F6F7),
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Wrap(
+                alignment: WrapAlignment.center,
+                spacing: 18,
+                runSpacing: 12,
+                children: [
+                  for (final g in groups)
+                    Text(
+                      g,
+                      style: const TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: 20,
+                        letterSpacing: 2,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
-                  ),
-              ],
+                ],
+              ),
             ),
-          ),
-          const SizedBox(height: 20),
-          OutlinedButton.icon(
-            onPressed: () {
-              Clipboard.setData(ClipboardData(text: code));
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Security code copied')),
-              );
-            },
-            icon: const Icon(Icons.copy, size: 18),
-            label: const Text('Copy code'),
-            style: OutlinedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(vertical: 14),
+            const SizedBox(height: 20),
+            OutlinedButton.icon(
+              onPressed: () {
+                Clipboard.setData(ClipboardData(text: code));
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Security code copied')),
+                );
+              },
+              icon: const Icon(Icons.copy, size: 18),
+              label: const Text('Copy code'),
+              style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 14),
+              ),
             ),
-          ),
+          ] else
+            Center(
+              child: Icon(Icons.hourglass_empty,
+                  size: 32, color: AppColors.subtle(context)),
+            ),
         ],
       ),
     );

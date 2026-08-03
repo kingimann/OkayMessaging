@@ -59,13 +59,22 @@ class SecureKeyExchange {
   /// The cached public key for [phone], or null if we haven't received it yet.
   String? peerKey(String phone) => _peerKeys[_digits(phone)];
 
+  /// Fired when a peer's key CHANGES — not on first learn, which is every
+  /// new contact introducing themselves. Wired to the chat store so the
+  /// conversation says so out loud: a changed key is usually a reinstall or
+  /// a new phone, and once in a while it is the one event a safety-number
+  /// comparison exists to catch. Signal posts this notice; so do we.
+  void Function(String digits)? onPeerKeyChanged;
+
   /// Remembers a peer's public key (from a relay handshake). Returns true when
   /// it was new or changed.
   bool rememberPeer(String phone, String publicKeyB64) {
     final key = _digits(phone);
-    if (_peerKeys[key] == publicKeyB64) return false;
+    final previous = _peerKeys[key];
+    if (previous == publicKeyB64) return false;
     _peerKeys[key] = publicKeyB64;
     _prefs?.setString(_kPeers, jsonEncode(_peerKeys));
+    if (previous != null) onPeerKeyChanged?.call(key);
     return true;
   }
 
