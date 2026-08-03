@@ -18947,6 +18947,22 @@ void main() {
           isNull);
     });
 
+    test('the business section always ships an mcc with the description', () {
+      // Stripe wants business_profile.mcc and no form can ask a person for
+      // a merchant category code; without one sent alongside, the business
+      // section came back after every submit, forever.
+      final src =
+          File('lib/screens/native_onboarding_screen.dart').readAsStringSync();
+      final collapsed = src.replaceAll(RegExp(r'\s+'), ' ');
+      expect(collapsed.contains("'mcc': '4829'"), isTrue,
+          reason: 'the description alone leaves business_profile.mcc due');
+      expect(
+          collapsed.contains(
+              "if (needs.contains(ConnectField.business)) ...{"),
+          isTrue,
+          reason: 'the mcc must ride the same condition as the description');
+    });
+
     test('the tips store check names the broken link, not a generic failure',
         () {
       // No store at all (web, signed-out device).

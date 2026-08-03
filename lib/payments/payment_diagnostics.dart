@@ -140,12 +140,16 @@ class PaymentsSelfTest {
               '(paste payments-connect-fields in Edge Functions)',
           CheckState.fail));
     } else if (setup!.collectableInApp) {
+      // The requirement strings by name: "2 sections due" cannot be acted
+      // on, "business_profile.mcc" can.
+      final due = {...setup.pastDue, ...setup.currentlyDue};
       steps.add(DiagnosticStep(
           'In-app setup',
           setup.complete
               ? 'Ready — Stripe has everything it needs.'
               : 'The app asks for it: ${setup.fieldsNeeded.length} '
-                  'section(s) still due.',
+                  'section(s) still due'
+                  '${due.isEmpty ? '' : ' (${due.join(', ')})'}.',
           CheckState.pass));
     } else {
       steps.add(const DiagnosticStep(

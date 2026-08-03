@@ -232,10 +232,18 @@ class _NativeOnboardingScreenState extends State<NativeOnboardingScreen> {
         if (bankToken != null) 'bankToken': bankToken,
         if (frontId != null) 'documentFrontFileId': frontId,
         if (backId != null) 'documentBackFileId': backId,
-        if (needs.contains(ConnectField.business))
+        if (needs.contains(ConnectField.business)) ...{
           'productDescription': _work.text.trim().isEmpty
               ? 'Peer-to-peer transfers between people who know each other'
               : _work.text.trim(),
+          // Stripe's business_profile also wants a merchant category code,
+          // and there is no honest way to ask a person for one — it is a
+          // fact about the PLATFORM, not about them. 4829 is money
+          // transfer, which is what peer-to-peer payments are. Without
+          // this the description went up, the mcc stayed due, and this
+          // section came back forever.
+          'mcc': '4829',
+        },
         if (needs.contains(ConnectField.phone)) 'phone': _phone.text.trim(),
         if (needs.contains(ConnectField.title)) 'title': _title.text.trim(),
         if (needs.contains(ConnectField.tos)) 'acceptedTos': true,
