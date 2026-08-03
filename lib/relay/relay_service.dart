@@ -792,6 +792,8 @@ class RelayService {
               applySkdm(payload, myPhone: me);
             case 'skreq':
               applySkreq(payload, myPhone: me);
+            case 'key':
+              applyKeyEvent(payload, myPhone: me);
             case 'chmsg' ||
                   'chjoin' ||
                   'chupd' ||
@@ -912,23 +914,7 @@ class RelayService {
           event: 'key',
           callback: (rawEnvelope) {
             final payload = unwrapBroadcast(rawEnvelope);
-            final from = payload['from'] as String?;
-            final pub = payload['pub'] as String?;
-            if (from == null || pub == null || digits(from) == digits(me)) {
-              return;
-            }
-            if (SecureKeyExchange.instance.rememberPeer(from, pub)) {
-              // A CHANGED key buries the ratchet session: the old one
-              // belongs to an identity that no longer exists, and holding
-              // it means sealing every future message to a ghost — which
-              // the far end renders as a screen of base64. Also forget that
-              // we ever introduced ourselves, so the reply below really
-              // goes out.
-              DoubleRatchet.instance.resetPeer(from);
-              _sentKeyTo.remove(digits(from));
-            }
-            // Reply with our key once so both sides can derive the secret.
-            _ensureKeyShared(from);
+            applyKeyEvent(Map<String, dynamic>.from(payload), myPhone: me);
           },
         )
         .onBroadcast(
@@ -2547,6 +2533,28 @@ class RelayService {
     }
   }
 
+  /// Applies a peer's key (re)introduction, wherever it arrived — the live
+  /// broadcast, or the mailbox when a heal was queued for a device that was
+  /// closed at the time.
+  void applyKeyEvent(Map<String, dynamic> payload, {required String myPhone}) {
+    final from = payload['from'] as String?;
+    final pub = payload['pub'] as String?;
+    if (from == null || pub == null || digits(from) == digits(myPhone)) {
+      return;
+    }
+    if (SecureKeyExchange.instance.rememberPeer(from, pub)) {
+      // A CHANGED key buries the ratchet session: the old one belongs to an
+      // identity that no longer exists, and holding it means sealing every
+      // future message to a ghost — which the far end renders as a screen
+      // of base64. Also forget that we ever introduced ourselves, so the
+      // reply below really goes out.
+      DoubleRatchet.instance.resetPeer(from);
+      _sentKeyTo.remove(digits(from));
+    }
+    // Reply with our key once so both sides can derive the secret.
+    _ensureKeyShared(from);
+  }
+
   /// Sends this device's public key to [contactPhone] once per session, so the
   /// two sides can derive an ECDH shared secret.
   Future<void> _ensureKeyShared(String contactPhone) async {
@@ -2612,6 +2620,20 @@ class RelayService {
     _healAsked[d] = DateTime.now();
     _sentKeyTo.remove(d);
     _ensureKeyShared(from);
+    // The live broadcast above only reaches an OPEN app — and the peer who
+    // sealed to a ghost key almost certainly is not looking at theirs right
+    // now, which is why the same failure came back hours apart instead of
+    // once. Queue the re-introduction too, so their next launch applies it
+    // before they send anything else. Public material only: from-digits and
+    // a public key, both of which the broadcast already carries in the
+    // clear.
+    final kx = SecureKeyExchange.instance;
+    if (kx.isReady) {
+      _mailboxPut(from, {
+        'from': Session.instance.user.value?.phone,
+        'pub': kx.myPublicKey,
+      }, event: 'key');
+    }
   }
 
   /// Re-establishes the inbox subscription and re-announces presence to the

@@ -3405,6 +3405,47 @@ void main() {
           reason: 'the failure is said in words the reader can act on');
     });
 
+    test('a key heal rides the mailbox and buries the ghost session',
+        () async {
+      // The live 'key' broadcast only reaches an OPEN app, and the peer who
+      // sealed to a dead key almost never has theirs open at that moment —
+      // "sealed to a key this device no longer has" came back hours apart,
+      // forever, because every heal evaporated. The heal must queue too.
+      final src = File('lib/relay/relay_service.dart').readAsStringSync();
+      final heal = src.substring(src.indexOf('void healPeer('));
+      expect(heal.substring(0, heal.indexOf('resync')).contains("event: 'key'"),
+          isTrue,
+          reason: 'healPeer must queue the re-introduction to the mailbox');
+      expect(
+          src
+              .replaceAll(RegExp(r'\s+'), ' ')
+              .contains("case 'key': applyKeyEvent(payload, myPhone: me);"),
+          isTrue,
+          reason: 'a queued heal must be applied when the mailbox drains');
+
+      // And applying it behaves: a CHANGED key updates the record and
+      // buries the ratchet session that belonged to the old identity.
+      // ignore: invalid_use_of_visible_for_testing_member
+      addTearDown(SecureKeyExchange.instance.resetForTest);
+      // ignore: invalid_use_of_visible_for_testing_member
+      addTearDown(DoubleRatchet.instance.resetForTest);
+      await SecureKeyExchange.instance.load();
+      final oldIdentity = SecureKeyExchange.freshForTest();
+      final newIdentity = SecureKeyExchange.freshForTest();
+      SecureKeyExchange.instance
+          .rememberPeer('+1 555 0166', oldIdentity.myPublicKey!);
+      DoubleRatchet.instance.encrypt('15550100', '15550166', 'seed session');
+      expect(DoubleRatchet.instance.hasSession('15550166'), isTrue);
+      RelayService.instance.applyKeyEvent({
+        'from': '+1 555 0166',
+        'pub': newIdentity.myPublicKey!,
+      }, myPhone: '+1 555 0100');
+      expect(DoubleRatchet.instance.hasSession('15550166'), isFalse,
+          reason: 'the old identity\'s session must not outlive its key');
+      expect(SecureKeyExchange.instance.peerKey('+1 555 0166'),
+          newIdentity.myPublicKey);
+    });
+
     test('a stranger\'s first message files as a request, not a chat', () {
       final store = ChatStore.instance;
       store.hydrate(const {'chats': []});
