@@ -1324,9 +1324,15 @@ class _VoiceChannelScreenState extends State<VoiceChannelScreen> {
                             fontSize: 23,
                             fontWeight: FontWeight.w700)),
                   ),
-            // Nobody's mic is actually open yet — the ring means "not muted",
-            // which is as much as presence can honestly claim.
-            speaking: !o.muted && !(o.isMe && _deafened),
+            // With the mesh live the ring means what everyone assumes it
+            // means: this person is audibly talking, read off the media
+            // stats. Without media (mesh unsupported, mic refused) it falls
+            // back to "not muted" — the most presence alone can claim.
+            speaking: RoomMedia.instance.active
+                ? (o.isMe
+                    ? RoomMedia.instance.amSpeaking && !_muted
+                    : RoomMedia.instance.isSpeaking(o.digits))
+                : !o.muted && !(o.isMe && _deafened),
             muted: o.muted || (o.isMe && _deafened),
             deafened: o.isMe && _deafened,
             video: o.video,

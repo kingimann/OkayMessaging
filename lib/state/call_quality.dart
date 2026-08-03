@@ -91,8 +91,11 @@ class CallQuality {
   /// Tunes every VIDEO sender on [pc] for what it is carrying right now.
   /// Best-effort on purpose: parameters vary by platform, and a call that
   /// connects untuned beats one that crashed tuning itself.
+  /// [bitrateOverride] is the adaptive controller's current rate — when set
+  /// it replaces the static ceiling, so a struggling link is actually
+  /// listened to.
   static Future<void> tuneVideoSenders(RTCPeerConnection pc,
-      {required bool screen}) async {
+      {required bool screen, int? bitrateOverride}) async {
     try {
       for (final sender in await pc.getSenders()) {
         if (sender.track?.kind != 'video') continue;
@@ -101,7 +104,7 @@ class CallQuality {
         if (encodings == null || encodings.isEmpty) continue;
         for (final e in encodings) {
           // Screen: room for crisp text. Camera: enough for smooth 720p.
-          e.maxBitrate = screen ? 2500000 : 1200000;
+          e.maxBitrate = bitrateOverride ?? (screen ? 2500000 : 1200000);
           e.maxFramerate = screen ? 15 : 30;
         }
         params.degradationPreference = screen
@@ -110,5 +113,41 @@ class CallQuality {
         await sender.setParameters(params);
       }
     } catch (_) {}
+  }
+
+  /// Whether a stats audio level means somebody is talking. 0.02 is well
+  /// above processed-mic noise floors and well below any actual speech.
+  static bool audible(double? level) => (level ?? 0) > 0.02;
+}
+
+/// Video bitrate that follows the link — AIMD, the shape TCP and every
+/// congestion controller since have used: back off hard when the link
+/// drops packets, creep back up when it stays clean. WebRTC's own bandwidth
+/// estimation adapts *below* the cap; this moves the cap itself, so a link
+/// that fell over at 2.5 Mbps isn't asked for 2.5 Mbps again two seconds
+/// after recovering.
+class AdaptiveBitrate {
+  AdaptiveBitrate({
+    required this.floor,
+    required this.ceiling,
+    int? start,
+  }) : rate = start ?? ceiling;
+
+  final int floor;
+  final int ceiling;
+  int rate;
+
+  /// Feeds one loss sample. Returns true when the rate changed and the
+  /// caller should re-apply it to the senders.
+  bool sample(double lossRatio) {
+    final before = rate;
+    if (lossRatio >= 0.05) {
+      // Multiplicative decrease: real loss means the link is over-asked.
+      rate = (rate * 0.7).round().clamp(floor, ceiling);
+    } else if (lossRatio <= 0.01) {
+      // Additive increase: a clean window earns a small raise.
+      rate = (rate + 100000).clamp(floor, ceiling);
+    }
+    return rate != before;
   }
 }

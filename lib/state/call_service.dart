@@ -770,6 +770,22 @@ class CallService {
     return error;
   }
 
+  /// Redials the transport under a live call after a network switch: an
+  /// ICE-restart offer over the same renegotiation path a camera-on offer
+  /// rides. Exactly one side restarts — the original CALLER — so a failure
+  /// both ends notice at once does not produce colliding offers. Wired to
+  /// [CallMedia.onNeedsIceRestart] at startup.
+  Future<void> restartIce() async {
+    final c = current.value;
+    if (c == null || c.status != CallStatus.connected || c.isGroup) return;
+    if (c.direction != CallDirection.outgoing) return;
+    final sdp = await CallMedia.instance.createIceRestartOffer();
+    if (sdp == null) return;
+    RelayService.instance.sendCall(c.peer.phone,
+        kind: 'offer', callId: c.callId, video: c.video, sdp: sdp,
+        queue: false);
+  }
+
   /// Sends a fresh offer for the LIVE call so a newly added track (camera or
   /// screen) actually starts flowing to the peer.
   Future<void> _renegotiate(CallSession c) async {

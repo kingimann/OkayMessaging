@@ -30,6 +30,7 @@ import 'state/account_service.dart';
 import 'state/app_lock.dart';
 import 'state/backup_service.dart';
 import 'state/call_log.dart';
+import 'state/call_media.dart';
 import 'state/call_service.dart';
 import 'state/callkit_bridge.dart';
 import 'state/community_store.dart';
@@ -172,6 +173,10 @@ Future<void> main() async {
       (fromDigits, roomId, kind, {sdp, ice}) => RoomMedia.instance
           .onSignal(fromDigits, roomId, kind, sdp: sdp, ice: ice);
   RoomMedia.instance.bind();
+  // A network switch mid-call redials the transport instead of hanging in
+  // "Reconnecting…" forever.
+  CallMedia.instance.onNeedsIceRestart = () =>
+      unawaited(CallService.instance.restartIce());
   await _boot('cloud sync', CloudSync.instance.load);
   await _boot('status', StatusStore.instance.load);
   await _boot('favourites', FavouritesStore.instance.load);

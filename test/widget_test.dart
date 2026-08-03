@@ -7040,6 +7040,80 @@ void main() {
       expect(media, contains('CallQuality.tuneOpus'));
     });
 
+    test('the adaptive bitrate backs off hard and recovers slowly', () {
+      final abr =
+          AdaptiveBitrate(floor: 250000, ceiling: 2500000, start: 1200000);
+      // Real loss: multiplicative decrease, and the change is reported so
+      // the caller re-applies it to the senders.
+      expect(abr.sample(0.10), isTrue);
+      expect(abr.rate, 840000);
+      expect(abr.sample(0.10), isTrue);
+      expect(abr.rate, lessThan(840000));
+      // It can be beaten down only to the floor.
+      for (var i = 0; i < 20; i++) {
+        abr.sample(0.5);
+      }
+      expect(abr.rate, 250000);
+      expect(abr.sample(0.5), isFalse,
+          reason: 'at the floor there is nothing left to change');
+      // Clean windows earn additive raises, capped at the ceiling.
+      expect(abr.sample(0.0), isTrue);
+      expect(abr.rate, 350000);
+      for (var i = 0; i < 100; i++) {
+        abr.sample(0.0);
+      }
+      expect(abr.rate, 2500000);
+      // The gray zone between thresholds changes nothing.
+      expect(abr.sample(0.03), isFalse);
+    });
+
+    test('quality bars are the worse of loss and latency', () {
+      // Loss alone called a 500 ms link perfect; a phone call at 500 ms is
+      // not a good phone call.
+      expect(CallMedia.qualityFor(0.0), 3);
+      expect(CallMedia.qualityFor(0.0, rttMs: 500), 1);
+      expect(CallMedia.qualityFor(0.0, rttMs: 300), 2);
+      expect(CallMedia.qualityFor(0.10, rttMs: 50), 1,
+          reason: 'good latency cannot buy back heavy loss');
+      expect(CallMedia.qualityFor(0.03, rttMs: 300), 2);
+    });
+
+    test('a dead link redials itself — on both call shapes', () {
+      // 1:1: CallMedia asks, CallService restarts, and only the original
+      // caller does — a failure both ends see must not collide offers.
+      final media = File('lib/state/call_media.dart').readAsStringSync();
+      expect(media, contains('onNeedsIceRestart'));
+      expect(media, contains("'iceRestart': true"));
+      final service = File('lib/state/call_service.dart').readAsStringSync();
+      expect(service, contains('restartIce'));
+      expect(service, contains('CallDirection.outgoing'),
+          reason: 'exactly one side may redial');
+      expect(File('lib/main.dart').readAsStringSync(),
+          contains('onNeedsIceRestart'));
+      // Mesh: the pair's initiator redials its own dead leg.
+      final room = File('lib/state/room_media.dart').readAsStringSync();
+      expect(room, contains('_restartPeer'));
+      expect(room, contains("'iceRestart': true"));
+      // And a TCP TURN path exists for UDP-swallowing networks.
+      expect(media, contains('transport=tcp'));
+    });
+
+    test('the speaking ring is voice, with a hold against flicker', () {
+      expect(CallQuality.audible(0.2), isTrue);
+      expect(CallQuality.audible(0.001), isFalse,
+          reason: 'noise floor must not light the ring');
+      expect(CallQuality.audible(null), isFalse);
+      // The room reads real levels when media is live and says so.
+      final screens =
+          File('lib/screens/communities.dart').readAsStringSync();
+      expect(screens, contains('amSpeaking'));
+      expect(screens, contains('isSpeaking(o.digits)'));
+      final room = File('lib/state/room_media.dart').readAsStringSync();
+      expect(room, contains('audioLevel'));
+      expect(room, contains('_speechHold'),
+          reason: 'the gap between two words must not flicker the ring');
+    });
+
     test('a number the directory has never heard of gets an invite, not a '
         'chat', () async {
       // Unknown is not "no": with no session (this test env) the check must

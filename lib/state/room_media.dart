@@ -96,8 +96,73 @@ class RoomMedia extends ChangeNotifier {
     _roomId = roomId;
     _channelId = channelId;
     _syncPeers();
+    _startVoiceMeter();
     notifyListeners();
     return null;
+  }
+
+  // --- Speaking detection ------------------------------------------------
+  // The green ring used to mean "not muted", which is as much as presence
+  // alone could claim. With media flowing the stats know who is actually
+  // making sound, so the ring can mean what everyone assumes it means.
+
+  Timer? _voiceTimer;
+  final Map<String, DateTime> _lastAudible = {};
+  DateTime? _meLastAudible;
+  Set<String> _speakingNow = const {};
+  bool _meSpeakingNow = false;
+
+  /// How long the ring lingers after the last audible sample — the gap
+  /// between two words must not flicker it off.
+  static const Duration _speechHold = Duration(milliseconds: 900);
+
+  /// Whether [digits] was audibly speaking within the hold window.
+  bool isSpeaking(String digits) => _speakingNow.contains(digits);
+
+  /// Whether this device's own mic is audibly live.
+  bool get amSpeaking => _meSpeakingNow;
+
+  void _startVoiceMeter() {
+    _voiceTimer?.cancel();
+    _voiceTimer = Timer.periodic(
+        const Duration(milliseconds: 700), (_) => _sampleVoice());
+  }
+
+  Future<void> _sampleVoice() async {
+    if (_roomId == null) return;
+    final now = DateTime.now();
+    var sampledLocal = false;
+    for (final entry in _peers.entries) {
+      try {
+        final reports = await entry.value.getStats();
+        for (final r in reports) {
+          final kind =
+              (r.values['kind'] ?? r.values['mediaType'])?.toString();
+          if (kind != 'audio') continue;
+          final level = (r.values['audioLevel'] as num?)?.toDouble();
+          if (r.type == 'inbound-rtp' && CallQuality.audible(level)) {
+            _lastAudible[entry.key] = now;
+          }
+          // The local mic's level shows up once per connection; one
+          // sample of it is plenty.
+          if (r.type == 'media-source' && !sampledLocal) {
+            sampledLocal = true;
+            if (CallQuality.audible(level)) _meLastAudible = now;
+          }
+        }
+      } catch (_) {}
+    }
+    final speaking = <String>{
+      for (final e in _lastAudible.entries)
+        if (now.difference(e.value) < _speechHold) e.key
+    };
+    final me = _meLastAudible != null &&
+        now.difference(_meLastAudible!) < _speechHold;
+    if (!setEquals(speaking, _speakingNow) || me != _meSpeakingNow) {
+      _speakingNow = speaking;
+      _meSpeakingNow = me;
+      notifyListeners();
+    }
   }
 
   /// Closes every connection and stops every capture.
@@ -105,6 +170,13 @@ class RoomMedia extends ChangeNotifier {
     final roomId = _roomId;
     _roomId = null;
     _channelId = null;
+    _voiceTimer?.cancel();
+    _voiceTimer = null;
+    _lastAudible.clear();
+    _lastRestart.clear();
+    _meLastAudible = null;
+    _speakingNow = const {};
+    _meSpeakingNow = false;
     if (roomId != null) {
       for (final digits in _peers.keys) {
         send?.call(digits, roomId: roomId, kind: 'bye');
@@ -177,6 +249,25 @@ class RoomMedia extends ChangeNotifier {
   Future<RTCPeerConnection> _createPeer(String digits, String roomId) async {
     final pc = await createPeerConnection(CallMedia.rtcConfig);
     _peers[digits] = pc;
+    // A network switch kills every negotiated pair; the pair's INITIATOR
+    // redials with fresh ICE credentials over the same offer path. The
+    // other side just answers — a failure both notice at once must not
+    // produce colliding offers.
+    pc.onConnectionState = (state) {
+      if (state !=
+          RTCPeerConnectionState.RTCPeerConnectionStateFailed) {
+        return;
+      }
+      if (initiates(_myDigits, digits)) {
+        final last = _lastRestart[digits];
+        if (last != null &&
+            DateTime.now().difference(last) < const Duration(seconds: 8)) {
+          return;
+        }
+        _lastRestart[digits] = DateTime.now();
+        unawaited(_restartPeer(digits, pc, roomId));
+      }
+    };
     final local = _localStream;
     if (local != null) {
       for (final track in local.getTracks()) {
@@ -457,6 +548,23 @@ class RoomMedia extends ChangeNotifier {
     notifyListeners();
   }
 
+  final Map<String, DateTime> _lastRestart = {};
+
+  /// An ICE-restart round for one dead pair — new credentials, same
+  /// signaling path, connection object kept.
+  Future<void> _restartPeer(
+      String digits, RTCPeerConnection pc, String roomId) async {
+    try {
+      final offer = await pc.createOffer({'iceRestart': true});
+      await pc.setLocalDescription(offer);
+      final sdp = offer.sdp;
+      if (sdp != null) {
+        send?.call(digits,
+            roomId: roomId, kind: 'offer', sdp: CallQuality.tuneOpus(sdp));
+      }
+    } catch (_) {}
+  }
+
   /// A fresh offer/answer round on a live connection, after this side's
   /// media changed. The far side answers through the same 'offer' path a
   /// new connection uses.
@@ -484,6 +592,13 @@ class RoomMedia extends ChangeNotifier {
     _pendingIce.clear();
     _remoteDescribed.clear();
     _remoteRenderers.clear();
+    _voiceTimer?.cancel();
+    _voiceTimer = null;
+    _lastAudible.clear();
+    _lastRestart.clear();
+    _meLastAudible = null;
+    _speakingNow = const {};
+    _meSpeakingNow = false;
     _roomId = null;
     _channelId = null;
     _localStream = null;

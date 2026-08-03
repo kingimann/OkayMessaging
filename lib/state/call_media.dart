@@ -102,6 +102,14 @@ class CallMedia {
               'username': 'openrelayproject',
               'credential': 'openrelayproject',
             },
+            {
+              // TCP on 443 for the networks that swallow UDP entirely —
+              // hotel and office firewalls. Worse latency than UDP relay,
+              // but a call that connects at 250 ms beats one that doesn't.
+              'urls': 'turn:openrelay.metered.ca:443?transport=tcp',
+              'username': 'openrelayproject',
+              'credential': 'openrelayproject',
+            },
           ],
         ],
       };
@@ -162,6 +170,7 @@ class CallMedia {
     };
     pc.onConnectionState = (state) {
       connectionState.value = _mapState(state);
+      _watchForDeadLink(connectionState.value);
     };
     connectionState.value = 'connecting';
     localVideo.value = video;
@@ -244,6 +253,60 @@ class CallMedia {
     _pendingRemoteIce.clear();
     for (final c in queued) {
       await addIce(c);
+    }
+  }
+
+  // --- ICE restart: surviving a network switch ---------------------------
+  // Walking out of Wi-Fi coverage mid-call moves the phone to cellular and
+  // every negotiated ICE pair dies with the old address. Without a restart
+  // the call sat in "Reconnecting…" until somebody gave up. An ICE restart
+  // is a renegotiation offer with fresh credentials — it rides the exact
+  // path a camera-on offer already rides, and the far side answers in place.
+
+  /// Fired when the connection failed (or stayed disconnected long enough
+  /// to mean it) and a restart offer should be signaled. Wired to
+  /// CallService at startup; null in tests.
+  void Function()? onNeedsIceRestart;
+
+  Timer? _disconnectTimer;
+  DateTime? _lastRestartAsk;
+
+  void _watchForDeadLink(String state) {
+    if (state == 'failed') {
+      _disconnectTimer?.cancel();
+      _askRestart();
+    } else if (state == 'disconnected') {
+      // Disconnected often self-heals in a second or two; only a persistent
+      // one is worth a restart round.
+      _disconnectTimer?.cancel();
+      _disconnectTimer = Timer(const Duration(seconds: 5), () {
+        if (connectionState.value == 'disconnected') _askRestart();
+      });
+    } else {
+      _disconnectTimer?.cancel();
+    }
+  }
+
+  void _askRestart() {
+    final now = DateTime.now();
+    // One ask per window — a flapping link must not stack offers.
+    if (_lastRestartAsk != null &&
+        now.difference(_lastRestartAsk!) < const Duration(seconds: 8)) {
+      return;
+    }
+    _lastRestartAsk = now;
+    onNeedsIceRestart?.call();
+  }
+
+  /// A renegotiation offer with fresh ICE credentials.
+  Future<String?> createIceRestartOffer() async {
+    if (!isSupported || _pc == null) return null;
+    try {
+      final offer = await _pc!.createOffer({'iceRestart': true});
+      await _pc!.setLocalDescription(offer);
+      return offer.sdp == null ? null : CallQuality.tuneOpus(offer.sdp!);
+    } catch (_) {
+      return null;
     }
   }
 
@@ -473,6 +536,7 @@ class CallMedia {
   Timer? _statsTimer;
   int _lastLost = 0;
   int _lastReceived = 0;
+  AdaptiveBitrate? _abr;
 
   /// Maps a packet-loss ratio to quality bars. Pure, so it's easy to test.
   static int qualityForLoss(double lossRatio) {
@@ -481,11 +545,30 @@ class CallMedia {
     return 3;
   }
 
+  /// Bars from loss AND round-trip time — the worse of the two. A lossless
+  /// link at 500 ms is still a bad phone call, and loss alone called it
+  /// perfect. Pure, so it's easy to test.
+  static int qualityFor(double lossRatio, {double? rttMs}) {
+    final byLoss = qualityForLoss(lossRatio);
+    final byRtt = rttMs == null
+        ? 3
+        : rttMs >= 400
+            ? 1
+            : rttMs >= 250
+                ? 2
+                : 3;
+    return byLoss < byRtt ? byLoss : byRtt;
+  }
+
   /// Polls the peer connection for inbound packet loss while a call runs.
   void _startStatsMonitor() {
     _statsTimer?.cancel();
     _lastLost = 0;
     _lastReceived = 0;
+    // Bounds wide enough for both cargos; what the cap protects is the
+    // LINK, and the link doesn't care whether the pixels are a face or a
+    // spreadsheet.
+    _abr = AdaptiveBitrate(floor: 250000, ceiling: 2500000, start: 1200000);
     _statsTimer =
         Timer.periodic(const Duration(seconds: 3), (_) => _sampleStats());
   }
@@ -497,7 +580,16 @@ class CallMedia {
       final reports = await pc.getStats();
       var lost = 0;
       var received = 0;
+      double? rttMs;
       for (final r in reports) {
+        if (r.type == 'candidate-pair') {
+          final rtt = (r.values['currentRoundTripTime'] as num?)?.toDouble();
+          if (rtt != null && rtt > 0) {
+            final ms = rtt * 1000;
+            rttMs = rttMs == null || ms > rttMs ? ms : rttMs;
+          }
+          continue;
+        }
         if (r.type != 'inbound-rtp') continue;
         lost += (r.values['packetsLost'] as num?)?.toInt() ?? 0;
         received += (r.values['packetsReceived'] as num?)?.toInt() ?? 0;
@@ -510,7 +602,16 @@ class CallMedia {
       _lastReceived = received;
       final total = dLost + dReceived;
       if (total <= 0) return; // no traffic in this window — keep last reading
-      quality.value = qualityForLoss(dLost / total);
+      final loss = dLost / total;
+      quality.value = qualityFor(loss, rttMs: rttMs);
+      // The adaptive cap: only worth applying while video is on the wire.
+      final abr = _abr;
+      if (abr != null &&
+          (hasLocalVideo || screenSharing.value) &&
+          abr.sample(loss)) {
+        unawaited(CallQuality.tuneVideoSenders(pc,
+            screen: screenSharing.value, bitrateOverride: abr.rate));
+      }
     } catch (_) {
       // Stats are unavailable on some platforms; leave the last reading.
     }
@@ -566,6 +667,10 @@ class CallMedia {
     onHold.value = false;
     _statsTimer?.cancel();
     _statsTimer = null;
+    _abr = null;
+    _disconnectTimer?.cancel();
+    _disconnectTimer = null;
+    _lastRestartAsk = null;
     quality.value = 0;
     try {
       _screenStream?.getTracks().forEach((t) => t.stop());
