@@ -268,47 +268,53 @@ class ContactInfoScreen extends StatelessWidget {
           // The chat's own settings, moved here from the overflow menu so
           // everything about this conversation lives on one screen.
           if (chatId != null) _ChatSettingsSection(chatId: chatId!, user: user),
-          InfoSection(
-            children: [
-              InfoTile(
-                leading: const Icon(Icons.lock_outline),
-                title: 'Encryption',
-                subtitle: 'Tap to verify the security code',
-                trailing: const Icon(Icons.chevron_right, color: Colors.grey),
-                onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => SecurityCodeScreen(contact: user),
+          // Notes never leave this device, so there is no second device to
+          // compare a security code with.
+          if (user.id != 'self')
+            InfoSection(
+              children: [
+                InfoTile(
+                  leading: const Icon(Icons.lock_outline),
+                  title: 'Encryption',
+                  subtitle: 'Tap to verify the security code',
+                  trailing: const Icon(Icons.chevron_right, color: Colors.grey),
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => SecurityCodeScreen(contact: user),
+                    ),
                   ),
                 ),
-              ),
-            ],
-          ),
+              ],
+            ),
           if (chatId != null) _ChatDangerSection(chatId: chatId!),
-          ValueListenableBuilder<Set<String>>(
-            valueListenable: AppState.blockedContacts,
-            builder: (context, _, __) {
-              final blocked = AppState.isBlocked(user.phone);
-              return InfoSection(
-                children: [
-                  InfoTile(
-                    leading: Icon(blocked ? Icons.check_circle_outline : Icons.block,
-                        color: blocked ? null : Colors.red),
-                    title:
-                        blocked ? 'Unblock ${user.name}' : 'Block ${user.name}',
-                    titleColor: blocked ? null : Colors.red,
-                    onTap: () => _toggleBlock(context, blocked),
-                  ),
-                  InfoTile(
-                    leading: const Icon(Icons.thumb_down_outlined,
-                        color: Colors.red),
-                    title: 'Report ${user.name}',
-                    titleColor: Colors.red,
-                    onTap: () => _report(context),
-                  ),
-                ],
-              );
-            },
-          ),
+          // Your own notes: there is nobody to block or report. Offering it
+          // would only mean blocking yourself.
+          if (user.id != 'self')
+            ValueListenableBuilder<Set<String>>(
+              valueListenable: AppState.blockedContacts,
+              builder: (context, _, __) {
+                final blocked = AppState.isBlocked(user.phone);
+                return InfoSection(
+                  children: [
+                    InfoTile(
+                      leading: Icon(blocked ? Icons.check_circle_outline : Icons.block,
+                          color: blocked ? null : Colors.red),
+                      title:
+                          blocked ? 'Unblock ${user.name}' : 'Block ${user.name}',
+                      titleColor: blocked ? null : Colors.red,
+                      onTap: () => _toggleBlock(context, blocked),
+                    ),
+                    InfoTile(
+                      leading: const Icon(Icons.thumb_down_outlined,
+                          color: Colors.red),
+                      title: 'Report ${user.name}',
+                      titleColor: Colors.red,
+                      onTap: () => _report(context),
+                    ),
+                  ],
+                );
+              },
+            ),
           const SizedBox(height: 24),
         ],
       ),

@@ -984,6 +984,24 @@ void main() {
       expect(invoked.where((m) => m == 'accepted').length, 1);
     });
 
+    test('a callmiss notice files a missed call once, log and chat both', () {
+      // The live offer is never queued, so a call to a closed app only
+      // exists on the callee's side through this notice — and a mailbox
+      // replay of it must not double-file the entry.
+      CallLog.instance.resetForTest();
+      ChatStore.instance.reset();
+      final call = CallService.instance;
+      call.onRemoteMissed(peer(), 'c_missnotice', true);
+      final rec = CallLog.instance.records.single;
+      expect(rec.direction, callmodel.CallDirection.missed);
+      expect(rec.type, callmodel.CallType.video);
+      call.onRemoteMissed(peer(), 'c_missnotice', true); // the replay
+      expect(CallLog.instance.records.length, 1);
+      final chat = ChatStore.instance.chatWithContact('+1 555 0199');
+      expect(chat!.messages.single.callEvent, 'missed');
+      expect(chat.messages.single.isMe, isFalse);
+    });
+
     test('a remote hang-up ends the connected call', () {
       final call = CallService.instance;
       call.onRemoteOffer(peer(), 'call_xyz', false);
@@ -12934,6 +12952,66 @@ void main() {
       expect(find.text('Contact'), findsOneWidget);
       expect(find.text('Payment'), findsNothing,
           reason: 'there is no second party in your own notes');
+    });
+
+    testWidgets('note to self offers no calls — nobody is on the other end',
+        (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      ChatStore.instance.reset();
+      final me = AppState.profile.value;
+      final selfChat = Chat(
+        id: 'chat_self',
+        contact: AppUser(
+            id: 'self',
+            name: 'Note to self',
+            avatarColor: me.avatarColor,
+            phone: ''),
+        messages: const [],
+      );
+      ChatStore.instance.upsert(selfChat);
+
+      await tester.pumpWidget(MaterialApp(home: ChatScreen(chat: selfChat)));
+      await tester.pumpAndSettle();
+      expect(find.byIcon(Icons.call), findsNothing);
+      expect(find.byIcon(Icons.videocam), findsNothing);
+    });
+
+    testWidgets('a conversation can be pulled to refresh', (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      ChatStore.instance.reset();
+      const chat = Chat(
+        id: 'chat_ptr',
+        contact: AppUser(
+            id: '+15550177',
+            name: 'Pia',
+            avatarColor: '#111111',
+            phone: '+15550177'),
+        messages: [],
+      );
+      ChatStore.instance.upsert(chat);
+      await tester.pumpWidget(const MaterialApp(home: ChatScreen(chat: chat)));
+      await tester.pumpAndSettle();
+      expect(find.byType(RefreshIndicator), findsOneWidget,
+          reason: 'pull-to-refresh is how a stuck chat gets un-stuck');
+    });
+
+    testWidgets('the security screen names the encryption rung honestly',
+        (tester) async {
+      // Not one static sentence: with no session yet it must say the chat
+      // steps UP to the ratchet, not claim the ratchet is already active.
+      await tester.pumpWidget(const MaterialApp(
+        home: SecurityCodeScreen(
+          contact: AppUser(
+              id: '+17770001111',
+              name: 'Pia',
+              avatarColor: '#111111',
+              phone: '+1 777 000 1111'),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Signal Double Ratchet'), findsOneWidget);
+      expect(find.textContaining('AES-256-GCM'), findsNothing,
+          reason: 'the cipher name told the user nothing about the ladder');
     });
 
     testWidgets('a group asks who to pay, and makes you confirm the name',

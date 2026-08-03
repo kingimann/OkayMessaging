@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import 'package:flutter/services.dart';
 
+import '../crypto/double_ratchet.dart';
 import '../crypto/e2e.dart';
+import '../crypto/key_exchange.dart';
 import '../models/user.dart';
 import '../state/session.dart';
 import '../widgets/user_avatar.dart';
@@ -20,6 +22,28 @@ class SecurityCodeScreen extends StatelessWidget {
     final myPhone = Session.instance.user.value?.phone ?? '';
     final code = E2eCrypto.safetyNumber(myPhone, contact.phone);
     final groups = code.split(' ');
+    // Say which rung of the encryption ladder this conversation is really
+    // on, instead of one static sentence for all three. The ladder only
+    // climbs: a chat starts against the number, steps up when the peer's
+    // device introduces its key, and lands on the ratchet as you message.
+    final ratchet = DoubleRatchet.instance.hasSession(contact.phone);
+    final ecdh =
+        SecureKeyExchange.instance.peerKey(contact.phone) != null;
+    final level = ratchet
+        ? 'Signal protocol — Double Ratchet active'
+        : ecdh
+            ? 'Encrypted between your devices\' keys'
+            : 'Encrypted, waiting for their device';
+    final how = ratchet
+        ? 'end-to-end encrypted with the Signal protocol\'s Double Ratchet: '
+            'every message gets its own key, so even a key stolen later '
+            'cannot unlock what was already said'
+        : ecdh
+            ? 'end-to-end encrypted with keys agreed directly between your '
+                'devices, and step up to the Signal Double Ratchet as you '
+                'message'
+            : 'end-to-end encrypted, and step up to the Signal Double '
+                'Ratchet once their device introduces itself';
 
     return Scaffold(
       appBar: AppBar(title: const Text('Security code')),
@@ -32,12 +56,20 @@ class SecurityCodeScreen extends StatelessWidget {
           Center(
             child: Icon(Icons.lock, size: 22, color: AppColors.subtle(context)),
           ),
+          const SizedBox(height: 8),
+          Center(
+            child: Text(
+              level,
+              style: const TextStyle(
+                  fontSize: 13, fontWeight: FontWeight.w600),
+            ),
+          ),
           const SizedBox(height: 12),
           Center(
             child: Text(
-              'Messages and calls with ${contact.name} are end-to-end '
-              'encrypted with AES-256-GCM. Compare this code on both devices '
-              'to verify — if they match, no one else can read this chat.',
+              'Messages and calls with ${contact.name} are $how. Compare '
+              'this code on both devices to verify — if they match, no one '
+              'else can read this chat.',
               textAlign: TextAlign.center,
               style: TextStyle(color: AppColors.subtle(context), height: 1.4),
             ),

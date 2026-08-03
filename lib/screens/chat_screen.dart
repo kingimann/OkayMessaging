@@ -1712,7 +1712,20 @@ class _ChatScreenState extends State<ChatScreen> {
     ));
   }
 
+  /// Pull-to-refresh: rebuild the live subscription and drain the offline
+  /// mailbox, so "is something stuck?" has an answer that is always safe to
+  /// reach for. A no-op (with a beat of spinner) when the relay is off.
+  Future<void> _refreshChat() async {
+    if (!RelayConfig.isEnabled) {
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+      return;
+    }
+    await RelayService.instance.wake();
+    await RelayService.instance.fetchMailbox();
+  }
+
   void _startCall({required bool video}) {
+    if (_isNoteToSelf) return; // nobody on the other end to ring
     if (widget.chat.contact.isGroup) {
       final chat = _store.chatById(_chatId) ?? widget.chat;
       CallService.instance.startGroupCall(chat, video: video);
@@ -2600,14 +2613,17 @@ class _ChatScreenState extends State<ChatScreen> {
                           tooltip: 'Disappearing messages on',
                           onPressed: _chooseDisappearing,
                         ),
-                      IconButton(
-                        icon: const Icon(Icons.call),
-                        onPressed: () => _startCall(video: false),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.videocam),
-                        onPressed: () => _startCall(video: true),
-                      ),
+                      // Your own notes have nobody on the other end to ring.
+                      if (!_isNoteToSelf) ...[
+                        IconButton(
+                          icon: const Icon(Icons.call),
+                          onPressed: () => _startCall(video: false),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.videocam),
+                          onPressed: () => _startCall(video: true),
+                        ),
+                      ],
                       // The overflow menu is gone from this bar. Of the four
                       // things it held, two were already reachable — tapping
                       // the name opens Contact & chat settings, which is
@@ -2677,12 +2693,32 @@ class _ChatScreenState extends State<ChatScreen> {
                     builder: (context, _) {
                       final items = _buildItems();
                       if (items.isEmpty && !_searching) {
-                        return const _EmptyConversation();
+                        return RefreshIndicator(
+                          onRefresh: _refreshChat,
+                          child: LayoutBuilder(
+                            builder: (context, constraints) =>
+                                SingleChildScrollView(
+                              // Scrollable even when empty, or there is
+                              // nothing to pull.
+                              physics: const AlwaysScrollableScrollPhysics(),
+                              child: SizedBox(
+                                height: constraints.maxHeight,
+                                child: const _EmptyConversation(),
+                              ),
+                            ),
+                          ),
+                        );
                       }
-                      return ListView(
-                        controller: _scrollController,
-                        padding: const EdgeInsets.symmetric(vertical: 8),
-                        children: items,
+                      return RefreshIndicator(
+                        onRefresh: _refreshChat,
+                        child: ListView(
+                          controller: _scrollController,
+                          // Short transcripts don't fill the screen and would
+                          // otherwise have no overscroll to pull against.
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          children: items,
+                        ),
                       );
                     },
                   ),

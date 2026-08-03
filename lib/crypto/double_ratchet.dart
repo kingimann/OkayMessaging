@@ -100,6 +100,11 @@ class DoubleRatchet {
   bool amInitiator(String myPhone, String peerPhone) =>
       _digits(myPhone).compareTo(_digits(peerPhone)) < 0;
 
+  /// Whether a live ratchet session with [peer] exists on this device — the
+  /// question the security screen answers, so it can say which rung of the
+  /// encryption ladder this conversation is actually on.
+  bool hasSession(String peer) => _sessions.containsKey(_digits(peer));
+
   /// Drops the session with [peer] — called when their identity key changes,
   /// because every secret under the old key is now a secret with the wrong
   /// person. The next send (or their next header) starts a fresh session.

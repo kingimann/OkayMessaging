@@ -755,6 +755,8 @@ class RelayService {
               applyMessageEvent(event, payload, myPhone: me);
             case 'gupd':
               applyGroupUpdate(payload, myPhone: me);
+            case 'callmiss':
+              _applyMissedCall(payload, myPhone: me);
             case 'skdm':
               applySkdm(payload, myPhone: me);
             case 'skreq':
@@ -954,6 +956,13 @@ class RelayService {
             final payload = unwrapBroadcast(rawEnvelope);
             applyMessageEvent('vopen', Map<String, dynamic>.from(payload),
                 myPhone: me);
+          },
+        )
+        .onBroadcast(
+          event: 'callmiss',
+          callback: (rawEnvelope) {
+            final payload = unwrapBroadcast(rawEnvelope);
+            _applyMissedCall(Map<String, dynamic>.from(payload), myPhone: me);
           },
         )
         .onBroadcast(
@@ -1938,6 +1947,45 @@ class RelayService {
       if (decoded is Map) return Map<String, dynamic>.from(decoded);
     } catch (_) {}
     return null;
+  }
+
+  /// Queues a "missed call" notice to [contactPhone]: broadcast for an app
+  /// that is open, mailbox for one that isn't — because the live call offer
+  /// is deliberately never queued (ringing someone hours late is nonsense),
+  /// this notice is what makes the missed call exist on their side at all.
+  Future<void> sendMissedCall(String contactPhone,
+      {required String callId, required bool video}) async {
+    if (!_initialized) return;
+    final me = Session.instance.user.value;
+    if (me == null) return;
+    await _sendInboxEvent(contactPhone, 'callmiss', {
+      'from': me.phone,
+      'fromName': me.name,
+      'fromUsername': me.username,
+      'callId': callId,
+      'video': video,
+    });
+  }
+
+  /// Applies a 'callmiss' notice, live or from the mailbox: files the missed
+  /// call in the log and the conversation. Blocked callers are dropped the
+  /// same way their ring would have been.
+  void _applyMissedCall(Map<String, dynamic> p, {required String myPhone}) {
+    final from = p['from'] as String?;
+    if (from == null || digits(from) == digits(myPhone)) return;
+    if (AppState.isBlocked(from)) return;
+    final peer = AppUser(
+      id: from,
+      name: (p['fromName'] as String?)?.trim().isNotEmpty == true
+          ? p['fromName'] as String
+          : from,
+      avatarColor: '#7A5CFF',
+      about: 'Available',
+      phone: from,
+      username: (p['fromUsername'] as String?) ?? '',
+    );
+    CallService.instance.onRemoteMissed(
+        peer, (p['callId'] as String?) ?? '', p['video'] == true);
   }
 
   /// Sends a WebRTC ICE candidate for [callId] to [contactPhone].

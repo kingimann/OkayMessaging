@@ -264,15 +264,19 @@ class CallService {
     });
   }
 
-  /// Tells the peer a ringing call was given up on. The live offer only
-  /// reaches an app that is open; when theirs wasn't, this push is the one
-  /// trace that anyone tried to call at all.
+  /// Tells the peer a ringing call was given up on: a push so their phone
+  /// says so now, and a queued 'callmiss' event so their call log and chat
+  /// show the missed call whenever the app next syncs. The live offer only
+  /// reaches an app that is open; without these, a call to a closed app
+  /// never existed on the callee's side at all.
   void _notifyMissed(CallSession c) {
     if (c.isGroup || c.direction != CallDirection.outgoing) return;
     final me = Session.instance.user.value;
     PushService.instance.notify(c.peer.phone,
         title: me == null || me.name.isEmpty ? 'Missed call' : me.name,
         body: c.video ? 'Missed video call' : 'Missed call');
+    RelayService.instance
+        .sendMissedCall(c.peer.phone, callId: c.callId, video: c.video);
   }
 
   /// Sets up WebRTC media (web only) then rings the peer with the SDP offer.
@@ -652,6 +656,54 @@ class CallService {
     _logCall(c);
     CallMedia.instance.hangUp();
     current.value = c.copyWith(status: CallStatus.ended);
+  }
+
+  /// A 'callmiss' notice from the caller: they gave up ringing while this
+  /// app wasn't there to see the live offer (closed, dead socket). Files the
+  /// missed call in the log and the chat, exactly as the live flow would
+  /// have — this is what makes a call to a closed app exist at all on the
+  /// callee's side, since offers are live-only and never queued.
+  void onRemoteMissed(AppUser peer, String callId, bool video) {
+    if (callId.isEmpty) return;
+    // The live flow may have filed this one already (app open, offer rang,
+    // caller's 'end' arrived): one entry per call, whichever ran first. The
+    // log is checked too because a mailboxed notice can arrive days later,
+    // long after the in-memory set restarted.
+    if (_loggedCallIds.contains(callId) ||
+        CallLog.instance.records.any((r) => r.id == callId)) {
+      return;
+    }
+    _loggedCallIds.add(callId);
+    CallLog.instance.add(log.CallRecord(
+      id: callId,
+      user: peer,
+      time: DateTime.now(),
+      type: video ? log.CallType.video : log.CallType.voice,
+      direction: log.CallDirection.missed,
+      durationSeconds: 0,
+    ));
+    final store = ChatStore.instance;
+    var chat = store.chatWithContact(peer.id) ??
+        store.chatWithContact(peer.phone);
+    if (chat == null) {
+      if (RelayService.digits(peer.phone).isEmpty) return;
+      chat = Chat(
+          id: 'chat_${peer.phone}', contact: peer, messages: const []);
+      store.upsert(chat);
+    }
+    store.addMessage(
+      chat.id,
+      Message(
+        id: 'callmsg_$callId',
+        text: '',
+        time: DateTime.now(),
+        isMe: false,
+        status: MessageStatus.read,
+        callEvent: 'missed',
+        callVideo: video,
+        callSeconds: 0,
+      ),
+    );
   }
 
   // --- Mid-call media: camera / screen with renegotiation + announcements ---
