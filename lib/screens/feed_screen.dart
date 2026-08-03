@@ -18,6 +18,9 @@ import '../util/photo_prep.dart';
 import '../widgets/app_dialogs.dart';
 import '../widgets/chat_photo.dart';
 import '../widgets/emoji_gif_sheet.dart';
+import '../payments/payment_service.dart';
+import '../state/identity_verification.dart';
+import '../state/push_service.dart';
 import '../widgets/feed_post_actions.dart';
 import '../widgets/feed_post_parts.dart';
 import '../widgets/poll_widgets.dart';
@@ -913,6 +916,14 @@ class _PostCard extends StatelessWidget {
                   likeCount: post.likes,
                   liked: post.liked,
                   reposted: post.reposted,
+                  sparkCount: post.sparks,
+                  sparkCents: post.sparkCents,
+                  sparkped: post.sparkped,
+                  // Decided here rather than threaded through every call
+                  // site: the card knows the post, and the post knows
+                  // whether it can be sparkped.
+                  onSpark:
+                      canSparkPost(post) ? () => offerSpark(context, post) : null,
                   onReply: onReply,
                   onRepost: onRepost,
                   onLike: onLike,
@@ -927,6 +938,127 @@ class _PostCard extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Whether the spark bolt is offered on [post]: someone else's post, whose
+/// author's digits rode along (legacy posts carried none), with payments
+/// wired into this build. Pure eligibility — the money checks run on tap.
+bool canSparkPost(FeedPost post) {
+  if (post.authorPhone.isEmpty) return false;
+  final me = AppState.profile.value.username;
+  final mine = post.authorUsername == 'you' ||
+      (me.isNotEmpty &&
+          post.authorUsername.toLowerCase() == me.toLowerCase());
+  return !mine && PaymentService.instance.isConfigured;
+}
+
+/// The spark flow: the same identity/receiver ladder chat's Send money walks,
+/// then a one-tap amount sheet, then the REAL payment — the tally on the
+/// post only moves after Stripe says the money did.
+Future<void> offerSpark(BuildContext context, FeedPost post) async {
+  final svc = PaymentService.instance;
+  final messenger = ScaffoldMessenger.of(context);
+  if (!svc.canSendOnThisDevice && !svc.testMode.value) {
+    messenger.showSnackBar(
+        const SnackBar(content: Text('Sparks are sent from the iPhone app.')));
+    return;
+  }
+  // The wallet's own gate, reached through a bolt instead of a drawer row.
+  if (!IdentityVerification.instance.allowsTrusted) {
+    messenger.showSnackBar(
+        const SnackBar(content: Text('Verify your ID to send money.')));
+    return;
+  }
+  // Knowable up front, so said up front — not after an amount was chosen.
+  if (!svc.testMode.value && !await svc.canReceive(post.authorPhone)) {
+    messenger.showSnackBar(SnackBar(
+        content: Text('@${post.authorUsername} hasn\'t set up payments, '
+            'so sparks can\'t reach them yet.')));
+    return;
+  }
+  if (!context.mounted) return;
+  final cents = await showModalBottomSheet<int>(
+    context: context,
+    builder: (_) => _SparkSheet(username: post.authorUsername),
+  );
+  if (cents == null || cents <= 0 || !context.mounted) return;
+  final ok = await svc.sendMoney(
+    toPhone: post.authorPhone,
+    amountCents: cents,
+    note: 'Spark ⚡',
+    // The sheet said sparks are final before offering an amount.
+    acknowledged: true,
+  );
+  if (!ok) return;
+  FeedStore.instance.spark(post.id, cents);
+  final myName = AppState.profile.value.name;
+  PushService.instance.notify(post.authorPhone,
+      title: myName.isEmpty ? 'Spark' : myName,
+      body: 'Sparkped you \$${(cents / 100).toStringAsFixed(2)} ⚡');
+  messenger.showSnackBar(SnackBar(
+      content: Text(
+          'Sparkped @${post.authorUsername} \$${(cents / 100).toStringAsFixed(2)} ⚡')));
+}
+
+/// One-tap preset amounts, Damus-style — 21 is the community's number.
+class _SparkSheet extends StatelessWidget {
+  final String username;
+  const _SparkSheet({required this.username});
+
+  static const presets = <int>[21, 100, 500, 2100];
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 18, 20, 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.bolt, color: Color(0xFFF7931A)),
+                const SizedBox(width: 8),
+                Text('Spark @$username',
+                    style: const TextStyle(
+                        fontSize: 17, fontWeight: FontWeight.w700)),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Real money, straight to them — the same person-to-person '
+              'transfer as Send money in a chat. Sparks are final.',
+              style:
+                  TextStyle(fontSize: 12.5, color: AppColors.subtle(context)),
+            ),
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                for (final cents in presets) ...[
+                  Expanded(
+                    child: OutlinedButton(
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                      onPressed: () => Navigator.of(context).pop(cents),
+                      child: Text(
+                        cents % 100 == 0
+                            ? '\$${cents ~/ 100}'
+                            : '\$${(cents / 100).toStringAsFixed(2)}',
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                  ),
+                  if (cents != presets.last) const SizedBox(width: 8),
+                ],
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }

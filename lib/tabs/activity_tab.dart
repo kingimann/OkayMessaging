@@ -233,12 +233,15 @@ class _ActivityTabState extends State<ActivityTab> {
                                         ),
                                         child: Icon(_notifIcon(n.type),
                                             size: 14,
-                                            color: n.type ==
-                                                    FeedNotificationType.like
-                                                ? const Color(0xFFF91880)
-                                                : Theme.of(context)
-                                                    .colorScheme
-                                                    .primary),
+                                            color: switch (n.type) {
+                                              FeedNotificationType.like =>
+                                                const Color(0xFFF91880),
+                                              FeedNotificationType.spark =>
+                                                const Color(0xFFF7931A),
+                                              _ => Theme.of(context)
+                                                  .colorScheme
+                                                  .primary,
+                                            }),
                                       ),
                                     ),
                                   ],
@@ -432,6 +435,7 @@ class _ActivityTabState extends State<ActivityTab> {
         FeedNotificationType.mention => Icons.alternate_email,
         FeedNotificationType.repost => Icons.repeat,
         FeedNotificationType.like => Icons.favorite,
+        FeedNotificationType.spark => Icons.bolt,
         FeedNotificationType.channelMention => Icons.tag,
       };
 
@@ -440,6 +444,7 @@ class _ActivityTabState extends State<ActivityTab> {
         FeedNotificationType.mention => 'mentioned you',
         FeedNotificationType.repost => 'reposted you',
         FeedNotificationType.like => 'liked your post',
+        FeedNotificationType.spark => 'sparkped your post',
         FeedNotificationType.channelMention => 'mentioned you',
       };
 }

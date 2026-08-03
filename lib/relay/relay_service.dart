@@ -798,6 +798,7 @@ class RelayService {
                   'fpost' ||
                   'fdel' ||
                   'flike' ||
+                  'fspark' ||
                   'fvote' ||
                   'chdel' ||
                   'chedt' ||
@@ -1215,6 +1216,14 @@ class RelayService {
           },
         )
         .onBroadcast(
+          event: 'fspark',
+          callback: (rawEnvelope) {
+            final payload = unwrapBroadcast(rawEnvelope);
+            _applyCommunityEvent(
+                'fspark', Map<String, dynamic>.from(payload), me);
+          },
+        )
+        .onBroadcast(
           event: 'fvote',
           callback: (rawEnvelope) {
             final payload = unwrapBroadcast(rawEnvelope);
@@ -1372,6 +1381,18 @@ class RelayService {
               liked: body['liked'] as bool? ?? true,
               likerName: body['name'] as String? ?? 'Someone',
               likerUsername: body['username'] as String? ?? '',
+            );
+          }
+        case 'fspark':
+          final id = body['id'];
+          final zid = body['sid'];
+          if (id is String && zid is String) {
+            FeedStore.instance.applyRemoteSpark(
+              id,
+              sparkId: zid,
+              cents: (body['cents'] as num?)?.toInt() ?? 0,
+              sparkerName: body['name'] as String? ?? 'Someone',
+              sparkerUsername: body['username'] as String? ?? '',
             );
           }
         case 'fvote':
@@ -1724,6 +1745,23 @@ class RelayService {
         'liked': liked,
         'name': likerName,
         'username': likerUsername,
+      });
+
+  /// A spark — a real-money tip pinned to a post, à la Damus. The MONEY moved
+  /// person-to-person over Stripe before this is sent; this event only moves
+  /// the tally on everyone's copy of the post. [sparkId] keys replay
+  /// idempotency (mailbox rows and reconnects re-deliver).
+  Future<void> sendFeedSpark(String communityId, String postId,
+          {required String sparkId,
+          required int cents,
+          required String name,
+          required String username}) =>
+      _sendCommunityEvent('fspark', communityId, {
+        'id': postId,
+        'sid': sparkId,
+        'cents': cents,
+        'name': name,
+        'username': username,
       });
 
   /// A poll vote, so everyone in the server sees one shared tally. [previous]

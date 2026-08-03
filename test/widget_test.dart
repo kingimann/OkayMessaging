@@ -18894,6 +18894,89 @@ void main() {
           reason: 'the who-liked-it guard has to survive the restart');
     });
 
+    test('sparks tally money once each, survive replays, and notify the author',
+        () async {
+      final store = FeedStore.instance;
+      store.resetForTest();
+      // My own post ('you'), so the incoming spark raises an alert.
+      final post = store.add('c1', 'sparkpable');
+      final notesBefore = store.notifications.length;
+
+      store.applyRemoteSpark(post.id,
+          sparkId: 'z1', cents: 2100, sparkerName: 'Grace',
+          sparkerUsername: 'grace');
+      var p = store.postById(post.id)!;
+      expect(p.sparks, 1);
+      expect(p.sparkCents, 2100);
+      expect(store.notifications.length, notesBefore + 1);
+      expect(store.notifications.first.preview, '\$21.00');
+
+      // A replayed event (mailbox row whose delete failed) counts nothing…
+      store.applyRemoteSpark(post.id,
+          sparkId: 'z1', cents: 2100, sparkerName: 'Grace',
+          sparkerUsername: 'grace');
+      expect(store.postById(post.id)!.sparkCents, 2100);
+      // …but the same person sparkping AGAIN is a new spark, not a replay.
+      store.applyRemoteSpark(post.id,
+          sparkId: 'z2', cents: 21, sparkerName: 'Grace',
+          sparkerUsername: 'grace');
+      expect(store.postById(post.id)!.sparks, 2);
+      expect(store.postById(post.id)!.sparkCents, 2121);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      // The guard outlives a restart, like the like/vote guards beside it.
+      store.resetForTest();
+      await store.load();
+      store.applyRemoteSpark(post.id,
+          sparkId: 'z2', cents: 21, sparkerName: 'Grace',
+          sparkerUsername: 'grace');
+      expect(store.postById(post.id)!.sparkCents, 2121);
+
+      // My own spark: counted locally and flagged, only after payment.
+      store.spark(post.id, 500);
+      p = store.postById(post.id)!;
+      expect(p.sparkped, isTrue);
+      expect(p.sparkCents, 2621);
+
+      // The fields (and the author's digits that make sparkping addressable)
+      // survive the JSON round-trip; legacy posts default to none.
+      final back = FeedPost.fromJson(FeedPost(
+        id: 'p',
+        communityId: 'c1',
+        authorName: 'A',
+        authorUsername: 'a',
+        authorPhone: '15550142',
+        time: DateTime(2024),
+        text: 't',
+        sparks: 3,
+        sparkCents: 442,
+      ).toJson());
+      expect(back.authorPhone, '15550142');
+      expect(back.sparks, 3);
+      expect(back.sparkCents, 442);
+      expect(
+          FeedPost.fromJson({
+            'id': 'old',
+            'communityId': 'c1',
+            'time': DateTime(2024).toIso8601String(),
+            'text': 'legacy'
+          }).sparks,
+          0);
+      // No digits → no bolt, and your own post is never sparkpable.
+      expect(canSparkPost(back.copyWith()), isFalse,
+          reason: 'payments are not configured in a test build');
+      expect(
+          canSparkPost(FeedPost(
+              id: 'p2',
+              communityId: 'c1',
+              authorName: 'Me',
+              authorUsername: 'you',
+              authorPhone: '1234567',
+              time: DateTime(2024),
+              text: 'mine')),
+          isFalse);
+    });
+
     test('a poll vote replayed after a restart is still counted once',
         () async {
       final store = FeedStore.instance;

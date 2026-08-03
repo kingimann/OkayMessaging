@@ -26,6 +26,10 @@ class FeedPostActions extends StatelessWidget {
     required this.onRepost,
     required this.onLike,
     required this.onShare,
+    this.sparkCount = 0,
+    this.sparkCents = 0,
+    this.sparkped = false,
+    this.onSpark,
   });
 
   final int replyCount;
@@ -39,10 +43,22 @@ class FeedPostActions extends StatelessWidget {
   final VoidCallback onLike;
   final VoidCallback onShare;
 
+  /// Sparks (real-money tips on the post). The bolt only appears where sparkping
+  /// is actually possible — [onSpark] null hides it, so the public feed and
+  /// your own posts stay a four-action row.
+  final int sparkCount;
+  final int sparkCents;
+  final bool sparkped;
+  final VoidCallback? onSpark;
+
   /// The green a repost is, and the pink a liked heart is, everywhere else —
   /// so the gesture reads without being learned.
   static const Color repostColour = Color(0xFF00BA7C);
   static const Color likeColour = Color(0xFFF91880);
+
+  /// Bolt amber — the colour this gesture wears in Damus/Nostr, where it
+  /// is called a "zap".
+  static const Color sparkColour = Color(0xFFF7931A);
 
   @override
   Widget build(BuildContext context) {
@@ -71,6 +87,19 @@ class FeedPostActions extends StatelessWidget {
             onTap: onLike,
             tooltip: 'Like',
           ),
+          if (onSpark != null)
+            FeedPostAction(
+              icon: sparkped ? Icons.bolt : Icons.bolt_outlined,
+              count: sparkCount,
+              // The total is the interesting number on a sparkped post: three
+              // sparks of a quarter and one of \$21 are different sentences.
+              label: sparkCents > 0
+                  ? '\$${sparkCents % 100 == 0 ? (sparkCents ~/ 100).toString() : (sparkCents / 100).toStringAsFixed(2)}'
+                  : null,
+              colour: sparkped ? sparkColour : null,
+              onTap: onSpark!,
+              tooltip: 'Spark',
+            ),
           FeedPostAction(
             icon: Icons.ios_share,
             count: 0,
@@ -95,6 +124,7 @@ class FeedPostAction extends StatelessWidget {
     required this.onTap,
     required this.tooltip,
     this.colour,
+    this.label,
   });
 
   final IconData icon;
@@ -102,6 +132,9 @@ class FeedPostAction extends StatelessWidget {
   final VoidCallback onTap;
   final String tooltip;
   final Color? colour;
+
+  /// Overrides the count as the drawn text (e.g. a spark total in dollars).
+  final String? label;
 
   @override
   Widget build(BuildContext context) {
@@ -111,7 +144,7 @@ class FeedPostAction extends StatelessWidget {
       child: TextButton.icon(
         onPressed: onTap,
         icon: Icon(icon, size: 17, color: tint),
-        label: Text(count == 0 ? '' : '$count',
+        label: Text(label ?? (count == 0 ? '' : '$count'),
             style: TextStyle(fontSize: 12.5, color: tint)),
         style: TextButton.styleFrom(
           padding: const EdgeInsets.symmetric(horizontal: 8),

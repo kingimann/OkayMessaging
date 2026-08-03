@@ -5,6 +5,10 @@ enum FeedNotificationType {
   repost,
   like,
 
+  /// Someone sent real money pinned to your post (the preview carries the
+  /// amount). The payment itself moved over Stripe before this existed.
+  spark,
+
   /// Someone @mentioned you in a server's text channel (not the feed).
   channelMention,
 }

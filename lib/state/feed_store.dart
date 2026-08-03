@@ -7,6 +7,7 @@ import '../app_state.dart';
 import '../models/feed_notification.dart';
 import '../relay/relay_config.dart';
 import '../relay/relay_service.dart';
+import 'session.dart';
 
 /// One post in a server's X-style feed.
 class FeedPost {
@@ -16,6 +17,12 @@ class FeedPost {
 
   /// Username without '@' ('you' for the local user).
   final String authorUsername;
+
+  /// The author's phone digits, so a reader can spark them. Rides only the
+  /// SEALED server bus — never the public feed — and reveals nothing members
+  /// don't already hold: the roster this bus runs on is keyed by digits.
+  /// '' on legacy posts (spark simply isn't offered there).
+  final String authorPhone;
   final DateTime time;
   final String text;
   final int likes;
@@ -23,6 +30,15 @@ class FeedPost {
   final int replies;
   final bool liked;
   final bool reposted;
+
+  /// Sparks — what Damus/Nostr call "zaps": small real-money tips pinned to
+  /// a post. The
+  /// money itself moves person-to-person over Stripe BEFORE the counter
+  /// moves; these fields are only the public tally. [sparks] is how many,
+  /// [sparkCents] their total, [sparkped] whether this device sent one.
+  final int sparks;
+  final int sparkCents;
+  final bool sparkped;
 
   /// The post this one replies to, or null for a top-level post.
   final String? parentId;
@@ -144,6 +160,7 @@ class FeedPost {
     required this.communityId,
     required this.authorName,
     required this.authorUsername,
+    this.authorPhone = '',
     required this.time,
     required this.text,
     this.likes = 0,
@@ -151,6 +168,9 @@ class FeedPost {
     this.replies = 0,
     this.liked = false,
     this.reposted = false,
+    this.sparks = 0,
+    this.sparkCents = 0,
+    this.sparkped = false,
     this.parentId,
     this.gifUrl,
     this.repostOfId,
@@ -182,6 +202,9 @@ class FeedPost {
     int? replies,
     bool? liked,
     bool? reposted,
+    int? sparks,
+    int? sparkCents,
+    bool? sparkped,
     String? text,
     bool? edited,
     bool? pinned,
@@ -195,6 +218,7 @@ class FeedPost {
         communityId: communityId,
         authorName: authorName,
         authorUsername: authorUsername,
+        authorPhone: authorPhone,
         time: time,
         text: text ?? this.text,
         likes: likes ?? this.likes,
@@ -202,6 +226,9 @@ class FeedPost {
         replies: replies ?? this.replies,
         liked: liked ?? this.liked,
         reposted: reposted ?? this.reposted,
+        sparks: sparks ?? this.sparks,
+        sparkCents: sparkCents ?? this.sparkCents,
+        sparkped: sparkped ?? this.sparkped,
         parentId: parentId,
         gifUrl: gifUrl,
         repostOfId: repostOfId,
@@ -239,6 +266,9 @@ class FeedPost {
         'replies': replies,
         'liked': liked,
         'reposted': reposted,
+        if (authorPhone.isNotEmpty) 'authorPhone': authorPhone,
+        if (sparks > 0) ...{'sparks': sparks, 'sparkCents': sparkCents},
+        if (sparkped) 'sparkped': true,
         if (parentId != null) 'parentId': parentId,
         if (gifUrl != null) 'gifUrl': gifUrl,
         if (repostOfId != null) 'repostOfId': repostOfId,
@@ -281,6 +311,10 @@ class FeedPost {
         replies: j['replies'] as int? ?? 0,
         liked: j['liked'] as bool? ?? false,
         reposted: j['reposted'] as bool? ?? false,
+        authorPhone: j['authorPhone'] as String? ?? '',
+        sparks: (j['sparks'] as num?)?.toInt() ?? 0,
+        sparkCents: (j['sparkCents'] as num?)?.toInt() ?? 0,
+        sparkped: j['sparkped'] as bool? ?? false,
         parentId: j['parentId'] as String?,
         gifUrl: j['gifUrl'] as String?,
         repostOfId: j['repostOfId'] as String?,
@@ -361,6 +395,10 @@ class FeedStore extends ChangeNotifier {
   // Which (post, liker) pairs this device has counted, so a replayed like
   // event (mailbox or reconnect) can't inflate the tally.
   final Set<String> _likedBy = {};
+
+  // Spark event ids already counted. Unlike likes a spark is not a toggle —
+  // the same person can spark twice — so idempotency keys on the event.
+  final Set<String> _sparkIds = {};
 
   // Where each voter currently stands on each poll, so a replayed vote can't
   // double-count and a switch moves the tally instead of adding to it.
@@ -859,6 +897,9 @@ class FeedStore extends ChangeNotifier {
       communityId: communityId,
       authorName: me.name,
       authorUsername: me.username.isEmpty ? 'you' : me.username,
+      // So readers can spark this post. Digits members already have.
+      authorPhone: RelayService.digits(
+          Session.instance.user.value?.phone ?? ''),
       authorVerified: me.verified,
       time: DateTime.now(),
       text: text.trim(),
@@ -1284,6 +1325,72 @@ class FeedStore extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Records MY spark on [postId] — called only AFTER its payment succeeded,
+  /// because a counter that moves before the money is a lie on everyone's
+  /// screen — and broadcasts it so the server's tallies converge.
+  void spark(String postId, int cents) {
+    final i = _posts.indexWhere((p) => p.id == postId);
+    if (i < 0 || cents <= 0) return;
+    final p = _posts[i];
+    _posts[i] = p.copyWith(
+        sparks: p.sparks + 1, sparkCents: p.sparkCents + cents, sparkped: true);
+    _save();
+    notifyListeners();
+    if (RelayConfig.isEnabled) {
+      final me = AppState.profile.value;
+      RelayService.instance.sendFeedSpark(
+        p.communityId,
+        postId,
+        sparkId: 'spark_${postId}_${DateTime.now().microsecondsSinceEpoch}',
+        cents: cents,
+        name: me.name,
+        username: me.username.isEmpty ? 'you' : me.username,
+      );
+    }
+  }
+
+  /// Applies someone else's spark. [sparkId] keys idempotency: a spark is not a
+  /// toggle like a like — the same person can spark twice on purpose — so
+  /// replay protection has to hang on the event, not the (post, actor) pair.
+  void applyRemoteSpark(String postId,
+      {required String sparkId,
+      required int cents,
+      required String sparkerName,
+      required String sparkerUsername}) {
+    if (cents <= 0 || _sparkIds.contains(sparkId)) return;
+    final i = _posts.indexWhere((p) => p.id == postId);
+    if (i < 0) return;
+    _sparkIds.add(sparkId);
+    final p = _posts[i];
+    _posts[i] = p.copyWith(sparks: p.sparks + 1, sparkCents: p.sparkCents + cents);
+    final me = AppState.profile.value;
+    final myUsername = me.username.isEmpty ? 'you' : me.username;
+    final mine = p.authorUsername == 'you' ||
+        p.authorUsername.toLowerCase() == myUsername.toLowerCase();
+    if (mine &&
+        sparkerUsername.toLowerCase() != myUsername.toLowerCase() &&
+        !notificationsMuted(sparkerUsername)) {
+      final noteId = 'sparknote_$sparkId';
+      if (!_notifications.any((n) => n.id == noteId)) {
+        _notifications.insert(
+            0,
+            FeedNotification(
+              id: noteId,
+              type: FeedNotificationType.spark,
+              communityId: p.communityId,
+              actorName: sparkerName,
+              actorUsername: sparkerUsername,
+              time: DateTime.now(),
+              threadPostId: postId,
+              preview: '\$${(cents / 100).toStringAsFixed(2)}',
+            ));
+        if (_notifications.length > 50) _notifications.removeLast();
+      }
+    }
+    _save();
+    notifyListeners();
+  }
+
   /// Records a notification if [post] interacts with the local user. Deduped
   /// by id and capped so the list can't grow without bound.
   void _maybeNotify(FeedPost post) {
@@ -1484,6 +1591,10 @@ class FeedStore extends ChangeNotifier {
           ..clear()
           ..addAll(
               (decoded['likedBy'] as List? ?? const []).whereType<String>());
+        _sparkIds
+          ..clear()
+          ..addAll(
+              (decoded['sparkIds'] as List? ?? const []).whereType<String>());
         _votedBy
           ..clear()
           ..addAll({
@@ -1523,6 +1634,7 @@ class FeedStore extends ChangeNotifier {
             // whose delete failed comes back next launch, and without these
             // it would be counted a second time.
             'likedBy': _likedBy.toList(),
+            'sparkIds': _sparkIds.toList(),
             'votedBy': _votedBy,
           }));
     } catch (_) {}
@@ -1538,6 +1650,7 @@ class FeedStore extends ChangeNotifier {
     _deletedIds.clear();
     _notifications.clear();
     _likedBy.clear();
+    _sparkIds.clear();
     _votedBy.clear();
     _nextId = 1;
     notifyListeners();
