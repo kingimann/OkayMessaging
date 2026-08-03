@@ -3446,6 +3446,45 @@ void main() {
           newIdentity.myPublicKey);
     });
 
+    test('an enc-1 first message announces the new identity before harm',
+        () async {
+      // A freshly re-minted identity holds nobody's keys, so its first
+      // message goes out on the enc-1 floor — which used to be the one rung
+      // carrying no sender key. The peer learned nothing, kept its stale
+      // session, and its REPLY sealed to a ghost. Now the floor announces.
+      // ignore: invalid_use_of_visible_for_testing_member
+      addTearDown(SecureKeyExchange.instance.resetForTest);
+      // ignore: invalid_use_of_visible_for_testing_member
+      addTearDown(DoubleRatchet.instance.resetForTest);
+      await SecureKeyExchange.instance.load();
+
+      // Sealing to someone whose key we don't hold: enc 1, WITH our key.
+      final sealed = RelayService.sealContent('15550100', '15550177', 'hi');
+      expect(sealed['enc'], 1);
+      expect(sealed['spk'], SecureKeyExchange.instance.myPublicKey);
+
+      // Opening one whose key CHANGED buries the stale session in the same
+      // motion as reading the message — before any reply can be sealed.
+      final oldIdentity = SecureKeyExchange.freshForTest();
+      final newIdentity = SecureKeyExchange.freshForTest();
+      SecureKeyExchange.instance
+          .rememberPeer('+1 555 0177', oldIdentity.myPublicKey!);
+      DoubleRatchet.instance.encrypt('15550100', '15550177', 'seed');
+      expect(DoubleRatchet.instance.hasSession('15550177'), isTrue);
+      final opened = RelayService.openContent('15550177', '15550100', {
+        'c': E2eCrypto.encrypt(
+            E2eCrypto.keyFor('15550177', '15550100'), 'hello again'),
+        'enc': 1,
+        'spk': newIdentity.myPublicKey,
+      });
+      expect(opened, 'hello again',
+          reason: 'the floor rung still reads — announcing must not break it');
+      expect(DoubleRatchet.instance.hasSession('15550177'), isFalse,
+          reason: 'the reply must not seal to the dead identity\'s session');
+      expect(SecureKeyExchange.instance.peerKey('+1 555 0177'),
+          newIdentity.myPublicKey);
+    });
+
     test('a stranger\'s first message files as a request, not a chat', () {
       final store = ChatStore.instance;
       store.hydrate(const {'chats': []});

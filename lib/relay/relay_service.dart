@@ -223,6 +223,12 @@ class RelayService {
       return {
         'c': E2eCrypto.encrypt(E2eCrypto.keyFor(fromPhone, toPhone), plaintext),
         'enc': 1,
+        // The floor rung is exactly what a freshly re-minted identity sends
+        // from — it has nobody's keys yet — and it was the ONE rung that
+        // did not announce the sender's key. Without this, the first
+        // message after a re-identity taught the peer nothing, their stale
+        // session survived it, and their reply sealed to a ghost.
+        if (kx.isReady && kx.myPublicKey != null) 'spk': kx.myPublicKey,
       };
     }
     return {'c': plaintext, 'enc': 0};
@@ -264,6 +270,12 @@ class RelayService {
       return E2eCrypto.decrypt(secret, blob);
     }
     if (encRaw == 1 || encRaw == true) {
+      // Same rule as the sealed rungs: a CHANGED key means every session
+      // with the old identity is a session with a ghost.
+      final spk = f['spk'] as String?;
+      if (spk != null && SecureKeyExchange.instance.rememberPeer(from, spk)) {
+        (ratchet ?? DoubleRatchet.instance).resetPeer(from);
+      }
       return E2eCrypto.decrypt(E2eCrypto.keyFor(from, myPhone), blob);
     }
     return blob; // enc 0: never sealed.
@@ -840,10 +852,15 @@ class RelayService {
     final added = applyIncoming(map, myPhone: myPhone);
     final from = map['from'] as String?;
     if (from != null) {
-      // Cache the sender's public key (rides on enc-2 messages) and
-      // make sure they have ours, so replies upgrade to the ECDH path.
+      // Cache the sender's public key (rides on every sealed rung) and
+      // make sure they have ours, so replies upgrade to the ECDH path. The
+      // return value matters: a CHANGED key buries the stale session and
+      // re-offers ours, or the very next reply seals to the ghost.
       final spk = map['spk'] as String?;
-      if (spk != null) SecureKeyExchange.instance.rememberPeer(from, spk);
+      if (spk != null && SecureKeyExchange.instance.rememberPeer(from, spk)) {
+        DoubleRatchet.instance.resetPeer(from);
+        _sentKeyTo.remove(digits(from));
+      }
       _ensureKeyShared(from);
     }
     // Acknowledge delivery so the sender's ticks advance — naming
