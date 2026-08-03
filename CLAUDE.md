@@ -443,8 +443,9 @@ probing with the anon key (a missing column answers 42703, a missing bucket
    including ~115 lines of new Swift (`okay/screenshot`, the capture observer,
    the app-switcher cover) plus `Mesh.swift` and `NearbyFast.swift`, which have
    still never been compiled anywhere.
-2. `docs/payment_controls.sql` and `docs/public_feed.sql` are RUN (the
-   `note` column and the view's spark tallies both answer live — done, do
+2. `docs/payment_controls.sql`, `docs/public_feed.sql` and
+   `docs/identity_backup.sql` are RUN (the `note` column, the view's spark
+   tallies, and the identity-backup table + RPCs all answer live — done, do
    not raise again). When probing feed columns, ask the **`public_feed`
    view**, not `public_posts`: the tallies are view columns computed by the
    counter functions, and probing the table reads as "sparks missing" when
