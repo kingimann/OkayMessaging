@@ -1491,6 +1491,32 @@ class RelayService {
         eventId: MeshPacket.randomId()).catchError((_) => false));
   }
 
+  /// Hands one NEW member the feed history of a server they just joined —
+  /// the live listings and recent posts, sealed like any feed event and
+  /// queued straight into their mailbox (they were not a member when the
+  /// originals fanned out, so no copy of them exists anywhere they can
+  /// reach). Called on the owner's device only; every member sees the join,
+  /// and all of them re-sending the same posts would stampede one mailbox.
+  /// Receiving is the ordinary 'fpost' path, whose id/rev dedup makes any
+  /// overlap harmless.
+  Future<void> backfillFeedTo(String communityId, String joinerWireId) async {
+    if (!_initialized) return;
+    final me = Session.instance.user.value;
+    if (me == null) return;
+    final community = CommunityStore.instance.byId(communityId);
+    if (community == null || community.secretBytes == null) return;
+    final d = CommunityStore.digitsOfWireId(joinerWireId);
+    if (d == null || d == digits(me.phone)) return;
+    for (final post in FeedStore.instance.backfillFor(communityId)) {
+      final payload = {
+        'from': me.phone,
+        'communityId': communityId,
+        ..._sealCommunity(community, jsonEncode({'post': post.toJson()})),
+      };
+      await _mailboxPut(d, payload, event: 'fpost');
+    }
+  }
+
   /// Like [_sendCommunityEvent] but broadcast only — nothing is queued into
   /// anyone's mailbox. For presence that is exactly right: a "joined voice"
   /// replayed from a mailbox hours later would park a ghost in a channel

@@ -360,6 +360,14 @@ class _OkayMessagingAppState extends State<OkayMessagingApp>
         RelayService.instance.rotateServerKey(id);
       }
     };
+    // A member arriving gets the feed history from the owner's device —
+    // broadcast has no history, so without this a listing posted before
+    // they joined would never exist for them.
+    CommunityStore.instance.onMemberJoined = (id, member) {
+      if (RelayConfig.isEnabled) {
+        RelayService.instance.backfillFeedTo(id, member.id);
+      }
+    };
   }
 
   @override

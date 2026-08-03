@@ -1426,9 +1426,18 @@ class CommunityStore extends ChangeNotifier {
   }
 
   /// Applies a member-joined event from the relay.
+  /// Fired when a remote member joins a server THIS DEVICE OWNS, so the
+  /// relay can hand the newcomer the feed history. Owner-only on purpose:
+  /// every member sees the join, and all of them backfilling at once would
+  /// stampede one mailbox with the same posts.
+  void Function(String communityId, Member member)? onMemberJoined;
+
   void applyRemoteJoin(String communityId, Member member) {
     if (member.id == 'me') return;
     addMember(communityId, member);
+    if (myRole(communityId) == MemberRole.owner) {
+      onMemberJoined?.call(communityId, member);
+    }
   }
 
   @visibleForTesting
@@ -1439,6 +1448,7 @@ class CommunityStore extends ChangeNotifier {
     _mutedChannels.clear();
     _deletedChannelMessages.clear();
     onStructureChanged = null;
+    onMemberJoined = null;
     notifyListeners();
   }
 }

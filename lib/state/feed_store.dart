@@ -324,6 +324,20 @@ class FeedStore extends ChangeNotifier {
   final Set<String> _hiddenIds = {};
   final Set<String> _mutedUsernames = {};
 
+  /// What a brand-new member of [communityId] should be handed: the live
+  /// listings first (they are what the marketplace shows and what "doesn't
+  /// show up for everyone" was), then the newest other posts, capped so a
+  /// years-old server doesn't flood a mailbox. Broadcast has no history —
+  /// without this, a post made before someone joined never existed for them.
+  List<FeedPost> backfillFor(String communityId, {int max = 60}) {
+    final all = _posts.where((p) => p.communityId == communityId).toList()
+      ..sort((a, b) => b.time.compareTo(a.time));
+    final listings =
+        all.where((p) => p.isListing && !p.listingSold).toList();
+    final rest = all.where((p) => !p.isListing || p.listingSold).toList();
+    return [...listings, ...rest].take(max).toList();
+  }
+
   /// Accounts whose interactions no longer raise an alert.
   ///
   /// SEPARATE FROM [_mutedUsernames] on purpose, and narrower. Muting somebody

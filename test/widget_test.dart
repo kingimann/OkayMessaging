@@ -22044,6 +22044,38 @@ void main() {
       }
     });
 
+    test('a new member is backfilled the listings they could never have seen',
+        () {
+      // Broadcast has no history: a listing posted before someone joined
+      // never existed for them, which read as "marketplace listings don't
+      // show up for everyone". The backfill hands a joiner the live
+      // listings FIRST, only that server's, capped.
+      FeedStore.instance.resetForTest();
+      addTearDown(FeedStore.instance.resetForTest);
+      FeedPost post(String id, String cid,
+              {int? price, bool sold = false, int day = 1}) =>
+          FeedPost(
+              id: id,
+              communityId: cid,
+              authorName: 'Ada',
+              authorUsername: 'ada',
+              time: DateTime(2026, 1, day),
+              text: id,
+              priceCents: price,
+              listingSold: sold);
+      FeedStore.instance.addRemote(post('p_old', 'srv', day: 1));
+      FeedStore.instance.addRemote(post('l_sold', 'srv', price: 100, sold: true, day: 2));
+      FeedStore.instance.addRemote(post('l_live', 'srv', price: 500, day: 3));
+      FeedStore.instance.addRemote(post('l_other', 'other', price: 700, day: 4));
+
+      final fill = FeedStore.instance.backfillFor('srv');
+      expect(fill.first.id, 'l_live',
+          reason: 'live listings lead the backfill');
+      expect(fill.map((p) => p.id), isNot(contains('l_other')),
+          reason: 'another server\'s listing must never cross over');
+      expect(fill.map((p) => p.id), containsAll(['p_old', 'l_sold']));
+    });
+
     test('numberless sign-in keeps the code its handle was claimed under',
         () async {
       // The sign-up flow claims the handle in the directory BEFORE creating
