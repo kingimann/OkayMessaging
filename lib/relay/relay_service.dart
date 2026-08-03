@@ -1213,23 +1213,28 @@ class RelayService {
                 'fvote', Map<String, dynamic>.from(payload), me);
           },
         )
-        .subscribe();
+        .subscribe((status, [error]) {
+      // Tracked here rather than read off the channel: the channel's own
+      // state getters are package-internal, and the callback is told about
+      // every transition anyway — including the errored/closed ones the
+      // watchdog below exists to catch.
+      _inboxLive = status == RealtimeSubscribeStatus.subscribed;
+    });
     // Catch up on whatever arrived while the app was closed.
     fetchMailbox();
     // The socket dies silently mid-foreground too (network blips, carrier
     // NAT timeouts) and "sometimes works" is what that looks like. Check
     // the join every half minute and rebuild the moment it is gone, instead
-    // of waiting for the next backgrounding to notice.
+    // of waiting for the next backgrounding to notice. A rebuild that
+    // cannot join yet simply tries again on the next tick.
     _socketWatch?.cancel();
     _socketWatch = Timer.periodic(const Duration(seconds: 30), (_) {
-      final inbox = _inbox;
-      if (inbox != null && !inbox.isJoined && !inbox.isJoining) {
-        wake();
-      }
+      if (_inbox != null && !_inboxLive) wake();
     });
   }
 
   Timer? _socketWatch;
+  bool _inboxLive = false;
 
   /// Routes one sealed community event ([event] = chmsg/chjoin/chupd) into
   /// the store — shared by the live bus and the offline mailbox, so the

@@ -20354,16 +20354,20 @@ void main() {
 
     test('the tip row is a row, not a billboard', () {
       // A full-bleed violet gradient in the middle of Settings, in an app
-      // that is greyscale everywhere else. The heart keeps the colour.
+      // that is greyscale everywhere else. Now an ordinary InfoTile under a
+      // section named what people actually look for; the heart keeps the
+      // colour and stays the findable mark.
       final src = File('lib/screens/settings_screen.dart').readAsStringSync();
-      final upsell = src.substring(src.indexOf('class _ProUpsell'),
-          src.indexOf('class _ProfileCard'));
-      expect(upsell.contains('LinearGradient'), isFalse,
+      expect(src.contains('LinearGradient'), isFalse,
           reason: 'the tip jar is a gradient slab again');
-      expect(upsell.contains('color: Colors.white'), isFalse,
-          reason: 'text on it should take the theme, not assume a dark slab');
-      expect(upsell.contains('Icons.favorite'), isTrue,
+      expect(src.contains("'Tips & subscriptions'"), isTrue,
+          reason: 'the section must be named what people search the screen '
+              'for');
+      expect(src.contains('Icons.favorite'), isTrue,
           reason: 'the heart is what makes it findable');
+      expect(src.contains("'Support the developer'"), isTrue);
+      expect(src.contains("'Cloud storage subscription'"), isTrue,
+          reason: 'the subscription must be visible AS a subscription');
     });
 
     test('no fixed grey can pass both themes, which is why subtle exists', () {

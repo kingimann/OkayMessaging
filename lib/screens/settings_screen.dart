@@ -72,7 +72,42 @@ class SettingsView extends StatelessWidget {
           padding: EdgeInsets.fromLTRB(16, 10, 16, 4),
           child: ProfileVerificationRow(),
         ),
-        _ProUpsell(),
+        // Named what people look for. The tip card used to sit alone with no
+        // heading and the storage plan hid inside Preferences as "Cloud
+        // storage" — both real, neither findable by the words anyone would
+        // search the screen for.
+        settingsSectionLabel(context, 'Tips & subscriptions'),
+        InfoSection(
+          children: [
+            InfoTile(
+              leading:
+                  const Icon(Icons.favorite_outline, color: Color(0xFF7A5CFF)),
+              title: 'Support the developer',
+              subtitle: 'Leave a tip — coffee to generous',
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const OkayProScreen()),
+              ),
+            ),
+            ListenableBuilder(
+              listenable: StorageStore.instance,
+              builder: (context, _) {
+                final storage = StorageStore.instance;
+                return InfoTile(
+                  leading: const Icon(Icons.workspace_premium_outlined),
+                  title: 'Cloud storage subscription',
+                  subtitle: storage.isPaid
+                      ? '${storage.plan.name} active — ${storage.quotaLabel}, '
+                          'renew or change'
+                      : 'More space for encrypted backups, billed through '
+                          'the App Store',
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const CloudSyncScreen()),
+                  ),
+                );
+              },
+            ),
+          ],
+        ),
 
         settingsSectionLabel(context, 'Preferences'),
         InfoSection(
@@ -550,69 +585,6 @@ class _ScorePill extends StatelessWidget {
   }
 }
 
-/// A tappable banner inviting people to support the developer.
-/// The tip jar, as a row of settings rather than a billboard.
-///
-/// This was a full-bleed violet gradient — the loudest thing in Settings, in
-/// an app that is greyscale everywhere else, and the sort of block a reader
-/// learns to scroll past because it looks like an advert. The heart keeps the
-/// colour; nothing else needs it.
-class _ProUpsell extends StatelessWidget {
-  static const Color _accent = Color(0xFF7A5CFF);
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
-      child: Material(
-        color: scheme.surfaceContainerHighest.withValues(alpha: 0.5),
-        borderRadius: BorderRadius.circular(16),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: () => Navigator.of(context).push(
-            MaterialPageRoute(builder: (_) => const OkayProScreen()),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-            child: Row(
-              children: [
-                Container(
-                  width: 36,
-                  height: 36,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: _accent.withValues(alpha: 0.16),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: const Icon(Icons.favorite, size: 19, color: _accent),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text('Support the developer',
-                          style: TextStyle(
-                              fontSize: 15.5, fontWeight: FontWeight.w700)),
-                      const SizedBox(height: 2),
-                      Text('Leave a tip to help keep OkayMessenger going',
-                          style: TextStyle(
-                              fontSize: 12.5,
-                              color: AppColors.subtle(context))),
-                    ],
-                  ),
-                ),
-                Icon(Icons.chevron_right,
-                    size: 20, color: AppColors.subtle(context)),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
 
 class _ProfileCard extends StatelessWidget {
   @override
