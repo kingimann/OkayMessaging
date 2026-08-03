@@ -35,6 +35,7 @@ import 'state/callkit_bridge.dart';
 import 'state/community_store.dart';
 import 'state/contacts_sync.dart';
 import 'state/parental_controls.dart';
+import 'state/room_media.dart';
 import 'state/crash_reporter.dart';
 import 'state/chat_store.dart';
 import 'state/cloud_sync.dart';
@@ -160,6 +161,17 @@ Future<void> main() async {
           required screen}) =>
       RelayService.instance.sendVoicePresence(communityId, channelId,
           joined: joined, muted: muted, video: video, screen: screen);
+  // The voice-channel media mesh: signaling out over the sealed pairwise
+  // path, signaling in routed to the mesh, and connections following
+  // presence from here on.
+  RoomMedia.instance.send = (toDigits,
+          {required roomId, required kind, sdp, ice}) =>
+      RelayService.instance.sendRoomSignal(toDigits,
+          roomId: roomId, kind: kind, sdp: sdp, ice: ice);
+  RelayService.instance.onRoomSignal =
+      (fromDigits, roomId, kind, {sdp, ice}) => RoomMedia.instance
+          .onSignal(fromDigits, roomId, kind, sdp: sdp, ice: ice);
+  RoomMedia.instance.bind();
   await _boot('cloud sync', CloudSync.instance.load);
   await _boot('status', StatusStore.instance.load);
   await _boot('favourites', FavouritesStore.instance.load);

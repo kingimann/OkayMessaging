@@ -4,6 +4,7 @@ import '../models/chat.dart';
 import '../models/user.dart';
 import '../state/chat_store.dart';
 import '../state/follow_store.dart';
+import '../widgets/invite_prompt.dart';
 import '../widgets/pull_to_refresh.dart';
 import '../widgets/user_avatar.dart';
 import 'chat_screen.dart';
@@ -27,12 +28,16 @@ class _PeopleScreenState extends State<PeopleScreen> {
     super.dispose();
   }
 
-  void _addFriend() {
+  Future<void> _addFriend() async {
     final number = _number.text.trim();
     if (number.isEmpty) return;
     final store = ChatStore.instance;
     final existing = store.chatWithContact(number);
     if (existing == null) {
+      // Same gate as "chat with a number": a number the directory has
+      // never heard of gets an invite, not a chat that cannot deliver.
+      if (!await allowChatWithNumber(context, number)) return;
+      if (!mounted) return;
       final contact = AppUser(
         id: number,
         name: number,

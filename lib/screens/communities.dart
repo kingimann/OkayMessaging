@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_webrtc/flutter_webrtc.dart' show RTCVideoView, RTCVideoViewObjectFit;
 import '../state/parental_controls.dart';
+import '../state/room_media.dart';
 import '../widgets/parental_gate.dart';
 import '../widgets/phone_gate.dart';
 
@@ -1139,6 +1141,17 @@ class _VoiceChannelScreenState extends State<VoiceChannelScreen> {
       channelId: widget.channelId,
       myName: AppState.profile.value.name,
     );
+    // The room's actual sound: the mesh opens the mic and dials everyone
+    // presence already shows. A refused microphone still leaves you IN the
+    // room (visible, listening to nothing) with the reason on screen.
+    unawaited(RoomMedia.instance
+        .joinRoom(widget.communityId, widget.channelId)
+        .then((problem) {
+      if (problem != null && mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(problem)));
+      }
+    }));
     setState(() => _joinedAt = _voice.joinedAt ?? DateTime.now());
     _startTick();
   }
@@ -1146,6 +1159,7 @@ class _VoiceChannelScreenState extends State<VoiceChannelScreen> {
   void _leave() {
     _tick?.cancel();
     _tick = null;
+    unawaited(RoomMedia.instance.leaveRoom());
     _voice.leave();
     setState(() {
       _deafened = false;
@@ -1165,8 +1179,12 @@ class _VoiceChannelScreenState extends State<VoiceChannelScreen> {
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable:
-          Listenable.merge([CommunityStore.instance, VoicePresenceStore.instance]),
+      listenable: Listenable.merge([
+        CommunityStore.instance,
+        VoicePresenceStore.instance,
+        // Remote video arriving (or ending) redraws the tiles it fills.
+        RoomMedia.instance,
+      ]),
       builder: (context, _) {
         final community = CommunityStore.instance.byId(widget.communityId);
         final channel = community?.channels
@@ -1276,6 +1294,24 @@ class _VoiceChannelScreenState extends State<VoiceChannelScreen> {
         for (final o in occupants)
           _memberTile(
             label: o.isMe ? 'You' : o.name,
+            // A tile with live pictures shows them; everyone else stays an
+            // avatar. Mine previews what I'm sending; theirs renders what
+            // the mesh received.
+            live: o.isMe
+                ? ((RoomMedia.instance.cameraOn.value ||
+                            RoomMedia.instance.screenSharing.value) &&
+                        RoomMedia.instance.localRenderer != null
+                    ? RTCVideoView(RoomMedia.instance.localRenderer!,
+                        objectFit:
+                            RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+                        mirror: !RoomMedia.instance.screenSharing.value)
+                    : null)
+                : ((o.video || o.screen) &&
+                        RoomMedia.instance.rendererFor(o.digits) != null
+                    ? RTCVideoView(RoomMedia.instance.rendererFor(o.digits)!,
+                        objectFit:
+                            RTCVideoViewObjectFit.RTCVideoViewObjectFitCover)
+                    : null),
             avatar: o.isMe
                 ? UserAvatar(user: me, radius: 32)
                 : CircleAvatar(
@@ -1303,6 +1339,7 @@ class _VoiceChannelScreenState extends State<VoiceChannelScreen> {
   Widget _memberTile({
     required String label,
     required Widget avatar,
+    Widget? live,
     bool speaking = false,
     bool muted = false,
     bool deafened = false,
@@ -1322,38 +1359,75 @@ class _VoiceChannelScreenState extends State<VoiceChannelScreen> {
       ),
       child: Stack(
         children: [
-          Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                avatar,
-                const SizedBox(height: 10),
-                Row(
+          if (live != null)
+            Positioned.fill(
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(15.5),
+                child: live,
+              ),
+            ),
+          if (live != null)
+            // The name moves onto the picture instead of vanishing under it.
+            Positioned(
+              left: 10,
+              bottom: 8,
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.55),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    if (deafened) ...[
-                      const Icon(Icons.headset_off,
-                          size: 14, color: Colors.redAccent),
-                      const SizedBox(width: 4),
-                    ] else if (muted) ...[
+                    if (muted) ...[
                       const Icon(Icons.mic_off,
-                          size: 14, color: Colors.redAccent),
+                          size: 12, color: Colors.redAccent),
                       const SizedBox(width: 4),
                     ],
-                    Flexible(
-                      child: Text(label,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.white)),
-                    ),
+                    Text(label,
+                        style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.white)),
                   ],
                 ),
-              ],
+              ),
             ),
-          ),
+          if (live == null)
+            Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  avatar,
+                  const SizedBox(height: 10),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (deafened) ...[
+                        const Icon(Icons.headset_off,
+                            size: 14, color: Colors.redAccent),
+                        const SizedBox(width: 4),
+                      ] else if (muted) ...[
+                        const Icon(Icons.mic_off,
+                            size: 14, color: Colors.redAccent),
+                        const SizedBox(width: 4),
+                      ],
+                      Flexible(
+                        child: Text(label,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.white)),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
           if (video || screen)
             Positioned(
               top: 8,
@@ -1411,7 +1485,11 @@ class _VoiceChannelScreenState extends State<VoiceChannelScreen> {
                       color: _muted ? Colors.redAccent : idle,
                       onTap: () {
                         final nowMuted = !_muted;
-                        if (!nowMuted) _deafened = false;
+                        if (!nowMuted) {
+                          _deafened = false;
+                          RoomMedia.instance.setDeafened(false);
+                        }
+                        RoomMedia.instance.setMuted(nowMuted);
                         _voice.setLocalState(muted: nowMuted);
                         setState(() {});
                       },
@@ -1422,8 +1500,12 @@ class _VoiceChannelScreenState extends State<VoiceChannelScreen> {
                       color: _deafened ? Colors.redAccent : idle,
                       onTap: () {
                         _deafened = !_deafened;
+                        RoomMedia.instance.setDeafened(_deafened);
                         // Deafening also mutes you, à la Discord.
-                        if (_deafened) _voice.setLocalState(muted: true);
+                        if (_deafened) {
+                          RoomMedia.instance.setMuted(true);
+                          _voice.setLocalState(muted: true);
+                        }
                         setState(() {});
                       },
                     ),
@@ -1431,7 +1513,11 @@ class _VoiceChannelScreenState extends State<VoiceChannelScreen> {
                       icon: _video ? Icons.videocam : Icons.videocam_off,
                       label: 'Video',
                       color: _video ? active : idle,
-                      onTap: () => _voice.setLocalState(video: !_video),
+                      onTap: () {
+                        final on = !_video;
+                        unawaited(RoomMedia.instance.enableCamera(on));
+                        _voice.setLocalState(video: on);
+                      },
                     ),
                     _voiceButton(
                       icon: _screen
@@ -1439,7 +1525,18 @@ class _VoiceChannelScreenState extends State<VoiceChannelScreen> {
                           : Icons.screen_share,
                       label: 'Screen',
                       color: _screen ? active : idle,
-                      onTap: () => _voice.setLocalState(screen: !_screen),
+                      onTap: () async {
+                        final messenger = ScaffoldMessenger.of(context);
+                        final problem =
+                            await RoomMedia.instance.toggleScreenShare();
+                        if (problem != null) {
+                          messenger.showSnackBar(
+                              SnackBar(content: Text(problem)));
+                          return;
+                        }
+                        _voice.setLocalState(
+                            screen: RoomMedia.instance.screenSharing.value);
+                      },
                     ),
                     _voiceButton(
                       icon: Icons.call_end,

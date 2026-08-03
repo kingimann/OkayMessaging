@@ -1105,6 +1105,13 @@ class RelayService {
           },
         )
         .onBroadcast(
+          event: 'vrtc',
+          callback: (rawEnvelope) {
+            final payload = unwrapBroadcast(rawEnvelope);
+            _applyRoomSignal(Map<String, dynamic>.from(payload), me);
+          },
+        )
+        .onBroadcast(
           event: 'file',
           callback: (rawEnvelope) {
             final payload = unwrapBroadcast(rawEnvelope);
@@ -1820,6 +1827,48 @@ class RelayService {
       'from': me.phone,
       'communityId': communityId,
     }));
+  }
+
+  /// Voice-channel WebRTC signaling (offer/answer/ice/bye), pairwise and
+  /// sealed like call signaling — the mesh is per-peer connections, so its
+  /// SDP is a private conversation between two devices even though the room
+  /// is many. LIVE ONLY, never queued: a room offer replayed from a mailbox
+  /// after the sender left would open a connection to nobody.
+  Future<void> sendRoomSignal(
+    String contactPhone, {
+    required String roomId,
+    required String kind,
+    String? sdp,
+    Map<String, dynamic>? ice,
+  }) async {
+    if (!_initialized) return;
+    final me = Session.instance.user.value;
+    if (me == null) return;
+    final name = inboxChannel(contactPhone);
+    final channel =
+        _sendChannels.putIfAbsent(name, () => _client.channel(name));
+    await channel.sendBroadcastMessage(event: 'vrtc', payload: {
+      'from': me.phone,
+      'roomId': roomId,
+      'kind': kind,
+      'ts': DateTime.now().millisecondsSinceEpoch,
+      ..._sealSignalPair(contactPhone, sdp: sdp, ice: ice),
+    });
+  }
+
+  /// Where an incoming room-signaling event goes — wired to RoomMedia at
+  /// startup; left null in tests so nothing touches WebRTC.
+  void Function(String fromDigits, String roomId, String kind,
+      {String? sdp, Map<String, dynamic>? ice})? onRoomSignal;
+
+  void _applyRoomSignal(Map<String, dynamic> p, String me) {
+    final from = p['from'] as String?;
+    final roomId = p['roomId'] as String?;
+    final kind = p['kind'] as String?;
+    if (from == null || roomId == null || kind == null) return;
+    if (digits(from) == digits(me)) return;
+    onRoomSignal?.call(digits(from), roomId, kind,
+        sdp: _openSdp(from, p), ice: _openIce(from, p));
   }
 
   /// Announces that this device joined or left a voice channel.

@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 
 import '../relay/relay_service.dart';
+import 'call_quality.dart';
 
 /// The real audio/video media layer for calls, built on WebRTC.
 ///
@@ -74,6 +75,11 @@ class CallMedia {
   // TURN server is configured, Open Relay (Metered's free public TURN) is
   // the fallback: the relay only ever carries DTLS-SRTP ciphertext, so it
   // can route the call, not listen to it.
+  /// The ICE configuration, shared with the voice-channel mesh so both ride
+  /// the same STUN/TURN path — a room leg behind carrier NAT needs the
+  /// relay exactly as much as a 1:1 call does.
+  static Map<String, dynamic> get rtcConfig => _config;
+
   static Map<String, dynamic> get _config => {
         'iceServers': [
           {'urls': 'stun:stun.l.google.com:19302'},
@@ -130,15 +136,11 @@ class CallMedia {
     await _ensureRenderers();
     final pc = await createPeerConnection(_config);
     _pc = pc;
-    // Echo cancellation + noise suppression + auto gain make voice calls
-    // markedly cleaner than the bare defaults.
+    // The full processed-mic chain and a bounded 720p30 camera — the same
+    // profile the voice-channel mesh uses, from the one place it lives.
     _localStream = await navigator.mediaDevices.getUserMedia({
-      'audio': {
-        'echoCancellation': true,
-        'noiseSuppression': true,
-        'autoGainControl': true,
-      },
-      'video': video ? {'facingMode': 'user'} : false,
+      'audio': CallQuality.micConstraints(),
+      'video': video ? CallQuality.cameraConstraints() : false,
     });
     localRenderer!.srcObject = _localStream;
     for (final track in _localStream!.getTracks()) {
@@ -163,6 +165,9 @@ class CallMedia {
     };
     connectionState.value = 'connecting';
     localVideo.value = video;
+    if (video) {
+      unawaited(CallQuality.tuneVideoSenders(pc, screen: false));
+    }
     _startStatsMonitor();
   }
 
@@ -173,7 +178,9 @@ class CallMedia {
       await _createPeer(peerPhone, video);
       final offer = await _pc!.createOffer();
       await _pc!.setLocalDescription(offer);
-      return offer.sdp;
+      // Tune the STRING we signal, never the local description: the fmtp in
+      // an offer tells the far side how to encode toward us.
+      return offer.sdp == null ? null : CallQuality.tuneOpus(offer.sdp!);
     } catch (_) {
       return null;
     }
@@ -190,7 +197,7 @@ class CallMedia {
       final answer = await _pc!.createAnswer();
       await _pc!.setLocalDescription(answer);
       await _flushPendingIce();
-      return answer.sdp;
+      return answer.sdp == null ? null : CallQuality.tuneOpus(answer.sdp!);
     } catch (_) {
       return null;
     }
@@ -262,7 +269,7 @@ class CallMedia {
     try {
       final offer = await _pc!.createOffer();
       await _pc!.setLocalDescription(offer);
-      return offer.sdp;
+      return offer.sdp == null ? null : CallQuality.tuneOpus(offer.sdp!);
     } catch (_) {
       return null;
     }
@@ -276,7 +283,7 @@ class CallMedia {
           .setRemoteDescription(RTCSessionDescription(offerSdp, 'offer'));
       final answer = await _pc!.createAnswer();
       await _pc!.setLocalDescription(answer);
-      return answer.sdp;
+      return answer.sdp == null ? null : CallQuality.tuneOpus(answer.sdp!);
     } catch (_) {
       return null;
     }
@@ -308,7 +315,7 @@ class CallMedia {
       }
       // Voice call with no camera track yet: capture and add one.
       final cam = await navigator.mediaDevices.getUserMedia({
-        'video': {'facingMode': 'user'},
+        'video': CallQuality.cameraConstraints(),
       });
       final track = cam.getVideoTracks().first;
       if (_localStream != null) {
@@ -318,6 +325,9 @@ class CallMedia {
           _renegotiateNeeded = true;
         }
         if (!screenSharing.value) localRenderer?.srcObject = _localStream;
+      }
+      if (_pc != null) {
+        unawaited(CallQuality.tuneVideoSenders(_pc!, screen: false));
       }
       localVideo.value = true;
       return _renegotiateNeeded;
@@ -364,6 +374,9 @@ class CallMedia {
         _renegotiateNeeded = true;
       }
       localRenderer?.srcObject = display;
+      // Detail over motion: hold resolution so shared text stays readable,
+      // and let the frame rate fall instead.
+      unawaited(CallQuality.tuneVideoSenders(_pc!, screen: true));
       // The browser's own "Stop sharing" bar ends the track — follow it.
       track.onEnded = () => _stopScreenShare();
       _screenStream = display;
@@ -441,6 +454,10 @@ class CallMedia {
         if (s.track?.kind == 'video' && cam.isNotEmpty) {
           await s.replaceTrack(cam.first);
         }
+      }
+      if (_pc != null) {
+        // Back to motion-first now the camera is on the wire again.
+        unawaited(CallQuality.tuneVideoSenders(_pc!, screen: false));
       }
       if (_localStream != null) localRenderer?.srcObject = _localStream;
     } catch (_) {}

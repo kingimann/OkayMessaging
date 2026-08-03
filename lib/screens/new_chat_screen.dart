@@ -9,6 +9,7 @@ import '../state/chat_store.dart';
 import '../util/account_code.dart';
 import '../state/contacts_sync.dart';
 import '../widgets/app_dialogs.dart';
+import '../widgets/invite_prompt.dart';
 import '../widgets/pull_to_refresh.dart';
 import '../widgets/user_avatar.dart';
 import 'chat_screen.dart';
@@ -67,6 +68,11 @@ class NewChatScreen extends StatelessWidget {
     if (existing != null) {
       chat = existing;
     } else {
+      // A NEW reach-out only: an existing conversation is history, not a
+      // first message into a void. Confidently-unknown numbers get an
+      // invite instead of a chat that can never deliver.
+      if (!await allowChatWithNumber(context, number)) return;
+      if (!context.mounted) return;
       final contact = AppUser(
         id: number,
         name: code == null ? number : AccountCode.pretty(number),

@@ -106,7 +106,9 @@ import 'package:okay_messaging/utils/maps_link.dart';
 import 'package:okay_messaging/widgets/info_section.dart';
 import 'package:okay_messaging/widgets/message_bubble.dart';
 import 'package:okay_messaging/state/account_wipe.dart';
+import 'package:okay_messaging/state/call_quality.dart';
 import 'package:okay_messaging/state/parental_controls.dart';
+import 'package:okay_messaging/state/room_media.dart';
 import 'package:okay_messaging/state/sticker_store.dart';
 import 'package:okay_messaging/widgets/parental_gate.dart';
 import 'package:okay_messaging/widgets/sticker_sheet.dart';
@@ -6958,6 +6960,102 @@ void main() {
           contains('ParentalRestriction.servers'));
       expect(File('lib/payments/payment_service.dart').readAsStringSync(),
           contains('parental_locked'));
+    });
+  });
+
+  group('Call clarity and voice-channel media', () {
+    test('tuneOpus turns on FEC, DTX and the 64k ceiling without wrecking '
+        'the SDP', () {
+      const sdp = 'v=0\r\n'
+          'm=audio 9 UDP/TLS/RTP/SAVPF 111 103\r\n'
+          'a=rtpmap:111 opus/48000/2\r\n'
+          'a=fmtp:111 minptime=10;useinbandfec=0\r\n'
+          'a=rtpmap:103 ISAC/16000\r\n';
+      final tuned = CallQuality.tuneOpus(sdp);
+      expect(tuned, contains('a=rtpmap:111 opus/48000/2'),
+          reason: 'the rtpmap line must survive intact');
+      expect(tuned, contains('useinbandfec=1'));
+      expect(tuned, contains('usedtx=1'));
+      expect(tuned, contains('maxaveragebitrate=64000'));
+      expect(tuned, contains('minptime=10'),
+          reason: 'params the platform negotiated are kept');
+      expect(RegExp('useinbandfec').allMatches(tuned).length, 1,
+          reason: 'a stale value is replaced, not stacked');
+
+      // No fmtp line at all: one is added after the rtpmap, whole-line.
+      const bare = 'a=rtpmap:96 opus/48000/2\r\na=rtpmap:97 ISAC/16000\r\n';
+      final added = CallQuality.tuneOpus(bare);
+      expect(added, contains('a=rtpmap:96 opus/48000/2\r\na=fmtp:96 '));
+      expect(added, contains('a=rtpmap:97 ISAC/16000'));
+
+      // No Opus: nothing to tune, nothing touched.
+      const noOpus = 'a=rtpmap:96 VP8/90000\r\n';
+      expect(CallQuality.tuneOpus(noOpus), noOpus);
+    });
+
+    test('for any pair exactly one side dials', () {
+      expect(RoomMedia.initiates('15550001111', '15550002222'),
+          isNot(RoomMedia.initiates('15550002222', '15550001111')),
+          reason: 'both devices computing the same rule is what prevents '
+              'the two-Alices race');
+      expect(RoomMedia.initiates('15550001111', '15550001111'), isFalse);
+      // Numberless codes and phone digits compare fine too.
+      expect(RoomMedia.initiates('001234567890', '15550001111'),
+          isNot(RoomMedia.initiates('15550001111', '001234567890')));
+    });
+
+    test('the mesh follows presence: joiners connect, leavers drop', () {
+      final diff = RoomMedia.diffPeers(
+          {'a', 'b', 'c'}, {'b', 'c', 'd'});
+      expect(diff.add, {'d'});
+      expect(diff.drop, {'a'});
+      final none = RoomMedia.diffPeers({'a'}, {'a'});
+      expect(none.add, isEmpty);
+      expect(none.drop, isEmpty);
+    });
+
+    test('room signaling is sealed, live-only, and actually wired', () {
+      final relay = File('lib/relay/relay_service.dart').readAsStringSync();
+      // The sender seals like call signaling and never queues: a room offer
+      // replayed hours later would dial a room the sender already left.
+      final sendBody = relay.substring(relay.indexOf('sendRoomSignal'),
+          relay.indexOf('onRoomSignal'));
+      expect(sendBody, contains('_sealSignalPair'));
+      expect(sendBody, isNot(contains('_mailboxPut')));
+      expect(relay, contains("event: 'vrtc'"));
+      // The room's screen drives real media, not just presence flags.
+      final screens = File('lib/screens/communities.dart').readAsStringSync();
+      expect(screens, contains('.joinRoom(widget.communityId'));
+      expect(screens, contains('.leaveRoom()'));
+      expect(screens, contains('toggleScreenShare'));
+      expect(screens, contains('enableCamera'));
+      // And startup binds the two together.
+      final mainSrc = File('lib/main.dart').readAsStringSync();
+      expect(mainSrc, contains('RoomMedia.instance.send'));
+      expect(mainSrc, contains('onRoomSignal'));
+      expect(mainSrc, contains('RoomMedia.instance.bind()'));
+      // The 1:1 call runs the same clarity profile.
+      final media = File('lib/state/call_media.dart').readAsStringSync();
+      expect(media, contains('CallQuality.micConstraints'));
+      expect(media, contains('CallQuality.tuneOpus'));
+    });
+
+    test('a number the directory has never heard of gets an invite, not a '
+        'chat', () async {
+      // Unknown is not "no": with no session (this test env) the check must
+      // answer null and the caller must fail OPEN.
+      Session.instance.user.value = null;
+      expect(await AccountService.instance.isOnApp('15550009999'), isNull);
+      // Both blind number entries route through the one gate.
+      expect(File('lib/screens/new_chat_screen.dart').readAsStringSync(),
+          contains('allowChatWithNumber'));
+      expect(File('lib/screens/people_screen.dart').readAsStringSync(),
+          contains('allowChatWithNumber'));
+      final prompt =
+          File('lib/widgets/invite_prompt.dart').readAsStringSync();
+      expect(prompt, contains('onApp != false'),
+          reason: 'only a confident "not on the app" blocks — null allows');
+      expect(prompt, contains('Copy invite'));
     });
   });
 

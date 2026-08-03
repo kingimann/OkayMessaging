@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -383,6 +384,34 @@ class AccountService {
         .limit(1);
     if (rows.isEmpty) return null;
     return rows.first['username'] as String?;
+  }
+
+  /// Whether [phoneOrCode] belongs to an account on OkayMessenger, as far
+  /// as the directory can say. Three answers on purpose:
+  ///
+  ///   true  — a directory row exists: they use the app;
+  ///   false — the directory ANSWERED and holds nobody under that number;
+  ///   null  — the question could not be answered (no relay, offline, or a
+  ///           numberless viewer whose anon key reads the table as empty
+  ///           rows — silence, not absence). Callers must fail OPEN on
+  ///           null: refusing to message somebody over a network hiccup
+  ///           would be worse than the spam this check prevents.
+  Future<bool?> isOnApp(String phoneOrCode) async {
+    if (!AccountService.isEnabled) return null;
+    if (Session.instance.user.value == null || Session.instance.isNumberless) {
+      return null;
+    }
+    try {
+      final rows = await _client
+          .from(_table)
+          .select('phone')
+          .eq('phone', e164(phoneOrCode))
+          .limit(1)
+          .timeout(const Duration(seconds: 6));
+      return rows.isNotEmpty;
+    } catch (_) {
+      return null;
+    }
   }
 
   /// The account behind [username]: its E.164 phone and display name, or
