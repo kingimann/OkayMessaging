@@ -257,10 +257,22 @@ class CallService {
       final c = current.value;
       if (c == null || c.callId != id) return;
       if (c.status != CallStatus.ringing) return;
+      _notifyMissed(c);
       _logCall(c);
       CallMedia.instance.hangUp();
       current.value = c.copyWith(status: CallStatus.ended);
     });
+  }
+
+  /// Tells the peer a ringing call was given up on. The live offer only
+  /// reaches an app that is open; when theirs wasn't, this push is the one
+  /// trace that anyone tried to call at all.
+  void _notifyMissed(CallSession c) {
+    if (c.isGroup || c.direction != CallDirection.outgoing) return;
+    final me = Session.instance.user.value;
+    PushService.instance.notify(c.peer.phone,
+        title: me == null || me.name.isEmpty ? 'Missed call' : me.name,
+        body: c.video ? 'Missed video call' : 'Missed call');
   }
 
   /// Sets up WebRTC media (web only) then rings the peer with the SDP offer.
@@ -406,6 +418,11 @@ class CallService {
     } else {
       RelayService.instance
           .sendCall(c.peer.phone, kind: 'end', callId: c.callId, video: c.video);
+      // Hanging up while it was still ringing is a missed call on their side.
+      if (c.status == CallStatus.ringing &&
+          c.direction == CallDirection.outgoing) {
+        _notifyMissed(c);
+      }
     }
     _logCall(c);
     _pendingOfferSdp = null;

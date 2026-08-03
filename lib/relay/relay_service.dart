@@ -1983,6 +1983,15 @@ class RelayService {
     if (!_initialized) return;
     final me = Session.instance.user.value;
     if (me == null) return;
+    // A reaction deserves a buzz like a message does — only when ADDING;
+    // taking one back should not light anyone's phone up. The recipient's
+    // private-notifications setting still reduces it to "New message"
+    // server-side, like every push.
+    if (add) {
+      PushService.instance.notify(contactPhone,
+          title: me.name.isEmpty ? 'New reaction' : me.name,
+          body: 'Reacted $emoji to your message');
+    }
     await _sendInboxEvent(contactPhone, 'reaction',
         {'from': me.phone, 'id': messageId, 'emoji': emoji, 'add': add});
   }

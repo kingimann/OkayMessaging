@@ -60,6 +60,7 @@ import 'package:okay_messaging/state/platform_moderation.dart';
 import 'package:okay_messaging/payments/connect_fields.dart';
 import 'package:okay_messaging/payments/payment_diagnostics.dart';
 import 'package:okay_messaging/state/push_diagnostics.dart';
+import 'package:okay_messaging/state/relay_diagnostics.dart';
 import 'package:okay_messaging/state/self_test.dart';
 import 'package:okay_messaging/payments/stripe_tokens.dart';
 import 'package:okay_messaging/screens/payment_controls_screen.dart';
@@ -4670,6 +4671,17 @@ void main() {
       expect(formatPhoneForDisplay('Grace Hopper'), 'Grace Hopper');
       expect(formatPhoneForDisplay('555-0123'), '555-0123');
       expect(formatPhoneForDisplay(''), '');
+    });
+
+    test('live-delivery self-test names what is missing before it can run',
+        () async {
+      // Without a relay (this suite) it must say so and not touch the
+      // network — the probe would otherwise throw on an uninitialized
+      // Supabase and turn a configuration answer into a crash.
+      final report = await RelaySelfTest.run();
+      expect(report.faulty, isTrue);
+      expect(report.steps.first.state, CheckState.fail);
+      expect(report.verdict, contains('relay'));
     });
 
     test('live broadcast callbacks unwrap the wire envelope', () {

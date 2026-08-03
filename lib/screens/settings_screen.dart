@@ -11,6 +11,7 @@ import '../util/build_info.dart';
 import '../state/chat_store.dart';
 import '../state/platform_moderation.dart';
 import '../state/push_diagnostics.dart';
+import '../state/relay_diagnostics.dart';
 import '../state/session.dart';
 import '../state/storage_store.dart';
 import '../widgets/app_dialogs.dart';
@@ -185,6 +186,22 @@ class SettingsView extends StatelessWidget {
                 builder: (_) => const SelfTestScreen(
                   title: 'Check push setup',
                   run: PushSelfTest.run,
+                ),
+              ),
+            ),
+          ),
+          InfoTile(
+            leading: const Icon(Icons.bolt_outlined),
+            title: 'Check live delivery',
+            // The counterpart for the app being OPEN: a dead live socket
+            // looks exactly like "slow messages", because the offline
+            // mailbox still delivers on refresh.
+            subtitle: 'Why messages do or don\'t arrive instantly',
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => const SelfTestScreen(
+                  title: 'Check live delivery',
+                  run: RelaySelfTest.run,
                 ),
               ),
             ),
