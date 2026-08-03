@@ -11,6 +11,7 @@ import '../state/two_step.dart';
 import '../widgets/app_dialogs.dart';
 import '../widgets/info_section.dart';
 import 'blocked_contacts_screen.dart';
+import 'recovery_code_screen.dart';
 import 'settings_widgets.dart';
 import 'two_step_screen.dart';
 
@@ -89,6 +90,14 @@ class PrivacySettingsScreen extends StatelessWidget {
             _TwoStepTile(),
             _AppLockTile(),
             _buildBlockScreenshotsTile(),
+            InfoTile(
+              leading: const Icon(Icons.key_outlined),
+              title: 'Encryption recovery code',
+              subtitle: 'Keep your keys through a new phone or reinstall',
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const RecoveryCodeScreen()),
+              ),
+            ),
             InfoTile(
               leading: const Icon(Icons.block_outlined),
               title: 'Blocked contacts',

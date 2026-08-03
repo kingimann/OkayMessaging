@@ -28,6 +28,8 @@ import 'package:okay_messaging/widgets/phone_gate.dart';
 import 'package:okay_messaging/state/identity_verification.dart';
 import 'package:okay_messaging/app_state.dart';
 import 'package:okay_messaging/crypto/e2e.dart';
+import 'package:okay_messaging/crypto/identity_recovery.dart';
+import 'package:okay_messaging/screens/recovery_code_screen.dart';
 import 'package:okay_messaging/data/mock_data.dart';
 import 'package:okay_messaging/crypto/key_exchange.dart';
 import 'package:okay_messaging/main.dart';
@@ -3529,6 +3531,133 @@ void main() {
       RelayService.instance.healPeer('+1 555 0199');
       expect(store.chatById('chat_healnote')!.messages.length, 1,
           reason: 'said once, not once per failure');
+    });
+
+    test('the recovery code seals an identity only the code opens', () {
+      final code = IdentityRecovery.mintCode();
+      // Read-back-over-the-phone safe: groups of four, no 0/O or 1/I.
+      expect(RegExp(r'^[A-Z2-9]{4}(-[A-Z2-9]{4}){3}$').hasMatch(code), isTrue,
+          reason: 'got $code');
+      expect(code.contains(RegExp('[01OI]')), isFalse);
+      expect(IdentityRecovery.mintCode(), isNot(code),
+          reason: 'two mints must differ');
+
+      const secretHex = 'deadbeef1234567890abcdef';
+      final blob = IdentityRecovery.sealIdentity(secretHex, code);
+      // The blob is what the server stores, so the key must not be in it.
+      expect(blob.contains(secretHex), isFalse);
+      expect(IdentityRecovery.openIdentity(blob, code), secretHex);
+      // Typed sloppily is still the same code.
+      expect(
+          IdentityRecovery.openIdentity(
+              blob, code.toLowerCase().replaceAll('-', ' ')),
+          secretHex);
+      // The wrong code opens nothing — and reads the same as no backup,
+      // because GCM cannot tell tampering from a wrong key.
+      expect(IdentityRecovery.openIdentity(blob, IdentityRecovery.mintCode()),
+          isNull);
+      expect(IdentityRecovery.openIdentity('not json', code), isNull);
+    });
+
+    test('a restored identity is the SAME identity, and old seals open again',
+        () async {
+      // The whole point: after reinstall + restore, the shared secret with
+      // every peer is what it was, so a message sealed before the phone
+      // died is readable after.
+      SharedPreferences.setMockInitialValues({});
+      // ignore: invalid_use_of_visible_for_testing_member
+      addTearDown(SecureKeyExchange.instance.resetForTest);
+      // ignore: invalid_use_of_visible_for_testing_member
+      addTearDown(DoubleRatchet.instance.resetForTest);
+      final kx = SecureKeyExchange.instance;
+      await kx.load();
+      final peer = SecureKeyExchange.freshForTest();
+      final originalPub = kx.myPublicKey!;
+      final sealedBefore = E2eCrypto.encrypt(
+          kx.sharedSecretWith(peer.myPublicKey!)!, 'from before the reinstall');
+      final code = IdentityRecovery.mintCode();
+      final backup = IdentityRecovery.sealIdentity(kx.exportPrivate(), code);
+
+      // The reinstall: fresh prefs, fresh identity, the old one gone.
+      SharedPreferences.setMockInitialValues({});
+      kx.resetForTest();
+      await kx.load();
+      expect(kx.myPublicKey, isNot(originalPub));
+      expect(
+          E2eCrypto.decrypt(
+              kx.sharedSecretWith(peer.myPublicKey!)!, sealedBefore),
+          isNull,
+          reason: 'this is exactly the padlock the code exists to prevent');
+
+      // The restore.
+      final hex = IdentityRecovery.openIdentity(backup, code)!;
+      await kx.adoptIdentity(hex);
+      expect(kx.myPublicKey, originalPub,
+          reason: 'restore brings back the SAME identity, not a new one');
+      expect(
+          E2eCrypto.decrypt(
+              kx.sharedSecretWith(peer.myPublicKey!)!, sealedBefore),
+          'from before the reinstall');
+      // And it persisted: the next launch loads the restored identity.
+      kx.resetForTest();
+      await kx.load();
+      expect(kx.myPublicKey, originalPub);
+    });
+
+    testWidgets('the recovery screen mints, stores sealed, and restores',
+        (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      // ignore: invalid_use_of_visible_for_testing_member
+      addTearDown(SecureKeyExchange.instance.resetForTest);
+      // ignore: invalid_use_of_visible_for_testing_member
+      addTearDown(DoubleRatchet.instance.resetForTest);
+      addTearDown(() {
+        IdentityRecovery.debugStore = null;
+        IdentityRecovery.debugFetch = null;
+      });
+      await SecureKeyExchange.instance.load();
+      final myHex = SecureKeyExchange.instance.exportPrivate();
+
+      String? storedBlob;
+      IdentityRecovery.debugFetch = (_) async => storedBlob;
+      IdentityRecovery.debugStore = (inbox, blob) async {
+        expect(inbox, '15550100');
+        expect(blob.contains(myHex), isFalse,
+            reason: 'the private key must never leave the device readable');
+        storedBlob = blob;
+        return true;
+      };
+
+      await tester.pumpWidget(const MaterialApp(
+          home: RecoveryCodeScreen(debugInbox: '15550100')));
+      await tester.pumpAndSettle();
+      expect(find.text('No backup yet.'), findsOneWidget);
+
+      await tester.tap(find.text('Create recovery code'));
+      await tester.pumpAndSettle();
+      // The dialog shows the code exactly once; it must open what was stored.
+      final shown =
+          tester.widget<SelectableText>(find.byType(SelectableText)).data!;
+      expect(storedBlob, isNotNull);
+      expect(IdentityRecovery.openIdentity(storedBlob!, shown), myHex);
+      await tester.tap(find.text('I saved it'));
+      await tester.pumpAndSettle();
+
+      // A "new phone": a different current identity, then a typed restore.
+      final original = SecureKeyExchange.instance.myPublicKey;
+      SharedPreferences.setMockInitialValues({});
+      SecureKeyExchange.instance.resetForTest();
+      await SecureKeyExchange.instance.load();
+      expect(SecureKeyExchange.instance.myPublicKey, isNot(original));
+
+      await tester.enterText(
+          find.byType(TextField), shown.toLowerCase().replaceAll('-', ''));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Restore encryption'));
+      await tester.pumpAndSettle();
+      expect(SecureKeyExchange.instance.myPublicKey, original,
+          reason: 'typing the code brings the old identity back');
+      expect(find.textContaining('Encryption restored'), findsOneWidget);
     });
 
     testWidgets('typing… expires on its own instead of sticking forever',

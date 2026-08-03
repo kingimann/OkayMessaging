@@ -657,6 +657,58 @@ do $$ begin
   raise notice '  ok   numberless accounts claim and search through the RPCs alone';
 end $$;
 reset role;
+
+-- Identity backups (identity_backup.sql): your own row through your session,
+-- '00' rows through the RPCs, nothing else through anything.
+set role authenticated;
+select pg_temp.as_user('15550001111');
+select pg_temp.expect_ok(
+  $$insert into public.identity_backups (inbox, blob)
+    values ('15550001111', 'sealed_own')$$,
+  'you can store your own identity backup');
+select pg_temp.expect_fail(
+  $$insert into public.identity_backups (inbox, blob)
+    values ('15550002222', 'planted')$$,
+  'you cannot plant a backup on somebody else''s number');
+select pg_temp.expect_ok(
+  $$update public.identity_backups set blob = 'sealed_own_2'
+    where inbox = '15550001111'$$,
+  'rotating your own backup works');
+do $$ begin
+  if exists (select 1 from public.identity_backups where inbox <> '15550001111') then
+    raise exception 'SECURITY CHECK FAILED: a session can read another number''s backup';
+  end if;
+  raise notice '  ok   a session reads only its own backup row';
+end $$;
+reset role;
+set role anon;
+do $$ begin
+  if not (select public.put_identity_backup('001234567890', 'sealed_ghost')) then
+    raise exception 'CHECK FAILED: a numberless account cannot store its backup';
+  end if;
+  if (select public.put_identity_backup('001234567890', 'replaced')) then
+    raise exception 'SECURITY CHECK FAILED: an anonymous caller replaced a numberless backup';
+  end if;
+  if (select public.put_identity_backup('15550001111', 'hijack')) then
+    raise exception 'SECURITY CHECK FAILED: the anon RPC wrote to a REAL number';
+  end if;
+  if (select public.get_identity_backup('001234567890')) <> 'sealed_ghost' then
+    raise exception 'CHECK FAILED: a numberless backup cannot be fetched back';
+  end if;
+  if (select public.get_identity_backup('15550001111')) is not null then
+    raise exception 'SECURITY CHECK FAILED: anon fetched a REAL number''s blob';
+  end if;
+  raise notice '  ok   identity backups: own row via session, 00 rows via RPC, first write wins';
+end $$;
+do $$ begin
+  begin
+    perform blob from public.identity_backups;
+    raise exception 'SECURITY CHECK FAILED: anon read identity_backups directly';
+  exception when insufficient_privilege then
+    raise notice '  ok   anon cannot touch the backup table directly';
+  end;
+end $$;
+reset role;
 SQL
 
 DB=okaycheck
@@ -674,7 +726,7 @@ apply() {
 }
 
 echo "postgres $(su pg -c "PATH=$PGBIN:\$PATH psql -h $RUN -p $PORT -d $DB -tAc 'show server_version'")"
-for f in "$WORK/harness.sql" supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/payment_controls.sql docs/directory_numberless.sql; do
+for f in "$WORK/harness.sql" supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql; do
   if apply "$f"; then
     echo "  applied $(basename "$f")"
   else
@@ -737,7 +789,7 @@ else
   echo "  FAILED  could not rebuild the previous shape"; exit 1
 fi
 
-for f in supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/payment_controls.sql docs/directory_numberless.sql; do
+for f in supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql; do
   if apply "$f"; then
     echo "  re-applied $(basename "$f")"
   else

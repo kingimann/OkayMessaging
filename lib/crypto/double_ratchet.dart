@@ -112,6 +112,16 @@ class DoubleRatchet {
     if (_sessions.remove(_digits(peer)) != null) _persist();
   }
 
+  /// Drops every session — for when this device's OWN identity is replaced
+  /// (a recovery-code restore): each session was keyed under the identity
+  /// being discarded, and speaking on one would seal to a self that no
+  /// longer exists. Fresh sessions form on the next exchange.
+  void resetAllSessions() {
+    if (_sessions.isEmpty) return;
+    _sessions.clear();
+    _persist();
+  }
+
   /// Encrypts [plaintext] for [peer], creating the session on first use when
   /// this side is the initiator. Returns null when no session exists and one
   /// may not be created here (the responder before the first ratchet message,

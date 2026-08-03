@@ -104,6 +104,18 @@ class SecureKeyExchange {
   /// The private scalar as hex, for persisting the identity on the device.
   String exportPrivate() => _priv!.d!.toRadixString(16);
 
+  /// Replaces this device's identity with a restored one and persists it —
+  /// the recovery-code path. The peer cache survives: their keys did not
+  /// change, and ours just changed BACK to the one they already hold.
+  Future<void> adoptIdentity(String privateHex) async {
+    final d = BigInt.parse(privateHex, radix: 16);
+    _priv = ECPrivateKey(d, _domain);
+    _pub = ECPublicKey(_domain.G * d, _domain);
+    _publicKeyB64 = base64.encode(_pub!.Q!.getEncoded(false));
+    _prefs ??= await SharedPreferences.getInstance();
+    await _prefs!.setString(_kPriv, privateHex);
+  }
+
   /// Derives the 32-byte shared secret with a peer's base64 public key, or
   /// null if the key is malformed or our keys aren't ready.
   List<int>? sharedSecretWith(String peerPublicKeyB64) {
