@@ -524,6 +524,49 @@ class _FeedScreenState extends State<FeedScreen> {
           return PullToRefresh(
             child: ListView(
               children: [
+                // Only while payments test mode is on: a way to summon the
+                // practice bot, so Sparks can be tried with no second person
+                // and no real charge. Gone — with the bot — when it's off.
+                ValueListenableBuilder<bool>(
+                  valueListenable: PaymentService.instance.testMode,
+                  builder: (context, testMode, _) {
+                    if (!testMode) return const SizedBox.shrink();
+                    final botHere = all
+                        .any((p) => FeedStore.isSparkBotPost(p.id));
+                    return Container(
+                      margin: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF7931A).withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.bolt,
+                              color: Color(0xFFF7931A), size: 20),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              botHere
+                                  ? 'Sparky is below — tap the bolt on '
+                                      'their post to try Sparks.'
+                                  : 'Payments test mode — try Sparks on a '
+                                      'practice bot.',
+                              style: const TextStyle(fontSize: 12.5),
+                            ),
+                          ),
+                          if (!botHere)
+                            TextButton(
+                              onPressed: () => FeedStore.instance
+                                  .addSparkBot(widget.communityId),
+                              child: const Text('Summon bot'),
+                            ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
                 // Three tabs across the width rather than three chips huddled
                 // in the corner. The timeline has exactly one of these on at
                 // a time, and a tab says that where a chip only implies it.
@@ -918,10 +961,10 @@ class _PostCard extends StatelessWidget {
                   reposted: post.reposted,
                   sparkCount: post.sparks,
                   sparkCents: post.sparkCents,
-                  sparkped: post.sparkped,
+                  sparked: post.sparked,
                   // Decided here rather than threaded through every call
                   // site: the card knows the post, and the post knows
-                  // whether it can be sparkped.
+                  // whether it can be sparked.
                   onSpark:
                       canSparkPost(post) ? () => offerSpark(context, post) : null,
                   onReply: onReply,
@@ -994,13 +1037,16 @@ Future<void> offerSpark(BuildContext context, FeedPost post) async {
   );
   if (!ok) return;
   FeedStore.instance.spark(post.id, cents);
-  final myName = AppState.profile.value.name;
-  PushService.instance.notify(post.authorPhone,
-      title: myName.isEmpty ? 'Spark' : myName,
-      body: 'Sparkped you \$${(cents / 100).toStringAsFixed(2)} ⚡');
+  // The practice bot's number is nobody's phone — pushing at it is noise.
+  if (!FeedStore.isSparkBotPost(post.id)) {
+    final myName = AppState.profile.value.name;
+    PushService.instance.notify(post.authorPhone,
+        title: myName.isEmpty ? 'Spark' : myName,
+        body: 'Sparked you \$${(cents / 100).toStringAsFixed(2)} ⚡');
+  }
   messenger.showSnackBar(SnackBar(
       content: Text(
-          'Sparkped @${post.authorUsername} \$${(cents / 100).toStringAsFixed(2)} ⚡')));
+          'Sparked @${post.authorUsername} \$${(cents / 100).toStringAsFixed(2)} ⚡')));
 }
 
 /// One-tap preset amounts, Damus-style — 21 is the community's number.

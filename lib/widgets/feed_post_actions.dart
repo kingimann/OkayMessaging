@@ -28,7 +28,7 @@ class FeedPostActions extends StatelessWidget {
     required this.onShare,
     this.sparkCount = 0,
     this.sparkCents = 0,
-    this.sparkped = false,
+    this.sparked = false,
     this.onSpark,
   });
 
@@ -43,12 +43,12 @@ class FeedPostActions extends StatelessWidget {
   final VoidCallback onLike;
   final VoidCallback onShare;
 
-  /// Sparks (real-money tips on the post). The bolt only appears where sparkping
+  /// Sparks (real-money tips on the post). The bolt only appears where sparking
   /// is actually possible — [onSpark] null hides it, so the public feed and
   /// your own posts stay a four-action row.
   final int sparkCount;
   final int sparkCents;
-  final bool sparkped;
+  final bool sparked;
   final VoidCallback? onSpark;
 
   /// The green a repost is, and the pink a liked heart is, everywhere else —
@@ -89,14 +89,14 @@ class FeedPostActions extends StatelessWidget {
           ),
           if (onSpark != null)
             FeedPostAction(
-              icon: sparkped ? Icons.bolt : Icons.bolt_outlined,
+              icon: sparked ? Icons.bolt : Icons.bolt_outlined,
               count: sparkCount,
-              // The total is the interesting number on a sparkped post: three
+              // The total is the interesting number on a sparked post: three
               // sparks of a quarter and one of \$21 are different sentences.
               label: sparkCents > 0
                   ? '\$${sparkCents % 100 == 0 ? (sparkCents ~/ 100).toString() : (sparkCents / 100).toStringAsFixed(2)}'
                   : null,
-              colour: sparkped ? sparkColour : null,
+              colour: sparked ? sparkColour : null,
               onTap: onSpark!,
               tooltip: 'Spark',
             ),

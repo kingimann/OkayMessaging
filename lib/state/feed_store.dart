@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../app_state.dart';
 import '../models/feed_notification.dart';
+import '../payments/payment_service.dart';
 import '../relay/relay_config.dart';
 import '../relay/relay_service.dart';
 import 'session.dart';
@@ -35,10 +36,10 @@ class FeedPost {
   /// a post. The
   /// money itself moves person-to-person over Stripe BEFORE the counter
   /// moves; these fields are only the public tally. [sparks] is how many,
-  /// [sparkCents] their total, [sparkped] whether this device sent one.
+  /// [sparkCents] their total, [sparked] whether this device sent one.
   final int sparks;
   final int sparkCents;
-  final bool sparkped;
+  final bool sparked;
 
   /// The post this one replies to, or null for a top-level post.
   final String? parentId;
@@ -170,7 +171,7 @@ class FeedPost {
     this.reposted = false,
     this.sparks = 0,
     this.sparkCents = 0,
-    this.sparkped = false,
+    this.sparked = false,
     this.parentId,
     this.gifUrl,
     this.repostOfId,
@@ -204,7 +205,7 @@ class FeedPost {
     bool? reposted,
     int? sparks,
     int? sparkCents,
-    bool? sparkped,
+    bool? sparked,
     String? text,
     bool? edited,
     bool? pinned,
@@ -228,7 +229,7 @@ class FeedPost {
         reposted: reposted ?? this.reposted,
         sparks: sparks ?? this.sparks,
         sparkCents: sparkCents ?? this.sparkCents,
-        sparkped: sparkped ?? this.sparkped,
+        sparked: sparked ?? this.sparked,
         parentId: parentId,
         gifUrl: gifUrl,
         repostOfId: repostOfId,
@@ -268,7 +269,7 @@ class FeedPost {
         'reposted': reposted,
         if (authorPhone.isNotEmpty) 'authorPhone': authorPhone,
         if (sparks > 0) ...{'sparks': sparks, 'sparkCents': sparkCents},
-        if (sparkped) 'sparkped': true,
+        if (sparked) 'sparked': true,
         if (parentId != null) 'parentId': parentId,
         if (gifUrl != null) 'gifUrl': gifUrl,
         if (repostOfId != null) 'repostOfId': repostOfId,
@@ -314,7 +315,7 @@ class FeedPost {
         authorPhone: j['authorPhone'] as String? ?? '',
         sparks: (j['sparks'] as num?)?.toInt() ?? 0,
         sparkCents: (j['sparkCents'] as num?)?.toInt() ?? 0,
-        sparkped: j['sparkped'] as bool? ?? false,
+        sparked: j['sparked'] as bool? ?? false,
         parentId: j['parentId'] as String?,
         gifUrl: j['gifUrl'] as String?,
         repostOfId: j['repostOfId'] as String?,
@@ -358,13 +359,49 @@ class FeedStore extends ChangeNotifier {
   final Set<String> _hiddenIds = {};
   final Set<String> _mutedUsernames = {};
 
+  /// Whether [postId] is the Spark practice bot's post — a device-local
+  /// fixture that exists only while payments test mode is on. It is never
+  /// broadcast, never backfilled to joiners, and hidden the moment test
+  /// mode turns off, which is what keeps it on the right side of the
+  /// no-fake-data rule: nobody but the person who summoned it ever sees it.
+  static bool isSparkBotPost(String postId) => postId.startsWith('spark_bot_');
+
+  /// Summons (or refreshes) the Spark practice bot in [communityId]: one
+  /// post by @sparkbot with a placeholder payment address, so the whole
+  /// Spark flow can be walked in payments test mode without a second person
+  /// or a real charge. Local to this device only.
+  FeedPost addSparkBot(String communityId) {
+    final id = 'spark_bot_$communityId';
+    _posts.removeWhere((p) => p.id == id);
+    _deletedIds.remove(id); // deleting it and summoning again must work
+    final post = FeedPost(
+      id: id,
+      communityId: communityId,
+      authorName: 'Sparky',
+      authorUsername: 'sparkbot',
+      // A reserved fake number (Stripe's test range): routable by the
+      // simulated flow, owned by nobody real.
+      authorPhone: '15005550006',
+      time: DateTime.now(),
+      text: 'I\'m Sparky, your practice bot. Tap the amber bolt below to '
+          'try Sparks — payments test mode is on, so nothing is charged. '
+          'I disappear when test mode turns off. ⚡',
+    );
+    _posts.add(post);
+    _save();
+    notifyListeners();
+    return post;
+  }
+
   /// What a brand-new member of [communityId] should be handed: the live
   /// listings first (they are what the marketplace shows and what "doesn't
   /// show up for everyone" was), then the newest other posts, capped so a
   /// years-old server doesn't flood a mailbox. Broadcast has no history —
   /// without this, a post made before someone joined never existed for them.
   List<FeedPost> backfillFor(String communityId, {int max = 60}) {
-    final all = _posts.where((p) => p.communityId == communityId).toList()
+    final all = _posts
+        .where((p) => p.communityId == communityId && !isSparkBotPost(p.id))
+        .toList()
       ..sort((a, b) => b.time.compareTo(a.time));
     final listings =
         all.where((p) => p.isListing && !p.listingSold).toList();
@@ -766,7 +803,9 @@ class FeedStore extends ChangeNotifier {
   /// Top-level posts for [communityId], newest first — replies live under
   /// their parent (see [repliesTo]). With [onlyUsernames], keeps posts from
   /// those authors and your own. No seeded/demo content: every post here
-  /// was written by a real person on this device or community.
+  /// was written by a real person on this device or community — with ONE
+  /// stated exception, the Spark practice bot, which the owner summons
+  /// explicitly and which only renders while payments test mode is on.
   List<FeedPost> postsFor(String communityId, {Set<String>? onlyUsernames}) {
     var posts = _posts.where((p) =>
         p.communityId == communityId &&
@@ -774,6 +813,7 @@ class FeedStore extends ChangeNotifier {
         // Listings live in the Marketplace, not the timeline — a feed full
         // of price tags reads as ads.
         !p.isListing &&
+        (!isSparkBotPost(p.id) || PaymentService.instance.testMode.value) &&
         !_hiddenIds.contains(p.id) &&
         !_mutedUsernames.contains(p.authorUsername.toLowerCase()));
     if (onlyUsernames != null) {
@@ -1333,9 +1373,12 @@ class FeedStore extends ChangeNotifier {
     if (i < 0 || cents <= 0) return;
     final p = _posts[i];
     _posts[i] = p.copyWith(
-        sparks: p.sparks + 1, sparkCents: p.sparkCents + cents, sparkped: true);
+        sparks: p.sparks + 1, sparkCents: p.sparkCents + cents, sparked: true);
     _save();
     notifyListeners();
+    // The practice bot is a device-local fixture: telling the server about
+    // sparks on it would broadcast a post nobody else has.
+    if (isSparkBotPost(postId)) return;
     if (RelayConfig.isEnabled) {
       final me = AppState.profile.value;
       RelayService.instance.sendFeedSpark(

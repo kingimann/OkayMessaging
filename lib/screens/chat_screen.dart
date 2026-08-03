@@ -149,6 +149,11 @@ class _ChatScreenState extends State<ChatScreen> {
     _scrollController.addListener(_onScroll);
     _store.addListener(_refreshSuggestions);
     _refreshSuggestions();
+    // Follow the conversation: an arriving message scrolls into view when
+    // you are already reading the end of the transcript (your own sends
+    // handle themselves in _deliver).
+    _followCount = _messages.length;
+    _store.addListener(_maybeFollowNewMessage);
     // Registered here because dispose removes them — for a while it removed
     // listeners nothing had added, which silently switched off screenshot
     // announcements and the live blanking of protected chats.
@@ -185,8 +190,30 @@ class _ChatScreenState extends State<ChatScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _store.markRead(_chatId);
       _maybeSendReadReceipt();
-      _jumpToBottom();
+      // Opened from search, the matched message is the destination — the
+      // opening jump would fight the jump to the match.
+      if (widget.initialMessageId == null) _jumpToBottom();
     });
+  }
+
+  /// The transcript length last seen, so the follow listener can tell a new
+  /// message from any other store change (a tick advancing, an edit).
+  int _followCount = 0;
+
+  /// Scrolls an ARRIVING message into view — only when the view is already
+  /// at (or within a screen of) the end. Somebody who scrolled up to read
+  /// is left where they are; the down-arrow button is how they come back.
+  void _maybeFollowNewMessage() {
+    final count = _messages.length;
+    if (count == _followCount) return;
+    final grew = count > _followCount;
+    _followCount = count;
+    if (!grew || !_scrollController.hasClients) return;
+    final distance =
+        _scrollController.position.maxScrollExtent - _scrollController.offset;
+    if (distance < 320) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _animateToBottom());
+    }
   }
 
   /// Sends a 'read' receipt to a real peer when a new incoming message appears
@@ -320,6 +347,7 @@ class _ChatScreenState extends State<ChatScreen> {
   void dispose() {
     PushService.instance.setOpenChat(null);
     _store.removeListener(_refreshSuggestions);
+    _store.removeListener(_maybeFollowNewMessage);
     ScreenshotWatch.instance.taken.removeListener(_onScreenshot);
     ScreenshotWatch.instance.capturing.removeListener(_onCapturing);
     RelayService.instance.screenshotPing.removeListener(_onRemoteScreenshot);
@@ -379,18 +407,40 @@ class _ChatScreenState extends State<ChatScreen> {
     ];
   }
 
-  void _jumpToBottom() {
-    if (!_scrollController.hasClients) return;
-    _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
+  /// Pins the view to the newest message, then keeps re-pinning for a few
+  /// frames while late-measuring bubbles (photos, GIFs, link previews)
+  /// grow the scroll extent under it. A single jump lands partway up the
+  /// transcript whenever anything below the fold was still measuring —
+  /// which is exactly "the chat doesn't open at the latest message".
+  void _jumpToBottom({int settleFrames = 12}) {
+    void step(int remaining) {
+      if (!mounted || !_scrollController.hasClients) return;
+      final position = _scrollController.position;
+      // The user grabbing the list ends the pinning — following a person
+      // who has started scrolling is fighting them.
+      if (position.isScrollingNotifier.value) return;
+      if (position.pixels < position.maxScrollExtent) {
+        _scrollController.jumpTo(position.maxScrollExtent);
+      }
+      if (remaining > 0) {
+        WidgetsBinding.instance
+            .addPostFrameCallback((_) => step(remaining - 1));
+      }
+    }
+
+    step(settleFrames);
   }
 
-  void _animateToBottom() {
+  Future<void> _animateToBottom() async {
     if (!_scrollController.hasClients) return;
-    _scrollController.animateTo(
+    await _scrollController.animateTo(
       _scrollController.position.maxScrollExtent,
       duration: const Duration(milliseconds: 250),
       curve: Curves.easeOut,
     );
+    // One corrective settle: the extent can grow while the animation runs
+    // (an image below finished decoding), leaving the view just short.
+    if (mounted) _jumpToBottom(settleFrames: 4);
   }
 
   /// Replies the device suggested for the last message received.

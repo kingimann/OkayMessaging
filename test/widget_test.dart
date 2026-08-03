@@ -18899,7 +18899,7 @@ void main() {
       final store = FeedStore.instance;
       store.resetForTest();
       // My own post ('you'), so the incoming spark raises an alert.
-      final post = store.add('c1', 'sparkpable');
+      final post = store.add('c1', 'sparkable');
       final notesBefore = store.notifications.length;
 
       store.applyRemoteSpark(post.id,
@@ -18916,7 +18916,7 @@ void main() {
           sparkId: 'z1', cents: 2100, sparkerName: 'Grace',
           sparkerUsername: 'grace');
       expect(store.postById(post.id)!.sparkCents, 2100);
-      // …but the same person sparkping AGAIN is a new spark, not a replay.
+      // …but the same person sparking AGAIN is a new spark, not a replay.
       store.applyRemoteSpark(post.id,
           sparkId: 'z2', cents: 21, sparkerName: 'Grace',
           sparkerUsername: 'grace');
@@ -18935,10 +18935,10 @@ void main() {
       // My own spark: counted locally and flagged, only after payment.
       store.spark(post.id, 500);
       p = store.postById(post.id)!;
-      expect(p.sparkped, isTrue);
+      expect(p.sparked, isTrue);
       expect(p.sparkCents, 2621);
 
-      // The fields (and the author's digits that make sparkping addressable)
+      // The fields (and the author's digits that make sparking addressable)
       // survive the JSON round-trip; legacy posts default to none.
       final back = FeedPost.fromJson(FeedPost(
         id: 'p',
@@ -18962,7 +18962,7 @@ void main() {
             'text': 'legacy'
           }).sparks,
           0);
-      // No digits → no bolt, and your own post is never sparkpable.
+      // No digits → no bolt, and your own post is never sparkable.
       expect(canSparkPost(back.copyWith()), isFalse,
           reason: 'payments are not configured in a test build');
       expect(
@@ -18975,6 +18975,36 @@ void main() {
               time: DateTime(2024),
               text: 'mine')),
           isFalse);
+    });
+
+    test('the Spark practice bot exists only inside payments test mode', () {
+      final store = FeedStore.instance;
+      store.resetForTest();
+      addTearDown(() => PaymentService.instance.testMode.value = false);
+
+      PaymentService.instance.testMode.value = true;
+      final bot = store.addSparkBot('c1');
+      expect(bot.authorUsername, 'sparkbot');
+      expect(store.postsFor('c1').single.id, bot.id);
+      // Its post is sparkable: another author, digits present, and test
+      // mode counts as configured.
+      expect(canSparkPost(bot), isTrue);
+      // Summoning again refreshes rather than duplicates.
+      store.addSparkBot('c1');
+      expect(store.postsFor('c1'), hasLength(1));
+
+      // Sparking it moves the tally and stays on this device (no relay is
+      // initialized here — a broadcast attempt would throw).
+      store.spark(bot.id, 100);
+      expect(store.postById(bot.id)!.sparkCents, 100);
+      expect(store.postById(bot.id)!.sparked, isTrue);
+
+      // Test mode off: the bot vanishes from the timeline — a practice
+      // fixture must never stand in front of a real feed — and never
+      // reaches a joiner's backfill either way.
+      PaymentService.instance.testMode.value = false;
+      expect(store.postsFor('c1'), isEmpty);
+      expect(store.backfillFor('c1'), isEmpty);
     });
 
     test('a poll vote replayed after a restart is still counted once',
@@ -25489,7 +25519,7 @@ void main() {
       // Both halves of the same rule, and this is the rule the feature IS.
       final src = File('lib/screens/chat_screen.dart').readAsStringSync();
       final fn = src.substring(src.indexOf('List<Message> get _messages {'),
-          src.indexOf('void _jumpToBottom()'));
+          src.indexOf('void _jumpToBottom('));
       final collapsed = fn.replaceAll(RegExp(r'\s+'), ' ');
       expect(collapsed.contains('if (m.threadRootId == null) m'), isTrue,
           reason: 'the room stopped filtering thread replies out');

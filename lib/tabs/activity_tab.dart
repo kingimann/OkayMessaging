@@ -444,7 +444,7 @@ class _ActivityTabState extends State<ActivityTab> {
         FeedNotificationType.mention => 'mentioned you',
         FeedNotificationType.repost => 'reposted you',
         FeedNotificationType.like => 'liked your post',
-        FeedNotificationType.spark => 'sparkped your post',
+        FeedNotificationType.spark => 'sparked your post',
         FeedNotificationType.channelMention => 'mentioned you',
       };
 }
