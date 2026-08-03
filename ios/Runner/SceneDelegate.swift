@@ -4,8 +4,9 @@ import UIKit
 class SceneDelegate: FlutterSceneDelegate {
   // As the user's default messaging and calling app, message taps arrive as
   // im: URLs and call taps as tel: URLs — both while running and in the
-  // cold-launch connection options.
-  private static let handledSchemes: Set<String> = ["im", "tel"]
+  // cold-launch connection options. okaymsg: is the app's own QR payload,
+  // handed over by the iPhone camera.
+  private static let handledSchemes: Set<String> = ["im", "tel", "okaymsg"]
 
   private func deliver<S: Sequence>(_ contexts: S)
   where S.Element == UIOpenURLContext {

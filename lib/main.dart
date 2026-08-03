@@ -364,6 +364,34 @@ class _OkayMessagingAppState extends State<OkayMessagingApp>
       onPhone: openChatForPhone,
       onCall: openCallForPhone,
       onPushChat: (phone) => openChatForPhone(phone, systemFallback: false),
+      // A scanned QR: the payload carries who they are, so the chat is
+      // created with their name and handle instead of a bare number.
+      onAdd: (t) {
+        final store = ChatStore.instance;
+        var chat = store.chatWithContact(t.phone);
+        if (chat == null) {
+          chat = Chat(
+            id: 'chat_${t.phone}',
+            contact: AppUser(
+              id: t.phone,
+              name: t.name.isNotEmpty
+                  ? t.name
+                  : (t.username.isNotEmpty ? '@${t.username}' : t.phone),
+              avatarColor: Session.colorForPhone(t.phone),
+              phone: t.phone,
+              username: t.username,
+            ),
+            messages: const [],
+          );
+          store.upsert(chat);
+        } else if (chat.isArchived) {
+          store.setArchived(chat.id, false);
+        }
+        final open = chat;
+        rootNavigatorKey.currentState?.push(
+          MaterialPageRoute(builder: (_) => ChatScreen(chat: open)),
+        );
+      },
     );
     CallKitBridge.instance.init();
     // Structural server edits fan out to the other members live.

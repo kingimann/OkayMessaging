@@ -45,6 +45,32 @@ class IncomingLinks {
   /// The phone target of a `tel:` (or `telprompt:`) URL. Pure.
   static String? telPhone(String url) => _phoneOf(url, _callSchemes);
 
+  /// The contact an `okaymsg://add?u=…&p=…&n=…` URL carries — the payload of
+  /// the in-app QR code, which the iPhone camera hands to the app once the
+  /// scheme is registered. Null for anything else. Pure.
+  ///
+  /// This parser is the reason scanning DOES something now: the QR encoded
+  /// this URL from day one, but no scheme was registered, the scene delegate
+  /// filtered it out, and nothing in Dart knew the shape — three gaps, one
+  /// dead feature.
+  static ({String phone, String name, String username})? addTarget(
+      String url) {
+    final uri = Uri.tryParse(url.trim());
+    if (uri == null || uri.scheme.toLowerCase() != 'okaymsg') return null;
+    final action =
+        uri.host.isNotEmpty ? uri.host : uri.path.replaceAll('/', '');
+    if (action != 'add') return null;
+    final p = uri.queryParameters['p'] ?? '';
+    final digits = p.replaceAll(RegExp(r'\D'), '');
+    // Account codes and real numbers both ride here; either is an inbox.
+    if (digits.length < 7) return null;
+    return (
+      phone: (p.trim().startsWith('+') ? '+' : '') + digits,
+      name: (uri.queryParameters['n'] ?? '').trim(),
+      username: (uri.queryParameters['u'] ?? '').trim(),
+    );
+  }
+
   /// Whether the URL targets an email address (an iMessage-only contact).
   static bool isEmailTarget(String url) {
     final uri = Uri.tryParse(url.trim());
@@ -97,12 +123,19 @@ class IncomingLinks {
     required void Function(String phone) onPhone,
     required void Function(String phone) onCall,
     void Function(String phone)? onPushChat,
+    void Function(({String phone, String name, String username}) target)?
+        onAdd,
   }) async {
     if (_started || kIsWeb) return;
     _started = true;
     Future<void> handle(Object? raw) async {
       final url = raw as String?;
       if (url == null) return;
+      final added = addTarget(url);
+      if (added != null) {
+        onAdd?.call(added);
+        return;
+      }
       final message = imPhone(url);
       if (message != null) {
         if (isOwnPushTap(url) && onPushChat != null) {

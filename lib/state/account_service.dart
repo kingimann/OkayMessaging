@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
 
 import 'package:crypto/crypto.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide Session;
@@ -184,7 +185,7 @@ class AccountService {
     final q = normalizeUsername(query);
     if (q.length < 2) return const [];
     final me = Session.instance.user.value?.phone;
-    List<Map<String, dynamic>> rows;
+    List<Map<String, dynamic>>? rows;
     try {
       final raw = await _client.rpc('find_people', params: {'q': q});
       rows = [
@@ -193,6 +194,14 @@ class AccountService {
             if (r is Map) Map<String, dynamic>.from(r)
       ];
     } catch (_) {
+      // The supabase client attaches whatever session it holds — and a
+      // session that EXPIRED server-side poisons every request with a 401,
+      // which made the whole directory unsearchable on a phone whose
+      // sign-in had lapsed. The search is public by design (the RPC serves
+      // anon), so ask again with the anon key alone.
+      rows = await _anonFindPeople(q);
+    }
+    if (rows == null) {
       try {
         rows = await _directoryRows((columns) => _client
             .from(_table)
@@ -216,6 +225,34 @@ class AccountService {
     }
     out.sort((a, b) => a.username.compareTo(b.username));
     return out;
+  }
+
+  /// The find_people RPC over bare HTTP with the anon key ALONE — no
+  /// session token to be poisoned by. Null when unreachable (the caller
+  /// falls to the table read).
+  Future<List<Map<String, dynamic>>?> _anonFindPeople(String q) async {
+    try {
+      final res = await http
+          .post(
+            Uri.parse('${RelayConfig.supabaseUrl}/rest/v1/rpc/find_people'),
+            headers: {
+              'apikey': RelayConfig.supabaseAnonKey,
+              'Authorization': 'Bearer ${RelayConfig.supabaseAnonKey}',
+              'Content-Type': 'application/json',
+            },
+            body: jsonEncode({'q': q}),
+          )
+          .timeout(const Duration(seconds: 10));
+      if (res.statusCode >= 300) return null;
+      final raw = jsonDecode(res.body);
+      return [
+        if (raw is List)
+          for (final r in raw)
+            if (r is Map) Map<String, dynamic>.from(r)
+      ];
+    } catch (_) {
+      return null;
+    }
   }
 
   /// Looks up directory entries for a set of E.164 phone hashes — the contact

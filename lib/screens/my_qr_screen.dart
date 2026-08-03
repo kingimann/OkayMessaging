@@ -83,7 +83,8 @@ class MyQrScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 22),
                 Text(
-                  'Scan this code with OkayMessenger to add ${me.name}.',
+                  'Scan this code with the iPhone camera — it opens '
+                  'OkayMessenger and starts a chat with ${me.name}.',
                   textAlign: TextAlign.center,
                   style: TextStyle(color: AppColors.subtle(context), height: 1.4),
                 ),

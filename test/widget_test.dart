@@ -31,6 +31,7 @@ import 'package:okay_messaging/crypto/e2e.dart';
 import 'package:okay_messaging/crypto/identity_recovery.dart';
 import 'package:okay_messaging/screens/recovery_code_screen.dart';
 import 'package:okay_messaging/widgets/recovery_gate.dart';
+import 'package:okay_messaging/screens/my_qr_screen.dart';
 import 'package:okay_messaging/data/mock_data.dart';
 import 'package:okay_messaging/crypto/key_exchange.dart';
 import 'package:okay_messaging/main.dart';
@@ -113,7 +114,6 @@ import 'package:okay_messaging/crypto/sender_key.dart';
 import 'package:okay_messaging/screens/ghost_view_screen.dart';
 import 'package:okay_messaging/screens/media_gallery_screen.dart';
 import 'package:okay_messaging/state/screenshot_watch.dart';
-import 'package:okay_messaging/screens/my_qr_screen.dart';
 import 'package:okay_messaging/screens/security_code_screen.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:okay_messaging/models/community.dart';
@@ -5682,6 +5682,51 @@ void main() {
       expect(entries[2].$2['id'], 'm2');
       // Envelopes stay ciphertext, same as the live broadcast.
       expect(entries[0].$2.containsKey('text'), isFalse);
+    });
+
+    test('a scanned QR parses end to end, and the whole chain is wired', () {
+      // The QR encoded okaymsg://add from day one, but no scheme was
+      // registered, the scene delegate filtered it out, and nothing in Dart
+      // knew the shape — three gaps, one dead feature. This test holds all
+      // three shut.
+      const me = AppUser(
+          id: 'x',
+          name: 'Iman K',
+          avatarColor: '#111111',
+          phone: '+1 437 833 6018',
+          username: 'iman');
+      final url = MyQrScreen.payloadFor(me);
+      expect(url.startsWith('okaymsg://add?'), isTrue);
+      final t = IncomingLinks.addTarget(url)!;
+      expect(t.phone, '+14378336018');
+      expect(t.name, 'Iman K');
+      expect(t.username, 'iman');
+      // A numberless account's QR carries its code — same door.
+      const ghost = AppUser(
+          id: 'g',
+          name: 'Ghost',
+          avatarColor: '#222222',
+          phone: '001234567890',
+          username: 'ghosty');
+      expect(IncomingLinks.addTarget(MyQrScreen.payloadFor(ghost))!.phone,
+          '001234567890');
+      // Anything else is not an add.
+      expect(IncomingLinks.addTarget('im:+15550100'), isNull);
+      expect(IncomingLinks.addTarget('okaymsg://other?p=15550100'), isNull);
+      expect(IncomingLinks.addTarget('okaymsg://add?p=123'), isNull,
+          reason: 'too short to be an inbox');
+      // The scheme is registered, the scene delegate forwards it, and main
+      // actually creates the chat.
+      final plist = File('ios/Runner/Info.plist').readAsStringSync();
+      expect(plist.contains('<string>okaymsg</string>'), isTrue,
+          reason: 'unregistered scheme = the camera offers nothing');
+      final scene =
+          File('ios/Runner/SceneDelegate.swift').readAsStringSync();
+      expect(scene.contains('"okaymsg"'), isTrue,
+          reason: 'the scene delegate must not filter the QR scheme out');
+      final mainSrc = File('lib/main.dart').readAsStringSync();
+      expect(mainSrc.contains('onAdd:'), isTrue,
+          reason: 'parsing without a handler still does nothing');
     });
 
     test('im: links (default messaging app) parse and open the right chat',
