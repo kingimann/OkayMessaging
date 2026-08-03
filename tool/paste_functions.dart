@@ -39,6 +39,7 @@ const pasteFunctions = [
   // regenerated with the source rather than drifting from it, which it did.
   'push-send',
   'delete-account',
+  'turn-credentials',
 ];
 
 /// Whatever the paste copy's own header should say for [name].

@@ -400,7 +400,8 @@ class RoomMedia extends ChangeNotifier {
   }
 
   Future<RTCPeerConnection> _createPeer(String digits, String roomId) async {
-    final pc = await createPeerConnection(CallMedia.rtcConfig);
+    final pc =
+        await createPeerConnection(await CallMedia.resolvedRtcConfig());
     _peers[digits] = pc;
     // A network switch kills every negotiated pair; the pair's INITIATOR
     // redials with fresh ICE credentials over the same offer path. The

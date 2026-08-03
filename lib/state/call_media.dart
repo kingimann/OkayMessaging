@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 
 import '../relay/relay_service.dart';
+import '../relay/turn_service.dart';
 import 'call_quality.dart';
 
 /// The real audio/video media layer for calls, built on WebRTC.
@@ -86,6 +87,24 @@ class CallMedia {
   /// relay exactly as much as a 1:1 call does.
   static Map<String, dynamic> get rtcConfig => _config;
 
+  /// The config a call should actually use: the static base plus whatever
+  /// relay credentials the `turn-credentials` function hands out. The
+  /// fetch fails open and is cached, so this is never slower than one
+  /// short request and never worse than the static config.
+  static Future<Map<String, dynamic>> resolvedRtcConfig() async =>
+      mergeIce(rtcConfig, await TurnService.iceServers());
+
+  /// Base + extra ice servers, extras FIRST so a working relay is tried
+  /// before the dead public one. Pure, so a test can pin it.
+  static Map<String, dynamic> mergeIce(
+      Map<String, dynamic> base, List<Map<String, dynamic>> extra) {
+    if (extra.isEmpty) return base;
+    return {
+      ...base,
+      'iceServers': [...extra, ...(base['iceServers'] as List)],
+    };
+  }
+
   static Map<String, dynamic> get _config => {
         'iceServers': [
           {'urls': 'stun:stun.l.google.com:19302'},
@@ -148,7 +167,7 @@ class CallMedia {
 
   Future<void> _createPeer(String peerPhone, bool video) async {
     await _ensureRenderers();
-    final pc = await createPeerConnection(_config);
+    final pc = await createPeerConnection(await resolvedRtcConfig());
     _pc = pc;
     // The full processed-mic chain and a bounded 720p30 camera — the same
     // profile the voice-channel mesh uses, from the one place it lives.

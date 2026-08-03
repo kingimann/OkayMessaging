@@ -106,6 +106,7 @@ import 'package:okay_messaging/utils/maps_link.dart';
 import 'package:okay_messaging/widgets/info_section.dart';
 import 'package:okay_messaging/widgets/message_bubble.dart';
 import 'package:okay_messaging/state/account_wipe.dart';
+import 'package:okay_messaging/relay/turn_service.dart';
 import 'package:okay_messaging/state/call_diagnostics.dart';
 import 'package:okay_messaging/state/call_quality.dart';
 import 'package:okay_messaging/state/parental_controls.dart';
@@ -7298,6 +7299,79 @@ void main() {
       expect(screen, contains('RoomMedia.instance.setMuted'));
       expect(screen, contains('getVideoTracks().isNotEmpty'),
           reason: 'an audio-only stream keeps the avatar, not a black box');
+    });
+
+    test('fetched TURN credentials reach every call, and never break one',
+        () {
+      // The parser takes exactly the function\'s shape and nothing else.
+      final good = TurnService.parseIceServers(jsonEncode({
+        'iceServers': [
+          {
+            'urls': ['turn:relay.example.com:443'],
+            'username': 'u',
+            'credential': 'c',
+          },
+          {'urls': 'stun:stun.example.com'},
+        ],
+        'ttlSeconds': 1800,
+      }));
+      expect(good.servers.length, 2);
+      expect(good.servers.first['username'], 'u');
+      expect(good.ttlSeconds, 1800);
+      // Malformed answers yield nothing, never a throw — the fetch may
+      // only ever ADD servers.
+      expect(TurnService.parseIceServers('not json').servers, isEmpty);
+      expect(TurnService.parseIceServers('{"iceServers": "x"}').servers,
+          isEmpty);
+      expect(
+          TurnService.parseIceServers(jsonEncode({
+            'iceServers': [
+              {'username': 'no-urls'}
+            ]
+          })).servers,
+          isEmpty,
+          reason: 'a server without urls is not a server');
+
+      // Fetched relays are tried BEFORE the dead public one.
+      final merged = CallMedia.mergeIce({
+        'iceServers': [
+          {'urls': 'stun:old'}
+        ]
+      }, [
+        {'urls': 'turn:fresh', 'username': 'u', 'credential': 'c'}
+      ]);
+      final list = merged['iceServers'] as List;
+      expect((list.first as Map)['urls'], 'turn:fresh');
+      expect(list.length, 2);
+      expect(
+          CallMedia.mergeIce(const {'iceServers': []}, const []),
+          const {'iceServers': []},
+          reason: 'nothing fetched leaves the config untouched');
+
+      // Every surface asks for the RESOLVED config — the 1:1 call, the
+      // mesh, and the self-test that verifies the fix it recommends.
+      expect(File('lib/state/call_media.dart').readAsStringSync(),
+          contains('resolvedRtcConfig()'));
+      expect(File('lib/state/room_media.dart').readAsStringSync(),
+          contains('resolvedRtcConfig()'));
+      final diag =
+          File('lib/state/call_diagnostics.dart').readAsStringSync();
+      expect(diag, contains('resolvedRtcConfig()'));
+      expect(diag, contains('TurnService.invalidate'),
+          reason: '"run it again" after setting secrets must mean again');
+      expect(diag, contains('docs/turn_setup.md'),
+          reason: 'the red relay row must name its own fix');
+      // The function exists, covers both credential sources, and has a
+      // paste copy so it can actually be deployed.
+      final fn = File('supabase/functions/turn-credentials/index.ts')
+          .readAsStringSync();
+      expect(fn, contains('METERED_DOMAIN'));
+      expect(fn, contains('TURN_SHARED_SECRET'));
+      expect(fn, contains('HMAC'),
+          reason: 'coturn credentials are minted server-side');
+      expect(
+          File('docs/edge_functions_paste/turn-credentials.ts').existsSync(),
+          isTrue);
     });
 
     test('a number the directory has never heard of gets an invite, not a '

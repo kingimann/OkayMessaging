@@ -434,6 +434,17 @@ Two things that look like bugs and are not:
 
 ## Waiting on the user (nothing here is code)
 
+0a. **NEW: TURN relay (the "calls only work sometimes" fix).** The user's
+   Check call setup screenshot (2026-08-03 19:39) proved the free public
+   relay is dead: STUN green, relay red. Fix is `docs/turn_setup.md` —
+   the user signs up at metered.ca (free), sets `METERED_DOMAIN` +
+   `METERED_API_KEY` Edge Function secrets, and pastes
+   `docs/edge_functions_paste/turn-credentials.ts` as `turn-credentials`
+   (JWT OFF — numberless calls need it too). Until then, cellular-to-
+   cellular calls fail; the app fetches credentials fail-open so nothing
+   else changes. Re-running Check call setup verifies it (it probes the
+   resolved config, fetched relay included).
+
 0. **NEW since 2026-08-03 late session** (needed for delete/deactivate
    account to work live; everything is built, tested and pushed):
    - Run `docs/account_lifecycle.sql` in the SQL editor (adds the

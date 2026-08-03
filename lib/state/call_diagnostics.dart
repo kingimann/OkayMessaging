@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 
+import '../relay/turn_service.dart';
 import 'call_media.dart';
 import 'self_test.dart';
 
@@ -96,11 +97,15 @@ class CallSelfTest {
       micError = '$e';
     }
 
-    // The network half: gather real candidates against the real servers.
+    // The network half: gather real candidates against the RESOLVED
+    // servers — the fetched relay credentials included, so this screen
+    // verifies the fix it recommends. Re-fetched each run: "run it again"
+    // after setting the secrets must mean again.
+    TurnService.invalidate();
     var host = 0, srflx = 0, relay = 0;
     RTCPeerConnection? pc;
     try {
-      pc = await createPeerConnection(CallMedia.rtcConfig);
+      pc = await createPeerConnection(await CallMedia.resolvedRtcConfig());
       final done = Completer<void>();
       pc.onIceCandidate = (c) {
         switch (candidateType(c.candidate)) {
@@ -238,11 +243,11 @@ class CallSelfTest {
     }
     if (probe.relay == 0) {
       return (
-        'The TURN relay is unreachable from here. Calls will work when a '
-            'direct path exists (same Wi-Fi, open networks) and fail '
-            'between two phones on cellular — which is why calls '
-            '"sometimes" fail. If a private TURN server is configured, '
-            'check its credentials.',
+        'No working TURN relay. Calls will work when a direct path exists '
+            '(same Wi-Fi, open networks) and fail between two phones on '
+            'cellular — which is why calls "sometimes" fail. The fix is '
+            'docs/turn_setup.md: paste the turn-credentials function and '
+            'set the METERED_* secrets, then run this again.',
         true
       );
     }
