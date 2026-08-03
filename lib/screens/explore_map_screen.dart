@@ -1,5 +1,5 @@
 import 'dart:async';
-import '../widgets/phone_gate.dart';
+
 import '../theme/app_theme.dart';
 
 import 'package:flutter/material.dart';
@@ -319,14 +319,12 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
     );
   }
 
+  // Open to numberless accounts: browsing, searching and navigating are all
+  // map tiles and local state, and place sharing rides the same anon-key
+  // relay chat does. What quietly can't work without a session degrades to
+  // a failed save rather than a locked door.
   @override
-  Widget build(BuildContext context) => PhoneGate(
-        title: 'Maps',
-        reason: 'Saving a place and sharing one both put it on the server '
-            'under your account, and an account with no phone number has no '
-            'session to put anything there with.',
-        child: Builder(builder: _guarded),
-      );
+  Widget build(BuildContext context) => Builder(builder: _guarded);
 
   Widget _guarded(BuildContext context) {
     final selected = _selected;

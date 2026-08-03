@@ -4,9 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../models/user.dart';
+import '../../relay/relay_config.dart';
 import '../../state/account_service.dart';
 import '../../state/session.dart';
 import '../../state/two_step.dart';
+import '../../util/account_code.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/user_avatar.dart';
 
@@ -937,9 +939,29 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
     }
     if (!await _passTwoStep()) return;
     setState(() => _busy = true);
+    // Mint the code first so the handle can be claimed in the directory
+    // BEFORE the account exists locally — the handle is the only way anyone
+    // can find this account, so an unclaimed handle is an unreachable
+    // account. A taken handle stops the sign-up here, like the verified
+    // flow; a relay that is off or unmigrated stays best-effort.
+    final code = AccountCode.mint();
+    if (RelayConfig.isEnabled) {
+      final claimed = await AccountService.instance
+          .claimUsername(code, username, name: _name.text.trim());
+      if (!claimed) {
+        if (mounted) {
+          setState(() {
+            _busy = false;
+            _error = '@$username is already taken.';
+          });
+        }
+        return;
+      }
+    }
     await Session.instance.signInWithoutNumber(
       name: _name.text.trim(),
       username: username,
+      code: code,
     );
     // The auth gate reacts to the new session and shows the home screen.
   }

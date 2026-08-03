@@ -19743,22 +19743,20 @@ void main() {
       // The hint mirrors the gate's own flag. A padlock on a row that opens is
       // a worse lie than no padlock, so the two have to be set together.
       final src = File('lib/screens/home_screen.dart').readAsStringSync();
-      final waived =
-          RegExp(r'_GateHint\(ownerMayPass: true\)').allMatches(src).length;
       final held = RegExp(r'_GateHint\(\)').allMatches(src).length;
-      // Okay Drop waives for the owner; the wallet holds. The marketplace now
-      // also waives the PHONE gate (browse-only), so it uses the distinct
-      // numberlessMayPass form rather than the bare owner waiver.
-      expect(waived, 1, reason: 'the waived rows drifted from the gates');
+      // The wallet holds both gates. The marketplace (browse-only) and Okay
+      // Drop (two phones and a radio) both open for a numberless account,
+      // so they carry the numberlessMayPass form; Maps opened outright and
+      // carries no hint at all.
       expect(held, 1, reason: 'the wallet row stopped showing its padlock');
-      expect(RegExp(r'numberlessMayPass: true').allMatches(src).length, 1,
-          reason: 'the marketplace row must drop the phone padlock now that '
-              'it opens browse-only for a numberless account');
+      expect(RegExp(r'numberlessMayPass: true').allMatches(src).length, 2,
+          reason: 'the marketplace and Okay Drop rows must drop the phone '
+              'padlock — both open for a numberless account');
 
-      // The rows only the phone gate shuts: Newsfeed, Maps and Servers. The
-      // fourth match is inside _GateHint, which is how a row behind BOTH
-      // gates shows one padlock instead of two.
-      expect(RegExp(r'PhoneOnlyHint\(\)').allMatches(src).length, 4,
+      // The rows only the phone gate shuts: Newsfeed and Servers. The third
+      // match is inside _GateHint, which is how a row behind BOTH gates
+      // shows one padlock instead of two.
+      expect(RegExp(r'PhoneOnlyHint\(\)').allMatches(src).length, 3,
           reason: 'a phone-gated row lost its padlock, or gained one it '
               'cannot back up');
     });
@@ -19780,27 +19778,37 @@ void main() {
       // messages work for an account with no session at all.
       for (final path in [
         'lib/screens/wallet_screen.dart',
-        'lib/screens/nearby_share_screen.dart',
         'lib/screens/public_feed_screen.dart',
-        'lib/screens/explore_map_screen.dart',
         'lib/screens/communities.dart',
         'lib/tabs/activity_tab.dart',
       ]) {
         expect(File(path).readAsStringSync().contains('PhoneGate('), isTrue,
             reason: '$path is reachable without a phone number');
       }
-      // Chat, calls, and browsing the marketplace all ride the anon-key
-      // relay, so none of them is phone-gated — a numberless account can
-      // message, call (foreground), and browse/message sellers.
+      // Chat, calls, browsing the marketplace, the map and Okay Drop all
+      // work without a session — the first three ride the anon-key relay,
+      // the map is tiles and local state, and Okay Drop is two phones and a
+      // radio — so none of them is phone-gated.
       for (final path in [
         'lib/tabs/chats_tab.dart',
         'lib/screens/chat_screen.dart',
         'lib/tabs/calls_tab.dart',
         'lib/screens/marketplace_screen.dart',
+        'lib/screens/explore_map_screen.dart',
+        'lib/screens/nearby_share_screen.dart',
       ]) {
         expect(File(path).readAsStringSync().contains('PhoneGate('), isFalse,
             reason: '$path works without a phone number');
       }
+      // Okay Drop's ID check opens for a numberless account too — it cannot
+      // verify (no session), so holding that gate would lock the feature
+      // forever rather than until verification.
+      expect(
+          File('lib/screens/nearby_share_screen.dart')
+              .readAsStringSync()
+              .contains('numberlessMayPass: true'),
+          isTrue,
+          reason: 'Okay Drop must open for a numberless account');
       // But the marketplace withholds selling from a numberless account —
       // listing needs the wallet and the ID check. Browse + message only.
       final market =
@@ -21973,6 +21981,18 @@ void main() {
       expect(RelayService.inboxChannel(me.phone), 'inbox_${me.phone}');
       // And the mesh can address a packet to it.
       expect(MeshPacket.fits({'to': me.phone}), isTrue);
+    });
+
+    test('numberless sign-in keeps the code its handle was claimed under',
+        () async {
+      // The sign-up flow claims the handle in the directory BEFORE creating
+      // the local identity; minting a second code at sign-in would orphan
+      // that claim and make the account unfindable.
+      await Session.instance
+          .signInWithoutNumber(username: 'ghost', code: '001111222233');
+      addTearDown(Session.instance.signOut);
+      expect(Session.instance.user.value?.phone, '001111222233');
+      expect(Session.instance.isNumberless, isTrue);
     });
 
     test('an account with a real number is not called numberless', () async {

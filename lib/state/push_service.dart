@@ -41,6 +41,20 @@ class PushService {
 
   void _onPrivateChanged() => _upload(_lastToken);
 
+  /// Removes this device's token row on sign-out, so the account that just
+  /// left stops buzzing this phone. Best-effort — sign-out never blocks on
+  /// the network.
+  Future<void> removeToken() async {
+    final token = _lastToken;
+    if (token == null || token.isEmpty) return;
+    try {
+      await Supabase.instance.client
+          .from('push_tokens')
+          .delete()
+          .eq('token', token);
+    } catch (_) {}
+  }
+
   Future<void> _upload(String? token) async {
     final me = Session.instance.user.value;
     if (token == null || token.isEmpty || me == null) return;

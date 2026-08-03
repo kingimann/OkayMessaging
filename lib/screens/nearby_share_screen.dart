@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../widgets/phone_gate.dart';
+
 
 import '../mesh/mesh_service.dart';
 import '../mesh/nearby_fast.dart';
@@ -180,17 +180,10 @@ class _NearbyShareScreenState extends State<NearbyShareScreen> {
   @override
   Widget build(BuildContext context) {
     // Wrapped here rather than at the button that opens this, so every way
-    // in is covered.
-    return PhoneGate(
-      title: 'Okay Drop',
-      // The one lock here that is a policy rather than a technical fact:
-      // this is two phones and a radio, and it would work. But it puts a
-      // name in a stranger's hands in a room, and an account nobody can
-      // trace is exactly the one that should not be doing that.
-      reason: 'This hands files to strangers in the room under a name they '
-          'have no way to check. That name has to belong to somebody, and a '
-          'phone number is the least this app asks for.',
-      child: VerifiedGate(
+    // in is covered. No phone gate anymore: this is two phones and a radio,
+    // nothing here needs a session, and numberless accounts pass the
+    // verified gate too — for them it was a door with no key.
+    return VerifiedGate(
         title: 'Okay Drop',
         reason: 'This offers files to strangers in the room, straight from '
             'your phone to theirs. Verifying your ID means the name they see '
@@ -198,9 +191,8 @@ class _NearbyShareScreenState extends State<NearbyShareScreen> {
         // Ours to waive, and the one gate with no server in it at all — this
         // is two phones and a radio.
         ownerMayPass: true,
-        child: _guarded(context),
-      ),
-    );
+        numberlessMayPass: true,
+        child: _guarded(context));
   }
 
   Widget _guarded(BuildContext context) {

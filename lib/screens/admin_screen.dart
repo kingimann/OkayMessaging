@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 
 import '../models/platform_role.dart';
+import '../models/user.dart';
 import '../state/account_service.dart';
 import '../state/platform_moderation.dart';
 import '../widgets/app_dialogs.dart';
@@ -291,15 +292,60 @@ class _SanctionSheetState extends State<_SanctionSheet> {
   late final TextEditingController _phone =
       TextEditingController(text: widget.phone);
   final _reason = TextEditingController();
+  final _handle = TextEditingController();
   SanctionKind _kind = SanctionKind.timeout;
   String _duration = '1 hour';
   bool _sending = false;
+  bool _searching = false;
+  String? _found; // '@handle' the number field was filled from
 
   @override
   void dispose() {
     _phone.dispose();
     _reason.dispose();
+    _handle.dispose();
     super.dispose();
+  }
+
+  /// Resolves an @username to its account through the directory, because a
+  /// report or a feed shows moderators a handle, and asking them to find the
+  /// number themselves is asking them to give up.
+  Future<void> _lookup() async {
+    final q = AccountService.normalizeUsername(_handle.text);
+    if (q.length < 2 || _searching) return;
+    setState(() => _searching = true);
+    final matches = await AccountService.instance.searchByUsername(q);
+    if (!mounted) return;
+    setState(() => _searching = false);
+    if (matches.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Nobody found for @$q.')));
+      return;
+    }
+    final pick = matches.length == 1
+        ? matches.first
+        : await showModalBottomSheet<AppUser>(
+            context: context,
+            showDragHandle: true,
+            builder: (sheet) => SafeArea(
+              child: ListView(
+                shrinkWrap: true,
+                children: [
+                  for (final u in matches)
+                    ListTile(
+                      title: Text(u.name),
+                      subtitle: Text('@${u.username}'),
+                      onTap: () => Navigator.of(sheet).pop(u),
+                    ),
+                ],
+              ),
+            ),
+          );
+    if (pick == null || !mounted) return;
+    setState(() {
+      _phone.text = pick.phone.replaceAll(RegExp(r'\D'), '');
+      _found = '@${pick.username}';
+    });
   }
 
   Future<void> _submit() async {
@@ -361,10 +407,35 @@ class _SanctionSheetState extends State<_SanctionSheet> {
               controller: _phone,
               keyboardType: TextInputType.phone,
               decoration: InputDecoration(
-                labelText: 'Phone number',
-                helperText: widget.handle.isEmpty ? null : '@${widget.handle}',
+                labelText: 'Phone number or account code',
+                helperText: _found ??
+                    (widget.handle.isEmpty ? null : '@${widget.handle}'),
                 border: const OutlineInputBorder(),
                 isDense: true,
+              ),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _handle,
+              textInputAction: TextInputAction.search,
+              onSubmitted: (_) => _lookup(),
+              decoration: InputDecoration(
+                labelText: 'Or find by @username',
+                border: const OutlineInputBorder(),
+                isDense: true,
+                suffixIcon: _searching
+                    ? const Padding(
+                        padding: EdgeInsets.all(10),
+                        child: SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2)),
+                      )
+                    : IconButton(
+                        icon: const Icon(Icons.search),
+                        tooltip: 'Find the account',
+                        onPressed: _lookup,
+                      ),
               ),
             ),
             const SizedBox(height: 12),

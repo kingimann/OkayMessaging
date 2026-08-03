@@ -501,6 +501,30 @@ do $$ begin
   end if;
   raise notice '  ok   a banned account leaves the directory';
 end $$;
+
+-- Numberless directory (directory_numberless.sql): the RPCs are anon's only
+-- door, and the claim only ever opens account-code rows.
+reset role;
+set role anon;
+do $$ begin
+  if not (select public.claim_numberless('001234567890', 'ghosty', 'Ghost')) then
+    raise exception 'CHECK FAILED: a numberless account cannot claim its handle';
+  end if;
+  if (select public.claim_numberless('15550001111', 'realphone', 'X')) then
+    raise exception 'SECURITY CHECK FAILED: anon claimed a REAL number''s directory row';
+  end if;
+  if (select public.claim_numberless('001234567890', 'ghosty2', 'G')) then
+    raise exception 'SECURITY CHECK FAILED: a handle was changed with no proof the code is yours';
+  end if;
+  if (select public.claim_numberless('009999999999', 'ghosty', 'Z')) then
+    raise exception 'SECURITY CHECK FAILED: a taken handle was claimed by a second code';
+  end if;
+  if not exists (select 1 from public.find_people('gho') where phone = '001234567890') then
+    raise exception 'CHECK FAILED: anon username search finds nothing';
+  end if;
+  raise notice '  ok   numberless accounts claim and search through the RPCs alone';
+end $$;
+reset role;
 SQL
 
 DB=okaycheck
@@ -518,7 +542,7 @@ apply() {
 }
 
 echo "postgres $(su pg -c "PATH=$PGBIN:\$PATH psql -h $RUN -p $PORT -d $DB -tAc 'show server_version'")"
-for f in "$WORK/harness.sql" supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/payment_controls.sql; do
+for f in "$WORK/harness.sql" supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/payment_controls.sql docs/directory_numberless.sql; do
   if apply "$f"; then
     echo "  applied $(basename "$f")"
   else
@@ -581,7 +605,7 @@ else
   echo "  FAILED  could not rebuild the previous shape"; exit 1
 fi
 
-for f in supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/payment_controls.sql; do
+for f in supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/payment_controls.sql docs/directory_numberless.sql; do
   if apply "$f"; then
     echo "  re-applied $(basename "$f")"
   else

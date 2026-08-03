@@ -545,7 +545,6 @@ class _AppSideBar extends StatelessWidget {
               ListTile(
                 leading: const Icon(Icons.map_outlined),
                 title: const Text('Maps'),
-                trailing: const PhoneOnlyHint(),
                 subtitle: const Text('Search, navigate, share places'),
                 onTap: () => _go(context, const ExploreMapScreen()),
               ),
@@ -582,7 +581,8 @@ class _AppSideBar extends StatelessWidget {
               ListTile(
                 leading: const Icon(Icons.wifi_tethering),
                 title: const Text('Okay Drop'),
-                trailing: const _GateHint(ownerMayPass: true),
+                trailing:
+                    const _GateHint(ownerMayPass: true, numberlessMayPass: true),
                 // One line on the narrowest phone still sold — the drawer
                 // test taps every destination, and a second line here pushes
                 // the last one off the bottom.

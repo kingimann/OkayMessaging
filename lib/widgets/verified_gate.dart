@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../screens/score_screen.dart';
 import '../state/identity_verification.dart';
 import '../state/platform_moderation.dart';
+import '../state/session.dart';
 import '../theme/app_theme.dart';
 
 /// Stands in front of the parts of the app that involve money or strangers.
@@ -40,6 +41,7 @@ class VerifiedGate extends StatelessWidget {
     required this.child,
     this.ownerMayPass = false,
     this.ownerReason = '',
+    this.numberlessMayPass = false,
   });
 
   /// Whether running the app is enough to get in. True only where the ID check
@@ -47,6 +49,14 @@ class VerifiedGate extends StatelessWidget {
   /// verified identity itself. Defaults to false so a gate added later closes
   /// rather than opens by accident.
   final bool ownerMayPass;
+
+  /// Whether an account with no phone number passes. False almost everywhere:
+  /// verification needs a session and a numberless account has none, so the
+  /// gate would otherwise be a door with no key. True only where the check is
+  /// the app's own policy AND the feature itself needs no server (Okay Drop —
+  /// two phones and a radio), where holding the gate would lock the feature
+  /// forever rather than until verification.
+  final bool numberlessMayPass;
 
   /// What to say to an owner who is still held — because "needs a verified
   /// account" reads as a bug to the person who owns the account.
@@ -65,12 +75,19 @@ class VerifiedGate extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: Listenable.merge(
-          [IdentityVerification.instance, PlatformModeration.instance]),
+      listenable: Listenable.merge([
+        IdentityVerification.instance,
+        PlatformModeration.instance,
+        Session.instance.user,
+      ]),
       builder: (context, _) {
         final identity = IdentityVerification.instance;
         final owner = PlatformModeration.instance.isOwner;
-        if (identity.allowsTrusted || (owner && ownerMayPass)) return child;
+        if (identity.allowsTrusted ||
+            (owner && ownerMayPass) ||
+            (numberlessMayPass && Session.instance.isNumberless)) {
+          return child;
+        }
         return Scaffold(
           appBar: AppBar(title: Text(title)),
           body: Center(

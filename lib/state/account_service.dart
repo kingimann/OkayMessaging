@@ -7,6 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart' hide Session;
 
 import '../models/user.dart';
 import '../relay/relay_config.dart';
+import '../util/account_code.dart';
 import 'session.dart';
 
 /// Result of checking a username against the server registry.
@@ -110,6 +111,23 @@ class AccountService {
   /// the username is still stored locally by [Session]).
   Future<bool> claimUsername(String phone, String username,
       {String name = ''}) async {
+    // An account code has no session, so the row goes through the
+    // claim_numberless RPC (docs/directory_numberless.sql) — the one write
+    // path anon holds, and it only opens code-shaped rows. Without this a
+    // numberless account was simply absent from the directory, which is why
+    // nobody could find one by its handle.
+    if (AccountCode.isCode(phone)) {
+      try {
+        final ok = await _client.rpc('claim_numberless', params: {
+          'code': e164(phone),
+          'uname': normalizeUsername(username),
+          'display': name.trim(),
+        });
+        return ok != false; // false = handle taken; anything else best-effort
+      } catch (_) {
+        return true; // migration not run / offline — keep sign-up working
+      }
+    }
     final core = {
       'phone': e164(phone),
       'username': normalizeUsername(username),
@@ -154,32 +172,50 @@ class AccountService {
   /// Finds people whose username starts with [query] (case-insensitive) in the
   /// server directory — those who allow it. Returns an empty list when the
   /// backend is unavailable or nothing matches. Never throws.
+  ///
+  /// Asks through the `find_people` RPC first (docs/directory_numberless.sql):
+  /// the directory's RLS speaks only to `authenticated`, so a numberless
+  /// account querying the table directly got an empty answer FOREVER — not an
+  /// error, an empty answer, which is why "search doesn't work" never showed
+  /// up in a log. The RPC serves anon and authenticated the same rows an
+  /// authenticated table read shows. The table read stays as the fallback for
+  /// a project that has not run the migration yet.
   Future<List<AppUser>> searchByUsername(String query) async {
     final q = normalizeUsername(query);
     if (q.length < 2) return const [];
     final me = Session.instance.user.value?.phone;
+    List<Map<String, dynamic>> rows;
     try {
-      final rows = await _directoryRows((columns) => _client
-          .from(_table)
-          .select(columns)
-          .ilike('username', '$q%')
-          // Reachability choice: rows that closed the username door stay
-          // out of results. neq keeps unmigrated rows (null) visible.
-          .neq('find_by_username', false)
-          .limit(25));
-      final out = <AppUser>[];
-      for (final row in rows) {
-        final user = _rowToUser(Map<String, dynamic>.from(row));
-        // Don't offer to message/call yourself.
-        if (user != null && (me == null || e164(user.phone) != e164(me))) {
-          out.add(user);
-        }
-      }
-      out.sort((a, b) => a.username.compareTo(b.username));
-      return out;
+      final raw = await _client.rpc('find_people', params: {'q': q});
+      rows = [
+        if (raw is List)
+          for (final r in raw)
+            if (r is Map) Map<String, dynamic>.from(r)
+      ];
     } catch (_) {
-      return const [];
+      try {
+        rows = await _directoryRows((columns) => _client
+            .from(_table)
+            .select(columns)
+            .ilike('username', '$q%')
+            // Reachability choice: rows that closed the username door stay
+            // out of results. neq keeps unmigrated rows (null) visible.
+            .neq('find_by_username', false)
+            .limit(25));
+      } catch (_) {
+        return const [];
+      }
     }
+    final out = <AppUser>[];
+    for (final row in rows) {
+      final user = _rowToUser(row);
+      // Don't offer to message/call yourself.
+      if (user != null && (me == null || e164(user.phone) != e164(me))) {
+        out.add(user);
+      }
+    }
+    out.sort((a, b) => a.username.compareTo(b.username));
+    return out;
   }
 
   /// Looks up directory entries for a set of E.164 phone hashes — the contact

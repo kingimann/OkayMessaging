@@ -2,10 +2,14 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' as supa;
 
 import '../app_state.dart';
+import '../relay/relay_config.dart';
+import '../relay/relay_service.dart';
 import '../util/account_code.dart';
 import '../models/user.dart';
+import 'push_service.dart';
 
 /// The signed-in identity, keyed by phone number and stored **only on this
 /// device**. There is no server: signing in just records who you are locally
@@ -88,10 +92,13 @@ class Session {
   Future<void> signInWithoutNumber({
     String name = '',
     required String username,
+    String? code,
   }) {
     final handle = _normalizeUsername(username);
     return signIn(
-      phone: AccountCode.mint(),
+      // Callers that claimed the handle in the directory pass the code they
+      // claimed it under; minting a fresh one here would orphan that claim.
+      phone: code ?? AccountCode.mint(),
       name: name.trim().isEmpty ? handle : name.trim(),
       username: handle,
     );
@@ -185,6 +192,23 @@ class Session {
     }
     await _prefs!.remove(_key);
     user.value = null;
+    // The SERVER session belongs to the account that just left, and keeping
+    // it around is why the next sign-in demanded the PREVIOUS account's
+    // second factor: the auth client was still that person. Token first
+    // (deleting it needs the session), then the subscriptions, then the
+    // session itself. All best-effort — sign-out must never block on the
+    // network, and in a build with no relay there is nothing to clear.
+    if (RelayConfig.isEnabled) {
+      try {
+        await PushService.instance.removeToken();
+      } catch (_) {}
+      try {
+        await RelayService.instance.stop();
+      } catch (_) {}
+      try {
+        await supa.Supabase.instance.client.auth.signOut();
+      } catch (_) {}
+    }
   }
 
   /// Forgets the remembered account (Settings → sign-in screen → "Use a
