@@ -1678,8 +1678,8 @@ class _ChannelScreenState extends State<ChannelScreen> {
   }
 
   /// Emoji go into the message being typed; a GIF posts straight away.
-  Future<void> _pickEmojiOrGif() async {
-    final picked = await showEmojiGifSheet(context);
+  Future<void> _pickEmojiOrGif({int initialTab = 0}) async {
+    final picked = await showEmojiGifSheet(context, initialTab: initialTab);
     if (picked == null || !mounted) return;
     final gif = picked.gif;
     if (gif != null) {
@@ -2154,6 +2154,15 @@ class _ChannelScreenState extends State<ChannelScreen> {
                         color: Colors.grey,
                         tooltip: 'Emoji & GIFs',
                         onPressed: _pickEmojiOrGif,
+                      ),
+                      // The GIF tab one tap away, same as the 1:1 composer —
+                      // people know GIFs as a button, not as a tab inside
+                      // the emoji sheet.
+                      IconButton(
+                        icon: const Icon(Icons.gif_box_outlined),
+                        color: Colors.grey,
+                        tooltip: 'GIF',
+                        onPressed: () => _pickEmojiOrGif(initialTab: 1),
                       ),
                       // One attach button owns everything that isn't typing,
                       // so the bar stays two icons and a field — the same

@@ -1399,8 +1399,8 @@ class FeedComposerScreen extends StatefulWidget {
 }
 
 class _FeedComposerScreenState extends State<FeedComposerScreen> {
-  Future<void> _pick() async {
-    final picked = await showEmojiGifSheet(context);
+  Future<void> _pick({int initialTab = 0}) async {
+    final picked = await showEmojiGifSheet(context, initialTab: initialTab);
     if (picked == null) return;
     final gif = picked.gif;
     if (gif != null) {
@@ -1615,7 +1615,10 @@ class _FeedComposerScreenState extends State<FeedComposerScreen> {
                     if (widget.onAttachVideo != null)
                       _tool(Icons.movie_outlined, 'Attach video',
                           widget.onAttachVideo),
-                    _tool(Icons.gif_box_outlined, 'Emoji & GIFs', _pick),
+                    // The GIF icon opens ON the GIF tab — a person tapping a
+                    // GIF box wants GIFs; emoji stay one swipe away.
+                    _tool(Icons.gif_box_outlined, 'GIFs & emoji',
+                        () => _pick(initialTab: 1)),
                     if (widget.onCreatePoll != null)
                       _tool(Icons.poll_outlined, 'Create poll',
                           widget.onCreatePoll),
