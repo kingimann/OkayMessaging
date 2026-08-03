@@ -167,13 +167,11 @@ class RelayService {
       'pollQuestion': message.pollQuestion,
       'pollOptions': message.pollOptions,
       'pollVotes': message.pollVotes,
-      if (message.serverInvite.isNotEmpty)
-        'serverInvite': message.serverInvite,
+      if (message.serverInvite.isNotEmpty) 'serverInvite': message.serverInvite,
       'expiresAt': message.expiresAt?.toIso8601String(),
     });
 
-    final sealed =
-        sealContent(fromPhone, toPhone, content, ratchet: ratchet);
+    final sealed = sealContent(fromPhone, toPhone, content, ratchet: ratchet);
     return {
       'id': message.id,
       'from': fromPhone,
@@ -634,8 +632,7 @@ class RelayService {
     // The one pairwise un-ladder, shared with group updates and signaling.
     // A failed decrypt (missing key, replay) leaves the raw blob, which the
     // JSON parse below turns into the undecryptable placeholder.
-    final json =
-        openContent(from, myPhone, payload, ratchet: ratchet) ?? blob;
+    final json = openContent(from, myPhone, payload, ratchet: ratchet) ?? blob;
 
     try {
       final decoded = jsonDecode(json);
@@ -676,8 +673,7 @@ class RelayService {
   /// Queues one sealed envelope for an offline recipient, tagged with the
   /// broadcast [event] it mirrors. Fire-and-forget: a missing table (setup
   /// SQL not applied yet) just means live-only.
-  Future<void> _mailboxPut(
-      String contactPhone, Map<String, dynamic> payload,
+  Future<void> _mailboxPut(String contactPhone, Map<String, dynamic> payload,
       {String event = 'msg'}) async {
     try {
       await http
@@ -749,8 +745,13 @@ class RelayService {
               _onInboxMessage(payload, myPhone: me);
             case 'receipt':
               applyReceipt(payload, myPhone: me);
-            case 'edit' || 'delete' || 'reaction' || 'poll' || 'payst' ||
-                  'form' || 'vopen':
+            case 'edit' ||
+                  'delete' ||
+                  'reaction' ||
+                  'poll' ||
+                  'payst' ||
+                  'form' ||
+                  'vopen':
               applyMessageEvent(event, payload, myPhone: me);
             case 'gupd':
               applyGroupUpdate(payload, myPhone: me);
@@ -758,8 +759,16 @@ class RelayService {
               applySkdm(payload, myPhone: me);
             case 'skreq':
               applySkreq(payload, myPhone: me);
-            case 'chmsg' || 'chjoin' || 'chupd' || 'fpost' || 'fdel' ||
-                  'flike' || 'fvote' || 'chdel' || 'chedt' || 'chrxn' ||
+            case 'chmsg' ||
+                  'chjoin' ||
+                  'chupd' ||
+                  'fpost' ||
+                  'fdel' ||
+                  'flike' ||
+                  'fvote' ||
+                  'chdel' ||
+                  'chedt' ||
+                  'chrxn' ||
                   'chpin':
               _applyCommunityEvent(event, payload, me);
           }
@@ -782,8 +791,7 @@ class RelayService {
       final cutoff =
           DateTime.now().toUtc().subtract(mailboxTtl).toIso8601String();
       await http
-          .delete(
-              Uri.parse('$base?inbox=eq.$inbox&created_at=lt.$cutoff'),
+          .delete(Uri.parse('$base?inbox=eq.$inbox&created_at=lt.$cutoff'),
               headers: _restHeaders)
           .timeout(const Duration(seconds: 15));
     } catch (_) {}
@@ -809,6 +817,23 @@ class RelayService {
     }
   }
 
+  /// Recovers the payload a sender actually broadcast from what
+  /// realtime_client hands a subscription callback — the whole wire envelope
+  /// `{event: …, payload: {…}, type: broadcast}`, NOT the payload that was
+  /// sent. Every live handler below read `payload['from']` off the envelope,
+  /// got null, and dropped the event — so nothing was ever applied live and
+  /// delivery quietly degraded to the offline-mailbox sweeps (which is why
+  /// messages only appeared after a refresh, and typing/presence/ringing —
+  /// live-only, no mailbox — never appeared at all). Proven against the live
+  /// project with tool/probe_realtime.dart. Tolerates an already-unwrapped
+  /// map (no app payload carries a map under 'payload'), so a future client
+  /// that starts delivering the inner payload can't re-break this.
+  static Map<String, dynamic> unwrapBroadcast(Map<String, dynamic> raw) {
+    final inner = raw['payload'];
+    if (inner is Map) return Map<String, dynamic>.from(inner);
+    return raw;
+  }
+
   void start() {
     if (!_initialized || _inbox != null) return;
     final me = Session.instance.user.value?.phone;
@@ -817,13 +842,15 @@ class RelayService {
         .channel(inboxChannel(me))
         .onBroadcast(
           event: 'msg',
-          callback: (payload) => _onInboxMessage(
-              Map<String, dynamic>.from(payload),
-              myPhone: me),
+          callback: (rawEnvelope) {
+            final payload = unwrapBroadcast(rawEnvelope);
+            _onInboxMessage(Map<String, dynamic>.from(payload), myPhone: me);
+          },
         )
         .onBroadcast(
           event: 'gupd',
-          callback: (payload) {
+          callback: (rawEnvelope) {
+            final payload = unwrapBroadcast(rawEnvelope);
             final map = Map<String, dynamic>.from(payload);
             applyGroupUpdate(map, myPhone: me);
             final from = map['from'] as String?;
@@ -835,17 +862,22 @@ class RelayService {
         )
         .onBroadcast(
           event: 'skdm',
-          callback: (payload) =>
-              applySkdm(Map<String, dynamic>.from(payload), myPhone: me),
+          callback: (rawEnvelope) {
+            final payload = unwrapBroadcast(rawEnvelope);
+            applySkdm(Map<String, dynamic>.from(payload), myPhone: me);
+          },
         )
         .onBroadcast(
           event: 'skreq',
-          callback: (payload) =>
-              applySkreq(Map<String, dynamic>.from(payload), myPhone: me),
+          callback: (rawEnvelope) {
+            final payload = unwrapBroadcast(rawEnvelope);
+            applySkreq(Map<String, dynamic>.from(payload), myPhone: me);
+          },
         )
         .onBroadcast(
           event: 'key',
-          callback: (payload) {
+          callback: (rawEnvelope) {
+            final payload = unwrapBroadcast(rawEnvelope);
             final from = payload['from'] as String?;
             final pub = payload['pub'] as String?;
             if (from == null || pub == null || digits(from) == digits(me)) {
@@ -858,7 +890,8 @@ class RelayService {
         )
         .onBroadcast(
           event: 'cap',
-          callback: (payload) {
+          callback: (rawEnvelope) {
+            final payload = unwrapBroadcast(rawEnvelope);
             final from = payload['from'] as String?;
             if (from == null || digits(from) == digits(me)) return;
             recordingFromDigits = digits(from);
@@ -867,7 +900,8 @@ class RelayService {
         )
         .onBroadcast(
           event: 'shot',
-          callback: (payload) {
+          callback: (rawEnvelope) {
+            final payload = unwrapBroadcast(rawEnvelope);
             final from = payload['from'] as String?;
             if (from == null || digits(from) == digits(me)) return;
             screenshotFromDigits = digits(from);
@@ -876,7 +910,8 @@ class RelayService {
         )
         .onBroadcast(
           event: 'gshot',
-          callback: (payload) {
+          callback: (rawEnvelope) {
+            final payload = unwrapBroadcast(rawEnvelope);
             final from = payload['from'] as String?;
             if (from == null || digits(from) == digits(me)) return;
             ghostShotFromDigits = digits(from);
@@ -885,7 +920,8 @@ class RelayService {
         )
         .onBroadcast(
           event: 'typing',
-          callback: (payload) {
+          callback: (rawEnvelope) {
+            final payload = unwrapBroadcast(rawEnvelope);
             final from = payload['from'] as String?;
             if (from == null || digits(from) == digits(me)) return;
             typingFromDigits = digits(from);
@@ -894,7 +930,8 @@ class RelayService {
         )
         .onBroadcast(
           event: 'presence',
-          callback: (payload) {
+          callback: (rawEnvelope) {
+            final payload = unwrapBroadcast(rawEnvelope);
             final from = payload['from'] as String?;
             if (from == null || digits(from) == digits(me)) return;
             presenceFromDigits = digits(from);
@@ -903,7 +940,8 @@ class RelayService {
         )
         .onBroadcast(
           event: 'loc',
-          callback: (payload) {
+          callback: (rawEnvelope) {
+            final payload = unwrapBroadcast(rawEnvelope);
             final parsed = parseLocation(Map<String, dynamic>.from(payload));
             if (parsed == null || parsed.fromDigits == digits(me)) return;
             LiveLocationStore.instance
@@ -912,42 +950,63 @@ class RelayService {
         )
         .onBroadcast(
           event: 'vopen',
-          callback: (payload) => applyMessageEvent(
-              'vopen', Map<String, dynamic>.from(payload), myPhone: me),
+          callback: (rawEnvelope) {
+            final payload = unwrapBroadcast(rawEnvelope);
+            applyMessageEvent('vopen', Map<String, dynamic>.from(payload),
+                myPhone: me);
+          },
         )
         .onBroadcast(
           event: 'receipt',
-          callback: (payload) =>
-              applyReceipt(Map<String, dynamic>.from(payload), myPhone: me),
+          callback: (rawEnvelope) {
+            final payload = unwrapBroadcast(rawEnvelope);
+            applyReceipt(Map<String, dynamic>.from(payload), myPhone: me);
+          },
         )
         .onBroadcast(
           event: 'edit',
-          callback: (payload) => applyMessageEvent(
-              'edit', Map<String, dynamic>.from(payload), myPhone: me),
+          callback: (rawEnvelope) {
+            final payload = unwrapBroadcast(rawEnvelope);
+            applyMessageEvent('edit', Map<String, dynamic>.from(payload),
+                myPhone: me);
+          },
         )
         .onBroadcast(
           event: 'delete',
-          callback: (payload) => applyMessageEvent(
-              'delete', Map<String, dynamic>.from(payload), myPhone: me),
+          callback: (rawEnvelope) {
+            final payload = unwrapBroadcast(rawEnvelope);
+            applyMessageEvent('delete', Map<String, dynamic>.from(payload),
+                myPhone: me);
+          },
         )
         .onBroadcast(
           event: 'payst',
-          callback: (payload) => applyMessageEvent(
-              'payst', Map<String, dynamic>.from(payload), myPhone: me),
+          callback: (rawEnvelope) {
+            final payload = unwrapBroadcast(rawEnvelope);
+            applyMessageEvent('payst', Map<String, dynamic>.from(payload),
+                myPhone: me);
+          },
         )
         .onBroadcast(
           event: 'reaction',
-          callback: (payload) => applyMessageEvent(
-              'reaction', Map<String, dynamic>.from(payload), myPhone: me),
+          callback: (rawEnvelope) {
+            final payload = unwrapBroadcast(rawEnvelope);
+            applyMessageEvent('reaction', Map<String, dynamic>.from(payload),
+                myPhone: me);
+          },
         )
         .onBroadcast(
           event: 'poll',
-          callback: (payload) => applyMessageEvent(
-              'poll', Map<String, dynamic>.from(payload), myPhone: me),
+          callback: (rawEnvelope) {
+            final payload = unwrapBroadcast(rawEnvelope);
+            applyMessageEvent('poll', Map<String, dynamic>.from(payload),
+                myPhone: me);
+          },
         )
         .onBroadcast(
           event: 'call',
-          callback: (payload) {
+          callback: (rawEnvelope) {
+            final payload = unwrapBroadcast(rawEnvelope);
             final p = Map<String, dynamic>.from(payload);
             final from = p['from'] as String?;
             final kind = p['kind'] as String?;
@@ -982,8 +1041,7 @@ class RelayService {
                     group: AppUser(
                       id: groupId,
                       name: (groupInfo['name'] as String?) ?? 'Group',
-                      avatarColor:
-                          (groupInfo['color'] as String?) ?? '#4DB6AC',
+                      avatarColor: (groupInfo['color'] as String?) ?? '#4DB6AC',
                       isGroup: true,
                     ),
                     members: membersFromJson(groupInfo['members']),
@@ -1025,7 +1083,8 @@ class RelayService {
         )
         .onBroadcast(
           event: 'file',
-          callback: (payload) {
+          callback: (rawEnvelope) {
+            final payload = unwrapBroadcast(rawEnvelope);
             final p = Map<String, dynamic>.from(payload);
             final from = p['from'] as String?;
             final kind = p['kind'] as String?;
@@ -1068,82 +1127,122 @@ class RelayService {
         .channel('server_feed')
         .onBroadcast(
           event: 'post',
-          callback: (payload) {
+          callback: (rawEnvelope) {
+            final payload = unwrapBroadcast(rawEnvelope);
             final map = Map<String, dynamic>.from(payload);
             final from = map['from'] as String?;
             if (from == null || digits(from) == digits(me)) return;
             final raw = map['post'];
             if (raw is! Map) return;
             try {
-              FeedStore.instance.addRemote(
-                  FeedPost.fromJson(Map<String, dynamic>.from(raw)));
+              FeedStore.instance
+                  .addRemote(FeedPost.fromJson(Map<String, dynamic>.from(raw)));
             } catch (_) {}
           },
         )
         .onBroadcast(
           event: 'chmsg',
-          callback: (payload) => _applyCommunityEvent('chmsg',
-              Map<String, dynamic>.from(payload), me),
+          callback: (rawEnvelope) {
+            final payload = unwrapBroadcast(rawEnvelope);
+            _applyCommunityEvent(
+                'chmsg', Map<String, dynamic>.from(payload), me);
+          },
         )
         .onBroadcast(
           event: 'chdel',
-          callback: (payload) => _applyCommunityEvent('chdel',
-              Map<String, dynamic>.from(payload), me),
+          callback: (rawEnvelope) {
+            final payload = unwrapBroadcast(rawEnvelope);
+            _applyCommunityEvent(
+                'chdel', Map<String, dynamic>.from(payload), me);
+          },
         )
         .onBroadcast(
           event: 'chedt',
-          callback: (payload) => _applyCommunityEvent('chedt',
-              Map<String, dynamic>.from(payload), me),
+          callback: (rawEnvelope) {
+            final payload = unwrapBroadcast(rawEnvelope);
+            _applyCommunityEvent(
+                'chedt', Map<String, dynamic>.from(payload), me);
+          },
         )
         .onBroadcast(
           event: 'chrxn',
-          callback: (payload) => _applyCommunityEvent('chrxn',
-              Map<String, dynamic>.from(payload), me),
+          callback: (rawEnvelope) {
+            final payload = unwrapBroadcast(rawEnvelope);
+            _applyCommunityEvent(
+                'chrxn', Map<String, dynamic>.from(payload), me);
+          },
         )
         .onBroadcast(
           event: 'chpin',
-          callback: (payload) => _applyCommunityEvent('chpin',
-              Map<String, dynamic>.from(payload), me),
+          callback: (rawEnvelope) {
+            final payload = unwrapBroadcast(rawEnvelope);
+            _applyCommunityEvent(
+                'chpin', Map<String, dynamic>.from(payload), me);
+          },
         )
         .onBroadcast(
           event: 'chjoin',
-          callback: (payload) => _applyCommunityEvent('chjoin',
-              Map<String, dynamic>.from(payload), me),
+          callback: (rawEnvelope) {
+            final payload = unwrapBroadcast(rawEnvelope);
+            _applyCommunityEvent(
+                'chjoin', Map<String, dynamic>.from(payload), me);
+          },
         )
         .onBroadcast(
           event: 'chupd',
-          callback: (payload) => _applyCommunityEvent('chupd',
-              Map<String, dynamic>.from(payload), me),
+          callback: (rawEnvelope) {
+            final payload = unwrapBroadcast(rawEnvelope);
+            _applyCommunityEvent(
+                'chupd', Map<String, dynamic>.from(payload), me);
+          },
         )
         .onBroadcast(
           event: 'vpres',
-          callback: (payload) => _applyCommunityEvent('vpres',
-              Map<String, dynamic>.from(payload), me),
+          callback: (rawEnvelope) {
+            final payload = unwrapBroadcast(rawEnvelope);
+            _applyCommunityEvent(
+                'vpres', Map<String, dynamic>.from(payload), me);
+          },
         )
         .onBroadcast(
           event: 'chtyp',
-          callback: (payload) => _applyCommunityEvent('chtyp',
-              Map<String, dynamic>.from(payload), me),
+          callback: (rawEnvelope) {
+            final payload = unwrapBroadcast(rawEnvelope);
+            _applyCommunityEvent(
+                'chtyp', Map<String, dynamic>.from(payload), me);
+          },
         )
         .onBroadcast(
           event: 'fpost',
-          callback: (payload) => _applyCommunityEvent('fpost',
-              Map<String, dynamic>.from(payload), me),
+          callback: (rawEnvelope) {
+            final payload = unwrapBroadcast(rawEnvelope);
+            _applyCommunityEvent(
+                'fpost', Map<String, dynamic>.from(payload), me);
+          },
         )
         .onBroadcast(
           event: 'fdel',
-          callback: (payload) => _applyCommunityEvent('fdel',
-              Map<String, dynamic>.from(payload), me),
+          callback: (rawEnvelope) {
+            final payload = unwrapBroadcast(rawEnvelope);
+            _applyCommunityEvent(
+                'fdel', Map<String, dynamic>.from(payload), me);
+          },
         )
         .onBroadcast(
           event: 'flike',
-          callback: (payload) => _applyCommunityEvent('flike',
-              Map<String, dynamic>.from(payload), me),
+          callback: (rawEnvelope) {
+            final payload = unwrapBroadcast(rawEnvelope);
+            _applyCommunityEvent(
+                'flike', Map<String, dynamic>.from(payload), me);
+          },
         )
         .onBroadcast(
           event: 'fvote',
-          callback: (payload) => _applyCommunityEvent('fvote',
-              Map<String, dynamic>.from(payload), me),
+          callback: (rawEnvelope) {
+            final payload = unwrapBroadcast(rawEnvelope);
+            _applyCommunityEvent(
+                'fvote', Map<String, dynamic>.from(payload), me);
+          },
         )
         .subscribe();
     // Catch up on whatever arrived while the app was closed.
@@ -1379,10 +1478,8 @@ class RelayService {
     // both number their first event "chmsg_c1_0" would each silently drop the
     // other's — a bug that only shows up with two devices in a room, which is
     // the hardest place to find one.
-    unawaited(MeshService.instance
-        .sendCommunity({...payload, 'e': event},
-            eventId: MeshPacket.randomId())
-        .catchError((_) => false));
+    unawaited(MeshService.instance.sendCommunity({...payload, 'e': event},
+        eventId: MeshPacket.randomId()).catchError((_) => false));
   }
 
   /// Like [_sendCommunityEvent] but broadcast only — nothing is queued into
@@ -1423,8 +1520,7 @@ class RelayService {
   /// that does not understand `skc` will miss these, the same version cost
   /// the pairwise `enc 3` messages carry; it is a branch push, not a live
   /// fleet.
-  Map<String, dynamic> _sealCommunity(
-      Community community, String plaintext) {
+  Map<String, dynamic> _sealCommunity(Community community, String plaintext) {
     final sk = SenderKeyStore.instance;
     final firstSend = !sk.hasOwn(community.id);
     final sealed = sk.seal(community.id, plaintext);
@@ -1534,8 +1630,9 @@ class RelayService {
       });
 
   /// Delivers a channel message to every other member of the server.
-  Future<void> sendChannelMessage(String communityId, String channelId,
-          Message message, {required String senderName}) =>
+  Future<void> sendChannelMessage(
+          String communityId, String channelId, Message message,
+          {required String senderName}) =>
       _sendCommunityEvent('chmsg', communityId, {
         'channelId': channelId,
         'senderName': senderName,
@@ -1631,8 +1728,7 @@ class RelayService {
       myName: AppState.profile.value.name,
     );
     if (structure == null) return;
-    await _sendCommunityEvent(
-        'chupd', communityId, {'structure': structure});
+    await _sendCommunityEvent('chupd', communityId, {'structure': structure});
   }
 
   /// Delivers a feed post to the server's members. Servers with a secret
@@ -1910,9 +2006,8 @@ class RelayService {
     });
   }
 
-  Future<void> sendPollVote(
-      String contactPhone, String messageId, int addOption,
-      int removeOption) async {
+  Future<void> sendPollVote(String contactPhone, String messageId,
+      int addOption, int removeOption) async {
     if (!_initialized) return;
     final me = Session.instance.user.value;
     if (me == null) return;
@@ -1956,8 +2051,7 @@ class RelayService {
 
   /// Tells [contactPhone] that their "view once" photo [messageId] was opened,
   /// so their copy flips to the "Opened" state.
-  Future<void> sendViewOnceOpened(
-      String contactPhone, String messageId) async {
+  Future<void> sendViewOnceOpened(String contactPhone, String messageId) async {
     if (!_initialized) return;
     final me = Session.instance.user.value;
     if (me == null) return;
@@ -1992,8 +2086,7 @@ class RelayService {
   }
 
   /// Broadcasts your live position to [contactPhone]'s inbox for the Snap Map.
-  Future<void> sendLocation(
-      String contactPhone, double lat, double lng) async {
+  Future<void> sendLocation(String contactPhone, double lat, double lng) async {
     if (!_initialized) return;
     final me = Session.instance.user.value;
     if (me == null) return;
@@ -2058,7 +2151,8 @@ class RelayService {
     final name = inboxChannel(contactPhone);
     final channel =
         _sendChannels.putIfAbsent(name, () => _client.channel(name));
-    await channel.sendBroadcastMessage(event: event, payload: {'from': me.phone});
+    await channel
+        .sendBroadcastMessage(event: event, payload: {'from': me.phone});
   }
 
   /// Broadcasts an outgoing [message] to [contactPhone]'s inbox over REST (the
@@ -2169,7 +2263,8 @@ class RelayService {
   /// copies follow without waiting for the next message. Someone added this
   /// way gets the group created on their device by the same code path an
   /// incoming group message uses.
-  Future<void> sendGroupUpdate(Chat group, {List<String>? extraRecipients}) async {
+  Future<void> sendGroupUpdate(Chat group,
+      {List<String>? extraRecipients}) async {
     if (!_initialized) return;
     final me = Session.instance.user.value;
     if (me == null) return;
@@ -2259,7 +2354,10 @@ class RelayService {
         _sendChannels.putIfAbsent(name, () => _client.channel(name));
     await channel.sendBroadcastMessage(
       event: 'key',
-      payload: {'from': Session.instance.user.value?.phone, 'pub': kx.myPublicKey},
+      payload: {
+        'from': Session.instance.user.value?.phone,
+        'pub': kx.myPublicKey
+      },
     );
   }
 

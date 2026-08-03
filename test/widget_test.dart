@@ -4672,6 +4672,28 @@ void main() {
       expect(formatPhoneForDisplay(''), '');
     });
 
+    test('live broadcast callbacks unwrap the wire envelope', () {
+      // realtime_client hands a subscription callback the whole envelope
+      // ({event, payload, type}), not the payload the sender broadcast —
+      // proven against the live project by tool/probe_realtime.dart. Every
+      // handler used to read fields off the envelope, get null, and drop the
+      // event: no message, typing, presence, or incoming call ever applied
+      // LIVE, and delivery silently degraded to the offline-mailbox sweeps.
+      expect(
+        RelayService.unwrapBroadcast({
+          'event': 'typing',
+          'type': 'broadcast',
+          'payload': {'from': '+1 555 0100'},
+        }),
+        {'from': '+1 555 0100'},
+      );
+      // A payload that is already the sent one passes through untouched, so
+      // a future client that starts delivering the inner payload can't
+      // re-break delivery. (No app payload nests a map under 'payload'.)
+      const sent = {'from': '+1 555 0100', 'kind': 'offer', 'callId': 'c1'};
+      expect(RelayService.unwrapBroadcast(Map.of(sent)), sent);
+    });
+
     test('relay wake/resync are safe no-ops before the relay ever starts',
         () async {
       // wake() runs on every return from the background — including on
