@@ -2561,17 +2561,34 @@ class RelayService {
     if (from == null || pub == null || digits(from) == digits(myPhone)) {
       return;
     }
-    if (SecureKeyExchange.instance.rememberPeer(from, pub)) {
-      // A CHANGED key buries the ratchet session: the old one belongs to an
-      // identity that no longer exists, and holding it means sealing every
-      // future message to a ghost — which the far end renders as a screen
-      // of base64. Also forget that we ever introduced ourselves, so the
-      // reply below really goes out.
+    final changed = SecureKeyExchange.instance.rememberPeer(from, pub);
+    // A CHANGED key buries the ratchet session: the old one belongs to an
+    // identity that no longer exists, and holding it means sealing every
+    // future message to a ghost — which the far end renders as a screen
+    // of base64. A HEAL buries it even when the key matches what is cached:
+    // the far side just failed to open something this side sealed, and with
+    // the same identity on both ends the only state left to blame is a
+    // diverged session. That case used to be unfixable — the heal arrived,
+    // matched, and did nothing, forever. Burial is rate-limited so a
+    // replayed heal envelope cannot keep killing healthy new sessions.
+    if (changed || (payload['heal'] == true && _healBuryAllowed(from))) {
       DoubleRatchet.instance.resetPeer(from);
       _sentKeyTo.remove(digits(from));
     }
     // Reply with our key once so both sides can derive the secret.
     _ensureKeyShared(from);
+  }
+
+  final Map<String, DateTime> _healBuried = {};
+  bool _healBuryAllowed(String from) {
+    final d = digits(from);
+    final last = _healBuried[d];
+    if (last != null &&
+        DateTime.now().difference(last) < const Duration(minutes: 2)) {
+      return false;
+    }
+    _healBuried[d] = DateTime.now();
+    return true;
   }
 
   /// Sends this device's public key to [contactPhone] once per session, so the
@@ -2627,32 +2644,82 @@ class RelayService {
   /// destructive here: a replayed envelope also fails to decrypt, and a
   /// healthy pairing must shrug this off.
   final Map<String, DateTime> _healAsked = {};
+  final Map<String, int> _healAttempts = {};
   void healPeer(String from) {
-    if (!_initialized) return;
     final d = digits(from);
     if (d.isEmpty) return;
+    // Counted before every guard: the diagnosis matters even when the
+    // network half cannot run, and a THIRD failure in one run means the
+    // repair is being sent and not taking — which has exactly one cause a
+    // heal can never fix, and it deserves to be said instead of leaving the
+    // padlocks to read as random breakage.
+    final attempts = (_healAttempts[d] ?? 0) + 1;
+    _healAttempts[d] = attempts;
+    if (attempts == 3) _noteUnhealablePeer(d);
+    if (!_initialized) return;
     final last = _healAsked[d];
     if (last != null &&
         DateTime.now().difference(last) < const Duration(minutes: 2)) {
       return;
     }
     _healAsked[d] = DateTime.now();
-    _sentKeyTo.remove(d);
-    _ensureKeyShared(from);
-    // The live broadcast above only reaches an OPEN app — and the peer who
-    // sealed to a ghost key almost certainly is not looking at theirs right
-    // now, which is why the same failure came back hours apart instead of
-    // once. Queue the re-introduction too, so their next launch applies it
-    // before they send anything else. Public material only: from-digits and
-    // a public key, both of which the broadcast already carries in the
-    // clear.
     final kx = SecureKeyExchange.instance;
-    if (kx.isReady) {
-      _mailboxPut(from, {
-        'from': Session.instance.user.value?.phone,
-        'pub': kx.myPublicKey,
-      }, event: 'key');
+    if (!kx.isReady) return;
+    // The re-introduction, marked as a HEAL so the far side buries its
+    // session even when the key it holds already matches — a plain announce
+    // must never carry the flag, or every startup would kill healthy
+    // sessions. Public material only: from-digits and a public key, both of
+    // which the broadcast already carries in the clear.
+    final payload = {
+      'from': Session.instance.user.value?.phone,
+      'pub': kx.myPublicKey,
+      'heal': true,
+    };
+    _sentKeyTo.add(d);
+    final name = inboxChannel(from);
+    final channel =
+        _sendChannels.putIfAbsent(name, () => _client.channel(name));
+    channel.sendBroadcastMessage(event: 'key', payload: payload);
+    // The live broadcast only reaches an OPEN app — and the peer who sealed
+    // to a ghost key almost certainly is not looking at theirs right now,
+    // which is why the same failure came back hours apart instead of once.
+    // Queue the re-introduction too, so their next launch applies it before
+    // they send anything else.
+    _mailboxPut(from, payload, event: 'key');
+  }
+
+  /// Said once per run, after the third failed unlock from the same person:
+  /// the repair keeps being sent and keeps not taking. The one cause a heal
+  /// cannot fix is the same number signed in somewhere else — a second
+  /// phone, or a web tab — because each sign-in mints its own keys and the
+  /// peer can only seal to one of them at a time.
+  void _noteUnhealablePeer(String d) {
+    final store = ChatStore.instance;
+    Chat? chat;
+    for (final c in store.allChats) {
+      if (!c.contact.isGroup && digits(c.contact.phone) == d) {
+        chat = c;
+        break;
+      }
     }
+    if (chat == null) return;
+    final noticeId = 'healnote_$d';
+    if (chat.messages.any((m) => m.id == noticeId)) return;
+    store.addMessage(
+      chat.id,
+      Message(
+        id: noticeId,
+        text: 'ℹ️ Messages here keep arriving sealed to a key this device '
+            'doesn\'t hold, and the automatic repair hasn\'t taken. This '
+            'usually means one of you is signed in on another phone or a '
+            'web browser too — each sign-in has its own keys, so a message '
+            'can only be unlocked where it was keyed. Sign out of the '
+            'copies not in use, then ask them to resend.',
+        time: DateTime.now(),
+        isMe: false,
+        status: MessageStatus.read,
+      ),
+    );
   }
 
   /// Re-establishes the inbox subscription and re-announces presence to the

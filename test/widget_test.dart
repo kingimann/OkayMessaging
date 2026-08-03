@@ -3447,6 +3447,90 @@ void main() {
           newIdentity.myPublicKey);
     });
 
+    test('a heal buries the session even when the key never changed',
+        () async {
+      // The old rule buried only on a CHANGED key. But a desynced ratchet
+      // with the SAME identity fails exactly the same way on the far side —
+      // and the heal arrived, matched the cached key, did nothing, and the
+      // padlocks kept coming forever. A 'key' event marked as a heal buries
+      // regardless, because a failed unlock is proof the session is dead
+      // whatever the identity says.
+      // ignore: invalid_use_of_visible_for_testing_member
+      addTearDown(SecureKeyExchange.instance.resetForTest);
+      // ignore: invalid_use_of_visible_for_testing_member
+      addTearDown(DoubleRatchet.instance.resetForTest);
+      await SecureKeyExchange.instance.load();
+      final peer = SecureKeyExchange.freshForTest();
+      SecureKeyExchange.instance
+          .rememberPeer('+1 555 0188', peer.myPublicKey!);
+      DoubleRatchet.instance.encrypt('15550100', '15550188', 'seed');
+      expect(DoubleRatchet.instance.hasSession('15550188'), isTrue);
+      // A plain announce with the same key is startup traffic and must not
+      // kill a healthy session.
+      RelayService.instance.applyKeyEvent({
+        'from': '+1 555 0188',
+        'pub': peer.myPublicKey!,
+      }, myPhone: '+1 555 0100');
+      expect(DoubleRatchet.instance.hasSession('15550188'), isTrue,
+          reason: 'a routine announce must not bury a healthy session');
+      // The same key marked as a heal does.
+      RelayService.instance.applyKeyEvent({
+        'from': '+1 555 0188',
+        'pub': peer.myPublicKey!,
+        'heal': true,
+      }, myPhone: '+1 555 0100');
+      expect(DoubleRatchet.instance.hasSession('15550188'), isFalse,
+          reason: 'a failed unlock under the same identity is a dead session');
+      // And a replayed heal envelope cannot keep killing each next session.
+      DoubleRatchet.instance.encrypt('15550100', '15550188', 'again');
+      RelayService.instance.applyKeyEvent({
+        'from': '+1 555 0188',
+        'pub': peer.myPublicKey!,
+        'heal': true,
+      }, myPhone: '+1 555 0100');
+      expect(DoubleRatchet.instance.hasSession('15550188'), isTrue,
+          reason: 'burials are rate-limited against replayed envelopes');
+      // healPeer marks its re-introduction, so the far side can tell repair
+      // from routine — the flag is the whole mechanism.
+      final src = File('lib/relay/relay_service.dart').readAsStringSync();
+      final heal = src.substring(src.indexOf('void healPeer('));
+      expect(
+          heal.substring(0, heal.indexOf('resync')).contains("'heal': true"),
+          isTrue,
+          reason: 'an unmarked heal is a plain announce and fixes nothing');
+    });
+
+    test('three failed heals in one run say so in the chat', () {
+      // A heal that keeps not taking has one cause it can never fix: the
+      // same number signed in on a second phone or a web tab, each with its
+      // own keys, taking turns teaching the peer a key this device does not
+      // hold. Silence leaves that reading as random breakage.
+      final store = ChatStore.instance;
+      store.upsert(const Chat(
+        id: 'chat_healnote',
+        contact: AppUser(
+            id: 'p_healnote',
+            name: 'Pat',
+            avatarColor: '#7A5CFF',
+            about: '',
+            phone: '+1 555 0199'),
+        messages: [],
+      ));
+      addTearDown(() => store.deleteChat('chat_healnote'));
+      RelayService.instance.healPeer('+1 555 0199');
+      RelayService.instance.healPeer('+1 555 0199');
+      expect(store.chatById('chat_healnote')!.messages, isEmpty,
+          reason: 'two failures are still the heal doing its job');
+      RelayService.instance.healPeer('+1 555 0199');
+      final msgs = store.chatById('chat_healnote')!.messages;
+      expect(msgs.length, 1);
+      expect(msgs.single.text, contains('another phone or a web browser'),
+          reason: 'the notice names the one cause the heal cannot fix');
+      RelayService.instance.healPeer('+1 555 0199');
+      expect(store.chatById('chat_healnote')!.messages.length, 1,
+          reason: 'said once, not once per failure');
+    });
+
     test('an enc-1 first message announces the new identity before harm',
         () async {
       // A freshly re-minted identity holds nobody's keys, so its first
