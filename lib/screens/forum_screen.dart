@@ -106,6 +106,105 @@ List<(ForumComment, bool)> threadComments(
 bool isMineAuthor(String authorId) =>
     authorId == 'me' || authorId == AppState.profile.value.id;
 
+/// A stable avatar color for a forum author, derived from the name so the
+/// same person reads as the same color everywhere without a roster lookup.
+Color forumAvatarColor(String name) {
+  const palette = <Color>[
+    Color(0xFF1E88E5),
+    Color(0xFF43A047),
+    Color(0xFF8E24AA),
+    Color(0xFFF4511E),
+    Color(0xFF00897B),
+    Color(0xFF3949AB),
+    Color(0xFFD81B60),
+    Color(0xFF6D4C41),
+  ];
+  var h = 0;
+  for (final c in name.codeUnits) {
+    h = (h * 31 + c) & 0x7fffffff;
+  }
+  return palette[h % palette.length];
+}
+
+/// A small round author avatar: their initial on their stable color.
+class _AuthorDot extends StatelessWidget {
+  final String name;
+  final double radius;
+  const _AuthorDot({required this.name, this.radius = 11});
+
+  @override
+  Widget build(BuildContext context) {
+    return CircleAvatar(
+      radius: radius,
+      backgroundColor: forumAvatarColor(name),
+      child: Text(
+        name.isEmpty ? '?' : name[0].toUpperCase(),
+        style: TextStyle(
+            color: Colors.white,
+            fontSize: radius * 0.95,
+            fontWeight: FontWeight.w700),
+      ),
+    );
+  }
+}
+
+/// The horizontal up / score / down pill — one control, three surfaces
+/// (post card, thread header, comment), so voting looks the same everywhere.
+class _VotePill extends StatelessWidget {
+  final int score;
+  final int myVote;
+  final ValueChanged<int> onVote;
+  final bool compact;
+  const _VotePill(
+      {required this.score,
+      required this.myVote,
+      required this.onVote,
+      this.compact = false});
+
+  @override
+  Widget build(BuildContext context) {
+    const up = Color(0xFFFF4500); // Reddit orange-red
+    const down = Color(0xFF7193FF);
+    final iconSize = compact ? 16.0 : 19.0;
+    final pad = compact
+        ? const EdgeInsets.symmetric(horizontal: 6, vertical: 4)
+        : const EdgeInsets.symmetric(horizontal: 8, vertical: 6);
+    Widget arrow(IconData icon, int dir, Color active) => InkWell(
+          borderRadius: BorderRadius.circular(20),
+          onTap: () => onVote(dir),
+          child: Padding(
+            padding: pad,
+            child: Icon(icon,
+                size: iconSize,
+                color: myVote == dir ? active : AppColors.subtle(context)),
+          ),
+        );
+    return Container(
+      decoration: BoxDecoration(
+        color: Theme.of(context)
+            .colorScheme
+            .surfaceContainerHighest
+            .withValues(alpha: 0.6),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          arrow(Icons.arrow_upward_rounded, 1, up),
+          Text('$score',
+              style: TextStyle(
+                  fontSize: compact ? 12.5 : 13.5,
+                  fontWeight: FontWeight.w700,
+                  color: myVote == 1
+                      ? up
+                      : (myVote == -1 ? down : null))),
+          arrow(Icons.arrow_downward_rounded, -1, down),
+        ],
+      ),
+    );
+  }
+}
+
 /// A Reddit-style forum channel: a sorted feed of posts you can vote on and
 /// open to read comments.
 class ForumChannelScreen extends StatefulWidget {
@@ -297,6 +396,8 @@ class _PostCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final canManage = isMineAuthor(post.authorId) ||
+        CommunityStore.instance.canModerate(communityId);
     return Card(
       margin: const EdgeInsets.fromLTRB(12, 6, 12, 6),
       clipBehavior: Clip.antiAlias,
@@ -308,105 +409,114 @@ class _PostCard extends StatelessWidget {
               postId: post.id),
         )),
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(6, 8, 14, 10),
-          child: Row(
+          padding: const EdgeInsets.fromLTRB(14, 10, 10, 10),
+          child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _VoteControl(
-                score: post.score,
-                myVote: post.myVote,
-                onVote: (dir) => CommunityStore.instance
-                    .voteForumPost(communityId, channelId, post.id, dir),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const SizedBox(height: 4),
-                    if (post.pinned || post.locked || post.tag.isNotEmpty) ...[
-                      Row(
-                        children: [
-                          if (post.pinned) ...[
-                            const Icon(Icons.push_pin,
-                                size: 13, color: Color(0xFF43B581)),
-                            const SizedBox(width: 3),
-                            Text('Pinned',
-                                style: TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w700,
-                                    color: Colors.green.shade700)),
-                            const SizedBox(width: 8),
-                          ],
-                          if (post.locked) ...[
-                            Icon(Icons.lock,
-                                size: 13, color: AppColors.subtle(context)),
-                            const SizedBox(width: 3),
-                            Text('Locked',
-                                style: TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w700,
-                                    color: AppColors.subtle(context))),
-                            const SizedBox(width: 8),
-                          ],
-                          if (post.tag.isNotEmpty)
-                            _TagChip(tag: post.tag),
-                        ],
-                      ),
-                      const SizedBox(height: 3),
-                    ],
-                    Text(post.title,
+              Row(
+                children: [
+                  _AuthorDot(name: post.authorName),
+                  const SizedBox(width: 7),
+                  Flexible(
+                    child: Text(post.authorName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
-                            fontSize: 16, fontWeight: FontWeight.w700)),
-                    if (post.body.isNotEmpty) ...[
-                      const SizedBox(height: 4),
-                      Text(post.body,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                              fontSize: 13.5, color: AppColors.subtle(context))),
-                    ],
-                    if (post.gifUrl.isNotEmpty) ...[
-                      const SizedBox(height: 6),
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(10),
-                        child: ChatPhoto(
-                          url: post.gifUrl,
-                          width: double.infinity,
-                          height: 140,
-                          fit: BoxFit.cover,
-                          errorBuilder: (_) => const SizedBox.shrink(),
-                        ),
-                      ),
-                    ],
-                    const SizedBox(height: 8),
-                    Row(
+                            fontSize: 12.5, fontWeight: FontWeight.w600)),
+                  ),
+                  Text(
+                      '  ·  ${DateFormatter.callLabel(post.time)}'
+                      '${post.edited ? ' · edited' : ''}',
+                      style: TextStyle(
+                          fontSize: 12, color: AppColors.subtle(context))),
+                  const Spacer(),
+                  if (post.pinned)
+                    const Padding(
+                      padding: EdgeInsets.only(left: 6),
+                      child: Icon(Icons.push_pin,
+                          size: 14, color: Color(0xFF43B581)),
+                    ),
+                  if (post.locked)
+                    Padding(
+                      padding: const EdgeInsets.only(left: 6),
+                      child: Icon(Icons.lock,
+                          size: 14, color: AppColors.subtle(context)),
+                    ),
+                  if (canManage)
+                    _PostMenu(
+                        communityId: communityId,
+                        channelId: channelId,
+                        post: post),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(post.title,
+                  style: const TextStyle(
+                      fontSize: 16.5, fontWeight: FontWeight.w700, height: 1.2)),
+              if (post.tag.isNotEmpty) ...[
+                const SizedBox(height: 5),
+                _TagChip(tag: post.tag),
+              ],
+              if (post.body.isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Text(post.body,
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                        fontSize: 13.5,
+                        height: 1.35,
+                        color: AppColors.subtle(context))),
+              ],
+              if (post.gifUrl.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: ChatPhoto(
+                    url: post.gifUrl,
+                    width: double.infinity,
+                    height: 160,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_) => const SizedBox.shrink(),
+                  ),
+                ),
+              ],
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  _VotePill(
+                    score: post.score,
+                    myVote: post.myVote,
+                    onVote: (dir) => CommunityStore.instance
+                        .voteForumPost(communityId, channelId, post.id, dir),
+                  ),
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context)
+                          .colorScheme
+                          .surfaceContainerHighest
+                          .withValues(alpha: 0.6),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Row(
                       children: [
-                        Text(post.authorName,
-                            style: const TextStyle(
-                                fontSize: 12, fontWeight: FontWeight.w600)),
-                        Text(
-                            '  ·  ${DateFormatter.callLabel(post.time)}'
-                            '${post.edited ? ' · edited' : ''}',
-                            style: TextStyle(
-                                fontSize: 12, color: AppColors.subtle(context))),
-                        const Spacer(),
                         Icon(Icons.mode_comment_outlined,
                             size: 15, color: AppColors.subtle(context)),
-                        const SizedBox(width: 4),
-                        Text('${post.comments.length}',
+                        const SizedBox(width: 5),
+                        Text(
+                            post.comments.isEmpty
+                                ? 'Comment'
+                                : '${post.comments.length}',
                             style: TextStyle(
-                                fontSize: 12, color: AppColors.subtle(context))),
-                        if (isMineAuthor(post.authorId) ||
-                            CommunityStore.instance.canModerate(communityId))
-                          _PostMenu(
-                              communityId: communityId,
-                              channelId: channelId,
-                              post: post),
+                                fontSize: 12.5,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.subtle(context))),
                       ],
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ],
           ),
@@ -503,45 +613,6 @@ class _PostMenu extends StatelessWidget {
               child: Text(post.locked ? 'Unlock thread' : 'Lock thread')),
         ],
         const PopupMenuItem(value: 'delete', child: Text('Delete')),
-      ],
-    );
-  }
-}
-
-/// The vertical up / score / down voting control.
-class _VoteControl extends StatelessWidget {
-  final int score;
-  final int myVote;
-  final ValueChanged<int> onVote;
-  const _VoteControl(
-      {required this.score, required this.myVote, required this.onVote});
-
-  @override
-  Widget build(BuildContext context) {
-    const up = Color(0xFFFF4500); // Reddit orange-red
-    const down = Color(0xFF7193FF);
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        IconButton(
-          visualDensity: VisualDensity.compact,
-          iconSize: 22,
-          icon: Icon(Icons.arrow_upward, color: myVote == 1 ? up : Colors.grey),
-          onPressed: () => onVote(1),
-        ),
-        Text('$score',
-            style: TextStyle(
-                fontWeight: FontWeight.w700,
-                color: myVote == 1
-                    ? up
-                    : (myVote == -1 ? down : null))),
-        IconButton(
-          visualDensity: VisualDensity.compact,
-          iconSize: 22,
-          icon: Icon(Icons.arrow_downward,
-              color: myVote == -1 ? down : Colors.grey),
-          onPressed: () => onVote(-1),
-        ),
       ],
     );
   }
@@ -701,64 +772,71 @@ class _ForumPostScreenState extends State<ForumPostScreen> {
                 child: ListView(
                   padding: const EdgeInsets.all(12),
                   children: [
-                    Row(
+                    Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        _VoteControl(
+                        Row(
+                          children: [
+                            _AuthorDot(name: post.authorName, radius: 15),
+                            const SizedBox(width: 9),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(post.authorName,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                          fontSize: 13.5,
+                                          fontWeight: FontWeight.w700)),
+                                  Text(
+                                      '${DateFormatter.callLabel(post.time)}'
+                                      '${post.edited ? ' · edited' : ''}',
+                                      style: TextStyle(
+                                          fontSize: 12,
+                                          color: AppColors.subtle(context))),
+                                ],
+                              ),
+                            ),
+                            if (post.tag.isNotEmpty) _TagChip(tag: post.tag),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        Text(post.title,
+                            style: const TextStyle(
+                                fontSize: 19,
+                                fontWeight: FontWeight.w700,
+                                height: 1.25)),
+                        if (post.body.isNotEmpty) ...[
+                          const SizedBox(height: 8),
+                          // Links in the body open like they do in chat.
+                          RichMessageText(
+                            text: post.body,
+                            textColor:
+                                Theme.of(context).colorScheme.onSurface,
+                            linkColor:
+                                Theme.of(context).colorScheme.primary,
+                          ),
+                        ],
+                        if (post.gifUrl.isNotEmpty) ...[
+                          const SizedBox(height: 10),
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(12),
+                            child: ChatPhoto(
+                              url: post.gifUrl,
+                              width: double.infinity,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_) => const SizedBox.shrink(),
+                            ),
+                          ),
+                        ],
+                        const SizedBox(height: 12),
+                        _VotePill(
                           score: post.score,
                           myVote: post.myVote,
                           onVote: (dir) => CommunityStore.instance
                               .voteForumPost(widget.communityId,
                                   widget.channelId, post.id, dir),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const SizedBox(height: 4),
-                              if (post.tag.isNotEmpty) ...[
-                                _TagChip(tag: post.tag),
-                                const SizedBox(height: 6),
-                              ],
-                              Text(post.title,
-                                  style: const TextStyle(
-                                      fontSize: 19,
-                                      fontWeight: FontWeight.w700)),
-                              const SizedBox(height: 6),
-                              Text(
-                                  '${post.authorName}  ·  ${DateFormatter.callLabel(post.time)}'
-                                  '${post.edited ? ' · edited' : ''}',
-                                  style: TextStyle(
-                                      fontSize: 12,
-                                      color: AppColors.subtle(context))),
-                              if (post.body.isNotEmpty) ...[
-                                const SizedBox(height: 10),
-                                // Links in the body open like they do in chat.
-                                RichMessageText(
-                                  text: post.body,
-                                  textColor: Theme.of(context)
-                                      .colorScheme
-                                      .onSurface,
-                                  linkColor:
-                                      Theme.of(context).colorScheme.primary,
-                                ),
-                              ],
-                              if (post.gifUrl.isNotEmpty) ...[
-                                const SizedBox(height: 10),
-                                ClipRRect(
-                                  borderRadius: BorderRadius.circular(12),
-                                  child: ChatPhoto(
-                                    url: post.gifUrl,
-                                    width: double.infinity,
-                                    fit: BoxFit.cover,
-                                    errorBuilder: (_) =>
-                                        const SizedBox.shrink(),
-                                  ),
-                                ),
-                              ],
-                            ],
-                          ),
                         ),
                       ],
                     ),
@@ -978,87 +1056,115 @@ class _CommentTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: EdgeInsets.fromLTRB(isReply ? 34 : 0, 8, 0, 8),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _VoteControl(
-              score: comment.score, myVote: comment.myVote, onVote: onVote),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const SizedBox(height: 6),
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                          '${comment.authorName}  ·  ${DateFormatter.callLabel(comment.time)}'
-                          '${comment.edited ? ' · edited' : ''}',
+    final content = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            _AuthorDot(name: comment.authorName, radius: 10),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                  '${comment.authorName}  ·  ${DateFormatter.callLabel(comment.time)}'
+                  '${comment.edited ? ' · edited' : ''}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.subtle(context))),
+            ),
+            if (onEdit != null)
+              InkWell(
+                onTap: onEdit,
+                child: Padding(
+                  padding: const EdgeInsets.only(right: 10),
+                  child: Icon(Icons.edit_outlined,
+                      size: 16, color: AppColors.subtle(context)),
+                ),
+              ),
+            if (onDelete != null)
+              InkWell(
+                onTap: onDelete,
+                child: Icon(Icons.delete_outline,
+                    size: 17, color: AppColors.subtle(context)),
+              ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        if (comment.body.isNotEmpty)
+          Text(comment.body,
+              style: const TextStyle(fontSize: 14.5, height: 1.35)),
+        if (comment.gifUrl.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 5),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: ChatPhoto(
+                url: comment.gifUrl,
+                width: 200,
+                fit: BoxFit.cover,
+                errorBuilder: (_) => const SizedBox.shrink(),
+              ),
+            ),
+          ),
+        const SizedBox(height: 6),
+        Row(
+          children: [
+            _VotePill(
+                score: comment.score,
+                myVote: comment.myVote,
+                onVote: onVote,
+                compact: true),
+            if (onReply != null)
+              InkWell(
+                borderRadius: BorderRadius.circular(20),
+                onTap: onReply,
+                child: Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.reply,
+                          size: 14, color: AppColors.subtle(context)),
+                      const SizedBox(width: 4),
+                      Text('Reply',
                           style: TextStyle(
                               fontSize: 12,
                               fontWeight: FontWeight.w600,
                               color: AppColors.subtle(context))),
-                    ),
-                    if (onEdit != null)
-                      InkWell(
-                        onTap: onEdit,
-                        child: Padding(
-                          padding: const EdgeInsets.only(right: 10),
-                          child: Icon(Icons.edit_outlined,
-                              size: 16, color: AppColors.subtle(context)),
-                        ),
-                      ),
-                    if (onDelete != null)
-                      InkWell(
-                        onTap: onDelete,
-                        child: Icon(Icons.delete_outline,
-                            size: 17, color: AppColors.subtle(context)),
-                      ),
-                  ],
+                    ],
+                  ),
                 ),
-                const SizedBox(height: 3),
-                if (comment.body.isNotEmpty)
-                  Text(comment.body, style: const TextStyle(fontSize: 14.5)),
-                if (comment.gifUrl.isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 5),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(10),
-                      child: ChatPhoto(
-                        url: comment.gifUrl,
-                        width: 200,
-                        fit: BoxFit.cover,
-                        errorBuilder: (_) => const SizedBox.shrink(),
-                      ),
-                    ),
-                  ),
-                if (onReply != null)
-                  InkWell(
-                    onTap: onReply,
-                    child: Padding(
-                      padding: const EdgeInsets.only(top: 5),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.reply,
-                              size: 14, color: AppColors.subtle(context)),
-                          const SizedBox(width: 4),
-                          Text('Reply',
-                              style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600,
-                                  color: AppColors.subtle(context))),
-                        ],
-                      ),
-                    ),
-                  ),
-              ],
+              ),
+          ],
+        ),
+      ],
+    );
+    if (!isReply) {
+      return Padding(
+          padding: const EdgeInsets.fromLTRB(0, 8, 0, 6), child: content);
+    }
+    // A reply hangs off its parent's thread line, the way every threaded
+    // UI draws belonging — indentation alone reads as accident.
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(9, 2, 0, 6),
+      child: IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Container(
+              width: 2,
+              margin: const EdgeInsets.only(right: 16),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.outlineVariant,
+                borderRadius: BorderRadius.circular(1),
+              ),
             ),
-          ),
-        ],
+            Expanded(child: content),
+          ],
+        ),
       ),
     );
   }

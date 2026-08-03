@@ -1150,22 +1150,38 @@ class _VoiceChannelScreenState extends State<VoiceChannelScreen> {
         // Who is actually here, live off the community bus — not a guess from
         // the roster's online flag.
         final occupants = _voice.occupantsIn(widget.channelId);
+        // The room is a stage, so it is dark like the call screen is dark —
+        // in both themes, because a voice room lit like a settings page
+        // reads as a settings page.
         return Scaffold(
+          backgroundColor: const Color(0xFF16181C),
           appBar: AppBar(
+            backgroundColor: const Color(0xFF16181C),
+            foregroundColor: Colors.white,
+            elevation: 0,
             title: Row(
               children: [
-                const Icon(Icons.volume_up_rounded, size: 20),
-                const SizedBox(width: 6),
+                const Icon(Icons.volume_up_rounded,
+                    size: 20, color: Colors.white70),
+                const SizedBox(width: 8),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Text(channel.name, style: const TextStyle(fontSize: 17)),
+                      Text(channel.name,
+                          style: const TextStyle(
+                              fontSize: 17, color: Colors.white)),
                       if (_joined)
                         Text('Connected · $_elapsed',
                             style: const TextStyle(
-                                fontSize: 12, color: Colors.green)),
+                                fontSize: 12, color: Color(0xFF1DB954)))
+                      else if (occupants.isNotEmpty)
+                        Text(
+                            '${occupants.length} '
+                            '${occupants.length == 1 ? 'person' : 'people'} in voice',
+                            style: const TextStyle(
+                                fontSize: 12, color: Colors.white54)),
                     ],
                   ),
                 ),
@@ -1174,6 +1190,16 @@ class _VoiceChannelScreenState extends State<VoiceChannelScreen> {
           ),
           body: Column(
             children: [
+              if (channel.topic.isNotEmpty)
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 10),
+                  child: Text(channel.topic,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          fontSize: 12.5, color: Colors.white38)),
+                ),
               Expanded(child: _grid(community!, channel, occupants)),
               _controlBar(),
             ],
@@ -1190,36 +1216,48 @@ class _VoiceChannelScreenState extends State<VoiceChannelScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.headset_mic_outlined,
-                size: 56, color: Colors.grey.shade400),
-            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(22),
+              decoration: const BoxDecoration(
+                color: Color(0xFF23262D),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.headset_mic_outlined,
+                  size: 44, color: Colors.white38),
+            ),
+            const SizedBox(height: 16),
             Text('No one is in ${channel.name}',
-                style: TextStyle(color: AppColors.subtle(context))),
+                style: const TextStyle(color: Colors.white70, fontSize: 15)),
             const SizedBox(height: 4),
-            Text('Join to start the conversation',
-                style: TextStyle(color: Colors.grey.shade400, fontSize: 12.5)),
+            const Text('Join to start the conversation',
+                style: TextStyle(color: Colors.white38, fontSize: 12.5)),
           ],
         ),
       );
     }
     final me = AppState.profile.value;
+    // Two columns of room-style tiles, like a call grid — the room LOOKS
+    // like the thing it is.
     return GridView.count(
-      crossAxisCount: 3,
-      padding: const EdgeInsets.all(16),
+      crossAxisCount: 2,
+      padding: const EdgeInsets.fromLTRB(14, 6, 14, 14),
+      mainAxisSpacing: 12,
+      crossAxisSpacing: 12,
+      childAspectRatio: 1.25,
       children: [
         for (final o in occupants)
           _memberTile(
             label: o.isMe ? 'You' : o.name,
             avatar: o.isMe
-                ? UserAvatar(user: me, radius: 30)
+                ? UserAvatar(user: me, radius: 32)
                 : CircleAvatar(
-                    radius: 30,
+                    radius: 32,
                     backgroundColor: _hex(community.color),
                     child: Text(
                         o.name.isEmpty ? '?' : o.name[0].toUpperCase(),
                         style: const TextStyle(
                             color: Colors.white,
-                            fontSize: 22,
+                            fontSize: 23,
                             fontWeight: FontWeight.w700)),
                   ),
             // Nobody's mic is actually open yet — the ring means "not muted",
@@ -1243,122 +1281,153 @@ class _VoiceChannelScreenState extends State<VoiceChannelScreen> {
     bool video = false,
     bool screen = false,
   }) {
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Container(
-          padding: const EdgeInsets.all(3),
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            border: Border.all(
-              color: speaking ? Colors.green : Colors.transparent,
-              width: 3,
+    const green = Color(0xFF1DB954);
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
+      decoration: BoxDecoration(
+        color: const Color(0xFF23262D),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: speaking ? green : Colors.transparent,
+          width: 2.5,
+        ),
+      ),
+      child: Stack(
+        children: [
+          Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                avatar,
+                const SizedBox(height: 10),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (deafened) ...[
+                      const Icon(Icons.headset_off,
+                          size: 14, color: Colors.redAccent),
+                      const SizedBox(width: 4),
+                    ] else if (muted) ...[
+                      const Icon(Icons.mic_off,
+                          size: 14, color: Colors.redAccent),
+                      const SizedBox(width: 4),
+                    ],
+                    Flexible(
+                      child: Text(label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.white)),
+                    ),
+                  ],
+                ),
+              ],
             ),
           ),
-          child: Stack(
-            clipBehavior: Clip.none,
-            children: [
-              avatar,
-              if (muted || deafened || video || screen)
-                Positioned(
-                  right: -2,
-                  bottom: -2,
-                  child: Container(
-                    padding: const EdgeInsets.all(4),
-                    decoration: BoxDecoration(
-                      color: deafened || muted ? Colors.red : Colors.black54,
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                          color: Theme.of(context).canvasColor, width: 2),
-                    ),
-                    child: Icon(
-                      deafened
-                          ? Icons.headset_off
-                          : muted
-                              ? Icons.mic_off
-                              : screen
-                                  ? Icons.screen_share
-                                  : Icons.videocam,
-                      size: 12,
-                      color: Colors.white,
-                    ),
-                  ),
+          if (video || screen)
+            Positioned(
+              top: 8,
+              right: 8,
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.45),
+                  borderRadius: BorderRadius.circular(12),
                 ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 8),
-        Text(label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontSize: 12.5)),
-      ],
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (screen)
+                      const Icon(Icons.screen_share,
+                          size: 13, color: green),
+                    if (screen && video) const SizedBox(width: 5),
+                    if (video)
+                      const Icon(Icons.videocam, size: 13, color: green),
+                  ],
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 
   Widget _controlBar() {
+    // Fixed colors: the room is dark in both themes, so theme-derived
+    // subtle greys would vanish into (or glare against) the stage.
+    const idle = Color(0xFF2E323B);
+    const active = Color(0xFF1DB954);
     return SafeArea(
       top: false,
       // The bottom inset alone leaves the button flush against the home
       // indicator, so add real space under it as well.
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+        padding: const EdgeInsets.fromLTRB(16, 10, 16, 18),
         child: _joined
-            ? Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  _voiceButton(
-                    icon: _muted ? Icons.mic_off : Icons.mic,
-                    label: _muted ? 'Unmute' : 'Mute',
-                    color:
-                        _muted ? AppColors.subtle(context) : AppColors.accentOn(context),
-                    onTap: () {
-                      final nowMuted = !_muted;
-                      if (!nowMuted) _deafened = false;
-                      _voice.setLocalState(muted: nowMuted);
-                      setState(() {});
-                    },
-                  ),
-                  _voiceButton(
-                    icon: _deafened ? Icons.headset_off : Icons.headset_mic,
-                    label: 'Deafen',
-                    color: _deafened ? Colors.red : AppColors.subtle(context),
-                    onTap: () {
-                      _deafened = !_deafened;
-                      // Deafening also mutes you, à la Discord.
-                      if (_deafened) _voice.setLocalState(muted: true);
-                      setState(() {});
-                    },
-                  ),
-                  _voiceButton(
-                    icon: _video ? Icons.videocam : Icons.videocam_off,
-                    label: 'Video',
-                    color: _video ? AppColors.accentOn(context) : AppColors.subtle(context),
-                    onTap: () => _voice.setLocalState(video: !_video),
-                  ),
-                  _voiceButton(
-                    icon: _screen
-                        ? Icons.stop_screen_share
-                        : Icons.screen_share,
-                    label: 'Screen',
-                    color:
-                        _screen ? AppColors.accentOn(context) : AppColors.subtle(context),
-                    onTap: () => _voice.setLocalState(screen: !_screen),
-                  ),
-                  _voiceButton(
-                    icon: Icons.call_end,
-                    label: 'Leave',
-                    color: Colors.red,
-                    onTap: _leave,
-                  ),
-                ],
+            ? Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1E2129),
+                  borderRadius: BorderRadius.circular(30),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    _voiceButton(
+                      icon: _muted ? Icons.mic_off : Icons.mic,
+                      label: _muted ? 'Unmute' : 'Mute',
+                      color: _muted ? Colors.redAccent : idle,
+                      onTap: () {
+                        final nowMuted = !_muted;
+                        if (!nowMuted) _deafened = false;
+                        _voice.setLocalState(muted: nowMuted);
+                        setState(() {});
+                      },
+                    ),
+                    _voiceButton(
+                      icon: _deafened ? Icons.headset_off : Icons.headset_mic,
+                      label: 'Deafen',
+                      color: _deafened ? Colors.redAccent : idle,
+                      onTap: () {
+                        _deafened = !_deafened;
+                        // Deafening also mutes you, à la Discord.
+                        if (_deafened) _voice.setLocalState(muted: true);
+                        setState(() {});
+                      },
+                    ),
+                    _voiceButton(
+                      icon: _video ? Icons.videocam : Icons.videocam_off,
+                      label: 'Video',
+                      color: _video ? active : idle,
+                      onTap: () => _voice.setLocalState(video: !_video),
+                    ),
+                    _voiceButton(
+                      icon: _screen
+                          ? Icons.stop_screen_share
+                          : Icons.screen_share,
+                      label: 'Screen',
+                      color: _screen ? active : idle,
+                      onTap: () => _voice.setLocalState(screen: !_screen),
+                    ),
+                    _voiceButton(
+                      icon: Icons.call_end,
+                      label: 'Leave',
+                      color: Colors.red,
+                      onTap: _leave,
+                    ),
+                  ],
+                ),
               )
             : SizedBox(
                 width: double.infinity,
                 child: FilledButton.icon(
                   style: FilledButton.styleFrom(
-                    backgroundColor: AppColors.accentOn(context),
-                    foregroundColor: AppColors.onAccent(context),
+                    backgroundColor: const Color(0xFF1DB954),
+                    foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(vertical: 16),
                     textStyle: const TextStyle(
                         fontSize: 16, fontWeight: FontWeight.w600),
@@ -1398,7 +1467,7 @@ class _VoiceChannelScreenState extends State<VoiceChannelScreen> {
           if (label != null) ...[
             const SizedBox(height: 6),
             Text(label,
-                style: TextStyle(fontSize: 11.5, color: AppColors.subtle(context))),
+                style: const TextStyle(fontSize: 11.5, color: Colors.white54)),
           ],
         ],
       );
