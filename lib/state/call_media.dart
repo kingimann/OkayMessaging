@@ -65,8 +65,15 @@ class CallMedia {
   static const String _turnCred =
       String.fromEnvironment('TURN_CREDENTIAL', defaultValue: '');
 
-  // Public STUN servers cover most networks; TURN (if configured) relays media
-  // when a direct path can't be found.
+  // Public STUN servers cover most networks; TURN relays media when a direct
+  // path can't be found — which on phones is COMMON, not rare: two devices on
+  // cellular sit behind carrier-grade NAT, and STUN alone cannot connect
+  // them. With no TURN at all those calls simply failed, and whether any
+  // given call needed it depended on which networks the two phones happened
+  // to be on that minute — "calls sometimes go through". When no private
+  // TURN server is configured, Open Relay (Metered's free public TURN) is
+  // the fallback: the relay only ever carries DTLS-SRTP ciphertext, so it
+  // can route the call, not listen to it.
   static Map<String, dynamic> get _config => {
         'iceServers': [
           {'urls': 'stun:stun.l.google.com:19302'},
@@ -76,7 +83,20 @@ class CallMedia {
               'urls': _turnUrl,
               'username': _turnUser,
               'credential': _turnCred,
+            }
+          else ...[
+            {
+              'urls': 'turn:openrelay.metered.ca:80',
+              'username': 'openrelayproject',
+              'credential': 'openrelayproject',
             },
+            {
+              // 443 for networks that swallow everything else.
+              'urls': 'turn:openrelay.metered.ca:443',
+              'username': 'openrelayproject',
+              'credential': 'openrelayproject',
+            },
+          ],
         ],
       };
 
@@ -169,6 +189,7 @@ class CallMedia {
           .setRemoteDescription(RTCSessionDescription(offerSdp, 'offer'));
       final answer = await _pc!.createAnswer();
       await _pc!.setLocalDescription(answer);
+      await _flushPendingIce();
       return answer.sdp;
     } catch (_) {
       return null;
@@ -180,11 +201,26 @@ class CallMedia {
     if (!isSupported || _pc == null) return;
     try {
       await _pc!.setRemoteDescription(RTCSessionDescription(sdp, 'answer'));
+      await _flushPendingIce();
     } catch (_) {}
   }
 
+  /// Remote candidates that arrived too early to apply. Both ends race:
+  /// the caller's candidates land while the callee is still RINGING (no
+  /// peer connection until they accept), and the callee's land at the
+  /// caller before the answer is applied (no remote description yet).
+  /// Candidates are signaled exactly once, so dropping an early one loses
+  /// it for the whole call — which made connecting a coin flip decided by
+  /// whose network gathered slowly enough.
+  final List<Map<String, dynamic>> _pendingRemoteIce = [];
+  bool _remoteDescriptionSet = false;
+
   Future<void> addIce(Map<String, dynamic> c) async {
-    if (!isSupported || _pc == null) return;
+    if (!isSupported) return;
+    if (_pc == null || !_remoteDescriptionSet) {
+      _pendingRemoteIce.add(Map<String, dynamic>.from(c));
+      return;
+    }
     try {
       await _pc!.addCandidate(RTCIceCandidate(
         c['candidate'] as String?,
@@ -192,6 +228,16 @@ class CallMedia {
         (c['sdpMLineIndex'] as num?)?.toInt(),
       ));
     } catch (_) {}
+  }
+
+  /// Applies everything that arrived before the connection could take it.
+  Future<void> _flushPendingIce() async {
+    _remoteDescriptionSet = true;
+    final queued = List<Map<String, dynamic>>.from(_pendingRemoteIce);
+    _pendingRemoteIce.clear();
+    for (final c in queued) {
+      await addIce(c);
+    }
   }
 
   // --- Mid-call renegotiation -------------------------------------------
@@ -448,6 +494,8 @@ class CallMedia {
     screenSharing.value = false;
     localVideo.value = false;
     _renegotiateNeeded = false;
+    _pendingRemoteIce.clear();
+    _remoteDescriptionSet = false;
     onHold.value = false;
     _statsTimer?.cancel();
     _statsTimer = null;

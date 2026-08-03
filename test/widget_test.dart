@@ -19780,15 +19780,15 @@ void main() {
         'lib/screens/wallet_screen.dart',
         'lib/screens/public_feed_screen.dart',
         'lib/screens/communities.dart',
-        'lib/tabs/activity_tab.dart',
       ]) {
         expect(File(path).readAsStringSync().contains('PhoneGate('), isTrue,
             reason: '$path is reachable without a phone number');
       }
-      // Chat, calls, browsing the marketplace, the map and Okay Drop all
-      // work without a session — the first three ride the anon-key relay,
-      // the map is tiles and local state, and Okay Drop is two phones and a
-      // radio — so none of them is phone-gated.
+      // Chat, calls, browsing the marketplace, the map, Okay Drop and the
+      // Alerts tab all work without a session — the relay rides the anon
+      // key, the map is tiles and local state, Okay Drop is two phones and
+      // a radio, and Alerts is built from local activity — so none of them
+      // is phone-gated.
       for (final path in [
         'lib/tabs/chats_tab.dart',
         'lib/screens/chat_screen.dart',
@@ -19796,6 +19796,7 @@ void main() {
         'lib/screens/marketplace_screen.dart',
         'lib/screens/explore_map_screen.dart',
         'lib/screens/nearby_share_screen.dart',
+        'lib/tabs/activity_tab.dart',
       ]) {
         expect(File(path).readAsStringSync().contains('PhoneGate('), isFalse,
             reason: '$path works without a phone number');

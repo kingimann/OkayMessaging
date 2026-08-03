@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../widgets/phone_gate.dart';
+
 import '../theme/app_theme.dart';
 
 import '../models/chat.dart';
@@ -38,15 +38,13 @@ class _ActivityTabState extends State<ActivityTab> {
         .push(MaterialPageRoute(builder: (_) => ChatScreen(chat: chat)));
   }
 
+  // Open to numberless accounts: unread messages and missed calls are local
+  // state and chat/calls both work without a session, so locking the tab hid
+  // real activity. What a numberless account never gets is feed mentions —
+  // the feeds themselves stay gated — and an empty section is the honest
+  // shape of that.
   @override
-  Widget build(BuildContext context) => PhoneGate(
-        title: 'Alerts',
-        scaffold: false,
-        reason: 'Alerts are follows, mentions and replies from the feeds, and '
-            'those need the server account a phone number stands behind. New '
-            'messages show on Chats either way.',
-        child: Builder(builder: _guarded),
-      );
+  Widget build(BuildContext context) => Builder(builder: _guarded);
 
   Widget _guarded(BuildContext context) {
     return ListenableBuilder(
