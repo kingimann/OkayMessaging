@@ -1106,6 +1106,10 @@ class _VoiceChannelScreenState extends State<VoiceChannelScreen> {
   void initState() {
     super.initState();
     VoiceChannelScreen.onScreenFor.value = widget.channelId;
+    // A share that started and then produced no pictures stops itself —
+    // this is where the room hears about it, and where everyone else's
+    // "sharing" badge comes back off.
+    RoomMedia.instance.shareFailure.addListener(_onShareFailure);
     // Walking back into a room you never left: the clock and its tick both
     // resume from the store's join time, not from zero.
     if (_joined) {
@@ -1114,9 +1118,18 @@ class _VoiceChannelScreenState extends State<VoiceChannelScreen> {
     }
   }
 
+  void _onShareFailure() {
+    final reason = RoomMedia.instance.shareFailure.value;
+    if (reason == null || !mounted) return;
+    if (_joined) _voice.setLocalState(screen: false);
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(reason)));
+  }
+
   @override
   void dispose() {
     _tick?.cancel();
+    RoomMedia.instance.shareFailure.removeListener(_onShareFailure);
     // Deliberately NOT leaving the room: presence belongs to the store, so
     // you stay in voice while browsing the rest of the app (or leaving it —
     // a long suspension ages you out via the heartbeat, and coming back

@@ -106,6 +106,7 @@ import 'package:okay_messaging/utils/maps_link.dart';
 import 'package:okay_messaging/widgets/info_section.dart';
 import 'package:okay_messaging/widgets/message_bubble.dart';
 import 'package:okay_messaging/state/account_wipe.dart';
+import 'package:okay_messaging/state/call_diagnostics.dart';
 import 'package:okay_messaging/state/call_quality.dart';
 import 'package:okay_messaging/state/parental_controls.dart';
 import 'package:okay_messaging/state/room_media.dart';
@@ -7134,6 +7135,72 @@ void main() {
       expect(room, contains('roomQuality'));
       expect(File('lib/screens/communities.dart').readAsStringSync(),
           contains('poor connection'));
+    });
+
+    test('the call check names the missing path instead of guessing', () {
+      (String, bool) v(CallProbe p) => CallSelfTest.verdictFor(
+          supported: true, probe: p, error: null);
+      // The everything-works case says so and blames nothing.
+      final ok = v(const CallProbe(micOk: true, host: 2, srflx: 1, relay: 2));
+      expect(ok.$2, isFalse);
+      expect(ok.$1, contains('can connect'));
+      // No relay is THE "calls sometimes fail" diagnosis: fine on Wi-Fi,
+      // dead between two phones on cellular.
+      final noRelay =
+          v(const CallProbe(micOk: true, host: 2, srflx: 1, relay: 0));
+      expect(noRelay.$2, isTrue);
+      expect(noRelay.$1, contains('cellular'));
+      expect(noRelay.$1, contains('TURN'));
+      // A dead mic outranks the network: a call without one is text.
+      final noMic =
+          v(const CallProbe(micOk: false, host: 2, srflx: 1, relay: 2));
+      expect(noMic.$2, isTrue);
+      expect(noMic.$1.toLowerCase(), contains('microphone'));
+      // No sockets at all is its own sentence, not a TURN complaint.
+      final dead = v(const CallProbe(micOk: true, host: 0, srflx: 0, relay: 0));
+      expect(dead.$2, isTrue);
+      expect(dead.$1, contains('socket'));
+
+      // And the candidate classifier reads real ICE lines.
+      expect(
+          CallSelfTest.candidateType(
+              'candidate:1 1 udp 2122260223 192.168.1.5 54321 typ host'),
+          'host');
+      expect(
+          CallSelfTest.candidateType(
+              'candidate:2 1 udp 1686052607 88.1.2.3 6000 typ srflx '
+              'raddr 192.168.1.5 rport 54321'),
+          'srflx');
+      expect(
+          CallSelfTest.candidateType(
+              'candidate:3 1 udp 41885439 44.5.6.7 3478 typ relay '
+              'raddr 88.1.2.3 rport 6000'),
+          'relay');
+      expect(CallSelfTest.candidateType(null), isNull);
+
+      // The whole report runs from an injected probe — no network.
+      CallSelfTest.debugProbe = () async =>
+          const CallProbe(micOk: true, host: 1, srflx: 1, relay: 0);
+      addTearDown(() => CallSelfTest.debugProbe = null);
+      // And the settings screen offers it next to the push check.
+      expect(File('lib/screens/settings_screen.dart').readAsStringSync(),
+          contains('Check call setup'));
+    });
+
+    test('mesh renegotiation cannot glare: only the initiator offers', () {
+      final room = File('lib/state/room_media.dart').readAsStringSync();
+      // The non-initiator asks for a round instead of offering into a
+      // possible head-on collision; one round renegotiates both directions.
+      expect(room, contains("kind: 'renegreq'"));
+      final reneg = room.substring(room.indexOf('Future<void> _renegotiate'));
+      expect(reneg.substring(0, reneg.indexOf('try {')),
+          contains('initiates(_myDigits, digits)'),
+          reason: 'the role check must come before any offer is created');
+      // And a share that moves no frames stops itself in rooms too, with
+      // the badge coming back off for everyone.
+      expect(room, contains('_verifyShareMovesFrames'));
+      expect(File('lib/screens/communities.dart').readAsStringSync(),
+          contains('_onShareFailure'));
     });
 
     test('a number the directory has never heard of gets an invite, not a '

@@ -241,6 +241,7 @@ class RoomMedia extends ChangeNotifier {
     _meLastAudible = null;
     _speakingNow = const {};
     _meSpeakingNow = false;
+    shareFailure.value = null;
     if (roomId != null) {
       for (final digits in _peers.keys) {
         send?.call(digits, roomId: roomId, kind: 'bye');
@@ -436,6 +437,12 @@ class RoomMedia extends ChangeNotifier {
             ice['sdpMid'] as String?,
             (ice['sdpMLineIndex'] as num?)?.toInt(),
           ));
+        case 'renegreq':
+          // The non-initiator's media changed; this side owns the offer.
+          final pc = _peers[fromDigits];
+          if (pc != null && initiates(_myDigits, fromDigits)) {
+            await _renegotiate(fromDigits, pc);
+          }
         case 'bye':
           _closePeer(fromDigits);
       }
@@ -580,6 +587,8 @@ class RoomMedia extends ChangeNotifier {
       track.onEnded = () => _stopScreenShare();
       _screenStream = display;
       screenSharing.value = true;
+      shareFailure.value = null;
+      unawaited(_verifyShareMovesFrames());
       notifyListeners();
       return null;
     } catch (_) {
@@ -588,6 +597,48 @@ class RoomMedia extends ChangeNotifier {
           : 'Screen sharing couldn\'t start. If iOS asked to record the '
               'screen, it needs to be allowed.';
     }
+  }
+
+  /// Set when a room screen share started and then visibly produced
+  /// NOTHING — everyone else was watching a black rectangle while this
+  /// side showed "sharing". The room screen surfaces it; the share is
+  /// already stopped. Same failure, same honesty as the 1:1 call's check.
+  final ValueNotifier<String?> shareFailure = ValueNotifier<String?>(null);
+
+  /// Cumulative outbound video frames across every leg, or -1 with none.
+  Future<int> _outboundVideoFrames() async {
+    var total = -1;
+    for (final pc in _peers.values) {
+      try {
+        final reports = await pc.getStats();
+        for (final r in reports) {
+          if (r.type != 'outbound-rtp') continue;
+          final kind =
+              (r.values['kind'] ?? r.values['mediaType'])?.toString();
+          if (kind != 'video') continue;
+          final n = (r.values['framesEncoded'] as num?)?.toInt() ?? 0;
+          total = total == -1 ? n : total + n;
+        }
+      } catch (_) {}
+    }
+    return total;
+  }
+
+  /// Proves the room share is actually moving pictures — iOS's in-app
+  /// capture can start "successfully" and deliver zero frames (a denied
+  /// recording permission, a Screen Time block), and the only symptom is
+  /// a black tile on everyone else's screen.
+  Future<void> _verifyShareMovesFrames() async {
+    final before = await _outboundVideoFrames();
+    await Future<void>.delayed(const Duration(seconds: 6));
+    if (!screenSharing.value || _roomId == null) return;
+    final after = await _outboundVideoFrames();
+    if (after > before) return; // pictures are flowing
+    await _stopScreenShare();
+    shareFailure.value =
+        'Screen sharing produced no picture, so it was stopped. iOS may '
+        'have refused screen recording — try again and allow it (and check '
+        'Settings → Screen Time → Content & Privacy restrictions).';
   }
 
   Future<void> _stopScreenShare() async {
@@ -635,11 +686,20 @@ class RoomMedia extends ChangeNotifier {
   }
 
   /// A fresh offer/answer round on a live connection, after this side's
-  /// media changed. The far side answers through the same 'offer' path a
-  /// new connection uses.
+  /// media changed. GLARE-FREE by construction: only the pair's fixed
+  /// initiator ever creates offers. When the OTHER side's media changes it
+  /// asks for a round ('renegreq') and the initiator offers — one round
+  /// renegotiates both directions, so the asker's new track rides back in
+  /// the answer. Two people turning cameras on at the same instant
+  /// therefore cannot collide head-on, which a both-sides-offer scheme
+  /// lets happen exactly then.
   Future<void> _renegotiate(String digits, RTCPeerConnection pc) async {
     final roomId = _roomId;
     if (roomId == null) return;
+    if (!initiates(_myDigits, digits)) {
+      send?.call(digits, roomId: roomId, kind: 'renegreq');
+      return;
+    }
     try {
       final offer = await pc.createOffer();
       await pc.setLocalDescription(offer);

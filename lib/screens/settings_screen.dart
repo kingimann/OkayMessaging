@@ -10,6 +10,7 @@ import '../relay/relay_config.dart';
 import '../state/account_email.dart';
 import '../state/account_service.dart';
 import '../state/account_wipe.dart';
+import '../state/call_diagnostics.dart';
 import '../state/backup_service.dart';
 import '../util/build_info.dart';
 import '../state/chat_store.dart';
@@ -213,6 +214,23 @@ class SettingsView extends StatelessWidget {
           _buildNotificationsTile(),
           _buildPrivateNotificationsTile(),
           _buildVoicemailTile(),
+          InfoTile(
+            leading: const Icon(Icons.phone_in_talk_outlined),
+            title: 'Check call setup',
+            // Every way a call can fail to connect looks identical —
+            // endless "Connecting…" — and which one it is depends on the
+            // network of the minute. The probe gathers real ICE candidates
+            // and names the missing path instead of leaving it to guesses.
+            subtitle: 'Why calls do or don\'t connect on this network',
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => const SelfTestScreen(
+                  title: 'Check call setup',
+                  run: CallSelfTest.run,
+                ),
+              ),
+            ),
+          ),
           InfoTile(
             leading: const Icon(Icons.notifications_paused_outlined),
             title: 'Check push setup',
