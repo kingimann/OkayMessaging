@@ -64,6 +64,21 @@ class PushService {
     final me = Session.instance.user.value;
     if (token == null || token.isEmpty || me == null) return;
     _lastToken = token;
+    // A numberless account has no session, so the RLS-guarded upsert below
+    // can never work for it — its row goes through the definer RPC that
+    // only ever opens account-code rows. Without this, a closed app on a
+    // numberless account received nothing at all.
+    if (Session.instance.isNumberless) {
+      try {
+        await Supabase.instance.client
+            .rpc('register_numberless_push', params: {
+          'code': me.phone.replaceAll(RegExp(r'\D'), ''),
+          't': token,
+          'is_private': AppState.privateNotifications.value,
+        });
+      } catch (_) {}
+      return;
+    }
     try {
       await Supabase.instance.client.from('push_tokens').upsert({
         'phone': me.phone.replaceAll(RegExp(r'\D'), ''),

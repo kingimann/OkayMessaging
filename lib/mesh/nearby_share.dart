@@ -65,11 +65,30 @@ class NearbyShare extends ChangeNotifier {
   /// Transfers in flight or just finished, newest first.
   final Map<String, NearbyTransfer> _transfers = {};
 
-  /// What we are sending, by transfer id — held until the far end accepts.
+  /// What we are sending, by transfer id — held until the far end accepts,
+  /// and then a while past "done", because done only means the last chunk
+  /// LEFT: radio drops chunks, and the receiver may still ask for the ones
+  /// that never landed.
   final Map<String, String> _outgoing = {};
 
   /// What is arriving, by transfer id.
   final Map<String, TransferAssembler> _incoming = {};
+
+  /// Receiving-side stall watchdogs, by transfer id. Chunks stop coming
+  /// when the radio hiccups; without this a transfer sat at 6% forever.
+  /// Each tick with no progress asks the sender for what is missing, and
+  /// after [_stalledTicksAllowed] silent ones the transfer fails honestly.
+  final Map<String, Timer> _watchdogs = {};
+  final Map<String, int> _lastReceived = {};
+  final Map<String, int> _stalledTicks = {};
+
+  /// Sender-side retention timers: how long the bytes stay around after the
+  /// pump finishes, in case the far end asks again.
+  final Map<String, Timer> _retention = {};
+
+  static const Duration watchdogTick = Duration(seconds: 8);
+  static const int _stalledTicksAllowed = 4;
+  static const Duration _retainAfterSend = Duration(minutes: 2);
 
   List<NearbyTransfer> get transfers {
     final list = [..._transfers.values];
@@ -176,7 +195,49 @@ class NearbyShare extends ChangeNotifier {
     if (t == null || t.state != TransferState.incoming) return;
     _incoming[id] = TransferAssembler(t.totalChunks);
     _update(t.copyWith(state: TransferState.receiving));
+    _watchReceiving(id);
     await _send(t.peerDigits, MeshPacket.kindAnswer, {'id': id, 'ok': true});
+  }
+
+  /// Watches an incoming transfer for stalls. Every quiet tick asks the
+  /// sender for the slices that never arrived; too many quiet ticks in a
+  /// row and it fails honestly instead of holding 6% on screen forever.
+  void _watchReceiving(String id) {
+    _lastReceived[id] = 0;
+    _stalledTicks[id] = 0;
+    _watchdogs[id]?.cancel();
+    _watchdogs[id] = Timer.periodic(watchdogTick, (_) {
+      final t = _transfers[id];
+      final assembler = _incoming[id];
+      if (t == null || assembler == null ||
+          t.state != TransferState.receiving) {
+        _stopWatching(id);
+        return;
+      }
+      if (assembler.received > (_lastReceived[id] ?? 0)) {
+        _lastReceived[id] = assembler.received;
+        _stalledTicks[id] = 0;
+        return;
+      }
+      final ticks = (_stalledTicks[id] ?? 0) + 1;
+      _stalledTicks[id] = ticks;
+      if (ticks >= _stalledTicksAllowed) {
+        _incoming.remove(id);
+        _stopWatching(id);
+        _update(t.copyWith(state: TransferState.failed));
+        return;
+      }
+      unawaited(_send(t.peerDigits, MeshPacket.kindResend, {
+        'id': id,
+        'need': assembler.missing(),
+      }));
+    });
+  }
+
+  void _stopWatching(String id) {
+    _watchdogs.remove(id)?.cancel();
+    _lastReceived.remove(id);
+    _stalledTicks.remove(id);
   }
 
   /// Says no. The other end is told, so their screen stops waiting.
@@ -202,6 +263,7 @@ class NearbyShare extends ChangeNotifier {
     if (t == null || t.isFinished) return;
     _outgoing.remove(id);
     _incoming.remove(id);
+    _stopWatching(id);
     _update(t.copyWith(state: TransferState.cancelled));
     await _send(t.peerDigits, MeshPacket.kindAnswer, {'id': id, 'ok': false});
   }
@@ -218,6 +280,35 @@ class NearbyShare extends ChangeNotifier {
         _onAnswer(packet);
       case MeshPacket.kindChunk:
         _onChunk(packet);
+      case MeshPacket.kindResend:
+        _onResend(packet);
+    }
+  }
+
+  /// The far end lists the slices that never reached it; send those again.
+  /// Only ever slices of a transfer this device is actually sending, and
+  /// only while the bytes are still retained.
+  Future<void> _onResend(MeshPacket packet) async {
+    final id = packet.payload['id'];
+    final need = packet.payload['need'];
+    if (id is! String || need is! List) return;
+    final t = _transfers[id];
+    final data = _outgoing[id];
+    if (t == null || data == null) return;
+    if (t.state != TransferState.sending && t.state != TransferState.done) {
+      return;
+    }
+    final wanted = [
+      for (final n in need)
+        if (n is int && n >= 0 && n < t.totalChunks) n
+    ].take(64);
+    for (final i in wanted) {
+      await _send(t.peerDigits, MeshPacket.kindChunk, {
+        'id': id,
+        'i': i,
+        'c': t.totalChunks,
+        'p': TransferChunks.slice(data, i, fast: t.fast),
+      });
     }
   }
 
@@ -268,6 +359,7 @@ class NearbyShare extends ChangeNotifier {
           : TransferState.cancelled;
       _outgoing.remove(id);
       _incoming.remove(id);
+      _stopWatching(id);
       _update(t.copyWith(state: stopped));
       return;
     }
@@ -301,7 +393,13 @@ class NearbyShare extends ChangeNotifier {
       }
       _update(current.copyWith(sent: i + 1));
     }
-    _outgoing.remove(id);
+    // Keep the bytes a while: "done" only means the last chunk LEFT, and
+    // the receiver may still ask for ones the radio dropped.
+    _retention[id]?.cancel();
+    _retention[id] = Timer(_retainAfterSend, () {
+      _outgoing.remove(id);
+      _retention.remove(id);
+    });
     final finished = _transfers[id];
     if (finished == null) return;
     _update(finished.copyWith(state: TransferState.done));
@@ -323,6 +421,7 @@ class NearbyShare extends ChangeNotifier {
     if (!assembler.isComplete) return;
     final whole = assembler.assemble();
     _incoming.remove(id);
+    _stopWatching(id);
     final current = _transfers[id];
     if (current == null) return;
     if (whole == null || whole.isEmpty) {
@@ -435,6 +534,16 @@ class NearbyShare extends ChangeNotifier {
     _transfers.clear();
     _outgoing.clear();
     _incoming.clear();
+    for (final t in _watchdogs.values) {
+      t.cancel();
+    }
+    _watchdogs.clear();
+    _lastReceived.clear();
+    _stalledTicks.clear();
+    for (final t in _retention.values) {
+      t.cancel();
+    }
+    _retention.clear();
     notifyListeners();
   }
 }

@@ -159,6 +159,38 @@ end $$;
 revoke all on function public.claim_push_token(text) from public;
 grant execute on function public.claim_push_token(text) to authenticated;
 
+-- A numberless account has no session, so it could never register for push
+-- at all — closed app meant no calls, no messages, nothing. This opens
+-- exactly that: registration for ACCOUNT-CODE rows only (12 digits, leading
+-- 00 — no real number has that shape), and first-registration-wins: with no
+-- session there is no proof a code is yours, so an existing row's token can
+-- never be re-pointed somewhere else (only its private flag refreshed).
+-- The cleanup delete needs the caller to KNOW the token — an unguessable
+-- 64-hex string — so it can only ever be this device tidying its own past.
+create or replace function public.register_numberless_push(
+    code text, t text, is_private boolean default false)
+returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if code is null or code !~ '^00[0-9]{10}$' or coalesce(t, '') = '' then
+    return;
+  end if;
+  if public.is_locked_out(code) then
+    return;
+  end if;
+  insert into public.push_tokens (phone, token, platform, private, updated_at)
+  values (code, t, 'ios', coalesce(is_private, false), now())
+  on conflict (phone) do update
+    set private = excluded.private, updated_at = now()
+    where push_tokens.token = excluded.token;
+  delete from public.push_tokens where token = t and phone <> code;
+end $$;
+
+revoke all on function public.register_numberless_push(text, text, boolean)
+  from public;
+grant execute on function public.register_numberless_push(text, text, boolean)
+  to anon, authenticated;
+
 -- YOUR OWN ROW HAS TO BE VISIBLE TO YOU, and it is worth saying why because
 -- the obvious reading is that it should not be.
 --

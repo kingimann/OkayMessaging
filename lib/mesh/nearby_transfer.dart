@@ -215,6 +215,17 @@ class TransferAssembler {
     return true;
   }
 
+  /// The slices that never arrived, capped — a resend request has to fit in
+  /// one packet, and asking for the first gap-full is enough: filling those
+  /// exposes the next gaps to the next request.
+  List<int> missing({int cap = 64}) {
+    final out = <int>[];
+    for (var i = 0; i < totalChunks && out.length < cap; i++) {
+      if (!_parts.containsKey(i)) out.add(i);
+    }
+    return out;
+  }
+
   /// The whole file, or null while anything is missing. Ordered by index
   /// rather than arrival — packets do not necessarily land in the order they
   /// were sent.

@@ -531,6 +531,26 @@ select pg_temp.expect_ok(
   'sign-out can delete this device''s own token row');
 reset role;
 
+-- Numberless push registration: codes only, first registration wins.
+set role anon;
+select public.register_numberless_push('001234567890', 'tok_ghost', false);
+select public.register_numberless_push('15550005555', 'tok_real', false);
+select public.register_numberless_push('001234567890', 'tok_hijack', false);
+reset role;
+do $$ begin
+  if not exists (select 1 from public.push_tokens
+                 where phone = '001234567890' and token = 'tok_ghost') then
+    raise exception 'CHECK FAILED: a numberless account cannot register for push';
+  end if;
+  if exists (select 1 from public.push_tokens where phone = '15550005555') then
+    raise exception 'SECURITY CHECK FAILED: anon registered push for a REAL number';
+  end if;
+  if exists (select 1 from public.push_tokens where token = 'tok_hijack') then
+    raise exception 'SECURITY CHECK FAILED: a numberless push row was re-pointed with no proof';
+  end if;
+  raise notice '  ok   numberless push registers codes only, first claim wins';
+end $$;
+
 -- Numberless directory (directory_numberless.sql): the RPCs are anon's only
 -- door, and the claim only ever opens account-code rows.
 reset role;

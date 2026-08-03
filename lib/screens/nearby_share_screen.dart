@@ -259,9 +259,12 @@ class _NearbyShareScreenState extends State<NearbyShareScreen> {
           }
           final people = NearbyPeople.instance.people;
           final transfers = NearbyShare.instance.transfers;
-          return ListView(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-            children: [
+          return RefreshIndicator(
+            onRefresh: _rescan,
+            child: ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+              children: [
               _itemCard(context),
               const SizedBox(height: 18),
               _sectionLabel(context, 'PEOPLE NEARBY'),
@@ -307,11 +310,23 @@ class _NearbyShareScreenState extends State<NearbyShareScreen> {
                 const SizedBox(height: 8),
                 for (final t in transfers) _TransferRow(transfer: t),
               ],
-            ],
+              ],
+            ),
           );
         },
       ),
     );
+  }
+
+  /// Pull-to-refresh: restart the radios. Discovery genuinely wedges —
+  /// Bluetooth scans go quiet, the fast link loses its browser — and a
+  /// stop/start is the honest reset for both, which is exactly what a person
+  /// pulling the list down is asking for.
+  Future<void> _rescan() async {
+    final mesh = MeshService.instance;
+    if (!mesh.enabled) return;
+    await mesh.stop();
+    await mesh.start();
   }
 
   static Widget _sectionLabel(BuildContext context, String text) => Text(

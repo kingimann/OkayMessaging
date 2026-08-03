@@ -58,6 +58,10 @@ class MeshPacket {
   /// One numbered slice of a file being sent.
   static const String kindChunk = 'dat';
 
+  /// "These slices never reached me — send them again." Radio drops chunks,
+  /// and a transfer with no way to ask again sat at 6% forever.
+  static const String kindResend = 'res';
+
   static const Set<String> kinds = {
     kindMessage,
     kindServer,
@@ -68,6 +72,7 @@ class MeshPacket {
     kindOffer,
     kindAnswer,
     kindChunk,
+    kindResend,
   };
 
   /// Kinds that are never passed on, whatever their hop count.
@@ -77,7 +82,12 @@ class MeshPacket {
   /// agreed to receive it, and relaying that through every phone in the room
   /// would pin four radios to deliver one photo. These go one hop, to the
   /// device they are addressed to, or nowhere.
-  static const Set<String> directOnly = {kindOffer, kindAnswer, kindChunk};
+  static const Set<String> directOnly = {
+    kindOffer,
+    kindAnswer,
+    kindChunk,
+    kindResend,
+  };
 
   bool get isDirect => directOnly.contains(kind);
 

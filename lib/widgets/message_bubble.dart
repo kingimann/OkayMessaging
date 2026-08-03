@@ -1202,6 +1202,19 @@ class _VoiceContentState extends State<_VoiceContent> {
     if (_position >= _total && _total > Duration.zero) {
       await p.seek(Duration.zero);
     }
+    // The record plugin leaves iOS's audio session in playAndRecord after a
+    // voice note is captured, and a call leaves its own configuration too —
+    // in both, playback routes to the EARPIECE, which is the "volume drops
+    // way low, then jumps back up" report (it depended on what ran last).
+    // Reasserting the playback category before every play routes the clip
+    // to the speaker at proper volume every time.
+    if (!kIsWeb) {
+      try {
+        await AudioPlayer.global.setAudioContext(AudioContext(
+          iOS: AudioContextIOS(category: AVAudioSessionCategory.playback),
+        ));
+      } catch (_) {}
+    }
     try {
       await p.play(await _sourceFor(bytes));
     } catch (_) {
