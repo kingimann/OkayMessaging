@@ -9,6 +9,7 @@ import '../relay/relay_config.dart';
 import '../relay/relay_service.dart';
 import '../util/account_code.dart';
 import '../models/user.dart';
+import 'account_wipe.dart';
 import 'push_service.dart';
 
 /// The signed-in identity, keyed by phone number and stored **only on this
@@ -55,6 +56,11 @@ class Session {
     required String name,
     String username = '',
   }) async {
+    // A DIFFERENT account signing in must not inherit this device's data —
+    // chats, the verification badge, the score, any of it. Same account
+    // returning keeps everything; that is the difference between signing
+    // back in and switching.
+    await AccountWipe.onSignIn(phone);
     final trimmedName = name.trim().isEmpty ? phone : name.trim();
     final me = AppUser(
       id: phone,

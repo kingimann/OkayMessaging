@@ -21983,6 +21983,66 @@ void main() {
       expect(MeshPacket.fits({'to': me.phone}), isTrue);
     });
 
+    test('switching accounts wipes the last account; returning does not',
+        () async {
+      // A fresh account inherited the previous one's chats, verification
+      // badge, score — everything on the device. The wipe keys off the
+      // OWNER changing: same digits returning keep their data (that is the
+      // "chats stay on the device" promise), different digits start clean.
+      SharedPreferences.setMockInitialValues({});
+      await Session.instance.signIn(phone: '+1 555 0100', name: 'A');
+      addTearDown(Session.instance.resetForTest);
+      ChatStore.instance.hydrate(const {'chats': []});
+      ChatStore.instance.upsert(const Chat(
+        id: 'chat_+15550111',
+        contact: AppUser(
+            id: '+15550111',
+            name: 'Pia',
+            avatarColor: '#111111',
+            phone: '+15550111'),
+        messages: [],
+      ));
+      IdentityVerification.instance.debugSetStatus(IdentityStatus.verified);
+
+      // The same account signing in again keeps everything.
+      await Session.instance.signIn(phone: '+1 555 0100', name: 'A again');
+      expect(ChatStore.instance.chatById('chat_+15550111'), isNotNull);
+      expect(IdentityVerification.instance.status, IdentityStatus.verified);
+
+      // A different account starts from nothing.
+      await Session.instance.signIn(phone: '+1 555 0200', name: 'B');
+      expect(ChatStore.instance.chatById('chat_+15550111'), isNull,
+          reason: 'the new account must not inherit the old chats');
+      expect(IdentityVerification.instance.status,
+          isNot(IdentityStatus.verified),
+          reason: 'the new account must not inherit the verification badge');
+    });
+
+    test('every store that persists is wiped on account switch, by default',
+        () {
+      // The wipe is a keep-list, and this pins the other half: a store added
+      // later that touches SharedPreferences must either appear in
+      // account_wipe.dart or be named here as deliberately device-scoped —
+      // otherwise it leaks the previous account to the next one silently.
+      final wipe = File('lib/state/account_wipe.dart').readAsStringSync();
+      const deviceScoped = {
+        'app_lock.dart', // the device PIN belongs to the phone's owner
+        'legal_consent.dart', // the human accepted the terms, not the account
+        'onboarding_store.dart', // the human has seen the tour
+        'session.dart', // the identity itself — replaced by the sign-in
+        'persistence.dart', // app-level settings, reset via AppState
+        'account_wipe.dart', // the wiper
+      };
+      for (final f in Directory('lib/state').listSync().whereType<File>()) {
+        final name = f.path.split(Platform.pathSeparator).last;
+        if (deviceScoped.contains(name)) continue;
+        if (!f.readAsStringSync().contains('SharedPreferences')) continue;
+        expect(wipe.contains(name), isTrue,
+            reason: '$name persists state but account_wipe.dart never '
+                'touches it — the next account would inherit it');
+      }
+    });
+
     test('numberless sign-in keeps the code its handle was claimed under',
         () async {
       // The sign-up flow claims the handle in the directory BEFORE creating
