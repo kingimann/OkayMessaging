@@ -105,6 +105,7 @@ import 'package:okay_messaging/tabs/chats_tab.dart';
 import 'package:okay_messaging/utils/maps_link.dart';
 import 'package:okay_messaging/widgets/info_section.dart';
 import 'package:okay_messaging/widgets/message_bubble.dart';
+import 'package:okay_messaging/state/account_wipe.dart';
 import 'package:okay_messaging/state/sticker_store.dart';
 import 'package:okay_messaging/widgets/sticker_sheet.dart';
 import 'package:okay_messaging/widgets/osm_map.dart';
@@ -6762,6 +6763,76 @@ void main() {
           contains('offerSpark('));
       expect(File('lib/screens/public_feed_screen.dart').readAsStringSync(),
           contains('offerPublicSpark('));
+    });
+  });
+
+  group('Account lifecycle', () {
+    test('delete account erases the device completely — keep-list included',
+        () async {
+      SharedPreferences.setMockInitialValues({
+        'session_v1': '{}',
+        'theme': 'dark', // survives an account SWITCH…
+        'app_lock_hash_v1': 'h', // …and so does the device PIN…
+        'last_account_v1': '{}', // …and the welcome-back card…
+        AccountWipe.ownerKey: '15550001111', // …and the owner marker.
+        'anything_else': 'x',
+      });
+      await AccountWipe.eraseEverything();
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getKeys(), isEmpty,
+          reason: 'deletion has no next sign-in to serve — a switch keeps '
+              'the device\'s own settings, a deletion keeps nothing');
+    });
+
+    test('the delete flow is server-first, and deactivation hides the row',
+        () {
+      final settings =
+          File('lib/screens/settings_screen.dart').readAsStringSync();
+      expect(settings, contains('Deactivate temporarily'));
+      expect(settings, contains('Type DELETE to confirm'));
+      // Server before local: wiping the phone while the server rows live on
+      // would only look like deletion.
+      final invokeAt = settings.indexOf("invoke('delete-account'");
+      final eraseAt = settings.indexOf('eraseEverything');
+      expect(invokeAt, greaterThan(0));
+      expect(eraseAt, greaterThan(invokeAt),
+          reason: 'the local wipe must come after the server said yes');
+      expect(settings, contains('setHidden(true)'),
+          reason: 'deactivation must reach the directory, not just sign out');
+
+      // Reactivation IS the sign-in.
+      final session = File('lib/state/session.dart').readAsStringSync();
+      expect(session, contains("'hidden': false"),
+          reason: 'signing back in must clear the deactivation flag');
+
+      // The function deletes what the phone owns — each named table — and
+      // the auth user last.
+      final fn = File('supabase/functions/delete-account/index.ts')
+          .readAsStringSync();
+      for (final table in [
+        'usernames',
+        'push_tokens',
+        'identity_backups',
+        'mailbox',
+        'payment_settings',
+        'identity_verifications',
+        'public_posts',
+      ]) {
+        expect(fn, contains('"$table"'),
+            reason: '$table holds rows the account owns');
+      }
+      expect(fn, contains('deleteUser'));
+      expect(fn, isNot(contains('drop("payment_transactions"')),
+          reason: 'transfer records are receipts, not preferences — kept');
+      // And the paste copy exists, so it can actually be deployed.
+      expect(
+          File('docs/edge_functions_paste/delete-account.ts').existsSync(),
+          isTrue);
+    });
+
+    test('setHidden refuses without a session instead of pretending', () async {
+      Session.instance.user.value = null;
+      expect(await AccountService.instance.setHidden(true), isFalse);
     });
   });
 

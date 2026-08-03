@@ -91,6 +91,17 @@ class Session {
       try {
         await PushService.instance.reupload();
       } catch (_) {}
+      // Reactivation IS the sign-in: a deactivated account's directory row
+      // is hidden (docs/account_lifecycle.sql), and coming back has to
+      // clear that or "temporarily" was a lie. Own-row RLS; best-effort —
+      // a project without the column just answers with an error.
+      if (!AccountCode.isCode(phone)) {
+        try {
+          await supa.Supabase.instance.client.from('usernames').update({
+            'hidden': false,
+          }).eq('phone', phone.replaceAll(RegExp(r'\D'), ''));
+        } catch (_) {}
+      }
     }
   }
 

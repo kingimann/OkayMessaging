@@ -709,6 +709,60 @@ do $$ begin
   end;
 end $$;
 reset role;
+
+-- Deactivation (account_lifecycle.sql): a hidden row answers no search but
+-- keeps its handle, and only its own session can hide or unhide it.
+set role authenticated;
+select pg_temp.as_user('15550006111');
+select pg_temp.expect_ok(
+  $$insert into public.usernames (phone, username, name)
+    values ('15550006111','sleeper','Sleeper')$$,
+  'a deactivation test account can claim its row');
+do $$ begin
+  if not exists (select 1 from public.find_people('slee')
+                 where phone = '15550006111') then
+    raise exception 'CHECK FAILED: the account is not findable before hiding';
+  end if;
+  raise notice '  ok   findable before deactivation';
+end $$;
+select pg_temp.expect_ok(
+  $$update public.usernames set hidden = true where phone = '15550006111'$$,
+  'you can hide your own row');
+do $$ begin
+  if exists (select 1 from public.find_people('slee')
+             where phone = '15550006111') then
+    raise exception 'SECURITY CHECK FAILED: a deactivated account still answers search';
+  end if;
+  raise notice '  ok   a deactivated account answers no search';
+end $$;
+-- The handle stays theirs while they are away.
+select pg_temp.as_user('15550006222');
+select pg_temp.expect_fail(
+  $$insert into public.usernames (phone, username, name)
+    values ('15550006222','sleeper','Squatter')$$,
+  'a hidden handle cannot be taken by somebody else');
+-- Another session's update silently matches nothing; prove the flag held.
+update public.usernames set hidden = false where phone = '15550006111';
+reset role;
+do $$ begin
+  if not (select hidden from public.usernames where phone='15550006111') then
+    raise exception 'SECURITY CHECK FAILED: another account unhid a deactivated row';
+  end if;
+  raise notice '  ok   only your own session can reactivate you';
+end $$;
+set role authenticated;
+select pg_temp.as_user('15550006111');
+select pg_temp.expect_ok(
+  $$update public.usernames set hidden = false where phone = '15550006111'$$,
+  'signing back in can clear the flag');
+do $$ begin
+  if not exists (select 1 from public.find_people('slee')
+                 where phone = '15550006111') then
+    raise exception 'CHECK FAILED: a reactivated account is still unfindable';
+  end if;
+  raise notice '  ok   reactivation restores the search row';
+end $$;
+reset role;
 SQL
 
 DB=okaycheck
@@ -726,7 +780,7 @@ apply() {
 }
 
 echo "postgres $(su pg -c "PATH=$PGBIN:\$PATH psql -h $RUN -p $PORT -d $DB -tAc 'show server_version'")"
-for f in "$WORK/harness.sql" supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql; do
+for f in "$WORK/harness.sql" supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql; do
   if apply "$f"; then
     echo "  applied $(basename "$f")"
   else
@@ -789,7 +843,7 @@ else
   echo "  FAILED  could not rebuild the previous shape"; exit 1
 fi
 
-for f in supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql; do
+for f in supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql; do
   if apply "$f"; then
     echo "  re-applied $(basename "$f")"
   else

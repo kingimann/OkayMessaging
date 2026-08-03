@@ -38,6 +38,7 @@ const pasteFunctions = [
   // No _shared imports of its own — it is here so the dashboard copy is
   // regenerated with the source rather than drifting from it, which it did.
   'push-send',
+  'delete-account',
 ];
 
 /// Whatever the paste copy's own header should say for [name].

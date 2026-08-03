@@ -1,11 +1,15 @@
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import 'package:flutter/services.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' as supa;
 
 import '../app_state.dart';
 import '../models/platform_role.dart';
 import '../relay/app_pages.dart';
+import '../relay/relay_config.dart';
 import '../state/account_email.dart';
+import '../state/account_service.dart';
+import '../state/account_wipe.dart';
 import '../state/backup_service.dart';
 import '../util/build_info.dart';
 import '../state/chat_store.dart';
@@ -394,6 +398,20 @@ class SettingsView extends StatelessWidget {
                 navigator.popUntil((route) => route.isFirst);
               },
             ),
+            InfoTile(
+              leading: const Icon(Icons.pause_circle_outline),
+              title: 'Deactivate temporarily',
+              subtitle: 'Step away without losing anything',
+              onTap: () => _deactivateAccount(context),
+            ),
+            InfoTile(
+              leading:
+                  const Icon(Icons.delete_forever_outlined, color: Colors.red),
+              title: 'Delete account',
+              titleColor: Colors.red,
+              subtitle: 'Permanent — removes your account everywhere',
+              onTap: () => _deleteAccount(context),
+            ),
           ],
         ),
         const SizedBox(height: 20),
@@ -406,6 +424,131 @@ class SettingsView extends StatelessWidget {
         const SizedBox(height: 24),
       ],
     );
+  }
+
+  /// Deactivate = hidden, not gone: the directory row stops answering search
+  /// (so the handle stays reserved), the push token is dropped, and the
+  /// device signs out with every chat still on it. Signing back in with the
+  /// same number clears the flag — reactivation IS the sign-in.
+  Future<void> _deactivateAccount(BuildContext context) async {
+    final navigator = Navigator.of(context);
+    final numberless = Session.instance.isNumberless;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Deactivate temporarily?'),
+        content: Text(numberless
+            // No session, no server row to manage — say what actually
+            // happens rather than promising the phone-account behaviour.
+            ? 'You\'ll be signed out of this device and stop receiving '
+                'anything until you sign back in with your username and '
+                'recovery PIN. Your chats stay on this phone. Without a '
+                'phone number there is no server session, so your @handle '
+                'stays visible in search while you\'re away.'
+            : 'Your @handle disappears from people search and this phone '
+                'stops receiving notifications. Your chats stay on this '
+                'phone, and your handle stays yours. Signing back in with '
+                'the same number reactivates everything.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Deactivate'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    // Server half first, while the session still exists; the sign-out below
+    // drops the push token and the session itself.
+    await AccountService.instance.setHidden(true);
+    await Session.instance.signOut();
+    navigator.popUntil((route) => route.isFirst);
+  }
+
+  /// Delete = gone: the delete-account Edge Function removes every server
+  /// row the phone owns and the auth user itself, then the device is wiped
+  /// to nothing — including the keep-list an account SWITCH would preserve.
+  /// The server half runs first and a failure stops everything: a local
+  /// wipe over live server rows would only look like deletion.
+  Future<void> _deleteAccount(BuildContext context) async {
+    final navigator = Navigator.of(context);
+    final messenger = ScaffoldMessenger.of(context);
+    final numberless = Session.instance.isNumberless;
+    final confirm = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Delete your account?'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(numberless
+                ? 'This erases everything on this device — chats, keys, '
+                    'settings — and cannot be undone. Without a phone '
+                    'number there is no server session to prove the '
+                    'account is yours, so the directory entry for your '
+                    'handle expires on its own rather than being removed '
+                    'now.'
+                : 'This removes your account everywhere and cannot be '
+                    'undone: your @handle, profile, push registration, '
+                    'encryption recovery backup and public posts are '
+                    'deleted from the server, and everything on this '
+                    'device is erased. Records of payments that really '
+                    'happened are kept, as receipts have to be.'),
+            const SizedBox(height: 14),
+            TextField(
+              controller: confirm,
+              autofocus: true,
+              textCapitalization: TextCapitalization.characters,
+              decoration: const InputDecoration(
+                labelText: 'Type DELETE to confirm',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.of(dialogContext)
+                .pop(confirm.text.trim().toUpperCase() == 'DELETE'),
+            child: const Text('Delete forever'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    if (!numberless && RelayConfig.isEnabled) {
+      try {
+        final res = await supa.Supabase.instance.client.functions
+            .invoke('delete-account', body: const {}).timeout(
+                const Duration(seconds: 30));
+        if (res.status >= 400) {
+          throw StateError('the server answered ${res.status}');
+        }
+      } catch (e) {
+        // Nothing was deleted anywhere — say so and stop, rather than
+        // wiping the phone over an account that still exists.
+        messenger.showSnackBar(SnackBar(
+            content: Text('The server could not delete your account, so '
+                'nothing was deleted. Check the connection and try again. '
+                '($e)')));
+        return;
+      }
+    }
+    await Session.instance.signOut();
+    await AccountWipe.eraseEverything();
+    await Session.instance.clearLastAccount();
+    navigator.popUntil((route) => route.isFirst);
   }
 
   Widget _buildVoicemailTile() {

@@ -156,6 +156,26 @@ class AccountService {
     }
   }
 
+  /// Hides or un-hides this account in the people directory — the server
+  /// half of "deactivate temporarily" (docs/account_lifecycle.sql). Hidden
+  /// rows answer no search while the handle stays reserved. Own-row RLS
+  /// update, so it needs a session: numberless accounts have none, which is
+  /// why the deactivate flow tells them their handle stays findable.
+  /// Returns whether the server took it.
+  Future<bool> setHidden(bool hidden) async {
+    final me = Session.instance.user.value;
+    if (me == null || AccountCode.isCode(me.phone)) return false;
+    try {
+      await _client.from(_table).update({
+        'hidden': hidden,
+        'updated_at': DateTime.now().toUtc().toIso8601String(),
+      }).eq('phone', e164(me.phone));
+      return true;
+    } catch (_) {
+      return false; // migration not run yet, or offline
+    }
+  }
+
   /// Directory rows for a select+filter, asking for the verified column and
   /// falling back without it — the column exists only after
   /// docs/identity_directory_badge.sql has run, and a missing column must

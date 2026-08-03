@@ -87,6 +87,15 @@ class AccountWipe {
     await prefs.setString(ownerKey, next);
   }
 
+  /// Complete local erasure, for **Delete account**: unlike a switch there
+  /// is no next sign-in to serve, so the keep-list goes too — device PIN,
+  /// accepted terms, welcome-back card, owner marker, everything.
+  static Future<void> eraseEverything() async {
+    final prefs = await SharedPreferences.getInstance();
+    await _wipe(prefs); // resets every store and the keychain
+    await prefs.clear(); // then the keep-list _wipe restored
+  }
+
   static Future<void> _wipe(SharedPreferences prefs) async {
     // Disk first: keep-list snapshot, clear, restore.
     final kept = <String, Object>{};
