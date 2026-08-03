@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import '../state/parental_controls.dart';
+import '../widgets/parental_gate.dart';
 import '../widgets/phone_gate.dart';
 
 import '../payments/payment_service.dart';
@@ -127,7 +129,10 @@ class _WalletScreenState extends State<WalletScreen> {
   Widget build(BuildContext context) {
     // Wrapped here rather than at the button that opens this, so every way
     // in is covered.
-    return PhoneGate(
+    return ParentalGate(
+      restriction: ParentalRestriction.payments,
+      title: 'Wallet',
+      child: PhoneGate(
       title: 'Wallet',
       reason: 'Sending or receiving money means a bank, a card and an ID '
           'check, and every one of those is attached to a person a phone '
@@ -148,6 +153,7 @@ class _WalletScreenState extends State<WalletScreen> {
           'refuses one without it — a role in this app cannot supply a name '
           'that somebody else has to verify.',
         child: _guarded(context),
+      ),
       ),
     );
   }

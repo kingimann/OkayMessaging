@@ -11,6 +11,8 @@ import '../models/community.dart';
 import '../models/user.dart';
 import '../state/account_service.dart';
 import '../state/chat_store.dart';
+import '../state/parental_controls.dart';
+import '../widgets/parental_gate.dart';
 import '../state/community_store.dart';
 import '../state/feed_store.dart';
 import '../state/market_media.dart';
@@ -536,30 +538,41 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // A numberless account gets a BROWSE-ONLY marketplace: it can see
-    // listings and message sellers (both ride the anon-key relay, like
-    // chat), but not list its own — selling needs the wallet and the ID
-    // check, and both need a number behind the account. Neither gate wraps
-    // this path; the Sell action is withheld instead (see _guarded).
-    //
-    // What it can browse is still whatever server feed reaches the device —
-    // servers stay phone-gated — plus any listing shared into a chat. The
-    // capability is open; how full the grid is follows from that.
-    if (Session.instance.isNumberless) {
-      return _guarded(context, browseOnly: true);
-    }
-    // Gates wrap the SCREEN, not the button that opens it, so every way in
-    // (deep link, a listing shared in a chat) is covered.
-    return VerifiedGate(
+    // The parental gate wraps EVERY path in — including the browse-only
+    // numberless one below, which skips the other gates on purpose but is
+    // still the marketplace.
+    return ParentalGate(
+      restriction: ParentalRestriction.marketplace,
       title: 'Marketplace',
-      reason: 'Money and strangers meet here: somebody buying from you is '
-          'trusting a name they have never met. Verifying your ID is what '
-          'makes that name answerable.',
-      // Ours to waive: nothing outside the app needs the verified identity to
-      // list or browse. Whoever runs the marketplace is already answerable
-      // for it.
-      ownerMayPass: true,
-      child: _guarded(context),
+      child: Builder(builder: (context) {
+        // A numberless account gets a BROWSE-ONLY marketplace: it can see
+        // listings and message sellers (both ride the anon-key relay, like
+        // chat), but not list its own — selling needs the wallet and the ID
+        // check, and both need a number behind the account. Neither gate
+        // wraps this path; the Sell action is withheld instead (see
+        // _guarded).
+        //
+        // What it can browse is still whatever server feed reaches the
+        // device — servers stay phone-gated — plus any listing shared into
+        // a chat. The capability is open; how full the grid is follows from
+        // that.
+        if (Session.instance.isNumberless) {
+          return _guarded(context, browseOnly: true);
+        }
+        // Gates wrap the SCREEN, not the button that opens it, so every way
+        // in (deep link, a listing shared in a chat) is covered.
+        return VerifiedGate(
+          title: 'Marketplace',
+          reason: 'Money and strangers meet here: somebody buying from you '
+              'is trusting a name they have never met. Verifying your ID is '
+              'what makes that name answerable.',
+          // Ours to waive: nothing outside the app needs the verified
+          // identity to list or browse. Whoever runs the marketplace is
+          // already answerable for it.
+          ownerMayPass: true,
+          child: _guarded(context),
+        );
+      }),
     );
   }
 

@@ -57,10 +57,13 @@ Future<bool> offerSparkTo(BuildContext context,
     );
   } on PaymentException catch (e) {
     messenger.showSnackBar(SnackBar(
-        content: Text(e.code == 'receiver_not_onboarded'
-            ? '$toName hasn\'t set up payments, so sparks can\'t reach '
-                'them yet.'
-            : 'The spark couldn\'t be sent — ${e.code}.')));
+        content: Text(switch (e.code) {
+      'receiver_not_onboarded' =>
+        '$toName hasn\'t set up payments, so sparks can\'t reach them yet.',
+      'parental_locked' =>
+        'Payments are turned off by parental controls on this phone.',
+      _ => 'The spark couldn\'t be sent — ${e.code}.',
+    })));
     return false;
   } catch (_) {
     return false;

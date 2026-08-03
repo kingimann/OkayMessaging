@@ -255,16 +255,28 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
   /// When two-step verification is enabled on this device, require the PIN
   /// before completing sign-in. Returns true when allowed to proceed.
   Future<bool> _passTwoStep() async {
-    if (!TwoStepVerification.instance.enabled.value) return true;
+    final twoStep = TwoStepVerification.instance;
+    if (!twoStep.enabled.value) return true;
+    final locked = twoStep.lockedFor;
+    if (locked > Duration.zero) {
+      // Say the wait up front rather than taking a PIN just to refuse it.
+      setState(() => _error = 'Too many wrong PINs. '
+          'Try again in ${locked.inSeconds + 1}s.');
+      return false;
+    }
     final pin = await showDialog<String>(
       context: context,
       barrierDismissible: false,
       builder: (_) => const _TwoStepPrompt(),
     );
     if (pin == null) return false;
-    if (!TwoStepVerification.instance.verify(pin)) {
+    if (!twoStep.verify(pin)) {
       if (mounted) {
-        setState(() => _error = 'Incorrect two-step verification PIN.');
+        final nowLocked = twoStep.lockedFor;
+        setState(() => _error = nowLocked > Duration.zero
+            ? 'Too many wrong PINs. Try again in ${nowLocked.inSeconds + 1}s.'
+            : 'Incorrect two-step verification PIN. '
+                '${twoStep.attemptsLeft} tries left before a cooldown.');
       }
       return false;
     }

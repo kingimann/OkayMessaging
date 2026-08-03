@@ -34,6 +34,7 @@ import 'state/call_service.dart';
 import 'state/callkit_bridge.dart';
 import 'state/community_store.dart';
 import 'state/contacts_sync.dart';
+import 'state/parental_controls.dart';
 import 'state/crash_reporter.dart';
 import 'state/chat_store.dart';
 import 'state/cloud_sync.dart';
@@ -148,6 +149,7 @@ Future<void> main() async {
   // Whether the recovery code is squared away — the flag the first-message
   // gate reads, so it has to be known before any chat can open.
   await _boot('recovery', IdentityRecovery.load);
+  await _boot('parental', ParentalControls.instance.load);
   await _boot('stickers', StickerStore.instance.load);
   ChannelTypingStore.instance.onTyping = (communityId, channelId) =>
       RelayService.instance.sendChannelTyping(communityId, channelId);

@@ -106,7 +106,9 @@ import 'package:okay_messaging/utils/maps_link.dart';
 import 'package:okay_messaging/widgets/info_section.dart';
 import 'package:okay_messaging/widgets/message_bubble.dart';
 import 'package:okay_messaging/state/account_wipe.dart';
+import 'package:okay_messaging/state/parental_controls.dart';
 import 'package:okay_messaging/state/sticker_store.dart';
+import 'package:okay_messaging/widgets/parental_gate.dart';
 import 'package:okay_messaging/widgets/sticker_sheet.dart';
 import 'package:okay_messaging/widgets/osm_map.dart';
 import 'package:okay_messaging/screens/score_screen.dart';
@@ -6833,6 +6835,129 @@ void main() {
     test('setHidden refuses without a session instead of pretending', () async {
       Session.instance.user.value = null;
       expect(await AccountService.instance.setHidden(true), isFalse);
+    });
+  });
+
+  group('MFA and parental controls', () {
+    test('two-step PIN guessing hits an escalating cooldown', () async {
+      final ts = TwoStepVerification.instance;
+      ts.resetForTest();
+      addTearDown(ts.resetForTest);
+      await ts.load();
+      await ts.setPin('123456');
+      expect(ts.verify('123456'), isTrue, reason: 'the right PIN works');
+
+      // A near-miss run: four wrong guesses cost attempts, not time.
+      for (var i = 0; i < 4; i++) {
+        expect(ts.verify('000000'), isFalse);
+      }
+      expect(ts.attemptsLeft, 1);
+      expect(ts.lockedFor, Duration.zero);
+      expect(ts.verify('123456'), isTrue,
+          reason: 'a correct PIN before the lock clears the count');
+      expect(ts.attemptsLeft, TwoStepVerification.maxAttempts);
+
+      // Five misses start the cooldown — and the RIGHT PIN is refused
+      // during it, or the lock becomes an oracle for the guesser.
+      for (var i = 0; i < 5; i++) {
+        expect(ts.verify('000000'), isFalse);
+      }
+      expect(ts.lockedFor, greaterThan(Duration.zero));
+      expect(ts.verify('123456'), isFalse,
+          reason: 'the cooldown refuses even the correct PIN');
+
+      // The lock survives a relaunch — killing the app is not a way around.
+      final again = TwoStepVerification.instance;
+      await again.load();
+      expect(again.lockedFor, greaterThan(Duration.zero));
+      await ts.disable();
+      expect(ts.lockedFor, Duration.zero);
+    });
+
+    test('parental controls block what they say and only that', () async {
+      final pc = ParentalControls.instance;
+      pc.resetForTest();
+      addTearDown(pc.resetForTest);
+      await pc.load();
+      expect(pc.blocks(ParentalRestriction.payments), isFalse,
+          reason: 'nothing is blocked before a parent sets anything up');
+
+      await pc.setPin('4321');
+      await pc.setBlocked(ParentalRestriction.payments, true);
+      expect(pc.blocks(ParentalRestriction.payments), isTrue);
+      expect(pc.blocks(ParentalRestriction.marketplace), isFalse);
+
+      // The payments block is enforced INSIDE the one send funnel, so a
+      // payment surface added later is caught too — and test mode is not
+      // exempt, because a simulated send still teaches the gesture.
+      PaymentService.instance.testMode.value = true;
+      addTearDown(() => PaymentService.instance.testMode.value = false);
+      expect(
+        () => PaymentService.instance
+            .sendMoney(toPhone: '15550002222', amountCents: 100),
+        throwsA(isA<PaymentException>()
+            .having((e) => e.code, 'code', 'parental_locked')),
+      );
+
+      // Wrong-PIN throttling, same shape as two-step.
+      for (var i = 0; i < 5; i++) {
+        expect(pc.verify('0000'), isFalse);
+      }
+      expect(pc.lockedFor, greaterThan(Duration.zero));
+      expect(pc.verify('4321'), isFalse,
+          reason: 'the cooldown refuses even the right PIN');
+
+      // Blocks survive a reload (the child relaunching the app).
+      await pc.load();
+      expect(pc.blocks(ParentalRestriction.payments), isTrue);
+
+      await pc.disable();
+      expect(pc.blocks(ParentalRestriction.payments), isFalse);
+    });
+
+    testWidgets('a parental gate stands in front of the wallet',
+        (tester) async {
+      final pc = ParentalControls.instance;
+      pc.resetForTest();
+      addTearDown(pc.resetForTest);
+      await pc.load();
+      await pc.setPin('4321');
+      await pc.setBlocked(ParentalRestriction.payments, true);
+      await tester.pumpWidget(const MaterialApp(
+        home: ParentalGate(
+          restriction: ParentalRestriction.payments,
+          title: 'Wallet',
+          child: Text('the wallet itself'),
+        ),
+      ));
+      await tester.pump();
+      expect(find.text('the wallet itself'), findsNothing);
+      expect(find.text('Wallet is turned off'), findsOneWidget);
+      expect(find.textContaining('Parental controls'), findsOneWidget);
+      // No PIN entry on the gate — unlocking where the child is watching
+      // would teach the PIN. The way back is Settings.
+      expect(find.byType(TextField), findsNothing);
+
+      // Lifting the block restores the screen without a rebuild.
+      await pc.setBlocked(ParentalRestriction.payments, false);
+      await tester.pump();
+      expect(find.text('the wallet itself'), findsOneWidget);
+    });
+
+    test('every named surface is actually wrapped', () {
+      // The gate exists exactly where the settings screen claims it does; a
+      // surface named in the toggles but never wrapped would be a lie a
+      // child finds first.
+      expect(File('lib/screens/wallet_screen.dart').readAsStringSync(),
+          contains('ParentalRestriction.payments'));
+      expect(File('lib/screens/marketplace_screen.dart').readAsStringSync(),
+          contains('ParentalRestriction.marketplace'));
+      expect(File('lib/screens/public_feed_screen.dart').readAsStringSync(),
+          contains('ParentalRestriction.publicFeed'));
+      expect(File('lib/screens/communities.dart').readAsStringSync(),
+          contains('ParentalRestriction.servers'));
+      expect(File('lib/payments/payment_service.dart').readAsStringSync(),
+          contains('parental_locked'));
     });
   });
 
@@ -24136,6 +24261,9 @@ void main() {
         'session.dart', // the identity itself — replaced by the sign-in
         'persistence.dart', // app-level settings, reset via AppState
         'account_wipe.dart', // the wiper
+        // The parent's rule about the DEVICE, exactly like the app PIN — a
+        // child switching accounts must not shed it.
+        'parental_controls.dart',
       };
       for (final f in Directory('lib/state').listSync().whereType<File>()) {
         final name = f.path.split(Platform.pathSeparator).last;

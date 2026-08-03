@@ -1,4 +1,6 @@
 import '../theme/app_theme.dart';
+import '../state/parental_controls.dart';
+import '../widgets/parental_gate.dart';
 import '../widgets/phone_gate.dart';
 import '../widgets/feed_prefs_sheet.dart';
 import 'package:flutter/material.dart';
@@ -170,13 +172,17 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return PhoneGate(
+    return ParentalGate(
+      restriction: ParentalRestriction.publicFeed,
       title: 'Newsfeed',
-      reason: 'The public feed is a server the app reads and writes with your '
-          'account. An account with no phone number has no session to read it '
-          'with, and no name that anybody replying to a post could hold to '
-          'account.',
-      child: _guarded(context),
+      child: PhoneGate(
+        title: 'Newsfeed',
+        reason: 'The public feed is a server the app reads and writes with '
+            'your account. An account with no phone number has no session to '
+            'read it with, and no name that anybody replying to a post could '
+            'hold to account.',
+        child: _guarded(context),
+      ),
     );
   }
 

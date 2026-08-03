@@ -7,10 +7,12 @@ import '../mesh/nearby_people.dart';
 import '../app_state.dart';
 import '../state/account_service.dart';
 import '../state/app_lock.dart';
+import '../state/parental_controls.dart';
 import '../state/two_step.dart';
 import '../widgets/app_dialogs.dart';
 import '../widgets/info_section.dart';
 import 'blocked_contacts_screen.dart';
+import 'parental_controls_screen.dart';
 import 'recovery_code_screen.dart';
 import 'settings_widgets.dart';
 import 'two_step_screen.dart';
@@ -88,6 +90,7 @@ class PrivacySettingsScreen extends StatelessWidget {
           settingsSectionLabel(context, 'Security'),
           InfoSection(children: [
             _TwoStepTile(),
+            _ParentalControlsTile(),
             _AppLockTile(),
             _buildBlockScreenshotsTile(),
             InfoTile(
@@ -349,6 +352,29 @@ class _TwoStepTile extends StatelessWidget {
         trailing: const Icon(Icons.chevron_right, color: Colors.grey),
         onTap: () => Navigator.of(context).push(
           MaterialPageRoute(builder: (_) => const TwoStepScreen()),
+        ),
+      ),
+    );
+  }
+}
+
+/// Entry to parental controls. The screen itself asks for the parent PIN
+/// before showing its toggles — this row only opens the door.
+class _ParentalControlsTile extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<bool>(
+      valueListenable: ParentalControls.instance.enabled,
+      builder: (context, on, _) => ListTile(
+        shape: kSettingsTileShape,
+        leading: Icon(on ? Icons.family_restroom : Icons.escalator_warning),
+        title: const Text('Parental controls'),
+        subtitle: Text(on
+            ? 'On — some features are turned off on this phone'
+            : 'Turn off payments, marketplace, the public feed or servers'),
+        trailing: const Icon(Icons.chevron_right, color: Colors.grey),
+        onTap: () => Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => const ParentalControlsScreen()),
         ),
       ),
     );

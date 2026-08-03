@@ -2337,6 +2337,8 @@ class _ChatScreenState extends State<ChatScreen> {
           'bad_currency' =>
             'That currency isn\'t supported. Pick another in Wallet → '
                 'Payment controls.',
+          'parental_locked' =>
+            'Payments are turned off by parental controls on this phone.',
           _ => 'Payment failed: ${e.code}',
         }),
       ));
