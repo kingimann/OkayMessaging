@@ -984,6 +984,27 @@ void main() {
       expect(invoked.where((m) => m == 'accepted').length, 1);
     });
 
+    test('a lock-screen answer parked before the offer completes on arrival',
+        () {
+      // The VoIP wake: CallKit rang and was ANSWERED before the app had the
+      // offer (it was still coming in from the mailbox). The intent parks;
+      // the offer's arrival must complete it without another tap. A decline
+      // parked the same way must decline silently.
+      final call = CallService.instance;
+      call.noteVoipAnswer('c_voip');
+      call.onRemoteOffer(peer(), 'c_voip', false);
+      expect(call.current.value?.status, CallStatus.connected,
+          reason: 'the parked answer must connect the call on arrival');
+      call.end();
+      call.clear();
+
+      call.noteVoipDecline('c_voip2');
+      call.onRemoteOffer(peer(), 'c_voip2', false);
+      expect(call.current.value, isNull,
+          reason: 'the parked decline must refuse silently — no ringing UI '
+              'for a call already refused on the lock screen');
+    });
+
     test('a callmiss notice files a missed call once, log and chat both', () {
       // The live offer is never queued, so a call to a closed app only
       // exists on the callee's side through this notice — and a mailbox
@@ -4738,6 +4759,12 @@ void main() {
       final a = CallKitBridge.instance.uuidFor('call_1');
       expect(CallKitBridge.instance.uuidFor('call_1'), a); // stable
       expect(CallKitBridge.instance.uuidFor('call_2'), isNot(a));
+      // DERIVED, not minted: SHA-256(callId) with the version/variant bits
+      // stamped in. Swift computes the identical value from a VoIP push
+      // (CallKitBridge.uuidFor in AppDelegate.swift), which is how both
+      // sides ring ONE system call instead of two. This vector is that
+      // contract — if it moves, the Swift twin must move with it.
+      expect(a, '74196fe7-2e4c-4c13-9c10-33e05a2e020c');
       expect(
           RegExp(r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$')
               .hasMatch(a),
@@ -25649,8 +25676,9 @@ void main() {
       // recipient's row lives — push-send — or it protects nothing.
       final fn =
           File('supabase/functions/push-send/index.ts').readAsStringSync();
-      expect(fn.contains('"token, private"'), isTrue,
-          reason: 'push-send must read the recipient\'s private flag');
+      expect(fn.contains('"token, private, voip_token"'), isTrue,
+          reason: 'push-send must read the recipient\'s private flag '
+              '(and the VoIP token, for ringing a closed app)');
       expect(fn.contains('row.private === true'), isTrue);
       expect(fn.contains('wantsPrivate ? "New message" : title'), isTrue,
           reason: 'a private alert says "New message" and nothing else');

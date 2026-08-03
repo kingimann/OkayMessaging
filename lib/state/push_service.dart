@@ -22,6 +22,11 @@ class PushService {
   /// promise.
   String? _lastToken;
 
+  /// The PushKit VoIP token — a SEPARATE token from the alert one, because
+  /// Apple runs VoIP pushes through their own pipe. This is what lets an
+  /// incoming call ring CallKit on the lock screen of a closed app.
+  String? _voipToken;
+
   Future<void> register() async {
     if (_started || kIsWeb || defaultTargetPlatform != TargetPlatform.iOS) {
       return;
@@ -30,6 +35,10 @@ class PushService {
     _started = true;
     _channel.setMethodCallHandler((call) async {
       if (call.method == 'token') await _upload(call.arguments as String?);
+      if (call.method == 'voipToken') {
+        _voipToken = call.arguments as String?;
+        await _upload(_lastToken);
+      }
     });
     AppState.privateNotifications.addListener(_onPrivateChanged);
     try {
@@ -62,8 +71,14 @@ class PushService {
 
   Future<void> _upload(String? token) async {
     final me = Session.instance.user.value;
-    if (token == null || token.isEmpty || me == null) return;
-    _lastToken = token;
+    // Either token is enough of a reason to have a row: the VoIP one can
+    // arrive first, and a device that can ring but not banner is still a
+    // device worth ringing.
+    if (me == null || ((token ?? '').isEmpty && (_voipToken ?? '').isEmpty)) {
+      return;
+    }
+    if (token != null && token.isNotEmpty) _lastToken = token;
+    token = _lastToken ?? '';
     // A numberless account has no session, so the RLS-guarded upsert below
     // can never work for it — its row goes through the definer RPC that
     // only ever opens account-code rows. Without this, a closed app on a
@@ -75,6 +90,7 @@ class PushService {
           'code': me.phone.replaceAll(RegExp(r'\D'), ''),
           't': token,
           'is_private': AppState.privateNotifications.value,
+          if ((_voipToken ?? '').isNotEmpty) 'vt': _voipToken,
         });
       } catch (_) {}
       return;
@@ -88,6 +104,7 @@ class PushService {
         // on the SENDER's device, and a preference protecting this lock
         // screen cannot depend on somebody else's settings.
         'private': AppState.privateNotifications.value,
+        if ((_voipToken ?? '').isNotEmpty) 'voip_token': _voipToken,
         'updated_at': DateTime.now().toUtc().toIso8601String(),
       });
       // One device, one owner: release any OTHER account's row still naming
@@ -120,7 +137,12 @@ class PushService {
   /// The sender's own number rides along so a tap opens THAT conversation
   /// instead of the chat list. It reaches Apple, as the sender's name in the
   /// title already does — see the note in the Edge Function.
-  Future<void> notify(String toPhone, {required String title, String? body}) async {
+  Future<void> notify(String toPhone,
+      {required String title,
+      String? body,
+      String kind = 'msg',
+      String? callId,
+      bool video = false}) async {
     if (!RelayConfig.isEnabled) return;
     final me = Session.instance.user.value;
     try {
@@ -129,6 +151,11 @@ class PushService {
         'title': title,
         'body': body ?? 'New message',
         'fromPhone': digitsOf(me?.phone ?? ''),
+        // kind 'call' + callId is what lets push-send choose the VoIP pipe:
+        // a call should RING the lock screen of a closed app, not banner it.
+        'kind': kind,
+        if (callId != null) 'callId': callId,
+        if (kind == 'call') 'video': video,
       });
     } catch (_) {}
   }

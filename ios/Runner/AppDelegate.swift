@@ -1,7 +1,9 @@
 import AudioToolbox
 import AVFoundation
 import CallKit
+import CryptoKit
 import Flutter
+import PushKit
 import UIKit
 import UserNotifications
 import WebRTC
@@ -45,11 +47,25 @@ import WebRTC
   // check that bounced build 23.)
   static let callKit = CallKitBridge()
 
+  /// PushKit: the VoIP pipe. A push through it launches this app in the
+  /// background and MUST report a call to CallKit at once — that is Apple's
+  /// contract for the privilege of waking a closed app — which is exactly
+  /// what makes a call ring on the lock screen like the phone app.
+  private var voipRegistry: PKPushRegistry?
+
+  /// The VoIP token can arrive before the Flutter engine exists to hear
+  /// about it; held here until Dart's push channel is up.
+  private var pendingVoipToken: String?
+
   override func application(
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
     _ = AppDelegate.callKit
+    let voip = PKPushRegistry(queue: .main)
+    voip.delegate = self
+    voip.desiredPushTypes = [.voIP]
+    voipRegistry = voip
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 
@@ -139,6 +155,11 @@ import WebRTC
     channel.setMethodCallHandler { [weak self] call, result in
       switch call.method {
       case "register":
+        // A VoIP token that arrived before Dart was listening goes now.
+        if let held = self?.pendingVoipToken {
+          self?.pendingVoipToken = nil
+          channel.invokeMethod("voipToken", arguments: held)
+        }
         UNUserNotificationCenter.current().requestAuthorization(
           options: [.alert, .badge, .sound]) { granted, _ in
           DispatchQueue.main.async {
@@ -335,6 +356,44 @@ extension AppDelegate {
   }
 }
 
+extension AppDelegate: PKPushRegistryDelegate {
+  func pushRegistry(
+    _ registry: PKPushRegistry,
+    didUpdate pushCredentials: PKPushCredentials,
+    for type: PKPushType
+  ) {
+    let hex = pushCredentials.token.map { String(format: "%02x", $0) }.joined()
+    if let channel = pushChannel {
+      channel.invokeMethod("voipToken", arguments: hex)
+    } else {
+      pendingVoipToken = hex
+    }
+  }
+
+  func pushRegistry(
+    _ registry: PKPushRegistry, didInvalidatePushTokenFor type: PKPushType
+  ) {}
+
+  func pushRegistry(
+    _ registry: PKPushRegistry,
+    didReceiveIncomingPushWith payload: PKPushPayload,
+    for type: PKPushType,
+    completion: @escaping () -> Void
+  ) {
+    // Report to CallKit IMMEDIATELY — Apple terminates apps that take a VoIP
+    // push and show no call. The Flutter engine boots in parallel; the call
+    // details it needs are queued in the relay mailbox, and the lock-screen
+    // answer is parked as an intent until they arrive.
+    let dict = payload.dictionaryPayload
+    let callId = dict["callId"] as? String ?? UUID().uuidString
+    let name = (dict["fromName"] as? String)?.isEmpty == false
+      ? dict["fromName"] as! String : "OkayMessenger"
+    let video = dict["video"] as? Bool ?? false
+    AppDelegate.callKit.reportVoip(
+      callId: callId, name: name, video: video, completion: completion)
+  }
+}
+
 /// Reports OkayMessenger calls to CallKit and forwards the system's call
 /// actions back to Dart.
 ///
@@ -349,6 +408,44 @@ class CallKitBridge: NSObject, CXProviderDelegate {
   private let provider: CXProvider
   private let controller = CXCallController()
   private var channel: FlutterMethodChannel?
+
+  /// Which relay call each CallKit UUID stands for, so a lock-screen action
+  /// can tell Dart WHICH call — the VoIP wake acts before Dart has any.
+  private var callIdByUuid: [UUID: String] = [:]
+
+  /// Calls already reported by a VoIP push, so Dart's own report of the
+  /// same call (it computes the same UUID) is a no-op instead of a second
+  /// ring.
+  private var reportedVoip: Set<UUID> = []
+
+  /// SHA-256(callId), truncated and stamped into UUID shape. Deterministic
+  /// on purpose, and byte-for-byte the same derivation as Dart's
+  /// CallKitBridge.uuidFor — a VoIP push (Swift, app closed) and the relay
+  /// offer (Dart, app open) must name the SAME system call.
+  static func uuidFor(callId: String) -> UUID {
+    var b = [UInt8](SHA256.hash(data: Data(callId.utf8)))
+    b[6] = (b[6] & 0x0f) | 0x40
+    b[8] = (b[8] & 0x3f) | 0x80
+    return UUID(uuid: (b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7],
+                       b[8], b[9], b[10], b[11], b[12], b[13], b[14], b[15]))
+  }
+
+  /// Rings a call straight off a VoIP push, before any Dart exists.
+  func reportVoip(
+    callId: String, name: String, video: Bool,
+    completion: @escaping () -> Void
+  ) {
+    let uuid = CallKitBridge.uuidFor(callId: callId)
+    callIdByUuid[uuid] = callId
+    reportedVoip.insert(uuid)
+    let update = CXCallUpdate()
+    update.remoteHandle = CXHandle(type: .generic, value: name)
+    update.localizedCallerName = name
+    update.hasVideo = video
+    provider.reportNewIncomingCall(with: uuid, update: update) { _ in
+      completion()
+    }
+  }
 
   override init() {
     // The argument-less init is iOS 14+; the app still targets 13, so fall
@@ -392,6 +489,9 @@ class CallKitBridge: NSObject, CXProviderDelegate {
       }
       let name = (args["name"] as? String) ?? "OkayMessenger"
       let video = (args["video"] as? Bool) ?? false
+      if let cid = args["callId"] as? String, !cid.isEmpty {
+        self.callIdByUuid[uuid] = cid
+      }
       switch call.method {
       case "outgoing":
         let handle = CXHandle(type: .generic, value: name)
@@ -402,6 +502,12 @@ class CallKitBridge: NSObject, CXProviderDelegate {
         }
         result(nil)
       case "incoming":
+        // A VoIP push already rang this exact call (same derived UUID);
+        // reporting it again would stack a second system call.
+        if self.reportedVoip.contains(uuid) {
+          result(nil)
+          return
+        }
         let update = CXCallUpdate()
         update.remoteHandle = CXHandle(type: .generic, value: name)
         update.localizedCallerName = name
@@ -431,6 +537,8 @@ class CallKitBridge: NSObject, CXProviderDelegate {
           self.controller.request(
               CXTransaction(action: CXEndCallAction(call: uuid))) { _ in }
         }
+        self.callIdByUuid.removeValue(forKey: uuid)
+        self.reportedVoip.remove(uuid)
         result(nil)
       default:
         result(FlutterMethodNotImplemented)
@@ -448,12 +556,18 @@ class CallKitBridge: NSObject, CXProviderDelegate {
   }
 
   func provider(_ provider: CXProvider, perform action: CXAnswerCallAction) {
-    channel?.invokeMethod("answer", arguments: action.callUUID.uuidString)
+    channel?.invokeMethod("answer", arguments: [
+      "uuid": action.callUUID.uuidString,
+      "callId": callIdByUuid[action.callUUID] ?? "",
+    ])
     action.fulfill()
   }
 
   func provider(_ provider: CXProvider, perform action: CXEndCallAction) {
-    channel?.invokeMethod("end", arguments: action.callUUID.uuidString)
+    channel?.invokeMethod("end", arguments: [
+      "uuid": action.callUUID.uuidString,
+      "callId": callIdByUuid[action.callUUID] ?? "",
+    ])
     action.fulfill()
   }
 

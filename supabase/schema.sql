@@ -117,6 +117,10 @@ create table if not exists public.push_tokens (
 );
 alter table public.push_tokens
   add column if not exists private boolean not null default false;
+-- PushKit's SEPARATE VoIP token — Apple's pipe for pushes that may ring
+-- CallKit on a closed app's lock screen. Alert pushes keep using `token`.
+alter table public.push_tokens
+  add column if not exists voip_token text;
 
 alter table public.push_tokens enable row level security;
 
@@ -167,8 +171,11 @@ grant execute on function public.claim_push_token(text) to authenticated;
 -- never be re-pointed somewhere else (only its private flag refreshed).
 -- The cleanup delete needs the caller to KNOW the token — an unguessable
 -- 64-hex string — so it can only ever be this device tidying its own past.
+-- The 3-arg shape from before the VoIP column would linger as an overload
+-- (CREATE OR REPLACE only replaces an identical signature).
+drop function if exists public.register_numberless_push(text, text, boolean);
 create or replace function public.register_numberless_push(
-    code text, t text, is_private boolean default false)
+    code text, t text, is_private boolean default false, vt text default null)
 returns void
 language plpgsql security definer set search_path = public as $$
 begin
@@ -178,17 +185,21 @@ begin
   if public.is_locked_out(code) then
     return;
   end if;
-  insert into public.push_tokens (phone, token, platform, private, updated_at)
-  values (code, t, 'ios', coalesce(is_private, false), now())
+  insert into public.push_tokens
+    (phone, token, platform, private, voip_token, updated_at)
+  values (code, t, 'ios', coalesce(is_private, false), vt, now())
   on conflict (phone) do update
-    set private = excluded.private, updated_at = now()
+    set private = excluded.private,
+        voip_token = coalesce(excluded.voip_token, push_tokens.voip_token),
+        updated_at = now()
     where push_tokens.token = excluded.token;
   delete from public.push_tokens where token = t and phone <> code;
 end $$;
 
-revoke all on function public.register_numberless_push(text, text, boolean)
-  from public;
-grant execute on function public.register_numberless_push(text, text, boolean)
+revoke all on function
+  public.register_numberless_push(text, text, boolean, text) from public;
+grant execute on function
+  public.register_numberless_push(text, text, boolean, text)
   to anon, authenticated;
 
 -- YOUR OWN ROW HAS TO BE VISIBLE TO YOU, and it is worth saying why because

@@ -1,5 +1,6 @@
-import 'dart:math';
+import 'dart:convert';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
@@ -26,15 +27,19 @@ class CallKitBridge {
   CallStatus? _reportedStatus;
 
   /// A stable CallKit UUID for a relay call id (CallKit insists on UUIDs;
-  /// the relay uses strings). Random v4, minted once per call.
+  /// the relay uses strings). DERIVED from the call id, not minted: a VoIP
+  /// push reports the call to CallKit from Swift before Dart is even
+  /// running, and both sides computing SHA-256(callId) is what makes them
+  /// name the same system call instead of ringing it twice. The Swift twin
+  /// is CallKitBridge.uuidFor in AppDelegate.swift — the two must agree
+  /// byte for byte.
   @visibleForTesting
   String uuidFor(String callId) =>
-      _uuidByCall.putIfAbsent(callId, _mintUuid);
+      _uuidByCall.putIfAbsent(callId, () => _derivedUuid(callId));
 
-  static String _mintUuid() {
-    final rng = Random.secure();
-    final b = List<int>.generate(16, (_) => rng.nextInt(256));
-    b[6] = (b[6] & 0x0f) | 0x40; // version 4
+  static String _derivedUuid(String callId) {
+    final b = List<int>.of(sha256.convert(utf8.encode(callId)).bytes.take(16));
+    b[6] = (b[6] & 0x0f) | 0x40; // version 4 shape
     b[8] = (b[8] & 0x3f) | 0x80; // variant
     String hex(int start, int end) => b
         .sublist(start, end)
@@ -48,12 +53,27 @@ class CallKitBridge {
     _started = true;
     _channel.setMethodCallHandler((call) async {
       final service = CallService.instance;
+      // Swift passes {uuid, callId} once it knows the call id (a VoIP wake
+      // knows it before Dart does); older shapes were a bare uuid string.
+      final args = call.arguments;
+      final callId =
+          args is Map ? (args['callId'] as String? ?? '') : '';
       switch (call.method) {
         case 'answer':
-          service.accept();
+          if (service.current.value != null) {
+            service.accept();
+          } else if (callId.isNotEmpty) {
+            // Answered from the lock screen before the app finished waking:
+            // the offer is still on its way in from the mailbox. Remember
+            // the intent; the offer's arrival completes it.
+            service.noteVoipAnswer(callId);
+          }
         case 'end':
           final c = service.current.value;
-          if (c == null) return;
+          if (c == null) {
+            if (callId.isNotEmpty) service.noteVoipDecline(callId);
+            return;
+          }
           if (c.direction == CallDirection.incoming &&
               c.status == CallStatus.ringing) {
             service.decline();
@@ -104,6 +124,9 @@ class CallKitBridge {
           'uuid': uuidFor(c.callId),
           'name': c.peer.name.isEmpty ? c.peer.phone : c.peer.name,
           'video': c.video,
+          // So Swift can name the relay call in lock-screen actions — a
+          // VoIP wake acts before this side has any session to consult.
+          'callId': c.callId,
         },
       );
       if (c.status != CallStatus.connected) return;

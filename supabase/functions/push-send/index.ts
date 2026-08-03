@@ -149,16 +149,24 @@ Deno.serve(async (req) => {
     return new Response("ok", { headers: { "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Headers": "authorization, content-type, apikey" } });
   }
-  // Any signed-in user may notify any phone (like sending a message); the
-  // payload carries no secrets and unknown phones are a silent no-op.
+  // A signed-in caller may notify any phone (like sending a message); the
+  // payload carries no secrets and unknown phones are a silent no-op. When
+  // the function is DEPLOYED with JWT verification off, a sessionless
+  // caller (a numberless account — Supabase authenticates a phone, so it
+  // has no session to hold) may notify too: the worst a stranger can do
+  // with it is buzz a phone with "New message", and the recipient-side
+  // private flag governs content either way. The self-test stays gated —
+  // it reports configuration, and configuration is for the signed-in.
   const auth = req.headers.get("Authorization")?.replace("Bearer ", "") ?? "";
   const { data: caller } = await admin.auth.getUser(auth);
-  if (!caller?.user) return Response.json({ error: "unauthorized" }, { status: 401 });
 
-  const { what, toPhone, title, body, badge, fromPhone } =
+  const { what, toPhone, title, body, badge, fromPhone, kind, callId, video } =
     await req.json().catch(() => ({}));
 
   if (what === "check") {
+    if (!caller?.user) {
+      return Response.json({ error: "unauthorized" }, { status: 401 });
+    }
     return Response.json(
       await checkSetup((caller.user.phone ?? "").replace(/\D/g, "")),
     );
@@ -169,7 +177,35 @@ Deno.serve(async (req) => {
   if (!digits || !title) return Response.json({ error: "bad request" }, { status: 400 });
 
   const { data: row } = await admin.from("push_tokens")
-    .select("token, private").eq("phone", digits).maybeSingle();
+    .select("token, private, voip_token").eq("phone", digits).maybeSingle();
+  if (!row?.token && !row?.voip_token) return Response.json({ sent: false });
+
+  // A call rings the LOCK SCREEN of a closed app through PushKit + CallKit
+  // — Apple's dedicated VoIP pipe, its own token and topic. The payload
+  // carries only what CallKit needs to ring: who (a name), which call, and
+  // whether video. Falls back to an ordinary alert when the device never
+  // registered a VoIP token (an older build).
+  if (kind === "call" && callId && row?.voip_token) {
+    const host = (Deno.env.get("APNS_SANDBOX") === "true")
+      ? "api.sandbox.push.apple.com" : "api.push.apple.com";
+    const bundle = Deno.env.get("APNS_BUNDLE_ID") ?? "com.okaymessaging";
+    const res = await fetch(`https://${host}/3/device/${row.voip_token}`, {
+      method: "POST",
+      headers: {
+        "authorization": `bearer ${await apnsJwt()}`,
+        "apns-topic": `${bundle}.voip`,
+        "apns-push-type": "voip",
+        "apns-priority": "10",
+      },
+      body: JSON.stringify({
+        callId: String(callId).slice(0, 128),
+        fromName: row.private === true ? "OkayMessenger" : String(title).slice(0, 64),
+        video: video === true,
+        ...(from ? { from } : {}),
+      }),
+    });
+    return Response.json({ sent: res.ok, voip: true });
+  }
   if (!row?.token) return Response.json({ sent: false });
 
   // The RECIPIENT's choice, enforced here rather than trusted to the sender's

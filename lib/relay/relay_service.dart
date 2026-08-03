@@ -757,6 +757,8 @@ class RelayService {
               applyGroupUpdate(payload, myPhone: me);
             case 'callmiss':
               _applyMissedCall(payload, myPhone: me);
+            case 'call':
+              _applyCallEvent(payload, me);
             case 'skdm':
               applySkdm(payload, myPhone: me);
             case 'skreq':
@@ -1016,78 +1018,7 @@ class RelayService {
           event: 'call',
           callback: (rawEnvelope) {
             final payload = unwrapBroadcast(rawEnvelope);
-            final p = Map<String, dynamic>.from(payload);
-            final from = p['from'] as String?;
-            final kind = p['kind'] as String?;
-            final callId = p['callId'] as String?;
-            if (from == null ||
-                kind == null ||
-                callId == null ||
-                digits(from) == digits(me)) {
-              return;
-            }
-            final call = CallService.instance;
-            switch (kind) {
-              case 'offer':
-                final peer = AppUser(
-                  id: from,
-                  name: (p['fromName'] as String?)?.trim().isNotEmpty == true
-                      ? p['fromName'] as String
-                      : from,
-                  avatarColor: '#7A5CFF',
-                  about: 'Available',
-                  phone: from,
-                  username: (p['fromUsername'] as String?) ?? '',
-                );
-                final groupInfo = _openGroupInfo(from, p);
-                if (groupInfo != null) {
-                  final groupId = (groupInfo['id'] as String?) ?? '';
-                  if (groupId.isEmpty) break;
-                  call.onRemoteGroupOffer(
-                    peer,
-                    callId,
-                    p['video'] == true,
-                    group: AppUser(
-                      id: groupId,
-                      name: (groupInfo['name'] as String?) ?? 'Group',
-                      avatarColor: (groupInfo['color'] as String?) ?? '#4DB6AC',
-                      isGroup: true,
-                    ),
-                    members: membersFromJson(groupInfo['members']),
-                  );
-                  break;
-                }
-                call.onRemoteOffer(peer, callId, p['video'] == true,
-                    sdp: _openSdp(from, p));
-                break;
-              case 'joined':
-                call.onRemoteJoined(from, callId);
-                break;
-              case 'left':
-                call.onRemoteLeft(from, callId);
-                break;
-              case 'answer':
-                call.onRemoteAnswer(callId, sdp: _openSdp(from, p));
-                break;
-              case 'ice':
-                final ice = _openIce(from, p);
-                if (ice != null) call.onRemoteIce(callId, ice);
-                break;
-              case 'decline':
-                call.onRemoteDecline(callId);
-                break;
-              case 'end':
-                call.onRemoteEnd(callId);
-                break;
-              case 'reaction':
-                call.onRemoteReaction(callId, p['emoji'] as String?);
-                break;
-              case 'media':
-                final m = p['media'];
-                call.onRemoteMediaState(
-                    callId, m is Map ? Map<String, dynamic>.from(m) : null);
-                break;
-            }
+            _applyCallEvent(Map<String, dynamic>.from(payload), me);
           },
         )
         .onBroadcast(
@@ -1896,6 +1827,92 @@ class RelayService {
     return out;
   }
 
+  /// Applies one call-signaling payload, live or from the mailbox. The
+  /// mailbox path exists for the VoIP wake: the offer went out while this
+  /// app was CLOSED, the push rang CallKit, and the queued copy is how the
+  /// woken app learns what it is answering. Stale offers are refused by
+  /// timestamp — replaying a ring from an hour ago would be a ghost call.
+  void _applyCallEvent(Map<String, dynamic> p, String me) {
+    final from = p['from'] as String?;
+    final kind = p['kind'] as String?;
+    final callId = p['callId'] as String?;
+    if (from == null ||
+        kind == null ||
+        callId == null ||
+        digits(from) == digits(me)) {
+      return;
+    }
+    if (kind == 'offer') {
+      final ts = p['ts'];
+      if (ts is int &&
+          DateTime.now().millisecondsSinceEpoch - ts > 90 * 1000) {
+        return; // the caller gave up long ago
+      }
+    }
+    final call = CallService.instance;
+    switch (kind) {
+      case 'offer':
+        final peer = AppUser(
+          id: from,
+          name: (p['fromName'] as String?)?.trim().isNotEmpty == true
+              ? p['fromName'] as String
+              : from,
+          avatarColor: '#7A5CFF',
+          about: 'Available',
+          phone: from,
+          username: (p['fromUsername'] as String?) ?? '',
+        );
+        final groupInfo = _openGroupInfo(from, p);
+        if (groupInfo != null) {
+          final groupId = (groupInfo['id'] as String?) ?? '';
+          if (groupId.isEmpty) break;
+          call.onRemoteGroupOffer(
+            peer,
+            callId,
+            p['video'] == true,
+            group: AppUser(
+              id: groupId,
+              name: (groupInfo['name'] as String?) ?? 'Group',
+              avatarColor: (groupInfo['color'] as String?) ?? '#4DB6AC',
+              isGroup: true,
+            ),
+            members: membersFromJson(groupInfo['members']),
+          );
+          break;
+        }
+        call.onRemoteOffer(peer, callId, p['video'] == true,
+            sdp: _openSdp(from, p));
+        break;
+      case 'joined':
+        call.onRemoteJoined(from, callId);
+        break;
+      case 'left':
+        call.onRemoteLeft(from, callId);
+        break;
+      case 'answer':
+        call.onRemoteAnswer(callId, sdp: _openSdp(from, p));
+        break;
+      case 'ice':
+        final ice = _openIce(from, p);
+        if (ice != null) call.onRemoteIce(callId, ice);
+        break;
+      case 'decline':
+        call.onRemoteDecline(callId);
+        break;
+      case 'end':
+        call.onRemoteEnd(callId);
+        break;
+      case 'reaction':
+        call.onRemoteReaction(callId, p['emoji'] as String?);
+        break;
+      case 'media':
+        final m = p['media'];
+        call.onRemoteMediaState(
+            callId, m is Map ? Map<String, dynamic>.from(m) : null);
+        break;
+    }
+  }
+
   /// Recovers an SDP string from a sealed signaling [payload].
   String? _openSdp(String from, Map<String, dynamic> payload) =>
       _unpackSignal(from, payload, 'sdp', 's');
@@ -1936,22 +1953,29 @@ class RelayService {
         _sendChannels.putIfAbsent(name, () => _client.channel(name));
     // Group-call metadata (which group, who's in it) is sealed like an SDP,
     // so the relay can't tell a group call from a one-to-one one.
-    await channel.sendBroadcastMessage(
-      event: 'call',
-      payload: {
-        'from': me.phone,
-        'fromName': me.name,
-        'fromUsername': me.username,
-        'kind': kind,
-        'callId': callId,
-        'video': video,
-        if (emoji != null) 'emoji': emoji,
-        if (media != null) 'media': media,
-        if (group != null)
-          ..._packSignal(contactPhone, 'grp', 'g', jsonEncode(group)),
-        ..._sealSignalPair(contactPhone, sdp: sdp),
-      },
-    );
+    final payload = {
+      'from': me.phone,
+      'fromName': me.name,
+      'fromUsername': me.username,
+      'kind': kind,
+      'callId': callId,
+      'video': video,
+      'ts': DateTime.now().millisecondsSinceEpoch,
+      if (emoji != null) 'emoji': emoji,
+      if (media != null) 'media': media,
+      if (group != null)
+        ..._packSignal(contactPhone, 'grp', 'g', jsonEncode(group)),
+      ..._sealSignalPair(contactPhone, sdp: sdp),
+    };
+    await channel.sendBroadcastMessage(event: 'call', payload: payload);
+    // The handshake also queues for a CLOSED app: a VoIP push rings CallKit
+    // with no app running, and the mailbox is how the woken app learns what
+    // it is answering. Stale offers die by the ts guard on the way back in;
+    // presence-flavoured kinds (joined/reaction/media) stay live-only —
+    // replayed hours later they would be nonsense.
+    if (const {'offer', 'answer', 'end', 'decline'}.contains(kind)) {
+      _mailboxPut(contactPhone, payload, event: 'call');
+    }
   }
 
   /// The group fields a call invitation carries: enough for the callee's
@@ -2023,16 +2047,18 @@ class RelayService {
     final name = inboxChannel(contactPhone);
     final channel =
         _sendChannels.putIfAbsent(name, () => _client.channel(name));
-    await channel.sendBroadcastMessage(
-      event: 'call',
-      payload: {
-        'from': me.phone,
-        'kind': 'ice',
-        'callId': _currentCallId ?? '',
-        'video': false,
-        ..._sealSignalPair(contactPhone, ice: candidate),
-      },
-    );
+    final payload = {
+      'from': me.phone,
+      'kind': 'ice',
+      'callId': _currentCallId ?? '',
+      'video': false,
+      ..._sealSignalPair(contactPhone, ice: candidate),
+    };
+    await channel.sendBroadcastMessage(event: 'call', payload: payload);
+    // Queued too: a callee waking from a VoIP push missed every live
+    // candidate, and candidates are only ever signaled once. Stale ones are
+    // harmless — a dead call's id matches nothing.
+    _mailboxPut(contactPhone, payload, event: 'call');
   }
 
   /// The active call id, so ICE candidates can be tagged with it.

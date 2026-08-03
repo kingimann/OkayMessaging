@@ -289,7 +289,10 @@ class CallService {
     final me = Session.instance.user.value;
     PushService.instance.notify(phone,
         title: me == null || me.name.isEmpty ? 'Incoming call' : me.name,
-        body: video ? 'Incoming video call' : 'Incoming call');
+        body: video ? 'Incoming video call' : 'Incoming call',
+        kind: 'call',
+        callId: id,
+        video: video);
   }
 
   /// Rings every member of [group] at once. There is no room on a server:
@@ -334,7 +337,10 @@ class CallService {
           group: RelayService.groupCallInfo(group));
       PushService.instance.notify(member.phone,
           title: caller.isEmpty ? 'Incoming group call' : caller,
-          body: 'Group call · ${group.contact.name}');
+          body: 'Group call · ${group.contact.name}',
+          kind: 'call',
+          callId: id,
+          video: video);
     }
     _ringTimer?.cancel();
     _ringTimer = Timer(ringTimeout, () {
@@ -510,6 +516,30 @@ class CallService {
       direction: CallDirection.incoming,
       status: CallStatus.ringing,
     );
+    // A VoIP wake answers (or declines) on the LOCK SCREEN before the app
+    // has the offer — CallKit rang from the push alone. The intent was
+    // parked; the offer arriving is what completes it.
+    if (_pendingVoipAnswer == callId) {
+      _pendingVoipAnswer = null;
+      accept();
+    } else if (_pendingVoipDecline == callId) {
+      _pendingVoipDecline = null;
+      decline();
+    }
+  }
+
+  /// Lock-screen intent noted before the offer arrived (VoIP wake): CallKit
+  /// answered a call the app has not received yet.
+  String? _pendingVoipAnswer;
+  String? _pendingVoipDecline;
+  void noteVoipAnswer(String callId) {
+    _pendingVoipAnswer = callId;
+    _pendingVoipDecline = null;
+  }
+
+  void noteVoipDecline(String callId) {
+    _pendingVoipDecline = callId;
+    if (_pendingVoipAnswer == callId) _pendingVoipAnswer = null;
   }
 
   /// A group call invitation arrived: [caller] is ringing us into
@@ -798,6 +828,8 @@ class CallService {
     _seq = 0;
     _reactionSeq = 0;
     _loggedCallIds.clear();
+    _pendingVoipAnswer = null;
+    _pendingVoipDecline = null;
   }
 }
 
