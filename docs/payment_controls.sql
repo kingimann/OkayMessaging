@@ -93,6 +93,10 @@ create table if not exists public.payment_card_events (
   phone      text not null,
   created_at timestamptz not null default now()
 );
+-- Bank (direct deposit) changes share the ledger: same safeguards, same
+-- reasons — swapping where the money lands is the other half of the drain.
+alter table public.payment_card_events
+  add column if not exists kind text not null default 'card';
 create index if not exists payment_card_events_phone_idx
   on public.payment_card_events (phone, created_at desc);
 alter table public.payment_card_events enable row level security;

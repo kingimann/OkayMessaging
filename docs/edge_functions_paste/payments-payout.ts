@@ -290,16 +290,21 @@ Deno.serve(async (req) => {
 
     // The card's standing under the takeover safeguards: a newly attached
     // card waits seven business days, and too many changes lock instants.
-    const { data: cardEvents } = await admin
+    const { data: attachEvents } = await admin
       .from("payment_card_events")
-      .select("created_at")
+      .select("created_at, kind")
       .eq("phone", phone)
       .order("created_at", { ascending: false })
-      .limit(12);
-    const policy = cardPolicy({
-      attachedAts: (cardEvents ?? []).map((e) =>
-        new Date((e as { created_at: string }).created_at)
-      ),
+      .limit(24);
+    const ats = (kind: string) =>
+      (attachEvents ?? [])
+        .filter((e) => ((e as { kind?: string }).kind ?? "card") === kind)
+        .map((e) => new Date((e as { created_at: string }).created_at));
+    const policy = cardPolicy({ attachedAts: ats("card"), now: new Date() });
+    // The bank's own hold: a changed direct deposit is the other half of
+    // the drain, and no manual payout goes to it while the hold runs.
+    const bankPolicy = cardPolicy({
+      attachedAts: ats("bank"),
       now: new Date(),
     });
 
@@ -325,6 +330,7 @@ Deno.serve(async (req) => {
         // So the wallet says WHY the instant button is off, with a number.
         cardHoldBusinessDaysLeft: policy.businessDaysLeft,
         cardLocked: policy.locked,
+        bankHoldBusinessDaysLeft: bankPolicy.businessDaysLeft,
         payoutsEnabled: account.payouts_enabled,
       });
     }
@@ -335,6 +341,12 @@ Deno.serve(async (req) => {
       return json({ error: "invalid amount" }, 400);
     }
 
+    if (method === "standard" && bankPolicy.held) {
+      return json({
+        error: "bank_hold",
+        businessDaysLeft: bankPolicy.businessDaysLeft,
+      }, 403);
+    }
     if (method === "instant") {
       if (!card) return json({ error: "no_debit_card" }, 400);
       // The takeover safeguards, at the moment money would actually move.

@@ -4,6 +4,7 @@ import '../widgets/phone_gate.dart';
 import '../payments/payment_service.dart';
 import '../payments/storage_economics.dart';
 import 'add_debit_card_screen.dart';
+import 'change_bank_screen.dart';
 import 'payment_controls_screen.dart';
 import 'native_onboarding_screen.dart';
 import 'payment_diagnostics_screen.dart';
@@ -85,6 +86,17 @@ class _WalletScreenState extends State<WalletScreen> {
     await Navigator.of(context).push(
         MaterialPageRoute(builder: (_) => const PaymentControlsScreen()));
     if (mounted) setState(() => _controlsEpoch++);
+  }
+
+  /// The direct-deposit form. Changing it is heavier than setting it the
+  /// first time on purpose: payouts pause for seven business days, and the
+  /// screen says so before anything is typed.
+  Future<void> _openChangeBank(WalletStatus s) async {
+    final changed = await Navigator.of(context).push<bool>(MaterialPageRoute(
+        builder: (_) => ChangeBankScreen(
+            country: (s.country ?? 'CA').toUpperCase(),
+            currency: s.currency.toLowerCase())));
+    if (changed == true && mounted) _refresh();
   }
 
   /// The card form itself. "Add a debit card" used to open Payment controls,
@@ -207,7 +219,10 @@ class _WalletScreenState extends State<WalletScreen> {
                               _openAddCard(s.currency.toLowerCase()),
                         ),
                         const SizedBox(height: 16),
-                        _PayoutCard(status: s),
+                        _PayoutCard(
+                          status: s,
+                          onChangeBank: () => _openChangeBank(s),
+                        ),
                       ],
                       const SizedBox(height: 16),
                       const _TestModeTile(),
@@ -525,42 +540,69 @@ class _CashOutCardState extends State<_CashOutCard> {
 
 class _PayoutCard extends StatelessWidget {
   final WalletStatus status;
-  const _PayoutCard({required this.status});
+
+  /// Opens the change-direct-deposit form.
+  final VoidCallback onChangeBank;
+  const _PayoutCard({required this.status, required this.onChangeBank});
 
   @override
   Widget build(BuildContext context) {
     final payout = status.payoutStatus;
+    final held = status.bankHoldDaysLeft > 0;
     return Card(
       elevation: 0,
       color: Theme.of(context).colorScheme.surfaceContainerHighest,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Padding(
-        padding: const EdgeInsets.all(18),
-        child: Row(
+        padding: const EdgeInsets.fromLTRB(18, 18, 18, 10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Icon(Icons.account_balance_wallet_outlined,
-                color: Color(0xFF12B76A)),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('Cash out',
-                      style: TextStyle(
-                          fontSize: 15.5, fontWeight: FontWeight.w600)),
-                  const SizedBox(height: 4),
-                  Text(
-                    payout == null
-                        ? 'Your balance is automatically paid out to your bank.'
-                        : 'Latest payout: $payout'
-                            '${status.payoutAmountCents != null ? ' · ${status.money(status.payoutAmountCents!)}' : ''}',
-                    style:
-                        TextStyle(color: AppColors.subtle(context), fontSize: 13),
+            Row(
+              children: [
+                Icon(
+                    held
+                        ? Icons.hourglass_top
+                        : Icons.account_balance_wallet_outlined,
+                    color: held ? Colors.orange : const Color(0xFF12B76A)),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('Cash out',
+                          style: TextStyle(
+                              fontSize: 15.5, fontWeight: FontWeight.w600)),
+                      const SizedBox(height: 4),
+                      Text(
+                        held
+                            ? 'Your payout account was changed recently. As '
+                                'a security measure, payouts resume in '
+                                '${status.bankHoldDaysLeft} business '
+                                '${status.bankHoldDaysLeft == 1 ? 'day' : 'days'}.'
+                            : payout == null
+                                ? 'Your balance is automatically paid out to '
+                                    'your bank'
+                                    '${status.bankLast4.isEmpty ? '.' : ' ••${status.bankLast4}.'}'
+                                : 'Latest payout: $payout'
+                                    '${status.payoutAmountCents != null ? ' · ${status.money(status.payoutAmountCents!)}' : ''}',
+                        style: TextStyle(
+                            color: AppColors.subtle(context), fontSize: 13),
+                      ),
+                    ],
                   ),
-                ],
+                ),
+                if (!held)
+                  const Icon(Icons.check_circle, color: Color(0xFF12B76A)),
+              ],
+            ),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton(
+                onPressed: onChangeBank,
+                child: const Text('Change direct deposit'),
               ),
             ),
-            const Icon(Icons.check_circle, color: Color(0xFF12B76A)),
           ],
         ),
       ),

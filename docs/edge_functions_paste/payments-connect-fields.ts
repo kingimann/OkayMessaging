@@ -627,11 +627,62 @@ Deno.serve(async (req) => {
         await stripe.accounts.update(accountId, update);
       }
       // The bank account goes on separately: it is an external account, not a
-      // field of the person.
+      // field of the person. A FIRST bank account is onboarding and attaches
+      // plainly; REPLACING one is the other half of the account-takeover
+      // drain — redirect where the money lands, wait for the schedule — so a
+      // change pauses automatic payouts and starts the seven-business-day
+      // hold that payments-payout and payments-status enforce and explain.
       if (submit.bankToken) {
+        const existing = await stripe.accounts.retrieve(accountId);
+        const oldBanks =
+          ((existing.external_accounts?.data ?? []) as {
+            object?: string;
+            id: string;
+          }[]).filter((e) => e.object === "bank_account");
+        const isChange = oldBanks.length > 0;
+        if (isChange) {
+          const { data: bankEvents } = await admin
+            .from("payment_card_events")
+            .select("created_at")
+            .eq("phone", phone)
+            .eq("kind", "bank")
+            .order("created_at", { ascending: false })
+            .limit(12);
+          const policy = cardPolicy({
+            attachedAts: (bankEvents ?? []).map((e) =>
+              new Date((e as { created_at: string }).created_at)
+            ),
+            now: new Date(),
+          });
+          if (policy.locked) {
+            return json({ error: "bank_changes_locked" }, 429);
+          }
+        }
         await stripe.accounts.createExternalAccount(accountId, {
           external_account: submit.bankToken,
+          ...(isChange ? { default_for_currency: true } : {}),
         });
+        if (isChange) {
+          // No money leaves on the schedule while the hold runs; the status
+          // and payout functions restore the schedule once it has passed.
+          await stripe.accounts.update(accountId, {
+            settings: { payouts: { schedule: { interval: "manual" } } },
+          });
+          await admin.from("payment_card_events").insert({
+            phone,
+            kind: "bank",
+          });
+          // One destination: the replaced accounts go, so a payout cannot
+          // quietly land somewhere somebody forgot was still attached.
+          for (const b of oldBanks) {
+            try {
+              await stripe.accounts.deleteExternalAccount(accountId, b.id);
+            } catch (_) {
+              // Stripe refuses to delete in some states; harmless — the new
+              // account is the default either way.
+            }
+          }
+        }
       }
       // A debit card rides the same door: it is an external account too,
       // the one instant payouts land on. Attaching consults the change
@@ -642,6 +693,7 @@ Deno.serve(async (req) => {
           .from("payment_card_events")
           .select("created_at")
           .eq("phone", phone)
+          .eq("kind", "card")
           .order("created_at", { ascending: false })
           .limit(12);
         const policy = cardPolicy({
@@ -686,7 +738,10 @@ Deno.serve(async (req) => {
         await stripe.accounts.createExternalAccount(accountId, {
           external_account: submit.cardToken,
         });
-        await admin.from("payment_card_events").insert({ phone });
+        await admin.from("payment_card_events").insert({
+          phone,
+          kind: "card",
+        });
       }
     }
 

@@ -19155,6 +19155,48 @@ void main() {
           reason: 'the refusal needs words on the screen it lands on');
     });
 
+    test('a changed direct deposit waits 7 business days too', () {
+      // The other half of the drain: redirect where the money lands, wait
+      // for the schedule. A change pauses automatic payouts, refuses manual
+      // ones, and the wallet says why with a number.
+      final s = WalletStatus.fromJson(const {
+        'onboarded': true,
+        'chargesEnabled': true,
+        'payoutsEnabled': true,
+        'bankLast4': '6789',
+        'bankHoldBusinessDaysLeft': 4,
+      });
+      expect(s.bankLast4, '6789');
+      expect(s.bankHoldDaysLeft, 4);
+      expect(const PayoutOutcome(ok: false, error: 'bank_hold').message,
+          contains('7 business days'));
+
+      // The paste copies enforce it — the pause, the hold, the churn lock,
+      // the restore — or a curl request walks around all of it.
+      final fields =
+          File('docs/edge_functions_paste/payments-connect-fields.ts')
+              .readAsStringSync();
+      expect(fields.contains('"bank"'), isTrue,
+          reason: 'bank changes must be recorded in the ledger');
+      expect(fields.contains('bank_changes_locked'), isTrue);
+      expect(fields.contains('interval: "manual"'), isTrue,
+          reason: 'a change must pause the automatic schedule');
+      final payout = File('docs/edge_functions_paste/payments-payout.ts')
+          .readAsStringSync();
+      expect(payout.contains('bank_hold'), isTrue);
+      final status = File('docs/edge_functions_paste/payments-status.ts')
+          .readAsStringSync();
+      expect(status.contains('bankHoldBusinessDaysLeft'), isTrue,
+          reason: 'the wallet reads its verdicts from payments-status');
+      expect(status.contains('cardHoldBusinessDaysLeft'), isTrue,
+          reason: 'the card verdicts ride the same status payload');
+      expect(status.contains('interval: "daily"'), isTrue,
+          reason: 'the pause must end when the hold does');
+      // A first bank account is onboarding, not a change: only a CHANGE is
+      // recorded and held, so signing up never starts frozen.
+      expect(fields.contains('const isChange = oldBanks.length > 0'), isTrue);
+    });
+
     test('a no-progress onboarding round says so instead of redrawing', () {
       // Same asks back, no errors, not complete: the silent loop — worded.
       final stalled = ConnectRequirements.stalledMessage(

@@ -122,6 +122,81 @@ function grossUp(targetCents: number): number {
   return total;
 }
 
+// The debit-card rules, pure so they can be executed without Stripe.
+//
+// WHY THESE EXIST. The debit card is where instant payouts LAND — whoever
+// controls it walks away with the balance. The classic account-takeover
+// drains in one motion: sign in, attach your own card, cash out in minutes.
+// Two rules close it, both enforced server-side because a client-side rule
+// is a suggestion:
+//
+//   * A newly attached card waits SEVEN BUSINESS DAYS before instant
+//     payouts may land on it — long enough for the real owner to notice a
+//     takeover and act, which is the entire point of the delay. Standard
+//     bank payouts are untouched: they go to the bank account, which an
+//     attacker's card swap does not redirect.
+//   * Attaching cards too often locks the feature: the third card inside
+//     thirty days is not somebody correcting a typo. The lock releases on
+//     its own as the changes age out of the window.
+
+const CARD_HOLD_BUSINESS_DAYS = 7;
+const CARD_CHANGE_WINDOW_DAYS = 30;
+const CARD_CHANGE_LIMIT = 3;
+
+/// Whole business days (Mon–Fri, UTC) elapsed from [from] to [to]. Partial
+/// days do not count — "seven business days" must never round down to six
+/// and a bit.
+function businessDaysBetween(from: Date, to: Date): number {
+  if (to.getTime() <= from.getTime()) return 0;
+  let days = 0;
+  const cursor = new Date(Date.UTC(
+    from.getUTCFullYear(),
+    from.getUTCMonth(),
+    from.getUTCDate(),
+  ));
+  const end = new Date(Date.UTC(
+    to.getUTCFullYear(),
+    to.getUTCMonth(),
+    to.getUTCDate(),
+  ));
+  while (cursor.getTime() < end.getTime()) {
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+    const dow = cursor.getUTCDay();
+    if (dow !== 0 && dow !== 6) days++;
+  }
+  return days;
+}
+
+/// The verdict on this account's card, from its attach history.
+///
+/// [attachedAts] is every recorded attach, any order. An account with no
+/// recorded attaches is neither held nor locked: cards added before this
+/// policy existed have already had their waiting period in the world.
+function cardPolicy(opts: { attachedAts: Date[]; now: Date }): {
+  locked: boolean;
+  held: boolean;
+  businessDaysLeft: number;
+} {
+  const { attachedAts, now } = opts;
+  const windowStart = now.getTime() -
+    CARD_CHANGE_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+  const recent = attachedAts.filter((a) => a.getTime() > windowStart);
+  const locked = recent.length >= CARD_CHANGE_LIMIT;
+  if (attachedAts.length === 0) {
+    return { locked, held: false, businessDaysLeft: 0 };
+  }
+  const latest = new Date(
+    Math.max(...attachedAts.map((a) => a.getTime())),
+  );
+  const elapsed = businessDaysBetween(latest, now);
+  const held = elapsed < CARD_HOLD_BUSINESS_DAYS;
+  return {
+    locked,
+    held,
+    businessDaysLeft: held ? CARD_HOLD_BUSINESS_DAYS - elapsed : 0,
+  };
+}
+
 // Returns the caller's payment/KYC status and their connected-account balance
 // (available + pending) plus the latest payout status, so the app can show a
 // wallet with a "cash out" state. Balance is read live from Stripe; funds are
@@ -173,6 +248,40 @@ Deno.serve(async (req) => {
     // The default for the currency is the one Stripe would pick itself, so
     // picking anything else would surprise somebody.
     const card = cards.find((c) => c.default_for_currency) ?? cards[0];
+    const banks = externals.filter((e) => e.object === "bank_account");
+    const bank = banks.find((b) => b.default_for_currency) ?? banks[0];
+
+    // The takeover safeguards' verdicts, so the wallet can say WHY a button
+    // is off with a number instead of a refusal three taps later.
+    const { data: attachEvents } = await admin
+      .from("payment_card_events")
+      .select("created_at, kind")
+      .eq("phone", phone)
+      .order("created_at", { ascending: false })
+      .limit(24);
+    const ats = (kind: string) =>
+      (attachEvents ?? [])
+        .filter((e) => ((e as { kind?: string }).kind ?? "card") === kind)
+        .map((e) => new Date((e as { created_at: string }).created_at));
+    const now = new Date();
+    const cardVerdict = cardPolicy({ attachedAts: ats("card"), now });
+    const bankVerdict = cardPolicy({ attachedAts: ats("bank"), now });
+
+    // A bank change paused automatic payouts for the hold; the moment the
+    // hold has passed, the next wallet visit turns them back on. This app
+    // never sets the schedule to manual for any other reason.
+    const interval = (account as {
+      settings?: { payouts?: { schedule?: { interval?: string } } };
+    }).settings?.payouts?.schedule?.interval;
+    if (
+      !bankVerdict.held && ats("bank").length > 0 && interval === "manual"
+    ) {
+      try {
+        await stripe.accounts.update(accountId, {
+          settings: { payouts: { schedule: { interval: "daily" } } },
+        });
+      } catch (_) { /* the next visit tries again */ }
+    }
 
     // Keep our cached KYC flags fresh.
     await admin.from("payment_accounts").update({
@@ -200,6 +309,10 @@ Deno.serve(async (req) => {
       hasDebitCard: card !== undefined,
       cardLast4: card?.last4 ?? null,
       cardBrand: card?.brand ?? null,
+      cardHoldBusinessDaysLeft: cardVerdict.businessDaysLeft,
+      cardLocked: cardVerdict.locked,
+      bankLast4: bank?.last4 ?? null,
+      bankHoldBusinessDaysLeft: bankVerdict.businessDaysLeft,
       payout: payout
         ? {
           status: payout.status,

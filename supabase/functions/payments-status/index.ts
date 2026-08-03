@@ -7,6 +7,7 @@
 //             currency, payout: { status, amount, arrivalDate } | null }
 
 import { admin, callerPhone, corsHeaders, json, stripe } from "../_shared/stripe.ts";
+import { cardPolicy } from "../_shared/card_policy.ts";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -50,6 +51,40 @@ Deno.serve(async (req) => {
     // The default for the currency is the one Stripe would pick itself, so
     // picking anything else would surprise somebody.
     const card = cards.find((c) => c.default_for_currency) ?? cards[0];
+    const banks = externals.filter((e) => e.object === "bank_account");
+    const bank = banks.find((b) => b.default_for_currency) ?? banks[0];
+
+    // The takeover safeguards' verdicts, so the wallet can say WHY a button
+    // is off with a number instead of a refusal three taps later.
+    const { data: attachEvents } = await admin
+      .from("payment_card_events")
+      .select("created_at, kind")
+      .eq("phone", phone)
+      .order("created_at", { ascending: false })
+      .limit(24);
+    const ats = (kind: string) =>
+      (attachEvents ?? [])
+        .filter((e) => ((e as { kind?: string }).kind ?? "card") === kind)
+        .map((e) => new Date((e as { created_at: string }).created_at));
+    const now = new Date();
+    const cardVerdict = cardPolicy({ attachedAts: ats("card"), now });
+    const bankVerdict = cardPolicy({ attachedAts: ats("bank"), now });
+
+    // A bank change paused automatic payouts for the hold; the moment the
+    // hold has passed, the next wallet visit turns them back on. This app
+    // never sets the schedule to manual for any other reason.
+    const interval = (account as {
+      settings?: { payouts?: { schedule?: { interval?: string } } };
+    }).settings?.payouts?.schedule?.interval;
+    if (
+      !bankVerdict.held && ats("bank").length > 0 && interval === "manual"
+    ) {
+      try {
+        await stripe.accounts.update(accountId, {
+          settings: { payouts: { schedule: { interval: "daily" } } },
+        });
+      } catch (_) { /* the next visit tries again */ }
+    }
 
     // Keep our cached KYC flags fresh.
     await admin.from("payment_accounts").update({
@@ -77,6 +112,10 @@ Deno.serve(async (req) => {
       hasDebitCard: card !== undefined,
       cardLast4: card?.last4 ?? null,
       cardBrand: card?.brand ?? null,
+      cardHoldBusinessDaysLeft: cardVerdict.businessDaysLeft,
+      cardLocked: cardVerdict.locked,
+      bankLast4: bank?.last4 ?? null,
+      bankHoldBusinessDaysLeft: bankVerdict.businessDaysLeft,
       payout: payout
         ? {
           status: payout.status,

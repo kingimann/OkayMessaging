@@ -50,6 +50,13 @@ class WalletStatus {
   /// its own as the changes age past thirty days.
   final bool cardLocked;
 
+  /// The direct-deposit account payouts land on, by its last digits ('' =
+  /// none visible), and the business days before a CHANGED one may receive
+  /// payouts again — the same takeover shield the card wears, on the other
+  /// place money leaves through.
+  final String bankLast4;
+  final int bankHoldDaysLeft;
+
   const WalletStatus({
     required this.onboarded,
     required this.chargesEnabled,
@@ -64,6 +71,8 @@ class WalletStatus {
     this.cardBrand,
     this.cardHoldDaysLeft = 0,
     this.cardLocked = false,
+    this.bankLast4 = '',
+    this.bankHoldDaysLeft = 0,
     this.payoutStatus,
     this.payoutAmountCents,
   });
@@ -98,6 +107,9 @@ class WalletStatus {
         cardHoldDaysLeft:
             (j['cardHoldBusinessDaysLeft'] as num?)?.toInt() ?? 0,
         cardLocked: j['cardLocked'] as bool? ?? false,
+        bankLast4: j['bankLast4'] as String? ?? '',
+        bankHoldDaysLeft:
+            (j['bankHoldBusinessDaysLeft'] as num?)?.toInt() ?? 0,
         payoutStatus: (j['payout'] as Map?)?['status'] as String?,
         payoutAmountCents: ((j['payout'] as Map?)?['amount'] as num?)?.toInt(),
       );
@@ -138,6 +150,9 @@ class PayoutOutcome {
           'Instant payouts are locked: the card on this account changed too '
               'often. The lock lifts once the recent changes are more than '
               '30 days old.',
+        'bank_hold' =>
+          'Your payout account was changed recently. As a security measure, '
+              'payouts wait 7 business days after a change.',
         _ => error!,
       };
 }
