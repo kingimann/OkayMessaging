@@ -14360,8 +14360,10 @@ void main() {
       expect(files, isNotEmpty, reason: 'nothing was scanned');
 
       // Bare SCREAMING_SNAKE names are how this codebase writes module-level
-      // constants, which is the thing that goes missing when code moves.
-      final name = RegExp(r'\b([A-Z][A-Z0-9_]{2,})\b');
+      // constants, which is the thing that goes missing when code moves. A
+      // name after a dot is a property (Date.UTC), which deploy can never
+      // fail to find — only the bare form can go missing.
+      final name = RegExp(r'(?<!\.)\b([A-Z][A-Z0-9_]{2,})\b');
       final declaration =
           RegExp(r'\b(?:const|let|var|enum|function|class)\s+([A-Z][A-Z0-9_]{2,})\b');
       // Platform globals that are legitimately never declared.
@@ -19095,6 +19097,62 @@ void main() {
           .readAsStringSync();
       expect(fn.contains('cardToken'), isTrue);
       expect(fn.contains('card_must_be_tokenised'), isTrue);
+    });
+
+    test('a fresh debit card waits, and a churned one is locked', () {
+      // The takeover safeguard: the server's verdict rides the quote and
+      // the client's instant-button gate honours it. The policy arithmetic
+      // itself is executed by card_policy_test.mjs in check_functions.
+      Map<String, dynamic> base() => {
+            'onboarded': true,
+            'chargesEnabled': true,
+            'payoutsEnabled': true,
+            'hasDebitCard': true,
+            'instantAvailable': 5000,
+            'country': 'CA',
+          };
+      final held = WalletStatus.fromJson(
+          {...base(), 'cardHoldBusinessDaysLeft': 3});
+      expect(held.cardHoldDaysLeft, 3);
+      expect(held.canCashOutInstantly, isFalse,
+          reason: 'a held card must not offer the instant button');
+      final locked =
+          WalletStatus.fromJson({...base(), 'cardLocked': true});
+      expect(locked.canCashOutInstantly, isFalse);
+      // An older deployment that says nothing invents no hold.
+      expect(WalletStatus.fromJson(base()).canCashOutInstantly, isTrue);
+
+      // Both refusals have words, and both paste copies enforce the rules —
+      // a hold only the app knows about is a hold a curl request skips.
+      expect(const PayoutOutcome(ok: false, error: 'card_hold').message,
+          contains('7 business days'));
+      expect(
+          const PayoutOutcome(ok: false, error: 'card_changes_locked')
+              .message,
+          contains('30 days'));
+      final payout = File('docs/edge_functions_paste/payments-payout.ts')
+          .readAsStringSync();
+      expect(payout.contains('card_hold'), isTrue);
+      expect(payout.contains('card_changes_locked'), isTrue);
+      final fields =
+          File('docs/edge_functions_paste/payments-connect-fields.ts')
+              .readAsStringSync();
+      expect(fields.contains('payment_card_events'), isTrue);
+      expect(fields.contains('card_changes_locked'), isTrue);
+
+      // And the card is judged by name BEFORE it is attached: the same
+      // rules the sending card passes (judgeCard — executed by
+      // cardholder_test.mjs), against the name Stripe read off the ID.
+      expect(fields.contains('judgeCard'), isTrue,
+          reason: 'the payout card must be name-checked before attach');
+      expect(fields.contains('card_name_mismatch'), isTrue);
+      expect(fields.contains('card_prepaid'), isTrue);
+      final screen = File('lib/screens/add_debit_card_screen.dart')
+          .readAsStringSync();
+      expect(screen.contains("'Name on the card'"), isTrue,
+          reason: 'without the field there is no name to check');
+      expect(screen.contains('card_name_mismatch'), isTrue,
+          reason: 'the refusal needs words on the screen it lands on');
     });
 
     test('a no-progress onboarding round says so instead of redrawing', () {

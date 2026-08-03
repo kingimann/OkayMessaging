@@ -40,6 +40,174 @@ async function callerPhone(req: Request): Promise<string | null> {
   return phone ? phone.replace(/\D/g, "") : null;
 }
 
+// The debit-card rules, pure so they can be executed without Stripe.
+//
+// WHY THESE EXIST. The debit card is where instant payouts LAND — whoever
+// controls it walks away with the balance. The classic account-takeover
+// drains in one motion: sign in, attach your own card, cash out in minutes.
+// Two rules close it, both enforced server-side because a client-side rule
+// is a suggestion:
+//
+//   * A newly attached card waits SEVEN BUSINESS DAYS before instant
+//     payouts may land on it — long enough for the real owner to notice a
+//     takeover and act, which is the entire point of the delay. Standard
+//     bank payouts are untouched: they go to the bank account, which an
+//     attacker's card swap does not redirect.
+//   * Attaching cards too often locks the feature: the third card inside
+//     thirty days is not somebody correcting a typo. The lock releases on
+//     its own as the changes age out of the window.
+
+const CARD_HOLD_BUSINESS_DAYS = 7;
+const CARD_CHANGE_WINDOW_DAYS = 30;
+const CARD_CHANGE_LIMIT = 3;
+
+/// Whole business days (Mon–Fri, UTC) elapsed from [from] to [to]. Partial
+/// days do not count — "seven business days" must never round down to six
+/// and a bit.
+function businessDaysBetween(from: Date, to: Date): number {
+  if (to.getTime() <= from.getTime()) return 0;
+  let days = 0;
+  const cursor = new Date(Date.UTC(
+    from.getUTCFullYear(),
+    from.getUTCMonth(),
+    from.getUTCDate(),
+  ));
+  const end = new Date(Date.UTC(
+    to.getUTCFullYear(),
+    to.getUTCMonth(),
+    to.getUTCDate(),
+  ));
+  while (cursor.getTime() < end.getTime()) {
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+    const dow = cursor.getUTCDay();
+    if (dow !== 0 && dow !== 6) days++;
+  }
+  return days;
+}
+
+/// The verdict on this account's card, from its attach history.
+///
+/// [attachedAts] is every recorded attach, any order. An account with no
+/// recorded attaches is neither held nor locked: cards added before this
+/// policy existed have already had their waiting period in the world.
+function cardPolicy(opts: { attachedAts: Date[]; now: Date }): {
+  locked: boolean;
+  held: boolean;
+  businessDaysLeft: number;
+} {
+  const { attachedAts, now } = opts;
+  const windowStart = now.getTime() -
+    CARD_CHANGE_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+  const recent = attachedAts.filter((a) => a.getTime() > windowStart);
+  const locked = recent.length >= CARD_CHANGE_LIMIT;
+  if (attachedAts.length === 0) {
+    return { locked, held: false, businessDaysLeft: 0 };
+  }
+  const latest = new Date(
+    Math.max(...attachedAts.map((a) => a.getTime())),
+  );
+  const elapsed = businessDaysBetween(latest, now);
+  const held = elapsed < CARD_HOLD_BUSINESS_DAYS;
+  return {
+    locked,
+    held,
+    businessDaysLeft: held ? CARD_HOLD_BUSINESS_DAYS - elapsed : 0,
+  };
+}
+
+// Deciding whether a card may be used to send money.
+//
+// Two rules, both of which have to hold before a charge is captured:
+//
+//   1. The card is not prepaid. A prepaid card is bought with cash and tied
+//      to nobody, which is the whole appeal for someone moving money they
+//      shouldn't be.
+//   2. The cardholder name matches the name Stripe read off the sender's
+//      government ID. Someone else's card is not yours to send from.
+//
+// Both are checked against the *authorised* payment method, before capture,
+// so a card that fails is never actually charged.
+
+/// Strips case, accents and punctuation so "O'BRIEN-Smith" and "obrien smith"
+/// compare equal.
+///
+/// Apostrophes are deleted rather than turned into spaces: they never
+/// separate one name from another, and splitting "O'Brien" into "o" and
+/// "brien" would stop it matching a card printed "OBRIEN". Hyphens do
+/// separate, so they become spaces.
+function normalizeName(name: string): string {
+  return name
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/['’ʼ]/g, "")
+    .replace(/[^a-z\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/// Whether [cardName] plausibly belongs to the person whose ID says
+/// [verifiedName].
+///
+/// Deliberately lenient in one direction and strict in the other. Cards carry
+/// abbreviated and reordered names — "SMITH/ROBERT J", "Rob Smith", "Robert
+/// John Smith" — and rejecting a legitimate sender is a worse failure here
+/// than accepting a nickname. So: every surname-ish token of the ID name must
+/// appear, and the first name must match or be a prefix of it. A different
+/// person's name shares neither.
+function nameMatches(cardName: string, verifiedName: string): boolean {
+  const card = normalizeName(cardName);
+  const id = normalizeName(verifiedName);
+  if (card.length === 0 || id.length === 0) return false;
+  if (card === id) return true;
+
+  const cardParts = card.split(" ").filter((p) => p.length > 1);
+  const idParts = id.split(" ").filter((p) => p.length > 1);
+  if (cardParts.length === 0 || idParts.length === 0) return false;
+
+  // The last token of the ID name is the one that must be present outright.
+  const surname = idParts[idParts.length - 1];
+  if (!cardParts.includes(surname)) return false;
+
+  // And something on the card has to correspond to the given name, allowing
+  // "Rob" for "Robert" but not "Alice" for "Robert".
+  const given = idParts[0];
+  return cardParts.some((p) =>
+    p === given || given.startsWith(p) || p.startsWith(given)
+  );
+}
+
+/// The `reason?: undefined` on the passing arm is deliberate. Without it,
+/// reading `verdict.reason` requires TypeScript to have narrowed the union
+/// first, and the Supabase dashboard editor's type worker does not narrow
+/// across the try/catch these verdicts are produced in — it reports
+/// "Property 'reason' does not exist on type '{ ok: true }'" over code that
+/// both `deno check` and strict `tsc` accept. Declaring the property as
+/// always-present-but-undefined makes the access legal unnarrowed while
+/// still refusing `{ ok: true, reason: … }`, so nothing is given up.
+type CardVerdict =
+  | { ok: true; reason?: undefined }
+  | { ok: false; reason: "prepaid" | "name_mismatch" | "unknown_card" };
+
+/// The full decision for one authorised card.
+function judgeCard(
+  card: { funding?: string | null } | null | undefined,
+  billingName: string | null | undefined,
+  verifiedName: string | null | undefined,
+): CardVerdict {
+  if (!card) return { ok: false, reason: "unknown_card" };
+  if (card.funding === "prepaid") return { ok: false, reason: "prepaid" };
+  // No verified name means the sender never passed the ID check, or Stripe
+  // gave us no name to compare. Either way there is nothing to match against,
+  // and "nothing to match" must fail closed.
+  if (!verifiedName || !billingName) {
+    return { ok: false, reason: "name_mismatch" };
+  }
+  return nameMatches(billingName, verifiedName)
+    ? { ok: true }
+    : { ok: false, reason: "name_mismatch" };
+}
+
 import Stripe from "https://esm.sh/stripe@16.12.0?target=denonext";
 
 // The generic request plumbing lives in http.ts; re-exported so existing
@@ -466,11 +634,59 @@ Deno.serve(async (req) => {
         });
       }
       // A debit card rides the same door: it is an external account too,
-      // the one instant payouts land on.
+      // the one instant payouts land on. Attaching consults the change
+      // policy first and RECORDS the attach — the seven-business-day hold
+      // in payments-payout is only as real as this row.
       if (submit.cardToken) {
+        const { data: events } = await admin
+          .from("payment_card_events")
+          .select("created_at")
+          .eq("phone", phone)
+          .order("created_at", { ascending: false })
+          .limit(12);
+        const policy = cardPolicy({
+          attachedAts: (events ?? []).map((e) =>
+            new Date((e as { created_at: string }).created_at)
+          ),
+          now: new Date(),
+        });
+        if (policy.locked) {
+          return json({ error: "card_changes_locked" }, 429);
+        }
+        // The name on the card has to match the name on the account — the
+        // one Stripe read off the government ID. Judged BEFORE attaching,
+        // with the same rules the sending card is judged by (lenient about
+        // "ROB SMITH" for "Robert Smith", closed to anybody else), and the
+        // prepaid refusal comes along: a prepaid card is tied to nobody,
+        // which is the whole appeal for draining a balance onto one.
+        const { data: identity } = await admin
+          .from("identity_verifications")
+          .select("status, verified_name")
+          .eq("phone", phone)
+          .maybeSingle();
+        if (identity?.status !== "verified" || !identity.verified_name) {
+          return json({ error: "identity_required" }, 403);
+        }
+        const tok = await stripe.tokens.retrieve(submit.cardToken);
+        const tokCard = (tok as {
+          card?: { name?: string | null; funding?: string | null };
+        }).card;
+        const verdict = judgeCard(
+          tokCard,
+          tokCard?.name,
+          identity.verified_name as string,
+        );
+        if (!verdict.ok) {
+          return json({
+            error: verdict.reason === "prepaid"
+              ? "card_prepaid"
+              : "card_name_mismatch",
+          }, 403);
+        }
         await stripe.accounts.createExternalAccount(accountId, {
           external_account: submit.cardToken,
         });
+        await admin.from("payment_card_events").insert({ phone });
       }
     }
 

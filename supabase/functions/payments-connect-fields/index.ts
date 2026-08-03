@@ -31,6 +31,8 @@
 //                                 collect for. Asked for explicitly.
 
 import { admin, callerPhone, corsHeaders, json } from "../_shared/http.ts";
+import { cardPolicy } from "../_shared/card_policy.ts";
+import { judgeCard } from "../_shared/cardholder.ts";
 import { stripe } from "../_shared/stripe.ts";
 
 /// Whether a connected account is an Express leftover worth throwing away.
@@ -344,11 +346,59 @@ Deno.serve(async (req) => {
         });
       }
       // A debit card rides the same door: it is an external account too,
-      // the one instant payouts land on.
+      // the one instant payouts land on. Attaching consults the change
+      // policy first and RECORDS the attach — the seven-business-day hold
+      // in payments-payout is only as real as this row.
       if (submit.cardToken) {
+        const { data: events } = await admin
+          .from("payment_card_events")
+          .select("created_at")
+          .eq("phone", phone)
+          .order("created_at", { ascending: false })
+          .limit(12);
+        const policy = cardPolicy({
+          attachedAts: (events ?? []).map((e) =>
+            new Date((e as { created_at: string }).created_at)
+          ),
+          now: new Date(),
+        });
+        if (policy.locked) {
+          return json({ error: "card_changes_locked" }, 429);
+        }
+        // The name on the card has to match the name on the account — the
+        // one Stripe read off the government ID. Judged BEFORE attaching,
+        // with the same rules the sending card is judged by (lenient about
+        // "ROB SMITH" for "Robert Smith", closed to anybody else), and the
+        // prepaid refusal comes along: a prepaid card is tied to nobody,
+        // which is the whole appeal for draining a balance onto one.
+        const { data: identity } = await admin
+          .from("identity_verifications")
+          .select("status, verified_name")
+          .eq("phone", phone)
+          .maybeSingle();
+        if (identity?.status !== "verified" || !identity.verified_name) {
+          return json({ error: "identity_required" }, 403);
+        }
+        const tok = await stripe.tokens.retrieve(submit.cardToken);
+        const tokCard = (tok as {
+          card?: { name?: string | null; funding?: string | null };
+        }).card;
+        const verdict = judgeCard(
+          tokCard,
+          tokCard?.name,
+          identity.verified_name as string,
+        );
+        if (!verdict.ok) {
+          return json({
+            error: verdict.reason === "prepaid"
+              ? "card_prepaid"
+              : "card_name_mismatch",
+          }, 403);
+        }
         await stripe.accounts.createExternalAccount(accountId, {
           external_account: submit.cardToken,
         });
+        await admin.from("payment_card_events").insert({ phone });
       }
     }
 

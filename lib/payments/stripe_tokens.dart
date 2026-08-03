@@ -106,12 +106,17 @@ class StripeTokens {
     required int expYear,
     required String cvc,
     required String currency,
+    required String name,
   }) async {
     final body = await _post('tokens', {
       'card[number]': number,
       'card[exp_month]': '$expMonth',
       'card[exp_year]': '$expYear',
       'card[cvc]': cvc,
+      // The name as printed on the card. The server compares it against the
+      // name Stripe read off the government ID — someone else's card is not
+      // yours to cash out to.
+      'card[name]': name,
       // Marks the card as a payout destination in this currency, which is
       // what an external account card is.
       'card[currency]': currency,

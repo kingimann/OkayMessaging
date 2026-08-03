@@ -456,6 +456,17 @@ class _CashOutCardState extends State<_CashOutCard> {
               !s.hasDebitCard
                   ? 'Add a debit card and your balance can land in minutes '
                       'instead of waiting for the bank payout.'
+                  : s.cardLocked
+                      ? 'Instant payouts are locked: the card on this '
+                          'account changed too often. The lock lifts on its '
+                          'own once the recent changes are more than 30 '
+                          'days old. Bank payouts are unaffected.'
+                  : s.cardHoldDaysLeft > 0
+                      ? 'Your card was added recently. As a security '
+                          'measure, instant payouts unlock in '
+                          '${s.cardHoldDaysLeft} business '
+                          '${s.cardHoldDaysLeft == 1 ? 'day' : 'days'} — '
+                          'bank payouts are unaffected.'
                   : !InstantPayoutEconomics.isSupportedIn(s.country)
                       ? 'Stripe does not offer instant payouts in this '
                           'country yet. Your balance still pays out to your '

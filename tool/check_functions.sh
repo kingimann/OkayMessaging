@@ -65,7 +65,7 @@ echo "checked $checked file(s), $failed failing"
 # apple_jws and iap are node tests: one needs an openssl-generated certificate
 # chain, the other replaces globalThis.Deno, which newer Deno will not allow.
 # Both are run by hand per docs/in_app_purchases_setup.md.
-DENO_TESTS="cardholder moderation payment_limits"
+DENO_TESTS="card_policy cardholder moderation payment_limits"
 NODE_TESTS="apple_jws iap"
 
 for name in $DENO_TESTS; do

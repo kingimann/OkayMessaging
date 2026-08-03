@@ -22,6 +22,7 @@
 //                                       hasDebitCard, cardLast4, cardBrand }
 
 import { admin, callerPhone, corsHeaders, json, stripe } from "../_shared/stripe.ts";
+import { cardPolicy } from "../_shared/card_policy.ts";
 
 /// Stripe's published instant-payout rate by country, mirroring
 /// InstantPayoutEconomics on the client. Quoted here too so the receipt the
@@ -90,6 +91,21 @@ Deno.serve(async (req) => {
     const country = (account as { country?: string }).country ?? null;
     const card = pickDebitCard(account as { external_accounts?: { data?: unknown[] } });
 
+    // The card's standing under the takeover safeguards: a newly attached
+    // card waits seven business days, and too many changes lock instants.
+    const { data: cardEvents } = await admin
+      .from("payment_card_events")
+      .select("created_at")
+      .eq("phone", phone)
+      .order("created_at", { ascending: false })
+      .limit(12);
+    const policy = cardPolicy({
+      attachedAts: (cardEvents ?? []).map((e) =>
+        new Date((e as { created_at: string }).created_at)
+      ),
+      now: new Date(),
+    });
+
     const balance = await stripe.balance.retrieve({ stripeAccount: accountId });
     // `instant_available` is its own bucket and is NOT a slice of
     // `available` — reading the ordinary available balance here would offer
@@ -109,6 +125,9 @@ Deno.serve(async (req) => {
         hasDebitCard: card !== null,
         cardLast4: card?.last4 ?? null,
         cardBrand: card?.brand ?? null,
+        // So the wallet says WHY the instant button is off, with a number.
+        cardHoldBusinessDaysLeft: policy.businessDaysLeft,
+        cardLocked: policy.locked,
         payoutsEnabled: account.payouts_enabled,
       });
     }
@@ -121,6 +140,18 @@ Deno.serve(async (req) => {
 
     if (method === "instant") {
       if (!card) return json({ error: "no_debit_card" }, 400);
+      // The takeover safeguards, at the moment money would actually move.
+      // Standard bank payouts are untouched: a card swap does not redirect
+      // where those land.
+      if (policy.locked) {
+        return json({ error: "card_changes_locked" }, 429);
+      }
+      if (policy.held) {
+        return json({
+          error: "card_hold",
+          businessDaysLeft: policy.businessDaysLeft,
+        }, 403);
+      }
       if (amountCents > instantAvailable) {
         return json({
           error: "over_instant_balance",

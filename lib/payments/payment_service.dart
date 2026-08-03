@@ -41,6 +41,15 @@ class WalletStatus {
   final String? cardLast4;
   final String? cardBrand;
 
+  /// Business days before a freshly added card may receive instant payouts
+  /// (0 = usable now). The takeover safeguard: an attacker who attaches
+  /// their own card waits a week in front of a balance they cannot touch.
+  final int cardHoldDaysLeft;
+
+  /// Instant payouts locked because the card changed too often. Releases on
+  /// its own as the changes age past thirty days.
+  final bool cardLocked;
+
   const WalletStatus({
     required this.onboarded,
     required this.chargesEnabled,
@@ -53,6 +62,8 @@ class WalletStatus {
     this.hasDebitCard = false,
     this.cardLast4,
     this.cardBrand,
+    this.cardHoldDaysLeft = 0,
+    this.cardLocked = false,
     this.payoutStatus,
     this.payoutAmountCents,
   });
@@ -66,6 +77,8 @@ class WalletStatus {
   bool get canCashOutInstantly =>
       payoutsEnabled &&
       hasDebitCard &&
+      cardHoldDaysLeft == 0 &&
+      !cardLocked &&
       InstantPayoutEconomics.isSupportedIn(country) &&
       InstantPayoutEconomics.isWorthCashingOut(instantAvailableCents);
 
@@ -82,6 +95,9 @@ class WalletStatus {
         hasDebitCard: j['hasDebitCard'] as bool? ?? false,
         cardLast4: j['cardLast4'] as String?,
         cardBrand: j['cardBrand'] as String?,
+        cardHoldDaysLeft:
+            (j['cardHoldBusinessDaysLeft'] as num?)?.toInt() ?? 0,
+        cardLocked: j['cardLocked'] as bool? ?? false,
         payoutStatus: (j['payout'] as Map?)?['status'] as String?,
         payoutAmountCents: ((j['payout'] as Map?)?['amount'] as num?)?.toInt(),
       );
@@ -114,6 +130,14 @@ class PayoutOutcome {
         'not_onboarded' => 'Finish setting up payments first.',
         'sender_banned' =>
           'Cashing out is paused on this account while a dispute is open.',
+        'card_hold' =>
+          'Your card was added recently. As a security measure, instant '
+              'payouts wait 7 business days after a card is added — bank '
+              'payouts are unaffected.',
+        'card_changes_locked' =>
+          'Instant payouts are locked: the card on this account changed too '
+              'often. The lock lifts once the recent changes are more than '
+              '30 days old.',
         _ => error!,
       };
 }

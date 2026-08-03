@@ -156,6 +156,18 @@ select pg_temp.expect_fail(
     values ('t_p1','15550002222')$$,
   'you cannot like as somebody else');
 
+-- The card-attach ledger is the waiting period: a row a client could read,
+-- write or delete is a hold a thief could inspect or skip.
+select pg_temp.expect_fail(
+  $$select * from public.payment_card_events$$,
+  'clients cannot read the card-attach ledger');
+select pg_temp.expect_fail(
+  $$insert into public.payment_card_events (phone) values ('15550001111')$$,
+  'clients cannot forge a card-attach event');
+select pg_temp.expect_fail(
+  $$delete from public.payment_card_events$$,
+  'clients cannot erase the card-attach history');
+
 -- Sparks: the tally rows behind the amber bolt. The money itself moves over
 -- Stripe; these assertions hold the tally to the same standards as likes.
 select pg_temp.expect_ok(

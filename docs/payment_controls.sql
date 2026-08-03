@@ -78,3 +78,22 @@ drop policy if exists payment_blocks_all on public.payment_blocks;
 -- and in-flight charges count; blocked and failed ones never took money.
 create index if not exists payment_transactions_from_created_idx
   on public.payment_transactions (from_phone, updated_at);
+
+-- ---------------------------------------------------------------------------
+-- Debit-card attach history — the record behind two safeguards: a newly
+-- attached card waits seven business days before instant payouts (an account
+-- takeover attaches its own card and drains the balance in one motion; the
+-- wait gives the real owner time to notice), and a third card inside thirty
+-- days locks the feature until the changes age out. SERVICE ROLE ONLY: the
+-- Edge Functions write and read it, clients get nothing — a row a client
+-- could delete is a waiting period a thief could skip.
+-- ---------------------------------------------------------------------------
+create table if not exists public.payment_card_events (
+  id         bigint generated always as identity primary key,
+  phone      text not null,
+  created_at timestamptz not null default now()
+);
+create index if not exists payment_card_events_phone_idx
+  on public.payment_card_events (phone, created_at desc);
+alter table public.payment_card_events enable row level security;
+revoke all on table public.payment_card_events from anon, authenticated;

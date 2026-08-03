@@ -24,6 +24,7 @@ class AddDebitCardScreen extends StatefulWidget {
 
 class _AddDebitCardScreenState extends State<AddDebitCardScreen> {
   final _form = GlobalKey<FormState>();
+  final _name = TextEditingController();
   final _number = TextEditingController();
   final _month = TextEditingController();
   final _year = TextEditingController();
@@ -33,6 +34,7 @@ class _AddDebitCardScreenState extends State<AddDebitCardScreen> {
 
   @override
   void dispose() {
+    _name.dispose();
     _number.dispose();
     _month.dispose();
     _year.dispose();
@@ -61,6 +63,7 @@ class _AddDebitCardScreenState extends State<AddDebitCardScreen> {
         expYear: int.parse(ConnectValidation.digitsOf(_year.text)),
         cvc: ConnectValidation.digitsOf(_cvc.text),
         currency: widget.currency,
+        name: _name.text.trim(),
       );
       // The server attaches the token to the connected account — the same
       // door the bank token goes through.
@@ -69,11 +72,27 @@ class _AddDebitCardScreenState extends State<AddDebitCardScreen> {
       if (mounted) Navigator.of(context).pop(true);
     } catch (e) {
       if (!mounted) return;
+      final raw = '$e'
+          .replaceFirst('PaymentException: ', '')
+          .replaceFirst('StripeTokenException: ', '');
       setState(() {
         _submitting = false;
-        _error = '$e'
-            .replaceFirst('PaymentException: ', '')
-            .replaceFirst('StripeTokenException: ', '');
+        _error = switch (raw) {
+          'card_changes_locked' =>
+            'The card on this account has changed too often, so adding '
+                'another is locked. The lock lifts on its own once the '
+                'recent changes are more than 30 days old.',
+          'card_name_mismatch' =>
+            'The name on the card has to match the name on your verified '
+                'ID. A card in somebody else\'s name can\'t be used here.',
+          'card_prepaid' =>
+            'Prepaid cards can\'t receive instant payouts — use a debit '
+                'card attached to your bank account.',
+          'identity_required' =>
+            'Verify your ID first — Settings → Get verified. The card is '
+                'checked against the name on it.',
+          _ => raw,
+        };
       });
     }
   }
@@ -96,8 +115,19 @@ class _AddDebitCardScreenState extends State<AddDebitCardScreen> {
             ),
             const SizedBox(height: 18),
             TextFormField(
-              controller: _number,
+              controller: _name,
               autofocus: true,
+              textCapitalization: TextCapitalization.words,
+              validator: (v) => ConnectValidation.name(v, 'name on the card'),
+              decoration: const InputDecoration(
+                labelText: 'Name on the card',
+                border: OutlineInputBorder(),
+                isDense: true,
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _number,
               keyboardType: TextInputType.number,
               inputFormatters: [
                 FilteringTextInputFormatter.digitsOnly,
@@ -199,8 +229,11 @@ class _AddDebitCardScreenState extends State<AddDebitCardScreen> {
             ),
             const SizedBox(height: 10),
             Text(
-              'It has to be a debit card in your own name — instant payouts '
-              'can\'t land on a credit card.',
+              'It has to be a debit card in your own name — the name is '
+              'checked against your verified ID, and prepaid or credit '
+              'cards can\'t receive instant payouts. As a security measure, '
+              'a newly added card also waits 7 business days before instant '
+              'payouts can land on it.',
               style: TextStyle(fontSize: 12, color: AppColors.subtle(context)),
             ),
           ],
