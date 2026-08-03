@@ -20,6 +20,7 @@ import 'package:okay_messaging/state/feed_drafts.dart';
 import 'package:okay_messaging/state/feed_mute_store.dart';
 import 'package:okay_messaging/widgets/collapsible_text.dart';
 import 'package:okay_messaging/state/voice_presence_store.dart';
+import 'package:okay_messaging/widgets/voice_channel_banner.dart';
 import 'package:okay_messaging/state/channel_typing_store.dart';
 import 'package:okay_messaging/relay/app_pages.dart';
 import 'package:okay_messaging/widgets/phone_gate.dart';
@@ -18671,7 +18672,7 @@ void main() {
   });
 
   group('Voice channel screen', () {
-    testWidgets('joining then leaving the screen disconnects cleanly',
+    testWidgets('presence outlives the screen; leaving is explicit',
         (tester) async {
       SharedPreferences.setMockInitialValues({});
       CommunityStore.instance.resetForTest();
@@ -18695,15 +18696,81 @@ void main() {
       await tester.tap(find.text('Join Voice'));
       await tester.pump();
       expect(VoicePresenceStore.instance.amIn(channel.id), isTrue);
+      expect(VoicePresenceStore.instance.joinedAt, isNotNull);
+      expect(VoiceChannelScreen.onScreenFor.value, channel.id);
 
-      // Walking away from the screen has to leave the room — otherwise the
-      // rest of the server keeps seeing you in it. Tearing the tree down
-      // must not fire a notification into widgets that are already gone.
+      // Walking away from the screen KEEPS you in the room — presence
+      // belongs to the store, so you can browse the app in voice. Tearing
+      // the tree down must not fire notifications into dead widgets.
       await tester.pumpWidget(const MaterialApp(home: SizedBox()));
       await tester.pump();
       expect(tester.takeException(), isNull);
+      expect(VoicePresenceStore.instance.amIn(channel.id), isTrue,
+          reason: 'leaving the screen must not leave the channel');
+      // The room screen is gone, which is what tells the pill to show.
+      expect(VoiceChannelScreen.onScreenFor.value, isNull);
+
+      // Coming back finds the SAME session: the clock resumes rather than
+      // restarting, because joinedAt lives in the store.
+      final joined = VoicePresenceStore.instance.joinedAt;
+      await tester.pumpWidget(MaterialApp(
+        home: VoiceChannelScreen(
+            communityId: community.id, channelId: channel.id),
+      ));
+      await tester.pump();
+      expect(find.text('Join Voice'), findsNothing);
+      expect(VoicePresenceStore.instance.joinedAt, joined);
+      await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+      await tester.pump();
+
+      // Leave is the only way out.
+      VoicePresenceStore.instance.leave();
       expect(VoicePresenceStore.instance.amIn(channel.id), isFalse);
       expect(VoicePresenceStore.instance.countIn(channel.id), 0);
+      expect(VoicePresenceStore.instance.joinedAt, isNull);
+    });
+
+    testWidgets('the return-to-voice pill shows off-screen and can leave',
+        (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      CommunityStore.instance.resetForTest();
+      VoicePresenceStore.instance.resetForTest();
+      addTearDown(VoicePresenceStore.instance.resetForTest);
+      addTearDown(() => VoiceChannelScreen.onScreenFor.value = null);
+      final community = CommunityStore.instance.createCommunity('Guild');
+      CommunityStore.instance
+          .addChannel(community.id, 'Lounge', type: ChannelType.voice);
+      // By name: a new server is seeded with its own voice channel, and
+      // first-by-type picks that one.
+      final channel = CommunityStore.instance
+          .byId(community.id)!
+          .channels
+          .firstWhere((c) => c.name == 'Lounge');
+
+      await tester.pumpWidget(const MaterialApp(
+        home: Stack(children: [SizedBox.expand(), VoiceChannelBanner()]),
+      ));
+      // Not in a channel: nothing.
+      expect(find.textContaining('tap to return'), findsNothing);
+
+      VoicePresenceStore.instance.join(
+          communityId: community.id, channelId: channel.id, myName: 'Me');
+      await tester.pump();
+      expect(find.textContaining('Lounge'), findsOneWidget);
+      expect(find.textContaining('tap to return'), findsOneWidget);
+
+      // On the room screen itself the pill stands down.
+      VoiceChannelScreen.onScreenFor.value = channel.id;
+      await tester.pump();
+      expect(find.textContaining('tap to return'), findsNothing);
+      VoiceChannelScreen.onScreenFor.value = null;
+      await tester.pump();
+
+      // Its hang-up button is a real Leave.
+      await tester.tap(find.byIcon(Icons.call_end));
+      await tester.pump();
+      expect(VoicePresenceStore.instance.amIn(channel.id), isFalse);
+      expect(find.textContaining('tap to return'), findsNothing);
     });
   });
 

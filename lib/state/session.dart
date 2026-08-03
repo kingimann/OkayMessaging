@@ -10,6 +10,7 @@ import '../relay/relay_service.dart';
 import '../util/account_code.dart';
 import '../models/user.dart';
 import 'account_wipe.dart';
+import 'voice_presence_store.dart';
 import 'push_service.dart';
 
 /// The signed-in identity, keyed by phone number and stored **only on this
@@ -226,6 +227,12 @@ class Session {
     // (deleting it needs the session), then the subscriptions, then the
     // session itself. All best-effort — sign-out must never block on the
     // network, and in a build with no relay there is nothing to clear.
+    // Announced while the relay is still up: an account that signs out
+    // mid-voice must not keep sitting in the room under its old identity
+    // until the heartbeat ages it out.
+    try {
+      VoicePresenceStore.instance.leave();
+    } catch (_) {}
     if (RelayConfig.isEnabled) {
       try {
         await PushService.instance.removeToken();

@@ -1060,6 +1060,11 @@ class VoiceChannelScreen extends StatefulWidget {
   const VoiceChannelScreen(
       {super.key, required this.communityId, required this.channelId});
 
+  /// The channel whose room screen is currently mounted, or null. The
+  /// return-to-voice pill reads this so it doesn't float over the very
+  /// screen it would return to.
+  static final ValueNotifier<String?> onScreenFor = ValueNotifier(null);
+
   @override
   State<VoiceChannelScreen> createState() => _VoiceChannelScreenState();
 }
@@ -1089,18 +1094,34 @@ class _VoiceChannelScreenState extends State<VoiceChannelScreen> {
   @override
   void initState() {
     super.initState();
-    // Rejoining a channel this device never left keeps the timer honest.
-    if (_joined) _joinedAt = DateTime.now();
+    VoiceChannelScreen.onScreenFor.value = widget.channelId;
+    // Walking back into a room you never left: the clock and its tick both
+    // resume from the store's join time, not from zero.
+    if (_joined) {
+      _joinedAt = _voice.joinedAt ?? DateTime.now();
+      _startTick();
+    }
   }
 
   @override
   void dispose() {
     _tick?.cancel();
-    // Leaving the screen leaves the room. Without this the rest of the server
-    // would keep seeing you sitting in a channel you walked away from until
-    // the heartbeat aged you out.
-    if (_joined) _voice.leave();
+    // Deliberately NOT leaving the room: presence belongs to the store, so
+    // you stay in voice while browsing the rest of the app (or leaving it —
+    // a long suspension ages you out via the heartbeat, and coming back
+    // re-announces). The return-to-voice pill is the way back; Leave is the
+    // way out.
+    if (VoiceChannelScreen.onScreenFor.value == widget.channelId) {
+      VoiceChannelScreen.onScreenFor.value = null;
+    }
     super.dispose();
+  }
+
+  void _startTick() {
+    _tick?.cancel();
+    _tick = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
   }
 
   void _join() {
@@ -1109,10 +1130,8 @@ class _VoiceChannelScreenState extends State<VoiceChannelScreen> {
       channelId: widget.channelId,
       myName: AppState.profile.value.name,
     );
-    setState(() => _joinedAt = DateTime.now());
-    _tick = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted) setState(() {});
-    });
+    setState(() => _joinedAt = _voice.joinedAt ?? DateTime.now());
+    _startTick();
   }
 
   void _leave() {

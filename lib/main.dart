@@ -59,6 +59,7 @@ import 'state/channel_typing_store.dart';
 import 'state/identity_verification.dart';
 import 'state/platform_moderation.dart';
 import 'state/voice_presence_store.dart';
+import 'widgets/voice_channel_banner.dart';
 import 'state/two_step.dart';
 import 'theme/app_theme.dart';
 import 'widgets/file_transfer_banner.dart';
@@ -407,6 +408,10 @@ class _OkayMessagingAppState extends State<OkayMessagingApp>
       // process; without this, messages only arrive again after a manual
       // refresh (the subscription looks alive and isn't).
       if (RelayConfig.isEnabled) RelayService.instance.wake();
+      // Suspension paused the voice heartbeat too, and everyone else may
+      // have aged this device out of its channel — reappear immediately
+      // rather than one heartbeat period later.
+      VoicePresenceStore.instance.announceNow();
       // Whatever the app-icon badge was counting has now been seen.
       PushService.instance.clearBadge();
     }
@@ -438,6 +443,9 @@ class _OkayMessagingAppState extends State<OkayMessagingApp>
               child: Stack(
                 children: [
                   child ?? const SizedBox.shrink(),
+                  // Voice-room presence outlives the room screen; this is
+                  // what says so anywhere in the app, and the way back.
+                  const VoiceChannelBanner(),
                   const FileTransferBanner(),
                 ],
               ),

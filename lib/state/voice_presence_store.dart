@@ -84,6 +84,25 @@ class VoicePresenceStore extends ChangeNotifier {
   /// The voice channel this device is in, if any.
   String? get myChannelId => _myChannelId;
 
+  /// The server that channel belongs to — what the return-to-voice pill
+  /// needs to navigate back.
+  String? get myCommunityId => _myCommunityId;
+
+  /// When this device joined its current channel. Held HERE rather than on
+  /// the screen, because presence outlives the screen: coming back to the
+  /// room must show the real elapsed time, not a timer restarted at zero.
+  DateTime? get joinedAt => _joinedAt;
+  DateTime? _joinedAt;
+
+  /// Re-announces immediately — called when the app returns to the
+  /// foreground, so the heartbeats everyone else aged out during a long
+  /// suspension come back the moment you do, not one period later.
+  void announceNow() {
+    if (_myChannelId == null) return;
+    _announce(joined: true);
+    sweep();
+  }
+
   bool amIn(String channelId) => _myChannelId == channelId;
 
   /// Everyone in [channelId], the local user first, then by name.
@@ -117,6 +136,10 @@ class VoicePresenceStore extends ChangeNotifier {
     required String myName,
   }) {
     if (_myChannelId != null && _myChannelId != channelId) leave();
+    // Re-joining the channel you never left keeps the clock honest.
+    _joinedAt = _myChannelId == channelId
+        ? (_joinedAt ?? DateTime.now())
+        : DateTime.now();
     _myCommunityId = communityId;
     _myChannelId = channelId;
     _byChannel.putIfAbsent(channelId, () => {})[_meKey] = VoiceOccupant(
@@ -154,6 +177,7 @@ class VoicePresenceStore extends ChangeNotifier {
     if (_byChannel[channelId]?.isEmpty ?? false) _byChannel.remove(channelId);
     _myChannelId = null;
     _myCommunityId = null;
+    _joinedAt = null;
     _timer?.cancel();
     _timer = null;
     notifyListeners();
@@ -236,6 +260,7 @@ class VoicePresenceStore extends ChangeNotifier {
     _byChannel.clear();
     _myChannelId = null;
     _myCommunityId = null;
+    _joinedAt = null;
     onPresence = null;
     notifyListeners();
   }
