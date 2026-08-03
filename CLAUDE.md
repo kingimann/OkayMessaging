@@ -434,6 +434,15 @@ Two things that look like bugs and are not:
 
 ## Waiting on the user (nothing here is code)
 
+0. **NEW since 2026-08-03 late session** (needed for delete/deactivate
+   account to work live; everything is built, tested and pushed):
+   - Run `docs/account_lifecycle.sql` in the SQL editor (adds the
+     `usernames.hidden` column + the find_people filter behind Deactivate).
+   - Paste `docs/edge_functions_paste/delete-account.ts` as a new Edge
+     Function named exactly `delete-account` (JWT verification ON — it must
+     only answer signed-in callers). Until pasted, Delete account fails
+     with a clear error and deletes nothing, by design.
+
 Carried across several sessions; none of it can be done from this box. The
 SQL/bucket/function facts below were re-verified live on 2026-08-03 by
 probing with the anon key (a missing column answers 42703, a missing bucket
