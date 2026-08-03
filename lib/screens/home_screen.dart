@@ -552,7 +552,8 @@ class _AppSideBar extends StatelessWidget {
               ListTile(
                 leading: const Icon(Icons.storefront_outlined),
                 title: const Text('Marketplace'),
-                trailing: const _GateHint(ownerMayPass: true),
+                trailing:
+                    const _GateHint(ownerMayPass: true, numberlessMayPass: true),
                 subtitle: const Text('Buy and sell with your servers'),
                 onTap: () => _go(context, const MarketplaceScreen()),
               ),
@@ -762,15 +763,23 @@ class _IconWithBadge extends StatelessWidget {
 /// which reads as a worse problem than it is — and the phone gate is the
 /// outer one, so it is the one that decides.
 class _GateHint extends StatelessWidget {
-  const _GateHint({this.ownerMayPass = false});
+  const _GateHint({this.ownerMayPass = false, this.numberlessMayPass = false});
 
   final bool ownerMayPass;
+
+  /// True where a numberless account is let in (browse-only marketplace), so
+  /// the row shows no phone padlock — a padlock on a row that opens is a
+  /// worse lie than no padlock. A numbered-but-unverified account still sees
+  /// the verified hint.
+  final bool numberlessMayPass;
 
   @override
   Widget build(BuildContext context) => ListenableBuilder(
         listenable: Session.instance.user,
         builder: (context, _) => Session.instance.isNumberless
-            ? const PhoneOnlyHint()
+            ? (numberlessMayPass
+                ? const SizedBox.shrink()
+                : const PhoneOnlyHint())
             : _VerifiedOnlyHint(ownerMayPass: ownerMayPass),
       );
 }

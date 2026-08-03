@@ -19499,9 +19499,14 @@ void main() {
       final waived =
           RegExp(r'_GateHint\(ownerMayPass: true\)').allMatches(src).length;
       final held = RegExp(r'_GateHint\(\)').allMatches(src).length;
-      // Marketplace and Okay Drop waive; the wallet holds.
-      expect(waived, 2, reason: 'the waived rows drifted from the gates');
+      // Okay Drop waives for the owner; the wallet holds. The marketplace now
+      // also waives the PHONE gate (browse-only), so it uses the distinct
+      // numberlessMayPass form rather than the bare owner waiver.
+      expect(waived, 1, reason: 'the waived rows drifted from the gates');
       expect(held, 1, reason: 'the wallet row stopped showing its padlock');
+      expect(RegExp(r'numberlessMayPass: true').allMatches(src).length, 1,
+          reason: 'the marketplace row must drop the phone padlock now that '
+              'it opens browse-only for a numberless account');
 
       // The rows only the phone gate shuts: Newsfeed, Maps and Servers. The
       // fourth match is inside _GateHint, which is how a row behind BOTH
@@ -19527,22 +19532,36 @@ void main() {
       // broadcast and the mailbox are both reachable with the anon key, so
       // messages work for an account with no session at all.
       for (final path in [
-        'lib/screens/marketplace_screen.dart',
         'lib/screens/wallet_screen.dart',
         'lib/screens/nearby_share_screen.dart',
         'lib/screens/public_feed_screen.dart',
         'lib/screens/explore_map_screen.dart',
         'lib/screens/communities.dart',
-        'lib/tabs/calls_tab.dart',
         'lib/tabs/activity_tab.dart',
       ]) {
         expect(File(path).readAsStringSync().contains('PhoneGate('), isTrue,
             reason: '$path is reachable without a phone number');
       }
-      for (final path in ['lib/tabs/chats_tab.dart', 'lib/screens/chat_screen.dart']) {
+      // Chat, calls, and browsing the marketplace all ride the anon-key
+      // relay, so none of them is phone-gated — a numberless account can
+      // message, call (foreground), and browse/message sellers.
+      for (final path in [
+        'lib/tabs/chats_tab.dart',
+        'lib/screens/chat_screen.dart',
+        'lib/tabs/calls_tab.dart',
+        'lib/screens/marketplace_screen.dart',
+      ]) {
         expect(File(path).readAsStringSync().contains('PhoneGate('), isFalse,
-            reason: '$path is the one thing these accounts are for');
+            reason: '$path works without a phone number');
       }
+      // But the marketplace withholds selling from a numberless account —
+      // listing needs the wallet and the ID check. Browse + message only.
+      final market =
+          File('lib/screens/marketplace_screen.dart').readAsStringSync();
+      expect(market.contains('browseOnly: true'), isTrue,
+          reason: 'a numberless account gets the browse-only marketplace');
+      expect(market.contains('if (Session.instance.isNumberless)'), isTrue,
+          reason: 'selling is refused for a numberless account');
       // Sending money from a chat is the wallet's own capability reached
       // another way — guarding one screen and not this is guarding the door
       // and leaving the window.
@@ -24194,6 +24213,27 @@ void main() {
       await t.pumpAndSettle();
       expect(find.byIcon(Icons.lock_outline), findsNothing,
           reason: 'a padlock on a row that opens is worse than none');
+    });
+
+    testWidgets('calls and the marketplace open for a numberless account',
+        (t) async {
+      Session.instance.signInForTest(phone: AccountCode.mint(), name: 'ada');
+      addTearDown(Session.instance.signOut);
+
+      // Calls: no gate — a call rides the same anon-key relay as chat.
+      await t.pumpWidget(
+          const MaterialApp(home: Scaffold(body: CallsTab())));
+      await t.pumpAndSettle();
+      expect(find.text('Calls needs a phone number'), findsNothing);
+
+      // Marketplace: opens browse-only — the grid loads, but the Sell action
+      // is withheld (listing needs the wallet and the ID check).
+      await t.pumpWidget(const MaterialApp(home: MarketplaceScreen()));
+      await t.pumpAndSettle();
+      expect(find.text('Marketplace needs a phone number'), findsNothing);
+      expect(find.text('Marketplace needs a verified account'), findsNothing);
+      expect(find.widgetWithText(FloatingActionButton, 'Sell'), findsNothing,
+          reason: 'a numberless account browses and messages, never lists');
     });
 
     test('the username is the account, so it is normalised and kept', () async {

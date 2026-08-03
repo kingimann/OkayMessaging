@@ -1,5 +1,4 @@
 import 'dart:math';
-import '../widgets/phone_gate.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -126,17 +125,14 @@ class CallsTab extends StatelessWidget {
     if (ok) CallLog.instance.clear();
   }
 
+  // No phone gate: a call rides the same anon-key relay broadcast that chat
+  // does, addressed by the account code a numberless account already mints,
+  // so calls work with no session exactly as chat does. (Ringing a CLOSED
+  // app still needs a push token, which is session-gated — the same live-only
+  // caveat chat delivery has for these accounts; a call placed while both
+  // apps are open connects.)
   @override
-  Widget build(BuildContext context) => PhoneGate(
-        title: 'Calls',
-        // Not a tab that gets hidden: the bar keeps its five, and the one
-        // that is locked says so rather than vanishing and leaving somebody
-        // wondering what happened to it.
-        scaffold: false,
-        reason: 'A call is placed to a number and rings a number back. There '
-            'is nothing for an account without one to be reached on.',
-        child: Builder(builder: _guarded),
-      );
+  Widget build(BuildContext context) => Builder(builder: _guarded);
 
   Widget _guarded(BuildContext context) {
     return ListenableBuilder(

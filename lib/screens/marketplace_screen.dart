@@ -1,5 +1,5 @@
 import 'package:file_picker/file_picker.dart';
-import '../widgets/phone_gate.dart';
+import '../state/session.dart';
 import '../theme/app_theme.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -503,6 +503,15 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
   }
 
   Future<void> _sell() async {
+    // Defence in depth: the FAB is already withheld on the browse-only path,
+    // but selling needs the wallet and the ID check, neither of which a
+    // numberless account has.
+    if (Session.instance.isNumberless) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Listing needs a phone number — selling runs on the '
+              'wallet and the ID check. You can browse and message sellers.')));
+      return;
+    }
     final servers = CommunityStore.instance.communities;
     if (servers.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
@@ -527,15 +536,21 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Wrapped here rather than at the button that opens this, so every way
-    // in is covered.
-    return PhoneGate(
-      title: 'Marketplace',
-      reason: 'Buying and selling runs on the wallet and on the ID check, and '
-          'both need a phone number behind the account. Browsing is off too: '
-          'listings live on the server, and an account with no number has no '
-          'session to read them with.',
-      child: VerifiedGate(
+    // A numberless account gets a BROWSE-ONLY marketplace: it can see
+    // listings and message sellers (both ride the anon-key relay, like
+    // chat), but not list its own — selling needs the wallet and the ID
+    // check, and both need a number behind the account. Neither gate wraps
+    // this path; the Sell action is withheld instead (see _guarded).
+    //
+    // What it can browse is still whatever server feed reaches the device —
+    // servers stay phone-gated — plus any listing shared into a chat. The
+    // capability is open; how full the grid is follows from that.
+    if (Session.instance.isNumberless) {
+      return _guarded(context, browseOnly: true);
+    }
+    // Gates wrap the SCREEN, not the button that opens it, so every way in
+    // (deep link, a listing shared in a chat) is covered.
+    return VerifiedGate(
       title: 'Marketplace',
       reason: 'Money and strangers meet here: somebody buying from you is '
           'trusting a name they have never met. Verifying your ID is what '
@@ -543,13 +558,12 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
       // Ours to waive: nothing outside the app needs the verified identity to
       // list or browse. Whoever runs the marketplace is already answerable
       // for it.
-        ownerMayPass: true,
-        child: _guarded(context),
-      ),
+      ownerMayPass: true,
+      child: _guarded(context),
     );
   }
 
-  Widget _guarded(BuildContext context) {
+  Widget _guarded(BuildContext context, {bool browseOnly = false}) {
     final hasFilter = _category.isNotEmpty ||
         _mineOnly ||
         _savedOnly ||
@@ -591,11 +605,16 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _sell,
-        icon: const Icon(Icons.sell_outlined),
-        label: const Text('Sell'),
-      ),
+      // Withheld on the browse-only path: a numberless account cannot list,
+      // so offering the button and then refusing the tap would be worse than
+      // not offering it.
+      floatingActionButton: browseOnly
+          ? null
+          : FloatingActionButton.extended(
+              onPressed: _sell,
+              icon: const Icon(Icons.sell_outlined),
+              label: const Text('Sell'),
+            ),
       body: ListenableBuilder(
         listenable: FeedStore.instance,
         builder: (context, _) {
