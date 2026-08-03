@@ -14,10 +14,17 @@ class CallLog extends ChangeNotifier {
 
   static const _key = 'call_log_v1';
   static const _seenKey = 'call_log_seen_v1';
+  static const _alertsKey = 'call_log_alerts_gone_v1';
   static const _max = 200;
 
   List<CallRecord> _records = [];
   DateTime _lastSeen = DateTime.fromMillisecondsSinceEpoch(0);
+
+  /// Missed calls whose ALERT was swiped away in the notifications tab. The
+  /// record itself stays — dismissing an alert about a call and erasing the
+  /// call from history are different intents, and a swipe on a notification
+  /// must never quietly do the bigger one.
+  Set<String> _dismissedAlerts = {};
   SharedPreferences? _prefs;
 
   /// Most-recent-first list of calls.
@@ -48,6 +55,39 @@ class CallLog extends ChangeNotifier {
     if (seen != null) {
       _lastSeen = DateTime.tryParse(seen) ?? _lastSeen;
     }
+    // Only ids that still name a record are worth keeping — the history is
+    // capped, so dismissals of long-gone calls would otherwise pile up
+    // forever.
+    final ids = _records.map((r) => r.id).toSet();
+    _dismissedAlerts = (prefs.getStringList(_alertsKey) ?? const [])
+        .where(ids.contains)
+        .toSet();
+    notifyListeners();
+  }
+
+  /// Whether this missed call's alert was swiped away in the alerts tab.
+  bool alertDismissed(String id) => _dismissedAlerts.contains(id);
+
+  /// The missed calls the alerts tab should still show.
+  List<CallRecord> get missedAlerts => _records
+      .where((r) => r.isMissed && !_dismissedAlerts.contains(r.id))
+      .toList();
+
+  /// Removes one missed call from the alerts tab, keeping the call in the
+  /// history — see [_dismissedAlerts] for why these are different things.
+  void dismissMissedAlert(String id) {
+    if (!_dismissedAlerts.add(id)) return;
+    _prefs?.setStringList(_alertsKey, _dismissedAlerts.toList());
+    notifyListeners();
+  }
+
+  /// Clears every missed-call alert at once ("Clear all alerts").
+  void dismissAllMissedAlerts() {
+    final missed =
+        _records.where((r) => r.isMissed).map((r) => r.id).toList();
+    if (_dismissedAlerts.containsAll(missed)) return;
+    _dismissedAlerts.addAll(missed);
+    _prefs?.setStringList(_alertsKey, _dismissedAlerts.toList());
     notifyListeners();
   }
 
@@ -93,6 +133,7 @@ class CallLog extends ChangeNotifier {
   void resetForTest() {
     _records = [];
     _lastSeen = DateTime.fromMillisecondsSinceEpoch(0);
+    _dismissedAlerts = {};
     _prefs = null;
     notifyListeners();
   }

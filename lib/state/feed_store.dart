@@ -360,6 +360,11 @@ class FeedStore extends ChangeNotifier {
   final Set<String> _hiddenIds = {};
   final Set<String> _mutedUsernames = {};
 
+  /// Posts swiped out of the alerts tab. Narrower than [_hiddenIds] on
+  /// purpose: dismissing an alert about a post says "stop announcing this",
+  /// not "I never want to see it" — the post stays in its server's feed.
+  final Set<String> _alertGoneIds = {};
+
   /// Whether [postId] is the Spark practice bot's post — a device-local
   /// fixture that exists only while payments test mode is on. It is never
   /// broadcast, never backfilled to joiners, and hidden the moment test
@@ -465,6 +470,24 @@ class FeedStore extends ChangeNotifier {
     _save();
     notifyListeners();
     return nowMuted;
+  }
+
+  /// Removes a post from the alerts tab only — it stays in its server's
+  /// feed. See [_alertGoneIds].
+  void dismissAlertPost(String id) {
+    if (!_alertGoneIds.add(id)) return;
+    _save();
+    notifyListeners();
+  }
+
+  /// Bulk form of [dismissAlertPost], for "Clear all alerts" — one save and
+  /// one rebuild instead of one per row.
+  void dismissAlertPosts(Iterable<String> ids) {
+    final before = _alertGoneIds.length;
+    _alertGoneIds.addAll(ids);
+    if (_alertGoneIds.length == before) return;
+    _save();
+    notifyListeners();
   }
 
   /// Removes one alert. Local only: an alert is this device's note that
@@ -841,6 +864,7 @@ class FeedStore extends ChangeNotifier {
             // preview shows originals only.
             p.repostOfId == null &&
             !_hiddenIds.contains(p.id) &&
+            !_alertGoneIds.contains(p.id) &&
             !_mutedUsernames.contains(p.authorUsername.toLowerCase()))
         .toList()
       ..sort((a, b) => b.time.compareTo(a.time));
@@ -1620,6 +1644,10 @@ class FeedStore extends ChangeNotifier {
           ..clear()
           ..addAll((decoded['notifmuted'] as List? ?? const [])
               .whereType<String>());
+        _alertGoneIds
+          ..clear()
+          ..addAll((decoded['alertgone'] as List? ?? const [])
+              .whereType<String>());
         _savedIds
           ..clear()
           ..addAll(
@@ -1674,6 +1702,7 @@ class FeedStore extends ChangeNotifier {
             'hidden': _hiddenIds.toList(),
             'muted': _mutedUsernames.toList(),
             'notifmuted': _mutedNotifiers.toList(),
+            'alertgone': _alertGoneIds.toList(),
             'saved': _savedIds.toList(),
             'deleted': _deletedIds.toList(),
             'notifs': [for (final n in _notifications) n.toJson()],
@@ -1693,6 +1722,7 @@ class FeedStore extends ChangeNotifier {
     _hiddenIds.clear();
     _mutedUsernames.clear();
     _mutedNotifiers.clear();
+    _alertGoneIds.clear();
     _savedIds.clear();
     _deletedIds.clear();
     _notifications.clear();

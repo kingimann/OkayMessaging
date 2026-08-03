@@ -60,8 +60,7 @@ class _ActivityTabState extends State<ActivityTab> {
                     b.messages.isEmpty ? DateTime(2000) : b.messages.last.time;
                 return bt.compareTo(at);
               });
-        final missed =
-            CallLog.instance.records.where((r) => r.isMissed).take(10).toList();
+        final missed = CallLog.instance.missedAlerts.take(10).toList();
         final posts = FeedStore.instance.recentPosts(limit: 5);
         // Interactions that name you come first — they're the most personal.
         final mentions = FeedStore.instance.notifications.take(15).toList();
@@ -171,31 +170,47 @@ class _ActivityTabState extends State<ActivityTab> {
                           if (showCalls && missed.isNotEmpty) ...[
                             _sectionLabel(context, 'MISSED CALLS'),
                             for (final r in missed)
-                              ListTile(
-                                leading: UserAvatar(user: r.user, radius: 22),
-                                title: Text(r.user.name,
-                                    style: const TextStyle(
-                                        fontWeight: FontWeight.w600)),
-                                subtitle: Text('Missed ${r.type.name} call · '
-                                    '${DateFormatter.callLabel(r.time)}'),
-                                trailing: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    const Icon(Icons.call_missed,
-                                        color: Colors.red),
-                                    IconButton(
-                                      icon: const Icon(Icons.call),
-                                      tooltip: 'Call back',
-                                      onPressed: () => CallService.instance
-                                          .startOutgoing(r.user, video: false),
-                                    ),
-                                  ],
+                              // Deletes the ALERT, never the call: the row in
+                              // call history stays, because a swipe on a
+                              // notification must not quietly erase history.
+                              Dismissible(
+                                key: ValueKey('missed_${r.id}'),
+                                direction: DismissDirection.endToStart,
+                                background:
+                                    _dismissBg(icon: Icons.delete_outline),
+                                onDismissed: (_) => CallLog.instance
+                                    .dismissMissedAlert(r.id),
+                                child: ListTile(
+                                  leading:
+                                      UserAvatar(user: r.user, radius: 22),
+                                  title: Text(r.user.name,
+                                      style: const TextStyle(
+                                          fontWeight: FontWeight.w600)),
+                                  subtitle: Text(
+                                      'Missed ${r.type.name} call · '
+                                      '${DateFormatter.callLabel(r.time)}'),
+                                  trailing: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const Icon(Icons.call_missed,
+                                          color: Colors.red),
+                                      IconButton(
+                                        icon: const Icon(Icons.call),
+                                        tooltip: 'Call back',
+                                        onPressed: () => CallService.instance
+                                            .startOutgoing(r.user,
+                                                video: false),
+                                      ),
+                                    ],
+                                  ),
+                                  onTap: () {
+                                    final chat = ChatStore.instance
+                                        .chatWithContact(r.user.id);
+                                    if (chat != null) {
+                                      _openChat(context, chat);
+                                    }
+                                  },
                                 ),
-                                onTap: () {
-                                  final chat = ChatStore.instance
-                                      .chatWithContact(r.user.id);
-                                  if (chat != null) _openChat(context, chat);
-                                },
                               ),
                           ],
                           if (showServers && mentions.isNotEmpty) ...[
@@ -316,27 +331,40 @@ class _ActivityTabState extends State<ActivityTab> {
                           if (showServers && posts.isNotEmpty) ...[
                             _sectionLabel(context, 'NEW IN YOUR SERVERS'),
                             for (final p in posts)
-                              ListTile(
-                                leading: CircleAvatar(
-                                  radius: 22,
-                                  child: Text(p.authorName.isEmpty
-                                      ? '?'
-                                      : p.authorName[0].toUpperCase()),
-                                ),
-                                title: Text(p.authorName,
-                                    style: const TextStyle(
-                                        fontWeight: FontWeight.w600)),
-                                subtitle: Text(p.text,
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis),
-                                trailing: Text(DateFormatter.callLabel(p.time),
-                                    style: TextStyle(
-                                        fontSize: 12,
-                                        color: AppColors.subtle(context))),
-                                onTap: () => Navigator.of(context).push(
-                                  MaterialPageRoute(
-                                      builder: (_) =>
-                                          FeedPostScreen(postId: p.id)),
+                              // Dismisses the alert only — the post stays in
+                              // its server's feed. Hiding it everywhere from
+                              // a swipe here would be the bigger action under
+                              // the smaller gesture.
+                              Dismissible(
+                                key: ValueKey('srvpost_${p.id}'),
+                                direction: DismissDirection.endToStart,
+                                background:
+                                    _dismissBg(icon: Icons.delete_outline),
+                                onDismissed: (_) => FeedStore.instance
+                                    .dismissAlertPost(p.id),
+                                child: ListTile(
+                                  leading: CircleAvatar(
+                                    radius: 22,
+                                    child: Text(p.authorName.isEmpty
+                                        ? '?'
+                                        : p.authorName[0].toUpperCase()),
+                                  ),
+                                  title: Text(p.authorName,
+                                      style: const TextStyle(
+                                          fontWeight: FontWeight.w600)),
+                                  subtitle: Text(p.text,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis),
+                                  trailing: Text(
+                                      DateFormatter.callLabel(p.time),
+                                      style: TextStyle(
+                                          fontSize: 12,
+                                          color: AppColors.subtle(context))),
+                                  onTap: () => Navigator.of(context).push(
+                                    MaterialPageRoute(
+                                        builder: (_) =>
+                                            FeedPostScreen(postId: p.id)),
+                                  ),
                                 ),
                               ),
                           ],
@@ -405,6 +433,9 @@ class _ActivityTabState extends State<ActivityTab> {
             ListTile(
               leading: const Icon(Icons.clear_all),
               title: const Text('Clear all alerts'),
+              subtitle: const Text(
+                  'Mentions, missed-call alerts and server posts. '
+                  'Call history and the posts themselves stay.'),
               onTap: () => Navigator.of(sheet).pop('clear'),
             ),
           ],
@@ -423,7 +454,12 @@ class _ActivityTabState extends State<ActivityTab> {
               : 'Unmuted notifications from $who'),
         ));
       case 'clear':
+        // All three alert kinds, not just mentions — a row named "Clear all
+        // alerts" that left two sections standing would be mislabelled.
         store.clearNotifications();
+        CallLog.instance.dismissAllMissedAlerts();
+        store.dismissAlertPosts(
+            store.recentPosts().map((p) => p.id).toList());
     }
   }
 

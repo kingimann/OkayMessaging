@@ -6597,6 +6597,91 @@ void main() {
     });
   });
 
+  group('Deletable alerts', () {
+    callmodel.CallRecord missedCall(String id) => callmodel.CallRecord(
+          id: id,
+          user: MockData.contacts().first,
+          time: DateTime(2026, 1, 1, 9),
+          type: callmodel.CallType.voice,
+          direction: callmodel.CallDirection.missed,
+        );
+
+    test('dismissing a missed-call alert never touches call history', () {
+      final log = CallLog.instance;
+      log.resetForTest();
+      addTearDown(log.resetForTest);
+      log.add(missedCall('c_miss'));
+      log.add(callmodel.CallRecord(
+        id: 'c_ok',
+        user: MockData.contacts().first,
+        time: DateTime(2026, 1, 1, 10),
+        type: callmodel.CallType.voice,
+        direction: callmodel.CallDirection.incoming,
+        durationSeconds: 30,
+      ));
+      expect(log.missedAlerts.map((r) => r.id), ['c_miss']);
+
+      log.dismissMissedAlert('c_miss');
+      expect(log.missedAlerts, isEmpty,
+          reason: 'the alert is gone from the notifications tab');
+      expect(log.records.length, 2,
+          reason: 'the call itself stays in the history');
+      expect(log.alertDismissed('c_miss'), isTrue);
+
+      // Clear-all covers calls that arrive later too.
+      log.add(missedCall('c_miss2'));
+      log.dismissAllMissedAlerts();
+      expect(log.missedAlerts, isEmpty);
+      expect(log.records.length, 3);
+    });
+
+    test('a server post swiped out of alerts stays in its feed', () async {
+      final store = FeedStore.instance;
+      store.resetForTest();
+      addTearDown(store.resetForTest);
+      store.addRemote(FeedPost(
+        id: 'p_alert',
+        communityId: 'c1',
+        authorName: 'Ada',
+        authorUsername: 'ada',
+        time: DateTime(2026, 1, 2),
+        text: 'hello servers',
+      ));
+      expect(store.recentPosts().map((p) => p.id), contains('p_alert'));
+
+      store.dismissAlertPost('p_alert');
+      expect(store.recentPosts(), isEmpty,
+          reason: 'the alert row is gone');
+      expect(store.postsFor('c1').map((p) => p.id), contains('p_alert'),
+          reason: 'dismissing an alert is not hiding the post');
+
+      // And the dismissal survives a relaunch — otherwise every swiped
+      // alert comes back next open, which reads as delete not working.
+      await store.load();
+      expect(store.recentPosts(), isEmpty);
+      expect(store.postsFor('c1').map((p) => p.id), contains('p_alert'));
+    });
+
+    testWidgets('the notifications tab swipes a missed call away',
+        (tester) async {
+      CallLog.instance.resetForTest();
+      addTearDown(CallLog.instance.resetForTest);
+      CallLog.instance.add(missedCall('c_swipe'));
+      await tester.pumpWidget(
+          const MaterialApp(home: Scaffold(body: ActivityTab())));
+      await tester.pump();
+      expect(find.text('MISSED CALLS'), findsOneWidget);
+
+      await tester.drag(find.byKey(const ValueKey('missed_c_swipe')),
+          const Offset(-500, 0));
+      await tester.pumpAndSettle();
+      expect(find.text('MISSED CALLS'), findsNothing,
+          reason: 'the one alert was dismissed, so the section goes too');
+      expect(CallLog.instance.records.length, 1,
+          reason: 'the call history behind it is untouched');
+    });
+  });
+
   group('Custom bubble color', () {
     Color outgoingBubbleColor(WidgetTester tester) {
       final containers = tester.widgetList<Container>(
