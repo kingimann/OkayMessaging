@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 
 import '../app_state.dart';
 import '../models/message.dart';
@@ -8,6 +9,7 @@ import '../models/user.dart';
 import '../models/chat.dart';
 import '../relay/relay_service.dart';
 import '../state/chat_store.dart';
+import '../state/push_service.dart';
 import '../state/session.dart';
 import '../state/score_store.dart';
 import '../util/file_saver.dart';
@@ -354,7 +356,7 @@ class NearbyShare extends ChangeNotifier {
         ? claimed
         : 'file';
     final size = packet.payload['b'];
-    _update(NearbyTransfer(
+    final transfer = NearbyTransfer(
       id: id,
       peerDigits: from,
       peerName: peer?.name ?? (packet.payload['w'] as String? ?? 'Someone'),
@@ -363,7 +365,33 @@ class NearbyShare extends ChangeNotifier {
       state: TransferState.incoming,
       kind: kind,
       bytes: size is int && size >= 0 ? size : 0,
-    ));
+    );
+    _update(transfer);
+    // Backgrounded, the offer sheet has nobody to see it — with the
+    // Bluetooth background modes the radio still hears the offer, and this
+    // is how its owner finds out. Local, straight from this device: there
+    // is no server anywhere in an Okay Drop.
+    if (WidgetsBinding.instance.lifecycleState !=
+        AppLifecycleState.resumed) {
+      final what = switch (transfer.kind) {
+        'image' => 'a photo',
+        'video' => 'a video',
+        _ => transfer.fileName,
+      };
+      final size =
+          transfer.bytes > 0 ? ' (${_sizeLabel(transfer.bytes)})' : '';
+      PushService.instance.localNotify(
+        title: transfer.peerName,
+        body: 'Wants to send you $what$size — open Okay Drop to accept.',
+      );
+    }
+  }
+
+  /// "4.2 MB" — for saying how big an offer is inside a notification.
+  static String _sizeLabel(int bytes) {
+    if (bytes < 1024) return '$bytes B';
+    if (bytes < 1024 * 1024) return '${(bytes / 1024).round()} KB';
+    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
   }
 
   void _onAnswer(MeshPacket packet) {

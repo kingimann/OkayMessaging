@@ -542,10 +542,14 @@ Carried across several sessions; none of it can be done from this box.
   by tests; **the Swift has never been compiled or run** — there is no Xcode on
   the Linux box these sessions run on, so the first real check is a Codemagic
   build, and the first proof it works is two phones in a room. Text only
-  (`MeshPacket.maxBytes`, because a photo is a minute a hop) and foreground only
-  (no Bluetooth `UIBackgroundModes` — adding `bluetooth-central` and
-  `bluetooth-peripheral` turns background on with no code change, at the cost of
-  slow overflow-area discovery and questions at App Review). Servers ride it
+  (`MeshPacket.maxBytes`, because a photo is a minute a hop). **Background is
+  ON** (the user chose it): `bluetooth-central` + `bluetooth-peripheral` ride
+  in `UIBackgroundModes`, so the radio keeps listening while the app is
+  backgrounded, and an Okay Drop offer arriving then posts a LOCAL
+  notification (`PushService.localNotify` — no server anywhere in a Drop).
+  The costs stay what they were: a backgrounded iPhone advertises in the BLE
+  overflow area (slower discovery, iOS-to-iOS only), the MPC fast link does
+  not run in background, and App Review may ask what the modes are for. Servers ride it
   too: a server marked **Findable over Bluetooth** (off by default, in its
   settings) is beaconed to anyone in range, and a stranger who asks gets the
   invite **encrypted to the key they asked with** — never in the clear, because

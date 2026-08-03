@@ -180,6 +180,19 @@ import WebRTC
           UIApplication.shared.applicationIconBadgeNumber = 0
         }
         result(nil)
+      case "localNotify":
+        // A notification the DEVICE posts to itself — for things that
+        // happen over the radio with no server in the loop, like an Okay
+        // Drop offer arriving while the app is in the background.
+        let args = (call.arguments as? [String: Any]) ?? [:]
+        let content = UNMutableNotificationContent()
+        content.title = (args["title"] as? String) ?? "OkayMessenger"
+        content.body = (args["body"] as? String) ?? ""
+        content.sound = .default
+        content.categoryIdentifier = "okay_msg"
+        UNUserNotificationCenter.current().add(UNNotificationRequest(
+          identifier: UUID().uuidString, content: content, trigger: nil))
+        result(nil)
       case "openChat":
         let digits = (call.arguments as? String) ?? ""
         self?.openChatDigits = digits.isEmpty ? nil : digits

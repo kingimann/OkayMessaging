@@ -66,6 +66,18 @@ class PushService {
   /// existed, and nothing else would ever re-attach it.
   Future<void> reupload() => _upload(_lastToken);
 
+  /// Posts a notification from THIS device to itself — for things that
+  /// happen over the radio with no server in the loop (an Okay Drop offer
+  /// arriving while the app is in the background). No-op off iOS and when
+  /// the native side is older than this method.
+  Future<void> localNotify({required String title, String? body}) async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.iOS) return;
+    try {
+      await _channel.invokeMethod<void>(
+          'localNotify', {'title': title, 'body': body ?? ''});
+    } catch (_) {}
+  }
+
   /// Zeroes the app-icon badge and the server's count behind it. Called
   /// when the app comes to the foreground: whatever the badge was counting
   /// has been seen, and a badge that never clears is a badge people learn
