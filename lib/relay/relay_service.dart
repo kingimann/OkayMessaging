@@ -140,6 +140,10 @@ class RelayService {
       'isVoice': message.isVoice,
       'voiceSeconds': message.voiceSeconds,
       if (message.audioUrl != null) 'audioUrl': message.audioUrl,
+      // A long note lives in the bucket; the path AND its per-note key ride
+      // inside this sealed blob, so the bucket only ever holds ciphertext.
+      if (message.audioPath != null) 'audioPath': message.audioPath,
+      if (message.audioKey != null) 'audioKey': message.audioKey,
       'isVoicemail': message.isVoicemail,
       'forwarded': message.forwarded,
       'protected': message.protected,
@@ -457,6 +461,8 @@ class RelayService {
         isVoice: content['isVoice'] as bool? ?? false,
         voiceSeconds: content['voiceSeconds'] as int? ?? 0,
         audioUrl: content['audioUrl'] as String?,
+        audioPath: content['audioPath'] as String?,
+        audioKey: content['audioKey'] as String?,
         isVoicemail: content['isVoicemail'] as bool? ?? false,
         forwarded: content['forwarded'] as bool? ?? false,
         protected: content['protected'] as bool? ?? false,

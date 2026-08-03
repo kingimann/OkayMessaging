@@ -86,11 +86,19 @@ class Message {
   final bool isVoice;
   final int voiceSeconds;
 
-  /// The recorded clip as a `data:audio/…;base64,…` URI — the actual sound,
-  /// sealed into the message like a photo's [imageUrl] so it rides the same
-  /// E2E path. Null on an old voice message that only ever carried a
-  /// duration, which is why the bubble falls back to "can't be played".
+  /// A SHORT recorded clip as a `data:audio/…;base64,…` URI — the actual
+  /// sound, sealed into the message like a photo's [imageUrl] so it rides the
+  /// same E2E path. Null on an old voice message that only carried a duration
+  /// (bubble says "can't be played"), or on a LONG note, which is too big for
+  /// the relay and lives in the bucket instead ([audioPath] / [audioKey]).
   final String? audioUrl;
+
+  /// A LONG voice note's object in the `voice-notes` bucket, and the base64
+  /// key that unseals it. The key rides here inside the E2E-sealed message, so
+  /// the bucket only ever holds ciphertext — see [VoiceMedia]. Both null for
+  /// an inline ([audioUrl]) note.
+  final String? audioPath;
+  final String? audioKey;
 
   /// True when this voice message is a voicemail left after an unanswered
   /// call (a [isVoice] message surfaced separately in the Calls tab).
@@ -204,6 +212,8 @@ class Message {
     this.isVoice = false,
     this.voiceSeconds = 0,
     this.audioUrl,
+    this.audioPath,
+    this.audioKey,
     this.isVoicemail = false,
     this.isFile = false,
     this.fileName = '',
@@ -266,6 +276,8 @@ class Message {
         'isVoice': isVoice,
         'voiceSeconds': voiceSeconds,
         if (audioUrl != null) 'audioUrl': audioUrl,
+        if (audioPath != null) 'audioPath': audioPath,
+        if (audioKey != null) 'audioKey': audioKey,
         'isVoicemail': isVoicemail,
         if (isFile) 'isFile': true,
         if (isFile) 'fileName': fileName,
@@ -322,6 +334,8 @@ class Message {
         isVoice: json['isVoice'] as bool? ?? false,
         voiceSeconds: json['voiceSeconds'] as int? ?? 0,
         audioUrl: json['audioUrl'] as String?,
+        audioPath: json['audioPath'] as String?,
+        audioKey: json['audioKey'] as String?,
         isVoicemail: json['isVoicemail'] as bool? ?? false,
         isFile: json['isFile'] as bool? ?? false,
         fileName: json['fileName'] as String? ?? '',
@@ -404,6 +418,8 @@ class Message {
       isVoice: isVoice,
       voiceSeconds: voiceSeconds,
       audioUrl: audioUrl,
+      audioPath: audioPath,
+      audioKey: audioKey,
       isVoicemail: isVoicemail,
       isFile: isFile,
       fileName: fileName,

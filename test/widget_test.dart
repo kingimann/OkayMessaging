@@ -179,6 +179,7 @@ import 'package:okay_messaging/state/live_location_store.dart';
 import 'package:okay_messaging/state/saved_places_store.dart';
 import 'package:okay_messaging/state/feed_store.dart';
 import 'package:okay_messaging/state/market_media.dart';
+import 'package:okay_messaging/state/voice_media.dart';
 import 'package:okay_messaging/state/follow_store.dart';
 import 'package:okay_messaging/state/recent_searches.dart';
 import 'package:okay_messaging/state/scheduler.dart';
@@ -458,8 +459,10 @@ void main() {
       (tester) async {
     // No microphone in a test, so the capture seam stands in for it and
     // hands back a real (tiny) clip — the message must carry it, not just a
-    // duration, or the other end has nothing to play.
-    ChatInputBar.debugCaptureOverride = () async => 'data:audio/mp4;base64,QUJD';
+    // duration, or the other end has nothing to play. Small, so it rides
+    // inline as a data: URI rather than the bucket.
+    ChatInputBar.debugCaptureOverride =
+        () async => Uint8List.fromList(const [1, 2, 3]);
     addTearDown(() => ChatInputBar.debugCaptureOverride = null);
 
     await tester.pumpWidget(const OkayMessagingApp());
@@ -480,7 +483,7 @@ void main() {
     final bob = ChatStore.instance.chatWithContact('u_bob');
     final voice = bob!.messages.where((m) => m.isVoice);
     expect(voice, isNotEmpty);
-    expect(voice.last.audioUrl, 'data:audio/mp4;base64,QUJD',
+    expect(voice.last.audioUrl, 'data:audio/mp4;base64,AQID',
         reason: 'the clip must ride the message, not just its length');
 
     await tester.pump(const Duration(seconds: 2));
@@ -3619,6 +3622,47 @@ void main() {
       expect(find.byIcon(Icons.play_arrow), findsNothing);
       expect(find.byIcon(Icons.mic_off_outlined), findsOneWidget);
       expect(find.text('Can\'t be played'), findsOneWidget);
+
+      // A long note lives in the bucket — it still offers play (the tap
+      // fetches and unseals it), not the "can't play" fallback.
+      await show(Message(
+        id: 'vb',
+        text: '',
+        time: DateTime(2026, 1, 1),
+        isMe: false,
+        isVoice: true,
+        voiceSeconds: 90,
+        audioPath: 'abc.sealed',
+        audioKey: base64Encode(List.filled(32, 7)),
+      ));
+      expect(find.byIcon(Icons.play_arrow), findsOneWidget);
+      expect(find.text('Can\'t be played'), findsNothing);
+    });
+
+    test('a long voice note is sealed into the bucket and comes back whole',
+        () async {
+      // The bucket only ever holds ciphertext; the key that unseals it rides
+      // the E2E message, never the bucket.
+      VoiceMedia.debugBucketOverride = {};
+      addTearDown(() => VoiceMedia.debugBucketOverride = null);
+      final bytes = Uint8List.fromList(
+          List.generate(400000, (i) => (i * 7 + 3) % 256)); // ~400 KB
+
+      final up = await VoiceMedia.instance.upload(bytes);
+      final stored = VoiceMedia.debugBucketOverride!.values.single;
+      // Whatever is in the bucket is not the audio: no run of the plaintext
+      // bytes survives, and the key is nowhere in it.
+      expect(stored.contains(base64Encode(bytes).substring(0, 64)), isFalse,
+          reason: 'the bucket must hold ciphertext, not the clip');
+      expect(stored.contains(up.key), isFalse,
+          reason: 'the per-note key never touches the bucket');
+
+      final back = await VoiceMedia.instance.download(up.path, up.key);
+      expect(back, equals(bytes), reason: 'it must come back byte-for-byte');
+      // The wrong key unseals nothing.
+      final wrong = await VoiceMedia.instance
+          .download(up.path, base64Encode(List.filled(32, 9)));
+      expect(wrong, isNull);
     });
 
     test('allowVoicemail=false drops an incoming voicemail', () {

@@ -10,6 +10,7 @@ import 'package:record/record.dart';
 
 import '../app_state.dart';
 import '../models/message.dart';
+import '../state/voice_media.dart';
 import '../theme/app_theme.dart';
 import '../util/photo_prep.dart';
 import 'emoji_gif_sheet.dart';
@@ -33,10 +34,10 @@ class AttachmentOption {
 /// attachment icons, a text field and a send/mic button.
 class ChatInputBar extends StatefulWidget {
   /// Test seam: when set, recording skips the real microphone and this
-  /// supplies the captured clip's data URI. Mirrors
+  /// supplies the captured clip's raw bytes. Mirrors
   /// [PhotoPrep.debugPickOverride] — there is no mic in a test.
   @visibleForTesting
-  static Future<String?> Function()? debugCaptureOverride;
+  static Future<Uint8List?> Function()? debugCaptureOverride;
 
   final ValueChanged<String> onSend;
 
@@ -46,10 +47,12 @@ class ChatInputBar extends StatefulWidget {
   final List<AttachmentOption> attachments;
   final VoidCallback? onAttach;
 
-  /// Called when a voice message is sent, with the recorded length in seconds
-  /// and the clip as a `data:audio/…` URI (null when capture failed or was
-  /// unavailable, so the caller can decide whether to send anything).
-  final void Function(int seconds, String? audioUrl)? onSendVoice;
+  /// Called when a voice message is sent. A short clip arrives inline as
+  /// [audioUrl] (a `data:audio/…` URI); a long one as a sealed [audioPath] in
+  /// the voice-notes bucket plus its [audioKey]. All three are null when
+  /// capture or upload failed, so the caller sends nothing.
+  final void Function(int seconds,
+      {String? audioUrl, String? audioPath, String? audioKey})? onSendVoice;
 
   /// The message currently being replied to (shows a quote banner).
   final ReplyInfo? replyTo;
@@ -118,11 +121,12 @@ class _ChatInputBarState extends State<ChatInputBar> {
   Timer? _recordTimer;
   final AudioRecorder _recorder = AudioRecorder();
 
-  /// A voice note has to fit the same sealed relay envelope a photo does, so
-  /// it auto-stops before it can grow past what will send.
-  static const int _maxVoiceSeconds = 60;
+  /// The composer auto-stops here. A note up to this long fits the bucket
+  /// (well under [VoiceMedia.maxBytes] at the low bitrate voice records at);
+  /// a shorter one that also fits the relay envelope rides inline instead.
+  static const int _maxVoiceSeconds = 300;
 
-  Future<String?> Function()? get debugCaptureOverride =>
+  Future<Uint8List?> Function()? get debugCaptureOverride =>
       ChatInputBar.debugCaptureOverride;
 
   List<String> _mentionMatches = const [];
@@ -253,41 +257,56 @@ class _ChatInputBarState extends State<ChatInputBar> {
     _recordTimer?.cancel();
     final seconds = _recordSeconds < 1 ? 1 : _recordSeconds;
     if (mounted) setState(() => _recording = false);
-    String? audioUrl;
+
+    Uint8List? bytes;
     if (debugCaptureOverride != null) {
-      audioUrl = await debugCaptureOverride!();
+      bytes = await debugCaptureOverride!();
     } else {
       String? path;
       try {
         path = await _recorder.stop();
       } catch (_) {}
-      audioUrl = path == null ? null : await _audioDataUri(path);
+      bytes = path == null ? null : await _readAudio(path);
     }
-    if (audioUrl == null) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('Couldn\'t save that voice note — try again.')));
-      }
+    if (bytes == null || bytes.isEmpty) {
+      _voiceError('Couldn\'t save that voice note — try again.');
       return;
     }
     if (widget.confirmSend != null && !await widget.confirmSend!()) return;
-    widget.onSendVoice?.call(seconds, audioUrl);
+
+    // Short enough to ride the relay inline (the same budget a chat photo
+    // has) → send it as a data: URI. Longer → seal it into the voice-notes
+    // bucket and send only the path + key.
+    final b64 = base64Encode(bytes);
+    if (b64.length <= PhotoPrep.maxBase64Length) {
+      widget.onSendVoice?.call(seconds, audioUrl: 'data:audio/mp4;base64,$b64');
+      return;
+    }
+    try {
+      final up = await VoiceMedia.instance.upload(bytes);
+      widget.onSendVoice
+          ?.call(seconds, audioPath: up.path, audioKey: up.key);
+    } on VoiceMediaError catch (e) {
+      _voiceError(e.reason);
+    } catch (_) {
+      _voiceError('Couldn\'t upload that voice note — check your connection.');
+    }
   }
 
-  /// The recorded clip as a `data:audio/mp4;base64,…` URI, or null when it
-  /// can't be read or won't fit the relay envelope. On the web `stop()` hands
-  /// back a `blob:` URL whose bytes are fetched; elsewhere it is a file path.
-  Future<String?> _audioDataUri(String path) async {
+  void _voiceError(String message) {
+    if (mounted) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(message)));
+    }
+  }
+
+  /// The recorded clip's raw bytes. On the web `stop()` hands back a `blob:`
+  /// URL whose bytes are fetched; elsewhere it is a file path.
+  Future<Uint8List?> _readAudio(String path) async {
     try {
-      final Uint8List bytes = kIsWeb
+      return kIsWeb
           ? (await http.get(Uri.parse(path))).bodyBytes
           : await File(path).readAsBytes();
-      if (bytes.isEmpty) return null;
-      final b64 = base64Encode(bytes);
-      // The same budget a chat photo has: over it, the sealed message would
-      // be refused by the relay, so refuse it here where we can say why.
-      if (b64.length > PhotoPrep.maxBase64Length) return null;
-      return 'data:audio/mp4;base64,$b64';
     } catch (_) {
       return null;
     }

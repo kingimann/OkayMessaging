@@ -11,6 +11,7 @@ import '../models/message.dart';
 import '../relay/relay_config.dart';
 import '../relay/relay_service.dart';
 import '../state/community_store.dart';
+import '../state/voice_media.dart';
 import '../payments/payment_amount_sheet.dart';
 import '../theme/app_theme.dart';
 import '../utils/date_formatter.dart';
@@ -289,6 +290,8 @@ class MessageBubble extends StatelessWidget {
                       _VoiceContent(
                         seconds: message.voiceSeconds,
                         audioUrl: message.audioUrl,
+                        audioPath: message.audioPath,
+                        audioKey: message.audioKey,
                         textColor: textColor,
                         metaColor: metaColor,
                       )
@@ -1076,13 +1079,22 @@ class _ContactContent extends StatelessWidget {
 /// clip length. Playback is simulated (no real audio in this UI demo).
 class _VoiceContent extends StatefulWidget {
   final int seconds;
+
+  /// A short note's inline clip; null for a long (bucket-backed) one.
   final String? audioUrl;
+
+  /// A long note's sealed object in the voice-notes bucket, and the key that
+  /// unseals it; both null for an inline note.
+  final String? audioPath;
+  final String? audioKey;
   final Color textColor;
   final Color metaColor;
 
   const _VoiceContent({
     required this.seconds,
     required this.audioUrl,
+    required this.audioPath,
+    required this.audioKey,
     required this.textColor,
     required this.metaColor,
   });
@@ -1095,9 +1107,14 @@ class _VoiceContentState extends State<_VoiceContent> {
   // One player per bubble, made only when there is real audio to play.
   AudioPlayer? _player;
   bool _playing = false;
+  bool _loading = false; // fetching a long note from the bucket
   Duration _position = Duration.zero;
   Duration _total = Duration.zero;
   final List<StreamSubscription<dynamic>> _subs = [];
+
+  /// A long note's bytes, fetched and unsealed from the bucket once and kept
+  /// so a replay doesn't download again.
+  Uint8List? _fetched;
 
   // A fixed pseudo-waveform so bubbles look varied but stable.
   static const _heights = [
@@ -1105,9 +1122,13 @@ class _VoiceContentState extends State<_VoiceContent> {
     24.0, 9.0, 15.0, 19.0, 7.0, 13.0, 21.0, 10.0, 17.0, 12.0,
   ];
 
-  /// Whether there is a clip to play at all. Old voice messages carried only
-  /// a duration, so their bubble says so rather than pretending to play.
-  bool get _playable => (widget.audioUrl ?? '').isNotEmpty;
+  /// Whether there is a clip to play at all — inline, or a bucket note we can
+  /// fetch. Old voice messages carried only a duration, so their bubble says
+  /// so rather than pretending to play.
+  bool get _inline => (widget.audioUrl ?? '').isNotEmpty;
+  bool get _bucketed =>
+      (widget.audioPath ?? '').isNotEmpty && (widget.audioKey ?? '').isNotEmpty;
+  bool get _playable => _inline || _bucketed;
 
   @override
   void dispose() {
@@ -1139,24 +1160,40 @@ class _VoiceContentState extends State<_VoiceContent> {
   }
 
   Future<void> _toggle() async {
-    if (!_playable) return;
+    if (!_playable || _loading) return;
     final p = _ensurePlayer();
     if (_playing) {
       await p.pause();
       return;
     }
+    // A long note is fetched and unsealed from the bucket once, then cached.
+    Uint8List? bytes;
+    if (_inline) {
+      final comma = widget.audioUrl!.indexOf(',');
+      bytes = Uint8List.fromList(
+          base64Decode(widget.audioUrl!.substring(comma + 1)));
+    } else {
+      bytes = _fetched;
+      if (bytes == null) {
+        setState(() => _loading = true);
+        bytes =
+            await VoiceMedia.instance.download(widget.audioPath!, widget.audioKey!);
+        _fetched = bytes;
+        if (mounted) setState(() => _loading = false);
+        if (bytes == null) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                content: Text('Couldn\'t load that voice note.')));
+          }
+          return;
+        }
+      }
+    }
     if (_position >= _total && _total > Duration.zero) {
       await p.seek(Duration.zero);
     }
-    // Both ends store the clip as a data: URI; BytesSource plays it without a
-    // file on disk, on web and native alike.
-    await p.play(_dataSource(widget.audioUrl!));
-  }
-
-  Source _dataSource(String dataUri) {
-    final comma = dataUri.indexOf(',');
-    final bytes = base64Decode(dataUri.substring(comma + 1));
-    return BytesSource(Uint8List.fromList(bytes), mimeType: 'audio/mp4');
+    // BytesSource plays without a file on disk, web and native alike.
+    await p.play(BytesSource(bytes, mimeType: 'audio/mp4'));
   }
 
   /// The elapsed/total counter — real once playing, the recorded length at
@@ -1186,13 +1223,23 @@ class _VoiceContentState extends State<_VoiceContent> {
         children: [
           GestureDetector(
             onTap: _playable ? _toggle : null,
-            child: Icon(
-              !_playable
-                  ? Icons.mic_off_outlined
-                  : (_playing ? Icons.pause : Icons.play_arrow),
-              color: _playable ? accent : widget.metaColor,
-              size: 30,
-            ),
+            child: _loading
+                ? SizedBox(
+                    width: 26,
+                    height: 26,
+                    child: Padding(
+                      padding: const EdgeInsets.all(3),
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2.4, color: accent),
+                    ),
+                  )
+                : Icon(
+                    !_playable
+                        ? Icons.mic_off_outlined
+                        : (_playing ? Icons.pause : Icons.play_arrow),
+                    color: _playable ? accent : widget.metaColor,
+                    size: 30,
+                  ),
           ),
           const SizedBox(width: 6),
           Expanded(
