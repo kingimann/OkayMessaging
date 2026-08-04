@@ -1,3 +1,5 @@
+import 'dart:async' show TimeoutException;
+
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide Session;
@@ -626,7 +628,15 @@ class PaymentService {
         cardBrand: 'visa',
       );
     }
-    return WalletStatus.fromJson(await _invoke('payments-status'));
+    // Bounded: this is the first thing the wallet screen awaits, and a
+    // request that never answers used to be a spinner that never ended —
+    // reported as "Wallet doesn't load", with nothing on screen to say why.
+    try {
+      return WalletStatus.fromJson(
+          await _invoke('payments-status').timeout(const Duration(seconds: 20)));
+    } on TimeoutException {
+      throw PaymentException('timed_out');
+    }
   }
 
   /// Moves [amountCents] to the attached debit card, arriving in minutes.

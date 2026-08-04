@@ -44,6 +44,33 @@ Future<bool> showRecipientLiabilityNotice(BuildContext context) =>
     );
 
 class WalletScreen extends StatefulWidget {
+  /// A load failure's raw code, translated into the thing to actually do.
+  /// Pure and static so a test can pin every mapping — "Couldn't load your
+  /// wallet" over a bare code was reported as "Wallet doesn't load", with
+  /// nothing on screen saying whether to retry, re-sign-in, or report it.
+  static String errorAdvice(String code) {
+    final c = code.toLowerCase();
+    if (c.contains('jwt') ||
+        c.contains('authorization') ||
+        c.contains('401') ||
+        c.contains('unauthorized')) {
+      return 'Your sign-in on this device has expired, so the server '
+          'refused to answer. Sign out (Settings) and sign back in, then '
+          'open the wallet again.';
+    }
+    if (c.contains('timed_out')) {
+      return 'The server didn\'t answer in time. Check your connection and '
+          'retry — if this keeps happening, the payments backend may be '
+          'down.';
+    }
+    if (c.contains('socket') || c.contains('network') || c.contains('host')) {
+      return 'No connection to the server. Check your internet and retry.';
+    }
+    return 'The payments backend answered with an error. Retry, and if it '
+        'persists run "Check payments setup" (the icon at the top) and '
+        'send what it says.';
+  }
+
   const WalletScreen({super.key});
 
   @override
@@ -255,9 +282,14 @@ class _WalletScreenState extends State<WalletScreen> {
                       fontWeight: FontWeight.w600,
                       color: AppColors.subtle(context))),
               const SizedBox(height: 6),
+              Text(WalletScreen.errorAdvice(msg),
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: AppColors.subtle(context))),
+              const SizedBox(height: 6),
               Text(msg,
                   textAlign: TextAlign.center,
-                  style: TextStyle(color: AppColors.subtle(context), fontSize: 12)),
+                  style: TextStyle(
+                      color: AppColors.subtle(context), fontSize: 11)),
               const SizedBox(height: 16),
               OutlinedButton(onPressed: _refresh, child: const Text('Retry')),
             ],

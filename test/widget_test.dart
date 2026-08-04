@@ -5413,6 +5413,26 @@ void main() {
   });
 
   group('Payments test mode', () {
+    test('a wallet that cannot load says what to do, and cannot hang', () {
+      // Reported as "Wallet doesn't load anymore": a spinner that never
+      // ended, or a bare error code with no next step. The status call is
+      // bounded now, and every failure class maps to an instruction.
+      expect(WalletScreen.errorAdvice('Invalid JWT'), contains('Sign out'));
+      expect(WalletScreen.errorAdvice('Missing authorization header'),
+          contains('Sign out'));
+      expect(WalletScreen.errorAdvice('unauthorized'), contains('Sign out'));
+      expect(WalletScreen.errorAdvice('timed_out'),
+          contains('didn\'t answer in time'));
+      expect(WalletScreen.errorAdvice('SocketException: host lookup'),
+          contains('Check your internet'));
+      expect(WalletScreen.errorAdvice('stripe_error'),
+          contains('Check payments setup'));
+      // The status call carries its own bound, so the spinner ends.
+      expect(File('lib/payments/payment_service.dart').readAsStringSync(),
+          contains("_invoke('payments-status').timeout"),
+          reason: 'payments-status must be time-bounded');
+    });
+
     test('test mode makes payments usable and simulates a send', () async {
       final svc = PaymentService.instance;
       svc.setTestMode(false);
