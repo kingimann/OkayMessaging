@@ -841,9 +841,79 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
           // Sorted, with sold sunk to the end rather than hidden — a buyer
           // mid-conversation can still find one.
           listings = sortListings(listings, _sort);
+          // Price drops on SAVED listings — the one change a saver is
+          // waiting for. Tapping applies the Saved filter, where the
+          // struck-through old price is already drawn.
+          final drops = FeedStore.instance.savedPriceDrops();
+          final recents = FeedStore.instance.recentlyViewed();
+          final browsing = !hasFilter && q.isEmpty;
           return Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              if (browsing && drops.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+                  child: Material(
+                    color: Theme.of(context)
+                        .colorScheme
+                        .primaryContainer
+                        .withValues(alpha: 0.55),
+                    borderRadius: BorderRadius.circular(12),
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(12),
+                      onTap: () => setState(() => _savedOnly = true),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 10),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.trending_down, size: 18),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                drops.length == 1
+                                    ? 'Price drop on a listing you saved'
+                                    : 'Price drops on ${drops.length} '
+                                        'listings you saved',
+                                style: const TextStyle(
+                                    fontSize: 13.5,
+                                    fontWeight: FontWeight.w600),
+                              ),
+                            ),
+                            const Icon(Icons.chevron_right, size: 18),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              // What you looked at, one tap back to it. Only while
+              // browsing clean — a filter means you are looking for
+              // something, not for where you have been.
+              if (browsing && recents.length >= 2) ...[
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
+                  child: Text('Recently viewed',
+                      style: TextStyle(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.subtle(context))),
+                ),
+                SizedBox(
+                  height: 150,
+                  child: ListView(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    children: [
+                      for (final l in recents)
+                        Padding(
+                          padding: const EdgeInsets.only(right: 10),
+                          child: _MiniListingCard(listing: l),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
               // Active filters only. When nothing is filtered, nothing is
               // here — the grid starts at the top.
               if (hasFilter)
@@ -1195,6 +1265,11 @@ class ListingScreen extends StatelessWidget {
         final lines = listing.text.split('\n');
         final title = lines.first;
         final description = lines.skip(1).join('\n').trim();
+        // After the frame, not during it: noteViewed notifies listeners,
+        // and this very builder is one of them. Repeat frames no-op — the
+        // id is already at the front of the shelf.
+        WidgetsBinding.instance.addPostFrameCallback(
+            (_) => FeedStore.instance.noteViewed(listing.id));
         final mine = _mine(listing);
         final serverName = _serverName(listing.communityId);
         final scheme = Theme.of(context).colorScheme;

@@ -8355,6 +8355,63 @@ void main() {
       expect(src, contains('ForwardScreen(text: listingShareText(listing))'));
     });
 
+    test('recently viewed remembers, dedupes, caps, and survives deletion',
+        () {
+      final store = FeedStore.instance;
+      store.resetForTest();
+      addTearDown(store.resetForTest);
+      for (var i = 1; i <= 10; i++) {
+        store.addListing('c1',
+            title: 'Item $i', priceCents: 100 * i, category: 'Sports');
+      }
+      final ids = store.listings().map((l) => l.id).toList();
+      for (final id in ids) {
+        store.noteViewed(id);
+      }
+      expect(store.recentlyViewed().length, FeedStore.maxRecentlyViewed,
+          reason: 'a shelf, not an archive');
+      // Re-viewing moves to the front rather than duplicating.
+      store.noteViewed(ids[3]);
+      expect(store.recentlyViewed().first.id, ids[3]);
+      expect(
+          store.recentlyViewed().where((l) => l.id == ids[3]).length, 1);
+      // A deleted listing quietly leaves the shelf.
+      store.deletePost(ids[3]);
+      expect(store.recentlyViewed().any((l) => l.id == ids[3]), isFalse);
+    });
+
+    test('price drops surface only for saved, unsold, still-cheaper', () {
+      final store = FeedStore.instance;
+      store.resetForTest();
+      addTearDown(store.resetForTest);
+      final saved = store.addListing('c1',
+          title: 'Bike', priceCents: 10000, category: 'Sports');
+      final unsaved = store.addListing('c1',
+          title: 'Lamp', priceCents: 5000, category: 'Furniture');
+      store.toggleSaved(saved.id);
+      expect(store.savedPriceDrops(), isEmpty,
+          reason: 'no drop has happened yet');
+
+      // The price drops (updateListing keeps the old ask as history).
+      store.updateListing(saved.id,
+          title: 'Bike', priceCents: 8000, category: 'Sports');
+      store.updateListing(unsaved.id,
+          title: 'Lamp', priceCents: 4000, category: 'Furniture');
+      expect(store.savedPriceDrops().map((l) => l.id), [saved.id],
+          reason: 'only the saved one is anybody\'s news');
+
+      // Sold kills the banner — a discount on the unbuyable is noise.
+      store.setListingSold(saved.id, true);
+      expect(store.savedPriceDrops(), isEmpty);
+
+      // And the screen draws the banner and the shelf.
+      final src =
+          File('lib/screens/marketplace_screen.dart').readAsStringSync();
+      expect(src, contains('savedPriceDrops()'));
+      expect(src, contains("'Recently viewed'"));
+      expect(src, contains('noteViewed(listing.id)'));
+    });
+
     test('the form is chapters now, and the new fields are on it', () {
       final src =
           File('lib/screens/marketplace_screen.dart').readAsStringSync();

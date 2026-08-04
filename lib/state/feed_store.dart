@@ -800,6 +800,50 @@ class FeedStore extends ChangeNotifier {
 
   bool isSaved(String postId) => _savedIds.contains(postId);
 
+  /// Listings this device opened, newest first, capped — the "recently
+  /// viewed" shelf. Ids only; the shelf resolves them against the live
+  /// posts so a deleted listing simply stops appearing.
+  final List<String> _recentlyViewedIds = [];
+  static const int maxRecentlyViewed = 8;
+
+  /// Records that [listingId] was opened. A no-op when it is already at
+  /// the front — the listing screen calls this from build, and mutating
+  /// (then notifying) on every rebuild would be a loop.
+  void noteViewed(String listingId) {
+    if (_recentlyViewedIds.firstOrNull == listingId) return;
+    _recentlyViewedIds
+      ..remove(listingId)
+      ..insert(0, listingId);
+    if (_recentlyViewedIds.length > maxRecentlyViewed) {
+      _recentlyViewedIds.removeRange(
+          maxRecentlyViewed, _recentlyViewedIds.length);
+    }
+    _save();
+    notifyListeners();
+  }
+
+  /// The shelf, resolved: still-existing listings in viewed order.
+  List<FeedPost> recentlyViewed() {
+    final out = <FeedPost>[];
+    for (final id in _recentlyViewedIds) {
+      final i = _posts.indexWhere((p) => p.id == id && p.isListing);
+      if (i != -1) out.add(_posts[i]);
+    }
+    return out;
+  }
+
+  /// Saved listings whose price DROPPED and still stands below the old
+  /// ask — the thing a saver actually wants to hear about. Sold ones are
+  /// out: a discount on the unbuyable is noise.
+  List<FeedPost> savedPriceDrops() => [
+        for (final p in _posts)
+          if (p.isListing &&
+              !p.listingSold &&
+              _savedIds.contains(p.id) &&
+              p.prevPriceCents > (p.priceCents ?? 0))
+            p
+      ];
+
   /// Saves/unsaves a post for the Saved filter; returns true when now saved.
   bool toggleSaved(String postId) {
     final nowSaved = !_savedIds.remove(postId);
@@ -1674,6 +1718,10 @@ class FeedStore extends ChangeNotifier {
           ..clear()
           ..addAll(
               (decoded['saved'] as List? ?? const []).whereType<String>());
+        _recentlyViewedIds
+          ..clear()
+          ..addAll(
+              (decoded['recents'] as List? ?? const []).whereType<String>());
         _deletedIds
           ..clear()
           ..addAll(
@@ -1726,6 +1774,7 @@ class FeedStore extends ChangeNotifier {
             'notifmuted': _mutedNotifiers.toList(),
             'alertgone': _alertGoneIds.toList(),
             'saved': _savedIds.toList(),
+            'recents': _recentlyViewedIds,
             'deleted': _deletedIds.toList(),
             'notifs': [for (final n in _notifications) n.toJson()],
             // The replay guards have to outlive the process: a mailbox row
@@ -1746,6 +1795,7 @@ class FeedStore extends ChangeNotifier {
     _mutedNotifiers.clear();
     _alertGoneIds.clear();
     _savedIds.clear();
+    _recentlyViewedIds.clear();
     _deletedIds.clear();
     _notifications.clear();
     _likedBy.clear();
