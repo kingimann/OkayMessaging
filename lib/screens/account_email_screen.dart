@@ -58,8 +58,10 @@ class _AccountEmailScreenState extends State<AccountEmailScreen> {
       EmailSaveResult.savedUnverified =>
         'Saved to this device. It can\'t be confirmed yet — see below.',
       EmailSaveResult.invalid => 'That doesn\'t look like an email address.',
+      EmailSaveResult.tooSoon => _tooSoonMessage(),
     };
-    if (result == EmailSaveResult.invalid) {
+    if (result == EmailSaveResult.invalid ||
+        result == EmailSaveResult.tooSoon) {
       setState(() => _error = message);
       return;
     }
@@ -78,13 +80,27 @@ class _AccountEmailScreenState extends State<AccountEmailScreen> {
       destructive: true,
     );
     if (!ok) return;
-    await AccountEmail.instance.clear();
+    final removed = await AccountEmail.instance.clear();
     if (!mounted) return;
+    if (!removed) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(_tooSoonMessage())));
+      return;
+    }
     _controller.clear();
     setState(() {});
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Email removed')),
     );
+  }
+
+  /// The refusal, with the date it stops applying.
+  String _tooSoonMessage() {
+    final left = AccountEmail.instance.changeCooldownLeft();
+    final days = (left.inHours / 24).ceil();
+    return 'Your email changed recently. It can change again in '
+        '$days day${days == 1 ? '' : 's'} — the address is the way back '
+        'into this account, so it moves slowly on purpose.';
   }
 
   Future<void> _resend() async {

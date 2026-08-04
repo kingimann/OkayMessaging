@@ -17,6 +17,12 @@ enum EmailSaveResult {
 
   /// The address isn't a valid email.
   invalid,
+
+  /// Refused: the existing address changed too recently. Like the
+  /// username, an email changes at most once every 30 days — it is the
+  /// way back into the account, and a recovery address that moves weekly
+  /// is what a takeover looks like.
+  tooSoon,
 }
 
 /// An email address attached to the account, for recovery and security.
@@ -38,10 +44,27 @@ class AccountEmail extends ChangeNotifier {
 
   static const _kEmail = 'account_email_v1';
   static const _kVerified = 'account_email_verified_v1';
+  static const _kChangedAt = 'account_email_changed_at_v1';
+
+  /// Changing an EXISTING address (or removing it — the remove-then-add
+  /// two-step would dodge the clock) waits this long. First set is free.
+  static const Duration changeCooldown = Duration(days: 30);
 
   SharedPreferences? _prefs;
   String _email = '';
   bool _verified = false;
+  DateTime? _changedAt;
+
+  /// How much longer the address is locked, or zero when it may change.
+  Duration changeCooldownLeft() {
+    final at = _changedAt;
+    if (at == null) return Duration.zero;
+    final left = changeCooldown - DateTime.now().difference(at);
+    return left.isNegative ? Duration.zero : left;
+  }
+
+  @visibleForTesting
+  set debugChangedAt(DateTime? at) => _changedAt = at;
 
   /// The address on the account, or empty when none is set.
   String get email => _email;
@@ -79,6 +102,7 @@ class AccountEmail extends ChangeNotifier {
       final prefs = _prefs ??= await SharedPreferences.getInstance();
       _email = prefs.getString(_kEmail) ?? '';
       _verified = prefs.getBool(_kVerified) ?? false;
+      _changedAt = DateTime.tryParse(prefs.getString(_kChangedAt) ?? '');
       // An existing recovery email set through two-step counts as the
       // account email, so the two aren't kept as separate half-answers.
       if (_email.isEmpty && TwoStepVerification.instance.email.isNotEmpty) {
@@ -94,6 +118,12 @@ class AccountEmail extends ChangeNotifier {
   Future<EmailSaveResult> setEmail(String raw) async {
     final email = raw.trim();
     if (!isValid(email)) return EmailSaveResult.invalid;
+    final changingExisting =
+        _email.isNotEmpty && email.toLowerCase() != _email.toLowerCase();
+    if (changingExisting && changeCooldownLeft() > Duration.zero) {
+      return EmailSaveResult.tooSoon;
+    }
+    if (changingExisting) await _recordChange();
 
     _email = email;
     _verified = false;
@@ -109,13 +139,26 @@ class AccountEmail extends ChangeNotifier {
     return EmailSaveResult.savedUnverified;
   }
 
-  /// Removes the address from the account.
-  Future<void> clear() async {
+  /// Removes the address from the account. Refused (false) while the
+  /// change cooldown runs — removing is changing, as far as the clock is
+  /// concerned, or remove-then-add would dodge it.
+  Future<bool> clear() async {
+    if (_email.isNotEmpty && changeCooldownLeft() > Duration.zero) {
+      return false;
+    }
+    if (_email.isNotEmpty) await _recordChange();
     _email = '';
     _verified = false;
     await _persist();
     await TwoStepVerification.instance.setEmail('');
     notifyListeners();
+    return true;
+  }
+
+  Future<void> _recordChange() async {
+    _changedAt = DateTime.now();
+    final prefs = _prefs ??= await SharedPreferences.getInstance();
+    await prefs.setString(_kChangedAt, _changedAt!.toIso8601String());
   }
 
   /// Re-sends the confirmation email. Returns true when one went out.
@@ -144,7 +187,7 @@ class AccountEmail extends ChangeNotifier {
   /// Re-reads the signed-in user to see whether the address has since been
   /// confirmed. Safe to call on launch and on pull-to-refresh.
   Future<void> refreshVerification() async {
-    if (_email.isEmpty || !RelayConfig.isEnabled) return;
+    if (!RelayConfig.isEnabled) return;
     try {
       final auth = Supabase.instance.client.auth;
       if (auth.currentUser == null) return;
@@ -159,8 +202,22 @@ class AccountEmail extends ChangeNotifier {
         user = auth.currentUser; // offline: fall back to what we have
       }
       if (user == null) return;
+      // A reinstall (or an account switch's wipe) empties the LOCAL copy,
+      // but the address lives on the auth user — adopt it back, verified
+      // state and all, instead of asking somebody to re-verify an email
+      // the server already confirmed.
+      final serverEmail = (user.email ?? '').trim();
+      if (_email.isEmpty && serverEmail.isNotEmpty) {
+        _email = serverEmail;
+        _verified = user.emailConfirmedAt != null;
+        await _persist();
+        await TwoStepVerification.instance.setEmail(_email);
+        notifyListeners();
+        return;
+      }
+      if (_email.isEmpty) return;
       final confirmed = user.emailConfirmedAt != null &&
-          (user.email ?? '').toLowerCase() == _email.toLowerCase();
+          serverEmail.toLowerCase() == _email.toLowerCase();
       if (confirmed != _verified) {
         _verified = confirmed;
         await _persist();
@@ -215,6 +272,7 @@ class AccountEmail extends ChangeNotifier {
   void resetForTest() {
     _email = '';
     _verified = false;
+    _changedAt = null;
     _prefs = null;
     notifyListeners();
   }

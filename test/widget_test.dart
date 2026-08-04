@@ -14282,6 +14282,53 @@ void main() {
   group('Account email', () {
     setUp(AccountEmail.instance.resetForTest);
 
+    test('an email changes once every 30 days, and removing counts', () async {
+      SharedPreferences.setMockInitialValues({});
+      final store = AccountEmail.instance;
+      // First set is free.
+      expect(await store.setEmail('ada@example.com'),
+          EmailSaveResult.savedUnverified);
+      expect(store.changeCooldownLeft(), Duration.zero,
+          reason: 'setting the first address starts no clock');
+      // The first CHANGE is allowed, and starts the clock.
+      expect(await store.setEmail('ada@newhost.com'),
+          EmailSaveResult.savedUnverified);
+      expect(store.changeCooldownLeft(),
+          greaterThan(const Duration(days: 29)));
+      // A second change inside the window is refused, and so is removal —
+      // remove-then-add would dodge the clock.
+      expect(await store.setEmail('third@example.com'),
+          EmailSaveResult.tooSoon);
+      expect(store.email, 'ada@newhost.com');
+      expect(await store.clear(), isFalse);
+      expect(store.email, 'ada@newhost.com');
+      // Re-saving the SAME address is not a change (a resend flow).
+      expect(await store.setEmail('ada@newhost.com'),
+          EmailSaveResult.savedUnverified);
+      // Thirty-one days on, it moves again.
+      store.debugChangedAt =
+          DateTime.now().subtract(const Duration(days: 31));
+      expect(await store.setEmail('third@example.com'),
+          EmailSaveResult.savedUnverified);
+      expect(store.email, 'third@example.com');
+    });
+
+    test('a verified email survives reinstall through the auth user', () {
+      // The address lives on the Supabase auth user; a reinstall (or the
+      // account switch's wipe) only empties the LOCAL copy. The refresh
+      // adopts it back — address and confirmed state — instead of asking
+      // somebody to re-verify an email the server already confirmed.
+      final src =
+          File('lib/state/account_email.dart').readAsStringSync();
+      expect(src, contains('_email.isEmpty && serverEmail.isNotEmpty'));
+      expect(src, contains('_verified = user.emailConfirmedAt != null'));
+      // And the refusal in the UI names the wait, rather than a bare no.
+      final screen =
+          File('lib/screens/account_email_screen.dart').readAsStringSync();
+      expect(screen, contains('EmailSaveResult.tooSoon'));
+      expect(screen, contains('changeCooldownLeft()'));
+    });
+
     test('the confirmation link lands somewhere real, not on localhost', () {
       // With no emailRedirectTo, Supabase falls back to the project's Site
       // URL — `http://localhost:3000` until someone changes it — so the link
