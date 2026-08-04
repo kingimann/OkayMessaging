@@ -23,10 +23,13 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   late final TextEditingController _pronouns;
   late final TextEditingController _link;
   late final TextEditingController _location;
+  late final TextEditingController _businessHours;
   late String _avatarColor;
   late String _avatarColor2;
   late String _bannerColor;
   late String _emoji;
+  late bool _isBusiness;
+  late String _businessCategory;
 
   /// A small set of emojis offered for the avatar.
   static const _emojiChoices = [
@@ -57,10 +60,13 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     _pronouns = TextEditingController(text: p.pronouns);
     _link = TextEditingController(text: p.link);
     _location = TextEditingController(text: p.location);
+    _businessHours = TextEditingController(text: p.businessHours);
     _avatarColor = p.avatarColor;
     _avatarColor2 = p.avatarColor2;
     _bannerColor = p.bannerColor;
     _emoji = p.emoji;
+    _isBusiness = p.isBusiness;
+    _businessCategory = p.businessCategory;
   }
 
   @override
@@ -71,6 +77,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     _pronouns.dispose();
     _link.dispose();
     _location.dispose();
+    _businessHours.dispose();
     super.dispose();
   }
 
@@ -106,6 +113,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         avatarColor2: _avatarColor2,
         bannerColor: _bannerColor,
         location: _location.text,
+        isBusiness: _isBusiness,
+        businessCategory: _isBusiness ? _businessCategory : '',
+        businessHours: _isBusiness ? _businessHours.text.trim() : '',
       );
     } else {
       AppState.updateProfile(
@@ -119,6 +129,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         avatarColor2: _avatarColor2,
         bannerColor: _bannerColor,
         location: _location.text,
+        isBusiness: _isBusiness,
+        businessCategory: _isBusiness ? _businessCategory : '',
+        businessHours: _isBusiness ? _businessHours.text.trim() : '',
       );
     }
     if (_username.text.trim().isNotEmpty || _emoji.isNotEmpty) {
@@ -307,6 +320,43 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 label: 'Location',
                 hint: 'a city, a country, "on the road" — your words',
                 capitalization: TextCapitalization.words),
+          ]),
+          const SizedBox(height: 12),
+          card([
+            SwitchListTile(
+              dense: true,
+              secondary: const Icon(Icons.storefront_outlined, size: 20),
+              title: const Text('Business profile'),
+              subtitle: const Text(
+                  'A storefront badge, a category and your hours — shown to '
+                  'everyone you chat with'),
+              value: _isBusiness,
+              onChanged: (v) => setState(() => _isBusiness = v),
+            ),
+            if (_isBusiness) ...[
+              Padding(
+                padding: const EdgeInsets.fromLTRB(14, 10, 14, 4),
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (final cat in AppUser.businessCategories)
+                      ChoiceChip(
+                        label: Text(cat,
+                            style: const TextStyle(fontSize: 12.5)),
+                        visualDensity: VisualDensity.compact,
+                        selected: _businessCategory == cat,
+                        onSelected: (on) => setState(
+                            () => _businessCategory = on ? cat : ''),
+                      ),
+                  ],
+                ),
+              ),
+              field(_businessHours,
+                  icon: Icons.schedule_outlined,
+                  label: 'Hours',
+                  hint: 'Mon–Fri 9–5 — your words, never parsed'),
+            ],
           ]),
           if (AppState.profile.value.phone.isNotEmpty) ...[
             const SizedBox(height: 12),

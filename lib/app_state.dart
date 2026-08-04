@@ -264,6 +264,9 @@ class AppState {
     String? avatarColor2,
     String? bannerColor,
     String? location,
+    bool? isBusiness,
+    String? businessCategory,
+    String? businessHours,
   }) {
     final p = profile.value;
     profile.value = AppUser(
@@ -282,6 +285,9 @@ class AppState {
       avatarColor2: avatarColor2 ?? p.avatarColor2,
       bannerColor: bannerColor ?? p.bannerColor,
       location: location ?? p.location,
+      isBusiness: isBusiness ?? p.isBusiness,
+      businessCategory: businessCategory ?? p.businessCategory,
+      businessHours: businessHours ?? p.businessHours,
     );
   }
 
@@ -300,6 +306,17 @@ class AppState {
       isGroup: p.isGroup,
       verified: value,
       score: p.score,
+      // Everything else rides along untouched — the same rebuild in Session
+      // dropped these once already (and this copy still did until now).
+      emoji: p.emoji,
+      pronouns: p.pronouns,
+      link: p.link,
+      avatarColor2: p.avatarColor2,
+      bannerColor: p.bannerColor,
+      location: p.location,
+      isBusiness: p.isBusiness,
+      businessCategory: p.businessCategory,
+      businessHours: p.businessHours,
     );
   }
 

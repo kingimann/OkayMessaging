@@ -40,6 +40,20 @@ class AppUser {
   /// the profile; never parsed, never a coordinate.
   final String location;
 
+  /// Whether this account presents itself as a business. Purely a
+  /// self-declaration — it changes how the profile reads (storefront badge,
+  /// category, hours), not what the account can do, and it is NOT the blue
+  /// check: verification stays the identity claim, this is a presentation
+  /// choice.
+  final bool isBusiness;
+
+  /// What kind of business, from [businessCategories] ('' when unset).
+  final String businessCategory;
+
+  /// Free-text opening hours ("Mon–Fri 9–5"). Never parsed — text in, text
+  /// out, like [location].
+  final String businessHours;
+
   const AppUser({
     required this.id,
     required this.name,
@@ -57,7 +71,25 @@ class AppUser {
     this.avatarColor2 = '',
     this.bannerColor = '',
     this.location = '',
+    this.isBusiness = false,
+    this.businessCategory = '',
+    this.businessHours = '',
   });
+
+  /// The categories the edit screen offers. A fixed list rather than free
+  /// text so the label under a name is a word, not a pitch.
+  static const List<String> businessCategories = [
+    'Retail',
+    'Food & drink',
+    'Services',
+    'Beauty & wellness',
+    'Art & crafts',
+    'Tech',
+    'Education',
+    'Events',
+    'Travel',
+    'Other',
+  ];
 
   /// The handle with a leading '@', or empty when none is set.
   String get handle => username.isEmpty ? '' : '@$username';
@@ -79,6 +111,9 @@ class AppUser {
         'avatarColor2': avatarColor2,
         'bannerColor': bannerColor,
         'location': location,
+        'isBusiness': isBusiness,
+        'businessCategory': businessCategory,
+        'businessHours': businessHours,
       };
 
   factory AppUser.fromJson(Map<String, dynamic> json) => AppUser(
@@ -98,6 +133,9 @@ class AppUser {
         avatarColor2: json['avatarColor2'] as String? ?? '',
         bannerColor: json['bannerColor'] as String? ?? '',
         location: json['location'] as String? ?? '',
+        isBusiness: json['isBusiness'] as bool? ?? false,
+        businessCategory: json['businessCategory'] as String? ?? '',
+        businessHours: json['businessHours'] as String? ?? '',
       );
 
   /// Initials used for the placeholder avatar (e.g. "John Doe" -> "JD").

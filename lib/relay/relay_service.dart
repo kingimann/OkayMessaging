@@ -114,6 +114,9 @@ class RelayService {
     String fromAvatarColor2 = '',
     String fromBannerColor = '',
     String fromLocation = '',
+    bool fromBusiness = false,
+    String fromBusinessCategory = '',
+    String fromBusinessHours = '',
     String fromAbout = '',
     String fromEmoji = '',
     String fromPronouns = '',
@@ -147,6 +150,9 @@ class RelayService {
       'fromAvatarColor2': fromAvatarColor2,
       'fromBannerColor': fromBannerColor,
       'fromLocation': fromLocation,
+      'fromBusiness': fromBusiness,
+      'fromBusinessCategory': fromBusinessCategory,
+      'fromBusinessHours': fromBusinessHours,
       'fromAbout': fromAbout,
       'fromEmoji': fromEmoji,
       'fromPronouns': fromPronouns,
@@ -449,6 +455,11 @@ class RelayService {
     final sharedLink = (content['fromLink'] as String?)?.trim() ?? '';
     final sharedVerified = content['fromVerified'] == true;
     final sharedScore = (content['fromScore'] as num?)?.toInt() ?? 0;
+    final sharedBusiness = content['fromBusiness'] == true;
+    final sharedBusinessCategory =
+        (content['fromBusinessCategory'] as String?)?.trim() ?? '';
+    final sharedBusinessHours =
+        (content['fromBusinessHours'] as String?)?.trim() ?? '';
 
     final senderName = (content['fromName'] as String?)?.trim() ?? '';
 
@@ -480,6 +491,9 @@ class RelayService {
         avatarColor2: sharedColor2,
         bannerColor: sharedBanner,
         location: sharedLocation,
+        isBusiness: sharedBusiness,
+        businessCategory: sharedBusinessCategory,
+        businessHours: sharedBusinessHours,
       );
       // Born a request: a stranger's first message lands in Message requests,
       // not the chat list, and earns no receipts until it is accepted.
@@ -508,6 +522,11 @@ class RelayService {
         avatarColor2: sharedColor2.isNotEmpty ? sharedColor2 : null,
         bannerColor: sharedBanner.isNotEmpty ? sharedBanner : null,
         location: sharedLocation.isNotEmpty ? sharedLocation : null,
+        // Applied as sent, not non-empty-wins: a business that stops being
+        // one has to be able to say so, same as the verified flag.
+        business: sharedBusiness,
+        businessCategory: sharedBusinessCategory,
+        businessHours: sharedBusinessHours,
       );
     }
 
@@ -2862,6 +2881,11 @@ class RelayService {
       fromAvatarColor2: avatarColor.isEmpty ? '' : me.avatarColor2,
       fromBannerColor: avatarColor.isEmpty ? '' : me.bannerColor,
       fromLocation: about.isEmpty ? '' : me.location,
+      // Ungated on purpose: marking the account a business IS the decision
+      // to announce it — a storefront that hides from strangers isn't one.
+      fromBusiness: me.isBusiness,
+      fromBusinessCategory: me.isBusiness ? me.businessCategory : '',
+      fromBusinessHours: me.isBusiness ? me.businessHours : '',
       fromAbout: about,
       fromEmoji: avatarColor.isEmpty ? '' : me.emoji,
       fromPronouns: about.isEmpty ? '' : me.pronouns,

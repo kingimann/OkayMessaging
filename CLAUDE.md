@@ -235,6 +235,23 @@ suite, because there is no Xcode here and `flutter analyze` never looks at
 Swift. The test *newer iOS APIs are guarded* now scans `ios/Runner/*.swift`
 for the known offenders; add to its list rather than rediscovering this.
 
+## Business profiles (2026-08-04)
+
+`AppUser.isBusiness` + `businessCategory` (fixed list on the model) +
+`businessHours` (free text, never parsed). A self-declaration, NOT the blue
+check, and it changes presentation only: a storefront chip on the contact
+card and public profile, a category-and-hours line, the toggle + chips +
+hours field in Edit profile. Rides the sealed profile share UNGATED by the
+privacy audiences (turning it on IS the decision to announce it) but sends
+'' for category/hours when off — and the flag applies at the receiver AS
+SENT, like `verified`, so a business that stops being one clears itself on
+contacts (the never-zeroed rule the other profile strings follow would keep
+it forever). Adding a profile field still means touching every full-rebuild
+site: `Session.signIn`/`updateProfile`/`setVerified`,
+`AppState.updateProfile`/`setVerified`, `ChatStore.updateContactProfile`,
+relay encode/send/applyIncoming — `AppState.setVerified` had the
+strip-the-profile-bare bug fixed twice elsewhere and got it fixed here.
+
 ## Username-only accounts, and the one thing they can do
 
 Signing up with no phone number is a first-class choice on both login forms

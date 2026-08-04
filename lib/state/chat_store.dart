@@ -447,7 +447,10 @@ class ChatStore extends ChangeNotifier {
       String? link,
       String? avatarColor2,
       String? bannerColor,
-      String? location}) {
+      String? location,
+      bool? business,
+      String? businessCategory,
+      String? businessHours}) {
     final i = _chats.indexWhere((c) => c.contact.id == contactId);
     if (i == -1) return;
     final c = _chats[i].contact;
@@ -472,6 +475,14 @@ class ChatStore extends ChangeNotifier {
         : c.bannerColor;
     final nextLocation =
         (location != null && location.isNotEmpty) ? location : c.location;
+    // The business flag applies as sent — false has to be able to clear it
+    // (and takes the category and hours with it), unlike the non-empty-wins
+    // strings above.
+    final nextBusiness = business ?? c.isBusiness;
+    final nextBusinessCategory =
+        !nextBusiness ? '' : (businessCategory ?? c.businessCategory);
+    final nextBusinessHours =
+        !nextBusiness ? '' : (businessHours ?? c.businessHours);
     if (nextName == c.name &&
         nextColor == c.avatarColor &&
         nextAbout == c.about &&
@@ -482,7 +493,10 @@ class ChatStore extends ChangeNotifier {
         nextLink == c.link &&
         nextColor2 == c.avatarColor2 &&
         nextBanner == c.bannerColor &&
-        nextLocation == c.location) {
+        nextLocation == c.location &&
+        nextBusiness == c.isBusiness &&
+        nextBusinessCategory == c.businessCategory &&
+        nextBusinessHours == c.businessHours) {
       return;
     }
     _replace(
@@ -505,6 +519,9 @@ class ChatStore extends ChangeNotifier {
           avatarColor2: nextColor2,
           bannerColor: nextBanner,
           location: nextLocation,
+          isBusiness: nextBusiness,
+          businessCategory: nextBusinessCategory,
+          businessHours: nextBusinessHours,
         ),
       ),
     );

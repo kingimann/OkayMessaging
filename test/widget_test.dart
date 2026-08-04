@@ -8332,6 +8332,197 @@ void main() {
     });
   });
 
+  group('Business profiles', () {
+    test('the business fields survive the json round trip', () {
+      const u = AppUser(
+        id: 'b1',
+        name: 'Okay Coffee',
+        avatarColor: '#E57373',
+        isBusiness: true,
+        businessCategory: 'Food & drink',
+        businessHours: 'Mon–Fri 7–3',
+      );
+      final back = AppUser.fromJson(u.toJson());
+      expect(back.isBusiness, isTrue);
+      expect(back.businessCategory, 'Food & drink');
+      expect(back.businessHours, 'Mon–Fri 7–3');
+      // Old persisted profiles (no such keys) load clean, as a person.
+      final legacy = AppUser.fromJson(
+          {'id': 'u2', 'name': 'G', 'avatarColor': '#000000'});
+      expect(legacy.isBusiness, isFalse);
+      expect(legacy.businessCategory, '');
+      expect(legacy.businessHours, '');
+    });
+
+    test('the storefront travels with a message, and can be taken down', () {
+      ChatStore.instance.reset();
+      addTearDown(ChatStore.instance.reset);
+      final payload = RelayService.encode(
+        message: Message(
+            id: 'bz1',
+            text: 'hi',
+            time: DateTime(2026),
+            isMe: true,
+            status: MessageStatus.sent),
+        fromPhone: '+15550107788',
+        fromName: 'Okay Coffee',
+        fromBusiness: true,
+        fromBusinessCategory: 'Food & drink',
+        fromBusinessHours: 'Mon–Fri 7–3',
+        toPhone: '+15550102222',
+      );
+      RelayService.applyIncoming(payload, myPhone: '+15550102222');
+      final contact =
+          ChatStore.instance.chatWithContact('+15550107788')!.contact;
+      expect(contact.isBusiness, isTrue);
+      expect(contact.businessCategory, 'Food & drink');
+      expect(contact.businessHours, 'Mon–Fri 7–3');
+
+      // Unlike the never-zeroed profile strings, the flag applies as sent:
+      // a business that stops being one has to be able to say so, and the
+      // category and hours leave with it — same rule as the verified badge.
+      final personal = RelayService.encode(
+        message: Message(
+            id: 'bz2',
+            text: 'again',
+            time: DateTime(2026, 1, 2),
+            isMe: true,
+            status: MessageStatus.sent),
+        fromPhone: '+15550107788',
+        fromName: 'Okay Coffee',
+        toPhone: '+15550102222',
+      );
+      RelayService.applyIncoming(personal, myPhone: '+15550102222');
+      final still =
+          ChatStore.instance.chatWithContact('+15550107788')!.contact;
+      expect(still.isBusiness, isFalse);
+      expect(still.businessCategory, '');
+      expect(still.businessHours, '');
+    });
+
+    test('it only announces itself while the account says it is one', () {
+      // Ungated by the privacy audiences on purpose — marking the account a
+      // business IS the decision to announce it — but never sent when the
+      // toggle is off, so a lapsed category can't keep leaking.
+      final src = File('lib/relay/relay_service.dart').readAsStringSync();
+      expect(src, contains('fromBusiness: me.isBusiness'));
+      expect(
+          src,
+          contains(
+              "fromBusinessCategory: me.isBusiness ? me.businessCategory : ''"));
+      expect(
+          src,
+          contains(
+              "fromBusinessHours: me.isBusiness ? me.businessHours : ''"));
+    });
+
+    test('the fields persist through updateProfile and the badge flip',
+        () async {
+      SharedPreferences.setMockInitialValues({});
+      Session.instance.signInForTest();
+      addTearDown(Session.instance.resetForTest);
+      addTearDown(AppState.resetForTest);
+      await Session.instance.updateProfile(
+        name: 'Okay Coffee',
+        about: 'Espresso all day',
+        isBusiness: true,
+        businessCategory: 'Food & drink',
+        businessHours: '7–3',
+      );
+      expect(Session.instance.user.value!.isBusiness, isTrue);
+      // The badge rebuild must not strip the storefront (the same
+      // field-drop this rebuild has had before, twice).
+      await Session.instance.setVerified(true);
+      final me = Session.instance.user.value!;
+      expect(me.isBusiness, isTrue);
+      expect(me.businessCategory, 'Food & drink');
+      expect(me.businessHours, '7–3');
+      // And turning it off clears the label and hours with it.
+      await Session.instance.updateProfile(
+        name: 'Okay Coffee',
+        about: 'Espresso all day',
+        isBusiness: false,
+        businessCategory: '',
+        businessHours: '',
+      );
+      final person = Session.instance.user.value!;
+      expect(person.isBusiness, isFalse);
+      expect(person.businessCategory, '');
+    });
+
+    test('the unsigned badge flip no longer strips the profile bare either',
+        () {
+      // AppState.setVerified had the exact bug Session.setVerified was
+      // cured of: rebuilding the user without emoji, pronouns, link, the
+      // look, or the storefront.
+      addTearDown(AppState.resetForTest);
+      AppState.updateProfile(
+        name: 'Ada',
+        about: 'Hi',
+        emoji: '🦊',
+        pronouns: 'she/her',
+        link: 'ada.dev',
+        isBusiness: true,
+        businessCategory: 'Tech',
+      );
+      AppState.setVerified(true);
+      final p = AppState.profile.value;
+      expect(p.emoji, '🦊');
+      expect(p.pronouns, 'she/her');
+      expect(p.link, 'ada.dev');
+      expect(p.isBusiness, isTrue);
+      expect(p.businessCategory, 'Tech');
+    });
+
+    testWidgets('a business contact wears the storefront on their card',
+        (tester) async {
+      const biz = AppUser(
+        id: 'b',
+        name: 'Okay Coffee',
+        avatarColor: '#E57373',
+        phone: '+15550107788',
+        isBusiness: true,
+        businessCategory: 'Food & drink',
+        businessHours: 'Mon–Fri 7–3',
+      );
+      await tester
+          .pumpWidget(const MaterialApp(home: ContactInfoScreen(user: biz)));
+      await tester.pump();
+      expect(find.byIcon(Icons.storefront_outlined), findsOneWidget);
+      expect(find.text('Food & drink'), findsOneWidget);
+      expect(find.text('Mon–Fri 7–3'), findsOneWidget);
+      // A person's card carries none of it.
+      const person = AppUser(
+          id: 'p', name: 'Ada', avatarColor: '#E57373', phone: '+15550109999');
+      await tester.pumpWidget(
+          const MaterialApp(home: ContactInfoScreen(user: person)));
+      await tester.pump();
+      expect(find.byIcon(Icons.storefront_outlined), findsNothing);
+    });
+
+    testWidgets('the editor: toggle it on, pick a category, save',
+        (tester) async {
+      addTearDown(AppState.resetForTest);
+      await tester.pumpWidget(const MaterialApp(home: EditProfileScreen()));
+      await tester.pumpAndSettle();
+      // The categories stay out of the way until the account is a business.
+      expect(find.text('Retail'), findsNothing);
+      await tester.scrollUntilVisible(find.text('Business profile'), 200,
+          scrollable: find.byType(Scrollable).first);
+      await tester.tap(find.text('Business profile'));
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(find.text('Retail'), 200,
+          scrollable: find.byType(Scrollable).first);
+      await tester.tap(find.text('Retail'));
+      await tester.pump();
+      await tester.tap(find.byTooltip('Save'));
+      await tester.pumpAndSettle();
+      final p = AppState.profile.value;
+      expect(p.isBusiness, isTrue);
+      expect(p.businessCategory, 'Retail');
+    });
+  });
+
   group('Listing options (brand, was-price) and the form\'s shape', () {
     test('a listing carries a brand and a was-price, and both survive json',
         () {

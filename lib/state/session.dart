@@ -124,6 +124,9 @@ class Session {
       avatarColor2: prior?.avatarColor2 ?? '',
       bannerColor: prior?.bannerColor ?? '',
       location: prior?.location ?? '',
+      isBusiness: prior?.isBusiness ?? false,
+      businessCategory: prior?.businessCategory ?? '',
+      businessHours: prior?.businessHours ?? '',
     );
     _prefs ??= await SharedPreferences.getInstance();
     await _prefs!.setString(_key, jsonEncode(me.toJson()));
@@ -245,6 +248,9 @@ class Session {
     String? avatarColor2,
     String? bannerColor,
     String? location,
+    bool? isBusiness,
+    String? businessCategory,
+    String? businessHours,
   }) async {
     final current = user.value;
     if (current == null) return;
@@ -279,6 +285,9 @@ class Session {
       avatarColor2: avatarColor2 ?? current.avatarColor2,
       bannerColor: bannerColor ?? current.bannerColor,
       location: location ?? current.location,
+      isBusiness: isBusiness ?? current.isBusiness,
+      businessCategory: businessCategory ?? current.businessCategory,
+      businessHours: businessHours ?? current.businessHours,
     );
     _prefs ??= await SharedPreferences.getInstance();
     await _prefs!.setString(_key, jsonEncode(updated.toJson()));
@@ -310,6 +319,9 @@ class Session {
       avatarColor2: current.avatarColor2,
       bannerColor: current.bannerColor,
       location: current.location,
+      isBusiness: current.isBusiness,
+      businessCategory: current.businessCategory,
+      businessHours: current.businessHours,
     );
     _prefs ??= await SharedPreferences.getInstance();
     await _prefs!.setString(_key, jsonEncode(updated.toJson()));

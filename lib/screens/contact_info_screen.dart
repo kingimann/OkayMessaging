@@ -133,6 +133,54 @@ class ContactInfoScreen extends StatelessWidget {
               ),
             ),
           ],
+          if (user.isBusiness) ...[
+            const SizedBox(height: 6),
+            Center(
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                decoration: BoxDecoration(
+                  color: AppColors.accentOn(context).withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.storefront_outlined,
+                        size: 15, color: AppColors.accentOn(context)),
+                    const SizedBox(width: 4),
+                    Text(
+                      user.businessCategory.trim().isEmpty
+                          ? 'Business'
+                          : user.businessCategory.trim(),
+                      style: TextStyle(
+                          color: AppColors.accentOn(context),
+                          fontWeight: FontWeight.w600,
+                          fontSize: 13),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            if (user.businessHours.trim().isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Center(
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.schedule_outlined,
+                        size: 14, color: AppColors.subtle(context)),
+                    const SizedBox(width: 3),
+                    Text(
+                      user.businessHours.trim(),
+                      style: TextStyle(
+                          color: AppColors.subtle(context), fontSize: 13),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ],
           if (user.location.trim().isNotEmpty) ...[
             const SizedBox(height: 4),
             Center(

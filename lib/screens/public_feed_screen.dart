@@ -1093,6 +1093,33 @@ class _Header extends StatelessWidget {
           // Only for somebody this device actually knows. There is no
           // directory of bios to read, and a placeholder line here would be an
           // invented one.
+          if (known?.isBusiness ?? false) ...[
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Icon(Icons.storefront_outlined,
+                    size: 15, color: AppColors.subtle(context)),
+                const SizedBox(width: 4),
+                Flexible(
+                  child: Text(
+                    [
+                      known!.businessCategory.trim().isEmpty
+                          ? 'Business'
+                          : known!.businessCategory.trim(),
+                      if (known!.businessHours.trim().isNotEmpty)
+                        known!.businessHours.trim(),
+                    ].join(' · '),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.subtle(context)),
+                  ),
+                ),
+              ],
+            ),
+          ],
           if (about.isNotEmpty) ...[
             const SizedBox(height: 14),
             Text(about, style: const TextStyle(fontSize: 15, height: 1.4)),
