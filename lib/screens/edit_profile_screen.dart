@@ -144,6 +144,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       required String label,
       String? hint,
       String? prefixText,
+      String? helper,
+      bool enabled = true,
       int maxLines = 1,
       int? maxLength,
       TextInputType? keyboardType,
@@ -151,6 +153,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     }) {
       return TextField(
         controller: controller,
+        enabled: enabled,
         maxLines: maxLines,
         maxLength: maxLength,
         keyboardType: keyboardType,
@@ -161,6 +164,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           labelText: label,
           hintText: hint,
           prefixText: prefixText,
+          helperText: helper,
+          helperMaxLines: 2,
           counterText: '',
           prefixIcon: Icon(icon, size: 20),
           filled: false,
@@ -172,6 +177,16 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         ),
       );
     }
+
+    // A handle is identity, and it changes at most once every 30 days —
+    // the field says so and locks, instead of accepting an edit Save
+    // would quietly refuse. The display NAME is never limited.
+    final cooldownLeft = Session.instance.isSignedIn
+        ? Session.instance.usernameCooldownLeft()
+        : Duration.zero;
+    final usernameLocked = cooldownLeft > Duration.zero &&
+        AppState.profile.value.username.isNotEmpty;
+    final unlockDays = (cooldownLeft.inHours / 24).ceil();
 
     Widget card(List<Widget> children) => Material(
           color: cardColor,
@@ -239,6 +254,11 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 icon: Icons.alternate_email,
                 label: 'Username',
                 hint: 'letters, numbers, . and _',
+                enabled: !usernameLocked,
+                helper: usernameLocked
+                    ? 'Usernames change once every 30 days — yours unlocks '
+                        'in $unlockDays day${unlockDays == 1 ? '' : 's'}.'
+                    : 'Can be changed once every 30 days',
                 keyboardType: TextInputType.text),
           ]),
           const SizedBox(height: 12),

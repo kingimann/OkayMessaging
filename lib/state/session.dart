@@ -48,6 +48,10 @@ class Session {
             AppUser.fromJson(jsonDecode(rawLast) as Map<String, dynamic>);
       } catch (_) {}
     }
+    final rawChanged = _prefs!.getString(_kUsernameChangedAt);
+    if (rawChanged != null) {
+      _usernameChangedAt = DateTime.tryParse(rawChanged);
+    }
     final rawKnown = _prefs!.getString(_kKnown);
     if (rawKnown != null) {
       try {
@@ -196,6 +200,38 @@ class Session {
       .toLowerCase()
       .replaceAll(RegExp(r'[^a-z0-9_.]'), '');
 
+  // --- Username change cooldown --------------------------------------------
+  //
+  // A handle is how other people find and refer to an account — somebody
+  // who rotates theirs weekly breaks every "tell them @x" that is already
+  // out in the world, and a fresh handle every few days is also how
+  // impersonation and block-evasion look. So: changing an EXISTING handle
+  // starts a 30-day cooldown. Setting one for the first time is free (the
+  // sign-up mint counts as that), and the display NAME is never limited —
+  // a name is presentation, a handle is identity.
+  static const Duration usernameCooldown = Duration(days: 30);
+  static const _kUsernameChangedAt = 'username_changed_at_v1';
+  DateTime? _usernameChangedAt;
+
+  /// How much longer the handle is locked, or [Duration.zero] when it may
+  /// change now.
+  Duration usernameCooldownLeft() {
+    final at = _usernameChangedAt;
+    if (at == null) return Duration.zero;
+    final left = usernameCooldown - DateTime.now().difference(at);
+    return left.isNegative ? Duration.zero : left;
+  }
+
+  Future<void> _recordUsernameChange() async {
+    _usernameChangedAt = DateTime.now();
+    _prefs ??= await SharedPreferences.getInstance();
+    await _prefs!
+        .setString(_kUsernameChangedAt, _usernameChangedAt!.toIso8601String());
+  }
+
+  @visibleForTesting
+  set debugUsernameChangedAt(DateTime? at) => _usernameChangedAt = at;
+
   /// Updates the signed-in user's name/about (and optionally username / avatar
   /// color) and persists it on the device, keeping the phone number (identity).
   Future<void> updateProfile({
@@ -212,6 +248,20 @@ class Session {
   }) async {
     final current = user.value;
     if (current == null) return;
+    // The handle changes at most once every [usernameCooldown]. MODIFYING
+    // an existing one — including clearing it, or the clear-then-set
+    // two-step would dodge the clock — is refused while the cooldown
+    // runs (the edit screen disables the field and says why; this is the
+    // belt under that). Names, and everything else, stay free.
+    var nextUsername =
+        username == null ? current.username : _normalizeUsername(username);
+    if (nextUsername != current.username && current.username.isNotEmpty) {
+      if (usernameCooldownLeft() > Duration.zero) {
+        nextUsername = current.username;
+      } else {
+        await _recordUsernameChange();
+      }
+    }
     final updated = AppUser(
       id: current.id,
       name: name.trim().isEmpty ? current.name : name.trim(),
@@ -220,8 +270,7 @@ class Session {
           : avatarColor,
       about: about.trim().isEmpty ? current.about : about.trim(),
       phone: current.phone,
-      username:
-          username == null ? current.username : _normalizeUsername(username),
+      username: nextUsername,
       verified: current.verified,
       score: current.score,
       emoji: emoji ?? current.emoji,

@@ -8098,6 +8098,56 @@ void main() {
       expect(handler, contains("_resolvedName = ''"));
     });
 
+    test('a handle changes once every 30 days; a name changes any time',
+        () async {
+      SharedPreferences.setMockInitialValues({});
+      Session.instance.knownAccounts = [];
+      Session.instance.lastAccount = null;
+      Session.instance.debugUsernameChangedAt = null;
+      addTearDown(() {
+        Session.instance.knownAccounts = [];
+        Session.instance.lastAccount = null;
+        Session.instance.debugUsernameChangedAt = null;
+        Session.instance.resetForTest();
+        AppState.resetForTest();
+      });
+      await Session.instance
+          .signIn(phone: '+1 555 0166', name: 'Ada', username: 'ada');
+      // The FIRST change is free, and starts the clock.
+      await Session.instance.updateProfile(
+          name: 'Ada', about: 'x', username: 'grace');
+      expect(Session.instance.user.value!.username, 'grace');
+      expect(Session.instance.usernameCooldownLeft(), greaterThan(
+          const Duration(days: 29)));
+
+      // A second change inside the window is refused — including CLEARING,
+      // or clear-then-set would dodge the clock — while the name and the
+      // rest of the profile stay fully editable.
+      await Session.instance.updateProfile(
+          name: 'Ada L', about: 'y', username: 'lin');
+      expect(Session.instance.user.value!.username, 'grace');
+      expect(Session.instance.user.value!.name, 'Ada L');
+      expect(Session.instance.user.value!.about, 'y');
+      await Session.instance
+          .updateProfile(name: 'Ada L', about: 'y', username: '');
+      expect(Session.instance.user.value!.username, 'grace');
+
+      // Thirty-one days later the handle is free again.
+      Session.instance.debugUsernameChangedAt =
+          DateTime.now().subtract(const Duration(days: 31));
+      expect(Session.instance.usernameCooldownLeft(), Duration.zero);
+      await Session.instance.updateProfile(
+          name: 'Ada L', about: 'y', username: 'lin');
+      expect(Session.instance.user.value!.username, 'lin');
+
+      // And the edit screen locks the field rather than letting Save
+      // quietly refuse.
+      final editor =
+          File('lib/screens/edit_profile_screen.dart').readAsStringSync();
+      expect(editor, contains('usernameCooldownLeft()'));
+      expect(editor, contains('enabled: !usernameLocked'));
+    });
+
     test('the owner\'s new powers exist, gated and server-checked', () {
       // Takedown: in the function, with the author outranked; in the app,
       // drawn only for moderators and never on your own post.
