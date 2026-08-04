@@ -60,6 +60,10 @@ Deno.serve(async (req) => {
     .replace(/^https?:\/\//, "")
     .replace(/\.metered\.live.*$/, "");
   const apiKey = (Deno.env.get("METERED_API_KEY") ?? "").trim();
+  // Why the list below might be empty, said WITHOUT secrets: which half is
+  // misconfigured is undiagnosable from a bare empty answer, and this
+  // function fails soft on purpose. The app ignores this field.
+  let note = domain && apiKey ? "" : "METERED_DOMAIN / METERED_API_KEY not set";
   if (domain && apiKey) {
     try {
       const res = await fetch(
@@ -73,8 +77,17 @@ Deno.serve(async (req) => {
             { headers: cors },
           );
         }
+        note = "metered answered OK but with no servers (unexpected shape)";
+      } else {
+        note = `metered answered ${res.status}` +
+          (res.status === 401 || res.status === 403
+            ? " — the API key looks wrong for this app domain"
+            : res.status === 404
+            ? " — the app domain looks wrong"
+            : "");
       }
-    } catch (_) {
+    } catch (e) {
+      note = `metered unreachable: ${e instanceof Error ? e.message : "error"}`;
       // Fall through — a flaky provider must not kill the coturn path.
     }
   }
@@ -98,5 +111,8 @@ Deno.serve(async (req) => {
     );
   }
 
-  return Response.json({ iceServers: [], ttlSeconds: 300 }, { headers: cors });
+  return Response.json(
+    { iceServers: [], ttlSeconds: 300, note },
+    { headers: cors },
+  );
 });
