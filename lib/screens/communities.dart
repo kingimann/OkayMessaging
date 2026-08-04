@@ -3,7 +3,6 @@ import 'package:flutter_webrtc/flutter_webrtc.dart' show RTCVideoView, RTCVideoV
 import '../state/parental_controls.dart';
 import '../state/room_media.dart';
 import '../widgets/parental_gate.dart';
-import '../widgets/phone_gate.dart';
 
 import 'dart:async';
 import 'dart:convert';
@@ -125,20 +124,21 @@ class _CommunitiesTabState extends State<CommunitiesTab> {
     super.dispose();
   }
 
+  // NO phone gate here anymore, and that is a correction, not a loosening:
+  // the gate's own reason ("no session to join one with") stopped being
+  // true when the community bus became what it is — sealed broadcast,
+  // the anon-key mailbox, and the sealed community_posts store, the exact
+  // same transports numberless CHAT already rides. Keeping the gate meant
+  // a numberless member could receive a server invite in chat, join the
+  // roster, and then stare at a locked screen while their posts existed
+  // for nobody. What still needs more than membership keeps its own gate:
+  // selling (ID check), the wallet (session), the public feed (session).
   @override
   Widget build(BuildContext context) => ParentalGate(
         restriction: ParentalRestriction.servers,
         title: 'Servers',
         scaffold: false,
-        child: PhoneGate(
-          title: 'Servers',
-          scaffold: false,
-          reason: 'A server is other people, and everything in one — the '
-              'roster, the channels, the invites — lives on the relay under '
-              'your account. There is no session behind an account with no '
-              'phone number to join one with.',
-          child: Builder(builder: _guarded),
-        ),
+        child: Builder(builder: _guarded),
       );
 
   Widget _guarded(BuildContext context) {

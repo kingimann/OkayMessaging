@@ -177,6 +177,11 @@ Future<void> main() async {
   // "Reconnecting…" forever.
   CallMedia.instance.onNeedsIceRestart = () =>
       unawaited(CallService.instance.restartIce());
+  // And a link that STAYS dead ends the call: the far side's hang-up can
+  // miss the live socket, and its queued copy is worth fetching now
+  // rather than at the next app-open.
+  CallMedia.instance.connectionState.addListener(() => CallService.instance
+      .onMediaState(CallMedia.instance.connectionState.value));
   await _boot('cloud sync', CloudSync.instance.load);
   await _boot('status', StatusStore.instance.load);
   await _boot('favourites', FavouritesStore.instance.load);

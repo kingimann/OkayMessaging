@@ -253,9 +253,16 @@ table are both reachable with the anon key (`mailbox_*` policies grant
 store-and-forward. Everything that reads or writes the server has nothing to
 answer with.
 
-So `PhoneGate` (`lib/widgets/phone_gate.dart`) wraps Newsfeed, Maps,
-Marketplace, Servers, Calls, Alerts, Wallet and Okay Drop — around the screen,
-never the row, for the same reason as `VerifiedGate`. Notes and Settings stay
+So `PhoneGate` (`lib/widgets/phone_gate.dart`) wraps what genuinely needs a
+session — the Newsfeed (its RLS inserts need a JWT) and the Wallet — around
+the screen, never the row, for the same reason as `VerifiedGate`.
+**Servers OPENED for numberless on 2026-08-04** (a correction, not a
+loosening): the community bus is sealed broadcast + the anon-key mailbox +
+the sealed `community_posts` store — the same transports numberless chat
+already rides — so the gate's stated reason had stopped being true, and it
+was why a numberless member's server posts existed for nobody. A test pins
+the gate out. Marketplace is browse-only for numberless (selling needs the
+ID check), Okay Drop and Maps are open. Notes and Settings stay
 open: Notes is local-only and locking it would protect nobody, and Settings is
 the way out. There is **no owner waiver** — an owner without a number has no
 session either, so letting them through would show a screen that cannot load.

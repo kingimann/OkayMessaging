@@ -809,6 +809,44 @@ class CallService {
     return error;
   }
 
+  /// The zombie-call watchdog. When the far side hangs up, their 'end'
+  /// event usually arrives live — but a dropped socket loses it, and this
+  /// side then sat in "Reconnecting…" forever while their phone was long
+  /// back in a pocket. Two answers, both driven by the media link dying:
+  /// fetch the mailbox NOW (the 'end' was queued there and would otherwise
+  /// wait for the next app-open), and if the link stays dead through the
+  /// restart attempts, end the call locally — twenty seconds of dead air
+  /// after a restart is a peer that is gone, not a peer that is slow.
+  Timer? _deadLinkTimer;
+  void onMediaState(String state) {
+    final c = current.value;
+    if (c == null || c.isGroup || c.status != CallStatus.connected) {
+      _deadLinkTimer?.cancel();
+      _deadLinkTimer = null;
+      return;
+    }
+    final dead =
+        state == 'disconnected' || state == 'failed' || state == 'closed';
+    if (!dead) {
+      _deadLinkTimer?.cancel();
+      _deadLinkTimer = null;
+      return;
+    }
+    // Their hang-up may be sitting in the mailbox this very second.
+    unawaited(RelayService.instance.fetchMailbox());
+    _deadLinkTimer ??= Timer(const Duration(seconds: 20), () {
+      _deadLinkTimer = null;
+      final cur = current.value;
+      if (cur == null || cur.isGroup || cur.status != CallStatus.connected) {
+        return;
+      }
+      final ms = CallMedia.instance.connectionState.value;
+      if (ms == 'disconnected' || ms == 'failed' || ms == 'closed') {
+        end();
+      }
+    });
+  }
+
   /// Redials the transport under a live call after a network switch: an
   /// ICE-restart offer over the same renegotiation path a camera-on offer
   /// rides. Exactly one side restarts — the original CALLER — so a failure

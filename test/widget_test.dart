@@ -7473,6 +7473,19 @@ void main() {
           contains('via relay'));
     });
 
+    test('a missed hang-up cannot zombie the call', () {
+      final service = File('lib/state/call_service.dart').readAsStringSync();
+      // The far side's 'end' is queued to the mailbox; a dead media link
+      // fetches it NOW instead of at the next app-open, and a link still
+      // dead after the restart window ends the call locally.
+      final watchdog = service.substring(service.indexOf('onMediaState'));
+      final body = watchdog.substring(0, watchdog.indexOf('restartIce'));
+      expect(body, contains('fetchMailbox'));
+      expect(body, contains('end();'));
+      expect(File('lib/main.dart').readAsStringSync(),
+          contains('onMediaState'));
+    });
+
     test('a number the directory has never heard of gets an invite, not a '
         'chat', () async {
       // Unknown is not "no": with no session (this test env) the check must
@@ -22569,10 +22582,13 @@ void main() {
           reason: 'the marketplace and Okay Drop rows must drop the phone '
               'padlock — both open for a numberless account');
 
-      // The rows only the phone gate shuts: Newsfeed and Servers. The third
-      // match is inside _GateHint, which is how a row behind BOTH gates
-      // shows one padlock instead of two.
-      expect(RegExp(r'PhoneOnlyHint\(\)').allMatches(src).length, 3,
+      // The one row only the phone gate shuts: Newsfeed (its RLS insert
+      // needs a session). Servers dropped both padlock and gate — the
+      // community bus rides the same anon-key transports as chat, so the
+      // gate's reason stopped being true. The second match is inside
+      // _GateHint, which is how a row behind BOTH gates shows one padlock
+      // instead of two.
+      expect(RegExp(r'PhoneOnlyHint\(\)').allMatches(src).length, 2,
           reason: 'a phone-gated row lost its padlock, or gained one it '
               'cannot back up');
     });
@@ -22595,11 +22611,22 @@ void main() {
       for (final path in [
         'lib/screens/wallet_screen.dart',
         'lib/screens/public_feed_screen.dart',
-        'lib/screens/communities.dart',
       ]) {
         expect(File(path).readAsStringSync().contains('PhoneGate('), isTrue,
             reason: '$path is reachable without a phone number');
       }
+      // Servers OPENED for numberless accounts, deliberately: the
+      // community bus is sealed broadcast + the anon-key mailbox + the
+      // sealed post store — the same transports numberless chat already
+      // rides — so the old gate locked people out of rooms their posts
+      // could technically reach. This pin keeps it open.
+      expect(
+          File('lib/screens/communities.dart')
+              .readAsStringSync()
+              .contains('PhoneGate('),
+          isFalse,
+          reason: 'servers work without a session; the gate must not '
+              'quietly return');
       // Chat, calls, browsing the marketplace, the map, Okay Drop and the
       // Alerts tab all work without a session — the relay rides the anon
       // key, the map is tiles and local state, Okay Drop is two phones and

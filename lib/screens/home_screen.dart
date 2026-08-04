@@ -559,7 +559,6 @@ class _AppSideBar extends StatelessWidget {
               ListTile(
                 leading: const Icon(Icons.groups_outlined),
                 title: const Text('Servers'),
-                trailing: const PhoneOnlyHint(),
                 // Servers IS a bottom tab, so this switches the bar rather
                 // than pushing a second copy of a screen that is already open
                 // behind the drawer — and says when it is the one showing,
