@@ -8008,6 +8008,96 @@ void main() {
       expect(Session.instance.user.value?.username, 'graceh');
     });
 
+    test('signing back into the same account keeps the profile', () async {
+      // The wipe's promise is 'same account returning keeps everything' —
+      // but signIn rebuilt a BARE profile: about back to 'Available', the
+      // avatar look, pronouns, link and location gone, on every return.
+      SharedPreferences.setMockInitialValues({});
+      Session.instance.knownAccounts = [];
+      Session.instance.lastAccount = null;
+      addTearDown(() {
+        Session.instance.knownAccounts = [];
+        Session.instance.lastAccount = null;
+        Session.instance.resetForTest();
+        AppState.resetForTest();
+      });
+      await Session.instance
+          .signIn(phone: '+1 555 0177', name: 'Ada', username: 'ada');
+      await Session.instance.updateProfile(
+        name: 'Ada',
+        about: 'Building',
+        emoji: '🦊',
+        pronouns: 'she/her',
+        link: 'ada.dev',
+        avatarColor2: '#64B5F6',
+        bannerColor: '#BA68C8',
+        location: 'Toronto',
+      );
+      await Session.instance.signOut();
+      await Session.instance
+          .signIn(phone: '+1 555 0177', name: '', username: '');
+      final me = Session.instance.user.value!;
+      expect(me.name, 'Ada');
+      expect(me.about, 'Building');
+      expect(me.emoji, '🦊');
+      expect(me.pronouns, 'she/her');
+      expect(me.link, 'ada.dev');
+      expect(me.avatarColor2, '#64B5F6');
+      expect(me.bannerColor, '#BA68C8');
+      expect(me.location, 'Toronto');
+      expect(me.username, 'ada',
+          reason: 'the handle survives a blank sign-in field too');
+
+      // A DIFFERENT account still starts factory-fresh.
+      await Session.instance
+          .signIn(phone: '+1 555 0288', name: '', username: '');
+      final other = Session.instance.user.value!;
+      expect(other.about, 'Available');
+      expect(other.emoji, '');
+      expect(other.location, '');
+    });
+
+    test('deleting the account forgets every remembered profile', () async {
+      // signOut re-remembers the leaving account and the erase clears only
+      // the DISK copy — the in-memory list re-persisted the deleted
+      // identity on the next sign-in, offering one-tap entry into an
+      // account that no longer exists.
+      SharedPreferences.setMockInitialValues({});
+      Session.instance.knownAccounts = [];
+      addTearDown(() {
+        Session.instance.knownAccounts = [];
+        Session.instance.resetForTest();
+      });
+      await Session.instance.rememberAccount(const AppUser(
+          id: 'x', name: 'X', avatarColor: '#000000', phone: '+1 555 0100'));
+      expect(Session.instance.knownAccounts, isNotEmpty);
+      await Session.instance.clearKnownAccounts();
+      expect(Session.instance.knownAccounts, isEmpty);
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getString('known_accounts_v1'), isNull);
+      // And the delete flow actually calls it, after the erase.
+      final src =
+          File('lib/screens/settings_screen.dart').readAsStringSync();
+      final erase = src.indexOf('eraseEverything()');
+      expect(erase, greaterThan(-1));
+      expect(src.indexOf('clearKnownAccounts()', erase), greaterThan(erase),
+          reason: 'the erase clears disk; this clears the memory list');
+    });
+
+    test('backing out of a one-tap profile clears the resolved phone', () {
+      // Tapping a remembered profile resolves its number into
+      // _identifierPhone, and _loginPhone prefers it — so after a failed
+      // one-tap, a freshly typed number would have had its code sent to
+      // the TAPPED account instead. 'Use a different account' must drop it.
+      final src = File('lib/screens/auth/phone_login_screen.dart')
+          .readAsStringSync();
+      final blank = src.indexOf('A different account starts BLANK');
+      expect(blank, greaterThan(-1));
+      final handler = src.substring(blank, blank + 900);
+      expect(handler, contains('_identifierPhone = null'));
+      expect(handler, contains("_resolvedName = ''"));
+    });
+
     test('the owner\'s new powers exist, gated and server-checked', () {
       // Takedown: in the function, with the author outranked; in the app,
       // drawn only for moderators and never on your own post.

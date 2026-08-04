@@ -1035,6 +1035,12 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
                     _username.clear();
                     _phone.clear();
                     _identifier.clear();
+                    // And the RESOLVED phone goes too: a failed one-tap on
+                    // a remembered profile left it set, and _loginPhone
+                    // prefers it — the code for a freshly typed number
+                    // would have gone to the tapped account instead.
+                    _identifierPhone = null;
+                    _resolvedName = '';
                   }),
           child: Text('Use a different account',
               style: TextStyle(color: AppColors.subtle(context))),

@@ -621,6 +621,11 @@ class SettingsView extends StatelessWidget {
     await Session.instance.signOut();
     await AccountWipe.eraseEverything();
     await Session.instance.clearLastAccount();
+    // The sign-out above re-remembered the account and the erase only
+    // cleared the DISK copy — without this, the in-memory list would
+    // re-persist the deleted identity on the next sign-in and offer
+    // one-tap entry into an account that no longer exists.
+    await Session.instance.clearKnownAccounts();
     navigator.popUntil((route) => route.isFirst);
   }
 

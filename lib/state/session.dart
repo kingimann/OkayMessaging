@@ -85,14 +85,41 @@ class Session {
     // returning keeps everything; that is the difference between signing
     // back in and switching.
     await AccountWipe.onSignIn(phone);
-    final trimmedName = name.trim().isEmpty ? phone : name.trim();
+    // "Keeps everything" includes the PROFILE: this used to rebuild a bare
+    // one — about back to 'Available', the avatar look, pronouns, link and
+    // location gone — on every sign-back-in, while the comment above
+    // promised otherwise. The remembered identity for the same digits is
+    // the base; what was typed on the form only overrides what it names.
+    final d = phone.replaceAll(RegExp(r'\D'), '');
+    AppUser? prior;
+    for (final a in [
+      if (lastAccount != null) lastAccount!,
+      ...knownAccounts,
+    ]) {
+      if (a.phone.replaceAll(RegExp(r'\D'), '') == d) {
+        prior = a;
+        break;
+      }
+    }
+    final trimmedName = name.trim().isEmpty
+        ? (prior?.name ?? phone)
+        : name.trim();
+    final handle = _normalizeUsername(username);
     final me = AppUser(
       id: phone,
       name: trimmedName,
-      avatarColor: colorForPhone(phone),
-      about: 'Available',
+      avatarColor: prior?.avatarColor ?? colorForPhone(phone),
+      about: prior?.about ?? 'Available',
       phone: phone,
-      username: _normalizeUsername(username),
+      username: handle.isNotEmpty ? handle : (prior?.username ?? ''),
+      verified: prior?.verified ?? false,
+      score: prior?.score ?? 0,
+      emoji: prior?.emoji ?? '',
+      pronouns: prior?.pronouns ?? '',
+      link: prior?.link ?? '',
+      avatarColor2: prior?.avatarColor2 ?? '',
+      bannerColor: prior?.bannerColor ?? '',
+      location: prior?.location ?? '',
     );
     _prefs ??= await SharedPreferences.getInstance();
     await _prefs!.setString(_key, jsonEncode(me.toJson()));
@@ -273,6 +300,16 @@ class Session {
     _prefs ??= await SharedPreferences.getInstance();
     await _prefs!.setString(
         _kKnown, jsonEncode([for (final a in knownAccounts) a.toJson()]));
+  }
+
+  /// Forgets every remembered profile, memory and disk — for **Delete
+  /// account**: the erase clears the prefs file, but the in-memory list
+  /// would re-persist the deleted identity with the next sign-in, offering
+  /// one-tap entry into an account that no longer exists.
+  Future<void> clearKnownAccounts() async {
+    knownAccounts = [];
+    _prefs ??= await SharedPreferences.getInstance();
+    await _prefs!.remove(_kKnown);
   }
 
   /// Drops one remembered profile (long-press → remove on the login list).
