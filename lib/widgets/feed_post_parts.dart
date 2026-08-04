@@ -7,7 +7,9 @@ import '../screens/in_app_web_screen.dart';
 import '../state/chat_store.dart';
 import '../theme/app_theme.dart';
 import '../utils/date_formatter.dart';
+import 'chat_photo.dart';
 import 'collapsible_text.dart';
+import 'emoji_gif_sheet.dart';
 import 'user_avatar.dart';
 import 'verified_badge.dart';
 
@@ -443,12 +445,24 @@ class FeedPostImage extends StatelessWidget {
 /// [onSend] returns whether it was accepted. A server's word filter can
 /// refuse one, and a refusal must leave what was typed where it is.
 class FeedReplyBar extends StatefulWidget {
-  const FeedReplyBar({super.key, required this.handle, required this.onSend});
+  const FeedReplyBar({
+    super.key,
+    required this.handle,
+    required this.onSend,
+    this.gifEnabled = false,
+  });
 
   /// Whose post is being answered, without the at.
   final String handle;
 
-  final Future<bool> Function(String text) onSend;
+  /// Sends the reply; [gifUrl] rides along when one was attached. A reply
+  /// can be a GIF alone — the text is empty then, like on the timelines.
+  final Future<bool> Function(String text, String? gifUrl) onSend;
+
+  /// Whether the GIF button is drawn. The public feed passes its
+  /// mediaSupported flag (the column may not exist yet); a server feed's
+  /// replies ride the sealed payload and always can.
+  final bool gifEnabled;
 
   @override
   State<FeedReplyBar> createState() => _FeedReplyBarState();
@@ -457,6 +471,7 @@ class FeedReplyBar extends StatefulWidget {
 class _FeedReplyBarState extends State<FeedReplyBar> {
   final TextEditingController _text = TextEditingController();
   bool _sending = false;
+  String? _gifUrl;
 
   @override
   void dispose() {
@@ -466,14 +481,22 @@ class _FeedReplyBarState extends State<FeedReplyBar> {
 
   Future<void> _send() async {
     final text = _text.text.trim();
-    if (text.isEmpty || _sending) return;
+    if ((text.isEmpty && _gifUrl == null) || _sending) return;
     setState(() => _sending = true);
-    final ok = await widget.onSend(text);
+    final ok = await widget.onSend(text, _gifUrl);
     if (!mounted) return;
     setState(() => _sending = false);
     if (!ok) return;
     _text.clear();
+    setState(() => _gifUrl = null);
     if (mounted) FocusScope.of(context).unfocus();
+  }
+
+  Future<void> _pickGif() async {
+    final picked = await showEmojiGifSheet(context, initialTab: 1);
+    final gif = picked?.gif;
+    if (gif == null || !mounted) return;
+    setState(() => _gifUrl = gif.url);
   }
 
   @override
@@ -481,35 +504,74 @@ class _FeedReplyBarState extends State<FeedReplyBar> {
     return SafeArea(
       top: false,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 8, 12, 10),
-        child: Row(
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Expanded(
-              child: TextField(
-                controller: _text,
-                minLines: 1,
-                maxLines: 3,
-                textCapitalization: TextCapitalization.sentences,
-                onSubmitted: (_) => _send(),
-                decoration: InputDecoration(
-                  hintText: widget.handle.isEmpty
-                      ? 'Post your reply'
-                      : 'Reply to @${widget.handle}',
-                  filled: true,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(24),
-                    borderSide: BorderSide.none,
-                  ),
-                  contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 16, vertical: 8),
+            // The attached GIF, seen before it is sent — with the way out.
+            if (_gifUrl != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Row(
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(10),
+                      child: SizedBox(
+                        width: 88,
+                        height: 66,
+                        child: ChatPhoto(
+                          url: _gifUrl!,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_) => const SizedBox.shrink(),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    IconButton(
+                      icon: const Icon(Icons.close, size: 18),
+                      tooltip: 'Remove GIF',
+                      onPressed: () => setState(() => _gifUrl = null),
+                    ),
+                    const Spacer(),
+                  ],
                 ),
               ),
-            ),
-            const SizedBox(width: 8),
-            IconButton.filled(
-              icon: const Icon(Icons.send, size: 18),
-              tooltip: 'Send reply',
-              onPressed: _sending ? null : _send,
+            Row(
+              children: [
+                if (widget.gifEnabled)
+                  IconButton(
+                    icon: const Icon(Icons.gif_box_outlined),
+                    tooltip: 'Reply with a GIF',
+                    onPressed: _sending ? null : _pickGif,
+                  ),
+                Expanded(
+                  child: TextField(
+                    controller: _text,
+                    minLines: 1,
+                    maxLines: 3,
+                    textCapitalization: TextCapitalization.sentences,
+                    onSubmitted: (_) => _send(),
+                    decoration: InputDecoration(
+                      hintText: widget.handle.isEmpty
+                          ? 'Post your reply'
+                          : 'Reply to @${widget.handle}',
+                      filled: true,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(24),
+                        borderSide: BorderSide.none,
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 8),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                IconButton.filled(
+                  icon: const Icon(Icons.send, size: 18),
+                  tooltip: 'Send reply',
+                  onPressed: _sending ? null : _send,
+                ),
+              ],
             ),
           ],
         ),

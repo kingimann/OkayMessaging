@@ -17016,6 +17016,58 @@ void main() {
       }
     });
 
+    testWidgets('the reply bar carries a GIF, when the surface can take one',
+        (t) async {
+      // "Comments in the newsfeed don't have GIFs": the thread screens'
+      // quick-reply bar was text-only while the full composer had the
+      // button — so the way most people reply was the one way that
+      // couldn't. The bar takes a GIF now, gated exactly like the
+      // composer (the public feed's column may not exist yet).
+      String? sentText, sentGif;
+      await t.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: FeedReplyBar(
+            handle: 'ada',
+            gifEnabled: true,
+            onSend: (text, gif) async {
+              sentText = text;
+              sentGif = gif;
+              return true;
+            },
+          ),
+        ),
+      ));
+      expect(find.byTooltip('Reply with a GIF'), findsOneWidget);
+      await t.enterText(find.byType(TextField), 'nice one');
+      await t.tap(find.byTooltip('Send reply'));
+      await t.pump();
+      expect(sentText, 'nice one');
+      expect(sentGif, isNull);
+
+      // Off means absent, not broken: no button where the insert would
+      // be rejected.
+      await t.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: FeedReplyBar(
+            handle: 'ada',
+            onSend: (text, gif) async => true,
+          ),
+        ),
+      ));
+      expect(find.byTooltip('Reply with a GIF'), findsNothing);
+
+      // And both threads really forward the GIF into their stores.
+      final public =
+          File('lib/screens/public_feed_screen.dart').readAsStringSync();
+      expect(public,
+          contains('gifEnabled: PublicFeedStore.instance.mediaSupported'));
+      expect(public, contains('replyTo: post.id, gifUrl: gifUrl'));
+      final server = File('lib/screens/feed_screen.dart').readAsStringSync();
+      expect(server, contains('gifEnabled: true'));
+      expect(server,
+          contains("reply(post.id, text, gifUrl: gifUrl)"));
+    });
+
     test('both composers show the post being answered', () {
       // One shape for the two, so a reply looks the same wherever it starts.
       for (final path in [

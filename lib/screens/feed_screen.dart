@@ -1380,7 +1380,10 @@ class _FeedPostScreenState extends State<FeedPostScreen> {
               // answering a particular comment, and for anything longer.
               FeedReplyBar(
                 handle: post.authorUsername,
-                onSend: (text) async {
+                // A server reply rides the sealed payload — no column to
+                // wait on, so GIFs are always offered here.
+                gifEnabled: true,
+                onSend: (text, gifUrl) async {
                   // A reply is a post, so the server's word filter applies.
                   final hit = CommunityStore.instance
                       .filterHit(post.communityId, text);
@@ -1390,7 +1393,7 @@ class _FeedPostScreenState extends State<FeedPostScreen> {
                             '"$hit" is blocked by this server\'s word filter')));
                     return false;
                   }
-                  FeedStore.instance.reply(post.id, text);
+                  FeedStore.instance.reply(post.id, text, gifUrl: gifUrl);
                   return true;
                 },
               ),

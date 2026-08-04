@@ -1844,10 +1844,13 @@ class PublicThreadScreen extends StatelessWidget {
               // is almost always say something back.
               FeedReplyBar(
                 handle: post.authorUsername,
-                onSend: (text) async {
+                // Same gate as the composer's GIF button: the column may
+                // not exist on the server yet.
+                gifEnabled: PublicFeedStore.instance.mediaSupported,
+                onSend: (text, gifUrl) async {
                   try {
                     await PublicFeedStore.instance
-                        .post(text, replyTo: post.id);
+                        .post(text, replyTo: post.id, gifUrl: gifUrl);
                     return true;
                   } catch (e) {
                     if (context.mounted) {
