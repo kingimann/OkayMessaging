@@ -376,6 +376,24 @@ class RelayService {
     // row outlived its delivery and replays the envelope.
     if (target.isMessageDeleted(id)) return false;
 
+    // A message already held is dropped HERE, before decryption — not just
+    // at the add-to-chat step below. The mailbox redelivers envelopes the
+    // broadcast already delivered, and an enc-3 replay reaching the ratchet
+    // cannot decrypt (its key was deleted on use) but used to advance the
+    // chain on its way to failing — one replay and every genuine message
+    // after it rendered as "Couldn't unlock". Decrypt is transactional now
+    // too; this keeps replays from even knocking. The sender must match as
+    // well as the id: ids are only unique per sender, so someone else's
+    // message under the same id is not a replay of this one.
+    final dupChat = target.chatWithMessage(id, senderId: from);
+    if (dupChat != null) {
+      final dup = dupChat.messages.firstWhere((m) => m.id == id);
+      final sameSender = dupChat.contact.isGroup
+          ? digits(dup.senderPhone) == digits(from)
+          : digits(dupChat.contact.phone) == digits(from);
+      if (sameSender) return false;
+    }
+
     // Privacy: blocked senders are always ignored.
     final knownChat = target.chatWithContact(from);
     if (AppState.isBlocked(from)) return false;

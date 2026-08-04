@@ -28469,6 +28469,69 @@ void main() {
           reason: 'the key was deleted on use — that is the whole point');
     });
 
+    test('a failed replay burns nothing: the next genuine message still opens',
+        () {
+      // Delivery is broadcast + mailbox, so the same envelope routinely
+      // arrives twice. The replay must fail (above) — but it used to advance
+      // the receiving chain on its way to failing, leaving it one key ahead
+      // of the sender, and every GENUINE message after it rendered as
+      // "🔒 Couldn't unlock this message" until a heal buried the session.
+      final m1 = a.encrypt('111', '222', 'one')!;
+      expect(b.decrypt('222', '111', m1.header, m1.blob), 'one');
+      expect(b.decrypt('222', '111', m1.header, m1.blob), isNull);
+      final m2 = a.encrypt('111', '222', 'two')!;
+      expect(b.decrypt('222', '111', m2.header, m2.blob), 'two',
+          reason: 'the failed replay must not have moved the chain');
+      // And a forged/corrupt blob mid-conversation burns nothing either.
+      expect(b.decrypt('222', '111', a.encrypt('111', '222', 'x')!.header,
+          'not-even-base64'), isNull);
+      final m3 = a.encrypt('111', '222', 'three')!;
+      // The 'x' envelope (n=2) was never delivered readably; m3 (n=3) makes
+      // the chain wind past it onto the shelf, which only works if the two
+      // failures above really left the chain where it was.
+      expect(b.decrypt('222', '111', m3.header, m3.blob), 'three');
+    });
+
+    test('a stale header from a buried session cannot displace the live one',
+        () {
+      // An old-world envelope held back (a mailbox row outliving its
+      // session) arrives after the initiator reset and started over. The
+      // responder rebuilds a half for the foreign sid, the decrypt fails —
+      // and the LIVE session must come back out of that intact, where it
+      // used to be overwritten by the freshly-minted wrong one.
+      final w1 = a.encrypt('111', '222', 'old world')!;
+      expect(b.decrypt('222', '111', w1.header, w1.blob), 'old world');
+      // Bob replies so the live root advances past the static bootstrap —
+      // the state a from-scratch rebuild can never reach.
+      final r1 = b.encrypt('222', '111', 'reply')!;
+      expect(a.decrypt('111', '222', r1.header, r1.blob), 'reply');
+      final w2 = a.encrypt('111', '222', 'held back')!;
+      a.resetPeer('222');
+      final n1 = a.encrypt('111', '222', 'new world')!;
+      expect(b.decrypt('222', '111', n1.header, n1.blob), 'new world');
+      final r2 = b.encrypt('222', '111', 'new reply')!;
+      expect(a.decrypt('111', '222', r2.header, r2.blob), 'new reply');
+      // The stale envelope lands. Its sid is dead; the rebuild fails.
+      expect(b.decrypt('222', '111', w2.header, w2.blob), isNull);
+      // The live session survived it.
+      final n2 = a.encrypt('111', '222', 'still here')!;
+      expect(b.decrypt('222', '111', n2.header, n2.blob), 'still here');
+    });
+
+    test('replays are dropped before they ever reach the ratchet', () {
+      // Belt to the transactional-decrypt braces: applyIncoming checks the
+      // store for the message id BEFORE decrypting, so the mailbox replaying
+      // what the broadcast already delivered never even knocks.
+      final src = File('lib/relay/relay_service.dart').readAsStringSync();
+      final body = src.substring(src.indexOf('static bool applyIncoming'));
+      final dedup = body.indexOf('chatWithMessage(id, senderId: from)');
+      final decode = body.indexOf('_decodeContent(');
+      expect(dedup, greaterThan(-1));
+      expect(decode, greaterThan(-1));
+      expect(dedup, lessThan(decode),
+          reason: 'dedup must run before decryption');
+    });
+
     test('a touched header fails like touched ciphertext', () {
       final m = a.encrypt('111', '222', 'bound')!;
       final forged = Map<String, dynamic>.from(m.header);

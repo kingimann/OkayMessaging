@@ -167,7 +167,34 @@ class DoubleRatchet {
   /// Decrypts [blob] from [peer]. Returns null when the key cannot be found —
   /// wrong session, replayed message (its key was used and deleted), or a
   /// header wound further ahead than [maxSkip] allows.
+  ///
+  /// **Transactional, and that is load-bearing.** A failed decrypt restores
+  /// the session to exactly what it was, because the mutating body below
+  /// advances the chain BEFORE the ciphertext gets its say. Delivery here is
+  /// broadcast + mailbox, so the same envelope routinely arrives twice — and
+  /// a replay that burned a chain key on its way to failing left the chain
+  /// one key ahead of the sender, which made every GENUINE message after it
+  /// unreadable ("Couldn't unlock this message", again and again) until a
+  /// heal buried the session. A stale header could even overwrite the live
+  /// session with a freshly-minted wrong one. Failure must leave no
+  /// fingerprints; this wrapper is where the spec's rule is enforced.
   String? decrypt(String myPhone, String peer,
+      Map<String, dynamic> header, String blob) {
+    final id = _digits(peer);
+    final prior = _sessions[id]?.toJson();
+    final out = _decryptMutating(myPhone, peer, header, blob);
+    if (out == null) {
+      if (prior != null) {
+        _sessions[id] = _Session.fromJson(prior);
+      } else {
+        _sessions.remove(id);
+      }
+      _persist();
+    }
+    return out;
+  }
+
+  String? _decryptMutating(String myPhone, String peer,
       Map<String, dynamic> header, String blob) {
     final id = _digits(peer);
     final sid = header['sid'] as String? ?? '';
