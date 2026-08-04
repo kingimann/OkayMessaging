@@ -309,6 +309,41 @@ bool listingInPriceRange(FeedPost l, {int? minCents, int? maxCents}) {
   return true;
 }
 
+/// The going rate for [category]: the median asking price across unsold,
+/// non-free listings in it — or null with fewer than three to read,
+/// because a "typical" of two is a coin toss dressed as a statistic.
+/// [excludeId] keeps a listing's own price out of its own benchmark. Pure.
+int? typicalPriceCents(List<FeedPost> all, String category,
+    {String excludeId = ''}) {
+  if (category.isEmpty) return null;
+  final prices = [
+    for (final l in all)
+      if (l.isListing &&
+          !l.listingSold &&
+          l.id != excludeId &&
+          l.listingCategory == category &&
+          (l.priceCents ?? 0) > 0)
+        l.priceCents!
+  ]..sort();
+  if (prices.length < 3) return null;
+  final mid = prices.length ~/ 2;
+  return prices.length.isOdd
+      ? prices[mid]
+      : (prices[mid - 1] + prices[mid]) ~/ 2;
+}
+
+/// Whether [l] asks well under the going rate — at or below 70% of the
+/// category median. Arithmetic over listings this device can already see,
+/// never a judgement about the item: free and sold listings never qualify,
+/// and neither does anything in a category too thin to have a rate. Pure.
+bool isBelowTypical(FeedPost l, List<FeedPost> all) {
+  final price = l.priceCents ?? 0;
+  if (price <= 0 || l.listingSold) return false;
+  final typical =
+      typicalPriceCents(all, l.listingCategory, excludeId: l.id);
+  return typical != null && price * 10 <= typical * 7;
+}
+
 /// What the seller's drafted thank-you says when they name who bought a
 /// listing. Drafted into the composer, never sent by itself — the seller
 /// reads it before it leaves, like every other message. Pure.
@@ -583,6 +618,10 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
   String _query = '';
   bool _mineOnly = false;
   bool _savedOnly = false;
+
+  /// Free stuff only. Its own flag rather than a max of $0, because the
+  /// price boxes read a typed 0 as "no bound" (blank means free there).
+  bool _freeOnly = false;
   ListingSort _sort = ListingSort.newest;
   final TextEditingController _minPrice = TextEditingController();
   final TextEditingController _maxPrice = TextEditingController();
@@ -727,6 +766,22 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
                         ),
                       ),
                     ],
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: FilterChip(
+                      avatar: const Icon(Icons.redeem_outlined, size: 15),
+                      label: const Text('Free stuff only'),
+                      visualDensity: VisualDensity.compact,
+                      selected: _freeOnly,
+                      onSelected: (v) {
+                        setState(() => _freeOnly = v);
+                        setSheet(() {});
+                      },
+                    ),
                   ),
                 ),
                 const Divider(height: 1),
@@ -896,6 +951,7 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
     final hasFilter = _category.isNotEmpty ||
         _mineOnly ||
         _savedOnly ||
+        _freeOnly ||
         _minCents != null ||
         _maxCents != null ||
         _sort != ListingSort.newest;
@@ -985,6 +1041,12 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
                 if (listingInPriceRange(l,
                     minCents: _minCents, maxCents: _maxCents))
                   l
+            ];
+          }
+          if (_freeOnly) {
+            listings = [
+              for (final l in listings)
+                if ((l.priceCents ?? 0) == 0) l
             ];
           }
           // Sorted, with sold sunk to the end rather than hidden — a buyer
@@ -1122,6 +1184,14 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
                           visualDensity: VisualDensity.compact,
                           onDeleted: () =>
                               setState(() => _savedOnly = false),
+                        ),
+                      if (_freeOnly)
+                        InputChip(
+                          avatar: const Icon(Icons.redeem_outlined, size: 15),
+                          label: const Text('Free'),
+                          visualDensity: VisualDensity.compact,
+                          onDeleted: () =>
+                              setState(() => _freeOnly = false),
                         ),
                       if (_category.isNotEmpty)
                         InputChip(
@@ -1390,6 +1460,26 @@ class _ListingCard extends StatelessWidget {
                         fontSize: 12.5,
                         color: AppColors.subtle(context),
                         decoration: TextDecoration.lineThrough)),
+              ]
+              // An ask well under the category's median — arithmetic over
+              // what this device can see, not a judgement about the item.
+              // Never beside the strikethrough: one price story per card.
+              else if (isBelowTypical(
+                  listing, FeedStore.instance.listings())) ...[
+                const SizedBox(width: 6),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF00BA7C).withValues(alpha: 0.14),
+                    borderRadius: BorderRadius.circular(5),
+                  ),
+                  child: const Text('below typical',
+                      style: TextStyle(
+                          fontSize: 10.5,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF00875A))),
+                ),
               ],
             ],
           ),
@@ -2876,8 +2966,21 @@ class _SellScreenState extends State<SellScreen> {
                   controller: _price,
                   keyboardType:
                       const TextInputType.numberWithOptions(decimal: true),
-                  decoration: const InputDecoration(
-                      hintText: 'Free', labelText: 'Price', prefixText: '\$ '),
+                  decoration: InputDecoration(
+                      hintText: 'Free',
+                      labelText: 'Price',
+                      prefixText: '\$ ',
+                      // The going rate, when the category has one to read —
+                      // a fact about visible listings, never advice.
+                      helperText: () {
+                        final typical = typicalPriceCents(
+                            FeedStore.instance.listings(), _category,
+                            excludeId: widget.existing?.id ?? '');
+                        return typical == null
+                            ? null
+                            : '$_category listings here ask about '
+                                '${formatListingPrice(typical)}';
+                      }()),
                 ),
               ),
               if (widget.existing == null) ...[

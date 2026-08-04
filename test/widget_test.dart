@@ -31496,6 +31496,90 @@ void main() {
     });
   });
 
+  group('Marketplace typical prices and the free filter', () {
+    FeedPost priced(String id, int cents,
+            {String category = 'Sports', bool sold = false}) =>
+        FeedPost(
+          id: id,
+          communityId: 'c1',
+          authorName: 'x',
+          authorUsername: 'seller',
+          time: DateTime(2026, 1, 1),
+          text: 'Item $id',
+          priceCents: cents,
+          listingCategory: category,
+          listingSold: sold,
+        );
+
+    test('the going rate is a median over unsold, non-free, same-category',
+        () {
+      final all = [
+        priced('p1', 1000),
+        priced('p2', 2000),
+        priced('p3', 9000),
+        priced('p4', 100000, sold: true), // sold: out
+        priced('p5', 0), // free: out
+        priced('p6', 500, category: 'Home'), // other category: out
+      ];
+      expect(typicalPriceCents(all, 'Sports'), 2000);
+      // An even count averages the middle two.
+      expect(typicalPriceCents([...all, priced('p7', 3000)], 'Sports'), 2500);
+      // Fewer than three data points is a coin toss, not a statistic.
+      expect(typicalPriceCents(all, 'Home'), isNull);
+      expect(typicalPriceCents(all, ''), isNull);
+      // A listing's own price stays out of its own benchmark.
+      expect(typicalPriceCents(all, 'Sports', excludeId: 'p3'), isNull,
+          reason: 'excluding one of three drops it under the threshold');
+    });
+
+    test('below-typical is 70% of the median, never for free or sold', () {
+      final all = [
+        priced('q1', 10000),
+        priced('q2', 10000),
+        priced('q3', 10000),
+        priced('deal', 7000),
+        priced('near', 7100),
+        priced('freebie', 0),
+        priced('solddeal', 1000, sold: true),
+      ];
+      expect(isBelowTypical(all.firstWhere((l) => l.id == 'deal'), all),
+          isTrue,
+          reason: 'exactly at 70% counts');
+      expect(isBelowTypical(all.firstWhere((l) => l.id == 'near'), all),
+          isFalse);
+      expect(isBelowTypical(all.firstWhere((l) => l.id == 'freebie'), all),
+          isFalse);
+      expect(isBelowTypical(all.firstWhere((l) => l.id == 'solddeal'), all),
+          isFalse);
+    });
+
+    test('the free filter is its own flag, because 0 cannot be typed', () {
+      final src =
+          File('lib/screens/marketplace_screen.dart').readAsStringSync();
+      // The price boxes read a typed 0 as "no bound" (blank means free
+      // there), so free stuff needs a flag of its own to be findable.
+      expect(src, contains('bool _freeOnly = false;'));
+      expect(src, contains("(l.priceCents ?? 0) == 0"));
+      expect(src, contains("'Free stuff only'"));
+      // And it clears from the active-filters row like every other filter.
+      expect(src, contains('_freeOnly = false'));
+    });
+
+    test('the sell form quotes the rate; the card wears the tag honestly',
+        () {
+      final src =
+          File('lib/screens/marketplace_screen.dart').readAsStringSync();
+      // The hint excludes the listing being edited from its own benchmark.
+      expect(src, contains("excludeId: widget.existing?.id ?? ''"));
+      expect(src, contains('listings here ask about'));
+      // One price story per card: the strikethrough drop wins over the
+      // below-typical tag, never both.
+      final card = src.substring(src.indexOf('class _ListingCard'),
+          src.indexOf('/// One listing, full screen'));
+      expect(card.contains('else if (isBelowTypical'), isTrue);
+    });
+  });
+
   group('Login polish and the AI boundary', () {
     test('the login fields help the keyboard help you', () {
       final src =
