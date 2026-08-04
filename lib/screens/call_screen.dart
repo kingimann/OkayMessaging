@@ -11,6 +11,7 @@ import '../relay/relay_config.dart';
 import '../relay/relay_service.dart';
 import '../state/call_media.dart';
 import '../state/call_service.dart';
+import '../state/platform_moderation.dart';
 import '../state/room_media.dart';
 import '../state/chat_store.dart';
 import '../theme/app_theme.dart';
@@ -214,12 +215,18 @@ class _CallScreenState extends State<CallScreen>
           switch (CallMedia.instance.connectionState.value) {
             case 'new':
             case 'connecting':
-              // Past the stall window, waiting is no longer the plan —
-              // point at the tool that names what this network is missing.
-              return CallMedia.instance.connectStalled.value
-                  ? 'Can\'t connect — this network may block calls. '
-                      'See Settings → Check call setup.'
-                  : 'Connecting…';
+              // Past the stall window, waiting is no longer the plan.
+              // The diagnostic row only exists for admins, so only an
+              // admin is pointed at it — everyone else gets the advice
+              // that actually helps without it.
+              if (CallMedia.instance.connectStalled.value) {
+                return PlatformModeration.instance.canAdminister
+                    ? 'Can\'t connect — this network may block calls. '
+                        'See Settings → Check call setup.'
+                    : 'Can\'t connect — this network may block calls. '
+                        'Try switching between Wi-Fi and cellular.';
+              }
+              return 'Connecting…';
             case 'disconnected':
               return 'Reconnecting…';
             case 'failed':

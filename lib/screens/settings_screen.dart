@@ -215,56 +215,78 @@ class SettingsView extends StatelessWidget {
           _buildNotificationsTile(),
           _buildPrivateNotificationsTile(),
           _buildVoicemailTile(),
-          InfoTile(
-            leading: const Icon(Icons.phone_in_talk_outlined),
-            title: 'Check call setup',
-            // Every way a call can fail to connect looks identical —
-            // endless "Connecting…" — and which one it is depends on the
-            // network of the minute. The probe gathers real ICE candidates
-            // and names the missing path instead of leaving it to guesses.
-            subtitle: 'Why calls do or don\'t connect on this network',
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) => const SelfTestScreen(
-                  title: 'Check call setup',
-                  run: CallSelfTest.run,
-                ),
-              ),
-            ),
-          ),
-          InfoTile(
-            leading: const Icon(Icons.notifications_paused_outlined),
-            title: 'Check push setup',
-            // Every way of getting push wrong looks identical from here —
-            // nothing arrives — so the check is worth surfacing rather than
-            // leaving somebody to guess which of six things it is.
-            subtitle: 'Why alerts do or don\'t arrive when the app is closed',
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) => const SelfTestScreen(
-                  title: 'Check push setup',
-                  run: PushSelfTest.run,
-                ),
-              ),
-            ),
-          ),
-          InfoTile(
-            leading: const Icon(Icons.bolt_outlined),
-            title: 'Check live delivery',
-            // The counterpart for the app being OPEN: a dead live socket
-            // looks exactly like "slow messages", because the offline
-            // mailbox still delivers on refresh.
-            subtitle: 'Why messages do or don\'t arrive instantly',
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) => const SelfTestScreen(
-                  title: 'Check live delivery',
-                  run: RelaySelfTest.run,
-                ),
-              ),
-            ),
-          ),
         ]),
+
+        // The three plumbing probes are operator tools, not user settings:
+        // their verdicts name Supabase secrets, APNs keys and TURN
+        // configuration — words that help whoever runs the backend and
+        // read as alarming noise to anybody else. Same server-driven gate
+        // as the moderation console, one rank stricter (admin, not
+        // moderator), and never on a hunch about who holds the phone.
+        ListenableBuilder(
+          listenable: PlatformModeration.instance,
+          builder: (context, _) {
+            if (!PlatformModeration.instance.canAdminister) {
+              return const SizedBox.shrink();
+            }
+            return Column(children: [
+              settingsSectionLabel(context, 'Diagnostics (admin)'),
+              InfoSection(children: [
+                InfoTile(
+                  leading: const Icon(Icons.phone_in_talk_outlined),
+                  title: 'Check call setup',
+                  // Every way a call can fail to connect looks identical —
+                  // endless "Connecting…" — and which one it is depends on
+                  // the network of the minute. The probe gathers real ICE
+                  // candidates and names the missing path instead of
+                  // leaving it to guesses.
+                  subtitle: 'Why calls do or don\'t connect on this network',
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const SelfTestScreen(
+                        title: 'Check call setup',
+                        run: CallSelfTest.run,
+                      ),
+                    ),
+                  ),
+                ),
+                InfoTile(
+                  leading: const Icon(Icons.notifications_paused_outlined),
+                  title: 'Check push setup',
+                  // Every way of getting push wrong looks identical from
+                  // here — nothing arrives — so the check is worth having
+                  // rather than guessing which of six things it is.
+                  subtitle:
+                      'Why alerts do or don\'t arrive when the app is closed',
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const SelfTestScreen(
+                        title: 'Check push setup',
+                        run: PushSelfTest.run,
+                      ),
+                    ),
+                  ),
+                ),
+                InfoTile(
+                  leading: const Icon(Icons.bolt_outlined),
+                  title: 'Check live delivery',
+                  // The counterpart for the app being OPEN: a dead live
+                  // socket looks exactly like "slow messages", because the
+                  // offline mailbox still delivers on refresh.
+                  subtitle: 'Why messages do or don\'t arrive instantly',
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const SelfTestScreen(
+                        title: 'Check live delivery',
+                        run: RelaySelfTest.run,
+                      ),
+                    ),
+                  ),
+                ),
+              ]),
+            ]);
+          },
+        ),
 
         settingsSectionLabel(context, 'Account'),
         InfoSection(

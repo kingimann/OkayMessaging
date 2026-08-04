@@ -27497,12 +27497,35 @@ void main() {
       expect(r.report, contains('[ok]   Apple: accepted'));
     });
 
-    testWidgets('settings offers the check where notifications are', (t) async {
+    testWidgets('the plumbing checks exist for admins and for nobody else',
+        (t) async {
+      // The verdicts name Supabase secrets, APNs keys and TURN config —
+      // operator vocabulary. A tester or user never sees the rows; the
+      // same server-driven role that opens the moderation console (one
+      // rank stricter) is what reveals them.
+      PlatformModeration.instance.debugSet(role: PlatformRole.admin);
+      addTearDown(PlatformModeration.instance.resetForTest);
       await t.pumpWidget(const MaterialApp(home: SettingsScreen()));
       await t.pump(const Duration(milliseconds: 100));
       await t.scrollUntilVisible(find.text('Check push setup'), 240,
           scrollable: find.byType(Scrollable).first);
       expect(find.text('Check push setup'), findsOneWidget);
+      expect(find.text('Check call setup'), findsOneWidget);
+      expect(find.text('Check live delivery'), findsOneWidget);
+
+      // And the gate really is the admin one: the three rows live inside
+      // the canAdminister branch, after the plain notification tiles.
+      final src = File('lib/screens/settings_screen.dart').readAsStringSync();
+      final gate = src.indexOf('canAdminister');
+      expect(gate, greaterThan(-1));
+      for (final title in [
+        "'Check call setup'",
+        "'Check push setup'",
+        "'Check live delivery'",
+      ]) {
+        expect(src.indexOf(title), greaterThan(gate),
+            reason: '$title must sit behind the admin gate');
+      }
     });
   });
   group('the ID check does not depend on a page of ours', () {
