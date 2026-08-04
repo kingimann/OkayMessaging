@@ -6670,6 +6670,48 @@ void main() {
       expect(store.postsFor('c1').map((p) => p.id), contains('p_alert'));
     });
 
+    test('your own post is not an alert — you were there when you posted it',
+        () {
+      final store = FeedStore.instance;
+      store.resetForTest();
+      addTearDown(store.resetForTest);
+      final prevProfile = AppState.profile.value;
+      addTearDown(() => AppState.profile.value = prevProfile);
+      AppState.profile.value = const AppUser(
+          id: 'me', name: 'Ada', avatarColor: '#000000', username: 'ada');
+
+      // My post under my username, my post under the no-username sentinel,
+      // and somebody else's — only the last is news to me.
+      store.debugSetPosts([
+        FeedPost(
+          id: 'p_mine',
+          communityId: 'c1',
+          authorName: 'Ada',
+          authorUsername: 'Ada', // case must not matter
+          time: DateTime(2026, 1, 3),
+          text: 'my own post',
+        ),
+        FeedPost(
+          id: 'p_you',
+          communityId: 'c1',
+          authorName: 'Ada',
+          authorUsername: 'you',
+          time: DateTime(2026, 1, 2, 12),
+          text: 'my post before I picked a username',
+        ),
+        FeedPost(
+          id: 'p_theirs',
+          communityId: 'c1',
+          authorName: 'Grace',
+          authorUsername: 'grace',
+          time: DateTime(2026, 1, 2),
+          text: 'someone else posting',
+        ),
+      ]);
+      expect(store.recentPosts().map((p) => p.id), ['p_theirs'],
+          reason: 'posting in a server must not notify yourself');
+    });
+
     testWidgets('the notifications tab swipes a missed call away',
         (tester) async {
       CallLog.instance.resetForTest();

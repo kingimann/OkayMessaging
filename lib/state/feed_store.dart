@@ -856,6 +856,7 @@ class FeedStore extends ChangeNotifier {
   /// The most recent top-level posts across every server, newest first —
   /// what the notifications tab shows as server activity.
   List<FeedPost> recentPosts({int limit = 5}) {
+    final myUsername = AppState.profile.value.username;
     final list = _posts
         .where((p) =>
             p.parentId == null &&
@@ -863,6 +864,12 @@ class FeedStore extends ChangeNotifier {
             // Repost entries carry no text of their own — the activity
             // preview shows originals only.
             p.repostOfId == null &&
+            // Your own posts are not activity: you were there when you
+            // posted them. Without this, posting in a server put your own
+            // post at the top of the Alerts tab as if it were news.
+            p.authorUsername != 'you' &&
+            (myUsername.isEmpty ||
+                p.authorUsername.toLowerCase() != myUsername.toLowerCase()) &&
             !_hiddenIds.contains(p.id) &&
             !_alertGoneIds.contains(p.id) &&
             !_mutedUsernames.contains(p.authorUsername.toLowerCase()))
