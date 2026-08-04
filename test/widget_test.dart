@@ -7927,6 +7927,120 @@ void main() {
     });
   });
 
+  group('Remembered profiles and the owner\'s team', () {
+    test('every account that signs in is remembered, deduped and capped',
+        () async {
+      SharedPreferences.setMockInitialValues({});
+      Session.instance.knownAccounts = [];
+      addTearDown(() {
+        Session.instance.knownAccounts = [];
+        Session.instance.resetForTest();
+      });
+      AppUser acc(String phone, String name) => AppUser(
+          id: phone,
+          name: name,
+          avatarColor: '#E57373',
+          about: '',
+          phone: phone);
+      for (var i = 1; i <= 7; i++) {
+        await Session.instance.rememberAccount(acc('+1 555 010$i', 'P$i'));
+      }
+      expect(Session.instance.knownAccounts.length, 5,
+          reason: 'capped — a login screen is not an archive');
+      expect(Session.instance.knownAccounts.first.name, 'P7',
+          reason: 'most recent first');
+      // Re-signing an old one moves it up rather than duplicating it.
+      await Session.instance.rememberAccount(acc('+1 555 0105', 'P5'));
+      expect(Session.instance.knownAccounts.first.name, 'P5');
+      expect(
+          Session.instance.knownAccounts
+              .where((a) => a.name == 'P5')
+              .length,
+          1);
+      // And forgetting removes exactly one.
+      await Session.instance.forgetAccount('+1 555 0105');
+      expect(Session.instance.knownAccounts.any((a) => a.name == 'P5'),
+          isFalse);
+    });
+
+    test('the profile list survives the account-switch wipe', () {
+      expect(AccountWipe.keepKeys, contains('known_accounts_v1'),
+          reason: 'remembering who signed in here is device history, like '
+              'last_account_v1 — the wipe erases their DATA, not the list');
+    });
+
+    testWidgets('the welcome screen offers every profile, one tap each',
+        (tester) async {
+      const ada = AppUser(
+          id: '+1 555 0100',
+          name: 'Ada Lovelace',
+          avatarColor: '#E57373',
+          about: '',
+          phone: '+1 555 0100',
+          username: 'adal');
+      const grace = AppUser(
+          id: '+1 555 0200',
+          name: 'Grace Hopper',
+          avatarColor: '#64B5F6',
+          about: '',
+          phone: '+1 555 0200',
+          username: 'graceh');
+      Session.instance.lastAccount = ada;
+      Session.instance.knownAccounts = [ada, grace];
+      addTearDown(() {
+        Session.instance.lastAccount = null;
+        Session.instance.knownAccounts = [];
+        Session.instance.resetForTest();
+      });
+      await tester.pumpWidget(const MaterialApp(home: PhoneLoginScreen()));
+      await tester.pump();
+
+      expect(find.textContaining('Continue as Ada'), findsOneWidget);
+      expect(find.text('Grace Hopper'), findsOneWidget,
+          reason: 'the second profile is offered too');
+
+      // Tapping the other profile signs into IT (local mode — the verified
+      // build sends its code instead; only the typing is ever saved).
+      await tester.tap(find.text('Grace Hopper'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(Session.instance.user.value?.name, 'Grace Hopper');
+      expect(Session.instance.user.value?.username, 'graceh');
+    });
+
+    test('the owner\'s new powers exist, gated and server-checked', () {
+      // Takedown: in the function, with the author outranked; in the app,
+      // drawn only for moderators and never on your own post.
+      final act = File('supabase/functions/moderation-act/index.ts')
+          .readAsStringSync();
+      expect(act, contains('"takedown"'));
+      expect(act, contains('outranked'));
+      final feed =
+          File('lib/screens/public_feed_screen.dart').readAsStringSync();
+      expect(feed, contains('canModerate'));
+      expect(feed, contains('takedownPublicPost'));
+
+      // Roles: owner-only in the function — never assignable to 'owner',
+      // never self, never another owner.
+      final roles =
+          File('supabase/functions/roles-set/index.ts').readAsStringSync();
+      expect(roles, contains('owner_only'));
+      expect(roles, contains('cannot_change_self'));
+      expect(roles, contains('cannot_touch_owner'));
+      expect(roles, isNot(contains('role !== "owner" &&')),
+          reason: 'owner must not be an assignable role');
+      // The client refuses to even ask for owner.
+      final store =
+          File('lib/state/platform_moderation.dart').readAsStringSync();
+      expect(store, contains('role == PlatformRole.owner) return false'));
+      // And the Team tab is drawn for the owner alone.
+      final admin =
+          File('lib/screens/admin_screen.dart').readAsStringSync();
+      expect(admin, contains('store.isOwner'));
+      expect(admin, contains('_teamList'));
+    });
+  });
+
   group('Custom bubble color', () {
     Color outgoingBubbleColor(WidgetTester tester) {
       final containers = tester.widgetList<Container>(
@@ -25338,7 +25452,7 @@ void main() {
       // The way in for somebody who has a handle but not their number to
       // hand — a sign-IN route, so it belongs here.
       expect(find.text('Sign in with username or email'), findsOneWidget);
-      expect(find.text('Sign up with a username instead'), findsNothing,
+      expect(find.text('Sign up without a phone number'), findsNothing,
           reason: 'making a new account is not a way to sign in to an old one');
 
       await t.tap(find.text('Create account').first);
@@ -25347,7 +25461,7 @@ void main() {
           reason: 'a new account needs a name');
       expect(find.text('Create account'), findsWidgets);
       expect(find.text('Sign in with username or email'), findsNothing);
-      expect(find.text('Sign up with a username instead'), findsOneWidget);
+      expect(find.text('Sign up without a phone number'), findsOneWidget);
     });
 
     testWidgets('the local form splits the same way', (t) async {
@@ -25400,19 +25514,19 @@ void main() {
         // under Create account rather than under Sign in.
         await t.tap(find.text('Create account'));
         await t.pumpAndSettle();
-        expect(find.text('Sign up with a username instead'), findsOneWidget,
+        expect(find.text('Sign up without a phone number'), findsOneWidget,
             reason: verified
                 ? 'missing on the form the iOS build actually shows'
                 : 'missing on the local form');
       }
     });
 
-    testWidgets('and on the verified form it opens a step with the field',
+    testWidgets('and on the verified form it opens the one-field step',
         (t) async {
-      // The button used to run the numberless sign-up directly — on a form
-      // with no username field, so the tap could only ever error about a
-      // field that was not on screen. iOS and web both build verified, so
-      // "sign up with just a username" was impossible everywhere it counted.
+      // The step asks for a NAME and nothing else — the handle is minted,
+      // not chosen: inventing a unique username on the spot is the
+      // highest-friction ask a sign-up can make, and the minted one is
+      // changeable in the profile anyway.
       t.view.physicalSize = const Size(500, 1600);
       t.view.devicePixelRatio = 1.0;
       addTearDown(t.view.resetPhysicalSize);
@@ -25428,21 +25542,18 @@ void main() {
       await t.tap(find.text('Create account').first);
       await t.pumpAndSettle();
 
-      await t.tap(find.text('Sign up with a username instead'));
+      await t.tap(find.text('Sign up without a phone number'));
       await t.pumpAndSettle();
 
-      // A step, not an error: the username field is on screen and the phone
-      // form is gone. The way back is offered, because arriving here by
-      // mis-tap should not cost the number path.
-      expect(find.widgetWithText(TextFormField, 'Username'), findsOneWidget);
+      // A step, not an error: the name field is on screen, the phone form
+      // is gone, there is no username to choose, and the way back is
+      // offered — arriving here by mis-tap should not cost the number path.
+      expect(find.widgetWithText(TextFormField, 'Your name'), findsOneWidget);
+      expect(find.widgetWithText(TextFormField, 'Username'), findsNothing);
       expect(find.text('Phone number'), findsNothing);
       expect(find.text('Use a phone number instead'), findsOneWidget);
 
-      // Both cleared explicitly — a device that remembers an account
-      // prefills them, and the point is the empty-name default.
-      final fields = find.byType(TextFormField);
-      await t.enterText(fields.at(0), 'ada');
-      await t.enterText(fields.at(1), '');
+      await t.enterText(find.byType(TextFormField).first, 'Ada');
       await t.tap(find.widgetWithText(FilledButton, 'Create account'));
       await t.pump();
       await t.pump(const Duration(milliseconds: 100));
@@ -25450,18 +25561,20 @@ void main() {
       expect(Session.instance.isSignedIn, isTrue);
       expect(Session.instance.isNumberless, isTrue,
           reason: 'no number was typed, so none was invented');
-      expect(Session.instance.user.value!.username, 'ada');
-      // A blank name gets a random friendly one — never the account code,
-      // which nobody would recognise as a person.
-      final name = Session.instance.user.value!.name;
-      expect(name.trim(), isNotEmpty);
-      expect(name, isNot(Session.instance.user.value!.phone));
+      expect(Session.instance.user.value!.name, 'Ada');
+      expect(
+          AccountService.isValidUsername(
+              Session.instance.user.value!.username),
+          isTrue,
+          reason: 'the handle was minted for them, valid and claimable');
     });
 
-    testWidgets('the way in needs a username rather than a number', (t) async {
-      // The local form now opens the same dedicated no-number step the
-      // verified form does, so the flow is identical on both builds: the
-      // link never errors about a field that isn't on screen.
+    testWidgets('the way in needs nothing but a name — even that is optional',
+        (t) async {
+      // The local form opens the same one-field step the verified form
+      // does. There is nothing to get wrong on it: no username to pick, no
+      // validation to trip — a completely blank step still makes a working
+      // account, with a random name and a minted handle.
       t.view.physicalSize = const Size(500, 1600);
       t.view.devicePixelRatio = 1.0;
       addTearDown(t.view.resetPhysicalSize);
@@ -25475,35 +25588,16 @@ void main() {
       await t.tap(find.text('Create account').first);
       await t.pumpAndSettle();
 
-      await t.tap(find.text('Sign up with a username instead'));
+      await t.tap(find.text('Sign up without a phone number'));
       await t.pumpAndSettle();
-      // A step with the username field, not an error over the phone form.
-      expect(find.widgetWithText(TextFormField, 'Username'), findsOneWidget);
+      // The one-field step: a name, no username, no phone.
+      expect(find.widgetWithText(TextFormField, 'Your name'), findsOneWidget);
+      expect(find.widgetWithText(TextFormField, 'Username'), findsNothing);
       expect(find.text('Phone number'), findsNothing);
 
-      // On the step: username (0), display name (1). Cleared explicitly —
-      // they prefill from the last account, so without this the empty branch
-      // is never reached and the test proves nothing.
-      final fields = find.byType(TextFormField);
-      await t.enterText(fields.at(0), '');
-      await t.enterText(fields.at(1), '');
-      await t.tap(find.widgetWithText(FilledButton, 'Create account'));
-      await t.pump();
-      expect(Session.instance.isSignedIn, isFalse);
-      expect(find.textContaining('Pick a username'), findsOneWidget);
-
-      // A handle too short to be one is refused for a different reason, and
-      // says so — "pick a username" at somebody who just did reads as a bug.
-      await t.enterText(fields.at(0), 'ad');
-      await t.tap(find.widgetWithText(FilledButton, 'Create account'));
-      await t.pump();
-      expect(Session.instance.isSignedIn, isFalse);
-      expect(find.textContaining('at least 3'), findsOneWidget);
-
-      // No name typed: signing up this way is one field, and a random
-      // friendly name stands in rather than the account code, which nobody
-      // would recognise.
-      await t.enterText(fields.at(0), 'ada');
+      // Cleared explicitly — it prefills from the last account, and the
+      // point here is the fully-blank branch.
+      await t.enterText(find.byType(TextFormField).first, '');
       await t.tap(find.widgetWithText(FilledButton, 'Create account'));
       // pump, not pumpAndSettle: signing in leaves the button spinning until
       // the auth gate swaps the screen out, and there is no gate here.
@@ -25513,10 +25607,11 @@ void main() {
       expect(Session.instance.isSignedIn, isTrue);
       expect(Session.instance.isNumberless, isTrue,
           reason: 'no number was typed, so none was invented');
-      expect(Session.instance.user.value!.username, 'ada');
-      expect(Session.instance.user.value!.name.trim(), isNotEmpty);
-      expect(Session.instance.user.value!.name,
-          isNot(Session.instance.user.value!.phone),
+      final me = Session.instance.user.value!;
+      expect(AccountService.isValidUsername(me.username), isTrue,
+          reason: 'the handle was minted, not demanded');
+      expect(me.name.trim(), isNotEmpty);
+      expect(me.name, isNot(me.phone),
           reason: 'the code is not a display name anybody would recognise');
     });
 

@@ -94,13 +94,49 @@ Deno.serve(async (req) => {
   const reason = String(body.reason ?? "").slice(0, 500);
   const minutes = Number(body.minutes ?? 0);
 
-  if (!target) return json({ error: "no_target" }, 400);
-  if (target === phone) return json({ error: "cannot_sanction_self" }, 400);
-
   const actorRole = await roleOf(phone);
   if (RANK[actorRole] < RANK.moderator) {
     return json({ error: "forbidden" }, 403);
   }
+
+  // Takedown: removes ONE public post (the database cascades take its
+  // replies, reposts and counters with it). Moderator and up, and the
+  // author must be outranked — a moderator cannot silently erase what an
+  // admin wrote. Logged like every other action.
+  if (action === "takedown") {
+    const postId = String(body.postId ?? "");
+    if (!postId) return json({ error: "no_post" }, 400);
+    const { data: post } = await admin
+      .from("public_posts")
+      .select("author_phone")
+      .eq("id", postId)
+      .maybeSingle();
+    if (!post) return json({ ok: true, gone: true });
+    const authorPhone = String(post.author_phone ?? "");
+    if (authorPhone !== phone) {
+      // Taking down your OWN post needs no rank games.
+      const authorRole = await roleOf(authorPhone);
+      if (RANK[actorRole] <= RANK[authorRole]) {
+        return json({ error: "outranked" }, 403);
+      }
+    }
+    const { error } = await admin
+      .from("public_posts")
+      .delete()
+      .eq("id", postId);
+    if (error) return json({ error: error.message }, 400);
+    await admin.from("moderation_log").insert({
+      actor_phone: phone,
+      actor_role: actorRole,
+      target_phone: authorPhone,
+      action: "takedown",
+      reason: reason || postId,
+    });
+    return json({ ok: true });
+  }
+
+  if (!target) return json({ error: "no_target" }, 400);
+  if (target === phone) return json({ error: "cannot_sanction_self" }, 400);
 
   // Outranking is what stops a moderation team turning on itself.
   const targetRole = await roleOf(target);

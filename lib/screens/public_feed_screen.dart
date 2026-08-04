@@ -1673,6 +1673,32 @@ class _PostTile extends StatelessWidget {
                     );
                   },
                 ),
+              // Moderators and admins can remove ANY post — the server
+              // re-checks the rank and that the author is outranked, so
+              // this row is only ever a request. Drawn above Delete so an
+              // admin's own post shows the plain delete, not this.
+              if (!post.mine && PlatformModeration.instance.canModerate)
+                ListTile(
+                  leading:
+                      const Icon(Icons.gavel_outlined, color: Colors.red),
+                  title: const Text('Remove post (moderation)',
+                      style: TextStyle(color: Colors.red)),
+                  subtitle: const Text(
+                      'Deletes it for everyone and logs the action'),
+                  onTap: () async {
+                    Navigator.of(sheetContext).pop();
+                    final ok = await PlatformModeration.instance
+                        .takedownPublicPost(post.id);
+                    if (!context.mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                        content: Text(ok
+                            ? 'Post removed.'
+                            : 'The server refused the takedown.')));
+                    if (ok) {
+                      await PublicFeedStore.instance.load();
+                    }
+                  },
+                ),
               if (post.mine)
                 ListTile(
                   leading: const Icon(Icons.delete_outline, color: Colors.red),

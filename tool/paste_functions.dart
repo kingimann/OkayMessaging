@@ -40,6 +40,7 @@ const pasteFunctions = [
   'push-send',
   'delete-account',
   'turn-credentials',
+  'roles-set',
 ];
 
 /// Whatever the paste copy's own header should say for [name].

@@ -48,6 +48,19 @@ class Session {
             AppUser.fromJson(jsonDecode(rawLast) as Map<String, dynamic>);
       } catch (_) {}
     }
+    final rawKnown = _prefs!.getString(_kKnown);
+    if (rawKnown != null) {
+      try {
+        knownAccounts = [
+          for (final e in jsonDecode(rawKnown) as List)
+            AppUser.fromJson(Map<String, dynamic>.from(e as Map))
+        ];
+      } catch (_) {}
+    }
+    // Upgrades from before the list: the single remembered account seeds it.
+    if (knownAccounts.isEmpty && lastAccount != null) {
+      await rememberAccount(lastAccount!);
+    }
     // Builds from before the account wipe never recorded who the device's
     // data belongs to. Stamp it from whoever is (or was last) signed in, or
     // the FIRST sign-in on an upgraded install finds no owner on record,
@@ -85,6 +98,10 @@ class Session {
     await _prefs!.setString(_key, jsonEncode(me.toJson()));
     user.value = me;
     AppState.profile.value = me;
+    // Remembered NOW rather than only at sign-out, so a crash or reinstall
+    // that skips sign-out still offers this profile next time. (The wipe
+    // keeps the list: it is device history, like last_account_v1.)
+    await rememberAccount(me);
     // Attach this device's push token to the account that now owns it (and
     // release any previous account's claim on it, server-side).
     if (RelayConfig.isEnabled) {
@@ -211,10 +228,52 @@ class Session {
   }
 
   static const _kLast = 'last_account_v1';
+  static const _kKnown = 'known_accounts_v1';
 
   /// The identity that was signed in most recently — kept across sign-out so
   /// coming back is one tap, not a whole form.
   AppUser? lastAccount;
+
+  /// Every account that has signed in on this device, most recent first —
+  /// the login screen offers each as a one-tap way back in. Identity only
+  /// (name, handle, number/code, avatar color): the account's DATA is wiped
+  /// on switch as always; this remembers who, never what.
+  List<AppUser> knownAccounts = [];
+
+  static const _maxKnown = 5;
+
+  /// Records [account] at the head of the remembered list, deduped by
+  /// digits and capped. Called on both sign-in and sign-out, so a crash
+  /// that skips sign-out still leaves the profile offered next time.
+  Future<void> rememberAccount(AppUser account) async {
+    final d = account.phone.replaceAll(RegExp(r'\D'), '');
+    if (d.isEmpty) return;
+    knownAccounts = [
+      account,
+      ...knownAccounts
+          .where((a) => a.phone.replaceAll(RegExp(r'\D'), '') != d),
+    ];
+    if (knownAccounts.length > _maxKnown) {
+      knownAccounts = knownAccounts.sublist(0, _maxKnown);
+    }
+    _prefs ??= await SharedPreferences.getInstance();
+    await _prefs!.setString(
+        _kKnown, jsonEncode([for (final a in knownAccounts) a.toJson()]));
+  }
+
+  /// Drops one remembered profile (long-press → remove on the login list).
+  Future<void> forgetAccount(String phone) async {
+    final d = phone.replaceAll(RegExp(r'\D'), '');
+    knownAccounts.removeWhere(
+        (a) => a.phone.replaceAll(RegExp(r'\D'), '') == d);
+    _prefs ??= await SharedPreferences.getInstance();
+    await _prefs!.setString(
+        _kKnown, jsonEncode([for (final a in knownAccounts) a.toJson()]));
+    if (lastAccount != null &&
+        lastAccount!.phone.replaceAll(RegExp(r'\D'), '') == d) {
+      await clearLastAccount();
+    }
+  }
 
   /// Signs out and forgets the local identity (chats stay on the device).
   /// The account itself is remembered so signing back in is instant.
@@ -224,6 +283,7 @@ class Session {
     if (current != null) {
       lastAccount = current;
       await _prefs!.setString(_kLast, jsonEncode(current.toJson()));
+      await rememberAccount(current);
       // Belt and braces for the upgrade path: whoever is leaving owns the
       // data they leave behind, so the next sign-in can tell whether it is
       // them coming back.

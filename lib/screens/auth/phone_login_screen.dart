@@ -136,6 +136,37 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
     );
   }
 
+  /// The same one tap, for ANY profile remembered on this device — the
+  /// verification appropriate to the account still runs: a texted code for
+  /// a phone account, the recovery PIN for a numberless one. Only the
+  /// typing is saved, never a check.
+  Future<void> _continueAsKnown(AppUser account) async {
+    if (AccountCode.isCode(account.phone)) {
+      await _numberlessPinSignIn(
+          account.phone, account.username, account.name);
+      return;
+    }
+    if (AccountService.isEnabled) {
+      _identifierPhone = account.phone;
+      _resolvedName = account.name;
+      await _run(() async {
+        await AccountService.instance.sendCode(account.phone);
+        if (mounted) {
+          setState(() => _step = _Step.code);
+          _startResendCountdown();
+        }
+      });
+      return;
+    }
+    if (!await _passTwoStep()) return;
+    setState(() => _busy = true);
+    await Session.instance.signIn(
+      phone: account.phone,
+      name: account.name,
+      username: account.username,
+    );
+  }
+
   /// (flag, name, dial code) — shown in the Telegram-style country sheet.
   static const _countries = [
     ('🇺🇸', 'United States', '+1'),
@@ -744,7 +775,7 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
       case _Step.username:
         return 'Pick a username others can find you by';
       case _Step.noNumber:
-        return 'One field — the username people reach you by';
+        return 'Just a name — a username is picked for you';
     }
   }
 
@@ -758,7 +789,7 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
     }
     if (!_verifiedMode) {
       // The no-number step is a full screen of its own on this form too, so
-      // "Sign up with a username instead" lands somewhere with a username
+      // "Sign up without a phone number" lands on the one-field step
       // field rather than erroring about one that isn't shown.
       if (_step == _Step.noNumber) return _noNumberFields();
       return [_modeSwitch(), ..._localFields()];
@@ -949,6 +980,47 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
           'Continue as ${last.name.isEmpty ? last.phone : last.name.split(' ').first}',
           _continueAsLast,
         ),
+        // Every other profile that has signed in on this device, one tap
+        // each — the verification the account needs still runs; only the
+        // typing is saved. Long-press removes a profile from the list.
+        ...() {
+          final lastDigits = last.phone.replaceAll(RegExp(r'\D'), '');
+          final others = [
+            for (final a in Session.instance.knownAccounts)
+              if (a.phone.replaceAll(RegExp(r'\D'), '') != lastDigits) a
+          ];
+          if (others.isEmpty) return const <Widget>[];
+          return <Widget>[
+            const SizedBox(height: 14),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Text('Other accounts on this device',
+                  style: TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.subtle(context))),
+            ),
+            for (final a in others)
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: UserAvatar(user: a, radius: 20),
+                title: Text(a.name.isEmpty ? a.phone : a.name,
+                    maxLines: 1, overflow: TextOverflow.ellipsis),
+                subtitle: a.handle.isEmpty
+                    ? null
+                    : Text(a.handle,
+                        maxLines: 1, overflow: TextOverflow.ellipsis),
+                trailing: const Icon(Icons.chevron_right, size: 20),
+                onTap: _busy ? null : () => _continueAsKnown(a),
+                onLongPress: _busy
+                    ? null
+                    : () async {
+                        await Session.instance.forgetAccount(a.phone);
+                        if (mounted) setState(() {});
+                      },
+              ),
+          ];
+        }(),
         const SizedBox(height: 6),
         TextButton(
           onPressed: _busy
@@ -1004,7 +1076,7 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
           const SizedBox(height: 6),
           TextButton(
             onPressed: _busy ? null : _startNoNumber,
-            child: Text('Sign up with a username instead',
+            child: Text('Sign up without a phone number',
                 style: TextStyle(color: AppColors.subtle(context))),
           ),
           Padding(
@@ -1041,41 +1113,41 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
       });
 
   Future<void> _continueWithoutNumber() async {
-    final username = AccountService.normalizeUsername(_username.text);
-    if (!AccountService.isValidUsername(username)) {
-      setState(() => _error = _username.text.trim().isEmpty
-          ? 'Pick a username — with no number it is the only way anyone can '
-              'reach you.'
-          : 'That username needs at least 3 letters or numbers.');
-      return;
-    }
     if (!await _passTwoStep()) return;
     setState(() => _busy = true);
     // Mint the code first so the handle can be claimed in the directory
     // BEFORE the account exists locally — the handle is the only way anyone
     // can find this account, so an unclaimed handle is an unreachable
-    // account. A taken handle stops the sign-up here, like the verified
-    // flow; a relay that is off or unmigrated stays best-effort.
+    // account.
     final code = AccountCode.mint();
-    // A blank display name gets a random one here too — the handle would
-    // otherwise stand in, and a name nobody chose reads better than one
-    // that is obviously the username again.
+    // Signing up this way is ONE field: a name (itself optional — a blank
+    // one gets a random friendly stand-in). The handle is MINTED, not
+    // chosen: a random pair of words nobody was asked to invent on the
+    // spot, changeable in the profile later. Minting also makes "taken"
+    // a retry instead of an error at the person signing up.
     final name = _name.text.trim().isEmpty
         ? RandomIdentity.displayName()
         : _name.text.trim();
-    if (RelayConfig.isEnabled) {
-      final claimed = await AccountService.instance
-          .claimUsername(code, username, name: name);
-      if (!claimed) {
-        if (mounted) {
-          setState(() {
-            _busy = false;
-            _error = '@$username is already taken.';
-          });
+    var username = '';
+    for (var i = 0; i < 5 && username.isEmpty; i++) {
+      final candidate = RandomIdentity.username();
+      if (!RelayConfig.isEnabled) {
+        username = candidate;
+        break;
+      }
+      try {
+        if (await AccountService.instance
+            .claimUsername(code, candidate, name: name)) {
+          username = candidate;
         }
-        return;
+        // Taken: loop mints another.
+      } catch (_) {
+        // Directory unreachable: keep the handle locally — the profile
+        // screen claims it the next time the relay answers.
+        username = candidate;
       }
     }
+    if (username.isEmpty) username = RandomIdentity.username();
     await Session.instance.signInWithoutNumber(
       name: name,
       username: username,
@@ -1122,7 +1194,7 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
         if (_signingUp) ...[
           TextButton(
             onPressed: _busy ? null : _startNoNumber,
-            child: Text('Sign up with a username instead',
+            child: Text('Sign up without a phone number',
                 style: TextStyle(color: AppColors.subtle(context))),
           ),
           Padding(
@@ -1333,13 +1405,17 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
   /// to fill in. A display name is optional and defaults to the handle — the
   /// account code is not a name anybody would recognise.
   List<Widget> _noNumberFields() => [
-        _usernameField(required: true),
-        const SizedBox(height: 14),
+        // One field, and it is the NAME. The handle is minted for them —
+        // asking a person to invent a unique username on the spot is the
+        // highest-friction step of any sign-up, and the invented one is
+        // changeable in the profile anyway.
         TextFormField(
           controller: _name,
           textCapitalization: TextCapitalization.words,
-          decoration: _dec('Display name (optional)',
-              icon: Icons.person_outline, helper: 'Defaults to your username'),
+          decoration: _dec('Your name',
+              icon: Icons.person_outline,
+              helper: 'A username is picked for you — change it any time '
+                  'in your profile'),
           onFieldSubmitted: (_) => _continueWithoutNumber(),
         ),
         const SizedBox(height: 24),

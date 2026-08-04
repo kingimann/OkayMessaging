@@ -20,12 +20,13 @@ class AdminScreen extends StatefulWidget {
   State<AdminScreen> createState() => _AdminScreenState();
 }
 
-enum _Tab { reports, sanctions }
+enum _Tab { reports, sanctions, team }
 
 class _AdminScreenState extends State<AdminScreen> {
   _Tab _tab = _Tab.reports;
   List<ModerationReport>? _reports;
   List<SanctionEntry>? _sanctions;
+  List<RoleEntry>? _team;
   bool _busy = false;
 
   @override
@@ -39,10 +40,14 @@ class _AdminScreenState extends State<AdminScreen> {
     final store = PlatformModeration.instance;
     final reports = await store.reports();
     final sanctions = await store.sanctions();
+    // The team list is the owner's alone — the server refuses everyone
+    // else, so nobody else pays for the round trip.
+    final team = store.isOwner ? await store.teamRoles() : null;
     if (!mounted) return;
     setState(() {
       _reports = reports;
       _sanctions = sanctions;
+      _team = team;
       _busy = false;
     });
   }
@@ -84,6 +89,11 @@ class _AdminScreenState extends State<AdminScreen> {
                   label: Text('Sanctions'
                       '${_sanctions == null || _sanctions!.isEmpty ? '' : ' (${_sanctions!.length})'}'),
                 ),
+                if (store.isOwner)
+                  const ButtonSegment(
+                    value: _Tab.team,
+                    label: Text('Team'),
+                  ),
               ],
               selected: {_tab},
               onSelectionChanged: (s) => setState(() => _tab = s.first),
@@ -96,8 +106,10 @@ class _AdminScreenState extends State<AdminScreen> {
             )
           else if (_tab == _Tab.reports)
             ..._reportList(context)
+          else if (_tab == _Tab.sanctions)
+            ..._sanctionList(context)
           else
-            ..._sanctionList(context),
+            ..._teamList(context),
         ],
       ),
     );
@@ -275,6 +287,130 @@ class _AdminScreenState extends State<AdminScreen> {
       builder: (_) => _SanctionSheet(phone: phone, handle: handle),
     );
     if (applied == true) await _load();
+  }
+
+  /// The owner's team page: who holds which role, a demote/promote menu on
+  /// each, and a way to grant a role by number. Every change is a server
+  /// round trip the server re-authorises; this screen just asks.
+  List<Widget> _teamList(BuildContext context) {
+    final team = _team;
+    return [
+      InfoSection(children: [
+        InfoTile(
+          leading: const Icon(Icons.person_add_alt_outlined),
+          title: 'Grant a role',
+          subtitle: 'Make someone a moderator or an admin, by number',
+          onTap: () => _grantRole(context),
+        ),
+      ]),
+      if (team == null)
+        Padding(
+          padding: const EdgeInsets.all(24),
+          child: Text(
+            'Couldn\'t load the team. Deploy the roles-set function '
+            '(docs/edge_functions_paste/roles-set.ts) and refresh.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: AppColors.subtle(context)),
+          ),
+        )
+      else ...[
+        for (final entry in team)
+          ListTile(
+            leading: Icon(switch (entry.role) {
+              PlatformRole.owner => Icons.workspace_premium_outlined,
+              PlatformRole.admin => Icons.shield_outlined,
+              _ => Icons.local_police_outlined,
+            }),
+            title: Text(entry.label),
+            subtitle: Text(
+                '${platformRoleName(entry.role)} · ${entry.phone}'),
+            trailing: entry.role == PlatformRole.owner
+                ? null
+                : PopupMenuButton<PlatformRole>(
+                    onSelected: (r) => _applyRole(entry.phone, r),
+                    itemBuilder: (_) => [
+                      if (entry.role != PlatformRole.admin)
+                        const PopupMenuItem(
+                            value: PlatformRole.admin,
+                            child: Text('Make admin')),
+                      if (entry.role != PlatformRole.moderator)
+                        const PopupMenuItem(
+                            value: PlatformRole.moderator,
+                            child: Text('Make moderator')),
+                      const PopupMenuItem(
+                          value: PlatformRole.member,
+                          child: Text('Remove role')),
+                    ],
+                  ),
+          ),
+        if (team.isEmpty)
+          Padding(
+            padding: const EdgeInsets.all(24),
+            child: Text('No roles granted yet.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: AppColors.subtle(context))),
+          ),
+      ],
+    ];
+  }
+
+  Future<void> _applyRole(String phone, PlatformRole role) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final ok = await PlatformModeration.instance.setRole(phone, role);
+    messenger.showSnackBar(SnackBar(
+        content: Text(ok
+            ? (role == PlatformRole.member
+                ? 'Role removed.'
+                : 'Now ${platformRoleName(role)}.')
+            : 'The server refused that change.')));
+    if (ok) _load();
+  }
+
+  Future<void> _grantRole(BuildContext context) async {
+    final phone = TextEditingController();
+    var role = PlatformRole.moderator;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          title: const Text('Grant a role'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: phone,
+                keyboardType: TextInputType.phone,
+                decoration:
+                    const InputDecoration(labelText: 'Phone number'),
+              ),
+              const SizedBox(height: 12),
+              SegmentedButton<PlatformRole>(
+                segments: const [
+                  ButtonSegment(
+                      value: PlatformRole.moderator,
+                      label: Text('Moderator')),
+                  ButtonSegment(
+                      value: PlatformRole.admin, label: Text('Admin')),
+                ],
+                selected: {role},
+                onSelectionChanged: (s) =>
+                    setDialogState(() => role = s.first),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('Cancel')),
+            FilledButton(
+                onPressed: () => Navigator.pop(dialogContext, true),
+                child: const Text('Grant')),
+          ],
+        ),
+      ),
+    );
+    if (ok != true) return;
+    await _applyRole(phone.text, role);
   }
 }
 

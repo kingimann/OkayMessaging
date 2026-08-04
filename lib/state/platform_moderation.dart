@@ -41,6 +41,27 @@ class ModerationReport {
       );
 }
 
+/// One holder of a platform role — the owner's team list row.
+class RoleEntry {
+  final String phone;
+  final PlatformRole role;
+  final String username;
+  final String name;
+  const RoleEntry({
+    required this.phone,
+    required this.role,
+    this.username = '',
+    this.name = '',
+  });
+
+  /// The most human label available.
+  String get label => name.isNotEmpty
+      ? name
+      : username.isNotEmpty
+          ? '@$username'
+          : phone;
+}
+
 /// A sanction plus who it is on — the admin console's row.
 class SanctionEntry {
   final String phone;
@@ -227,6 +248,54 @@ class PlatformModeration extends ChangeNotifier {
   Future<bool> markHandled(int id) async {
     final result =
         await _invoke('moderation-queue', {'what': 'handle', 'id': id});
+    return result?['ok'] == true;
+  }
+
+  /// Removes one public post, as a moderation action. The server enforces
+  /// everything that matters — moderator rank, and outranking the author —
+  /// this only decides whether to draw the menu item.
+  Future<bool> takedownPublicPost(String postId, {String reason = ''}) async {
+    if (postId.isEmpty) return false;
+    final override = debugActOverride;
+    if (override != null) return override(postId, 'takedown', reason, 0);
+    final result = await _invoke('moderation-act', {
+      'action': 'takedown',
+      'postId': postId,
+      'reason': reason,
+    });
+    return result?['ok'] == true;
+  }
+
+  /// One row of the team list: who holds a role, by digits and (when the
+  /// directory knows them) handle and name.
+  /// The whole team, owner's eyes only — the server refuses everyone else.
+  Future<List<RoleEntry>?> teamRoles() async {
+    final result = await _invoke('roles-set', const {'what': 'list'});
+    final rows = result?['roles'];
+    if (rows is! List) return null;
+    return [
+      for (final row in rows)
+        if (row is Map)
+          RoleEntry(
+            phone: row['phone'] as String? ?? '',
+            role: platformRoleFrom(row['role'] as String?),
+            username: row['username'] as String? ?? '',
+            name: row['name'] as String? ?? '',
+          )
+    ];
+  }
+
+  /// Grants (or, with [PlatformRole.member], revokes) a role. Owner only —
+  /// enforced server-side; 'owner' itself can never be assigned from the
+  /// app, and the server refuses changes to the owner's own row.
+  Future<bool> setRole(String targetPhone, PlatformRole role) async {
+    final digits = targetPhone.replaceAll(RegExp(r'\D'), '');
+    if (digits.isEmpty || role == PlatformRole.owner) return false;
+    final result = await _invoke('roles-set', {
+      'what': 'set',
+      'targetPhone': digits,
+      'role': role.name,
+    });
     return result?['ok'] == true;
   }
 

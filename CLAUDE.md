@@ -238,8 +238,10 @@ for the known offenders; add to its list rather than rediscovering this.
 ## Username-only accounts, and the one thing they can do
 
 Signing up with no phone number is a first-class choice on both login forms
-(*Sign up with a username instead*). The username is **required** there and
-optional everywhere else: with no number in anybody's contacts there is
+(*Sign up without a phone number*, 2026-08-04: the step asks for a NAME only
+— the username is MINTED via `RandomIdentity` and claimed with retries,
+never chosen at sign-up). The handle matters because it is optional
+everywhere else: with no number in anybody's contacts there is
 nothing to match on, so a handle is the only thing another person can be told
 and can type. A display name is optional; left blank it gets a friendly
 random one (`RandomIdentity`, 2026-08-04 — same for a blank username on the
@@ -481,6 +483,19 @@ Two things that look like bugs and are not:
    carries a `note` naming the fault. The iOS build must postdate
    2026-08-03 evening for the phone to FETCH credentials; Check call setup
    verifies end-to-end.
+
+0d. **Admin power pack (2026-08-04)** — needs two pastes to go live:
+   re-paste `docs/edge_functions_paste/moderation-act.ts` (adds the
+   `takedown` action: moderators+ remove any public post, author must be
+   outranked) and paste `docs/edge_functions_paste/roles-set.ts` as a NEW
+   function named exactly `roles-set` (JWT verification ON) — the owner's
+   in-app Team tab (Moderation console) that grants/revokes admin and
+   moderator roles without the SQL editor. Owner-only server-side; 'owner'
+   is never assignable from the app. Until pasted, the Team tab says so
+   and takedowns are refused; everything else is unaffected. Also new,
+   no server work: the login screen remembers up to 5 profiles
+   (`Session.knownAccounts`, kept across the account wipe — identity only)
+   with one-tap sign-back-in per profile (long-press removes one).
 
 0. **NEW since 2026-08-03 late session** (needed for delete/deactivate
    account to work live; everything is built, tested and pushed):

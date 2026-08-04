@@ -66,6 +66,10 @@ class AccountWipe {
     'legal_accepted_version_v1',
     'onboarding_done_v1',
     'last_account_v1',
+    // Who has signed in on this device (identity only, never their data) —
+    // the login screen's one-tap way back into each. Same standing as
+    // last_account_v1, list-shaped.
+    'known_accounts_v1',
   };
 
   /// Where the digits of the current owner live, so the next sign-in can
