@@ -7579,6 +7579,7 @@ void main() {
         bool web = false,
         TargetPlatform platform = TargetPlatform.iOS,
         bool release = true,
+        bool testAds = false,
         String ios = '',
         String android = '',
       }) =>
@@ -7586,6 +7587,7 @@ void main() {
             isWeb: web,
             platform: platform,
             releaseMode: release,
+            testAds: testAds,
             configuredIos: ios,
             configuredAndroid: android,
           );
@@ -7595,6 +7597,54 @@ void main() {
           isNull);
       expect(unit(release: false), contains('3940256099942544'));
       expect(unit(web: true, ios: 'ca-app-pub-x/9'), isNull);
+    });
+
+    test('ADMOB_TEST_ADS lets the owner see labeled test ads on TestFlight',
+        () {
+      // The one hole in "release shows nothing without ids": real fill is
+      // impossible until AdMob finishes verifying the account, so the owner
+      // could never SEE the placement work on a real phone. The flag is an
+      // explicit opt-in, uses only Google's clearly-labeled test units, and
+      // a configured real id always beats it.
+      expect(
+          AdService.bannerUnitFor(
+              isWeb: false,
+              platform: TargetPlatform.iOS,
+              releaseMode: true,
+              testAds: true),
+          contains('3940256099942544'));
+      expect(
+          AdService.nativeUnitFor(
+              isWeb: false,
+              platform: TargetPlatform.iOS,
+              releaseMode: true,
+              testAds: true),
+          contains('3940256099942544'));
+      // A real id wins over the flag — forgetting to remove it can't hide
+      // real ads once verification lands.
+      expect(
+          AdService.bannerUnitFor(
+              isWeb: false,
+              platform: TargetPlatform.iOS,
+              releaseMode: true,
+              testAds: true,
+              configuredIos: 'ca-app-pub-x/1'),
+          'ca-app-pub-x/1');
+      // Web stays adless even with the flag.
+      expect(
+          AdService.bannerUnitFor(
+              isWeb: true,
+              platform: TargetPlatform.iOS,
+              releaseMode: true,
+              testAds: true),
+          isNull);
+      // And the pipeline can carry it (default false when unset).
+      final yaml = File('codemagic.yaml').readAsStringSync();
+      expect(
+          RegExp(r'ADMOB_TEST_ADS=\$\{ADMOB_TEST_ADS:-false\}')
+              .allMatches(yaml)
+              .length,
+          3);
     });
 
     test('native ads are dealt into the timeline, never as filler', () {

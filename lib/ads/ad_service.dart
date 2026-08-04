@@ -37,6 +37,14 @@ class AdService {
   static const String _nativeAndroid =
       String.fromEnvironment('ADMOB_NATIVE_ANDROID', defaultValue: '');
 
+  /// Owner's escape hatch: `ADMOB_TEST_ADS=true` makes RELEASE builds use
+  /// Google's labeled test units, so placement is verifiable on a TestFlight
+  /// phone while AdMob verification still blocks real fill. Off by default,
+  /// and meant to be removed again — test creatives must never reach App
+  /// Store users. A configured real id always wins over it.
+  static const bool _testAdsFlag =
+      bool.fromEnvironment('ADMOB_TEST_ADS', defaultValue: false);
+
   /// Google's published TEST units — safe for anyone to load, never
   /// paid, clearly labeled "Test Ad". Debug-only, so a release build with
   /// no real ids shows NOTHING rather than test filler (the no-fake-data
@@ -56,6 +64,7 @@ class AdService {
     required bool isWeb,
     required TargetPlatform platform,
     required bool releaseMode,
+    bool testAds = false,
     String? configuredIos,
     String? configuredAndroid,
   }) {
@@ -66,7 +75,7 @@ class AdService {
       _ => '',
     };
     if (configured.isNotEmpty) return configured;
-    if (releaseMode) return null; // no ids in release = no ads at all
+    if (releaseMode && !testAds) return null; // no ids in release = no ads
     return switch (platform) {
       TargetPlatform.iOS => _testBannerIos,
       TargetPlatform.android => _testBannerAndroid,
@@ -80,6 +89,7 @@ class AdService {
     required bool isWeb,
     required TargetPlatform platform,
     required bool releaseMode,
+    bool testAds = false,
     String? configuredIos,
     String? configuredAndroid,
   }) {
@@ -90,7 +100,7 @@ class AdService {
       _ => '',
     };
     if (configured.isNotEmpty) return configured;
-    if (releaseMode) return null;
+    if (releaseMode && !testAds) return null;
     return switch (platform) {
       TargetPlatform.iOS => _testNativeIos,
       TargetPlatform.android => _testNativeAndroid,
@@ -102,12 +112,14 @@ class AdService {
         isWeb: kIsWeb,
         platform: defaultTargetPlatform,
         releaseMode: kReleaseMode,
+        testAds: _testAdsFlag,
       );
 
   String? get _nativeUnit => nativeUnitFor(
         isWeb: kIsWeb,
         platform: defaultTargetPlatform,
         releaseMode: kReleaseMode,
+        testAds: _testAdsFlag,
       );
 
   /// Whether this build shows ads anywhere.

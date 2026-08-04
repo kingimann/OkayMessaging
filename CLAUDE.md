@@ -442,13 +442,23 @@ Two things that look like bugs and are not:
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only
-   (newsfeed + marketplace), non-personalized (`npa=1`, no ATT), OFF in
-   release until `ADMOB_BANNER_IOS` exists in the Codemagic `test` group;
-   debug shows Google's labeled test ads. `google_mobile_ads` is a NEW
-   POD — first suspect if a build fails. Going live = user work:
-   `docs/ads_setup.md` (AdMob account → App ID into Info.plist replacing
-   Google's sample id → banner unit id into Codemagic). A test pins ads
-   out of every chat file.
+   (newsfeed + marketplace) + native cards inside the newsfeed timeline
+   (every 8 posts, never trailing — `AdService.timelineWithAds`),
+   non-personalized (`npa=1`, no ATT), OFF in release until
+   `ADMOB_BANNER_IOS`/`ADMOB_NATIVE_IOS` exist in the Codemagic `test`
+   group; debug shows Google's labeled test ads, and `ADMOB_TEST_ADS=true`
+   in that group makes a RELEASE build show them too (owner's placement
+   check while AdMob verification blocks real fill — remove before App
+   Store release; a real id always beats it). `google_mobile_ads` is a NEW
+   POD — first suspect if a build fails. The build scripts strip ALL
+   whitespace from UI-sourced variables: a trailing newline pasted into a
+   Codemagic field made flutter read the whole `--dart-define` as the
+   build target ("Target file ... not found", reproduced + fixed
+   2026-08-04). The real App ID is in Info.plist. `web/app-ads.txt` ships
+   with the web build; AdMob's crawler only reads the DOMAIN ROOT of the
+   store listing's website, so full verification needs the user's
+   `kingimann.github.io` repo (told them) and the App Store listing to
+   exist. A test pins ads out of every chat file.
 
 0b. **`docs/community_posts.sql` is RUN** (verified live 2026-08-04 by an
    insert/select/delete probe — do not raise again). Server feed posts +

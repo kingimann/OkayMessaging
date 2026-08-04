@@ -51,3 +51,15 @@ not test ads.
 New apps must also be **verified in AdMob** (App Store listing link once
 the app is public) before payouts; test ads in debug builds work with no
 account at all.
+
+## Seeing ads before verification completes
+
+Release builds (TestFlight included) show **nothing** until real units
+fill, and real units can't fill until AdMob verification is done — so a
+TestFlight phone shows blank ad slots however correct the wiring is. To
+see it working anyway: add `ADMOB_TEST_ADS` = `true` to the Codemagic
+**test** group and build. That release build uses Google's clearly-labeled
+"Test Ad" units in every slot (banner + native). A configured real unit id
+always beats the flag, and web stays adless regardless. **Delete the
+variable before the real App Store release** — shipping test creatives to
+the public is against AdMob policy.

@@ -99,6 +99,7 @@ workflows:
           KLIPY_API_KEY="$(printf '%s' "${KLIPY_API_KEY:-}" | tr -d '[:space:]')"
           ADMOB_BANNER_IOS="$(printf '%s' "${ADMOB_BANNER_IOS:-}" | tr -d '[:space:]')"
           ADMOB_NATIVE_IOS="$(printf '%s' "${ADMOB_NATIVE_IOS:-}" | tr -d '[:space:]')"
+          ADMOB_TEST_ADS="$(printf '%s' "${ADMOB_TEST_ADS:-}" | tr -d '[:space:]')"
           flutter build apk --debug \
             --dart-define=SUPABASE_URL=https://trbdqucphtsstnrwwfnw.supabase.co \
             --dart-define=SUPABASE_ANON_KEY=sb_publishable_PrY-Aru0AryWyhHgfD2Tow_uXca1owt \
@@ -107,6 +108,7 @@ workflows:
             --dart-define="KLIPY_API_KEY=$KLIPY_API_KEY" \
             --dart-define="ADMOB_BANNER_IOS=$ADMOB_BANNER_IOS" \
             --dart-define="ADMOB_NATIVE_IOS=$ADMOB_NATIVE_IOS" \
+            --dart-define="ADMOB_TEST_ADS=${ADMOB_TEST_ADS:-false}" \
             --dart-define=REQUIRE_OTP=true
     artifacts:
       - build/**/outputs/**/*.apk
@@ -223,6 +225,7 @@ workflows:
           KLIPY_API_KEY="$(printf '%s' "${KLIPY_API_KEY:-}" | tr -d '[:space:]')"
           ADMOB_BANNER_IOS="$(printf '%s' "${ADMOB_BANNER_IOS:-}" | tr -d '[:space:]')"
           ADMOB_NATIVE_IOS="$(printf '%s' "${ADMOB_NATIVE_IOS:-}" | tr -d '[:space:]')"
+          ADMOB_TEST_ADS="$(printf '%s' "${ADMOB_TEST_ADS:-}" | tr -d '[:space:]')"
           flutter build ipa --release \
             --build-name=1.1.2 \
             --build-number="$BUILD_NUMBER" \
@@ -234,6 +237,7 @@ workflows:
             --dart-define="KLIPY_API_KEY=$KLIPY_API_KEY" \
             --dart-define="ADMOB_BANNER_IOS=$ADMOB_BANNER_IOS" \
             --dart-define="ADMOB_NATIVE_IOS=$ADMOB_NATIVE_IOS" \
+            --dart-define="ADMOB_TEST_ADS=${ADMOB_TEST_ADS:-false}" \
             --dart-define=REQUIRE_OTP=true \
             --export-options-plist=/Users/builder/export_options.plist
     artifacts:
@@ -309,6 +313,7 @@ workflows:
           KLIPY_API_KEY="$(printf '%s' "${KLIPY_API_KEY:-}" | tr -d '[:space:]')"
           ADMOB_BANNER_IOS="$(printf '%s' "${ADMOB_BANNER_IOS:-}" | tr -d '[:space:]')"
           ADMOB_NATIVE_IOS="$(printf '%s' "${ADMOB_NATIVE_IOS:-}" | tr -d '[:space:]')"
+          ADMOB_TEST_ADS="$(printf '%s' "${ADMOB_TEST_ADS:-}" | tr -d '[:space:]')"
           flutter build ios --simulator --debug \
             --dart-define=SUPABASE_URL=https://trbdqucphtsstnrwwfnw.supabase.co \
             --dart-define=SUPABASE_ANON_KEY=sb_publishable_PrY-Aru0AryWyhHgfD2Tow_uXca1owt \
@@ -317,6 +322,7 @@ workflows:
             --dart-define="KLIPY_API_KEY=$KLIPY_API_KEY" \
             --dart-define="ADMOB_BANNER_IOS=$ADMOB_BANNER_IOS" \
             --dart-define="ADMOB_NATIVE_IOS=$ADMOB_NATIVE_IOS" \
+            --dart-define="ADMOB_TEST_ADS=${ADMOB_TEST_ADS:-false}" \
             --dart-define=REQUIRE_OTP=true
       - name: Zip the .app for download
         script: |
