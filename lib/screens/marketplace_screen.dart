@@ -491,6 +491,8 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
   @override
   void dispose() {
     _search.dispose();
+    _minPrice.dispose();
+    _maxPrice.dispose();
     super.dispose();
   }
 
@@ -2080,6 +2082,8 @@ class _SellScreenState extends State<SellScreen> {
   void dispose() {
     _title.dispose();
     _price.dispose();
+    _wasPrice.dispose();
+    _brand.dispose();
     _quantity.dispose();
     _description.dispose();
     super.dispose();
