@@ -1,4 +1,7 @@
+import 'dart:convert';
+
 import 'package:file_picker/file_picker.dart';
+import '../state/feed_drafts.dart';
 import '../state/session.dart';
 import '../theme/app_theme.dart';
 import 'package:flutter/foundation.dart';
@@ -307,6 +310,66 @@ bool listingInPriceRange(FeedPost l, {int? minCents, int? maxCents}) {
   if (minCents != null && p < minCents) return false;
   if (maxCents != null && p > maxCents) return false;
   return true;
+}
+
+/// The sell form's text fields as one draft blob, and back. Photos and
+/// video are deliberately not kept: they are re-picked in seconds, and
+/// base64 bytes would blow the drafts store's cap for nothing — the loss a
+/// draft exists to prevent is the typed kind. Pure both ways; a garbage
+/// blob decodes to null rather than a half-filled form.
+String encodeSellDraft({
+  required String title,
+  required String description,
+  required String price,
+  required String wasPrice,
+  required String brand,
+  required String category,
+  required String condition,
+  required String delivery,
+  required String quantity,
+  required bool offers,
+  required String place,
+  required String communityId,
+}) =>
+    jsonEncode({
+      'title': title,
+      'description': description,
+      'price': price,
+      'was': wasPrice,
+      'brand': brand,
+      'category': category,
+      'condition': condition,
+      'delivery': delivery,
+      'quantity': quantity,
+      'offers': offers,
+      'place': place,
+      'community': communityId,
+    });
+
+Map<String, dynamic>? decodeSellDraft(String raw) {
+  if (raw.trim().isEmpty) return null;
+  try {
+    final data = jsonDecode(raw);
+    return data is Map<String, dynamic> ? data : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+/// The pickup area of this seller's most recent listing that named one —
+/// what the place field starts as on a NEW listing, because where you
+/// hand things over rarely changes between sales. Prefilled, editable,
+/// clearable; never invented. Pure.
+String lastOwnListingPlace(List<FeedPost> all, String myUsername) {
+  final mine = [
+    for (final l in all)
+      if (l.isListing &&
+          (l.authorUsername == 'you' ||
+              (myUsername.isNotEmpty && l.authorUsername == myUsername)) &&
+          l.listingPlace.trim().isNotEmpty)
+        l
+  ]..sort((a, b) => b.time.compareTo(a.time));
+  return mine.firstOrNull?.listingPlace.trim() ?? '';
 }
 
 /// The going rate for [category]: the median asking price across unsold,
@@ -2417,6 +2480,71 @@ class _SellScreenState extends State<SellScreen> {
   bool _uploadingVideo = false;
   String? _error;
 
+  /// The optional half of the form — brand, condition, was-price,
+  /// negotiable, handoff, quantity, place, video — folded away so a first
+  /// listing is five answers, not fifteen. An EDIT starts open: hiding
+  /// fields that already hold values would read as having lost them.
+  late bool _showMore = widget.existing != null;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.existing != null) return;
+    // Where you hand things over rarely changes between sales.
+    _place = lastOwnListingPlace(
+        FeedStore.instance.listings(), AppState.profile.value.username);
+    // A draft left behind comes back — the typed kind of loss is the one
+    // a draft exists to prevent. It overrides the place prefill: what was
+    // explicitly on the form beats what was inferred.
+    final draft = decodeSellDraft(FeedDrafts.instance.read(FeedDrafts.sellKey));
+    if (draft == null) return;
+    _title.text = draft['title'] as String? ?? '';
+    _description.text = draft['description'] as String? ?? '';
+    _price.text = draft['price'] as String? ?? '';
+    _wasPrice.text = draft['was'] as String? ?? '';
+    _brand.text = draft['brand'] as String? ?? '';
+    _quantity.text = draft['quantity'] as String? ?? '';
+    final category = draft['category'] as String? ?? '';
+    if (kMarketplaceCategories.contains(category)) _category = category;
+    _condition = draft['condition'] as String? ?? '';
+    _delivery = draft['delivery'] as String? ?? '';
+    _offers = draft['offers'] == true;
+    _place = draft['place'] as String? ?? _place;
+    final community = draft['community'] as String? ?? '';
+    if (CommunityStore.instance.communities.any((c) => c.id == community)) {
+      _communityId = community;
+    }
+    // A draft that filled optional fields reopens them — restoring into a
+    // fold that hides the restored values would read as losing them.
+    if (_brand.text.isNotEmpty ||
+        _condition.isNotEmpty ||
+        _delivery.isNotEmpty ||
+        _wasPrice.text.isNotEmpty ||
+        _quantity.text.isNotEmpty ||
+        _offers) {
+      _showMore = true;
+    }
+  }
+
+  /// The form's text fields, kept. Called on the keep-draft path only.
+  void _saveDraft() => FeedDrafts.instance.write(
+        FeedDrafts.sellKey,
+        encodeSellDraft(
+          title: _title.text,
+          description: _description.text,
+          price: _price.text,
+          wasPrice: _wasPrice.text,
+          brand: _brand.text,
+          category: _category,
+          condition: _condition,
+          delivery: _delivery,
+          quantity: _quantity.text,
+          offers: _offers,
+          place: _place,
+          communityId: _communityId,
+        ),
+      );
+
   bool get _hasVideo => _videoBytes != null || _videoPath.isNotEmpty;
 
   Future<void> _pickVideo() async {
@@ -2590,6 +2718,8 @@ class _SellScreenState extends State<SellScreen> {
         brand: _brand.text.trim(),
         prevPriceCents: parseListingPrice(_wasPrice.text) ?? 0,
       );
+      // Posted — the draft's job is done.
+      FeedDrafts.instance.clear(FeedDrafts.sellKey);
     }
     if (removedVideo) {
       MarketMedia.instance.deleteVideo(existing.listingVideo);
@@ -2723,13 +2853,53 @@ class _SellScreenState extends State<SellScreen> {
 
   Future<void> _close() async {
     if (!_dirty) {
+      // An untouched form may still be a RESTORED draft the person came
+      // back to look at — leaving keeps it, same as it was.
+      Navigator.of(context).pop();
+      return;
+    }
+    // A new listing is kept, not defended: the typed fields survive as a
+    // draft unless the person says throw them away. Photos and video are
+    // not in the draft (re-picked in seconds; the bytes would not fit).
+    if (widget.existing == null) {
+      final choice = await showModalBottomSheet<String>(
+        context: context,
+        showDragHandle: true,
+        builder: (sheetContext) => SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.save_outlined),
+                title: const Text('Keep as draft'),
+                subtitle: const Text(
+                    'What you typed comes back next time — photos don\'t'),
+                onTap: () => Navigator.pop(sheetContext, 'keep'),
+              ),
+              ListTile(
+                leading: Icon(Icons.delete_outline,
+                    color: Colors.red.shade400),
+                title: Text('Discard',
+                    style: TextStyle(color: Colors.red.shade400)),
+                onTap: () => Navigator.pop(sheetContext, 'discard'),
+              ),
+            ],
+          ),
+        ),
+      );
+      if (!mounted || choice == null) return;
+      if (choice == 'keep') {
+        _saveDraft();
+      } else {
+        FeedDrafts.instance.clear(FeedDrafts.sellKey);
+      }
       Navigator.of(context).pop();
       return;
     }
     final discard = await showAppConfirmDialog(
       context,
       icon: Icons.delete_outline,
-      title: widget.existing == null ? 'Discard listing?' : 'Discard changes?',
+      title: 'Discard changes?',
       message: 'What you\'ve entered here will be lost.',
       confirmLabel: 'Discard',
       destructive: true,
@@ -2800,7 +2970,7 @@ class _SellScreenState extends State<SellScreen> {
             ),
           // Up to four photos, cover first. Each rides the relay as its own
           // message, which is why the cap exists at all — see mediaPart.
-          _section('Photos & video'),
+          _section('Photos'),
           SizedBox(
             height: 110,
             child: ListView(
@@ -2896,8 +3066,6 @@ class _SellScreenState extends State<SellScreen> {
               ],
             ),
           ),
-          const SizedBox(height: 10),
-          _videoTile(context),
           _section('What it is'),
           TextField(
             controller: _title,
@@ -2905,13 +3073,6 @@ class _SellScreenState extends State<SellScreen> {
             // The title carries the listing, so it reads a size up.
             style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
             decoration: const InputDecoration(hintText: 'What are you selling?'),
-          ),
-          const SizedBox(height: 14),
-          TextField(
-            controller: _brand,
-            textCapitalization: TextCapitalization.words,
-            decoration: const InputDecoration(
-                labelText: 'Brand (optional)', hintText: 'Apple, IKEA, Trek…'),
           ),
           const SizedBox(height: 14),
           // A field that OPENS A SHEET rather than a dropdown. Forty
@@ -2934,137 +3095,25 @@ class _SellScreenState extends State<SellScreen> {
             ),
           ),
           const SizedBox(height: 14),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: Text('Condition',
-                style: TextStyle(
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.subtle(context))),
-          ),
-          const SizedBox(height: 6),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              for (final c in kListingConditions)
-                ChoiceChip(
-                  label: Text(c),
-                  selected: _condition == c,
-                  visualDensity: VisualDensity.compact,
-                  onSelected: (_) => setState(
-                      () => _condition = _condition == c ? '' : c),
-                ),
-            ],
-          ),
-          _section('The price'),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _price,
-                  keyboardType:
-                      const TextInputType.numberWithOptions(decimal: true),
-                  decoration: InputDecoration(
-                      hintText: 'Free',
-                      labelText: 'Price',
-                      prefixText: '\$ ',
-                      // The going rate, when the category has one to read —
-                      // a fact about visible listings, never advice.
-                      helperText: () {
-                        final typical = typicalPriceCents(
-                            FeedStore.instance.listings(), _category,
-                            excludeId: widget.existing?.id ?? '');
-                        return typical == null
-                            ? null
-                            : '$_category listings here ask about '
-                                '${formatListingPrice(typical)}';
-                      }()),
-                ),
-              ),
-              if (widget.existing == null) ...[
-                const SizedBox(width: 10),
-                Expanded(
-                  // What it USED to cost — drawn struck-through on the
-                  // card, and only while it is higher than the ask.
-                  child: TextField(
-                    controller: _wasPrice,
-                    keyboardType:
-                        const TextInputType.numberWithOptions(decimal: true),
-                    decoration: const InputDecoration(
-                        labelText: 'Was (optional)', prefixText: '\$ '),
-                  ),
-                ),
-              ],
-            ],
-          ),
-          const SizedBox(height: 14),
-          InkWell(
-            onTap: () => setState(() => _offers = !_offers),
-            child: InputDecorator(
-              decoration: const InputDecoration(labelText: 'Negotiable'),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(_offers ? 'Open to offers' : 'Firm',
-                        maxLines: 1, overflow: TextOverflow.ellipsis),
-                  ),
-                  Switch(
-                    value: _offers,
-                    onChanged: (v) => setState(() => _offers = v),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          _section('The handoff'),
-          Wrap(
-            spacing: 8,
-            children: [
-              for (final (value, label) in kListingDeliveryOptions)
-                ChoiceChip(
-                  label: Text(label),
-                  selected: _delivery == value,
-                  onSelected: (_) => setState(
-                      () => _delivery = _delivery == value ? '' : value),
-                ),
-            ],
-          ),
-          const SizedBox(height: 14),
           TextField(
-            controller: _quantity,
-            keyboardType: TextInputType.number,
-            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-            decoration:
-                const InputDecoration(labelText: 'Quantity', hintText: '1'),
-          ),
-          const SizedBox(height: 14),
-          // Where it is. A NAME, never coordinates: this rides the relay to
-          // everyone in the server, and "Bloor & Bathurst" is what a buyer
-          // needs while a lat/lng to five decimals is somebody's front door.
-          InkWell(
-            onTap: _pickPlace,
-            child: InputDecorator(
-              decoration: InputDecoration(
-                labelText: 'Where it is',
-                suffixIcon: _place.isEmpty
-                    ? const Icon(Icons.map_outlined)
-                    : IconButton(
-                        icon: const Icon(Icons.close),
-                        tooltip: 'Clear',
-                        onPressed: () => setState(() => _place = ''),
-                      ),
-              ),
-              child: Text(
-                _place.isEmpty ? 'Add a pickup area' : _place,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: _place.isEmpty
-                    ? TextStyle(color: AppColors.subtle(context))
-                    : null,
-              ),
-            ),
+            controller: _price,
+            keyboardType:
+                const TextInputType.numberWithOptions(decimal: true),
+            decoration: InputDecoration(
+                hintText: 'Free',
+                labelText: 'Price',
+                prefixText: '\$ ',
+                // The going rate, when the category has one to read —
+                // a fact about visible listings, never advice.
+                helperText: () {
+                  final typical = typicalPriceCents(
+                      FeedStore.instance.listings(), _category,
+                      excludeId: widget.existing?.id ?? '');
+                  return typical == null
+                      ? null
+                      : '$_category listings here ask about '
+                          '${formatListingPrice(typical)}';
+                }()),
           ),
           if (servers.length > 1 && widget.existing == null) ...[
             _section('Where it posts'),
@@ -3115,6 +3164,141 @@ class _SellScreenState extends State<SellScreen> {
               ),
             ],
           ),
+          // The optional half, folded: a first listing is five answers.
+          // Everything here posts fine left blank.
+          const SizedBox(height: 18),
+          if (!_showMore)
+            OutlinedButton.icon(
+              onPressed: () => setState(() => _showMore = true),
+              icon: const Icon(Icons.expand_more, size: 18),
+              label: const Text(
+                  'More details — brand, condition, delivery, pickup…'),
+            )
+          else ...[
+            _section('More details'),
+            TextField(
+              controller: _brand,
+              textCapitalization: TextCapitalization.words,
+              decoration: const InputDecoration(
+                  labelText: 'Brand (optional)',
+                  hintText: 'Apple, IKEA, Trek…'),
+            ),
+            const SizedBox(height: 14),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Text('Condition',
+                  style: TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.subtle(context))),
+            ),
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final c in kListingConditions)
+                  ChoiceChip(
+                    label: Text(c),
+                    selected: _condition == c,
+                    visualDensity: VisualDensity.compact,
+                    onSelected: (_) => setState(
+                        () => _condition = _condition == c ? '' : c),
+                  ),
+              ],
+            ),
+            if (widget.existing == null) ...[
+              const SizedBox(height: 14),
+              // What it USED to cost — drawn struck-through on the card,
+              // and only while it is higher than the ask.
+              TextField(
+                controller: _wasPrice,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(
+                    labelText: 'Was (optional)', prefixText: '\$ '),
+              ),
+            ],
+            const SizedBox(height: 14),
+            InkWell(
+              onTap: () => setState(() => _offers = !_offers),
+              child: InputDecorator(
+                decoration: const InputDecoration(labelText: 'Negotiable'),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(_offers ? 'Open to offers' : 'Firm',
+                          maxLines: 1, overflow: TextOverflow.ellipsis),
+                    ),
+                    Switch(
+                      value: _offers,
+                      onChanged: (v) => setState(() => _offers = v),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 14),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Text('Handoff',
+                  style: TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.subtle(context))),
+            ),
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 8,
+              children: [
+                for (final (value, label) in kListingDeliveryOptions)
+                  ChoiceChip(
+                    label: Text(label),
+                    selected: _delivery == value,
+                    onSelected: (_) => setState(
+                        () => _delivery = _delivery == value ? '' : value),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            TextField(
+              controller: _quantity,
+              keyboardType: TextInputType.number,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+              decoration:
+                  const InputDecoration(labelText: 'Quantity', hintText: '1'),
+            ),
+            const SizedBox(height: 14),
+            // Where it is. A NAME, never coordinates: this rides the relay
+            // to everyone in the server, and "Bloor & Bathurst" is what a
+            // buyer needs while a lat/lng to five decimals is somebody's
+            // front door.
+            InkWell(
+              onTap: _pickPlace,
+              child: InputDecorator(
+                decoration: InputDecoration(
+                  labelText: 'Where it is',
+                  suffixIcon: _place.isEmpty
+                      ? const Icon(Icons.map_outlined)
+                      : IconButton(
+                          icon: const Icon(Icons.close),
+                          tooltip: 'Clear',
+                          onPressed: () => setState(() => _place = ''),
+                        ),
+                ),
+                child: Text(
+                  _place.isEmpty ? 'Add a pickup area' : _place,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: _place.isEmpty
+                      ? TextStyle(color: AppColors.subtle(context))
+                      : null,
+                ),
+              ),
+            ),
+            const SizedBox(height: 14),
+            _videoTile(context),
+          ],
         ],
       ),
     );

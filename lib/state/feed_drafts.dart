@@ -41,6 +41,11 @@ class FeedDrafts extends ChangeNotifier {
   /// One server's feed composer.
   static String serverKey(String communityId) => 'server:$communityId';
 
+  /// The marketplace sell form (one draft — the form is one place). The
+  /// value is a JSON blob of the form's text fields, encoded by the
+  /// marketplace screen; this store neither reads nor cares.
+  static const String sellKey = 'sell';
+
   int get count => _drafts.length;
 
   Future<void> load() async {

@@ -8830,12 +8830,12 @@ void main() {
     test('the form is chapters now, and the new fields are on it', () {
       final src =
           File('lib/screens/marketplace_screen.dart').readAsStringSync();
+      // Essentials up front; the optional half lives behind the fold.
       for (final section in [
-        "'Photos & video'",
+        "'Photos'",
         "'What it is'",
-        "'The price'",
-        "'The handoff'",
         "'Description'",
+        "'More details'",
       ]) {
         expect(src, contains('_section($section)'),
             reason: 'the $section chapter must exist');
@@ -8845,6 +8845,9 @@ void main() {
       // The was-price is a CREATE-time field only: on an edit it would
       // fight the automatic price-drop history.
       expect(src, contains('if (widget.existing == null) ...['));
+      // An edit starts with the fold open: hiding fields that already
+      // hold values would read as having lost them.
+      expect(src, contains('late bool _showMore = widget.existing != null;'));
       // And the card says the brand.
       expect(src, contains('listing.listingBrand'));
     });
@@ -10418,9 +10421,28 @@ void main() {
         StorageStore.instance.debugSubscribe(0);
       });
 
+      // The video slot lives behind the More-details fold now. The second
+      // pump reuses the first screen's state (same widget, no key), so the
+      // fold may already be open — then there is no button to tap.
+      Future<void> openFold() async {
+        try {
+          await tester.scrollUntilVisible(
+              find.textContaining('More details'), 200,
+              scrollable: find.byType(Scrollable).first);
+          await tester.tap(find.textContaining('More details'));
+          await tester.pumpAndSettle();
+        } catch (_) {
+          // Already open.
+        }
+        await tester.drag(
+            find.byType(Scrollable).first, const Offset(0, -1200));
+        await tester.pumpAndSettle();
+      }
+
       // Without the subscription the slot explains itself instead of hiding.
       await tester.pumpWidget(const MaterialApp(home: SellScreen()));
       await tester.pump();
+      await openFold();
       expect(find.textContaining('Add a video with cloud storage'),
           findsOneWidget);
       expect(find.text('Add a video (up to 12 MB, ~30s)'), findsNothing);
@@ -10429,6 +10451,7 @@ void main() {
       StorageStore.instance.debugSubscribe(50);
       await tester.pumpWidget(const MaterialApp(home: SellScreen()));
       await tester.pump();
+      await openFold();
       expect(find.text('Add a video (up to 12 MB, ~30s)'), findsOneWidget);
     });
 
@@ -10717,7 +10740,13 @@ void main() {
       await tester.pumpAndSettle();
       await tester.enterText(
           find.widgetWithText(TextField, 'What are you selling?'), 'Lamp');
-      await tester.ensureVisible(find.text('Like new'));
+      // Condition lives behind the More-details fold now.
+      await tester.scrollUntilVisible(find.textContaining('More details'), 200,
+          scrollable: find.byType(Scrollable).first);
+      await tester.tap(find.textContaining('More details'));
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(find.text('Like new'), 200,
+          scrollable: find.byType(Scrollable).first);
       await tester.tap(find.text('Like new'));
       await tester.pump();
       await tester.tap(find.text('Post'));
@@ -10731,10 +10760,14 @@ void main() {
       expect(find.textContaining('Like new ·'), findsOneWidget);
     });
 
-    testWidgets('backing out of a dirty sell form asks; a clean one just '
-        'closes', (tester) async {
+    testWidgets('backing out of a dirty sell form keeps the work as a draft',
+        (tester) async {
       FeedStore.instance.resetForTest();
-      addTearDown(FeedStore.instance.resetForTest);
+      FeedDrafts.instance.resetForTest();
+      addTearDown(() {
+        FeedStore.instance.resetForTest();
+        FeedDrafts.instance.resetForTest();
+      });
 
       Object? result = 'not popped';
       await tester.pumpWidget(MaterialApp(
@@ -10755,7 +10788,7 @@ void main() {
       expect(result, isNull);
       expect(find.byType(SellScreen), findsNothing);
 
-      // Typed something: the work is guarded.
+      // Typed something: the work is kept, not defended with a dialog.
       await tester.tap(find.text('open'));
       await tester.pumpAndSettle();
       await tester.enterText(
@@ -10763,11 +10796,16 @@ void main() {
           'Half a listing');
       await tester.tap(find.byTooltip('Cancel'));
       await tester.pumpAndSettle();
-      expect(find.text('Discard listing?'), findsOneWidget);
-      await tester.tap(find.text('Cancel').last);
+      expect(find.text('Keep as draft'), findsOneWidget);
+      await tester.tap(find.text('Keep as draft'));
       await tester.pumpAndSettle();
-      expect(find.byType(SellScreen), findsOneWidget,
-          reason: 'declining the discard keeps the form and the work');
+      expect(find.byType(SellScreen), findsNothing);
+
+      // And it comes back on the next open.
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      expect(find.text('Half a listing'), findsOneWidget,
+          reason: 'the draft is the whole point of leaving without losing');
     });
 
     test('the blue check rides posts the way it rides messages', () {
@@ -31577,6 +31615,125 @@ void main() {
       final card = src.substring(src.indexOf('class _ListingCard'),
           src.indexOf('/// One listing, full screen'));
       expect(card.contains('else if (isBelowTypical'), isTrue);
+    });
+  });
+
+  group('Sell form: essentials, the fold, and drafts', () {
+    test('a draft round-trips its text fields; garbage decodes to null', () {
+      final blob = encodeSellDraft(
+        title: 'City bike',
+        description: 'Freshly tuned',
+        price: '120',
+        wasPrice: '200',
+        brand: 'Trek',
+        category: 'Sports',
+        condition: 'Good',
+        delivery: 'pickup',
+        quantity: '2',
+        offers: true,
+        place: 'Bloor & Bathurst',
+        communityId: 'c1',
+      );
+      final back = decodeSellDraft(blob)!;
+      expect(back['title'], 'City bike');
+      expect(back['was'], '200');
+      expect(back['offers'], true);
+      expect(back['place'], 'Bloor & Bathurst');
+      expect(decodeSellDraft('not json'), isNull);
+      expect(decodeSellDraft(''), isNull);
+      expect(decodeSellDraft('[1,2]'), isNull,
+          reason: 'a list is not a form');
+    });
+
+    test('the pickup area follows you from your last listing', () {
+      FeedPost listing(String id, String user, String place, DateTime time) =>
+          FeedPost(
+            id: id,
+            communityId: 'c1',
+            authorName: 'x',
+            authorUsername: user,
+            time: time,
+            text: 'Item',
+            priceCents: 100,
+            listingPlace: place,
+          );
+      final all = [
+        listing('m1', 'you', 'Old corner', DateTime(2026, 1, 1)),
+        listing('m2', 'you', 'Bloor & Bathurst', DateTime(2026, 2, 1)),
+        listing('m3', 'you', '', DateTime(2026, 3, 1)), // no place: skipped
+        listing('m4', 'ada', 'Their place', DateTime(2026, 4, 1)),
+      ];
+      expect(lastOwnListingPlace(all, ''), 'Bloor & Bathurst',
+          reason: 'newest OWN listing that named one');
+      expect(lastOwnListingPlace([all.last], ''), '',
+          reason: 'never somebody else\'s corner');
+    });
+
+    testWidgets('a first listing is five answers; the rest is a fold away',
+        (tester) async {
+      FeedDrafts.instance.resetForTest();
+      addTearDown(FeedDrafts.instance.resetForTest);
+      await tester.pumpWidget(const MaterialApp(home: SellScreen()));
+      await tester.pumpAndSettle();
+      // Essentials visible; the optional half is not.
+      expect(find.text('What are you selling?'), findsOneWidget);
+      expect(find.text('Price'), findsOneWidget);
+      expect(find.text('Brand (optional)'), findsNothing);
+      expect(find.text('Quantity'), findsNothing);
+      await tester.scrollUntilVisible(
+          find.textContaining('More details'), 200,
+          scrollable: find.byType(Scrollable).first);
+      await tester.tap(find.textContaining('More details'));
+      await tester.pumpAndSettle();
+      expect(find.text('Brand (optional)'), findsOneWidget);
+      await tester.scrollUntilVisible(find.text('Quantity'), 200,
+          scrollable: find.byType(Scrollable).first);
+      expect(find.text('Quantity'), findsOneWidget);
+    });
+
+    testWidgets('a kept draft comes back, and reopens what it filled',
+        (tester) async {
+      FeedDrafts.instance.resetForTest();
+      addTearDown(FeedDrafts.instance.resetForTest);
+      FeedDrafts.instance.write(
+          FeedDrafts.sellKey,
+          encodeSellDraft(
+            title: 'City bike',
+            description: '',
+            price: '120',
+            wasPrice: '',
+            brand: 'Trek',
+            category: 'Sports',
+            condition: '',
+            delivery: '',
+            quantity: '',
+            offers: false,
+            place: '',
+            communityId: '',
+          ));
+      await tester.pumpWidget(const MaterialApp(home: SellScreen()));
+      await tester.pumpAndSettle();
+      expect(find.text('City bike'), findsOneWidget);
+      // The brand came back, so the fold it lives in starts open —
+      // restoring into a hidden field would read as having lost it. (The
+      // list builds lazily; scrolling there is what proves it is open —
+      // a closed fold has no brand field to scroll to.)
+      await tester.scrollUntilVisible(find.text('Trek'), 200,
+          scrollable: find.byType(Scrollable).first);
+      expect(find.text('Trek'), findsOneWidget);
+    });
+
+    test('the draft is kept on ask, cleared on post, never auto-lost', () {
+      final src =
+          File('lib/screens/marketplace_screen.dart').readAsStringSync();
+      expect(src, contains("'Keep as draft'"));
+      expect(src, contains('FeedDrafts.instance.clear(FeedDrafts.sellKey)'));
+      // Posted — the draft dies with the posting, not before.
+      final finish = src.substring(src.indexOf('Future<void> _finish'),
+          src.indexOf('Widget _videoTile'));
+      expect(finish, contains('FeedDrafts.instance.clear'));
+      // And an edit never touches the new-listing draft machinery.
+      expect(src, contains('if (widget.existing == null) {'));
     });
   });
 
