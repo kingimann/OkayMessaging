@@ -10,6 +10,7 @@ import '../relay/relay_config.dart';
 import '../state/account_email.dart';
 import '../state/account_service.dart';
 import '../state/account_wipe.dart';
+import '../state/demo_seed.dart';
 import '../state/call_diagnostics.dart';
 import '../state/backup_service.dart';
 import '../util/build_info.dart';
@@ -397,6 +398,38 @@ class SettingsView extends StatelessWidget {
             ),
           ],
         ),
+
+        // Screenshot fixtures — the section is compiled out entirely unless
+        // the build carried --dart-define=DEMO_SEED=true (the owner's own
+        // screenshot build). See DemoSeed for why this doesn't break the
+        // no-fake-data rule: it exists in no build a user or reviewer gets.
+        if (DemoSeed.enabled) ...[
+          settingsSectionLabel(context, 'Screenshot fixtures (demo build)'),
+          InfoSection(
+            children: [
+              InfoTile(
+                leading: const Icon(Icons.auto_awesome_outlined),
+                title: 'Populate demo content',
+                subtitle: 'Chats, calls, and a server — on this device only',
+                onTap: () {
+                  DemoSeed.populate();
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                      content: Text('Demo content added. It exists only on '
+                          'this device.')));
+                },
+              ),
+              InfoTile(
+                leading: const Icon(Icons.cleaning_services_outlined),
+                title: 'Remove demo content',
+                onTap: () {
+                  DemoSeed.clear();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Demo content removed.')));
+                },
+              ),
+            ],
+          ),
+        ],
 
         InfoSection(
           children: [

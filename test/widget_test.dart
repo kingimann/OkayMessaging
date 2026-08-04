@@ -139,6 +139,7 @@ import 'package:okay_messaging/screens/cloud_sync_count.dart';
 import 'package:okay_messaging/screens/cloud_sync_screen.dart';
 import 'package:okay_messaging/state/cloud_sync.dart';
 import 'package:okay_messaging/state/community_store.dart';
+import 'package:okay_messaging/state/demo_seed.dart';
 import 'package:okay_messaging/state/file_transfer.dart';
 import 'package:okay_messaging/models/status_update.dart';
 import 'package:okay_messaging/payments/payment_service.dart';
@@ -7730,6 +7731,80 @@ void main() {
         expect(RegExp(RegExp.escape(strip)).allMatches(yaml).length, 3,
             reason: '$v must be whitespace-stripped in all three workflows');
       }
+    });
+  });
+
+  group('Screenshot fixtures (DEMO_SEED)', () {
+    test('the flag is off unless a build explicitly turns it on', () {
+      // This suite runs with no dart-define, exactly like every build that
+      // was not deliberately made for screenshots — including the App
+      // Store one. Off here means off there.
+      expect(DemoSeed.enabled, isFalse);
+      // And the Settings section is behind the flag, not a gesture.
+      expect(File('lib/screens/settings_screen.dart').readAsStringSync(),
+          contains('if (DemoSeed.enabled)'));
+      // The build pipeline can flip it, defaulting to false.
+      expect(
+          RegExp(r'DEMO_SEED=\$\{DEMO_SEED:-false\}')
+              .allMatches(File('codemagic.yaml').readAsStringSync())
+              .length,
+          3);
+    });
+
+    test('the seed is local-only: it can never send anything anywhere', () {
+      final src = File('lib/state/demo_seed.dart').readAsStringSync();
+      for (final banned in ['relay_service', 'http', 'supabase', 'Push']) {
+        expect(src.toLowerCase(), isNot(contains(banned.toLowerCase())),
+            reason: 'demo content must never leave the device ($banned)');
+      }
+    });
+
+    test('populate fills, twice does not double, clear undoes it all', () {
+      ChatStore.instance.reset();
+      CallLog.instance.resetForTest();
+      CommunityStore.instance.resetForTest();
+      FeedStore.instance.resetForTest();
+      addTearDown(ChatStore.instance.reset);
+      addTearDown(CallLog.instance.resetForTest);
+      addTearDown(CommunityStore.instance.resetForTest);
+      addTearDown(FeedStore.instance.resetForTest);
+
+      DemoSeed.populate();
+      expect(ChatStore.instance.chatById('c_alice'), isNotNull);
+      expect(CallLog.instance.records.any((r) => r.id == 'call2'), isTrue);
+      expect(
+          CommunityStore.instance.communities
+              .where((c) => c.name == 'Design Club')
+              .length,
+          1);
+      expect(FeedStore.instance.postById('demo_p1'), isNotNull);
+      expect(FeedStore.instance.postById('demo_l1')?.isListing, isTrue,
+          reason: 'the marketplace screenshot needs listings');
+
+      final cid = CommunityStore.instance.communities
+          .firstWhere((c) => c.name == 'Design Club')
+          .id;
+      final calls = CallLog.instance.records.length;
+      final posts = FeedStore.instance.postsFor(cid).length;
+      DemoSeed.populate();
+      expect(CallLog.instance.records.length, calls,
+          reason: 'tapping twice must not double the history');
+      expect(FeedStore.instance.postsFor(cid).length, posts);
+      expect(
+          CommunityStore.instance.communities
+              .where((c) => c.name == 'Design Club')
+              .length,
+          1);
+
+      DemoSeed.clear();
+      expect(ChatStore.instance.chatById('c_alice'), isNull);
+      expect(CallLog.instance.records.any((r) => r.id == 'call2'), isFalse);
+      expect(
+          CommunityStore.instance.communities
+              .any((c) => c.name == 'Design Club'),
+          isFalse);
+      expect(FeedStore.instance.postById('demo_p1'), isNull);
+      expect(FeedStore.instance.postById('demo_l1'), isNull);
     });
   });
 
