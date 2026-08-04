@@ -27,6 +27,24 @@ account, but it can only be signed into with the fixed code. Pick a
 number in the `+1 500 555 01xx` reserved range (never real). Remove it
 from the dashboard whenever you want it dead.
 
+### What the reviewer account can do
+
+The app recognizes `+1 500 555 0006` as the reviewer account
+(`ReviewerMode`, `lib/state/reviewer_mode.dart`) and unlocks the two
+doors a reviewer could never pass honestly:
+
+- **The ID-check gate opens** — Wallet, marketplace selling, and Okay
+  Drop all work without a Stripe Identity check (a reviewer will not
+  photograph a passport for a demo).
+- **Payments are pinned to the sandbox** — the account is permanently in
+  payments test mode; every money flow simulates end-to-end and no real
+  Stripe call is ever made, and the test-mode toggle cannot turn it off
+  for this account. A reviewer can explore everything and can never reach
+  a real charge.
+
+If you change the test number in Supabase, change `reviewerDigits` to
+match — the two must agree or the unlock silently stops applying.
+
 ## Screenshot builds (DEMO_SEED)
 
 Release builds never show invented content — so a fresh account makes for

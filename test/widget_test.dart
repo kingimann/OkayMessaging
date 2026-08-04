@@ -140,6 +140,8 @@ import 'package:okay_messaging/screens/cloud_sync_screen.dart';
 import 'package:okay_messaging/state/cloud_sync.dart';
 import 'package:okay_messaging/state/community_store.dart';
 import 'package:okay_messaging/state/demo_seed.dart';
+import 'package:okay_messaging/state/reviewer_mode.dart';
+import 'package:okay_messaging/util/random_identity.dart';
 import 'package:okay_messaging/state/file_transfer.dart';
 import 'package:okay_messaging/models/status_update.dart';
 import 'package:okay_messaging/payments/payment_service.dart';
@@ -1294,15 +1296,17 @@ void main() {
     expect(AccountService.maskPhone('123'), '123'); // nothing to hide behind
   });
 
-  testWidgets('registering without a username is allowed', (tester) async {
+  testWidgets('registering without a username mints a random one',
+      (tester) async {
     Session.instance.resetForTest();
 
     await tester.pumpWidget(const OkayMessagingApp());
     await tester.pumpAndSettle();
     await tester.enterText(
         find.widgetWithText(TextFormField, 'Your name'), 'Ada');
-    // Username left empty on purpose — it only means nobody can find you by
-    // handle yet, and sign-in never depended on it.
+    // Username left empty on purpose — an empty handle used to be the
+    // result, an account nobody could be told about. Now a friendly random
+    // one stands in, changeable in the profile at any time.
     await tester.enterText(
         find.widgetWithText(TextFormField, 'Phone number'), '5550123');
     // The form scrolls; the button is below the fold on a short screen.
@@ -1313,7 +1317,11 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(PhoneLoginScreen), findsNothing);
-    expect(Session.instance.user.value?.username, isEmpty);
+    final minted = Session.instance.user.value?.username ?? '';
+    expect(AccountService.isValidUsername(minted), isTrue,
+        reason: 'a blank username field mints a valid random handle');
+    // And the typed name is kept — random stands in only for blanks.
+    expect(Session.instance.user.value?.name, 'Ada');
     Session.instance.resetForTest();
   });
 
@@ -7825,6 +7833,97 @@ void main() {
           isFalse);
       expect(FeedStore.instance.postById('demo_p1'), isNull);
       expect(FeedStore.instance.postById('demo_l1'), isNull);
+    });
+  });
+
+  group('Reviewer demo account and random identities', () {
+    tearDown(() {
+      Session.instance.resetForTest();
+      IdentityVerification.debugGateOverride = null;
+      PaymentService.instance.setTestMode(false);
+    });
+
+    test('the reviewer account is recognized by its digits alone', () {
+      expect(ReviewerMode.active, isFalse, reason: 'nobody signed in');
+      Session.instance.signInForTest(phone: '+1 500 555 0006');
+      expect(ReviewerMode.active, isTrue);
+      Session.instance.signInForTest(phone: '+1 555 0100');
+      expect(ReviewerMode.active, isFalse,
+          reason: 'a real account must gain nothing from this');
+    });
+
+    test('the reviewer passes the ID gate and is pinned to the sandbox', () {
+      // The gate is ON (as in a server build) and the account unverified —
+      // the exact state an App Review tester arrives in. Reset FIRST: it
+      // clears the override it would otherwise erase.
+      IdentityVerification.instance.resetForTest();
+      IdentityVerification.debugGateOverride = true;
+      PaymentService.instance.setTestMode(false); // a clean baseline
+      Session.instance.signInForTest(phone: '+1 555 0100');
+      expect(IdentityVerification.instance.allowsTrusted, isFalse);
+      expect(PaymentService.instance.testMode.value, isFalse);
+
+      Session.instance.signInForTest(phone: '+1 500 555 0006');
+      expect(IdentityVerification.instance.allowsTrusted, isTrue,
+          reason: 'a reviewer will not photograph a passport for a demo');
+      // Test mode reads on, and CANNOT be turned off for this account —
+      // exploring every screen must never reach a real charge.
+      expect(PaymentService.instance.testMode.value, isTrue);
+      PaymentService.instance.setTestMode(false);
+      expect(PaymentService.instance.testMode.value, isTrue);
+
+      // And the pin is the reviewer's alone: a real account on the same
+      // device reads its own stored setting.
+      Session.instance.signInForTest(phone: '+1 555 0100');
+      expect(PaymentService.instance.testMode.value, isFalse);
+    });
+
+    test('random identities are valid, presentable, and vary', () {
+      final u = RandomIdentity.username(math.Random(7));
+      expect(AccountService.isValidUsername(u), isTrue,
+          reason: 'the mint must pass the same validation typed handles do');
+      expect(u, matches(RegExp(r'^[a-z]+[0-9]{2}$')));
+      final n = RandomIdentity.displayName(math.Random(7));
+      expect(n.trim(), isNotEmpty);
+      expect(n.split(' ').length, 2);
+      expect(n[0], n[0].toUpperCase());
+      // Different randomness, different identity — the point of random.
+      expect(RandomIdentity.username(math.Random(1)),
+          isNot(RandomIdentity.username(math.Random(2))));
+      // And the sign-up paths actually reach for it when fields are blank.
+      final login = File('lib/screens/auth/phone_login_screen.dart')
+          .readAsStringSync();
+      expect(RegExp('RandomIdentity').allMatches(login).length,
+          greaterThanOrEqualTo(5),
+          reason: 'skip-username, claim, local and numberless sign-ups all '
+              'mint blanks');
+    });
+
+    testWidgets('a different account starts blank — nothing carries over',
+        (tester) async {
+      Session.instance.lastAccount = const AppUser(
+        id: '+1 555 0100',
+        name: 'Old Name',
+        avatarColor: '#E57373',
+        about: 'Available',
+        phone: '+1 555 0100',
+        username: 'oldhandle',
+      );
+      addTearDown(() {
+        Session.instance.lastAccount = null;
+        Session.instance.resetForTest();
+      });
+      await tester.pumpWidget(const MaterialApp(home: PhoneLoginScreen()));
+      await tester.pump();
+      // The one-tap way back in exists, prefilled — that part is wanted.
+      expect(find.textContaining('Continue as Old'), findsOneWidget);
+
+      await tester.tap(find.text('Use a different account'));
+      await tester.pumpAndSettle();
+      // The previous person's identity must not dress the next account.
+      expect(find.text('Old Name'), findsNothing);
+      expect(find.text('oldhandle'), findsNothing);
+      expect(find.text('555 0100'), findsNothing);
     });
   });
 
@@ -14807,7 +14906,7 @@ void main() {
       expect(find.byType(HomeScreen), findsOneWidget);
     });
 
-    testWidgets('"Use a different account" opens the form, prefilled',
+    testWidgets('"Use a different account" opens the form, blank',
         (tester) async {
       await Session.instance.signIn(
           phone: '+1 555 0100', name: 'Ada Lovelace', username: 'adal');
@@ -14818,18 +14917,18 @@ void main() {
       await tester.tap(find.text('Use a different account'));
       await tester.pumpAndSettle();
 
-      // The form is back, on the half a device that remembers an account
-      // opens to — signing in, with the number already filled.
+      // The form is back — and BLANK. The last account's identity prefills
+      // only the one-tap way back in; carried into this form it dressed
+      // the next account in the previous person's name and number.
       expect(find.text('Continue as Ada'), findsNothing);
       expect(find.widgetWithText(FilledButton, 'Sign in'), findsOneWidget);
-      expect(find.widgetWithText(TextFormField, '555 0100'), findsOneWidget);
+      expect(find.widgetWithText(TextFormField, '555 0100'), findsNothing);
 
-      // And the name is still warm on the other half, for somebody who is
-      // making a second account rather than returning to the first.
       await tester.tap(find.text('Create account').first);
       await tester.pumpAndSettle();
       expect(find.widgetWithText(TextFormField, 'Ada Lovelace'),
-          findsOneWidget);
+          findsNothing);
+      expect(find.widgetWithText(TextFormField, 'adal'), findsNothing);
     });
   });
 
@@ -25352,8 +25451,11 @@ void main() {
       expect(Session.instance.isNumberless, isTrue,
           reason: 'no number was typed, so none was invented');
       expect(Session.instance.user.value!.username, 'ada');
-      expect(Session.instance.user.value!.name, 'ada',
-          reason: 'the handle stands in for the name, not the account code');
+      // A blank name gets a random friendly one — never the account code,
+      // which nobody would recognise as a person.
+      final name = Session.instance.user.value!.name;
+      expect(name.trim(), isNotEmpty);
+      expect(name, isNot(Session.instance.user.value!.phone));
     });
 
     testWidgets('the way in needs a username rather than a number', (t) async {
@@ -25398,8 +25500,9 @@ void main() {
       expect(Session.instance.isSignedIn, isFalse);
       expect(find.textContaining('at least 3'), findsOneWidget);
 
-      // No name typed: signing up this way is one field, and the handle
-      // stands in rather than the account code, which nobody would recognise.
+      // No name typed: signing up this way is one field, and a random
+      // friendly name stands in rather than the account code, which nobody
+      // would recognise.
       await t.enterText(fields.at(0), 'ada');
       await t.tap(find.widgetWithText(FilledButton, 'Create account'));
       // pump, not pumpAndSettle: signing in leaves the button spinning until
@@ -25411,7 +25514,9 @@ void main() {
       expect(Session.instance.isNumberless, isTrue,
           reason: 'no number was typed, so none was invented');
       expect(Session.instance.user.value!.username, 'ada');
-      expect(Session.instance.user.value!.name, 'ada',
+      expect(Session.instance.user.value!.name.trim(), isNotEmpty);
+      expect(Session.instance.user.value!.name,
+          isNot(Session.instance.user.value!.phone),
           reason: 'the code is not a display name anybody would recognise');
     });
 

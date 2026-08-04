@@ -12,6 +12,7 @@ import '../../state/account_service.dart';
 import '../../state/session.dart';
 import '../../state/two_step.dart';
 import '../../util/account_code.dart';
+import '../../util/random_identity.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/recovery_gate.dart';
 import '../../widgets/user_avatar.dart';
@@ -244,10 +245,16 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
     if (!_formKey.currentState!.validate()) return;
     if (!await _passTwoStep()) return;
     setState(() => _busy = true);
+    // Blank fields get friendly random stand-ins rather than the raw
+    // phone number and an untellable empty handle.
     await Session.instance.signIn(
       phone: _fullPhone,
-      name: _name.text.trim(),
-      username: _username.text.trim(),
+      name: _name.text.trim().isEmpty
+          ? RandomIdentity.displayName()
+          : _name.text.trim(),
+      username: _username.text.trim().isEmpty
+          ? RandomIdentity.username()
+          : _username.text.trim(),
     );
     // The auth gate reacts to the new session and shows the home screen.
   }
@@ -514,16 +521,40 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
   bool get _emailTyped =>
       AccountService.loginIdentifierKind(_identifier.text) == 'email';
 
-  /// Registering without a username is allowed — it only means nobody can
-  /// find you by handle until you claim one in your profile. Sign-in itself
-  /// never depended on it.
+  /// Registering without a username no longer means a blank one: an account
+  /// with no handle can be told to nobody, and a blank display name used to
+  /// fall back to the raw phone number. Skipping mints a friendly random
+  /// pair instead — both changeable in the profile at any time.
   Future<void> _skipUsername() async {
     if (!await _passTwoStep()) return;
     setState(() => _busy = true);
+    final name = _signInName.trim().isEmpty
+        ? RandomIdentity.displayName()
+        : _signInName;
+    var username = '';
+    for (var i = 0; i < 3 && username.isEmpty; i++) {
+      final candidate = RandomIdentity.username();
+      if (!AccountService.isEnabled) {
+        username = candidate;
+        break;
+      }
+      try {
+        if (await AccountService.instance
+            .claimUsername(_loginPhone, candidate, name: name)) {
+          username = candidate;
+        }
+        // Taken (vanishingly rare): loop mints another.
+      } catch (_) {
+        // Directory unreachable: keep the handle locally — the profile
+        // screen claims it the next time the relay answers.
+        username = candidate;
+      }
+    }
+    if (username.isEmpty) username = RandomIdentity.username();
     await Session.instance.signIn(
       phone: _loginPhone,
-      name: _signInName,
-      username: '',
+      name: name,
+      username: username,
     );
   }
 
@@ -546,17 +577,21 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
           return;
         case UsernameStatus.available:
         case UsernameStatus.mine:
+          // A blank display name gets a random one, not the phone number.
+          final name = _signInName.trim().isEmpty
+              ? RandomIdentity.displayName()
+              : _signInName;
           // Claim is authoritative — the DB unique index rejects a name taken
           // between the check and now.
           final claimed = await AccountService.instance
-              .claimUsername(_loginPhone, u, name: _name.text.trim());
+              .claimUsername(_loginPhone, u, name: name);
           if (!claimed) {
             if (mounted) setState(() => _error = '@$u was just taken.');
             return;
           }
           await Session.instance.signIn(
             phone: _loginPhone,
-            name: _signInName,
+            name: name,
             username: u,
           );
       }
@@ -916,8 +951,19 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
         ),
         const SizedBox(height: 6),
         TextButton(
-          onPressed:
-              _busy ? null : () => setState(() => _showWelcomeBack = false),
+          onPressed: _busy
+              ? null
+              : () => setState(() {
+                    _showWelcomeBack = false;
+                    // A different account starts BLANK. The last account's
+                    // name, handle and number prefill only the one-tap way
+                    // back IN — carrying them into this form dressed the
+                    // next account in the previous person's identity.
+                    _name.clear();
+                    _username.clear();
+                    _phone.clear();
+                    _identifier.clear();
+                  }),
           child: Text('Use a different account',
               style: TextStyle(color: AppColors.subtle(context))),
         ),
@@ -1011,9 +1057,15 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
     // account. A taken handle stops the sign-up here, like the verified
     // flow; a relay that is off or unmigrated stays best-effort.
     final code = AccountCode.mint();
+    // A blank display name gets a random one here too — the handle would
+    // otherwise stand in, and a name nobody chose reads better than one
+    // that is obviously the username again.
+    final name = _name.text.trim().isEmpty
+        ? RandomIdentity.displayName()
+        : _name.text.trim();
     if (RelayConfig.isEnabled) {
       final claimed = await AccountService.instance
-          .claimUsername(code, username, name: _name.text.trim());
+          .claimUsername(code, username, name: name);
       if (!claimed) {
         if (mounted) {
           setState(() {
@@ -1025,7 +1077,7 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
       }
     }
     await Session.instance.signInWithoutNumber(
-      name: _name.text.trim(),
+      name: name,
       username: username,
       code: code,
     );

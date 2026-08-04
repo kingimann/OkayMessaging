@@ -241,8 +241,14 @@ Signing up with no phone number is a first-class choice on both login forms
 (*Sign up with a username instead*). The username is **required** there and
 optional everywhere else: with no number in anybody's contacts there is
 nothing to match on, so a handle is the only thing another person can be told
-and can type. A display name is optional and defaults to the handle — the
-account code is not a name anybody would recognise. `AccountCode.mint()`
+and can type. A display name is optional; left blank it gets a friendly
+random one (`RandomIdentity`, 2026-08-04 — same for a blank username on the
+phone forms, claimed in the directory best-effort) — the account code is not
+a name anybody would recognise. Related: the reviewer/demo account
+`+1 500 555 0006` (`ReviewerMode`) passes the ID gate and is PINNED to the
+payments sandbox, and "Use a different account" clears the previous
+account's prefilled identity (it used to carry the old name into the next
+sign-up). `AccountCode.mint()`
 stands in for the number, so addressing works unchanged.
 
 **Chat works; nothing else does, and that is a fact rather than a policy.**

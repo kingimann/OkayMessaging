@@ -8,6 +8,7 @@ import '../relay/app_pages.dart';
 import '../relay/relay_config.dart';
 import '../state/account_email.dart';
 import '../state/parental_controls.dart';
+import '../state/reviewer_mode.dart';
 import 'connect_fields.dart';
 import 'storage_economics.dart';
 import 'stripe_sheet.dart';
@@ -337,7 +338,12 @@ class PaymentService {
 
   /// Sandbox mode: simulates the whole send/receive flow with no real Stripe
   /// call and no money movement, so payments can be tried anywhere. Persisted.
-  final ValueNotifier<bool> testMode = ValueNotifier<bool>(false);
+  ///
+  /// For the reviewer/demo account the sandbox is PERMANENT: the notifier's
+  /// value reads true no matter what was set, so every call site — and the
+  /// wallet's own toggle — sees test mode on, and an App Review tester can
+  /// never reach a real charge however they explore.
+  final ValueNotifier<bool> testMode = _ReviewerPinnedNotifier();
 
   /// The currency transfers are charged in. The recipient's Stripe account
   /// settles in its own currency either way (Stripe converts), so this is
@@ -728,4 +734,14 @@ class PaymentService {
   // Cloud storage and developer tips are digital goods and bill through the
   // platform store (Apple / Google), not Stripe — see StorePurchases. Stripe
   // here is strictly for real-world peer-to-peer transfers (sendMoney).
+}
+
+/// The test-mode notifier, with the reviewer account pinned to the sandbox.
+/// The stored preference still round-trips underneath, so a real account on
+/// the same device later reads its own setting untouched.
+class _ReviewerPinnedNotifier extends ValueNotifier<bool> {
+  _ReviewerPinnedNotifier() : super(false);
+
+  @override
+  bool get value => ReviewerMode.active || super.value;
 }

@@ -5,6 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../relay/app_pages.dart';
 import '../relay/relay_config.dart';
+import 'reviewer_mode.dart';
 
 /// Where an account stands with the ID check behind the blue check.
 enum IdentityStatus {
@@ -107,8 +108,14 @@ class IdentityVerification extends ChangeNotifier {
   /// Function — so gating there would lock a door with no key: the web
   /// preview and the test builds would simply lose three features with no way
   /// to earn them back. The gate applies where verification is possible.
+  ///
+  /// The reviewer/demo account passes outright: an App Review tester will
+  /// not photograph a passport, and everything money-shaped is pinned to
+  /// the payments sandbox for that account (see [ReviewerMode]).
   bool get allowsTrusted =>
-      !(debugGateOverride ?? RelayConfig.isEnabled) || isVerified;
+      ReviewerMode.active ||
+      !(debugGateOverride ?? RelayConfig.isEnabled) ||
+      isVerified;
 
   /// Test hook: stands in for [RelayConfig.isEnabled], which is a
   /// compile-time define and therefore cannot be varied inside a test — so
