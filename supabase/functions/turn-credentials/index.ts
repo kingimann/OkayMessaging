@@ -52,8 +52,14 @@ async function coturnCredential(
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
 
-  const domain = Deno.env.get("METERED_DOMAIN") ?? "";
-  const apiKey = Deno.env.get("METERED_API_KEY") ?? "";
+  // Accept the app name bare OR the full domain the dashboard displays —
+  // "myapp" and "myapp.metered.live" both mean the same app, and the
+  // person pasting a secret should not have to guess which form we meant.
+  const domain = (Deno.env.get("METERED_DOMAIN") ?? "")
+    .trim()
+    .replace(/^https?:\/\//, "")
+    .replace(/\.metered\.live.*$/, "");
+  const apiKey = (Deno.env.get("METERED_API_KEY") ?? "").trim();
   if (domain && apiKey) {
     try {
       const res = await fetch(
