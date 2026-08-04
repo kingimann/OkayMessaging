@@ -1352,6 +1352,14 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
                         } else {
                           _step = _Step.phone;
                         }
+                        if (_showWelcomeBack) {
+                          // Leaving the welcome-back fast path mid-code is
+                          // the OTHER door to the form, and it kept the
+                          // last account's name and handle warm — a new
+                          // number typed here signed up wearing them.
+                          _name.clear();
+                          _username.clear();
+                        }
                         _showWelcomeBack = false;
                       }),
               child: Text(_step == _Step.emailCode || _identifierPhone != null

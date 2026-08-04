@@ -8191,6 +8191,68 @@ void main() {
     });
   });
 
+  group('Listing options (brand, was-price) and the form\'s shape', () {
+    test('a listing carries a brand and a was-price, and both survive json',
+        () {
+      FeedStore.instance.resetForTest();
+      addTearDown(FeedStore.instance.resetForTest);
+      final listing = FeedStore.instance.addListing(
+        'c1',
+        title: 'City bike',
+        priceCents: 12000,
+        category: 'Sports',
+        brand: 'Trek',
+        prevPriceCents: 20000,
+      );
+      expect(listing.listingBrand, 'Trek');
+      expect(listing.prevPriceCents, 20000,
+          reason: 'shown struck through, because it is above the ask');
+      final back = FeedPost.fromJson(listing.toJson());
+      expect(back.listingBrand, 'Trek');
+      expect(back.prevPriceCents, 20000);
+
+      // A "was" at or below the ask is not a discount and is dropped.
+      final noDrop = FeedStore.instance.addListing(
+        'c1',
+        title: 'Lamp',
+        priceCents: 2000,
+        category: 'Furniture',
+        prevPriceCents: 1500,
+      );
+      expect(noDrop.prevPriceCents, 0);
+
+      // Editing keeps the brand unless a new one is given, and marking
+      // sold (a copyWith path) must not lose it either.
+      FeedStore.instance.updateListing(listing.id,
+          title: 'City bike', priceCents: 12000, category: 'Sports');
+      expect(FeedStore.instance.postById(listing.id)!.listingBrand, 'Trek');
+      FeedStore.instance.setListingSold(listing.id, true);
+      expect(FeedStore.instance.postById(listing.id)!.listingBrand, 'Trek');
+    });
+
+    test('the form is chapters now, and the new fields are on it', () {
+      final src =
+          File('lib/screens/marketplace_screen.dart').readAsStringSync();
+      for (final section in [
+        "'Photos & video'",
+        "'What it is'",
+        "'The price'",
+        "'The handoff'",
+        "'Description'",
+      ]) {
+        expect(src, contains('_section($section)'),
+            reason: 'the $section chapter must exist');
+      }
+      expect(src, contains("'Brand (optional)'"));
+      expect(src, contains("'Was (optional)'"));
+      // The was-price is a CREATE-time field only: on an edit it would
+      // fight the automatic price-drop history.
+      expect(src, contains('if (widget.existing == null) ...['));
+      // And the card says the brand.
+      expect(src, contains('listing.listingBrand'));
+    });
+  });
+
   group('Custom bubble color', () {
     Color outgoingBubbleColor(WidgetTester tester) {
       final containers = tester.widgetList<Container>(

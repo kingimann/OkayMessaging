@@ -1144,6 +1144,8 @@ class ListingScreen extends StatelessWidget {
                     const SizedBox(height: 4),
                     Text(
                       [
+                        if (listing.listingBrand.isNotEmpty)
+                          listing.listingBrand,
                         if (listing.listingCondition.isNotEmpty)
                           listing.listingCondition,
                         if (listing.listingCategory.isNotEmpty)
@@ -1687,6 +1689,12 @@ class _SellScreenState extends State<SellScreen> {
           : '');
   late bool _offers = widget.existing?.listingOffers ?? false;
   late String _place = widget.existing?.listingPlace ?? '';
+  late final TextEditingController _brand =
+      TextEditingController(text: widget.existing?.listingBrand ?? '');
+
+  /// "It was \$X" — only offered while CREATING. On an edit the field
+  /// would fight the automatic price-drop history updateListing keeps.
+  final TextEditingController _wasPrice = TextEditingController();
   /// Up to [kMaxListingPhotos], cover first. Prefilled from the existing
   /// listing and its photo parts when editing.
   late final List<String> _photos = widget.existing == null
@@ -1787,6 +1795,21 @@ class _SellScreenState extends State<SellScreen> {
     }
   }
 
+  /// The form reads as chapters now, not one long column: a label, air
+  /// above it, and the fields that answer it underneath.
+  Widget _section(String text) => Padding(
+        padding: const EdgeInsets.only(top: 22, bottom: 8),
+        child: Text(
+          text.toUpperCase(),
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0.7,
+            color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.7),
+          ),
+        ),
+      );
+
   void _post() {
     final title = _title.text.trim();
     if (title.isEmpty) {
@@ -1840,6 +1863,7 @@ class _SellScreenState extends State<SellScreen> {
         quantity: _quantityValue,
         offers: _offers,
         place: _place,
+        brand: _brand.text.trim(),
       );
       listing = existing;
     } else {
@@ -1856,6 +1880,8 @@ class _SellScreenState extends State<SellScreen> {
         quantity: _quantityValue,
         offers: _offers,
         place: _place,
+        brand: _brand.text.trim(),
+        prevPriceCents: parseListingPrice(_wasPrice.text) ?? 0,
       );
     }
     if (removedVideo) {
@@ -1976,6 +2002,7 @@ class _SellScreenState extends State<SellScreen> {
         _description.text.trim() != lines.skip(1).join('\n').trim() ||
         parseListingPrice(_price.text) != (existing.priceCents ?? 0) ||
         _category != existing.listingCategory ||
+        _brand.text.trim() != existing.listingBrand ||
         _condition != existing.listingCondition ||
         _delivery != existing.listingDelivery ||
         _quantityValue != existing.listingQuantity ||
@@ -2066,6 +2093,7 @@ class _SellScreenState extends State<SellScreen> {
             ),
           // Up to four photos, cover first. Each rides the relay as its own
           // message, which is why the cap exists at all — see mediaPart.
+          _section('Photos & video'),
           SizedBox(
             height: 110,
             child: ListView(
@@ -2163,7 +2191,7 @@ class _SellScreenState extends State<SellScreen> {
           ),
           const SizedBox(height: 10),
           _videoTile(context),
-          const SizedBox(height: 12),
+          _section('What it is'),
           TextField(
             controller: _title,
             textCapitalization: TextCapitalization.sentences,
@@ -2171,48 +2199,34 @@ class _SellScreenState extends State<SellScreen> {
             style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
             decoration: const InputDecoration(hintText: 'What are you selling?'),
           ),
-          const SizedBox(height: 12),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Price and category share a row: both are short, and the form
-              // shouldn't scroll for two half-width answers. "Free" belongs
-              // in the price field's own hint — as helperText it collided
-              // with the next field's label.
-              Expanded(
-                child: TextField(
-                  controller: _price,
-                  keyboardType:
-                      const TextInputType.numberWithOptions(decimal: true),
-                  decoration: const InputDecoration(
-                      hintText: 'Free', labelText: 'Price', prefixText: '\$ '),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                // A field that OPENS A SHEET rather than a dropdown. Forty
-                // categories in a menu is a wall to scroll past, and the one
-                // you want is never the one on screen; the sheet groups them
-                // and takes a search.
-                child: InkWell(
-                  onTap: _pickCategory,
-                  child: InputDecorator(
-                    decoration: const InputDecoration(labelText: 'Category'),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Text(_category,
-                              maxLines: 1, overflow: TextOverflow.ellipsis),
-                        ),
-                        const Icon(Icons.arrow_drop_down),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ],
+          const SizedBox(height: 14),
+          TextField(
+            controller: _brand,
+            textCapitalization: TextCapitalization.words,
+            decoration: const InputDecoration(
+                labelText: 'Brand (optional)', hintText: 'Apple, IKEA, Trek…'),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 14),
+          // A field that OPENS A SHEET rather than a dropdown. Forty
+          // categories in a menu is a wall to scroll past, and the one you
+          // want is never the one on screen; the sheet groups them and
+          // takes a search.
+          InkWell(
+            onTap: _pickCategory,
+            child: InputDecorator(
+              decoration: const InputDecoration(labelText: 'Category'),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(_category,
+                        maxLines: 1, overflow: TextOverflow.ellipsis),
+                  ),
+                  const Icon(Icons.arrow_drop_down),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
           Align(
             alignment: Alignment.centerLeft,
             child: Text('Condition',
@@ -2236,15 +2250,55 @@ class _SellScreenState extends State<SellScreen> {
                 ),
             ],
           ),
-          const SizedBox(height: 12),
-          // How it changes hands — the buyer's first question after the
-          // price, and one the description used to have to answer in prose.
-          Align(
-            alignment: Alignment.centerLeft,
-            child: Text('How it changes hands',
-                style: Theme.of(context).textTheme.labelLarge),
+          _section('The price'),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _price,
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(
+                      hintText: 'Free', labelText: 'Price', prefixText: '\$ '),
+                ),
+              ),
+              if (widget.existing == null) ...[
+                const SizedBox(width: 10),
+                Expanded(
+                  // What it USED to cost — drawn struck-through on the
+                  // card, and only while it is higher than the ask.
+                  child: TextField(
+                    controller: _wasPrice,
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
+                    decoration: const InputDecoration(
+                        labelText: 'Was (optional)', prefixText: '\$ '),
+                  ),
+                ),
+              ],
+            ],
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 14),
+          InkWell(
+            onTap: () => setState(() => _offers = !_offers),
+            child: InputDecorator(
+              decoration: const InputDecoration(labelText: 'Negotiable'),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(_offers ? 'Open to offers' : 'Firm',
+                        maxLines: 1, overflow: TextOverflow.ellipsis),
+                  ),
+                  Switch(
+                    value: _offers,
+                    onChanged: (v) => setState(() => _offers = v),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          _section('The handoff'),
           Wrap(
             spacing: 8,
             children: [
@@ -2257,46 +2311,15 @@ class _SellScreenState extends State<SellScreen> {
                 ),
             ],
           ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _quantity,
-                  keyboardType: TextInputType.number,
-                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                  decoration: const InputDecoration(
-                      labelText: 'Quantity', hintText: '1'),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: InkWell(
-                  onTap: () => setState(() => _offers = !_offers),
-                  child: InputDecorator(
-                    // NOT labelled "Price" — the price field is six inches
-                    // to the left wearing that exact label, and two of them
-                    // on one form is a question nobody can answer.
-                    decoration:
-                        const InputDecoration(labelText: 'Negotiable'),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Text(_offers ? 'Open to offers' : 'Firm',
-                              maxLines: 1, overflow: TextOverflow.ellipsis),
-                        ),
-                        Switch(
-                          value: _offers,
-                          onChanged: (v) => setState(() => _offers = v),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ],
+          const SizedBox(height: 14),
+          TextField(
+            controller: _quantity,
+            keyboardType: TextInputType.number,
+            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+            decoration:
+                const InputDecoration(labelText: 'Quantity', hintText: '1'),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 14),
           // Where it is. A NAME, never coordinates: this rides the relay to
           // everyone in the server, and "Bloor & Bathurst" is what a buyer
           // needs while a lat/lng to five decimals is somebody's front door.
@@ -2323,8 +2346,8 @@ class _SellScreenState extends State<SellScreen> {
               ),
             ),
           ),
-          const SizedBox(height: 12),
           if (servers.length > 1 && widget.existing == null) ...[
+            _section('Where it posts'),
             DropdownButtonFormField<String>(
               isExpanded: true,
               initialValue: _communityId,
@@ -2335,8 +2358,8 @@ class _SellScreenState extends State<SellScreen> {
               onChanged: (v) => setState(() => _communityId = v ?? _communityId),
               decoration: const InputDecoration(labelText: 'Server'),
             ),
-            const SizedBox(height: 12),
           ],
+          _section('Description'),
           TextField(
             controller: _description,
             minLines: 3,

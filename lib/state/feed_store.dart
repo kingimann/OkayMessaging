@@ -142,6 +142,9 @@ class FeedPost {
 
   /// Poll fields. [pollOptions] empty means this isn't a poll; [pollVotes]
   /// is the tally per option and [pollMyVote] this device's choice (-1 none).
+  /// Optional brand/make line for a listing ('' = none).
+  final String listingBrand;
+
   final String pollQuestion;
   final List<String> pollOptions;
   final List<int> pollVotes;
@@ -192,6 +195,7 @@ class FeedPost {
     this.listingOffers = false,
     this.listingPlace = '',
     this.prevPriceCents = 0,
+    this.listingBrand = '',
     this.pollQuestion = '',
     this.pollOptions = const [],
     this.pollVotes = const [],
@@ -250,6 +254,7 @@ class FeedPost {
         listingOffers: listingOffers,
         listingPlace: listingPlace,
         prevPriceCents: prevPriceCents,
+        listingBrand: listingBrand,
         pollQuestion: pollQuestion,
         pollOptions: pollOptions,
         pollVotes: pollVotes ?? this.pollVotes,
@@ -293,6 +298,7 @@ class FeedPost {
         if (listingOffers) 'listingOffers': true,
         if (listingPlace.isNotEmpty) 'listingPlace': listingPlace,
         if (prevPriceCents > 0) 'prevPriceCents': prevPriceCents,
+        if (listingBrand.isNotEmpty) 'listingBrand': listingBrand,
         if (isPoll) ...{
           'pollQuestion': pollQuestion,
           'pollOptions': pollOptions,
@@ -336,6 +342,7 @@ class FeedPost {
         listingOffers: j['listingOffers'] as bool? ?? false,
         listingPlace: j['listingPlace'] as String? ?? '',
         prevPriceCents: (j['prevPriceCents'] as num?)?.toInt() ?? 0,
+        listingBrand: j['listingBrand'] as String? ?? '',
         pollQuestion: j['pollQuestion'] as String? ?? '',
         pollOptions:
             (j['pollOptions'] as List? ?? const []).whereType<String>().toList(),
@@ -1006,6 +1013,8 @@ class FeedStore extends ChangeNotifier {
     int quantity = 1,
     bool offers = false,
     String place = '',
+    int prevPriceCents = 0,
+    String brand = '',
   }) {
     final me = AppState.profile.value;
     final post = FeedPost(
@@ -1029,6 +1038,10 @@ class FeedStore extends ChangeNotifier {
       listingQuantity: quantity < 1 ? 1 : quantity,
       listingOffers: offers,
       listingPlace: place,
+      // A seller can say what it USED to cost — shown struck through only
+      // while it is higher than the ask, same as an edit-time price drop.
+      prevPriceCents: prevPriceCents > priceCents ? prevPriceCents : 0,
+      listingBrand: brand.trim(),
     );
     _posts.add(post);
     _addPhotoParts(post, extraPhotos);
@@ -1190,6 +1203,7 @@ class FeedStore extends ChangeNotifier {
     String? place,
     String? videoPath,
     String? condition,
+    String? brand,
   }) {
     final i = _posts.indexWhere((p) => p.id == postId);
     if (i == -1 || !_posts[i].isListing || title.trim().isEmpty) return false;
@@ -1231,6 +1245,7 @@ class FeedStore extends ChangeNotifier {
       listingQuantity: quantity ?? post.listingQuantity,
       listingOffers: offers ?? post.listingOffers,
       listingPlace: place ?? post.listingPlace,
+      listingBrand: brand ?? post.listingBrand,
       // Remember the old ask across ONE change, so a drop can be shown.
       // An unchanged price keeps whatever history it had.
       prevPriceCents: priceCents != (post.priceCents ?? 0)
