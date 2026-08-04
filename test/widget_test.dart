@@ -7437,6 +7437,41 @@ void main() {
           contains('community_posts.sql'));
     });
 
+    test('the call screen can say whether the relay is carrying the call', () {
+      // The selection order the pure picker must honor: the transport's
+      // chosen pair, then a nominated succeeded pair, then any succeeded.
+      List<(String, String, Map<dynamic, dynamic>)> reports(
+              {String? selectedId}) =>
+          [
+            ('local-candidate', 'lc_host', {'candidateType': 'host'}),
+            ('local-candidate', 'lc_relay', {'candidateType': 'relay'}),
+            (
+              'candidate-pair',
+              'pair_direct',
+              {'state': 'succeeded', 'localCandidateId': 'lc_host'}
+            ),
+            (
+              'candidate-pair',
+              'pair_relay',
+              {
+                'state': 'succeeded',
+                'nominated': true,
+                'localCandidateId': 'lc_relay'
+              }
+            ),
+            if (selectedId != null)
+              ('transport', 't1', {'selectedCandidatePairId': selectedId}),
+          ];
+      expect(CallMedia.selectedLocalType(reports(selectedId: 'pair_direct')),
+          'host', reason: 'the transport\'s word outranks nomination');
+      expect(CallMedia.selectedLocalType(reports()), 'relay',
+          reason: 'without a transport report, the nominated pair decides');
+      expect(CallMedia.selectedLocalType(const []), isNull);
+      // And the screen says it, in words a person can act on.
+      expect(File('lib/screens/call_screen.dart').readAsStringSync(),
+          contains('via relay'));
+    });
+
     test('a number the directory has never heard of gets an invite, not a '
         'chat', () async {
       // Unknown is not "no": with no session (this test env) the check must

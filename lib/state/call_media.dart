@@ -572,6 +572,47 @@ class CallMedia {
   /// 0 = unknown/no data yet. Drives the signal bars on the call screen.
   final ValueNotifier<int> quality = ValueNotifier<int>(0);
 
+  /// Which path the call actually took: '' unknown, 'direct', or 'relay'
+  /// (through the TURN server). Surfaced on the call screen because "is
+  /// this call going through Metered" is otherwise answerable only from
+  /// Metered's own usage graph, hours later.
+  final ValueNotifier<String> mediaPath = ValueNotifier<String>('');
+
+  /// The local candidate type of the SELECTED pair, from raw stats tuples
+  /// (type, id, values). Pure, so a test can pin the selection order:
+  /// the transport's chosen pair first, then a nominated succeeded pair,
+  /// then any succeeded pair.
+  static String? selectedLocalType(
+      List<(String, String, Map<dynamic, dynamic>)> reports) {
+    final localTypes = <String, String>{};
+    final pairs = <String, Map<dynamic, dynamic>>{};
+    String? selectedPairId;
+    for (final (type, id, values) in reports) {
+      if (type == 'local-candidate') {
+        final ct = values['candidateType']?.toString();
+        if (ct != null) localTypes[id] = ct;
+      } else if (type == 'candidate-pair') {
+        pairs[id] = values;
+      } else if (type == 'transport') {
+        selectedPairId ??= values['selectedCandidatePairId']?.toString();
+      }
+    }
+    Map<dynamic, dynamic>? chosen =
+        selectedPairId == null ? null : pairs[selectedPairId];
+    chosen ??= pairs.values
+        .where((p) =>
+            p['nominated'] == true && p['state']?.toString() == 'succeeded')
+        .cast<Map<dynamic, dynamic>?>()
+        .firstOrNull;
+    chosen ??= pairs.values
+        .where((p) => p['state']?.toString() == 'succeeded')
+        .cast<Map<dynamic, dynamic>?>()
+        .firstOrNull;
+    if (chosen == null) return null;
+    final localId = chosen['localCandidateId']?.toString();
+    return localId == null ? null : localTypes[localId];
+  }
+
   Timer? _statsTimer;
   int _lastLost = 0;
   int _lastReceived = 0;
@@ -617,6 +658,14 @@ class CallMedia {
     if (pc == null) return;
     try {
       final reports = await pc.getStats();
+      // Which path the call took, refreshed live — an ICE restart mid-call
+      // can move a direct call onto the relay and back.
+      final local = selectedLocalType([
+        for (final r in reports) (r.type, r.id, r.values),
+      ]);
+      if (local != null) {
+        mediaPath.value = local == 'relay' ? 'relay' : 'direct';
+      }
       var lost = 0;
       var received = 0;
       double? rttMs;
@@ -720,6 +769,7 @@ class CallMedia {
     connectStalled.value = false;
     _lastRestartAsk = null;
     quality.value = 0;
+    mediaPath.value = '';
     try {
       _screenStream?.getTracks().forEach((t) => t.stop());
       await _screenStream?.dispose();

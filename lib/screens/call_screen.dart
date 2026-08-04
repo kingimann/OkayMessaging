@@ -396,6 +396,24 @@ class _CallScreenState extends State<CallScreen>
                                         color: Colors.orangeAccent,
                                         fontSize: 12.5)),
                               ],
+                              // Which path the call took. 'via relay' means
+                              // the TURN server is carrying this call
+                              // (ciphertext only — it routes, it can't
+                              // listen); nothing shown means direct.
+                              ValueListenableBuilder<String>(
+                                valueListenable: CallMedia.instance.mediaPath,
+                                builder: (context, path, _) =>
+                                    path == 'relay'
+                                        ? const Padding(
+                                            padding:
+                                                EdgeInsets.only(left: 6),
+                                            child: Text('· via relay',
+                                                style: TextStyle(
+                                                    color: Colors.white54,
+                                                    fontSize: 12.5)),
+                                          )
+                                        : const SizedBox.shrink(),
+                              ),
                             ],
                           ),
                         ),
