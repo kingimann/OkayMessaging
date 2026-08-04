@@ -8230,6 +8230,53 @@ void main() {
       expect(FeedStore.instance.postById(listing.id)!.listingBrand, 'Trek');
     });
 
+    test('search finds the field, not just the prose', () {
+      final bike = FeedPost(
+        id: 'l1',
+        communityId: 'c1',
+        authorName: 'Ada',
+        authorUsername: 'ada',
+        time: DateTime(2026),
+        text: 'City bike\nFreshly tuned.',
+        priceCents: 12000,
+        listingBrand: 'Trek',
+        listingPlace: 'Downtown',
+      );
+      expect(listingMatchesQuery(bike, 'trek'), isTrue,
+          reason: 'the brand is what a buyer types');
+      expect(listingMatchesQuery(bike, 'downtown'), isTrue,
+          reason: 'so is the pickup area');
+      expect(listingMatchesQuery(bike, 'bike'), isTrue);
+      expect(listingMatchesQuery(bike, 'kayak'), isFalse);
+      expect(listingMatchesQuery(bike, '  '), isTrue,
+          reason: 'blank matches everything');
+    });
+
+    test('an offer opens the chat typed and ready, never sent unread', () {
+      final bike = FeedPost(
+        id: 'l1',
+        communityId: 'c1',
+        authorName: 'Ada',
+        authorUsername: 'ada',
+        time: DateTime(2026),
+        text: 'City bike\nFreshly tuned.',
+        priceCents: 12000,
+        listingOffers: true,
+      );
+      expect(offerOpener(bike, 9000),
+          'Would you take \$90 for "City bike"? (asking \$120)');
+      // The button exists only where the seller invited it, and never on
+      // something already sold.
+      final src =
+          File('lib/screens/marketplace_screen.dart').readAsStringSync();
+      expect(src,
+          contains('if (listing.listingOffers && !listing.listingSold)'));
+      expect(src, contains('makeOffer(context, listing)'));
+      // Seeded as a DRAFT through the same seller-chat path — the opener
+      // rides setDraft, so nothing is sent until the person hits send.
+      expect(src, contains('store.setDraft(chat.id, opener)'));
+    });
+
     test('the form is chapters now, and the new fields are on it', () {
       final src =
           File('lib/screens/marketplace_screen.dart').readAsStringSync();

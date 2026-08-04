@@ -287,6 +287,66 @@ Future<void> messageSeller(BuildContext context, FeedPost listing) =>
         name: listing.authorName,
         about: listing);
 
+/// Whether [l] matches a typed search. Pure so a test can pin what counts:
+/// the text (title + description), the brand, and the pickup area — a
+/// buyer who types "trek" or "downtown" means the field, not the prose.
+bool listingMatchesQuery(FeedPost l, String query) {
+  final q = query.trim().toLowerCase();
+  if (q.isEmpty) return true;
+  return l.text.toLowerCase().contains(q) ||
+      l.listingBrand.toLowerCase().contains(q) ||
+      l.listingPlace.toLowerCase().contains(q);
+}
+
+/// The sentence an offer opens the chat with. Pure for the same reason.
+String offerOpener(FeedPost listing, int offerCents) {
+  final title = listing.text.split('\n').first;
+  final asking = listing.priceCents ?? 0;
+  return 'Would you take ${formatListingPrice(offerCents)} for "$title"? '
+      '(asking ${formatListingPrice(asking)})';
+}
+
+/// Asks for an amount, then opens the seller chat with the offer typed and
+/// ready to send — never sent unread. Only offered on listings whose
+/// seller said they are open to offers.
+Future<void> makeOffer(BuildContext context, FeedPost listing) async {
+  final controller = TextEditingController();
+  final asking = listing.priceCents ?? 0;
+  final cents = await showDialog<int>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      title: const Text('Make an offer'),
+      content: TextField(
+        controller: controller,
+        autofocus: true,
+        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        decoration: InputDecoration(
+          prefixText: '\$ ',
+          helperText: asking > 0
+              ? 'Asking ${formatListingPrice(asking)}'
+              : 'Listed as free',
+        ),
+        onSubmitted: (_) => Navigator.pop(
+            dialogContext, parseListingPrice(controller.text)),
+      ),
+      actions: [
+        TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel')),
+        FilledButton(
+            onPressed: () => Navigator.pop(
+                dialogContext, parseListingPrice(controller.text)),
+            child: const Text('Offer')),
+      ],
+    ),
+  );
+  if (cents == null || cents <= 0 || !context.mounted) return;
+  await openSellerChat(context,
+      username: listing.authorUsername,
+      name: listing.authorName,
+      opener: offerOpener(listing, cents));
+}
+
 /// Opens (or starts) a chat with a seller. With [about], the composer is
 /// seeded with the question every marketplace conversation starts with.
 Future<void> openSellerChat(
@@ -294,8 +354,9 @@ Future<void> openSellerChat(
   required String username,
   required String name,
   FeedPost? about,
+  String? opener,
 }) async {
-  final opener = about == null
+  opener ??= about == null
       ? ''
       : 'Is this still available? — "${about.text.split('\n').first}" '
           '(${formatListingPrice(about.priceCents ?? 0)})';
@@ -657,11 +718,11 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
                 if (FeedStore.instance.isSaved(l.id)) l
             ];
           }
-          final q = _query.trim().toLowerCase();
+          final q = _query.trim();
           if (q.isNotEmpty) {
             listings = [
               for (final l in listings)
-                if (l.text.toLowerCase().contains(q)) l
+                if (listingMatchesQuery(l, q)) l
             ];
           }
           // Sorted, with sold sunk to the end rather than hidden — a buyer
@@ -1078,12 +1139,32 @@ class ListingScreen extends StatelessWidget {
                       ),
                     ],
                   )
-                : FilledButton.icon(
-                    onPressed: () => messageSeller(context, listing),
-                    icon: const Icon(Icons.chat_bubble_outline, size: 18),
-                    label: Text('Message ${listing.authorName}'),
-                    style: FilledButton.styleFrom(
-                        minimumSize: const Size.fromHeight(48)),
+                : Row(
+                    children: [
+                      Expanded(
+                        child: FilledButton.icon(
+                          onPressed: () => messageSeller(context, listing),
+                          icon: const Icon(Icons.chat_bubble_outline,
+                              size: 18),
+                          label: Text('Message ${listing.authorName}'),
+                          style: FilledButton.styleFrom(
+                              minimumSize: const Size.fromHeight(48)),
+                        ),
+                      ),
+                      // Only when the seller said offers are welcome, and
+                      // never on something already sold.
+                      if (listing.listingOffers && !listing.listingSold) ...[
+                        const SizedBox(width: 8),
+                        OutlinedButton.icon(
+                          onPressed: () => makeOffer(context, listing),
+                          icon: const Icon(Icons.handshake_outlined,
+                              size: 18),
+                          label: const Text('Offer'),
+                          style: OutlinedButton.styleFrom(
+                              minimumSize: const Size(0, 48)),
+                        ),
+                      ],
+                    ],
                   ),
           ),
           body: ListView(
