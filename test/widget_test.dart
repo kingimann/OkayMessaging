@@ -7565,6 +7565,15 @@ void main() {
           contains('ADMOB_BANNER_IOS'));
     });
 
+    test('app-ads.txt rides the web deploy, exactly as AdMob dictated', () {
+      // AdMob's crawler compares this line byte-for-byte against the
+      // account ("your details don't match" is what a drifted copy looks
+      // like). Everything in web/ is copied verbatim into build/web, so
+      // the deployed site serves it at /app-ads.txt.
+      expect(File('web/app-ads.txt').readAsStringSync().trim(),
+          'google.com, pub-9111642557916743, DIRECT, f08c47fec0942fa0');
+    });
+
     test('the native unit picker holds the same line', () {
       String? unit({
         bool web = false,
