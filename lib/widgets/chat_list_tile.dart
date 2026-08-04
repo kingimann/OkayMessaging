@@ -84,6 +84,7 @@ class ChatListTile extends StatelessWidget {
                         child: NameWithBadge(
                           name: chat.contact.name,
                           verified: chat.contact.verified,
+                          business: chat.contact.isBusiness,
                           badgeSize: 16,
                           style: const TextStyle(
                             fontSize: 17,

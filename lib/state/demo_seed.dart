@@ -1,5 +1,8 @@
 import '../data/mock_data.dart';
+import '../models/chat.dart';
 import '../models/community.dart';
+import '../models/message.dart';
+import '../models/user.dart';
 import 'call_log.dart';
 import 'chat_store.dart';
 import 'community_store.dart';
@@ -42,6 +45,33 @@ class DemoSeed {
       if (ChatStore.instance.chatById(chat.id) == null) {
         ChatStore.instance.upsert(chat);
       }
+    }
+    // One business conversation, so the storefront surfaces (chat header,
+    // list marker, contact card) are visible in screenshots.
+    if (ChatStore.instance.chatById('demo_biz') == null) {
+      ChatStore.instance.upsert(Chat(
+        id: 'demo_biz',
+        contact: const AppUser(
+          id: '+15550100042',
+          name: 'Fern & Stone Café',
+          avatarColor: '#8D6E63',
+          about: 'Espresso, bakes, and a quiet corner.',
+          phone: '+15550100042',
+          username: 'fernandstone',
+          isBusiness: true,
+          businessCategory: 'Food & drink',
+          businessHours: 'Mon–Sat 7–4',
+        ),
+        messages: [
+          Message(
+            id: 'demo_biz_m1',
+            text: 'Your order is ready for pickup — see you soon! ☕',
+            time: DateTime.now().subtract(const Duration(minutes: 40)),
+            isMe: false,
+            status: MessageStatus.delivered,
+          ),
+        ],
+      ));
     }
     final log = CallLog.instance;
     for (final call in MockData.calls()) {
@@ -147,6 +177,7 @@ class DemoSeed {
     for (final chat in MockData.chats()) {
       ChatStore.instance.deleteChat(chat.id);
     }
+    ChatStore.instance.deleteChat('demo_biz');
     for (final call in MockData.calls()) {
       CallLog.instance.remove(call.id);
     }

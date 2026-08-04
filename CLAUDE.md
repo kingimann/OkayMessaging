@@ -251,6 +251,15 @@ site: `Session.signIn`/`updateProfile`/`setVerified`,
 `AppState.updateProfile`/`setVerified`, `ChatStore.updateContactProfile`,
 relay encode/send/applyIncoming — `AppState.setVerified` had the
 strip-the-profile-bare bug fixed twice elsewhere and got it fixed here.
+Round 2 (same day): `NameWithBadge.business` draws the storefront glyph
+beside the name (chat header + chat list; quieter than, and never instead
+of, the check), the chat header's presence line reads "Category · online",
+the People rows carry glyph + category, and the marketplace listing detail
+shows a seller's storefront — via `knownBusinessSeller` (marketplace file,
+pure), which resolves ONLY from a business contact this device has really
+chatted with (handle match, case-insensitive; the directory carries no
+business fields, so anything else would be invention). `DemoSeed` adds a
+`demo_biz` café chat so screenshots show the surfaces.
 
 ## Username-only accounts, and the one thing they can do
 

@@ -7825,8 +7825,15 @@ void main() {
               .length,
           1);
 
+      // The business conversation seeds and clears with the rest.
+      final biz = ChatStore.instance.chatById('demo_biz');
+      expect(biz, isNotNull);
+      expect(biz!.contact.isBusiness, isTrue);
+      expect(biz.contact.businessCategory, 'Food & drink');
+
       DemoSeed.clear();
       expect(ChatStore.instance.chatById('c_alice'), isNull);
+      expect(ChatStore.instance.chatById('demo_biz'), isNull);
       expect(CallLog.instance.records.any((r) => r.id == 'call2'), isFalse);
       expect(
           CommunityStore.instance.communities
@@ -8520,6 +8527,82 @@ void main() {
       final p = AppState.profile.value;
       expect(p.isBusiness, isTrue);
       expect(p.businessCategory, 'Retail');
+    });
+
+    testWidgets('the storefront glyph rides the name, beside the check',
+        (tester) async {
+      await tester.pumpWidget(const MaterialApp(
+        home: Scaffold(
+          body: Column(children: [
+            NameWithBadge(name: 'Okay Coffee', verified: true, business: true),
+            NameWithBadge(name: 'Ada', verified: false),
+          ]),
+        ),
+      ));
+      // Both at once: the storefront is a presentation choice, not a
+      // substitute for the identity check.
+      expect(find.byIcon(Icons.storefront_outlined), findsOneWidget);
+      expect(find.byType(VerifiedBadge), findsOneWidget);
+    });
+
+    test('a listing finds its seller\'s storefront only from a real chat',
+        () {
+      ChatStore.instance.reset();
+      addTearDown(ChatStore.instance.reset);
+      ChatStore.instance.upsert(const Chat(
+        id: 'chat_biz',
+        contact: AppUser(
+          id: '+15550107788',
+          name: 'Okay Coffee',
+          avatarColor: '#E57373',
+          phone: '+15550107788',
+          username: 'okaycoffee',
+          isBusiness: true,
+          businessCategory: 'Food & drink',
+        ),
+        messages: [],
+      ));
+      ChatStore.instance.upsert(const Chat(
+        id: 'chat_person',
+        contact: AppUser(
+          id: '+15550109999',
+          name: 'Ada',
+          avatarColor: '#64B5F6',
+          phone: '+15550109999',
+          username: 'ada',
+        ),
+        messages: [],
+      ));
+      FeedPost listing(String username) => FeedPost(
+            id: 'l_$username',
+            communityId: 'c1',
+            authorName: 'x',
+            authorUsername: username,
+            time: DateTime(2026),
+            text: 'Beans',
+          );
+      // Matched by handle, case-insensitively — and only for a business.
+      expect(knownBusinessSeller(listing('OkayCoffee'))?.businessCategory,
+          'Food & drink');
+      expect(knownBusinessSeller(listing('ada')), isNull,
+          reason: 'a person selling something is not a storefront');
+      expect(knownBusinessSeller(listing('stranger')), isNull,
+          reason: 'never inferred for a seller this device has not met');
+      expect(knownBusinessSeller(listing('you')), isNull);
+    });
+
+    test('the chat says who is a business where you talk to them', () {
+      // The header: storefront glyph on the name, category in the presence
+      // line — and the chat list carries the same glyph.
+      final chat = File('lib/screens/chat_screen.dart').readAsStringSync();
+      expect(chat, contains('business: contact.isBusiness'));
+      expect(chat, contains(r"return '$label · $presence';"));
+      final tile = File('lib/widgets/chat_list_tile.dart').readAsStringSync();
+      expect(tile, contains('business: chat.contact.isBusiness'));
+      // And the contacts list says the category, not just the glyph.
+      final people = File('lib/screens/people_screen.dart').readAsStringSync();
+      expect(people, contains('u.isBusiness'));
+      expect(people, contains('u.businessCategory.trim()'));
     });
   });
 

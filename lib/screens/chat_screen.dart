@@ -2950,6 +2950,7 @@ class _ChatScreenState extends State<ChatScreen> {
                                         name: formatPhoneForDisplay(
                                             contact.name),
                                         verified: contact.verified,
+                                        business: contact.isBusiness,
                                         badgeSize: 16,
                                         style: const TextStyle(
                                           fontSize: 17,
@@ -3015,9 +3016,25 @@ class _ChatScreenState extends State<ChatScreen> {
                                         ],
                                       )
                                     : Text(
-                                        (contact.isOnline || _peerOnline)
-                                            ? 'online'
-                                            : 'last seen recently',
+                                        () {
+                                          final presence = (contact.isOnline ||
+                                                  _peerOnline)
+                                              ? 'online'
+                                              : 'last seen recently';
+                                          // A business says what it is where
+                                          // you're actually talking to it.
+                                          if (!contact.isBusiness) {
+                                            return presence;
+                                          }
+                                          final label = contact
+                                                  .businessCategory
+                                                  .trim()
+                                                  .isEmpty
+                                              ? 'Business'
+                                              : contact.businessCategory
+                                                  .trim();
+                                          return '$label · $presence';
+                                        }(),
                                         style: TextStyle(
                                           fontSize: 12.5,
                                           color: isDark

@@ -124,10 +124,30 @@ class _PeopleScreenState extends State<PeopleScreen> {
                 for (final u in people)
                   ListTile(
                     leading: UserAvatar(user: u, radius: 22),
-                    title: Text(u.name,
-                        style: const TextStyle(fontWeight: FontWeight.w600)),
+                    title: Row(
+                      children: [
+                        Flexible(
+                          child: Text(u.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                  fontWeight: FontWeight.w600)),
+                        ),
+                        if (u.isBusiness) ...[
+                          const SizedBox(width: 4),
+                          Icon(Icons.storefront_outlined,
+                              size: 15,
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onSurfaceVariant),
+                        ],
+                      ],
+                    ),
                     subtitle: Text(
-                        u.handle.isNotEmpty ? u.handle : u.phone,
+                        u.isBusiness && u.businessCategory.trim().isNotEmpty
+                            ? '${u.businessCategory.trim()} · '
+                                '${u.handle.isNotEmpty ? u.handle : u.phone}'
+                            : (u.handle.isNotEmpty ? u.handle : u.phone),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis),
                     trailing: _FollowButton(followKey: _followKey(u)),

@@ -25,6 +25,11 @@ class NameWithBadge extends StatelessWidget {
   final TextStyle? style;
   final double badgeSize;
 
+  /// Draws the storefront glyph after the name — the business
+  /// self-declaration, deliberately quieter than the verified check and
+  /// never a substitute for it (both can show at once).
+  final bool business;
+
   /// An optional trailing widget (e.g. a featured badge emoji).
   final Widget? trailing;
 
@@ -34,6 +39,7 @@ class NameWithBadge extends StatelessWidget {
     required this.verified,
     this.style,
     this.badgeSize = 16,
+    this.business = false,
     this.trailing,
   });
 
@@ -52,6 +58,12 @@ class NameWithBadge extends StatelessWidget {
         if (verified) ...[
           const SizedBox(width: 4),
           VerifiedBadge(size: badgeSize),
+        ],
+        if (business) ...[
+          const SizedBox(width: 4),
+          Icon(Icons.storefront_outlined,
+              size: badgeSize - 1,
+              color: Theme.of(context).colorScheme.onSurfaceVariant),
         ],
         if (trailing != null) ...[
           const SizedBox(width: 4),

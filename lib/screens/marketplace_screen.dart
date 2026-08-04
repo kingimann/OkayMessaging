@@ -308,6 +308,23 @@ bool listingInPriceRange(FeedPost l, {int? minCents, int? maxCents}) {
   return true;
 }
 
+/// The listing's seller as this device knows them — the business contact
+/// whose handle matches the author, or null. Local knowledge only: the
+/// storefront rides the sealed profile share, not the directory, so it can
+/// only show for a seller this device has actually talked to. Honest
+/// absence otherwise — never inferred from the listing itself.
+AppUser? knownBusinessSeller(FeedPost listing) {
+  final u = listing.authorUsername.trim().toLowerCase();
+  if (u.isEmpty || u == 'you') return null;
+  for (final chat in ChatStore.instance.allChats) {
+    final c = chat.contact;
+    if (!c.isGroup && c.isBusiness && c.username.toLowerCase() == u) {
+      return c;
+    }
+  }
+  return null;
+}
+
 /// Up to [limit] other listings from the same category, newest first —
 /// never the listing itself, never something sold. Empty when the category
 /// has nothing else: an honest absence beats padding with the unrelated.
@@ -1528,16 +1545,34 @@ class ListingScreen extends StatelessWidget {
                                   const SizedBox(width: 4),
                                   const VerifiedBadge(size: 15),
                                 ],
+                                if (!mine &&
+                                    knownBusinessSeller(listing) !=
+                                        null) ...[
+                                  const SizedBox(width: 4),
+                                  Icon(Icons.storefront_outlined,
+                                      size: 14,
+                                      color: AppColors.subtle(context)),
+                                ],
                               ],
                             ),
                             Builder(builder: (context) {
                               final (avg, count) = FeedStore.instance
                                   .sellerRating(listing.authorUsername);
                               if (count == 0) {
+                                // A known business seller's category says
+                                // more than a bare handle.
+                                final biz =
+                                    mine ? null : knownBusinessSeller(listing);
+                                final category =
+                                    biz?.businessCategory.trim() ?? '';
                                 return !mine &&
                                         listing.authorUsername.isNotEmpty &&
                                         listing.authorUsername != 'you'
-                                    ? Text('@${listing.authorUsername}',
+                                    ? Text(
+                                        category.isEmpty
+                                            ? '@${listing.authorUsername}'
+                                            : '$category · '
+                                                '@${listing.authorUsername}',
                                         style: TextStyle(
                                             fontSize: 12.5,
                                             color: AppColors.subtle(context)))
