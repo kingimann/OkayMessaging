@@ -918,11 +918,16 @@ class _AvatarRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final known = knownUserFor(username);
+    // A banner ONLY when one was chosen. The generated banner this screen
+    // used to carry was removed for being the loudest thing on it — that
+    // was a color nobody picked. A picked one is the person decorating
+    // their own page, kept short so the name stays above the fold.
+    final bannerHex = known?.bannerColor ?? '';
     final initial =
         (displayName.isEmpty ? '?' : displayName.replaceFirst('@', ''))
             .substring(0, 1)
             .toUpperCase();
-    return Padding(
+    final row = Padding(
       padding: const EdgeInsets.fromLTRB(16, 14, 12, 0),
       child: Row(
         children: [
@@ -958,6 +963,33 @@ class _AvatarRow extends StatelessWidget {
           ),
         ],
       ),
+    );
+    if (bannerHex.isEmpty) return row;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+          child: Container(
+            height: 56,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(14),
+              gradient: LinearGradient(
+                begin: Alignment.centerLeft,
+                end: Alignment.centerRight,
+                colors: [
+                  UserAvatar.parseHex(bannerHex),
+                  UserAvatar.parseHex(
+                      (known?.avatarColor2.isNotEmpty ?? false)
+                          ? known!.avatarColor2
+                          : bannerHex),
+                ],
+              ),
+            ),
+          ),
+        ),
+        row,
+      ],
     );
   }
 }
@@ -1015,6 +1047,7 @@ class _Header extends StatelessWidget {
     final about = known?.about ?? '';
     final pronouns = known?.pronouns ?? '';
     final link = known?.link ?? '';
+    final location = known?.location.trim() ?? '';
     // One margin and one rhythm. Every block below is 16 from the edge and 14
     // from the one above it — the gaps used to run 3, 8, 10, 12, 14 and 16
     // down a single column, which is what makes a screen look unfinished even
@@ -1063,6 +1096,23 @@ class _Header extends StatelessWidget {
           if (about.isNotEmpty) ...[
             const SizedBox(height: 14),
             Text(about, style: const TextStyle(fontSize: 15, height: 1.4)),
+          ],
+          if (location.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Icon(Icons.place_outlined,
+                    size: 15, color: AppColors.subtle(context)),
+                const SizedBox(width: 4),
+                Flexible(
+                  child: Text(location,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                          fontSize: 13.5, color: AppColors.subtle(context))),
+                ),
+              ],
+            ),
           ],
           if (link.isNotEmpty) ...[
             const SizedBox(height: 10),

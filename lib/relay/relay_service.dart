@@ -111,6 +111,9 @@ class RelayService {
     required String fromName,
     String fromUsername = '',
     String fromAvatarColor = '',
+    String fromAvatarColor2 = '',
+    String fromBannerColor = '',
+    String fromLocation = '',
     String fromAbout = '',
     String fromEmoji = '',
     String fromPronouns = '',
@@ -141,6 +144,9 @@ class RelayService {
         'groupMembers': groupMembers.map(_memberSummary).toList(),
       'fromUsername': fromUsername,
       'fromAvatarColor': fromAvatarColor,
+      'fromAvatarColor2': fromAvatarColor2,
+      'fromBannerColor': fromBannerColor,
+      'fromLocation': fromLocation,
       'fromAbout': fromAbout,
       'fromEmoji': fromEmoji,
       'fromPronouns': fromPronouns,
@@ -431,6 +437,12 @@ class RelayService {
     // Profile fields the sender chose to share (empty when withheld by their
     // privacy settings).
     final sharedColor = (content['fromAvatarColor'] as String?)?.trim() ?? '';
+    final sharedColor2 =
+        (content['fromAvatarColor2'] as String?)?.trim() ?? '';
+    final sharedBanner =
+        (content['fromBannerColor'] as String?)?.trim() ?? '';
+    final sharedLocation =
+        (content['fromLocation'] as String?)?.trim() ?? '';
     final sharedAbout = (content['fromAbout'] as String?)?.trim() ?? '';
     final sharedEmoji = (content['fromEmoji'] as String?)?.trim() ?? '';
     final sharedPronouns = (content['fromPronouns'] as String?)?.trim() ?? '';
@@ -465,6 +477,9 @@ class RelayService {
         emoji: sharedEmoji,
         pronouns: sharedPronouns,
         link: sharedLink,
+        avatarColor2: sharedColor2,
+        bannerColor: sharedBanner,
+        location: sharedLocation,
       );
       // Born a request: a stranger's first message lands in Message requests,
       // not the chat list, and earns no receipts until it is accepted.
@@ -490,6 +505,9 @@ class RelayService {
         emoji: sharedEmoji.isNotEmpty ? sharedEmoji : null,
         pronouns: sharedPronouns.isNotEmpty ? sharedPronouns : null,
         link: sharedLink.isNotEmpty ? sharedLink : null,
+        avatarColor2: sharedColor2.isNotEmpty ? sharedColor2 : null,
+        bannerColor: sharedBanner.isNotEmpty ? sharedBanner : null,
+        location: sharedLocation.isNotEmpty ? sharedLocation : null,
       );
     }
 
@@ -2841,6 +2859,9 @@ class RelayService {
       fromName: me.name,
       fromUsername: me.username,
       fromAvatarColor: avatarColor,
+      fromAvatarColor2: avatarColor.isEmpty ? '' : me.avatarColor2,
+      fromBannerColor: avatarColor.isEmpty ? '' : me.bannerColor,
+      fromLocation: about.isEmpty ? '' : me.location,
       fromAbout: about,
       fromEmoji: avatarColor.isEmpty ? '' : me.emoji,
       fromPronouns: about.isEmpty ? '' : me.pronouns,

@@ -179,6 +179,9 @@ class Session {
     String? emoji,
     String? pronouns,
     String? link,
+    String? avatarColor2,
+    String? bannerColor,
+    String? location,
   }) async {
     final current = user.value;
     if (current == null) return;
@@ -197,6 +200,9 @@ class Session {
       emoji: emoji ?? current.emoji,
       pronouns: pronouns ?? current.pronouns,
       link: link ?? current.link,
+      avatarColor2: avatarColor2 ?? current.avatarColor2,
+      bannerColor: bannerColor ?? current.bannerColor,
+      location: location ?? current.location,
     );
     _prefs ??= await SharedPreferences.getInstance();
     await _prefs!.setString(_key, jsonEncode(updated.toJson()));
@@ -220,6 +226,14 @@ class Session {
       isGroup: current.isGroup,
       verified: value,
       score: current.score,
+      // Everything else rides along untouched — this rebuild used to drop
+      // emoji, pronouns and link on the floor whenever the badge changed.
+      emoji: current.emoji,
+      pronouns: current.pronouns,
+      link: current.link,
+      avatarColor2: current.avatarColor2,
+      bannerColor: current.bannerColor,
+      location: current.location,
     );
     _prefs ??= await SharedPreferences.getInstance();
     await _prefs!.setString(_key, jsonEncode(updated.toJson()));

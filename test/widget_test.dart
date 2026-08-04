@@ -8041,6 +8041,156 @@ void main() {
     });
   });
 
+  group('Profile customization (gradient, banner, location)', () {
+    test('the three new fields survive the json round trip', () {
+      const u = AppUser(
+        id: 'u1',
+        name: 'Ada',
+        avatarColor: '#E57373',
+        avatarColor2: '#64B5F6',
+        bannerColor: '#BA68C8',
+        location: 'Toronto',
+      );
+      final back = AppUser.fromJson(u.toJson());
+      expect(back.avatarColor2, '#64B5F6');
+      expect(back.bannerColor, '#BA68C8');
+      expect(back.location, 'Toronto');
+      // Old persisted profiles (no such keys) load clean.
+      final legacy = AppUser.fromJson(
+          {'id': 'u2', 'name': 'G', 'avatarColor': '#000000'});
+      expect(legacy.avatarColor2, '');
+      expect(legacy.bannerColor, '');
+      expect(legacy.location, '');
+    });
+
+    testWidgets('a second color turns the avatar into a gradient',
+        (tester) async {
+      const flat = AppUser(id: 'f', name: 'F', avatarColor: '#E57373');
+      const grad = AppUser(
+          id: 'g',
+          name: 'G',
+          avatarColor: '#E57373',
+          avatarColor2: '#64B5F6');
+      await tester.pumpWidget(const MaterialApp(
+          home: Row(children: [
+        UserAvatar(user: flat),
+        UserAvatar(user: grad),
+      ])));
+      final boxes = tester
+          .widgetList<Container>(find.descendant(
+              of: find.byType(UserAvatar),
+              matching: find.byType(Container)))
+          .map((c) => c.decoration as BoxDecoration)
+          .toList();
+      expect(boxes[0].gradient, isNull);
+      expect(boxes[0].color, isNotNull);
+      expect(boxes[1].gradient, isNotNull,
+          reason: 'the second color is the gradient');
+    });
+
+    test('the look travels with a message and lands on the contact', () {
+      ChatStore.instance.reset();
+      addTearDown(ChatStore.instance.reset);
+      final payload = RelayService.encode(
+        message: Message(
+            id: 'pc1',
+            text: 'hi',
+            time: DateTime(2026),
+            isMe: true,
+            status: MessageStatus.sent),
+        fromPhone: '+15550107777',
+        fromName: 'Ada',
+        fromAvatarColor: '#E57373',
+        fromAvatarColor2: '#64B5F6',
+        fromBannerColor: '#BA68C8',
+        fromLocation: 'Toronto',
+        toPhone: '+15550102222',
+      );
+      RelayService.applyIncoming(payload, myPhone: '+15550102222');
+      final contact =
+          ChatStore.instance.chatWithContact('+15550107777')!.contact;
+      expect(contact.avatarColor2, '#64B5F6');
+      expect(contact.bannerColor, '#BA68C8');
+      expect(contact.location, 'Toronto');
+
+      // Withheld fields never overwrite what is already known — the same
+      // never-zeroed rule every shared profile field follows.
+      final quiet = RelayService.encode(
+        message: Message(
+            id: 'pc2',
+            text: 'again',
+            time: DateTime(2026, 1, 2),
+            isMe: true,
+            status: MessageStatus.sent),
+        fromPhone: '+15550107777',
+        fromName: 'Ada',
+        toPhone: '+15550102222',
+      );
+      RelayService.applyIncoming(quiet, myPhone: '+15550102222');
+      final still =
+          ChatStore.instance.chatWithContact('+15550107777')!.contact;
+      expect(still.avatarColor2, '#64B5F6');
+      expect(still.location, 'Toronto');
+    });
+
+    test('the new fields ride the same privacy gates as the old ones', () {
+      final src = File('lib/relay/relay_service.dart').readAsStringSync();
+      // The avatar look (gradient + banner) is withheld exactly when the
+      // avatar color is; the location exactly when the bio is.
+      expect(src,
+          contains("fromAvatarColor2: avatarColor.isEmpty ? '' : me.avatarColor2"));
+      expect(src,
+          contains("fromBannerColor: avatarColor.isEmpty ? '' : me.bannerColor"));
+      expect(
+          src, contains("fromLocation: about.isEmpty ? '' : me.location"));
+    });
+
+    test('the badge no longer strips the profile bare', () async {
+      SharedPreferences.setMockInitialValues({});
+      Session.instance.signInForTest();
+      addTearDown(Session.instance.resetForTest);
+      // The profile notifier is global state: a Toronto that leaks out of
+      // here adds a location row to every later profile-layout test.
+      addTearDown(AppState.resetForTest);
+      await Session.instance.updateProfile(
+        name: 'Ada',
+        about: 'Hello',
+        emoji: '🦊',
+        pronouns: 'she/her',
+        link: 'ada.dev',
+        avatarColor2: '#64B5F6',
+        bannerColor: '#BA68C8',
+        location: 'Toronto',
+      );
+      // Flipping the verified badge REBUILDS the user — and used to drop
+      // emoji, pronouns and link on the floor every time it did.
+      await Session.instance.setVerified(true);
+      final me = Session.instance.user.value!;
+      expect(me.verified, isTrue);
+      expect(me.emoji, '🦊');
+      expect(me.pronouns, 'she/her');
+      expect(me.link, 'ada.dev');
+      expect(me.avatarColor2, '#64B5F6');
+      expect(me.bannerColor, '#BA68C8');
+      expect(me.location, 'Toronto');
+    });
+
+    test('the editor offers all three, and only chosen banners are drawn',
+        () {
+      final editor =
+          File('lib/screens/edit_profile_screen.dart').readAsStringSync();
+      expect(editor, contains("'Location'"));
+      expect(editor, contains("'GRADIENT (SECOND COLOR)'"));
+      expect(editor, contains("'PROFILE BANNER'"));
+      // The public profile draws a banner ONLY when one was chosen — the
+      // generated always-on banner was removed on purpose and must not
+      // creep back.
+      final profile =
+          File('lib/screens/public_feed_screen.dart').readAsStringSync();
+      expect(profile, contains('if (bannerHex.isEmpty) return row;'));
+    });
+  });
+
   group('Custom bubble color', () {
     Color outgoingBubbleColor(WidgetTester tester) {
       final containers = tester.widgetList<Container>(

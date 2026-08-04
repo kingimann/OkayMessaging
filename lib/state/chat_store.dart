@@ -444,7 +444,10 @@ class ChatStore extends ChangeNotifier {
       int? score,
       String? emoji,
       String? pronouns,
-      String? link}) {
+      String? link,
+      String? avatarColor2,
+      String? bannerColor,
+      String? location}) {
     final i = _chats.indexWhere((c) => c.contact.id == contactId);
     if (i == -1) return;
     final c = _chats[i].contact;
@@ -461,6 +464,14 @@ class ChatStore extends ChangeNotifier {
     final nextPronouns =
         (pronouns != null && pronouns.isNotEmpty) ? pronouns : c.pronouns;
     final nextLink = (link != null && link.isNotEmpty) ? link : c.link;
+    final nextColor2 = (avatarColor2 != null && avatarColor2.isNotEmpty)
+        ? avatarColor2
+        : c.avatarColor2;
+    final nextBanner = (bannerColor != null && bannerColor.isNotEmpty)
+        ? bannerColor
+        : c.bannerColor;
+    final nextLocation =
+        (location != null && location.isNotEmpty) ? location : c.location;
     if (nextName == c.name &&
         nextColor == c.avatarColor &&
         nextAbout == c.about &&
@@ -468,7 +479,10 @@ class ChatStore extends ChangeNotifier {
         nextScore == c.score &&
         nextEmoji == c.emoji &&
         nextPronouns == c.pronouns &&
-        nextLink == c.link) {
+        nextLink == c.link &&
+        nextColor2 == c.avatarColor2 &&
+        nextBanner == c.bannerColor &&
+        nextLocation == c.location) {
       return;
     }
     _replace(
@@ -488,6 +502,9 @@ class ChatStore extends ChangeNotifier {
           emoji: nextEmoji,
           pronouns: nextPronouns,
           link: nextLink,
+          avatarColor2: nextColor2,
+          bannerColor: nextBanner,
+          location: nextLocation,
         ),
       ),
     );

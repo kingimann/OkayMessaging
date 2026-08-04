@@ -22,29 +22,45 @@ class UserAvatar extends StatelessWidget {
     this.showPresence = false,
   });
 
-  Color get _color {
-    var hex = user.avatarColor.replaceFirst('#', '');
+  static Color parseHex(String raw, {int fallback = 0xFF9E9E9E}) {
+    var hex = raw.replaceFirst('#', '');
     if (hex.length == 6) hex = 'FF$hex';
-    final value = int.tryParse(hex, radix: 16) ?? 0xFF9E9E9E;
-    return Color(value);
+    return Color(int.tryParse(hex, radix: 16) ?? fallback);
   }
+
+  Color get _color => parseHex(user.avatarColor);
 
   @override
   Widget build(BuildContext context) {
-    Widget core = CircleAvatar(
-      radius: radius,
-      backgroundColor: _color,
-      child: user.emoji.isNotEmpty
-          ? Text(user.emoji, style: TextStyle(fontSize: radius * 0.9))
-          : Text(
-              user.initials,
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: radius * 0.7,
-                fontWeight: FontWeight.w600,
+    final content = user.emoji.isNotEmpty
+        ? Text(user.emoji, style: TextStyle(fontSize: radius * 0.9))
+        : Text(
+            user.initials,
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: radius * 0.7,
+              fontWeight: FontWeight.w600,
+            ),
+          );
+    // A second color turns the flat circle into a gradient — same size,
+    // same content, so every screen that draws an avatar gets the look
+    // without knowing it exists. The flat case stays a CircleAvatar.
+    Widget core = user.avatarColor2.isEmpty
+        ? CircleAvatar(radius: radius, backgroundColor: _color, child: content)
+        : Container(
+            width: radius * 2,
+            height: radius * 2,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [_color, parseHex(user.avatarColor2)],
               ),
             ),
-    );
+            child: content,
+          );
 
     if (showPresence && user.isOnline) {
       final dot = radius * 0.42;

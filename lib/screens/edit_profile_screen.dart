@@ -22,7 +22,10 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   late final TextEditingController _username;
   late final TextEditingController _pronouns;
   late final TextEditingController _link;
+  late final TextEditingController _location;
   late String _avatarColor;
+  late String _avatarColor2;
+  late String _bannerColor;
   late String _emoji;
 
   /// A small set of emojis offered for the avatar.
@@ -53,7 +56,10 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     _username = TextEditingController(text: p.username);
     _pronouns = TextEditingController(text: p.pronouns);
     _link = TextEditingController(text: p.link);
+    _location = TextEditingController(text: p.location);
     _avatarColor = p.avatarColor;
+    _avatarColor2 = p.avatarColor2;
+    _bannerColor = p.bannerColor;
     _emoji = p.emoji;
   }
 
@@ -64,6 +70,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     _username.dispose();
     _pronouns.dispose();
     _link.dispose();
+    _location.dispose();
     super.dispose();
   }
 
@@ -79,6 +86,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         emoji: _emoji,
         pronouns: _pronouns.text,
         link: _link.text,
+        avatarColor2: _avatarColor2,
+        bannerColor: _bannerColor,
+        location: _location.text,
       );
 
   Future<void> _save() async {
@@ -93,6 +103,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         emoji: _emoji,
         pronouns: _pronouns.text,
         link: _link.text,
+        avatarColor2: _avatarColor2,
+        bannerColor: _bannerColor,
+        location: _location.text,
       );
     } else {
       AppState.updateProfile(
@@ -103,6 +116,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         emoji: _emoji,
         pronouns: _pronouns.text,
         link: _link.text,
+        avatarColor2: _avatarColor2,
+        bannerColor: _bannerColor,
+        location: _location.text,
       );
     }
     if (_username.text.trim().isNotEmpty || _emoji.isNotEmpty) {
@@ -266,6 +282,11 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 label: 'Link',
                 hint: 'yourwebsite.com',
                 keyboardType: TextInputType.url),
+            field(_location,
+                icon: Icons.place_outlined,
+                label: 'Location',
+                hint: 'a city, a country, "on the road" — your words',
+                capitalization: TextCapitalization.words),
           ]),
           if (AppState.profile.value.phone.isNotEmpty) ...[
             const SizedBox(height: 12),
@@ -299,7 +320,13 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       isScrollControlled: true,
       builder: (sheetContext) => StatefulBuilder(
         builder: (sheetContext, setSheetState) => SafeArea(
-          child: SingleChildScrollView(
+          // Capped: four pickers would otherwise grow the sheet past the
+          // top of the screen, leaving no barrier to dismiss on. It stays
+          // a sheet; the pickers scroll inside it.
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(sheetContext).size.height * 0.7),
+            child: SingleChildScrollView(
             padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -316,6 +343,26 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                   },
                 ),
                 const SizedBox(height: 14),
+                _sectionLabel(sheetContext, 'GRADIENT (SECOND COLOR)'),
+                _ColorPicker(
+                  selected: _avatarColor2,
+                  allowNone: true,
+                  onSelected: (hex) {
+                    setState(() => _avatarColor2 = hex);
+                    setSheetState(() {});
+                  },
+                ),
+                const SizedBox(height: 14),
+                _sectionLabel(sheetContext, 'PROFILE BANNER'),
+                _ColorPicker(
+                  selected: _bannerColor,
+                  allowNone: true,
+                  onSelected: (hex) {
+                    setState(() => _bannerColor = hex);
+                    setSheetState(() {});
+                  },
+                ),
+                const SizedBox(height: 14),
                 _sectionLabel(sheetContext, 'AVATAR EMOJI'),
                 _EmojiPicker(
                   selected: _emoji,
@@ -327,6 +374,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 ),
               ],
             ),
+          ),
           ),
         ),
       ),
@@ -401,7 +449,12 @@ class _EmojiPicker extends StatelessWidget {
 class _ColorPicker extends StatelessWidget {
   final String selected;
   final ValueChanged<String> onSelected;
-  const _ColorPicker({required this.selected, required this.onSelected});
+
+  /// Offers a leading "none" cell that clears the choice — for the
+  /// optional colors (gradient, banner), where no color is a real answer.
+  final bool allowNone;
+  const _ColorPicker(
+      {required this.selected, required this.onSelected, this.allowNone = false});
 
   Color _color(String hex) {
     var h = hex.replaceFirst('#', '');
@@ -415,6 +468,24 @@ class _ColorPicker extends StatelessWidget {
       spacing: 12,
       runSpacing: 12,
       children: [
+        if (allowNone)
+          GestureDetector(
+            onTap: () => onSelected(''),
+            child: Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                border: selected.isEmpty
+                    ? Border.all(
+                        color: Theme.of(context).colorScheme.primary, width: 3)
+                    : null,
+              ),
+              child: Icon(Icons.block,
+                  color: AppColors.subtle(context), size: 20),
+            ),
+          ),
         for (final hex in AppState.avatarPalette)
           GestureDetector(
             onTap: () => onSelected(hex),

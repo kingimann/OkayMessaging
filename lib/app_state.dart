@@ -261,6 +261,9 @@ class AppState {
     String? emoji,
     String? pronouns,
     String? link,
+    String? avatarColor2,
+    String? bannerColor,
+    String? location,
   }) {
     final p = profile.value;
     profile.value = AppUser(
@@ -276,6 +279,9 @@ class AppState {
       emoji: emoji ?? p.emoji,
       pronouns: pronouns ?? p.pronouns,
       link: link ?? p.link,
+      avatarColor2: avatarColor2 ?? p.avatarColor2,
+      bannerColor: bannerColor ?? p.bannerColor,
+      location: location ?? p.location,
     );
   }
 

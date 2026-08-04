@@ -29,6 +29,17 @@ class AppUser {
   /// An optional link the user adds to their profile (website / social).
   final String link;
 
+  /// An optional second avatar color: set, the avatar fills with a
+  /// gradient from [avatarColor] to this instead of a flat circle.
+  final String avatarColor2;
+
+  /// The profile header's banner color ('' = the default look).
+  final String bannerColor;
+
+  /// An optional free-text location ("Toronto", "on the road"). Shown on
+  /// the profile; never parsed, never a coordinate.
+  final String location;
+
   const AppUser({
     required this.id,
     required this.name,
@@ -43,6 +54,9 @@ class AppUser {
     this.emoji = '',
     this.pronouns = '',
     this.link = '',
+    this.avatarColor2 = '',
+    this.bannerColor = '',
+    this.location = '',
   });
 
   /// The handle with a leading '@', or empty when none is set.
@@ -62,6 +76,9 @@ class AppUser {
         'emoji': emoji,
         'pronouns': pronouns,
         'link': link,
+        'avatarColor2': avatarColor2,
+        'bannerColor': bannerColor,
+        'location': location,
       };
 
   factory AppUser.fromJson(Map<String, dynamic> json) => AppUser(
@@ -78,6 +95,9 @@ class AppUser {
         emoji: json['emoji'] as String? ?? '',
         pronouns: json['pronouns'] as String? ?? '',
         link: json['link'] as String? ?? '',
+        avatarColor2: json['avatarColor2'] as String? ?? '',
+        bannerColor: json['bannerColor'] as String? ?? '',
+        location: json['location'] as String? ?? '',
       );
 
   /// Initials used for the placeholder avatar (e.g. "John Doe" -> "JD").
