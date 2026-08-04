@@ -315,20 +315,34 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
                                           'post — everyone will see it.'),
                                     ],
                                   )
-                                : ListView.separated(
+                                : Builder(builder: (context) {
+                                    // Native ads ride between posts on this
+                                    // one surface — the layout is a pure
+                                    // function so tests pin where they may
+                                    // sit (and where they may not).
+                                    final layout = AdService.timelineWithAds(
+                                        posts.length,
+                                        adsEnabled:
+                                            AdService.instance.nativeEnabled);
+                                    return ListView.separated(
                                     controller: _scroll,
                                     physics:
                                         const AlwaysScrollableScrollPhysics(),
                                     padding: const EdgeInsets.only(bottom: 96),
-                                    itemCount: posts.length + 1,
+                                    itemCount: layout.length + 1,
                                     separatorBuilder: (_, __) =>
                                         const Divider(height: 1),
                                     itemBuilder: (context, i) {
-                                      if (i == posts.length) {
+                                      if (i == layout.length) {
                                         return _Footer(store: _store);
                                       }
+                                      final v = layout[i];
+                                      if (v < 0) {
+                                        return NativeAdCard(
+                                            key: ValueKey('feed-ad-${-1 - v}'));
+                                      }
                                       return _Entry(
-                                        post: posts[i],
+                                        post: posts[v],
                                         onReply: (target) => _compose(
                                             replyTo: target.id,
                                             replyingToName: target.authorName),
@@ -341,7 +355,8 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
                                         ),
                                       );
                                     },
-                                  ),
+                                  );
+                                  }),
                   ),
                 ),
               ],

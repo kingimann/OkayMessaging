@@ -7564,6 +7564,72 @@ void main() {
       expect(File('codemagic.yaml').readAsStringSync(),
           contains('ADMOB_BANNER_IOS'));
     });
+
+    test('the native unit picker holds the same line', () {
+      String? unit({
+        bool web = false,
+        TargetPlatform platform = TargetPlatform.iOS,
+        bool release = true,
+        String ios = '',
+        String android = '',
+      }) =>
+          AdService.nativeUnitFor(
+            isWeb: web,
+            platform: platform,
+            releaseMode: release,
+            configuredIos: ios,
+            configuredAndroid: android,
+          );
+      expect(unit(), isNull); // release + no id = nothing
+      expect(unit(ios: 'ca-app-pub-x/9'), 'ca-app-pub-x/9');
+      expect(unit(platform: TargetPlatform.android, ios: 'ca-app-pub-x/9'),
+          isNull);
+      expect(unit(release: false), contains('3940256099942544'));
+      expect(unit(web: true, ios: 'ca-app-pub-x/9'), isNull);
+    });
+
+    test('native ads are dealt into the timeline, never as filler', () {
+      // Ads off: the layout is just the posts.
+      expect(AdService.timelineWithAds(5, adsEnabled: false), [0, 1, 2, 3, 4]);
+      // One ad after every 8 posts...
+      expect(AdService.timelineWithAds(17, adsEnabled: true),
+          [0, 1, 2, 3, 4, 5, 6, 7, -1, 8, 9, 10, 11, 12, 13, 14, 15, -2, 16]);
+      // ...but never as the trailing element: a feed of exactly 8 posts
+      // ends on a post, not an ad.
+      expect(AdService.timelineWithAds(8, adsEnabled: true),
+          [0, 1, 2, 3, 4, 5, 6, 7]);
+      // And a short feed carries no ads at all.
+      expect(AdService.timelineWithAds(3, adsEnabled: true), [0, 1, 2]);
+      // The feed really uses it, and the card really exists there.
+      final feed =
+          File('lib/screens/public_feed_screen.dart').readAsStringSync();
+      expect(feed, contains('timelineWithAds'));
+      expect(feed, contains('NativeAdCard'));
+    });
+
+    test('the build pipeline passes native ids and survives a sloppy paste',
+        () {
+      final yaml = File('codemagic.yaml').readAsStringSync();
+      // The native unit reaches all three build workflows.
+      expect(
+          RegExp(r'ADMOB_NATIVE_IOS=\$ADMOB_NATIVE_IOS')
+              .allMatches(yaml)
+              .length,
+          3);
+      // Every UI-sourced value is stripped of whitespace before it becomes
+      // a flag — a trailing newline once made flutter read the whole
+      // --dart-define as the build target and killed the archive.
+      for (final v in [
+        'MAPBOX_TOKEN',
+        'KLIPY_API_KEY',
+        'ADMOB_BANNER_IOS',
+        'ADMOB_NATIVE_IOS',
+      ]) {
+        final strip = '$v="\$(printf \'%s\' "\${$v:-}" | tr -d \'[:space:]\')"';
+        expect(RegExp(RegExp.escape(strip)).allMatches(yaml).length, 3,
+            reason: '$v must be whitespace-stripped in all three workflows');
+      }
+    });
   });
 
   group('Custom bubble color', () {
