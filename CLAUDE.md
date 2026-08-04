@@ -434,6 +434,13 @@ Two things that look like bugs and are not:
 
 ## Waiting on the user (nothing here is code)
 
+0b. **NEW 2026-08-04: run `docs/community_posts.sql`** (SQL editor). Server
+   feed posts + marketplace listings now get a DURABLE sealed copy in
+   `community_posts` (ciphertext under the community secret — server reads
+   nothing; chats deliberately excluded). Until the table exists, the app
+   silently keeps broadcast+mailbox-only behavior. This was built because
+   "the marketplace doesn't show listings": broadcast has no history.
+
 0a. **NEW: TURN relay (the "calls only work sometimes" fix).** The user's
    Check call setup screenshot (2026-08-03 19:39) proved the free public
    relay is dead: STUN green, relay red. Fix is `docs/turn_setup.md` —

@@ -7411,6 +7411,32 @@ void main() {
       expect(market, contains('requestFeedCatchup'));
     });
 
+    test('server posts get a durable sealed copy — and chats never do', () {
+      final relay = File('lib/relay/relay_service.dart').readAsStringSync();
+      // Stored under the community SECRET, not a sender-key chain: chain
+      // keys die on use, and a stored listing must open for any member on
+      // any day.
+      final store = relay.substring(relay.indexOf('_storeCommunityPost('));
+      expect(store.substring(0, store.indexOf('sendFeedPost')),
+          contains('E2eCrypto.encrypt(secret'));
+      // Post → upsert; delete → row dies; fetch feeds the normal arrival
+      // path on start AND on pull-to-refresh.
+      expect(relay, contains('_storeCommunityPost(community, post)'));
+      expect(relay, contains('_deleteCommunityPost(communityId, postId)'));
+      expect(relay, contains('fetchCommunityPosts'));
+      final del = relay.substring(relay.indexOf('Future<void> sendFeedDelete'));
+      expect(del.substring(0, del.indexOf(';')), isNot(contains('mailbox')));
+      // The one thing that must never gain a durable server copy: the
+      // messages table name does not exist, and the store function only
+      // ever takes a FeedPost.
+      expect(relay, isNot(contains("'messages'")));
+      expect(store, contains('FeedPost post'));
+      // And the SQL ships + is exercised by the gate.
+      expect(File('docs/community_posts.sql').existsSync(), isTrue);
+      expect(File('tool/check_sql.sh').readAsStringSync(),
+          contains('community_posts.sql'));
+    });
+
     test('a number the directory has never heard of gets an invite, not a '
         'chat', () async {
       // Unknown is not "no": with no session (this test env) the check must

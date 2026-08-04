@@ -763,6 +763,31 @@ do $$ begin
   raise notice '  ok   reactivation restores the search row';
 end $$;
 reset role;
+
+-- Community posts (community_posts.sql): the durable sealed copy of server
+-- feeds. Mailbox trust model — the app key reads and writes ciphertext.
+set role anon;
+select pg_temp.expect_ok(
+  $$insert into public.community_posts (community_id, post_id, payload)
+    values ('cm_test', 'p1', 'sealed_blob')$$,
+  'the app key can store a sealed post');
+select pg_temp.expect_ok(
+  $$update public.community_posts set payload = 'sealed_blob_v2'
+    where community_id = 'cm_test' and post_id = 'p1'$$,
+  'a listing update replaces its row');
+select pg_temp.expect_ok(
+  $$select payload from public.community_posts
+    where community_id = 'cm_test'$$,
+  'members fetch by community id');
+select pg_temp.expect_fail(
+  $$insert into public.community_posts (community_id, post_id, payload)
+    values ('cm_test', 'p_big', repeat('x', 400001))$$,
+  'an oversized payload is refused');
+select pg_temp.expect_ok(
+  $$delete from public.community_posts
+    where community_id = 'cm_test' and post_id = 'p1'$$,
+  'deleting a post removes its durable copy');
+reset role;
 SQL
 
 DB=okaycheck
@@ -780,7 +805,7 @@ apply() {
 }
 
 echo "postgres $(su pg -c "PATH=$PGBIN:\$PATH psql -h $RUN -p $PORT -d $DB -tAc 'show server_version'")"
-for f in "$WORK/harness.sql" supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql; do
+for f in "$WORK/harness.sql" supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/community_posts.sql; do
   if apply "$f"; then
     echo "  applied $(basename "$f")"
   else
@@ -843,7 +868,7 @@ else
   echo "  FAILED  could not rebuild the previous shape"; exit 1
 fi
 
-for f in supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql; do
+for f in supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/community_posts.sql; do
   if apply "$f"; then
     echo "  re-applied $(basename "$f")"
   else

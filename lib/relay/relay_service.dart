@@ -1309,8 +1309,10 @@ class RelayService {
       // watchdog below exists to catch.
       _inboxLive = status == RealtimeSubscribeStatus.subscribed;
     });
-    // Catch up on whatever arrived while the app was closed.
+    // Catch up on whatever arrived while the app was closed — the mailbox
+    // for directed envelopes, the durable store for server posts.
     fetchMailbox();
+    unawaited(fetchCommunityPosts());
     // The socket dies silently mid-foreground too (network blips, carrier
     // NAT timeouts) and "sometimes works" is what that looks like. Check
     // the join every half minute and rebuild the moment it is gone, instead
@@ -1837,6 +1839,8 @@ class RelayService {
   Future<void> requestFeedCatchup() async {
     final me = Session.instance.user.value;
     if (me == null) return;
+    // The durable store first — it answers even when nobody is online.
+    unawaited(fetchCommunityPosts());
     for (final community in CommunityStore.instance.communities) {
       if (community.secretBytes == null) continue;
       await _broadcastCommunityEvent('fbcat', community.id, {
@@ -2017,8 +2021,12 @@ class RelayService {
 
   /// Removes a feed post (or repost entry) on every member's device. Only
   /// sealed servers can do this; legacy ones delete locally alone.
-  Future<void> sendFeedDelete(String communityId, String postId) =>
-      _sendCommunityEvent('fdel', communityId, {'id': postId});
+  Future<void> sendFeedDelete(String communityId, String postId) {
+    // The durable copy dies with the post — a deleted listing must not
+    // come back on the next fetch.
+    unawaited(_deleteCommunityPost(communityId, postId));
+    return _sendCommunityEvent('fdel', communityId, {'id': postId});
+  }
 
   /// Every forum event name that rides the community bus. One list, used by
   /// the live subscription, so adding an event cannot silently skip a leg.
@@ -2101,6 +2109,103 @@ class RelayService {
     await _sendCommunityEvent('chupd', communityId, {'structure': structure});
   }
 
+  /// The durable copy of a server's posts: sealed rows in
+  /// `community_posts` (docs/community_posts.sql). The broadcast is the
+  /// fast path and the mailbox the offline path — this is the one that
+  /// SURVIVES, so a listing exists somewhere other than its author's
+  /// phone. Sealed with the community SECRET, not a sender-key chain: a
+  /// chain's keys die on use, and a stored listing must open for any
+  /// member on any day. Chats are deliberately not here — message content
+  /// never gets a durable server copy of any kind.
+  static const communityPostsTable = 'community_posts';
+
+  Future<void> _storeCommunityPost(
+      Community community, FeedPost post) async {
+    final secret = community.secretBytes;
+    if (secret == null) return;
+    try {
+      final payload =
+          E2eCrypto.encrypt(secret, jsonEncode({'post': post.toJson()}));
+      await http
+          .post(
+            Uri.parse('${RelayConfig.supabaseUrl}/rest/v1/'
+                '$communityPostsTable?on_conflict=community_id,post_id'),
+            headers: {
+              ..._restHeaders,
+              'Prefer': 'resolution=merge-duplicates',
+            },
+            body: jsonEncode([
+              {
+                'community_id': post.communityId,
+                'post_id': post.id,
+                'payload': payload,
+                'updated_at': DateTime.now().toUtc().toIso8601String(),
+              }
+            ]),
+          )
+          .timeout(const Duration(seconds: 10));
+    } catch (_) {
+      // Table missing (setup SQL not run) or offline — the broadcast and
+      // mailbox already carried the post; durability simply waits.
+    }
+  }
+
+  Future<void> _deleteCommunityPost(String communityId, String postId) async {
+    try {
+      await http
+          .delete(
+            Uri.parse('${RelayConfig.supabaseUrl}/rest/v1/'
+                '$communityPostsTable'
+                '?community_id=eq.${Uri.encodeComponent(communityId)}'
+                '&post_id=eq.${Uri.encodeComponent(postId)}'),
+            headers: _restHeaders,
+          )
+          .timeout(const Duration(seconds: 10));
+    } catch (_) {}
+  }
+
+  /// Pulls every joined server's stored posts and feeds them through the
+  /// normal arrival path — id/rev dedup and delete-tombstones make replays
+  /// harmless. Called on relay start and from pull-to-refresh, so a fresh
+  /// install or a member who missed the broadcast converges on open.
+  Future<void> fetchCommunityPosts() async {
+    if (!_initialized) return;
+    final me = Session.instance.user.value;
+    if (me == null) return;
+    for (final community in CommunityStore.instance.communities) {
+      final secret = community.secretBytes;
+      if (secret == null) continue;
+      try {
+        final res = await http
+            .get(
+              Uri.parse('${RelayConfig.supabaseUrl}/rest/v1/'
+                  '$communityPostsTable?select=payload'
+                  '&community_id=eq.${Uri.encodeComponent(community.id)}'
+                  '&order=updated_at.desc&limit=500'),
+              headers: _restHeaders,
+            )
+            .timeout(const Duration(seconds: 15));
+        if (res.statusCode >= 300) continue;
+        final rows = jsonDecode(res.body);
+        if (rows is! List) continue;
+        for (final row in rows) {
+          if (row is! Map) continue;
+          final blob = row['payload'];
+          if (blob is! String) continue;
+          final plain = E2eCrypto.decrypt(secret, blob);
+          if (plain == null) continue; // rotated secret / not ours
+          try {
+            final decoded = jsonDecode(plain);
+            final rawPost = decoded is Map ? decoded['post'] : null;
+            if (rawPost is! Map) continue;
+            FeedStore.instance.addRemote(
+                FeedPost.fromJson(Map<String, dynamic>.from(rawPost)));
+          } catch (_) {}
+        }
+      } catch (_) {}
+    }
+  }
+
   /// Delivers a feed post to the server's members. Servers with a secret
   /// get it sealed on the community bus — members-only, offline-queued like
   /// every other server event. Only a legacy server with no secret still
@@ -2113,6 +2218,8 @@ class RelayService {
     if (community != null && community.secretBytes != null) {
       await _sendCommunityEvent(
           'fpost', post.communityId, {'post': post.toJson()});
+      // The durable copy, alongside the live one.
+      unawaited(_storeCommunityPost(community, post));
       return;
     }
     final channel = _feedChannel ??
