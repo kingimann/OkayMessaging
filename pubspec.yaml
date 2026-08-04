@@ -120,6 +120,15 @@ flutter_launcher_icons:
 flutter:
   uses-material-design: true
 
+  # CocoaPods for every iOS plugin. google_mobile_ads is pods-only but
+  # depends on webview_flutter_wkwebview, which Flutter otherwise routes
+  # through Swift Package Manager — the pod resolver then can't find its
+  # spec and the archive dies at `pod install` (seen live 2026-08-04).
+  # One dependency manager beats two half-used ones; drop this only when
+  # google_mobile_ads itself adopts SPM.
+  config:
+    enable-swift-package-manager: false
+
   fonts:
     - family: Roboto
       fonts:
