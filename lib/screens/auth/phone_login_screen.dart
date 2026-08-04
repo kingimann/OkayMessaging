@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -12,6 +13,7 @@ import '../../state/account_service.dart';
 import '../../state/session.dart';
 import '../../state/two_step.dart';
 import '../../util/account_code.dart';
+import '../../util/haptics.dart';
 import '../../util/random_identity.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/recovery_gate.dart';
@@ -56,7 +58,8 @@ bool? debugVerifiedModeOverride;
 
 bool get _verifiedMode => debugVerifiedModeOverride ?? AccountService.isEnabled;
 
-class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
+class _PhoneLoginScreenState extends State<PhoneLoginScreen>
+    with SingleTickerProviderStateMixin {
   final _formKey = GlobalKey<FormState>();
   final _name = TextEditingController();
   final _username = TextEditingController();
@@ -100,6 +103,8 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
   @override
   void initState() {
     super.initState();
+    _shake = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 420));
     final last = Session.instance.lastAccount;
     _mode = last == null ? _Mode.signUp : _Mode.signIn;
     if (last != null) {
@@ -194,6 +199,24 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
   Timer? _resendTimer;
   int _resendIn = 0;
 
+  /// Plays the code boxes' rejection shake — the answer arriving where the
+  /// eyes already are, instead of only in an error box further down.
+  /// Created in [initState], NOT lazily: a `late` initializer would run on
+  /// first touch, and for a screen that never shook that first touch is
+  /// `dispose()` — where creating a ticker is an error.
+  late final AnimationController _shake;
+
+  /// A code the server refused: shake, knock, and (when [clear] is set)
+  /// empty the boxes so retyping starts clean rather than backspacing
+  /// through six stale digits. Kept for a too-short code, minus the clear —
+  /// wiping half-typed digits would punish the person mid-typing.
+  void _codeRejected({bool clear = true}) {
+    if (!mounted) return;
+    Haptics.press();
+    _shake.forward(from: 0);
+    if (clear) _code.clear();
+  }
+
   void _startResendCountdown() {
     _resendTimer?.cancel();
     setState(() => _resendIn = 30);
@@ -262,6 +285,7 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
   void dispose() {
     _password.dispose();
     _resendTimer?.cancel();
+    _shake.dispose();
     _identifier.dispose();
     _name.dispose();
     _username.dispose();
@@ -367,6 +391,7 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
   Future<void> _verifyCode() async {
     if (_code.text.trim().length < 4) {
       setState(() => _error = 'Enter the code we sent you.');
+      _codeRejected(clear: false);
       return;
     }
     await _run(() async {
@@ -398,6 +423,8 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
         _step = _Step.username;
       });
     });
+    // Still on the code step with an error means the server said no.
+    if (mounted && _error != null && _step == _Step.code) _codeRejected();
   }
 
   /// Sign-in step 1b: a username or email instead of a phone number. Either
@@ -469,6 +496,7 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
   Future<void> _verifyEmailCode() async {
     if (_code.text.trim().length < 4) {
       setState(() => _error = 'Enter the code we emailed you.');
+      _codeRejected(clear: false);
       return;
     }
     await _run(() async {
@@ -481,6 +509,9 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
       }
       await _finishIdentifierSignIn(phone);
     });
+    if (mounted && _error != null && _step == _Step.emailCode) {
+      _codeRejected();
+    }
   }
 
   /// The way back into an account that has no number to text: the recovery
@@ -843,6 +874,7 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
         controller: _name,
         textInputAction: TextInputAction.next,
         textCapitalization: TextCapitalization.words,
+        autofillHints: const [AutofillHints.name],
         decoration: _dec('Your name', icon: Icons.person_outline),
         validator: (v) =>
             (v == null || v.trim().isEmpty) ? 'Enter a name' : null,
@@ -853,6 +885,8 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
   Widget _usernameField({bool required = false}) => TextFormField(
         controller: _username,
         textInputAction: TextInputAction.next,
+        autocorrect: false,
+        enableSuggestions: false,
         decoration: _dec(required ? 'Username' : 'Username (optional)',
             icon: Icons.alternate_email,
             helper: 'Letters, numbers, _ and . — so people can find you'),
@@ -898,6 +932,9 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
             child: TextFormField(
               controller: _phone,
               keyboardType: TextInputType.phone,
+              // iOS offers the device's own number above the keyboard —
+              // the one number everybody types here and nobody remembers.
+              autofillHints: const [AutofillHints.telephoneNumber],
               inputFormatters: [
                 FilteringTextInputFormatter.allow(RegExp(r'[0-9 ]')),
               ],
@@ -1273,7 +1310,19 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
   List<Widget> _codeFields() => [
         // Six digit boxes over an invisible real field: the field carries the
         // input (keyboard, paste, autofill, tests), the boxes carry the look.
-        Stack(
+        // The whole row shakes sideways when the server refuses a code — a
+        // damped sine, so it settles rather than stopping mid-swing.
+        AnimatedBuilder(
+          animation: _shake,
+          builder: (context, child) => Transform.translate(
+            offset: Offset(
+                9 *
+                    math.sin(_shake.value * math.pi * 4) *
+                    (1 - _shake.value),
+                0),
+            child: child,
+          ),
+          child: Stack(
           alignment: Alignment.center,
           children: [
             Opacity(
@@ -1337,6 +1386,7 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
               ),
             ),
           ],
+          ),
         ),
         const SizedBox(height: 24),
         _cta('Verify', _submitCode),

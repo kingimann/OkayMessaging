@@ -42,6 +42,14 @@ export const FLAG_CATEGORIES = [
   "violence/graphic",
 ];
 
+/// Every category name the classifier is asked about — generated from the
+/// two lists above rather than typed again, so the prompt and the verdict
+/// logic can never disagree about what a category is called.
+export const classifierCategories: string[] = [
+  ...Object.keys(BLOCK_REASONS),
+  ...FLAG_CATEGORIES,
+];
+
 export interface Verdict {
   verdict: "ok" | "flag" | "block";
   category: string;
@@ -75,4 +83,44 @@ export function verdictFor(
   if (flagged) return { verdict: "flag", category: flagged, reason: "" };
 
   return { verdict: "ok", category: "none", reason: "" };
+}
+
+/// A generative model's JSON answer, coerced to the shapes [verdictFor]
+/// expects — or null when it can't be. The screen moved from OpenAI's
+/// purpose-built moderation endpoint to OpenRouter chat completions, which
+/// means the classifier is now a model ASKED to answer in this shape rather
+/// than an API that guarantees it; this is the seam where a creative reply
+/// degrades to "screened nothing" instead of a crash. Tolerates code
+/// fences, drops non-boolean categories and non-finite scores.
+export function parseClassifier(
+  raw: string,
+):
+  | { categories: Record<string, boolean>; scores: Record<string, number> }
+  | null {
+  const stripped = raw.trim()
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/, "");
+  let data: unknown;
+  try {
+    data = JSON.parse(stripped);
+  } catch {
+    return null;
+  }
+  if (typeof data !== "object" || data === null) return null;
+  const obj = data as Record<string, unknown>;
+  const categories: Record<string, boolean> = {};
+  const scores: Record<string, number> = {};
+  const rawCats = obj.categories;
+  if (typeof rawCats === "object" && rawCats !== null) {
+    for (const [k, v] of Object.entries(rawCats)) {
+      if (typeof v === "boolean") categories[k] = v;
+    }
+  }
+  const rawScores = obj.scores;
+  if (typeof rawScores === "object" && rawScores !== null) {
+    for (const [k, v] of Object.entries(rawScores)) {
+      if (typeof v === "number" && isFinite(v)) scores[k] = v;
+    }
+  }
+  return { categories, scores };
 }

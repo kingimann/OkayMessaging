@@ -31262,4 +31262,61 @@ void main() {
       }
     });
   });
+
+  group('Login polish and the AI boundary', () {
+    test('the login fields help the keyboard help you', () {
+      final src =
+          File('lib/screens/auth/phone_login_screen.dart').readAsStringSync();
+      // iOS offers the device's own number / the SMS code / your name above
+      // the keyboard only when the field says what it is.
+      expect(src, contains('AutofillHints.telephoneNumber'));
+      expect(src, contains('AutofillHints.oneTimeCode'));
+      expect(src, contains('AutofillHints.name'));
+      // A handle is not a word — autocorrect "correcting" it types a typo.
+      expect(src, contains('autocorrect: false'));
+    });
+
+    test('a refused code shakes, knocks, and clears', () {
+      final src =
+          File('lib/screens/auth/phone_login_screen.dart').readAsStringSync();
+      // Both verify paths — SMS and email — answer a rejection the same way,
+      // and a too-short code shakes without wiping half-typed digits.
+      expect(src, contains('_codeRejected(clear: false)'));
+      expect(
+          src,
+          contains(
+              "if (mounted && _error != null && _step == _Step.code) _codeRejected();"));
+      expect(src, contains('_step == _Step.emailCode) {'));
+      expect(src, contains('animation: _shake'));
+      // The shake controller dies with the screen like the text controllers.
+      expect(src, contains('_shake.dispose();'));
+    });
+
+    test('the AI split: chats on the device, the public feed via OpenRouter',
+        () {
+      // Smart replies read PRIVATE conversations, so they run on the device
+      // and nowhere else — no network import may ever appear here. This is
+      // the pin that stops "swap the AI provider" from quietly meaning
+      // "decrypt everyone's chats to a cloud API".
+      final replies = File('lib/state/smart_replies.dart').readAsStringSync();
+      expect(replies.contains('http'), isFalse,
+          reason: 'smart replies must have no network path');
+      expect(replies.contains('openrouter'), isFalse);
+      expect(replies.contains('supabase'), isFalse);
+      // The public-feed screen is the one surface allowed a hosted model
+      // (world-readable posts), and it now rides OpenRouter — inert without
+      // the key, fail-open on every error path.
+      final screen = File('supabase/functions/moderation-screen/index.ts')
+          .readAsStringSync();
+      expect(screen, contains('OPENROUTER_API_KEY'));
+      expect(screen, contains('openrouter.ai/api/v1/chat/completions'));
+      expect(screen.contains('api.openai.com'), isFalse);
+      expect(screen, contains('parseClassifier'));
+      // The paste copy is what actually gets deployed — it must match.
+      final paste = File('docs/edge_functions_paste/moderation-screen.ts')
+          .readAsStringSync();
+      expect(paste, contains('OPENROUTER_API_KEY'));
+      expect(paste.contains('api.openai.com'), isFalse);
+    });
+  });
 }

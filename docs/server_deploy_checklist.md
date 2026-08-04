@@ -112,13 +112,18 @@ No new secrets needed; they only use `SUPABASE_URL` and
 | `moderation-screen` | Runs a public post past a classifier and refuses the worst of it |
 
 **This one is genuinely optional and inert without its secret.** With no
-`OPENAI_API_KEY` set it answers `{ verdict: 'ok', configured: false }` and
+`OPENROUTER_API_KEY` set it answers `{ verdict: 'ok', configured: false }` and
 posting works exactly as it does today — so deploying it changes nothing until
 the key is there, and it can never be the reason somebody cannot post.
 
-It uses OpenAI's `omni-moderation-latest`, which is **free** — a purpose-built
-classifier rather than a general model billed per token. Set `OPENAI_API_KEY`
-in Edge Function secrets to turn it on.
+It classifies through **OpenRouter** (key from openrouter.ai/keys), asking a
+small model (`openai/gpt-4o-mini` by default; override with an
+`OPENROUTER_MODEL` secret) to answer in the same category/score shape the
+verdict logic has always consumed. Unlike the OpenAI moderation endpoint this
+replaced, OpenRouter bills per token — a post costs a fraction of a cent; a
+model that answers prose instead of JSON degrades to "screened nothing"
+rather than blocking anybody. Set `OPENROUTER_API_KEY` in Edge Function
+secrets to turn it on.
 
 Only the public newsfeed goes anywhere near it. Private messages, server
 channels and listings are encrypted before they leave the device, so there is

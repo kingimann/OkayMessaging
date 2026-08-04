@@ -555,7 +555,10 @@ probing with the anon key (a missing column answers 42703, a missing bucket
    which misled a whole session. Done, do not raise again.
 4. The payments functions + `push-send` were re-pasted 2026-08-03 (user
    said; versions cannot be read through the JWT gate from here).
-5. `KLIPY_API_KEY`, `moderation-screen` (+`OPENAI_API_KEY`), and the Pages
+5. `KLIPY_API_KEY`, `moderation-screen` (+`OPENROUTER_API_KEY` since
+   2026-08-04 — it classifies via OpenRouter now, `openai/gpt-4o-mini`
+   default, `OPENROUTER_MODEL` overrides; needs a re-paste to take
+   effect), and the Pages
    Source setting: the user said to IGNORE these (2026-08-03) — do not
    raise them unless asked. GIF search stays off and image moderation
    fails open until they choose otherwise.

@@ -3,7 +3,7 @@
 //
 //     deno run --allow-read supabase/functions/_shared/moderation_test.mjs
 
-const { verdictFor, BLOCK_AT } = await import('./moderation.ts');
+const { verdictFor, BLOCK_AT, parseClassifier } = await import('./moderation.ts');
 
 let pass = 0, fail = 0;
 const eq = (n, got, want) => {
@@ -47,6 +47,28 @@ eq('a flag is silent', verdictFor({ harassment: true }, { harassment: 0.9 }).rea
 // --- the severe-but-unsure case is not silently dropped ---
 eq('unsure severe still reaches a human',
    verdictFor({ 'illicit/violent': true }, { 'illicit/violent': 0.2 }).category, 'illicit/violent');
+
+// --- the OpenRouter reply parser: a model asked for a shape, not an API
+// --- that guarantees one ---
+const p = parseClassifier;
+eq('clean JSON parses',
+   p('{"categories":{"violence":true},"scores":{"violence":0.9}}').categories.violence, true);
+eq('code fences are tolerated',
+   p('```json\n{"categories":{"hate":false},"scores":{}}\n```').categories.hate, false);
+eq('prose is null, not a crash', p('I think this post is fine.'), null);
+eq('a non-object is null', p('"ok"'), null);
+eq('a stringly-typed category is dropped',
+   'harassment' in p('{"categories":{"harassment":"yes"},"scores":{}}').categories, false);
+eq('a NaN score is dropped',
+   'violence' in p('{"categories":{},"scores":{"violence":null}}').scores, false);
+eq('missing keys degrade to empty',
+   Object.keys(p('{}').categories).length, 0);
+// End to end: a parsed block still blocks through the shared verdict.
+{
+  const parsed = p('{"categories":{"sexual/minors":true},"scores":{}}');
+  eq('parsed reply drives the same verdict',
+     verdictFor(parsed.categories, parsed.scores).verdict, 'block');
+}
 
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail) Deno.exit(1);

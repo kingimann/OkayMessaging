@@ -3,12 +3,14 @@
 // POST { text, handle?, phone?, hasImage? }
 //   -> { verdict: 'ok' | 'flag' | 'block', reason?, category?, configured }
 //
-// FREE. This calls OpenAI's moderation endpoint, which is not billed —
-// moderation is a purpose-built classifier, not a generative model, and it is
-// offered at no charge. There is no per-post cost and no token accounting to
-// keep an eye on, which is the only reason a screen like this is worth wiring
-// into a feed that anybody can post to. An earlier version of this file paid a
-// general-purpose model per token to do the same job; that was the wrong tool.
+// ENGINE: OpenRouter (chat completions), replacing the earlier OpenAI
+// moderation endpoint at the owner's request. The model is asked to act as a
+// strict classifier and answer with the SAME category/score shape the OpenAI
+// moderation API used, so the shared verdict logic (_shared/moderation.ts,
+// with its own executable test) is unchanged — the thresholds, the block
+// wording, and the flag queue all work exactly as before. Unlike the
+// moderation endpoint this is billed per token; MODEL is a cheap one on
+// purpose, overridable with the OPENROUTER_MODEL secret.
 //
 // WHY THIS ONE IS ALLOWED TO LEAVE THE DEVICE AT ALL. Everything else people
 // write in this app is end-to-end encrypted and must never reach a server that
@@ -24,15 +26,32 @@
 // reads, so flagged posts land in the queue moderators already work, with no
 // new table and no new screen.
 //
-// INERT WITHOUT A KEY. With no OPENAI_API_KEY set this returns
+// INERT WITHOUT A KEY. With no OPENROUTER_API_KEY set this returns
 // { verdict: 'ok', configured: false } and posting works exactly as before. A
 // missing key, a rate limit, or a bad gateway must never be the reason
 // somebody cannot post.
 
 import { admin, callerPhone, corsHeaders, json } from "../_shared/http.ts";
-import { verdictFor } from "../_shared/moderation.ts";
+import {
+  classifierCategories,
+  parseClassifier,
+  verdictFor,
+} from "../_shared/moderation.ts";
 
-const MODEL = "omni-moderation-latest";
+const DEFAULT_MODEL = "openai/gpt-4o-mini";
+
+/// The classifier instruction. The category names come from the shared
+/// module rather than being typed again, so the verdict logic and the
+/// prompt can never disagree about what a category is called.
+const INSTRUCTIONS = `You are a strict content-safety classifier for a ` +
+  `public social feed. Classify the user's post against exactly these ` +
+  `categories: ${classifierCategories.join(", ")}.\n` +
+  `Answer ONLY with a JSON object of this shape and nothing else:\n` +
+  `{"categories": {"<name>": true|false, ...}, ` +
+  `"scores": {"<name>": 0.0-1.0, ...}}\n` +
+  `Set a category true only when the post genuinely exhibits it; scores ` +
+  `are your confidence. Ordinary rudeness, profanity, and strong opinions ` +
+  `are all false across the board.`;
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -53,7 +72,7 @@ Deno.serve(async (req) => {
   // flag is a request for a human to look, not a punishment.
   const phone = (await callerPhone(req)) ?? String(body.phone ?? "");
 
-  const key = Deno.env.get("OPENAI_API_KEY") ?? "";
+  const key = Deno.env.get("OPENROUTER_API_KEY") ?? "";
   if (!key) return json({ verdict: "ok", configured: false });
 
   // A post with no words is nothing to screen. An image-only post goes
@@ -64,25 +83,39 @@ Deno.serve(async (req) => {
   let categories: Record<string, boolean> = {};
   let scores: Record<string, number> = {};
   try {
-    const res = await fetch("https://api.openai.com/v1/moderations", {
+    const model = Deno.env.get("OPENROUTER_MODEL") || DEFAULT_MODEL;
+    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
       headers: {
         "content-type": "application/json",
         "authorization": `Bearer ${key}`,
       },
-      body: JSON.stringify({ model: MODEL, input: text }),
+      body: JSON.stringify({
+        model,
+        temperature: 0,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: INSTRUCTIONS },
+          { role: "user", content: text },
+        ],
+      }),
     });
     if (!res.ok) {
       // Rate limited, a bad key, a bad day. Fail open — loudly in the logs and
       // silently to the person posting.
-      console.error("moderation-screen: openai", res.status);
+      console.error("moderation-screen: openrouter", res.status);
       return json({ verdict: "ok", configured: true, degraded: true });
     }
     const data = await res.json();
-    const first = (data.results ?? [])[0];
-    if (!first) return json({ verdict: "ok", configured: true, degraded: true });
-    categories = first.categories ?? {};
-    scores = first.category_scores ?? {};
+    const content = data.choices?.[0]?.message?.content ?? "";
+    const parsed = parseClassifier(String(content));
+    if (!parsed) {
+      // A model that answered prose instead of JSON classified nothing.
+      console.error("moderation-screen: unparseable classifier reply");
+      return json({ verdict: "ok", configured: true, degraded: true });
+    }
+    categories = parsed.categories;
+    scores = parsed.scores;
   } catch (e) {
     console.error("moderation-screen: failed", String(e));
     return json({ verdict: "ok", configured: true, degraded: true });
