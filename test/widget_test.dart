@@ -8277,6 +8277,84 @@ void main() {
       expect(src, contains('store.setDraft(chat.id, opener)'));
     });
 
+    test('the price filter has honest edges, and free means zero', () {
+      FeedPost priced(int cents) => FeedPost(
+            id: 'p$cents',
+            communityId: 'c1',
+            authorName: 'A',
+            authorUsername: 'a',
+            time: DateTime(2026),
+            text: 'x',
+            priceCents: cents,
+          );
+      expect(listingInPriceRange(priced(5000), minCents: 2500), isTrue);
+      expect(listingInPriceRange(priced(5000), maxCents: 2500), isFalse);
+      expect(
+          listingInPriceRange(priced(2500), minCents: 2500, maxCents: 2500),
+          isTrue,
+          reason: 'the bounds are inclusive');
+      expect(listingInPriceRange(priced(0), maxCents: 2500), isTrue,
+          reason: 'free sits under every ceiling');
+      expect(listingInPriceRange(priced(0), minCents: 100), isFalse,
+          reason: 'and over no floor');
+      // The grid really applies it, and the sheet really offers it.
+      final src =
+          File('lib/screens/marketplace_screen.dart').readAsStringSync();
+      expect(src, contains('listingInPriceRange(l,'));
+      expect(src, contains("Text('PRICE',"));
+    });
+
+    test('more-like-this stays in the category and skips the sold', () {
+      FeedPost item(String id, String cat,
+              {bool sold = false, int day = 1}) =>
+          FeedPost(
+            id: id,
+            communityId: 'c1',
+            authorName: 'A',
+            authorUsername: 'a',
+            time: DateTime(2026, 1, day),
+            text: id,
+            priceCents: 100,
+            listingCategory: cat,
+            listingSold: sold,
+          );
+      final self = item('self', 'Sports');
+      final all = [
+        self,
+        item('a', 'Sports', day: 3),
+        item('b', 'Sports', day: 2),
+        item('sold', 'Sports', sold: true),
+        item('other', 'Furniture'),
+      ];
+      expect(moreLikeThis(all, self).map((l) => l.id), ['a', 'b'],
+          reason: 'same category, newest first, never itself or the sold');
+      expect(moreLikeThis([self], self), isEmpty,
+          reason: 'an honest gap beats padding with the unrelated');
+    });
+
+    test('a forwarded listing reads as a listing, not a blob', () {
+      final bike = FeedPost(
+        id: 'l1',
+        communityId: 'c1',
+        authorName: 'Ada',
+        authorUsername: 'ada',
+        time: DateTime(2026),
+        text: 'City bike\nFreshly tuned.',
+        priceCents: 12000,
+        listingBrand: 'Trek',
+        listingCondition: 'Good',
+        listingPlace: 'Downtown',
+      );
+      final text = listingShareText(bike);
+      expect(text.split('\n').first, 'City bike — \$120');
+      expect(text, contains('Trek · Good · Downtown'));
+      expect(text, contains('Freshly tuned.'));
+      // And the detail screen offers the door.
+      final src =
+          File('lib/screens/marketplace_screen.dart').readAsStringSync();
+      expect(src, contains('ForwardScreen(text: listingShareText(listing))'));
+    });
+
     test('the form is chapters now, and the new fields are on it', () {
       final src =
           File('lib/screens/marketplace_screen.dart').readAsStringSync();

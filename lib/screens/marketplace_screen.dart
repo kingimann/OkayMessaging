@@ -31,6 +31,7 @@ import '../widgets/sanction_notice.dart';
 import '../widgets/verified_badge.dart';
 import 'chat_screen.dart';
 import 'feed_screen.dart' show showPersonSheet, feedSpans;
+import 'forward_screen.dart';
 import '../widgets/verified_gate.dart';
 
 /// The most photos one listing may carry. Each photo is its own relay
@@ -298,6 +299,48 @@ bool listingMatchesQuery(FeedPost l, String query) {
       l.listingPlace.toLowerCase().contains(q);
 }
 
+/// Whether [l]'s price sits inside a chosen range. Free counts as \$0, so
+/// "under \$25" includes it. Pure.
+bool listingInPriceRange(FeedPost l, {int? minCents, int? maxCents}) {
+  final p = l.priceCents ?? 0;
+  if (minCents != null && p < minCents) return false;
+  if (maxCents != null && p > maxCents) return false;
+  return true;
+}
+
+/// Up to [limit] other listings from the same category, newest first —
+/// never the listing itself, never something sold. Empty when the category
+/// has nothing else: an honest absence beats padding with the unrelated.
+List<FeedPost> moreLikeThis(List<FeedPost> all, FeedPost listing,
+    {int limit = 6}) {
+  final same = [
+    for (final l in all)
+      if (l.id != listing.id &&
+          !l.listingSold &&
+          l.listingCategory == listing.listingCategory)
+        l
+  ]..sort((a, b) => b.time.compareTo(a.time));
+  return same.take(limit).toList();
+}
+
+/// What a forwarded listing says in the chat it lands in. Pure.
+String listingShareText(FeedPost l) {
+  final lines = l.text.split('\n');
+  final title = lines.first;
+  final description = lines.skip(1).join('\n').trim();
+  final facts = [
+    if (l.listingBrand.isNotEmpty) l.listingBrand,
+    if (l.listingCondition.isNotEmpty) l.listingCondition,
+    if (l.listingPlace.isNotEmpty) l.listingPlace,
+  ].join(' · ');
+  return [
+    '$title — ${formatListingPrice(l.priceCents ?? 0)}',
+    if (facts.isNotEmpty) facts,
+    if (description.isNotEmpty) description,
+    'Seen on the marketplace — ask me about it!',
+  ].join('\n');
+}
+
 /// The sentence an offer opens the chat with. Pure for the same reason.
 String offerOpener(FeedPost listing, int offerCents) {
   final title = listing.text.split('\n').first;
@@ -428,6 +471,20 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
   bool _mineOnly = false;
   bool _savedOnly = false;
   ListingSort _sort = ListingSort.newest;
+  final TextEditingController _minPrice = TextEditingController();
+  final TextEditingController _maxPrice = TextEditingController();
+
+  /// A blank field is NO bound — parseListingPrice reads blank as 'free'
+  /// (0), which as a ceiling would filter every priced listing out.
+  int? _bound(TextEditingController c) {
+    final t = c.text.trim();
+    if (t.isEmpty) return null;
+    final v = parseListingPrice(t);
+    return (v == null || v <= 0) ? null : v;
+  }
+
+  int? get _minCents => _bound(_minPrice);
+  int? get _maxCents => _bound(_maxPrice);
   bool _searching = false;
   final TextEditingController _search = TextEditingController();
 
@@ -476,6 +533,50 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
                     setState(() => _savedOnly = v);
                     setSheet(() {});
                   },
+                ),
+                const Divider(height: 1),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                  child: Text('PRICE',
+                      style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.6,
+                          color: AppColors.subtle(context))),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _minPrice,
+                          keyboardType: const TextInputType.numberWithOptions(
+                              decimal: true),
+                          decoration: const InputDecoration(
+                              labelText: 'Min', prefixText: '\$ ', isDense: true),
+                          onChanged: (_) {
+                            setState(() {});
+                            setSheet(() {});
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: TextField(
+                          controller: _maxPrice,
+                          keyboardType: const TextInputType.numberWithOptions(
+                              decimal: true),
+                          decoration: const InputDecoration(
+                              labelText: 'Max', prefixText: '\$ ', isDense: true),
+                          onChanged: (_) {
+                            setState(() {});
+                            setSheet(() {});
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
                 const Divider(height: 1),
                 Padding(
@@ -644,6 +745,8 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
     final hasFilter = _category.isNotEmpty ||
         _mineOnly ||
         _savedOnly ||
+        _minCents != null ||
+        _maxCents != null ||
         _sort != ListingSort.newest;
     return Scaffold(
       // Search and filters live in the top-right corner; the body is the
@@ -725,6 +828,14 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
                 if (listingMatchesQuery(l, q)) l
             ];
           }
+          if (_minCents != null || _maxCents != null) {
+            listings = [
+              for (final l in listings)
+                if (listingInPriceRange(l,
+                    minCents: _minCents, maxCents: _maxCents))
+                  l
+            ];
+          }
           // Sorted, with sold sunk to the end rather than hidden — a buyer
           // mid-conversation can still find one.
           listings = sortListings(listings, _sort);
@@ -761,6 +872,21 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
                           visualDensity: VisualDensity.compact,
                           onDeleted: () =>
                               setState(() => _category = ''),
+                        ),
+                      if (_minCents != null || _maxCents != null)
+                        InputChip(
+                          avatar: const Icon(Icons.attach_money, size: 15),
+                          label: Text([
+                            if (_minCents != null)
+                              'from ${formatListingPrice(_minCents!)}',
+                            if (_maxCents != null)
+                              'to ${formatListingPrice(_maxCents!)}',
+                          ].join(' ')),
+                          visualDensity: VisualDensity.compact,
+                          onDeleted: () => setState(() {
+                            _minPrice.clear();
+                            _maxPrice.clear();
+                          }),
                         ),
                       if (_sort != ListingSort.newest)
                         InputChip(
@@ -1085,6 +1211,15 @@ class ListingScreen extends StatelessWidget {
                     : 'Save',
                 onPressed: () => FeedStore.instance.toggleSaved(listing.id),
               ),
+              IconButton(
+                icon: const Icon(Icons.forward),
+                tooltip: 'Forward',
+                // Into a chat or a channel, encrypted like any other
+                // message — the same door every post already has.
+                onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) =>
+                        ForwardScreen(text: listingShareText(listing)))),
+              ),
               if (mine)
                 IconButton(
                   icon: const Icon(Icons.edit_outlined),
@@ -1383,11 +1518,98 @@ class ListingScreen extends StatelessWidget {
               ],
               const Divider(height: 24, indent: 16, endIndent: 16),
               _ReviewsSection(listing: listing, mine: mine),
+              // The next thing a browser wants: what else is in this
+              // category. Absent when nothing else is — an honest gap
+              // beats padding with the unrelated.
+              ...(() {
+                final more =
+                    moreLikeThis(FeedStore.instance.listings(), listing);
+                if (more.isEmpty) return const <Widget>[];
+                return <Widget>[
+                  const Divider(height: 24, indent: 16, endIndent: 16),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                    child: Text('More like this',
+                        style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.subtle(context))),
+                  ),
+                  SizedBox(
+                    height: 168,
+                    child: ListView(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      children: [
+                        for (final l in more)
+                          Padding(
+                            padding: const EdgeInsets.only(right: 10),
+                            child: _MiniListingCard(listing: l),
+                          ),
+                      ],
+                    ),
+                  ),
+                ];
+              })(),
               const SizedBox(height: 24),
             ],
           ),
         );
       },
+    );
+  }
+}
+
+/// A small stepping-stone card for the "More like this" row: cover, price,
+/// title. Opens that listing's own screen.
+class _MiniListingCard extends StatelessWidget {
+  final FeedPost listing;
+  const _MiniListingCard({required this.listing});
+
+  @override
+  Widget build(BuildContext context) {
+    final cover = FeedStore.instance.listingPhotos(listing.id).firstOrNull ??
+        listing.gifUrl ??
+        '';
+    return InkWell(
+      onTap: () => Navigator.of(context).push(MaterialPageRoute(
+          builder: (_) => ListingScreen(listingId: listing.id))),
+      borderRadius: BorderRadius.circular(12),
+      child: SizedBox(
+        width: 124,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: SizedBox(
+                width: 124,
+                height: 100,
+                child: cover.isEmpty
+                    ? Container(
+                        color: Theme.of(context)
+                            .colorScheme
+                            .surfaceContainerHighest,
+                        child: Icon(Icons.image_outlined,
+                            color: AppColors.subtle(context)),
+                      )
+                    : ChatPhoto(
+                        url: cover,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_) => const SizedBox.shrink()),
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(formatListingPrice(listing.priceCents ?? 0),
+                style: const TextStyle(
+                    fontSize: 13.5, fontWeight: FontWeight.w700)),
+            Text(listing.text.split('\n').first,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 12)),
+          ],
+        ),
+      ),
     );
   }
 }
