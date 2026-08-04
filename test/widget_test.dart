@@ -141,6 +141,7 @@ import 'package:okay_messaging/state/cloud_sync.dart';
 import 'package:okay_messaging/state/community_store.dart';
 import 'package:okay_messaging/state/demo_seed.dart';
 import 'package:okay_messaging/state/reviewer_mode.dart';
+import 'package:okay_messaging/util/haptics.dart';
 import 'package:okay_messaging/util/random_identity.dart';
 import 'package:okay_messaging/state/file_transfer.dart';
 import 'package:okay_messaging/models/status_update.dart';
@@ -30882,6 +30883,109 @@ void main() {
       // And it appends rather than replacing what is already typed.
       expect(fn.contains("existing.isEmpty ? reply : '\$existing \$reply'"),
           isTrue);
+    });
+  });
+
+  group('UI polish', () {
+    testWidgets('sending a message taps back', (tester) async {
+      var sent = '';
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Column(
+            children: [
+              const Spacer(),
+              ChatInputBar(onSend: (t) => sent = t),
+            ],
+          ),
+        ),
+      ));
+      await tester.pump();
+      final before = Haptics.debugCount;
+      await tester.enterText(find.byType(TextField), 'hello');
+      await tester.pump();
+      await tester.tap(find.byIcon(Icons.send));
+      await tester.pump();
+      expect(sent, 'hello');
+      expect(Haptics.debugCount, greaterThan(before),
+          reason: 'a send should land under the thumb as well as on screen');
+    });
+
+    testWidgets('a like taps back; opening a reply stays silent',
+        (tester) async {
+      var liked = false;
+      var replied = false;
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: FeedPostActions(
+            replyCount: 0,
+            repostCount: 0,
+            likeCount: 0,
+            liked: false,
+            reposted: false,
+            onReply: () => replied = true,
+            onRepost: () {},
+            onLike: () => liked = true,
+            onShare: () {},
+          ),
+        ),
+      ));
+      final before = Haptics.debugCount;
+      await tester.tap(find.byIcon(Icons.favorite_border));
+      await tester.pump();
+      expect(liked, isTrue);
+      expect(Haptics.debugCount, before + 1);
+      // Reply only opens UI — nothing happened yet, so nothing to feel.
+      await tester.tap(find.byIcon(Icons.chat_bubble_outline));
+      await tester.pump();
+      expect(replied, isTrue);
+      expect(Haptics.debugCount, before + 1);
+    });
+
+    test('the held-finger and completed moments each fire, once, in one place',
+        () {
+      // Every entry is (file, enclosing anchor, expected call): the haptic
+      // lives at the single funnel each gesture already passes through, so a
+      // path added later inherits it rather than needing to remember it.
+      final pins = <(String, String, String)>[
+        ('lib/screens/chat_screen.dart', 'void _showMessageActions',
+            'Haptics.press();'),
+        ('lib/screens/chat_screen.dart', 'void _react(', 'Haptics.tap();'),
+        ('lib/tabs/chats_tab.dart', 'void _showChatActions',
+            'Haptics.press();'),
+        ('lib/widgets/chat_input_bar.dart', 'Future<void> _startRecording',
+            'Haptics.press();'),
+        ('lib/widgets/chat_input_bar.dart', 'Future<void> _finishRecording',
+            'Haptics.tap();'),
+        ('lib/widgets/pull_to_refresh.dart', 'static Future<void> refreshApp',
+            'Haptics.tap();'),
+        ('lib/screens/home_screen.dart', 'void _onSelectTab',
+            'Haptics.select();'),
+      ];
+      for (final (file, anchor, call) in pins) {
+        final src = File(file).readAsStringSync();
+        final at = src.indexOf(anchor);
+        expect(at, greaterThanOrEqualTo(0), reason: '$anchor missing in $file');
+        final body = src.substring(at, src.indexOf('\n  }', at));
+        expect(body.contains(call), isTrue,
+            reason: '$anchor in $file lost its $call');
+      }
+    });
+
+    test('blank screens use the one empty-state look', () {
+      // Each of these had its own hand-rolled icon-and-grey-text column —
+      // including greys that fail contrast in one theme (see AppColors.subtle).
+      for (final file in [
+        'lib/screens/archived_chats_screen.dart',
+        'lib/screens/message_requests_screen.dart',
+        'lib/screens/status_screen.dart',
+        'lib/screens/people_screen.dart',
+      ]) {
+        final src = File(file).readAsStringSync();
+        expect(src.contains('EmptyState('), isTrue,
+            reason: '$file should draw its blank state with EmptyState');
+        expect(src.contains('Colors.grey.shade400'), isFalse,
+            reason: '$file kept a fixed grey that fails in one theme');
+      }
     });
   });
 }

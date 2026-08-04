@@ -22,6 +22,7 @@ import '../payments/payment_service.dart';
 import '../payments/storage_economics.dart';
 import '../relay/relay_config.dart';
 import '../state/score_store.dart';
+import '../util/haptics.dart';
 import '../util/phone_format.dart';
 import '../util/file_moderation.dart';
 import '../util/photo_prep.dart';
@@ -1430,6 +1431,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   void _showMessageActions(Message message) {
+    Haptics.press();
     // A deleted tombstone only offers removal from this device.
     if (message.isDeleted) {
       showModalBottomSheet<void>(
@@ -1698,6 +1700,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   /// Toggles a reaction locally and mirrors it to a real peer over the relay.
   void _react(String messageId, String emoji) {
+    Haptics.tap();
     _store.toggleReaction(_chatId, messageId, emoji);
     ScoreStore.instance.award(ScoreStore.pointsPerReaction);
     ScoreStore.instance.recordFlag('reacted');

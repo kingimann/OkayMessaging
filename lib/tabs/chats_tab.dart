@@ -16,6 +16,7 @@ import '../state/contacts_sync.dart';
 import '../state/onboarding_store.dart';
 import '../state/streak_store.dart';
 import '../theme/app_theme.dart';
+import '../util/haptics.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/pull_to_refresh.dart';
 import '../widgets/chat_list_tile.dart';
@@ -73,6 +74,7 @@ class _ChatsTabState extends State<ChatsTab> {
   }
 
   void _showChatActions(Chat chat) {
+    Haptics.press();
     final store = ChatStore.instance;
     showModalBottomSheet<void>(
       context: context,

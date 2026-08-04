@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
+import '../util/haptics.dart';
 
 /// The row of actions under a post, for BOTH timelines.
 ///
@@ -84,7 +85,12 @@ class FeedPostActions extends StatelessWidget {
             icon: liked ? Icons.favorite : Icons.favorite_border,
             count: likeCount,
             colour: liked ? likeColour : null,
-            onTap: onLike,
+            // A like lands under the thumb as well as on the screen; reply
+            // and share just open UI, so they stay silent.
+            onTap: () {
+              Haptics.tap();
+              onLike();
+            },
             tooltip: 'Like',
           ),
           if (onSpark != null)

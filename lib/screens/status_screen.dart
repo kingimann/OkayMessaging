@@ -12,6 +12,7 @@ import '../relay/relay_service.dart';
 import '../state/chat_store.dart';
 import '../state/status_store.dart';
 import '../utils/date_formatter.dart';
+import '../widgets/empty_state.dart';
 import '../widgets/pull_to_refresh.dart';
 
 Color _hex(String s) {
@@ -89,11 +90,13 @@ class StatusScreen extends StatelessWidget {
                           color: AppColors.subtle(context))),
                 ),
                 if (others.isEmpty)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 16, vertical: 20),
-                    child: Text('No recent updates',
-                        style: TextStyle(color: AppColors.subtle(context))),
+                  const EmptyState(
+                    icon: Icons.donut_large_outlined,
+                    title: 'No recent updates',
+                    caption:
+                        'When someone you talk to shares a status, it shows '
+                        'up here for 24 hours.',
+                    compact: true,
                   )
                 else
                   for (final t in others)

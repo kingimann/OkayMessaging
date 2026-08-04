@@ -4,6 +4,7 @@ import '../models/chat.dart';
 import '../models/user.dart';
 import '../state/chat_store.dart';
 import '../state/follow_store.dart';
+import '../widgets/empty_state.dart';
 import '../widgets/invite_prompt.dart';
 import '../widgets/pull_to_refresh.dart';
 import '../widgets/user_avatar.dart';
@@ -113,10 +114,12 @@ class _PeopleScreenState extends State<PeopleScreen> {
                           color: Colors.grey)),
                 ),
                 if (people.isEmpty)
-                  Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Text('No contacts yet — add a friend above.',
-                        style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                  const EmptyState(
+                    icon: Icons.person_add_alt_outlined,
+                    title: 'No contacts yet',
+                    caption: 'Add a friend above by their username or number, '
+                        'and they\'ll show up here.',
+                    compact: true,
                   ),
                 for (final u in people)
                   ListTile(

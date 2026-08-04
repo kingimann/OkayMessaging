@@ -31,6 +31,7 @@ import 'edit_profile_screen.dart';
 import 'starred_messages_screen.dart';
 import '../app_state.dart';
 import '../util/build_info.dart';
+import '../util/haptics.dart';
 import '../widgets/user_avatar.dart';
 import '../state/identity_verification.dart';
 import '../state/platform_moderation.dart';
@@ -275,6 +276,7 @@ class _HomeScreenState extends State<HomeScreen>
     if (i == _index) {
       _scrollTabToTop(i);
     } else {
+      Haptics.select();
       _tabFadeController.forward(from: 0);
       setState(() => _index = i);
     }

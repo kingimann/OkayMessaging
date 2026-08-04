@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
-import '../theme/app_theme.dart';
 
 import '../models/chat.dart';
 import '../state/chat_store.dart';
 import '../widgets/chat_list_tile.dart';
+import '../widgets/empty_state.dart';
 import '../widgets/pull_to_refresh.dart';
 import 'chat_screen.dart';
 
@@ -52,27 +52,11 @@ class ArchivedChatsScreen extends StatelessWidget {
         builder: (context, _) {
           final archived = store.archivedChats;
           if (archived.isEmpty) {
-            return Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.archive_outlined,
-                      size: 72, color: Colors.grey.shade400),
-                  const SizedBox(height: 12),
-                  const Text('No archived chats',
-                      style:
-                          TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-                  const SizedBox(height: 6),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 40),
-                    child: Text(
-                      'Swipe a chat left, or long-press it, to archive it here.',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: AppColors.subtle(context)),
-                    ),
-                  ),
-                ],
-              ),
+            return const EmptyState(
+              icon: Icons.archive_outlined,
+              title: 'No archived chats',
+              caption:
+                  'Swipe a chat left, or long-press it, to archive it here.',
             );
           }
           return PullToRefresh(

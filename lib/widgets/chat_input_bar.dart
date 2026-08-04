@@ -12,6 +12,7 @@ import '../app_state.dart';
 import '../models/message.dart';
 import '../state/voice_media.dart';
 import '../theme/app_theme.dart';
+import '../util/haptics.dart';
 import '../util/photo_prep.dart';
 import 'emoji_gif_sheet.dart';
 
@@ -208,6 +209,7 @@ class _ChatInputBarState extends State<ChatInputBar> {
       }
       return;
     }
+    Haptics.press();
     setState(() {
       _recording = true;
       _recordSeconds = 0;
@@ -255,6 +257,7 @@ class _ChatInputBarState extends State<ChatInputBar> {
 
   Future<void> _finishRecording() async {
     _recordTimer?.cancel();
+    Haptics.tap();
     final seconds = _recordSeconds < 1 ? 1 : _recordSeconds;
     if (mounted) setState(() => _recording = false);
 
@@ -324,6 +327,7 @@ class _ChatInputBarState extends State<ChatInputBar> {
     // Ask for confirmation first when the chat is guarded; keep the text if
     // the user backs out.
     if (widget.confirmSend != null && !await widget.confirmSend!()) return;
+    Haptics.tap();
     widget.onSend(text);
     _controller.clear();
   }

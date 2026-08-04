@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../relay/relay_config.dart';
 import '../relay/relay_service.dart';
 import '../state/cloud_sync.dart';
+import '../util/haptics.dart';
 
 /// The app's standard pull-to-refresh, so the gesture does the same thing
 /// everywhere: nudge the relay back into sync, pull down anything the server
@@ -63,6 +64,8 @@ class PullToRefresh extends StatelessWidget {
   /// state, with [extra] for whatever the screen itself needs. The spinner is
   /// held briefly so a fast refresh still reads as having happened.
   static Future<void> refreshApp({Future<void> Function()? extra}) async {
+    // The pull crossed the trigger point — say so under the finger.
+    Haptics.tap();
     final started = DateTime.now();
     if (RelayConfig.isEnabled) {
       try {

@@ -5,6 +5,7 @@ import '../app_state.dart';
 import '../models/chat.dart';
 import '../state/chat_store.dart';
 import '../widgets/chat_list_tile.dart';
+import '../widgets/empty_state.dart';
 import '../widgets/pull_to_refresh.dart';
 import 'chat_screen.dart';
 
@@ -89,28 +90,11 @@ class MessageRequestsScreen extends StatelessWidget {
         builder: (context, _) {
           final requests = store.requests;
           if (requests.isEmpty) {
-            return Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.mark_email_unread_outlined,
-                      size: 72, color: Colors.grey.shade400),
-                  const SizedBox(height: 12),
-                  const Text('No message requests',
-                      style: TextStyle(
-                          fontSize: 16, fontWeight: FontWeight.w600)),
-                  const SizedBox(height: 6),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 40),
-                    child: Text(
-                      'When someone you\'ve never talked to messages you, '
-                      'it waits here for you to decide.',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: AppColors.subtle(context)),
-                    ),
-                  ),
-                ],
-              ),
+            return const EmptyState(
+              icon: Icons.mark_email_unread_outlined,
+              title: 'No message requests',
+              caption: 'When someone you\'ve never talked to messages you, '
+                  'it waits here for you to decide.',
             );
           }
           return PullToRefresh(
