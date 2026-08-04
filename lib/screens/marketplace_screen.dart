@@ -16,6 +16,7 @@ import '../relay/relay_service.dart';
 import '../state/parental_controls.dart';
 import '../widgets/parental_gate.dart';
 import '../widgets/pull_to_refresh.dart';
+import '../widgets/user_avatar.dart';
 import '../state/community_store.dart';
 import '../state/feed_store.dart';
 import '../state/market_media.dart';
@@ -306,6 +307,82 @@ bool listingInPriceRange(FeedPost l, {int? minCents, int? maxCents}) {
   if (minCents != null && p < minCents) return false;
   if (maxCents != null && p > maxCents) return false;
   return true;
+}
+
+/// What the seller's drafted thank-you says when they name who bought a
+/// listing. Drafted into the composer, never sent by itself — the seller
+/// reads it before it leaves, like every other message. Pure.
+String soldThanksDraft(FeedPost listing) =>
+    'Just marked "${listing.text.split('\n').first}" as sold to you — '
+    'thanks! If you have a minute, you can rate the sale on the listing.';
+
+/// Marking sold optionally asks who bought it. A picked buyer gets their
+/// chat opened with [soldThanksDraft] in the composer — which is also the
+/// rating handshake: the buyer follows the sentence back to the listing,
+/// where the review UI already lives. Dismissing the sheet changes
+/// nothing; "Just mark sold" skips the naming.
+Future<void> markListingSold(BuildContext context, FeedPost listing) async {
+  final contacts = ChatStore.instance.reachableContacts();
+  if (contacts.isEmpty) {
+    FeedStore.instance.setListingSold(listing.id, true);
+    return;
+  }
+  // (kind, buyer): 'skip' marks without naming, 'buyer' names one, and a
+  // dismissed sheet returns null — backing out must change nothing.
+  final choice = await showModalBottomSheet<(String, AppUser?)>(
+    context: context,
+    showDragHandle: true,
+    builder: (sheetContext) => SafeArea(
+      child: ListView(
+        shrinkWrap: true,
+        children: [
+          const Padding(
+            padding: EdgeInsets.fromLTRB(20, 4, 20, 4),
+            child: Text('Who bought it?',
+                style: TextStyle(fontSize: 16.5, fontWeight: FontWeight.w700)),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+            child: Text(
+              'Naming the buyer opens their chat with a thank-you typed '
+              'for you — send it and they can rate the sale.',
+              style: TextStyle(
+                  fontSize: 12.5, color: AppColors.subtle(sheetContext)),
+            ),
+          ),
+          for (final u in contacts)
+            ListTile(
+              leading: UserAvatar(user: u, radius: 20),
+              title: Text(u.name, maxLines: 1, overflow: TextOverflow.ellipsis),
+              onTap: () => Navigator.pop(sheetContext, ('buyer', u)),
+            ),
+          ListTile(
+            leading: const Icon(Icons.check_circle_outline),
+            title: const Text('Just mark sold'),
+            onTap: () => Navigator.pop(sheetContext, ('skip', null)),
+          ),
+        ],
+      ),
+    ),
+  );
+  if (choice == null) return;
+  FeedStore.instance.setListingSold(listing.id, true);
+  final buyer = choice.$2;
+  if (buyer == null || !context.mounted) return;
+  final store = ChatStore.instance;
+  final existing = store.chatWithContact(buyer.id);
+  final Chat chat;
+  if (existing != null) {
+    if (existing.isArchived) store.setArchived(existing.id, false);
+    chat = existing;
+  } else {
+    chat = Chat(id: 'chat_${buyer.id}', contact: buyer, messages: const []);
+    store.upsert(chat);
+  }
+  store.setDraft(chat.id, soldThanksDraft(listing));
+  await Navigator.of(context).push(
+    MaterialPageRoute(builder: (_) => ChatScreen(chat: chat)),
+  );
 }
 
 /// The unsold listings [s] matches — the browse screen's own three filters
@@ -1435,8 +1512,10 @@ class ListingScreen extends StatelessWidget {
                     children: [
                       Expanded(
                         child: FilledButton.icon(
-                          onPressed: () => FeedStore.instance
-                              .setListingSold(listing.id, !listing.listingSold),
+                          onPressed: () => listing.listingSold
+                              ? FeedStore.instance
+                                  .setListingSold(listing.id, false)
+                              : markListingSold(context, listing),
                           icon: Icon(
                               listing.listingSold
                                   ? Icons.undo
@@ -1449,6 +1528,28 @@ class ListingScreen extends StatelessWidget {
                               minimumSize: const Size.fromHeight(48)),
                         ),
                       ),
+                      // Bump: only once the listing has sat 48 hours, so
+                      // the button can't be a spam lever.
+                      if (FeedStore.instance.canBumpListing(listing.id)) ...[
+                        const SizedBox(width: 10),
+                        Tooltip(
+                          message: 'Bump to the top',
+                          child: OutlinedButton(
+                            onPressed: () {
+                              FeedStore.instance.bumpListing(listing.id);
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                      content: Text(
+                                          'Bumped — back at the top of the '
+                                          'marketplace.')));
+                            },
+                            style: OutlinedButton.styleFrom(
+                                minimumSize: const Size(52, 48),
+                                padding: EdgeInsets.zero),
+                            child: const Icon(Icons.trending_up, size: 20),
+                          ),
+                        ),
+                      ],
                       const SizedBox(width: 10),
                       OutlinedButton(
                         onPressed: () {

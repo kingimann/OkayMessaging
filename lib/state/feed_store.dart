@@ -216,6 +216,7 @@ class FeedPost {
     bool? pinned,
     bool? listingSold,
     int? listingRev,
+    DateTime? time,
     List<int>? pollVotes,
     int? pollMyVote,
   }) =>
@@ -225,7 +226,7 @@ class FeedPost {
         authorName: authorName,
         authorUsername: authorUsername,
         authorPhone: authorPhone,
-        time: time,
+        time: time ?? this.time,
         text: text ?? this.text,
         likes: likes ?? this.likes,
         reposts: reposts ?? this.reposts,
@@ -1380,6 +1381,41 @@ class FeedStore extends ChangeNotifier {
     if (!mine || post.listingSold == sold) return false;
     final updated =
         post.copyWith(listingSold: sold, listingRev: post.listingRev + 1);
+    _posts[i] = updated;
+    _save();
+    notifyListeners();
+    if (RelayConfig.isEnabled) RelayService.instance.sendFeedPost(updated);
+    return true;
+  }
+
+  /// How long a listing must sit before its owner can re-top it.
+  static const Duration bumpEvery = Duration(hours: 48);
+
+  /// Whether [postId] can be bumped: yours, unsold, and at least
+  /// [bumpEvery] old. The post's time IS the bump marker — sorting reads
+  /// it, so the age check is the rate limit and bumping resets it in the
+  /// same motion, with no second clock to fall out of step.
+  bool canBumpListing(String postId) {
+    final i = _posts.indexWhere((p) => p.id == postId);
+    if (i == -1 || !_posts[i].isListing) return false;
+    final post = _posts[i];
+    final me = AppState.profile.value.username;
+    final mine = post.authorUsername == 'you' ||
+        (me.isNotEmpty && post.authorUsername == me);
+    return mine &&
+        !post.listingSold &&
+        DateTime.now().difference(post.time) >= bumpEvery;
+  }
+
+  /// Re-tops a stale listing of yours: its time becomes now and the
+  /// revision climbs, so other devices accept the fresher copy the same
+  /// way they accept a sold flag — and a stale mailbox replay can never
+  /// un-bump it.
+  bool bumpListing(String postId) {
+    if (!canBumpListing(postId)) return false;
+    final i = _posts.indexWhere((p) => p.id == postId);
+    final updated = _posts[i].copyWith(
+        time: DateTime.now(), listingRev: _posts[i].listingRev + 1);
     _posts[i] = updated;
     _save();
     notifyListeners();

@@ -9840,11 +9840,17 @@ void main() {
       expect(find.text('Red chair'), findsOneWidget);
       expect(find.text(r'$15'), findsOneWidget);
 
-      // Own listing: open it and mark sold; the tile gains the badge.
+      // Own listing: open it and mark sold. The sheet asks who bought it
+      // (the rating handshake); skipping the naming still marks it, and
+      // the tile gains the badge.
       await tester.tap(find.text('Red chair'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Mark as sold'));
       await tester.pumpAndSettle();
+      if (find.text('Just mark sold').evaluate().isNotEmpty) {
+        await tester.tap(find.text('Just mark sold'));
+        await tester.pumpAndSettle();
+      }
       expect(find.text('SOLD'), findsOneWidget);
     });
 
@@ -31388,6 +31394,105 @@ void main() {
       expect(apply, contains('touchSavedSearch'));
       // The shelf rides the clean browse, like the other shelves.
       expect(src, contains('FeedStore.instance.savedSearches.isNotEmpty'));
+    });
+  });
+
+  group('Marketplace sold handshake and bumps', () {
+    FeedPost own(String id, {bool sold = false, DateTime? time, int rev = 0}) =>
+        FeedPost(
+          id: id,
+          communityId: 'c1',
+          authorName: 'You',
+          authorUsername: 'you',
+          time: time ?? DateTime(2026, 1, 1),
+          text: 'City bike\nFreshly tuned',
+          priceCents: 12000,
+          listingCategory: 'Sports',
+          listingSold: sold,
+          listingRev: rev,
+        );
+
+    test('a bump needs yours, unsold, and 48 hours of sitting', () {
+      final store = FeedStore.instance;
+      store.resetForTest();
+      addTearDown(store.resetForTest);
+      addTearDown(AppState.resetForTest);
+
+      // Old and yours: bumpable. Time becomes now, revision climbs.
+      store.addRemote(own('b1',
+          time: DateTime.now().subtract(const Duration(days: 3))));
+      expect(store.canBumpListing('b1'), isTrue);
+      expect(store.bumpListing('b1'), isTrue);
+      final bumped = store.postById('b1')!;
+      expect(DateTime.now().difference(bumped.time).inMinutes, 0,
+          reason: 'the bump is the new posting time');
+      expect(bumped.listingRev, 1);
+
+      // Immediately after, the same listing has to sit again.
+      expect(store.canBumpListing('b1'), isFalse,
+          reason: 'the age check IS the rate limit');
+
+      // Sold: never bumpable — a re-topped sold listing sells nothing.
+      store.addRemote(own('b2',
+          sold: true, time: DateTime.now().subtract(const Duration(days: 3))));
+      expect(store.canBumpListing('b2'), isFalse);
+
+      // Somebody else's: never bumpable.
+      final theirs = FeedPost(
+        id: 'b3',
+        communityId: 'c1',
+        authorName: 'Ada',
+        authorUsername: 'ada',
+        time: DateTime(2025, 1, 1),
+        text: 'Lamp',
+        priceCents: 500,
+      );
+      store.addRemote(theirs);
+      expect(store.canBumpListing('b3'), isFalse);
+    });
+
+    test('a stale replay can never un-bump', () {
+      final store = FeedStore.instance;
+      store.resetForTest();
+      addTearDown(store.resetForTest);
+      addTearDown(AppState.resetForTest);
+      store.addRemote(own('b4',
+          time: DateTime.now().subtract(const Duration(days: 3))));
+      expect(store.bumpListing('b4'), isTrue);
+      final bumpedTime = store.postById('b4')!.time;
+      // The mailbox replays the pre-bump copy (rev 0): it must bounce off.
+      store.addRemote(own('b4', time: DateTime(2025, 6, 1)));
+      expect(store.postById('b4')!.time, bumpedTime);
+    });
+
+    test('the thank-you draft names the listing and invites the rating', () {
+      final draft = soldThanksDraft(own('b5'));
+      expect(draft, contains('"City bike"'));
+      expect(draft, contains('rate the sale'));
+      expect(draft.contains('Freshly tuned'), isFalse,
+          reason: 'the first line is the title; the rest is not the name');
+    });
+
+    test('marking sold asks, backing out changes nothing, drafts never send',
+        () {
+      final src =
+          File('lib/screens/marketplace_screen.dart').readAsStringSync();
+      // The unsold path routes through the sheet; un-selling stays direct.
+      expect(src, contains('markListingSold(context, listing)'));
+      final fn = src.substring(src.indexOf('Future<void> markListingSold'),
+          src.indexOf('/// The unsold listings [s] matches'));
+      // A dismissed sheet returns before anything is marked. (The FIRST
+      // setListingSold is the no-contacts fast path, above the sheet.)
+      expect(
+          fn.indexOf('if (choice == null) return;') <
+              fn.lastIndexOf('setListingSold'),
+          isTrue,
+          reason: 'backing out of the sheet must change nothing');
+      // The thank-you is a DRAFT in the composer, never an auto-send.
+      expect(fn, contains('setDraft'));
+      expect(fn.contains('_deliver('), isFalse);
+      // And the bump button only exists when the store says it may.
+      expect(src, contains('FeedStore.instance.canBumpListing(listing.id)'));
     });
   });
 
