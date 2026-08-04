@@ -11,6 +11,7 @@ import '../models/community.dart';
 import '../models/user.dart';
 import '../state/account_service.dart';
 import '../state/chat_store.dart';
+import '../ads/ad_service.dart';
 import '../relay/relay_service.dart';
 import '../state/parental_controls.dart';
 import '../widgets/parental_gate.dart';
@@ -630,6 +631,10 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
               icon: const Icon(Icons.sell_outlined),
               label: const Text('Sell'),
             ),
+      // A non-personalized banner, on this surface because it is already
+      // world-facing commerce. Zero height until an ad really loads, and
+      // absent entirely in builds with no ad ids.
+      bottomNavigationBar: const AdBannerSlot(),
       body: ListenableBuilder(
         listenable: FeedStore.instance,
         builder: (context, _) {

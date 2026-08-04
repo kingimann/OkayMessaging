@@ -136,5 +136,22 @@
 		</array>
 		<key>UIStatusBarHidden</key>
 		<false/>
+		<!-- AdMob application id. This is GOOGLE'S PUBLISHED SAMPLE id — the
+		     SDK requires the key to exist, and the sample is the documented
+		     value for builds without a real AdMob account. Replace with the
+		     app's own id (AdMob dashboard → App settings) when ads go live;
+		     see docs/ads_setup.md. Release builds without ad unit ids never
+		     initialize the SDK, so this value is inert there. -->
+		<key>GADApplicationIdentifier</key>
+		<string>ca-app-pub-3940256099942544~1458002511</string>
+		<!-- Lets Google's buyers attribute installs without tracking people;
+		     recommended by AdMob for iOS 14+. -->
+		<key>SKAdNetworkItems</key>
+		<array>
+			<dict>
+				<key>SKAdNetworkIdentifier</key>
+				<string>cstr6suwn9.skadnetwork</string>
+			</dict>
+		</array>
 	</dict>
 </plist>

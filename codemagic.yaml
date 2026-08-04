@@ -96,6 +96,7 @@ workflows:
             --dart-define=STRIPE_PUBLISHABLE_KEY=pk_live_7XicY3iffHhInOt6LERz8uR9003yCOMM3P \
             --dart-define="MAPBOX_TOKEN=$MAPBOX_TOKEN" \
             --dart-define="KLIPY_API_KEY=$KLIPY_API_KEY" \
+            --dart-define="ADMOB_BANNER_IOS=$ADMOB_BANNER_IOS" \
             --dart-define=REQUIRE_OTP=true
     artifacts:
       - build/**/outputs/**/*.apk
@@ -212,6 +213,7 @@ workflows:
             --dart-define=STRIPE_PUBLISHABLE_KEY=pk_live_7XicY3iffHhInOt6LERz8uR9003yCOMM3P \
             --dart-define="MAPBOX_TOKEN=$MAPBOX_TOKEN" \
             --dart-define="KLIPY_API_KEY=$KLIPY_API_KEY" \
+            --dart-define="ADMOB_BANNER_IOS=$ADMOB_BANNER_IOS" \
             --dart-define=REQUIRE_OTP=true \
             --export-options-plist=/Users/builder/export_options.plist
     artifacts:
@@ -288,6 +290,7 @@ workflows:
             --dart-define=STRIPE_PUBLISHABLE_KEY=pk_live_7XicY3iffHhInOt6LERz8uR9003yCOMM3P \
             --dart-define="MAPBOX_TOKEN=$MAPBOX_TOKEN" \
             --dart-define="KLIPY_API_KEY=$KLIPY_API_KEY" \
+            --dart-define="ADMOB_BANNER_IOS=$ADMOB_BANNER_IOS" \
             --dart-define=REQUIRE_OTP=true
       - name: Zip the .app for download
         script: |

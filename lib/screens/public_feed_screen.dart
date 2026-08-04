@@ -1,4 +1,5 @@
 import '../theme/app_theme.dart';
+import '../ads/ad_service.dart';
 import '../state/parental_controls.dart';
 import '../widgets/parental_gate.dart';
 import '../widgets/phone_gate.dart';
@@ -267,6 +268,10 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
         tooltip: 'New post',
         child: const Icon(Icons.edit_outlined),
       ),
+      // A non-personalized banner, on this surface because it is already
+      // world-readable by design. Never inside conversations — a test
+      // holds ads out of every chat file.
+      bottomNavigationBar: const AdBannerSlot(),
       body: ListenableBuilder(
         // FeedMuteStore is in here because the timeline is filtered by it:
         // without it a mute would not remove the post until something else

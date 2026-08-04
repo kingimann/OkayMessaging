@@ -434,23 +434,30 @@ Two things that look like bugs and are not:
 
 ## Waiting on the user (nothing here is code)
 
-0b. **NEW 2026-08-04: run `docs/community_posts.sql`** (SQL editor). Server
-   feed posts + marketplace listings now get a DURABLE sealed copy in
-   `community_posts` (ciphertext under the community secret — server reads
-   nothing; chats deliberately excluded). Until the table exists, the app
-   silently keeps broadcast+mailbox-only behavior. This was built because
-   "the marketplace doesn't show listings": broadcast has no history.
+0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only
+   (newsfeed + marketplace), non-personalized (`npa=1`, no ATT), OFF in
+   release until `ADMOB_BANNER_IOS` exists in the Codemagic `test` group;
+   debug shows Google's labeled test ads. `google_mobile_ads` is a NEW
+   POD — first suspect if a build fails. Going live = user work:
+   `docs/ads_setup.md` (AdMob account → App ID into Info.plist replacing
+   Google's sample id → banner unit id into Codemagic). A test pins ads
+   out of every chat file.
 
-0a. **NEW: TURN relay (the "calls only work sometimes" fix).** The user's
-   Check call setup screenshot (2026-08-03 19:39) proved the free public
-   relay is dead: STUN green, relay red. Fix is `docs/turn_setup.md` —
-   the user signs up at metered.ca (free), sets `METERED_DOMAIN` +
-   `METERED_API_KEY` Edge Function secrets, and pastes
-   `docs/edge_functions_paste/turn-credentials.ts` as `turn-credentials`
-   (JWT OFF — numberless calls need it too). Until then, cellular-to-
-   cellular calls fail; the app fetches credentials fail-open so nothing
-   else changes. Re-running Check call setup verifies it (it probes the
-   resolved config, fetched relay included).
+0b. **`docs/community_posts.sql` is RUN** (verified live 2026-08-04 by an
+   insert/select/delete probe — do not raise again). Server feed posts +
+   marketplace listings keep a DURABLE sealed copy in `community_posts`
+   (ciphertext under the community secret — server reads nothing; chats
+   deliberately excluded). Fetched on relay start and pull-to-refresh.
+
+0a. **TURN relay is LIVE** (verified 2026-08-04: the deployed
+   `turn-credentials` function answers 5 Metered servers with credentials
+   — do not re-raise setup). History: the free public relay was dead
+   (user's Check call setup screenshot, STUN green / relay red), fixed via
+   metered.ca + `METERED_DOMAIN`/`METERED_API_KEY` secrets; a 401 there
+   means the key/domain pair went stale, and the function's empty answer
+   carries a `note` naming the fault. The iOS build must postdate
+   2026-08-03 evening for the phone to FETCH credentials; Check call setup
+   verifies end-to-end.
 
 0. **NEW since 2026-08-03 late session** (needed for delete/deactivate
    account to work live; everything is built, tested and pushed):

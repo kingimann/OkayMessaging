@@ -106,6 +106,7 @@ import 'package:okay_messaging/utils/maps_link.dart';
 import 'package:okay_messaging/widgets/info_section.dart';
 import 'package:okay_messaging/widgets/message_bubble.dart';
 import 'package:okay_messaging/state/account_wipe.dart';
+import 'package:okay_messaging/ads/ad_service.dart';
 import 'package:okay_messaging/relay/turn_service.dart';
 import 'package:okay_messaging/state/call_diagnostics.dart';
 import 'package:okay_messaging/state/call_quality.dart';
@@ -7488,6 +7489,67 @@ void main() {
       expect(prompt, contains('onApp != false'),
           reason: 'only a confident "not on the app" blocks — null allows');
       expect(prompt, contains('Copy invite'));
+    });
+  });
+
+  group('Ads', () {
+    test('ads exist only where the world can already see', () {
+      // The two public surfaces carry the slot; nothing else may. Chats,
+      // calls and servers are the promise — an ad inside a conversation
+      // is the app breaking its own word.
+      expect(File('lib/screens/public_feed_screen.dart').readAsStringSync(),
+          contains('AdBannerSlot'));
+      expect(File('lib/screens/marketplace_screen.dart').readAsStringSync(),
+          contains('AdBannerSlot'));
+      for (final f in [
+        'lib/screens/chat_screen.dart',
+        'lib/widgets/message_bubble.dart',
+        'lib/screens/call_screen.dart',
+        'lib/screens/communities.dart',
+        'lib/tabs/chats_tab.dart',
+      ]) {
+        expect(File(f).readAsStringSync(),
+            isNot(contains('ad_service')),
+            reason: '$f must never reach for ads');
+      }
+    });
+
+    test('the unit picker enforces every rule of the stance', () {
+      String? unit({
+        bool web = false,
+        TargetPlatform platform = TargetPlatform.iOS,
+        bool release = true,
+        String ios = '',
+        String android = '',
+      }) =>
+          AdService.bannerUnitFor(
+            isWeb: web,
+            platform: platform,
+            releaseMode: release,
+            configuredIos: ios,
+            configuredAndroid: android,
+          );
+      // Release with no ids: NOTHING — not placeholders, not test ads.
+      expect(unit(), isNull);
+      // A configured id turns ads on for its platform only.
+      expect(unit(ios: 'ca-app-pub-x/1'), 'ca-app-pub-x/1');
+      expect(unit(platform: TargetPlatform.android, ios: 'ca-app-pub-x/1'),
+          isNull);
+      // Debug uses Google's labeled test units, so wiring is verifiable
+      // without an account.
+      expect(unit(release: false), contains('3940256099942544'));
+      // The web build never shows ads, configured or not.
+      expect(unit(web: true, ios: 'ca-app-pub-x/1'), isNull);
+      // And every request the service makes is non-personalized — the
+      // whole privacy story in one flag.
+      final src = File('lib/ads/ad_service.dart').readAsStringSync();
+      expect(src, contains('nonPersonalizedAds: true'));
+      // The iOS side has the SDK's required plist key.
+      expect(File('ios/Runner/Info.plist').readAsStringSync(),
+          contains('GADApplicationIdentifier'));
+      // And the build pipeline can inject the real unit id.
+      expect(File('codemagic.yaml').readAsStringSync(),
+          contains('ADMOB_BANNER_IOS'));
     });
   });
 
