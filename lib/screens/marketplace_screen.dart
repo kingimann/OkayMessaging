@@ -308,6 +308,25 @@ bool listingInPriceRange(FeedPost l, {int? minCents, int? maxCents}) {
   return true;
 }
 
+/// The unsold listings [s] matches — the browse screen's own three filters
+/// (words, category, price) re-run against a kept search. Pure, so a test
+/// can pin that a saved search and a typed one agree about what matches.
+List<FeedPost> savedSearchMatches(SavedSearch s, List<FeedPost> all) => [
+      for (final l in all)
+        if (!l.listingSold &&
+            listingMatchesQuery(l, s.query) &&
+            (s.category.isEmpty || l.listingCategory == s.category) &&
+            listingInPriceRange(l, minCents: s.minCents, maxCents: s.maxCents))
+          l
+    ];
+
+/// How many of [s]'s matches arrived after it was last looked at — the
+/// number on the badge. Pure.
+int savedSearchNewCount(SavedSearch s, List<FeedPost> all) => [
+      for (final l in savedSearchMatches(s, all))
+        if (l.time.isAfter(s.lastSeenAt)) l
+    ].length;
+
 /// The listing's seller as this device knows them — the business contact
 /// whose handle matches the author, or null. Local knowledge only: the
 /// storefront rides the sealed profile share, not the directory, so it can
@@ -518,6 +537,42 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
     setState(() {
       _searching = false;
       _query = '';
+    });
+  }
+
+  /// Whether what is on screen is a search worth keeping — words, a
+  /// category, or a price bound. Your-listings, Saved and sort are views,
+  /// not searches; "new matches for 'sort by price'" means nothing.
+  bool get _saveableSearch =>
+      _query.trim().isNotEmpty ||
+      _category.isNotEmpty ||
+      _minCents != null ||
+      _maxCents != null;
+
+  void _saveCurrentSearch() {
+    final saved = FeedStore.instance.addSavedSearch(
+      query: _query,
+      category: _category,
+      minCents: _minCents,
+      maxCents: _maxCents,
+    );
+    if (saved == null || !mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Search saved — new matches get a count on it.')));
+  }
+
+  /// Re-applies a kept search and restarts its badge from now.
+  void _applySavedSearch(SavedSearch s) {
+    FeedStore.instance.touchSavedSearch(s.id);
+    setState(() {
+      _search.text = s.query;
+      _query = s.query;
+      _searching = s.query.isNotEmpty;
+      _category = s.category;
+      _minPrice.text =
+          s.minCents == null ? '' : SavedSearch.dollars(s.minCents!);
+      _maxPrice.text =
+          s.maxCents == null ? '' : SavedSearch.dollars(s.maxCents!);
     });
   }
 
@@ -931,9 +986,45 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
                   ),
                 ),
               ],
+              // Kept searches, one tap back into each — with a count of
+              // what arrived since the last look. Browsing clean only,
+              // like the shelves above: mid-search they would be noise.
+              if (browsing &&
+                  FeedStore.instance.savedSearches.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+                  child: Wrap(
+                    spacing: 6,
+                    children: [
+                      for (final s in FeedStore.instance.savedSearches)
+                        Builder(builder: (context) {
+                          final fresh = savedSearchNewCount(
+                              s, FeedStore.instance.listings());
+                          return InputChip(
+                            avatar: Icon(
+                                fresh > 0
+                                    ? Icons.notifications_active_outlined
+                                    : Icons.saved_search,
+                                size: 15),
+                            label: Text(
+                                fresh > 0 ? '${s.label} · $fresh new' : s.label,
+                                style: TextStyle(
+                                    fontWeight: fresh > 0
+                                        ? FontWeight.w700
+                                        : FontWeight.w400)),
+                            visualDensity: VisualDensity.compact,
+                            onPressed: () => _applySavedSearch(s),
+                            onDeleted: () =>
+                                FeedStore.instance.removeSavedSearch(s.id),
+                          );
+                        }),
+                    ],
+                  ),
+                ),
               // Active filters only. When nothing is filtered, nothing is
-              // here — the grid starts at the top.
-              if (hasFilter)
+              // here — the grid starts at the top. (Plus the save chip
+              // whenever what is on screen is a search worth keeping.)
+              if (hasFilter || _saveableSearch)
                 Padding(
                   padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
                   child: Wrap(
@@ -984,6 +1075,14 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
                           visualDensity: VisualDensity.compact,
                           onDeleted: () =>
                               setState(() => _sort = ListingSort.newest),
+                        ),
+                      if (_saveableSearch)
+                        ActionChip(
+                          avatar:
+                              const Icon(Icons.bookmark_add_outlined, size: 15),
+                          label: const Text('Save search'),
+                          visualDensity: VisualDensity.compact,
+                          onPressed: _saveCurrentSearch,
                         ),
                     ],
                   ),

@@ -806,6 +806,68 @@ class FeedStore extends ChangeNotifier {
   final List<String> _recentlyViewedIds = [];
   static const int maxRecentlyViewed = 8;
 
+  /// Searches this device chose to keep, newest first, capped. Matching is
+  /// the browse screen's own filters re-run (pure helpers in the
+  /// marketplace file); the store only remembers what was asked and when
+  /// it was last looked at — which is what the "N new" badge counts from.
+  final List<SavedSearch> _savedSearches = [];
+  static const int maxSavedSearches = 6;
+
+  List<SavedSearch> get savedSearches => List.unmodifiable(_savedSearches);
+
+  /// Keeps a search. An empty one is refused (it would match everything,
+  /// so "new" would mean "any listing at all"), and saving the same search
+  /// twice moves the existing one to the front instead of duplicating it.
+  SavedSearch? addSavedSearch(
+      {String query = '', String category = '', int? minCents, int? maxCents}) {
+    final q = query.trim();
+    if (q.isEmpty && category.isEmpty && minCents == null && maxCents == null) {
+      return null;
+    }
+    final existing = _savedSearches.indexWhere((s) =>
+        s.query.toLowerCase() == q.toLowerCase() &&
+        s.category == category &&
+        s.minCents == minCents &&
+        s.maxCents == maxCents);
+    if (existing != -1) {
+      final s = _savedSearches.removeAt(existing);
+      _savedSearches.insert(0, s);
+      _save();
+      notifyListeners();
+      return s;
+    }
+    final s = SavedSearch(
+      id: 'ss${_nextId++}',
+      query: q,
+      category: category,
+      minCents: minCents,
+      maxCents: maxCents,
+      lastSeenAt: DateTime.now(),
+    );
+    _savedSearches.insert(0, s);
+    if (_savedSearches.length > maxSavedSearches) {
+      _savedSearches.removeRange(maxSavedSearches, _savedSearches.length);
+    }
+    _save();
+    notifyListeners();
+    return s;
+  }
+
+  void removeSavedSearch(String id) {
+    _savedSearches.removeWhere((s) => s.id == id);
+    _save();
+    notifyListeners();
+  }
+
+  /// Marks [id] as looked-at now, so its badge starts counting from zero.
+  void touchSavedSearch(String id) {
+    final i = _savedSearches.indexWhere((s) => s.id == id);
+    if (i == -1) return;
+    _savedSearches[i] = _savedSearches[i].seenNow();
+    _save();
+    notifyListeners();
+  }
+
   /// Records that [listingId] was opened. A no-op when it is already at
   /// the front — the listing screen calls this from build, and mutating
   /// (then notifying) on every rebuild would be a loop.
@@ -1722,6 +1784,12 @@ class FeedStore extends ChangeNotifier {
           ..clear()
           ..addAll(
               (decoded['recents'] as List? ?? const []).whereType<String>());
+        _savedSearches
+          ..clear()
+          ..addAll((decoded['searches'] as List? ?? const [])
+              .whereType<Map>()
+              .map((m) =>
+                  SavedSearch.fromJson(Map<String, dynamic>.from(m))));
         _deletedIds
           ..clear()
           ..addAll(
@@ -1775,6 +1843,7 @@ class FeedStore extends ChangeNotifier {
             'alertgone': _alertGoneIds.toList(),
             'saved': _savedIds.toList(),
             'recents': _recentlyViewedIds,
+            'searches': [for (final s in _savedSearches) s.toJson()],
             'deleted': _deletedIds.toList(),
             'notifs': [for (final n in _notifications) n.toJson()],
             // The replay guards have to outlive the process: a mailbox row
@@ -1796,6 +1865,7 @@ class FeedStore extends ChangeNotifier {
     _alertGoneIds.clear();
     _savedIds.clear();
     _recentlyViewedIds.clear();
+    _savedSearches.clear();
     _deletedIds.clear();
     _notifications.clear();
     _likedBy.clear();
@@ -1804,6 +1874,73 @@ class FeedStore extends ChangeNotifier {
     _nextId = 1;
     notifyListeners();
   }
+}
+
+/// One kept marketplace search: what was typed and filtered, and when the
+/// results were last looked at — listings newer than that are what the
+/// "N new" badge counts. Matching itself lives with the browse filters
+/// (pure helpers in the marketplace file), not here.
+class SavedSearch {
+  final String id;
+  final String query;
+  final String category;
+  final int? minCents;
+  final int? maxCents;
+  final DateTime lastSeenAt;
+
+  const SavedSearch({
+    required this.id,
+    this.query = '',
+    this.category = '',
+    this.minCents,
+    this.maxCents,
+    required this.lastSeenAt,
+  });
+
+  /// What the chip says: the words if any, else the category, else the
+  /// price bounds — a search the store accepted is always one of the three.
+  String get label {
+    if (query.isNotEmpty) return query;
+    if (category.isNotEmpty) return category;
+    return [
+      if (minCents != null) 'from \$${dollars(minCents!)}',
+      if (maxCents != null) 'to \$${dollars(maxCents!)}',
+    ].join(' ');
+  }
+
+  /// Cents as the text a price field accepts back ('90', '12.50') — also
+  /// how re-applying a saved search refills the min/max boxes.
+  static String dollars(int cents) => cents % 100 == 0
+      ? '${cents ~/ 100}'
+      : (cents / 100).toStringAsFixed(2);
+
+  SavedSearch seenNow() => SavedSearch(
+        id: id,
+        query: query,
+        category: category,
+        minCents: minCents,
+        maxCents: maxCents,
+        lastSeenAt: DateTime.now(),
+      );
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'q': query,
+        'cat': category,
+        if (minCents != null) 'min': minCents,
+        if (maxCents != null) 'max': maxCents,
+        'seen': lastSeenAt.toIso8601String(),
+      };
+
+  factory SavedSearch.fromJson(Map<String, dynamic> json) => SavedSearch(
+        id: json['id'] as String? ?? '',
+        query: json['q'] as String? ?? '',
+        category: json['cat'] as String? ?? '',
+        minCents: (json['min'] as num?)?.toInt(),
+        maxCents: (json['max'] as num?)?.toInt(),
+        lastSeenAt: DateTime.tryParse(json['seen'] as String? ?? '') ??
+            DateTime.now(),
+      );
 }
 
 /// The hashtags used across [posts], most-used first, capped at [limit].

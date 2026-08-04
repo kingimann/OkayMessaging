@@ -31263,6 +31263,134 @@ void main() {
     });
   });
 
+  group('Marketplace saved searches', () {
+    FeedPost listing(String id, String text,
+            {String category = 'Electronics',
+            int price = 1000,
+            bool sold = false,
+            DateTime? time}) =>
+        FeedPost(
+          id: id,
+          communityId: 'c1',
+          authorName: 'x',
+          authorUsername: 'seller',
+          time: time ?? DateTime(2026, 1, 10),
+          text: text,
+          priceCents: price,
+          listingCategory: category,
+          listingSold: sold,
+        );
+
+    test('a kept search matches like a typed one, and skips the sold', () {
+      final s = SavedSearch(
+          id: 's1',
+          query: 'bike',
+          category: 'Sports',
+          maxCents: 20000,
+          lastSeenAt: DateTime(2026, 1, 5));
+      final all = [
+        listing('l1', 'City bike, tuned', category: 'Sports', price: 12000),
+        listing('l2', 'Racing bike', category: 'Sports', price: 30000),
+        listing('l3', 'City bike', category: 'Sports', sold: true),
+        listing('l4', 'Espresso machine', category: 'Sports'),
+        listing('l5', 'Mountain bike', category: 'Home', price: 9000),
+      ];
+      expect(savedSearchMatches(s, all).map((l) => l.id), ['l1'],
+          reason: 'over budget, sold, wrong words and wrong category are out');
+    });
+
+    test('the badge counts only what arrived since the last look', () {
+      final s = SavedSearch(
+          id: 's2', query: 'bike', lastSeenAt: DateTime(2026, 1, 5));
+      final all = [
+        listing('old', 'Old bike', time: DateTime(2026, 1, 1)),
+        listing('new1', 'New bike', time: DateTime(2026, 1, 6)),
+        listing('new2', 'Newer bike', time: DateTime(2026, 1, 7)),
+      ];
+      expect(savedSearchNewCount(s, all), 2);
+    });
+
+    test('the store refuses empty, dedupes, caps, and touches', () {
+      final store = FeedStore.instance;
+      store.resetForTest();
+      addTearDown(store.resetForTest);
+      // Empty would match everything — "new" would mean "any listing".
+      expect(store.addSavedSearch(), isNull);
+      expect(store.savedSearches, isEmpty);
+
+      store.addSavedSearch(query: 'bike');
+      store.addSavedSearch(query: 'lamp');
+      // The same search again moves to the front instead of duplicating —
+      // case-insensitively, since the words match that way too.
+      store.addSavedSearch(query: 'BIKE');
+      expect(store.savedSearches.length, 2);
+      expect(store.savedSearches.first.query, 'bike');
+
+      for (var i = 0; i < 10; i++) {
+        store.addSavedSearch(query: 'q$i');
+      }
+      expect(store.savedSearches.length, FeedStore.maxSavedSearches);
+
+      final kept = store.savedSearches.last;
+      final before = kept.lastSeenAt;
+      store.touchSavedSearch(kept.id);
+      final after =
+          store.savedSearches.firstWhere((s) => s.id == kept.id).lastSeenAt;
+      expect(after.isAfter(before), isTrue,
+          reason: 'touching restarts the badge clock');
+
+      store.removeSavedSearch(kept.id);
+      expect(store.savedSearches.any((s) => s.id == kept.id), isFalse);
+    });
+
+    test('a search survives the json round trip, and labels itself', () {
+      final s = SavedSearch(
+          id: 's3',
+          query: '',
+          category: '',
+          minCents: 500,
+          maxCents: 1250,
+          lastSeenAt: DateTime(2026, 1, 5));
+      final back = SavedSearch.fromJson(
+          Map<String, dynamic>.from(jsonDecode(jsonEncode(s.toJson())) as Map));
+      expect(back.minCents, 500);
+      expect(back.maxCents, 1250);
+      expect(back.lastSeenAt, DateTime(2026, 1, 5));
+      // The chip says the words if any, else the category, else the bounds.
+      expect(back.label, r'from $5 to $12.50');
+      expect(
+          SavedSearch(id: 'a', query: 'bike', lastSeenAt: DateTime(2026))
+              .label,
+          'bike');
+      expect(
+          SavedSearch(id: 'b', category: 'Sports', lastSeenAt: DateTime(2026))
+              .label,
+          'Sports');
+    });
+
+    test('the screen offers the save, shows the shelf, restarts the clock',
+        () {
+      final src =
+          File('lib/screens/marketplace_screen.dart').readAsStringSync();
+      // Saveable = words, category or price — views and sorts are not
+      // searches, so Your-listings/Saved/sort alone never offer a save.
+      expect(src, contains('bool get _saveableSearch'));
+      expect(src.contains('_mineOnly') && src.contains('_saveableSearch'),
+          isTrue);
+      final saveable = src.substring(
+          src.indexOf('bool get _saveableSearch'),
+          src.indexOf('void _saveCurrentSearch'));
+      expect(saveable.contains('_mineOnly'), isFalse,
+          reason: '"new matches for your own listings" means nothing');
+      // Applying a kept search marks it looked-at, so the badge restarts.
+      final apply = src.substring(src.indexOf('void _applySavedSearch'),
+          src.indexOf('Widget _guarded'));
+      expect(apply, contains('touchSavedSearch'));
+      // The shelf rides the clean browse, like the other shelves.
+      expect(src, contains('FeedStore.instance.savedSearches.isNotEmpty'));
+    });
+  });
+
   group('Login polish and the AI boundary', () {
     test('the login fields help the keyboard help you', () {
       final src =
