@@ -161,6 +161,96 @@ const Map<String, List<String>> kMarketplaceCategoryGroups = {
   ],
 };
 
+/// One category-specific field on the sell form. [choices] empty means a
+/// free-text box; non-empty draws a chip picker. [suffix] is a unit shown
+/// after a number ('mi', 'sq ft'). Pure data — the field's answer is stored
+/// in [FeedPost.listingAttributes] under [label].
+class CategoryField {
+  final String label;
+  final List<String> choices;
+  final bool numeric;
+  final String suffix;
+  const CategoryField(this.label,
+      {this.choices = const [], this.numeric = false, this.suffix = ''});
+}
+
+/// What extra questions each category asks. A category not named here asks
+/// none — the sell form is generic for most things and gets specific only
+/// where a whole class of listing needs it (a flat has bedrooms, a car has
+/// mileage). Keys ARE the attribute labels stored on the listing, so
+/// renaming one orphans old answers; add, don't rename.
+const Map<String, List<CategoryField>> kCategoryFields = {
+  'Property & Rentals': [
+    CategoryField('Listing type', choices: [
+      'For rent',
+      'For sale',
+      'Short stay',
+      'Commercial lease',
+      'Room / flatshare',
+      'Land',
+    ]),
+    CategoryField('Property type', choices: [
+      'Apartment',
+      'House',
+      'Condo',
+      'Townhouse',
+      'Studio',
+      'Office',
+      'Retail',
+      'Warehouse',
+      'Land',
+    ]),
+    CategoryField('Bedrooms', numeric: true),
+    CategoryField('Bathrooms', numeric: true),
+    CategoryField('Size', numeric: true, suffix: 'sq ft'),
+    CategoryField('Rent period', choices: [
+      'per month',
+      'per week',
+      'per night',
+      'per year',
+    ]),
+    CategoryField('Furnished', choices: ['Furnished', 'Unfurnished', 'Part']),
+    CategoryField('Parking', choices: ['Yes', 'No', 'Street', 'Garage']),
+    CategoryField('Available from'),
+  ],
+  'Vehicles': [
+    CategoryField('Make'),
+    CategoryField('Model'),
+    CategoryField('Year', numeric: true),
+    CategoryField('Mileage', numeric: true, suffix: 'mi'),
+    CategoryField('Transmission', choices: ['Automatic', 'Manual']),
+    CategoryField('Fuel',
+        choices: ['Petrol', 'Diesel', 'Hybrid', 'Electric', 'Other']),
+    CategoryField('Body', choices: [
+      'Sedan',
+      'SUV',
+      'Hatchback',
+      'Truck',
+      'Van',
+      'Coupe',
+      'Convertible',
+    ]),
+    CategoryField('Colour'),
+  ],
+  'Motorcycles': [
+    CategoryField('Make'),
+    CategoryField('Year', numeric: true),
+    CategoryField('Mileage', numeric: true, suffix: 'mi'),
+    CategoryField('Engine', numeric: true, suffix: 'cc'),
+  ],
+  'Services': [
+    CategoryField('Service type'),
+    CategoryField('Rate', choices: ['per hour', 'per job', 'per day', 'fixed']),
+    CategoryField('Availability'),
+    CategoryField('Serves', choices: ['On site', 'Remote', 'Both']),
+  ],
+};
+
+/// The extra fields for [category], or empty. Trims so a stray space never
+/// misses the map.
+List<CategoryField> categoryFieldsFor(String category) =>
+    kCategoryFields[category.trim()] ?? const [];
+
 /// Every category, in the order the grouped picker shows them, with anything
 /// missing from a group appended so a new category can never be unreachable
 /// just because somebody forgot to file it.
@@ -374,6 +464,7 @@ String encodeSellDraft({
   required bool offers,
   required String place,
   required String communityId,
+  Map<String, String> attributes = const {},
 }) =>
     jsonEncode({
       'title': title,
@@ -388,6 +479,7 @@ String encodeSellDraft({
       'offers': offers,
       'place': place,
       'community': communityId,
+      if (attributes.isNotEmpty) 'attributes': attributes,
     });
 
 Map<String, dynamic>? decodeSellDraft(String raw) {
@@ -1665,6 +1757,34 @@ class ListingScreen extends StatelessWidget {
     return '';
   }
 
+  /// The listing's category attributes as (label, value) rows in the order
+  /// the category's field spec lists them — so a property always reads
+  /// type, then beds, then baths, not whatever order a map happened to
+  /// hash into. Any attribute not in the spec (an older field, a category
+  /// change) is appended after, so nothing an old listing carries is lost.
+  List<(String, String)> _orderedAttributes(FeedPost listing) {
+    final attrs = listing.listingAttributes;
+    if (attrs.isEmpty) return const [];
+    final rows = <(String, String)>[];
+    final seen = <String>{};
+    for (final f in categoryFieldsFor(listing.listingCategory)) {
+      final v = attrs[f.label];
+      if (v != null && v.trim().isNotEmpty) {
+        rows.add((
+          f.label,
+          f.suffix.isEmpty ? v : '$v ${f.suffix}',
+        ));
+        seen.add(f.label);
+      }
+    }
+    for (final e in attrs.entries) {
+      if (!seen.contains(e.key) && e.value.trim().isNotEmpty) {
+        rows.add((e.key, e.value));
+      }
+    }
+    return rows;
+  }
+
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
@@ -1931,6 +2051,13 @@ class ListingScreen extends StatelessWidget {
                                 label: 'Open to offers'),
                         ],
                       ),
+                    ],
+                    // The category-specific spec — bedrooms, mileage, rent
+                    // period — as a two-column table, in the order the sell
+                    // form asked. Only the fields that were answered.
+                    if (_orderedAttributes(listing).isNotEmpty) ...[
+                      const SizedBox(height: 14),
+                      _AttributeTable(rows: _orderedAttributes(listing)),
                     ],
                   ],
                 ),
@@ -2742,6 +2869,30 @@ class _SellScreenState extends State<SellScreen> {
   late final TextEditingController _brand =
       TextEditingController(text: widget.existing?.listingBrand ?? '');
 
+  /// The category-specific answers, keyed by field label — one controller
+  /// per free-text/number field, and [_attrChoices] for the chip pickers.
+  /// Prefilled from an existing listing. Built lazily as fields render, so
+  /// a category with no extra fields costs nothing.
+  final Map<String, TextEditingController> _attrText = {};
+  late final Map<String, String> _attrChoices = {
+    ...?widget.existing?.listingAttributes,
+  };
+
+  TextEditingController _attrController(String label) =>
+      _attrText.putIfAbsent(
+          label,
+          () => TextEditingController(
+              text: widget.existing?.listingAttributes[label] ?? ''));
+
+  /// The current answers as one map — text fields and chip picks together.
+  Map<String, String> _collectAttributes() => {
+        for (final f in categoryFieldsFor(_category))
+          if (f.choices.isEmpty)
+            f.label: _attrText[f.label]?.text ?? ''
+          else
+            f.label: _attrChoices[f.label] ?? '',
+      };
+
   /// "It was \$X" — only offered while CREATING. On an edit the field
   /// would fight the automatic price-drop history updateListing keeps.
   final TextEditingController _wasPrice = TextEditingController();
@@ -2795,6 +2946,12 @@ class _SellScreenState extends State<SellScreen> {
     _delivery = draft['delivery'] as String? ?? '';
     _offers = draft['offers'] == true;
     _place = draft['place'] as String? ?? _place;
+    final attrs = draft['attributes'];
+    if (attrs is Map) {
+      for (final e in attrs.entries) {
+        _attrChoices['${e.key}'] = '${e.value}';
+      }
+    }
     final community = draft['community'] as String? ?? '';
     if (CommunityStore.instance.communities.any((c) => c.id == community)) {
       _communityId = community;
@@ -2827,6 +2984,7 @@ class _SellScreenState extends State<SellScreen> {
           offers: _offers,
           place: _place,
           communityId: _communityId,
+          attributes: _collectAttributes(),
         ),
       );
 
@@ -2911,6 +3069,9 @@ class _SellScreenState extends State<SellScreen> {
     _price.dispose();
     _wasPrice.dispose();
     _brand.dispose();
+    for (final c in _attrText.values) {
+      c.dispose();
+    }
     _quantity.dispose();
     _description.dispose();
     super.dispose();
@@ -2943,6 +3104,66 @@ class _SellScreenState extends State<SellScreen> {
           ),
         ),
       );
+
+  /// The extra fields for the current category — a header plus one row per
+  /// field, a chip picker for a choice list and a text/number box
+  /// otherwise. Empty for a category that asks none.
+  List<Widget> _categoryFieldWidgets(BuildContext context) {
+    final fields = categoryFieldsFor(_category);
+    if (fields.isEmpty) return const [];
+    return [
+      _section('$_category details'),
+      for (final f in fields)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: f.choices.isEmpty
+              ? TextField(
+                  controller: _attrController(f.label),
+                  keyboardType: f.numeric
+                      ? const TextInputType.numberWithOptions(decimal: true)
+                      : TextInputType.text,
+                  textCapitalization: f.numeric
+                      ? TextCapitalization.none
+                      : TextCapitalization.sentences,
+                  decoration: InputDecoration(
+                      labelText: f.label,
+                      suffixText: f.suffix.isEmpty ? null : f.suffix),
+                )
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 6, left: 2),
+                      child: Text(f.label,
+                          style: TextStyle(
+                              fontSize: 12.5,
+                              color: AppColors.subtle(context))),
+                    ),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        for (final c in f.choices)
+                          ChoiceChip(
+                            label: Text(c),
+                            selected: _attrChoices[f.label] == c,
+                            onSelected: (on) => setState(() {
+                              // Re-tapping the chosen chip clears it — an
+                              // optional field the seller can leave blank.
+                              if (on) {
+                                _attrChoices[f.label] = c;
+                              } else {
+                                _attrChoices.remove(f.label);
+                              }
+                            }),
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+        ),
+    ];
+  }
 
   void _post() {
     final title = _title.text.trim();
@@ -3020,6 +3241,7 @@ class _SellScreenState extends State<SellScreen> {
         offers: _offers,
         place: _place,
         brand: _brand.text.trim(),
+        attributes: _collectAttributes(),
       );
       listing = existing;
     } else {
@@ -3037,6 +3259,7 @@ class _SellScreenState extends State<SellScreen> {
         offers: _offers,
         place: _place,
         brand: _brand.text.trim(),
+        attributes: _collectAttributes(),
         prevPriceCents: parseListingPrice(_wasPrice.text) ?? 0,
       );
       // Posted — the draft's job is done, and the brake stamps.
@@ -3443,6 +3666,11 @@ class _SellScreenState extends State<SellScreen> {
                           '${formatListingPrice(typical)}';
                 }()),
           ),
+          // The category-specific questions — bedrooms and rent period for
+          // a property, mileage and year for a car. Rebuilt when the
+          // category changes, so switching from Furniture to Vehicles swaps
+          // the whole set. Absent for categories that ask none.
+          ..._categoryFieldWidgets(context),
           if (servers.length > 1 && widget.existing == null) ...[
             _section('Where it posts'),
             DropdownButtonFormField<String>(
@@ -3883,6 +4111,53 @@ class _CategorySheetState extends State<_CategorySheet> {
 
 
 /// One fact about a listing, as a small labelled pill.
+/// The category spec as a quiet two-column table: label left, value right,
+/// a hairline between rows. The place a buyer's eye goes for the numbers.
+class _AttributeTable extends StatelessWidget {
+  final List<(String, String)> rows;
+  const _AttributeTable({required this.rows});
+
+  @override
+  Widget build(BuildContext context) {
+    final subtle = AppColors.subtle(context);
+    return Container(
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest
+            .withValues(alpha: 0.4),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+      child: Column(
+        children: [
+          for (var i = 0; i < rows.length; i++) ...[
+            if (i > 0)
+              Divider(height: 1, color: subtle.withValues(alpha: 0.15)),
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 9),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SizedBox(
+                    width: 120,
+                    child: Text(rows[i].$1,
+                        style: TextStyle(fontSize: 13.5, color: subtle)),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(rows[i].$2,
+                        style: const TextStyle(
+                            fontSize: 13.5, fontWeight: FontWeight.w600)),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
 class _ListingFact extends StatelessWidget {
   final IconData icon;
   final String label;

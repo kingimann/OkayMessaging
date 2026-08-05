@@ -33158,6 +33158,95 @@ void main() {
               'that guesses is worse than no chip');
     });
 
+    test('category fields: the spec is real categories, and answers survive '
+        'the wire', () {
+      // Every category the spec names must be a real category, or the sell
+      // form would ask questions for a listing that can never be filed.
+      for (final cat in kCategoryFields.keys) {
+        expect(kMarketplaceCategories.contains(cat), isTrue,
+            reason: '$cat has extra fields but is not a category');
+      }
+      // The headline ask: Property & Rentals carries the commercial and
+      // rental options the owner named.
+      final property = categoryFieldsFor('Property & Rentals');
+      final types = property.firstWhere((f) => f.label == 'Listing type');
+      expect(types.choices, contains('Commercial lease'));
+      expect(types.choices, contains('For rent'));
+      expect(categoryFieldsFor('Property & Rentals')
+          .any((f) => f.label == 'Bedrooms'), isTrue);
+      // A category with no spec asks nothing.
+      expect(categoryFieldsFor('Books'), isEmpty);
+      // Trimming, so a stray space still resolves.
+      expect(categoryFieldsFor('Vehicles ').isNotEmpty, isTrue);
+
+      final feed = FeedStore.instance;
+      feed.resetForTest();
+      addTearDown(feed.resetForTest);
+      final flat = feed.addListing('c1',
+          title: 'Downtown 2-bed',
+          priceCents: 180000,
+          category: 'Property & Rentals',
+          attributes: {
+            'Listing type': 'Commercial lease',
+            'Bedrooms': '2',
+            'Size': '900',
+            'Parking': '', // blank drops out
+          });
+      expect(flat.listingAttributes['Listing type'], 'Commercial lease');
+      expect(flat.listingAttributes['Bedrooms'], '2');
+      expect(flat.listingAttributes.containsKey('Parking'), isFalse,
+          reason: 'a blank answer is absent, not an empty row');
+      // The whole thing round-trips the sealed wire.
+      expect(
+          FeedPost.fromJson(flat.toJson()).listingAttributes['Size'], '900');
+
+      // Editing to a new category can drop old attributes wholesale.
+      feed.updateListing(flat.id,
+          title: 'Downtown 2-bed',
+          priceCents: 180000,
+          category: 'Vehicles',
+          attributes: {'Make': 'Honda', 'Year': '2019'});
+      final now = feed.postById(flat.id)!;
+      expect(now.listingAttributes.containsKey('Bedrooms'), isFalse,
+          reason: 'a category change replaces attributes, never merges');
+      expect(now.listingAttributes['Make'], 'Honda');
+    });
+
+    testWidgets('the sell form asks a property its own questions, and the '
+        'detail shows them', (tester) async {
+      final feed = FeedStore.instance;
+      feed.resetForTest();
+      addTearDown(feed.resetForTest);
+      final flat = feed.addListing('c1',
+          title: 'Sunny studio',
+          priceCents: 120000,
+          category: 'Property & Rentals',
+          attributes: {
+            'Listing type': 'For rent',
+            'Bedrooms': '1',
+            'Rent period': 'per month',
+            'Size': '450',
+          });
+      await tester.pumpWidget(
+          MaterialApp(home: ListingScreen(listingId: flat.id)));
+      await tester.pumpAndSettle();
+      // The spec table, in spec order, with the unit appended.
+      expect(find.text('Listing type'), findsOneWidget);
+      expect(find.text('For rent'), findsOneWidget);
+      expect(find.text('Bedrooms'), findsOneWidget);
+      expect(find.text('450 sq ft'), findsOneWidget,
+          reason: 'the size field carries its unit');
+      // A plain item shows no spec rows at all — Books asks nothing, so
+      // there is no table and none of a property's labels appear.
+      final plain = feed.addListing('c1',
+          title: 'Old book', priceCents: 500, category: 'Books');
+      await tester.pumpWidget(
+          MaterialApp(home: ListingScreen(listingId: plain.id)));
+      await tester.pumpAndSettle();
+      expect(find.text('Bedrooms'), findsNothing);
+      expect(find.text('Rent period'), findsNothing);
+    });
+
     test('a shop is only what this device has really seen', () {
       final feed = FeedStore.instance;
       feed.resetForTest();

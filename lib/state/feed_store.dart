@@ -165,6 +165,14 @@ class FeedPost {
   /// Optional brand/make line for a listing ('' = none).
   final String listingBrand;
 
+  /// Category-specific attributes for a listing — bedrooms and rent period
+  /// for a property, mileage and year for a vehicle, and so on. A flat
+  /// string map keyed by the field's label, so ONE field carries every
+  /// category's extras without a typed column per attribute; the spec that
+  /// says which keys a category asks for lives in the marketplace UI
+  /// (kCategoryFields), not here. Empty for anything that carries none.
+  final Map<String, String> listingAttributes;
+
   final String pollQuestion;
   final List<String> pollOptions;
   final List<int> pollVotes;
@@ -219,6 +227,7 @@ class FeedPost {
     this.listingPlace = '',
     this.prevPriceCents = 0,
     this.listingBrand = '',
+    this.listingAttributes = const {},
     this.pollQuestion = '',
     this.pollOptions = const [],
     this.pollVotes = const [],
@@ -284,6 +293,7 @@ class FeedPost {
         listingPlace: listingPlace,
         prevPriceCents: prevPriceCents,
         listingBrand: listingBrand,
+        listingAttributes: listingAttributes,
         pollQuestion: pollQuestion,
         pollOptions: pollOptions,
         pollVotes: pollVotes ?? this.pollVotes,
@@ -331,6 +341,8 @@ class FeedPost {
         if (listingPlace.isNotEmpty) 'listingPlace': listingPlace,
         if (prevPriceCents > 0) 'prevPriceCents': prevPriceCents,
         if (listingBrand.isNotEmpty) 'listingBrand': listingBrand,
+        if (listingAttributes.isNotEmpty)
+          'listingAttributes': listingAttributes,
         if (isPoll) ...{
           'pollQuestion': pollQuestion,
           'pollOptions': pollOptions,
@@ -378,6 +390,9 @@ class FeedPost {
         listingPlace: j['listingPlace'] as String? ?? '',
         prevPriceCents: (j['prevPriceCents'] as num?)?.toInt() ?? 0,
         listingBrand: j['listingBrand'] as String? ?? '',
+        listingAttributes: (j['listingAttributes'] as Map?)?.map(
+                (k, v) => MapEntry('$k', '$v')) ??
+            const {},
         pollQuestion: j['pollQuestion'] as String? ?? '',
         pollOptions:
             (j['pollOptions'] as List? ?? const []).whereType<String>().toList(),
@@ -1151,6 +1166,14 @@ class FeedStore extends ChangeNotifier {
     return post;
   }
 
+  /// Drops blank answers and trims the rest — an unanswered category field
+  /// is absent, not an empty row, so the detail table shows only what was
+  /// actually said.
+  static Map<String, String> _cleanAttributes(Map<String, String> raw) => {
+        for (final e in raw.entries)
+          if (e.value.trim().isNotEmpty) e.key: e.value.trim(),
+      };
+
   /// Creates a marketplace listing and shares it with the server, riding the
   /// exact post path — same sealed relay, same persistence, same tombstones.
   FeedPost addListing(
@@ -1169,6 +1192,7 @@ class FeedStore extends ChangeNotifier {
     String place = '',
     int prevPriceCents = 0,
     String brand = '',
+    Map<String, String> attributes = const {},
   }) {
     final me = AppState.profile.value;
     final post = FeedPost(
@@ -1196,6 +1220,7 @@ class FeedStore extends ChangeNotifier {
       // while it is higher than the ask, same as an edit-time price drop.
       prevPriceCents: prevPriceCents > priceCents ? prevPriceCents : 0,
       listingBrand: brand.trim(),
+      listingAttributes: _cleanAttributes(attributes),
     );
     _posts.add(post);
     _addPhotoParts(post, extraPhotos);
@@ -1417,6 +1442,7 @@ class FeedStore extends ChangeNotifier {
     String? videoPath,
     String? condition,
     String? brand,
+    Map<String, String>? attributes,
   }) {
     final i = _posts.indexWhere((p) => p.id == postId);
     if (i == -1 || !_posts[i].isListing || title.trim().isEmpty) return false;
@@ -1459,6 +1485,11 @@ class FeedStore extends ChangeNotifier {
       listingOffers: offers ?? post.listingOffers,
       listingPlace: place ?? post.listingPlace,
       listingBrand: brand ?? post.listingBrand,
+      // Replaced wholesale, not merged: editing a listing's category can
+      // drop fields the old one had, so a stale attribute must not linger.
+      listingAttributes: attributes != null
+          ? _cleanAttributes(attributes)
+          : post.listingAttributes,
       // Remember the old ask across ONE change, so a drop can be shown.
       // An unchanged price keeps whatever history it had.
       prevPriceCents: priceCents != (post.priceCents ?? 0)
