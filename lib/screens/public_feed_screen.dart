@@ -2942,7 +2942,9 @@ class _ComposerState extends State<_Composer> {
   Widget build(BuildContext context) {
     final me = AppState.profile.value;
     final typed = _text.text.trim().length;
-    final left = PublicFeedStore.maxLength - typed;
+    // A subscribers-only post is long-form, so it gets the much larger cap.
+    final cap = PublicFeedStore.maxLengthFor(_subscribersOnly);
+    final left = cap - typed;
     final accent = Theme.of(context).colorScheme.primary;
     final postable = !_sending &&
         left >= 0 &&
@@ -3273,7 +3275,7 @@ class _ComposerState extends State<_Composer> {
                         : _togglePoll,
                   ),
                   const Spacer(),
-                  _CharacterRing(used: typed, limit: PublicFeedStore.maxLength),
+                  _CharacterRing(used: typed, limit: cap),
                 ],
               ),
             ),

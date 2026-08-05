@@ -182,10 +182,33 @@ class _WalletScreenState extends State<WalletScreen> {
       if (ok) _refresh();
     } on PaymentException catch (e) {
       if (!mounted) return;
-      messenger.showSnackBar(SnackBar(
-          content: Text(e.code == 'parental_locked'
-              ? 'Payments are turned off by Screen Time.'
-              : 'Couldn\'t add money right now.')));
+      messenger.showSnackBar(
+          SnackBar(content: Text(_addMoneyError(e.code))));
+    } catch (e) {
+      // A failure that ISN'T a PaymentException — the top-up function not
+      // deployed, or the network — used to escape here and the button just
+      // did nothing. Say so instead of swallowing it.
+      if (!mounted) return;
+      messenger.showSnackBar(const SnackBar(
+          content: Text(
+              'Couldn\'t reach the top-up service. It may not be set up '
+              'yet — try again shortly.')));
+    }
+  }
+
+  /// A readable line for each way a top-up can be refused.
+  String _addMoneyError(String code) {
+    switch (code) {
+      case 'parental_locked':
+        return 'Payments are turned off by Screen Time.';
+      case 'not_onboarded':
+        return 'Finish setting up payouts before you can add money.';
+      case 'identity_required':
+        return 'Verify your identity to add money.';
+      case 'sender_banned':
+        return 'This account can\'t move money right now.';
+      default:
+        return 'Couldn\'t add money right now ($code).';
     }
   }
 

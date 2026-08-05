@@ -581,17 +581,29 @@ class PublicFeedStore extends ChangeNotifier {
   ///
   /// Empty text is fine when the post carries something else — an image or a
   /// repost — which mirrors the CHECK on the table rather than guessing at it.
+  /// A subscribers-only post is long-form on purpose — a newsletter, a story,
+  /// the thing people are paying to read — so it isn't held to the timeline's
+  /// tweet-length cap. (The gated body is a Postgres `text` column, so this is
+  /// only a sane client bound, not a storage limit.)
+  static const int maxPaidLength = 20000;
+
+  /// The character cap that applies to a post, given whether it's paywalled.
+  static int maxLengthFor(bool subscribersOnly) =>
+      subscribersOnly ? maxPaidLength : maxLength;
+
   static String? validate(String text,
       {bool hasImage = false,
       bool isRepost = false,
       bool hasGif = false,
-      bool hasVideo = false}) {
+      bool hasVideo = false,
+      bool subscribersOnly = false}) {
     final t = text.trim();
     if (t.isEmpty && !hasImage && !isRepost && !hasGif && !hasVideo) {
       return 'Write something first.';
     }
-    if (t.length > maxLength) {
-      return 'That\'s ${t.length - maxLength} characters too long.';
+    final cap = maxLengthFor(subscribersOnly);
+    if (t.length > cap) {
+      return 'That\'s ${t.length - cap} characters too long.';
     }
     return null;
   }
@@ -1480,7 +1492,8 @@ class PublicFeedStore extends ChangeNotifier {
         hasImage: image != null,
         isRepost: repostOf != null,
         hasGif: (gifUrl ?? '').isNotEmpty,
-        hasVideo: video != null);
+        hasVideo: video != null,
+        subscribersOnly: subscribersOnly);
     if (problem != null) throw PublicFeedError(problem);
     // A subscribers-only post is a standalone piece of writing: its full text
     // is served only to subscribers, so it cannot be a reply, a repost or a

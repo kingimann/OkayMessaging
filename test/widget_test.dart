@@ -5489,6 +5489,18 @@ void main() {
       expect(ok, isTrue);
     });
 
+    test('a failed top-up is surfaced, not silently swallowed', () {
+      // The button used to catch only PaymentException, so a top-up function
+      // that isn't deployed (or a network error) escaped and the button just
+      // did nothing. Now every failure shows a line.
+      final src = File('lib/screens/wallet_screen.dart').readAsStringSync();
+      expect(src, contains('} catch (e) {'),
+          reason: 'a non-PaymentException must not escape the add-money button');
+      expect(src, contains('reach the top-up service'));
+      expect(src, contains('not_onboarded'));
+      expect(src, contains('identity_required'));
+    });
+
     test('top-up refuses when parental payments lock is on', () async {
       final svc = PaymentService.instance;
       final pc = ParentalControls.instance;
@@ -8914,6 +8926,19 @@ void main() {
       // for the author who just wrote it.
       expect(captured!.body, 'Peek');
       expect(captured!.unlocked, 'The paid words');
+    });
+
+    test('a subscribers-only post gets the long-form length cap', () {
+      // Over the timeline's tweet-length cap, which subscribers-only long-form
+      // content routinely is.
+      final long = 'x' * (PublicFeedStore.maxLength + 500);
+      expect(PublicFeedStore.validate(long), isNotNull,
+          reason: 'too long for an ordinary post');
+      expect(PublicFeedStore.validate(long, subscribersOnly: true), isNull,
+          reason: 'a paid post is long-form, so this is fine');
+      // There's still a sane upper bound.
+      final huge = 'x' * (PublicFeedStore.maxPaidLength + 1);
+      expect(PublicFeedStore.validate(huge, subscribersOnly: true), isNotNull);
     });
 
     test('a non-creator cannot post subscribers-only', () async {
