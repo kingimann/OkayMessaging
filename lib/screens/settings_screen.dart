@@ -36,6 +36,7 @@ import 'my_qr_screen.dart';
 import 'okay_pro_screen.dart';
 import 'permissions_screen.dart';
 import 'privacy_settings_screen.dart';
+import 'transparency_screen.dart';
 import 'public_feed_screen.dart' show BookmarksScreen, MutedAccountsScreen;
 import 'profile_screen.dart';
 import 'quick_replies_screen.dart';
@@ -98,6 +99,16 @@ class SettingsView extends StatelessWidget {
               subtitle: 'Camera, microphone, location, contacts, photos',
               onTap: () => Navigator.of(context).push(
                 MaterialPageRoute(builder: (_) => const PermissionsScreen()),
+              ),
+            ),
+            InfoTile(
+              leading: const Icon(Icons.visibility_outlined),
+              title: 'What the server can see',
+              subtitle:
+                  'The honest page: what we hold, and what we can\'t read',
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                    builder: (_) => const TransparencyScreen()),
               ),
             ),
           ],

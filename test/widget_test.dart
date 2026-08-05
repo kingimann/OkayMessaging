@@ -153,6 +153,7 @@ import 'package:okay_messaging/state/sidebar_prefs.dart';
 import 'package:okay_messaging/screens/sidebar_customize_screen.dart';
 import 'package:okay_messaging/screens/my_listings_screen.dart';
 import 'package:okay_messaging/screens/marketplace_chats_screen.dart';
+import 'package:okay_messaging/screens/transparency_screen.dart';
 import 'package:okay_messaging/payments/connect_webview.dart';
 import 'package:okay_messaging/payments/connect_webview_stub.dart' as stub;
 import 'package:okay_messaging/payments/payment_amount_sheet.dart';
@@ -33231,6 +33232,38 @@ void main() {
       expect(sent.map((e) => e.$1).toSet(), {'ada', 'sam'});
       await PublicFeedStore.instance.pushLocalFollows(follows.following);
       expect(sent.length, 2, reason: 'the push is once per run, not a loop');
+    });
+
+    testWidgets('the transparency page tells the hard parts too',
+        (tester) async {
+      // Tall enough that the whole page builds — the hard parts live at
+      // the bottom, and a lazy list would hide exactly them.
+      tester.view.physicalSize = const Size(600, 3000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      await tester
+          .pumpWidget(const MaterialApp(home: TransparencyScreen()));
+      await tester.pumpAndSettle();
+      // The sentences that make the page information rather than
+      // advertising — losing any of them in an edit is losing the point.
+      expect(find.textContaining('sealed envelopes it cannot open'),
+          findsOneWidget);
+      expect(find.textContaining('swept after 14'), findsOneWidget);
+      expect(find.textContaining('could not get what any message says'),
+          findsOneWidget);
+      expect(find.textContaining('recording delivery'), findsOneWidget,
+          reason: 'prospective-logging risk must be said, not hidden');
+      expect(find.textContaining('set a passphrase'), findsOneWidget,
+          reason: 'the phone-derived-key weakness is the user\'s to fix');
+      // The operator half exists, and the two halves name each other.
+      final doc = File('docs/lawful_requests.md').readAsStringSync();
+      expect(doc, contains('phone-derived key'));
+      expect(doc, contains('public_follows'));
+      expect(doc, contains('What the server can see'),
+          reason: 'the doc must point at the in-app page it mirrors');
+      // The way in exists.
+      expect(File('lib/screens/settings_screen.dart').readAsStringSync(),
+          contains('TransparencyScreen'));
     });
 
     test('the follows table keeps its phones to itself, in executable SQL',
