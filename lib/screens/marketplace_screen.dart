@@ -35,6 +35,7 @@ import '../widgets/verified_badge.dart';
 import 'chat_screen.dart';
 import 'feed_screen.dart' show showPersonSheet, feedSpans;
 import 'forward_screen.dart';
+import 'my_listings_screen.dart';
 import '../widgets/verified_gate.dart';
 
 /// The most photos one listing may carry. Each photo is its own relay
@@ -1096,6 +1097,15 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
             tooltip: 'Filter',
             onPressed: _openFilters,
           ),
+          // The seller hub. Withheld browse-only for the Sell button's
+          // reason: a numberless account has nothing there to manage.
+          if (!browseOnly)
+            IconButton(
+              icon: const Icon(Icons.inventory_2_outlined),
+              tooltip: 'Your listings',
+              onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => const MyListingsScreen())),
+            ),
         ],
       ),
       // Withheld on the browse-only path: a numberless account cannot list,
@@ -1656,9 +1666,14 @@ class ListingScreen extends StatelessWidget {
         final description = lines.skip(1).join('\n').trim();
         // After the frame, not during it: noteViewed notifies listeners,
         // and this very builder is one of them. Repeat frames no-op — the
-        // id is already at the front of the shelf.
-        WidgetsBinding.instance.addPostFrameCallback(
-            (_) => FeedStore.instance.noteViewed(listing.id));
+        // id is already at the front of the shelf. recordPostView rides
+        // along: a listing is a post, so an open here is the same
+        // once-per-member view tally the feeds keep, and it is what the
+        // seller hub's "viewers" number honestly is.
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          FeedStore.instance.noteViewed(listing.id);
+          FeedStore.instance.recordPostView(listing.id);
+        });
         final mine = _mine(listing);
         final serverName = _serverName(listing.communityId);
         final scheme = Theme.of(context).colorScheme;

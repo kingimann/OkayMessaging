@@ -151,6 +151,7 @@ import 'package:okay_messaging/payments/earnings.dart';
 import 'package:okay_messaging/screens/earnings_screen.dart';
 import 'package:okay_messaging/state/sidebar_prefs.dart';
 import 'package:okay_messaging/screens/sidebar_customize_screen.dart';
+import 'package:okay_messaging/screens/my_listings_screen.dart';
 import 'package:okay_messaging/payments/connect_webview.dart';
 import 'package:okay_messaging/payments/connect_webview_stub.dart' as stub;
 import 'package:okay_messaging/payments/payment_amount_sheet.dart';
@@ -32487,6 +32488,85 @@ void main() {
       final src = File('lib/screens/home_screen.dart').readAsStringSync();
       expect(src, contains("title: const Text('Settings')"),
           reason: 'the Settings row lives outside the customizable block');
+    });
+  });
+
+  group('Marketplace seller hub', () {
+    setUp(() => SharedPreferences.setMockInitialValues({}));
+
+    testWidgets('one place lists your listings, with the levers on each',
+        (tester) async {
+      final store = FeedStore.instance;
+      store.resetForTest();
+      addTearDown(store.resetForTest);
+      final active = store.addListing('c1',
+          title: 'Trek bike', priceCents: 12000, category: 'Sports');
+      final sold = store.addListing('c1',
+          title: 'Lamp', priceCents: 1500, category: 'Home');
+      store.setListingSold(sold.id, true);
+      // A stranger's listing is theirs to manage, never yours.
+      store.addRemote(FeedPost(
+          id: 'their1',
+          communityId: 'c1',
+          authorName: 'Grace',
+          authorUsername: 'grace',
+          time: DateTime(2026, 1, 1),
+          text: 'Grace couch',
+          priceCents: 9000));
+
+      await tester.pumpWidget(const MaterialApp(home: MyListingsScreen()));
+      await tester.pumpAndSettle();
+      expect(find.text('1 active · 1 sold · \$15 in sales'), findsOneWidget);
+      expect(find.text('Trek bike'), findsOneWidget);
+      expect(find.text('Lamp'), findsOneWidget);
+      expect(find.text('Grace couch'), findsNothing);
+
+      // Mark the bike sold from the manage menu — no hunting the grid.
+      // The active section holds one row, so its menu is unambiguous.
+      await tester.tap(find.byTooltip('Manage').first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Mark sold'));
+      await tester.pumpAndSettle();
+      expect(store.postById(active.id)!.listingSold, isTrue);
+      expect(find.text('0 active · 2 sold · \$135 in sales'), findsOneWidget);
+
+      // Delete asks first, then it is gone for everyone.
+      await tester.tap(find.byTooltip('Manage').first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Delete'));
+      await tester.pumpAndSettle();
+      expect(find.text('Delete this listing?'), findsOneWidget);
+      await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('0 active · 1 sold'), findsOneWidget);
+    });
+
+    testWidgets('opening a listing counts a viewer the seller can see',
+        (tester) async {
+      final store = FeedStore.instance;
+      store.resetForTest();
+      addTearDown(store.resetForTest);
+      final l = store.addListing('c1',
+          title: 'Kettle', priceCents: 800, category: 'Home');
+      await tester
+          .pumpWidget(MaterialApp(home: ListingScreen(listingId: l.id)));
+      await tester.pumpAndSettle();
+      expect(store.postById(l.id)!.views, 1,
+          reason: 'a listing is a post, so an open rides the same '
+              'once-per-member view tally the feeds keep');
+      await tester.pumpWidget(const MaterialApp(home: MyListingsScreen()));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('1 viewer'), findsOneWidget);
+    });
+
+    test('the hub is one tap from the Marketplace app bar, sellers only',
+        () {
+      final src =
+          File('lib/screens/marketplace_screen.dart').readAsStringSync();
+      expect(src, contains("tooltip: 'Your listings'"));
+      // Withheld browse-only, same reasoning as the Sell button: a
+      // numberless account has nothing there to manage.
+      expect(src, contains('if (!browseOnly)'));
     });
   });
 
