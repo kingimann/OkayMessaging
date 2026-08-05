@@ -2803,9 +2803,21 @@ class _ChatScreenState extends State<ChatScreen> {
     // list as everybody's rather than only the people who replied to them.
     _store.applyFormResponse(_chatId, message.id,
         FormResponse(from: mine, answers: answers, at: DateTime.now()));
-    if (RelayConfig.isEnabled && _isRealPeer(widget.chat.contact)) {
-      RelayService.instance
-          .sendFormResponse(widget.chat.contact.phone, message.id, answers);
+    // The answers go to the form's AUTHOR alone. In a group that is the
+    // member who sent it — senderPhone rides every group message — and
+    // deliberately not the whole room: recipients are never shown who else
+    // answered, so their devices have no business holding the answers
+    // either. This used to be gated on the chat's CONTACT being a real
+    // peer, which a group's pseudo-contact never is — so a group form's
+    // answers went nowhere at all.
+    final author = widget.chat.contact.isGroup
+        ? message.senderPhone
+        : (_isRealPeer(widget.chat.contact)
+            ? widget.chat.contact.phone
+            : '');
+    if (RelayConfig.isEnabled &&
+        RelayService.digits(author).isNotEmpty) {
+      RelayService.instance.sendFormResponse(author, message.id, answers);
     }
   }
 

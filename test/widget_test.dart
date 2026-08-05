@@ -32693,6 +32693,63 @@ void main() {
       expect(relay, contains("marketplace: content['marketplace'] == true"));
     });
 
+    test('a group form\'s answers find their way back to its author', () {
+      // The apply side: a response event for a form living in a GROUP chat
+      // lands on that group's copy, found by message id.
+      final store = ChatStore.instance;
+      store.hydrate(const {'chats': []});
+      addTearDown(store.reset);
+      store.upsert(Chat(
+        id: 'group_forms',
+        contact: const AppUser(
+            id: 'group_forms',
+            name: 'Planning',
+            avatarColor: '#111111',
+            isGroup: true),
+        members: const [
+          AppUser(
+              id: '+15550174',
+              name: 'Riley',
+              avatarColor: '#222222',
+              phone: '+15550174'),
+        ],
+        messages: [
+          Message(
+              id: 'form_g1',
+              text: '',
+              time: DateTime(2026, 8, 1),
+              isMe: true,
+              status: MessageStatus.sent,
+              isForm: true,
+              formTitle: 'Potluck',
+              formFields: const [
+                FormFieldSpec(label: 'Bringing?', kind: FormFieldKind.text)
+              ]),
+        ],
+      ));
+      RelayService.applyMessageEvent('form', {
+        'from': '+1 555 0174',
+        'id': 'form_g1',
+        'name': 'Riley',
+        'answers': ['salad'],
+      }, myPhone: '+1 555 0100', store: store);
+      final form = store
+          .chatById('group_forms')!
+          .messages
+          .singleWhere((m) => m.id == 'form_g1');
+      expect(form.formResponses.single.answers, ['salad']);
+      expect(form.formResponses.single.from, 'Riley');
+
+      // The send side addresses the AUTHOR (senderPhone in a group), and
+      // never the room — recipients are not shown who else answered, so
+      // their devices must not hold the answers either.
+      final src = File('lib/screens/chat_screen.dart').readAsStringSync();
+      expect(src, contains('? message.senderPhone'));
+      expect(src.contains('for (final phone in _relayPhones()) {\n'
+              '      RelayService.instance.sendFormResponse'), isFalse,
+          reason: 'form answers are for the author, not a fan-out');
+    });
+
     test('a waiting buyer still lights the tab badge, and Mark all read '
         'means all', () {
       // Splitting marketplace chats out of `chats` silently dropped their

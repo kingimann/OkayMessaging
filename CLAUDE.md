@@ -432,9 +432,13 @@ onto the wrong question. Answering twice corrects rather than duplicates. The
 card says a different thing to each side: the sender gets the count and can
 read them, recipients are never shown who else answered.
 
-**Known limit**: responses come back over the 1:1 path, so a form sent to a
-group only aggregates from direct peers. Group fan-out for responses is not
-built.
+**Group forms answer their author** (closed 2026-08-05; it used to be a
+known limit): a response addresses the member who sent the form —
+`senderPhone` rides every group message — never the whole room, because
+recipients are never shown who else answered and their devices shouldn't
+hold the answers either. The old gate required the chat's CONTACT to be a
+real peer, which a group's pseudo-contact never is, so a group form's
+answers went nowhere.
 
 ## Quick replies
 
