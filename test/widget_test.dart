@@ -31949,6 +31949,79 @@ void main() {
     });
   });
 
+  group('Profile shows likes and reposts', () {
+    PublicPost pp(String id,
+            {String author = 'sam',
+            String? replyTo,
+            String? repostOf,
+            String body = ''}) =>
+        PublicPost(
+          id: id,
+          authorUsername: author,
+          authorName: author,
+          body: body.isEmpty ? 'body of $id' : body,
+          replyTo: replyTo,
+          repostOf: repostOf,
+          createdAt: DateTime(2026, 1, 1),
+        );
+
+    test('the Reposts tab is the passing-along, isolated', () {
+      final all = [
+        pp('own'),
+        pp('rp', repostOf: 'other', body: 'quoted'),
+        pp('re', replyTo: 'other'),
+      ];
+      expect(
+          PublicFeedStore.profileTab(all, ProfileTab.reposts)
+              .map((p) => p.id),
+          ['rp']);
+      // Reposts also stay on Posts — the tab isolates, it does not move.
+      expect(
+          PublicFeedStore.profileTab(all, ProfileTab.posts).map((p) => p.id),
+          ['own', 'rp']);
+      // Likes and servers come from elsewhere; the author's posts hold none.
+      expect(PublicFeedStore.profileTab(all, ProfileTab.likes), isEmpty);
+    });
+
+    testWidgets('your own profile has a Likes tab that lists your likes',
+        (tester) async {
+      final store = PublicFeedStore.instance;
+      addTearDown(store.resetForTest);
+      addTearDown(AppState.resetForTest);
+      AppState.updateProfile(name: 'Me', about: 'hi', username: 'me1');
+      PublicFeedStore.debugProfileOverride =
+          (username) async => [pp('mine', author: 'me1')];
+      PublicFeedStore.debugLikedPostsOverride = () async =>
+          [pp('lk1', author: 'grace', body: 'a post I liked')];
+      await tester.pumpWidget(
+          const MaterialApp(home: PublicProfileScreen(username: 'me1')));
+      await tester.pumpAndSettle();
+      expect(find.byTooltip('Likes'), findsOneWidget);
+      await tester.tap(find.byTooltip('Likes'));
+      await tester.pumpAndSettle();
+      expect(find.text('a post I liked'), findsOneWidget);
+    });
+
+    testWidgets('a stranger\'s profile has Reposts but never Likes',
+        (tester) async {
+      final store = PublicFeedStore.instance;
+      addTearDown(store.resetForTest);
+      addTearDown(AppState.resetForTest);
+      AppState.updateProfile(name: 'Me', about: 'hi', username: 'me1');
+      PublicFeedStore.debugProfileOverride = (username) async =>
+          [pp('their_rp', author: 'other', repostOf: 'x', body: 'passed on')];
+      await tester.pumpWidget(
+          const MaterialApp(home: PublicProfileScreen(username: 'other')));
+      await tester.pumpAndSettle();
+      // What somebody else liked is their business — the tab does not exist.
+      expect(find.byTooltip('Likes'), findsNothing);
+      expect(find.byTooltip('Servers'), findsNothing);
+      await tester.tap(find.byTooltip('Reposts'));
+      await tester.pumpAndSettle();
+      expect(find.text('passed on'), findsOneWidget);
+    });
+  });
+
   group('Login polish and the AI boundary', () {
     test('the login fields help the keyboard help you', () {
       final src =

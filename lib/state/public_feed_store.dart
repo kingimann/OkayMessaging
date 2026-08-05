@@ -258,7 +258,18 @@ class PublicFeedError implements Exception {
 enum ProfileTab {
   posts,
   replies,
+
+  /// What this account passed along. Reposts also stay on Posts (they are
+  /// things this person put in front of their followers); this tab is the
+  /// same content isolated, for the question "what do they share?".
+  reposts,
   media,
+
+  /// Posts this account has LIKED. Only ever shown on your own profile:
+  /// the likes table shows nobody's rows but your own, and that privacy is
+  /// kept rather than worked around — what somebody else liked is their
+  /// business.
+  likes,
 
   /// Posts in the servers this account belongs to. Only ever shown on your own
   /// profile: a server's feed is encrypted with that server's key, so there is
@@ -275,14 +286,18 @@ enum ProfileTab {
         // is worse than a word.
         ProfileTab.posts => Icons.article_outlined,
         ProfileTab.replies => Icons.reply_outlined,
+        ProfileTab.reposts => Icons.repeat,
         ProfileTab.media => Icons.image_outlined,
+        ProfileTab.likes => Icons.favorite_border,
         ProfileTab.servers => Icons.workspaces_outline,
       };
 
   String get label => switch (this) {
         ProfileTab.posts => 'Posts',
         ProfileTab.replies => 'Replies',
+        ProfileTab.reposts => 'Reposts',
         ProfileTab.media => 'Media',
+        ProfileTab.likes => 'Likes',
         ProfileTab.servers => 'Servers',
       };
 }
@@ -857,6 +872,24 @@ class PublicFeedStore extends ChangeNotifier {
     }
   }
 
+  /// Test hook: stands in for the own-likes fetch.
+  @visibleForTesting
+  static Future<List<PublicPost>> Function()? debugLikedPostsOverride;
+
+  /// The posts THIS account has liked, newest first — the own-profile
+  /// Likes tab. Own likes are the only ones the server lets anyone read,
+  /// which is also the only ones a profile should show: what somebody else
+  /// liked is their business. A liked post that has since been deleted
+  /// simply isn't returned.
+  Future<List<PublicPost>> myLikedPosts() async {
+    final override = debugLikedPostsOverride;
+    if (override != null) return override();
+    final ids = (await _myLikes()).toList();
+    if (ids.isEmpty) return const [];
+    final (found, _) = await postsByIds(ids);
+    return found;
+  }
+
   /// Everyone whose repost points at [postId], newest first. A repost is an
   /// ordinary public post, so this is a plain read — nothing to unhide.
   Future<List<PublicPost>> repostersOf(String postId) async {
@@ -935,9 +968,11 @@ class PublicFeedStore extends ChangeNotifier {
         // put in front of their followers, which is what the tab is for.
         ProfileTab.posts => [for (final p in all) if (p.replyTo == null) p],
         ProfileTab.replies => [for (final p in all) if (p.replyTo != null) p],
+        ProfileTab.reposts => [for (final p in all) if (p.repostOf != null) p],
         ProfileTab.media => [for (final p in all) if (p.hasImage) p],
-        // Server posts are a different thing entirely and come from elsewhere;
-        // there is nothing here to filter.
+        // Likes and server posts come from elsewhere entirely; there is
+        // nothing in this person's own posts to filter for them.
+        ProfileTab.likes => const [],
         ProfileTab.servers => const [],
       };
 
@@ -1590,6 +1625,7 @@ class PublicFeedStore extends ChangeNotifier {
     debugThreadRepliesOverride = null;
     debugLikersOverride = null;
     debugRepostersOverride = null;
+    debugLikedPostsOverride = null;
     _filter = FeedFilter.forYou;
     _query = '';
     _tag = '';

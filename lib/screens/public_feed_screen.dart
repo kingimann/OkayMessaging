@@ -616,11 +616,33 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
   ProfileTab _tab = ProfileTab.posts;
 
   /// Servers is yours alone — a server's feed is encrypted with that server's
-  /// key, so there is no such thing as seeing a stranger's server posts.
+  /// key, so there is no such thing as seeing a stranger's server posts. So
+  /// is Likes: the likes table shows nobody's rows but your own, and what
+  /// somebody else liked is their business.
   List<ProfileTab> get _tabs => [
         for (final t in ProfileTab.values)
-          if (t != ProfileTab.servers || _isMe) t
+          if ((t != ProfileTab.servers && t != ProfileTab.likes) || _isMe) t
       ];
+
+  /// The own-profile Likes tab's content, loaded on first open. Null while
+  /// never loaded; empty when loaded and there is nothing.
+  List<PublicPost>? _liked;
+  bool _loadingLiked = false;
+
+  Future<void> _loadLiked() async {
+    if (_loadingLiked) return;
+    setState(() => _loadingLiked = true);
+    try {
+      final liked = await PublicFeedStore.instance.myLikedPosts();
+      if (!mounted) return;
+      setState(() {
+        _liked = liked;
+        _loadingLiked = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _loadingLiked = false);
+    }
+  }
 
   @override
   void initState() {
@@ -734,7 +756,12 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
                     labels: [for (final t in _tabs) t.label],
                     icons: [for (final t in _tabs) t.icon],
                     active: _tabs.indexOf(_tab),
-                    onPick: (i) => setState(() => _tab = _tabs[i]),
+                    onPick: (i) {
+                      setState(() => _tab = _tabs[i]);
+                      if (_tab == ProfileTab.likes && _liked == null) {
+                        _loadLiked();
+                      }
+                    },
                   ),
                 ),
               ),
@@ -751,6 +778,9 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
               // encrypted per server and have nothing to do with the public feed.
               else if (_tab == ProfileTab.servers)
                 _serverPosts(context)
+              // Own likes come from their own fetch, not this person's posts.
+              else if (_tab == ProfileTab.likes)
+                _likedPosts(context)
               else if (tabPosts.isEmpty)
                 SliverToBoxAdapter(child: _emptyTab())
               // Photos are what somebody came to the Media tab to look at, so
@@ -790,6 +820,40 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  /// The posts you liked — your own likes are the only ones the server
+  /// lets anyone read, and the only ones a profile should show.
+  Widget _likedPosts(BuildContext context) {
+    final liked = _liked;
+    if (liked == null) {
+      // Never loaded (e.g. the tab restored mid-session): kick it off.
+      if (!_loadingLiked) _loadLiked();
+      return const SliverToBoxAdapter(
+        child: Padding(
+          padding: EdgeInsets.symmetric(vertical: 48),
+          child: Center(child: CircularProgressIndicator()),
+        ),
+      );
+    }
+    if (liked.isEmpty) {
+      return SliverToBoxAdapter(
+        child: _profileMessage(
+            'Nothing liked yet. Posts you like on the newsfeed collect '
+            'here — only you can see this tab.'),
+      );
+    }
+    return SliverList.separated(
+      itemCount: liked.length,
+      separatorBuilder: (_, __) => const Divider(height: 1),
+      itemBuilder: (context, i) => _Entry(
+        post: liked[i],
+        onReply: (target) => Navigator.of(context).push(MaterialPageRoute(
+            builder: (_) => PublicThreadScreen(postId: target.id))),
+        onOpen: (target) => Navigator.of(context).push(MaterialPageRoute(
+            builder: (_) => PublicThreadScreen(postId: target.id))),
       ),
     );
   }
@@ -858,7 +922,18 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
           'No photos yet',
           'Posts with a picture in them show up here.',
         ),
+      ProfileTab.reposts when _isMe => (
+          Icons.repeat,
+          'Nothing reposted yet',
+          'Posts you pass along show up here.',
+        ),
+      ProfileTab.reposts => (
+          Icons.repeat,
+          'No reposts yet',
+          'When this account passes a post along, it appears here.',
+        ),
       // Handled above; a switch over an enum has to be complete.
+      ProfileTab.likes => (Icons.favorite_border, '', ''),
       ProfileTab.servers => (Icons.forum_outlined, '', ''),
     };
     return Padding(
