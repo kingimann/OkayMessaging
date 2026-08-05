@@ -32254,6 +32254,112 @@ void main() {
     });
   });
 
+  group('Group seen-by and the reorganized settings', () {
+    test('a group read receipt records WHO, up to the message it names', () {
+      final store = ChatStore.instance;
+      store.reset();
+      addTearDown(store.reset);
+      Message own(String id) => Message(
+          id: id,
+          text: id,
+          time: DateTime(2026, 1, 1),
+          isMe: true,
+          status: MessageStatus.sent);
+      final group = Chat(
+        id: 'g1',
+        contact: const AppUser(
+            id: 'g1', name: 'Crew', avatarColor: '#111111', isGroup: true),
+        members: const [
+          AppUser(
+              id: '15550001111',
+              name: 'Ada',
+              avatarColor: '#222222',
+              phone: '+1 555 000 1111'),
+          AppUser(
+              id: '15550002222',
+              name: 'Sam',
+              avatarColor: '#333333',
+              phone: '+1 555 000 2222'),
+        ],
+        messages: [own('gsb1'), own('gsb2'), own('gsb3')],
+      );
+      store.upsert(group);
+
+      // Ada's receipt names m2: m1 and m2 gain her, m3 does not.
+      final receipt = {
+        'from': '+15550001111',
+        'kind': 'read',
+        'id': 'gsb2',
+      };
+      expect(
+          RelayService.applyReceipt(receipt, myPhone: '+15550009999'), isTrue);
+      List<String> seen(String id) => store
+          .chatById('g1')!
+          .messages
+          .firstWhere((m) => m.id == id)
+          .seenBy;
+      expect(seen('gsb1'), ['15550001111'],
+          reason: 'a receipt implies everything before the message it names');
+      expect(seen('gsb2'), ['15550001111']);
+      expect(seen('gsb3'), isEmpty);
+
+      // The same receipt again does not double her.
+      RelayService.applyReceipt(receipt, myPhone: '+15550009999');
+      expect(seen('gsb2'), ['15550001111']);
+
+      // Sam catches up past the end.
+      RelayService.applyReceipt(
+          {'from': '+15550002222', 'kind': 'read', 'id': 'gsb3'},
+          myPhone: '+15550009999');
+      expect(seen('gsb3'), ['15550002222']);
+      expect(seen('gsb1'), ['15550001111', '15550002222']);
+
+      // And it survives the json round trip.
+      final back = Message.fromJson(store
+          .chatById('g1')!
+          .messages
+          .first
+          .toJson());
+      expect(back.seenBy, ['15550001111', '15550002222']);
+    });
+
+    test('the sheet offers seen-by on own group messages only', () {
+      final src = File('lib/screens/chat_screen.dart').readAsStringSync();
+      expect(src,
+          contains('if (widget.chat.contact.isGroup && message.isMe)'));
+      expect(src, contains("'Seen by nobody yet'"));
+      expect(src, contains('void _showSeenBy'));
+      // Nobody's reading is timestamped — the sheet lists names, no times.
+      final sheet = src.substring(src.indexOf('void _showSeenBy'),
+          src.indexOf('/// Toggles a reaction'));
+      expect(sheet.contains('DateFormatter'), isFalse);
+    });
+
+    test('settings: purpose-named sections instead of one Preferences pile',
+        () {
+      final src = File('lib/screens/settings_screen.dart').readAsStringSync();
+      for (final section in [
+        "'Privacy & security'",
+        "'Chats'",
+        "'Newsfeed'",
+        "'Notifications & calls'",
+        "'Tips & subscriptions'",
+        "'Account'",
+        "'About & support'",
+      ]) {
+        expect(src, contains('settingsSectionLabel(context, $section)'),
+            reason: '$section section missing');
+      }
+      expect(src.contains("settingsSectionLabel(context, 'Preferences')"),
+          isFalse, reason: 'the grab-bag is gone');
+      // Daily-use sections sit above the money ones.
+      expect(
+          src.indexOf("'Privacy & security')") <
+              src.indexOf("'Tips & subscriptions')"),
+          isTrue);
+    });
+  });
+
   group('Login polish and the AI boundary', () {
     test('the login fields help the keyboard help you', () {
       final src =

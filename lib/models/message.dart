@@ -57,6 +57,12 @@ class Message {
   /// Emoji reactions attached to this message (e.g. ['👍', '❤️']).
   final List<String> reactions;
 
+  /// Group members (digits) whose read receipt has covered this message —
+  /// a receipt names the newest message it acknowledges, and everything
+  /// before it is implied, the same prefix the ticks already use. Only
+  /// meaningful on OWN messages in a group; empty everywhere else.
+  final List<String> seenBy;
+
   /// The quoted message this one replies to, if any.
   final ReplyInfo? replyTo;
 
@@ -223,6 +229,7 @@ class Message {
     this.senderName = '',
     this.senderPhone = '',
     this.reactions = const [],
+    this.seenBy = const [],
     this.replyTo,
     this.forwarded = false,
     this.threadRootId,
@@ -290,6 +297,7 @@ class Message {
         'senderName': senderName,
         if (senderPhone.isNotEmpty) 'senderPhone': senderPhone,
         'reactions': reactions,
+        if (seenBy.isNotEmpty) 'seenBy': seenBy,
         'replyTo': replyTo?.toJson(),
         'forwarded': forwarded,
         'threadRootId': threadRootId,
@@ -348,6 +356,7 @@ class Message {
         senderName: json['senderName'] as String? ?? '',
         senderPhone: json['senderPhone'] as String? ?? '',
         reactions: (json['reactions'] as List?)?.cast<String>() ?? const [],
+        seenBy: (json['seenBy'] as List?)?.cast<String>() ?? const [],
         replyTo: json['replyTo'] == null
             ? null
             : ReplyInfo.fromJson(
@@ -419,6 +428,7 @@ class Message {
     String? text,
     MessageStatus? status,
     List<String>? reactions,
+    List<String>? seenBy,
     bool? edited,
     String? originalText,
     bool? isDeleted,
@@ -437,6 +447,7 @@ class Message {
       senderName: senderName,
       senderPhone: senderPhone,
       reactions: reactions ?? this.reactions,
+      seenBy: seenBy ?? this.seenBy,
       replyTo: replyTo,
       forwarded: forwarded,
       protected: protected ?? this.protected,

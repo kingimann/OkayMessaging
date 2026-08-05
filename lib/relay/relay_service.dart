@@ -708,6 +708,11 @@ class RelayService {
         ? MessageStatus.read
         : MessageStatus.delivered;
     target.setOutgoingStatus(chat.id, status);
+    // In a group the ticks say "someone"; this records WHO. Per-reader,
+    // up to the message the receipt names — the same implied prefix.
+    if (status == MessageStatus.read && chat.contact.isGroup && id != null) {
+      target.noteSeenUpTo(chat.id, id, digits(from));
+    }
     return true;
   }
 

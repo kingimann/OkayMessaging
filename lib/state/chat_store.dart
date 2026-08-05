@@ -742,6 +742,32 @@ class ChatStore extends ChangeNotifier {
     if (changed) _replace(i, _chats[i].copyWith(messages: msgs));
   }
 
+  /// Records that [readerDigits] has read up to [messageId] in a group:
+  /// that message and every OWN message before it gain the reader. A read
+  /// receipt names the newest message it acknowledges and everything
+  /// earlier is implied — the same prefix [setOutgoingStatus] already
+  /// applies to the ticks; this is the per-person version of it.
+  void noteSeenUpTo(String chatId, String messageId, String readerDigits) {
+    final i = _indexOf(chatId);
+    if (i == -1 || readerDigits.isEmpty) return;
+    final msgs = _chats[i].messages;
+    final upTo = msgs.indexWhere((m) => m.id == messageId);
+    if (upTo == -1) return;
+    var changed = false;
+    final next = [
+      for (var j = 0; j < msgs.length; j++)
+        () {
+          final m = msgs[j];
+          if (j > upTo || !m.isMe || m.seenBy.contains(readerDigits)) {
+            return m;
+          }
+          changed = true;
+          return m.copyWith(seenBy: [...m.seenBy, readerDigits]);
+        }()
+    ];
+    if (changed) _replace(i, _chats[i].copyWith(messages: next));
+  }
+
   /// Upgrades the delivery status of the user's own (outgoing) messages in a
   /// chat to at least [status] — used to apply delivered/read receipts.
   void setOutgoingStatus(String chatId, MessageStatus status) {

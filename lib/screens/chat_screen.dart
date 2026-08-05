@@ -1494,6 +1494,20 @@ class _ChatScreenState extends State<ChatScreen> {
                     _startReply(message);
                   },
                 ),
+                // Who has read this — own messages in a group only: in a
+                // 1:1 the ticks already say everything there is to say,
+                // and someone else's message is not yours to audit.
+                if (widget.chat.contact.isGroup && message.isMe)
+                  ListTile(
+                    leading: const Icon(Icons.done_all),
+                    title: Text(message.seenBy.isEmpty
+                        ? 'Seen by nobody yet'
+                        : 'Seen by ${message.seenBy.length}'),
+                    onTap: () {
+                      Navigator.of(sheetContext).pop();
+                      _showSeenBy(message);
+                    },
+                  ),
                 // Groups only, and never from inside a thread: a thread of
                 // threads is how a group gets a second place to lose a
                 // conversation. In a 1:1 there is nothing to spare the room
@@ -1692,6 +1706,79 @@ class _ChatScreenState extends State<ChatScreen> {
                 Navigator.of(sheetContext).pop();
               },
             ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Who has read [message], and who hasn't yet — the group's roster split
+  /// by the per-reader receipts. Members only ever appear by the names the
+  /// roster already shows; nobody's reading is timestamped.
+  void _showSeenBy(Message message) {
+    final me = RelayService.digits(Session.instance.user.value?.phone ?? '');
+    final members = [
+      for (final m in widget.chat.members)
+        if (RelayService.digits(m.phone) != me && m.phone.isNotEmpty) m
+    ];
+    final seenDigits = message.seenBy.toSet();
+    final seen = [
+      for (final m in members)
+        if (seenDigits.contains(RelayService.digits(m.phone))) m
+    ];
+    final notYet = [
+      for (final m in members)
+        if (!seenDigits.contains(RelayService.digits(m.phone))) m
+    ];
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            if (seen.isNotEmpty) ...[
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 4, 20, 4),
+                child: Text('SEEN BY',
+                    style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.6,
+                        color: AppColors.subtle(sheetContext))),
+              ),
+              for (final m in seen)
+                ListTile(
+                  dense: true,
+                  leading: UserAvatar(user: m, radius: 17),
+                  title: Text(m.name,
+                      maxLines: 1, overflow: TextOverflow.ellipsis),
+                ),
+            ] else
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
+                child: Text('Nobody has opened this yet.',
+                    style: TextStyle(color: AppColors.subtle(sheetContext))),
+              ),
+            if (notYet.isNotEmpty) ...[
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 10, 20, 4),
+                child: Text('NOT YET',
+                    style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.6,
+                        color: AppColors.subtle(sheetContext))),
+              ),
+              for (final m in notYet)
+                ListTile(
+                  dense: true,
+                  leading: UserAvatar(user: m, radius: 17),
+                  title: Text(m.name,
+                      maxLines: 1, overflow: TextOverflow.ellipsis),
+                ),
+            ],
+            const SizedBox(height: 8),
           ],
         ),
       ),

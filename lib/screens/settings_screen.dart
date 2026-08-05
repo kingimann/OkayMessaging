@@ -78,44 +78,8 @@ class SettingsView extends StatelessWidget {
           padding: EdgeInsets.fromLTRB(16, 10, 16, 4),
           child: ProfileVerificationRow(),
         ),
-        // Named what people look for. The tip card used to sit alone with no
-        // heading and the storage plan hid inside Preferences as "Cloud
-        // storage" — both real, neither findable by the words anyone would
-        // search the screen for.
-        settingsSectionLabel(context, 'Tips & subscriptions'),
-        InfoSection(
-          children: [
-            InfoTile(
-              leading:
-                  const Icon(Icons.favorite_outline, color: Color(0xFF7A5CFF)),
-              title: 'Support the developer',
-              subtitle: 'Leave a tip — coffee to generous',
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const OkayProScreen()),
-              ),
-            ),
-            ListenableBuilder(
-              listenable: StorageStore.instance,
-              builder: (context, _) {
-                final storage = StorageStore.instance;
-                return InfoTile(
-                  leading: const Icon(Icons.workspace_premium_outlined),
-                  title: 'Cloud storage subscription',
-                  subtitle: storage.isPaid
-                      ? '${storage.plan.name} active — ${storage.quotaLabel}, '
-                          'renew or change'
-                      : 'More space for encrypted backups, billed through '
-                          'the App Store',
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const CloudSyncScreen()),
-                  ),
-                );
-              },
-            ),
-          ],
-        ),
 
-        settingsSectionLabel(context, 'Preferences'),
+        settingsSectionLabel(context, 'Privacy & security'),
         InfoSection(
           children: [
             InfoTile(
@@ -135,10 +99,38 @@ class SettingsView extends StatelessWidget {
                 MaterialPageRoute(builder: (_) => const PermissionsScreen()),
               ),
             ),
-            // Both of these came off the newsfeed's app bar, then off the
-            // sidebar. They are here rather than nowhere: bookmarks you
-            // cannot open are notes you never read, and a muted list nobody
-            // can reach is a mute nobody can undo.
+          ],
+        ),
+
+        settingsSectionLabel(context, 'Chats'),
+        InfoSection(
+          children: [
+            InfoTile(
+              leading: const Icon(Icons.chat_bubble_outline),
+              title: 'Chats & appearance',
+              subtitle: 'Theme, text size, wallpaper',
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const ChatsSettingsScreen()),
+              ),
+            ),
+            InfoTile(
+              leading: const Icon(Icons.bolt_outlined),
+              title: 'Quick replies',
+              subtitle: 'Saved answers, one tap away in any chat',
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const QuickRepliesScreen()),
+              ),
+            ),
+          ],
+        ),
+
+        // Both of these came off the newsfeed's app bar, then off the
+        // sidebar. They are here rather than nowhere: bookmarks you
+        // cannot open are notes you never read, and a muted list nobody
+        // can reach is a mute nobody can undo.
+        settingsSectionLabel(context, 'Newsfeed'),
+        InfoSection(
+          children: [
             InfoTile(
               leading: const Icon(Icons.bookmark_border),
               title: 'Bookmarks',
@@ -153,31 +145,6 @@ class SettingsView extends StatelessWidget {
               subtitle: 'People whose posts you hid on the newsfeed',
               onTap: () => Navigator.of(context).push(
                 MaterialPageRoute(builder: (_) => const MutedAccountsScreen()),
-              ),
-            ),
-            InfoTile(
-              leading: const Icon(Icons.bolt_outlined),
-              title: 'Quick replies',
-              subtitle: 'Saved answers, one tap away in any chat',
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const QuickRepliesScreen()),
-              ),
-            ),
-            InfoTile(
-              leading: const Icon(Icons.chat_bubble_outline),
-              title: 'Chats & appearance',
-              subtitle: 'Theme, text size, wallpaper',
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const ChatsSettingsScreen()),
-              ),
-            ),
-            InfoTile(
-              leading: const Icon(Icons.local_fire_department_outlined),
-              title: 'Okay Score & badges',
-              subtitle: 'Your points, badges, and the blue check',
-              trailing: _ScorePill(),
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const ScoreScreen()),
               ),
             ),
           ],
@@ -216,6 +183,43 @@ class SettingsView extends StatelessWidget {
           _buildPrivateNotificationsTile(),
           _buildVoicemailTile(),
         ]),
+
+        // Named what people look for. The tip card used to sit alone with no
+        // heading and the storage plan hid inside Preferences as "Cloud
+        // storage" — both real, neither findable by the words anyone would
+        // search the screen for.
+        settingsSectionLabel(context, 'Tips & subscriptions'),
+        InfoSection(
+          children: [
+            InfoTile(
+              leading:
+                  const Icon(Icons.favorite_outline, color: Color(0xFF7A5CFF)),
+              title: 'Support the developer',
+              subtitle: 'Leave a tip — coffee to generous',
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const OkayProScreen()),
+              ),
+            ),
+            ListenableBuilder(
+              listenable: StorageStore.instance,
+              builder: (context, _) {
+                final storage = StorageStore.instance;
+                return InfoTile(
+                  leading: const Icon(Icons.workspace_premium_outlined),
+                  title: 'Cloud storage subscription',
+                  subtitle: storage.isPaid
+                      ? '${storage.plan.name} active — ${storage.quotaLabel}, '
+                          'renew or change'
+                      : 'More space for encrypted backups, billed through '
+                          'the App Store',
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const CloudSyncScreen()),
+                  ),
+                );
+              },
+            ),
+          ],
+        ),
 
         // The three plumbing probes are operator tools, not user settings:
         // their verdicts name Supabase secrets, APNs keys and TURN
@@ -327,6 +331,15 @@ class SettingsView extends StatelessWidget {
                   ),
                 );
               },
+            ),
+            InfoTile(
+              leading: const Icon(Icons.local_fire_department_outlined),
+              title: 'Okay Score & badges',
+              subtitle: 'Your points, badges, and the blue check',
+              trailing: _ScorePill(),
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const ScoreScreen()),
+              ),
             ),
             ListenableBuilder(
               listenable: BackupService.instance,
