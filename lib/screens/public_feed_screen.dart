@@ -1815,28 +1815,95 @@ class _PostTile extends StatelessWidget {
   }
 }
 
-/// A post and its replies.
 /// One post and its replies.
 ///
 /// Public because a profile links to it: your own posts are listed on the
 /// profile the app already had, and tapping one has to land somewhere.
-class PublicThreadScreen extends StatelessWidget {
+class PublicThreadScreen extends StatefulWidget {
   final String postId;
   const PublicThreadScreen({super.key, required this.postId});
 
   @override
+  State<PublicThreadScreen> createState() => _PublicThreadScreenState();
+}
+
+class _PublicThreadScreenState extends State<PublicThreadScreen> {
+  /// The thread fetched from the server when the loaded timeline doesn't
+  /// hold this post — a profile reaches months back, the timeline holds
+  /// pages. A local miss is "not loaded here", NOT "deleted"; this screen
+  /// used to say "removed" on that miss, which called somebody's perfectly
+  /// alive post deleted.
+  ({
+    PublicPost root,
+    List<PublicPost> replies,
+    List<PublicPost> ancestors
+  })? _fetched;
+  bool _resolving = false;
+
+  /// True only when the SERVER said the post does not exist — the one
+  /// case "This post was removed" is allowed to mean.
+  bool _gone = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (PublicFeedStore.instance.byId(widget.postId) == null) _resolve();
+  }
+
+  Future<void> _resolve() async {
+    setState(() => _resolving = true);
+    try {
+      final thread =
+          await PublicFeedStore.instance.fetchThread(widget.postId);
+      if (!mounted) return;
+      setState(() {
+        _fetched = thread;
+        _gone = thread == null;
+        _resolving = false;
+      });
+    } catch (_) {
+      // Offline or a server error is not proof of deletion.
+      if (mounted) setState(() => _resolving = false);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final postId = widget.postId;
     return Scaffold(
       appBar: AppBar(title: const Text('Post')),
       body: ListenableBuilder(
         listenable: PublicFeedStore.instance,
         builder: (context, _) {
-          final post = PublicFeedStore.instance.byId(postId);
+          final local = PublicFeedStore.instance.byId(postId);
+          final post = local ?? _fetched?.root;
           if (post == null) {
-            return const Center(child: Text('This post was removed.'));
+            if (_resolving) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            if (_gone) {
+              return const Center(child: Text('This post was removed.'));
+            }
+            // Neither loaded nor disproven — likely offline. Honest, with
+            // a way to try again.
+            return Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text('Couldn\'t load this post.'),
+                  const SizedBox(height: 10),
+                  OutlinedButton(
+                      onPressed: _resolve, child: const Text('Try again')),
+                ],
+              ),
+            );
           }
-          final replies = PublicFeedStore.instance.repliesTo(postId);
-          final ancestors = PublicFeedStore.instance.ancestorsOf(postId);
+          final replies = local != null
+              ? PublicFeedStore.instance.repliesTo(postId)
+              : _fetched!.replies;
+          final ancestors = local != null
+              ? PublicFeedStore.instance.ancestorsOf(postId)
+              : _fetched!.ancestors;
           return Column(
             children: [
               Expanded(

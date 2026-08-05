@@ -31737,6 +31737,130 @@ void main() {
     });
   });
 
+  group('Category hints from the title', () {
+    test('a word table, whole words, most specific family first', () {
+      expect(suggestCategory('Trek mountain bike, tuned'), 'Bikes',
+          reason: 'a bike is Bikes before it is Sports or Vehicles');
+      expect(suggestCategory('iPhone 13, mint'), 'Phones & Tablets');
+      expect(suggestCategory('Rocking chair'), 'Furniture');
+      expect(suggestCategory('Persian carpet'), isNull,
+          reason: '"carpet" must not read as a car — whole words only');
+      expect(suggestCategory('Assorted stuff'), isNull,
+          reason: 'most titles say nothing, and the hint says nothing back');
+      expect(suggestCategory(''), isNull);
+    });
+
+    test('every hint lands on a category that exists', () {
+      for (final (category, keys) in kCategoryHints) {
+        expect(kMarketplaceCategories.contains(category), isTrue,
+            reason: '"$category" is hinted but not a real category');
+        expect(keys, isNotEmpty);
+      }
+    });
+
+    testWidgets('offered while nobody has picked, applied only by the tap',
+        (tester) async {
+      FeedDrafts.instance.resetForTest();
+      addTearDown(FeedDrafts.instance.resetForTest);
+      await tester.pumpWidget(const MaterialApp(home: SellScreen()));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+          find.widgetWithText(TextField, 'What are you selling?'),
+          'City bike, freshly tuned');
+      await tester.pumpAndSettle();
+      expect(find.text('Looks like Bikes'), findsOneWidget);
+      // The hint OFFERS — the category has not moved yet.
+      expect(find.text(kMarketplaceCategories.first), findsOneWidget);
+      await tester.tap(find.text('Looks like Bikes'));
+      await tester.pumpAndSettle();
+      expect(find.text('Bikes'), findsOneWidget);
+      // Decided now: retyping something else must not nag.
+      await tester.enterText(
+          find.widgetWithText(TextField, 'What are you selling?'),
+          'iPhone 13');
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Looks like'), findsNothing,
+          reason: 'second-guessing a made choice is nagging');
+    });
+  });
+
+  group('A profile post is not "removed" just because it is old', () {
+    PublicPost pp(String id, {String? replyTo, String body = ''}) =>
+        PublicPost(
+          id: id,
+          authorUsername: 'ada',
+          authorName: 'Ada',
+          body: body.isEmpty ? 'body of $id' : body,
+          replyTo: replyTo,
+          createdAt: DateTime(2026, 1, 1),
+        );
+
+    testWidgets('a post outside the timeline window is fetched, not buried',
+        (tester) async {
+      final store = PublicFeedStore.instance;
+      addTearDown(store.resetForTest);
+      // The timeline holds NOTHING — the exact state after opening a
+      // months-old post from a profile. The screen used to answer
+      // "This post was removed." from that alone.
+      PublicFeedStore.debugByIdsOverride = (ids) async =>
+          [for (final id in ids) if (id == 'old1') pp('old1')];
+      PublicFeedStore.debugThreadRepliesOverride =
+          (id) async => [pp('r1', replyTo: 'old1', body: 'a reply')];
+      await tester.pumpWidget(
+          const MaterialApp(home: PublicThreadScreen(postId: 'old1')));
+      await tester.pumpAndSettle();
+      expect(find.text('This post was removed.'), findsNothing);
+      expect(find.text('body of old1'), findsOneWidget);
+      expect(find.text('a reply'), findsOneWidget);
+    });
+
+    testWidgets('"removed" is said only when the server says gone',
+        (tester) async {
+      final store = PublicFeedStore.instance;
+      addTearDown(store.resetForTest);
+      PublicFeedStore.debugByIdsOverride = (ids) async => [];
+      PublicFeedStore.debugThreadRepliesOverride = (id) async => [];
+      await tester.pumpWidget(
+          const MaterialApp(home: PublicThreadScreen(postId: 'gone1')));
+      await tester.pumpAndSettle();
+      expect(find.text('This post was removed.'), findsOneWidget);
+    });
+
+    testWidgets('a failed fetch is not proof of deletion', (tester) async {
+      final store = PublicFeedStore.instance;
+      addTearDown(store.resetForTest);
+      PublicFeedStore.debugByIdsOverride =
+          (ids) async => throw PublicFeedError('offline');
+      await tester.pumpWidget(
+          const MaterialApp(home: PublicThreadScreen(postId: 'p1')));
+      await tester.pumpAndSettle();
+      expect(find.text('This post was removed.'), findsNothing,
+          reason: 'offline must never read as deleted');
+      expect(find.text('Couldn\'t load this post.'), findsOneWidget);
+      expect(find.text('Try again'), findsOneWidget);
+    });
+
+    test('the server walk carries the conversation above, loop-proof',
+        () async {
+      final store = PublicFeedStore.instance;
+      addTearDown(store.resetForTest);
+      final all = {
+        'root': pp('root'),
+        'mid': pp('mid', replyTo: 'root'),
+        'leaf': pp('leaf', replyTo: 'mid'),
+        'self': pp('self', replyTo: 'self'),
+      };
+      PublicFeedStore.debugByIdsOverride = (ids) async =>
+          [for (final id in ids) if (all.containsKey(id)) all[id]!];
+      PublicFeedStore.debugThreadRepliesOverride = (id) async => [];
+      final thread = (await store.fetchThread('leaf'))!;
+      expect(thread.ancestors.map((p) => p.id), ['root', 'mid']);
+      // A post that is its own parent must not spin.
+      final selfThread = (await store.fetchThread('self'))!;
+      expect(selfThread.ancestors, isEmpty);
+    });
+  });
+
   group('Login polish and the AI boundary', () {
     test('the login fields help the keyboard help you', () {
       final src =

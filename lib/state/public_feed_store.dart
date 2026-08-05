@@ -813,6 +813,61 @@ class PublicFeedStore extends ChangeNotifier {
     return (found, [for (final id in ids) if (!present.contains(id)) id]);
   }
 
+  /// Test hook: stands in for the replies-of query.
+  @visibleForTesting
+  static Future<List<PublicPost>> Function(String postId)?
+      debugThreadRepliesOverride;
+
+  /// One post, its replies, and the conversation above it, straight from
+  /// the server — the fallback for opening a post the loaded timeline
+  /// doesn't hold. A profile reaches months back while the timeline holds
+  /// pages, so a local miss says "not loaded here", never "deleted" — only
+  /// the server can tell those apart. Null when the post is genuinely gone.
+  Future<
+      ({
+        PublicPost root,
+        List<PublicPost> replies,
+        List<PublicPost> ancestors
+      })?> fetchThread(String postId) async {
+    final (roots, _) = await postsByIds([postId]);
+    if (roots.isEmpty) return null;
+    final root = roots.first;
+    // Replies, oldest first — the order a conversation reads in.
+    List<PublicPost> replies;
+    final repliesOverride = debugThreadRepliesOverride;
+    if (repliesOverride != null) {
+      replies = await repliesOverride(postId);
+    } else {
+      final client = _client;
+      if (client == null) throw PublicFeedError('No server configured.');
+      try {
+        final rows = await client
+            .from('public_feed')
+            .select(_columns)
+            .eq('reply_to', postId)
+            .order('created_at', ascending: true);
+        replies = await _hydrate(rows);
+      } on PostgrestException catch (e) {
+        if (isMissingColumn(e.code) && _stepDownSchema()) {
+          return fetchThread(postId);
+        }
+        throw PublicFeedError(_explain(e));
+      }
+    }
+    // The chain above, root-first — same depth bound and cycle guard as
+    // the local walk in [ancestorsOf].
+    final ancestors = <PublicPost>[];
+    final seen = <String>{postId};
+    var parentId = root.replyTo;
+    while (parentId != null && ancestors.length < 10 && seen.add(parentId)) {
+      final (found, _) = await postsByIds([parentId]);
+      if (found.isEmpty) break;
+      ancestors.insert(0, found.first);
+      parentId = found.first.replyTo;
+    }
+    return (root: root, replies: replies, ancestors: ancestors);
+  }
+
   /// A profile's three tabs, from one list of that person's posts. Pure, so
   /// what each tab contains is a rule rather than a query somebody can drift.
   static List<PublicPost> profileTab(List<PublicPost> all, ProfileTab tab) =>
@@ -1473,6 +1528,7 @@ class PublicFeedStore extends ChangeNotifier {
     debugUploadOverride = null;
     debugProfileOverride = null;
     debugByIdsOverride = null;
+    debugThreadRepliesOverride = null;
     _filter = FeedFilter.forYou;
     _query = '';
     _tag = '';

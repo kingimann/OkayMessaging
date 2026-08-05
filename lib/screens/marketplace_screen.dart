@@ -312,6 +312,50 @@ bool listingInPriceRange(FeedPost l, {int? minCents, int? maxCents}) {
   return true;
 }
 
+/// Title words → the category they usually mean. Most specific families
+/// first, because the first hit wins ("bike" is Bikes before it is Sports).
+/// Public so a test can hold every right-hand side to a real category.
+const List<(String, List<String>)> kCategoryHints = [
+  ('Bikes', ['bike', 'bicycle', 'ebike']),
+  ('Phones & Tablets', ['iphone', 'phone', 'ipad', 'tablet', 'galaxy']),
+  ('Computers', ['laptop', 'macbook', 'computer', 'monitor', 'keyboard']),
+  ('TV & Audio', ['tv', 'speaker', 'headphones', 'soundbar', 'earbuds']),
+  ('Cameras & Photo', ['camera', 'lens', 'gopro', 'tripod']),
+  ('Video Games & Consoles', ['playstation', 'ps5', 'xbox', 'nintendo', 'console']),
+  ('Musical Instruments', ['guitar', 'piano', 'violin', 'drums', 'amp']),
+  ('Furniture', ['couch', 'sofa', 'table', 'desk', 'chair', 'dresser', 'bookshelf']),
+  ('Appliances', ['fridge', 'freezer', 'washer', 'dryer', 'dishwasher', 'microwave', 'blender']),
+  ('Motorcycles', ['motorcycle', 'scooter', 'moped']),
+  ('Vehicles', ['car', 'truck', 'sedan', 'suv', 'van']),
+  ('Baby & Kids', ['stroller', 'crib', 'bassinet']),
+  ('Games & Toys', ['lego', 'toy', 'puzzle']),
+  ('Books', ['book', 'novel', 'textbook']),
+  ('Shoes', ['sneakers', 'boots', 'heels', 'sandals']),
+  ('Clothing', ['jacket', 'coat', 'dress', 'jeans', 'hoodie', 'sweater']),
+  ('Watches', ['watch', 'smartwatch']),
+  ('Pet Supplies', ['aquarium', 'leash', 'litter']),
+  ('Camping & Outdoors', ['tent', 'camping', 'cooler', 'hammock']),
+  ('Tools & Home Improvement', ['drill', 'saw', 'ladder', 'toolbox', 'wrench']),
+  ('Sports', ['skates', 'skis', 'snowboard', 'treadmill', 'dumbbells', 'kayak']),
+];
+
+/// A category guessed from the title's words — offered as a tappable hint
+/// beside the picker, never applied by itself. Whole words only, so
+/// "carpet" never reads as a car. Null when the words say nothing, which
+/// is the answer most titles get. Pure, and not a model: a word table.
+String? suggestCategory(String title) {
+  final words = title
+      .toLowerCase()
+      .split(RegExp(r'[^a-z0-9]+'))
+      .where((w) => w.isNotEmpty)
+      .toSet();
+  if (words.isEmpty) return null;
+  for (final (category, keys) in kCategoryHints) {
+    if (keys.any(words.contains)) return category;
+  }
+  return null;
+}
+
 /// The sell form's text fields as one draft blob, and back. Photos and
 /// video are deliberately not kept: they are re-picked in seconds, and
 /// base64 bytes would blow the drafts store's cap for nothing — the loss a
@@ -2449,6 +2493,11 @@ class _SellScreenState extends State<SellScreen> {
   late String _category = widget.existing?.listingCategory.isNotEmpty == true
       ? widget.existing!.listingCategory
       : kMarketplaceCategories.first;
+
+  /// Whether the category was actually picked (sheet, edit, draft, or the
+  /// hint) rather than left on the default — the hint only offers itself
+  /// while nobody has decided, because second-guessing a choice is nagging.
+  late bool _categoryChosen = widget.existing != null;
   late String _condition = widget.existing?.listingCondition ?? '';
   late String _delivery = widget.existing?.listingDelivery ?? '';
   late final TextEditingController _quantity = TextEditingController(
@@ -2505,7 +2554,10 @@ class _SellScreenState extends State<SellScreen> {
     _brand.text = draft['brand'] as String? ?? '';
     _quantity.text = draft['quantity'] as String? ?? '';
     final category = draft['category'] as String? ?? '';
-    if (kMarketplaceCategories.contains(category)) _category = category;
+    if (kMarketplaceCategories.contains(category)) {
+      _category = category;
+      _categoryChosen = true;
+    }
     _condition = draft['condition'] as String? ?? '';
     _delivery = draft['delivery'] as String? ?? '';
     _offers = draft['offers'] == true;
@@ -2592,7 +2644,12 @@ class _SellScreenState extends State<SellScreen> {
       showDragHandle: true,
       builder: (_) => _CategorySheet(selected: _category),
     );
-    if (chosen != null && mounted) setState(() => _category = chosen);
+    if (chosen != null && mounted) {
+      setState(() {
+        _category = chosen;
+        _categoryChosen = true;
+      });
+    }
   }
 
   /// Where the item is, chosen on the app's one map.
@@ -3093,6 +3150,30 @@ class _SellScreenState extends State<SellScreen> {
                 ],
               ),
             ),
+          ),
+          // A guess from the title's words — a word table, not a model —
+          // offered while nobody has picked, applied only by the tap.
+          ValueListenableBuilder<TextEditingValue>(
+            valueListenable: _title,
+            builder: (context, value, _) {
+              final s = _categoryChosen ? null : suggestCategory(value.text);
+              if (s == null || s == _category) return const SizedBox.shrink();
+              return Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: ActionChip(
+                    avatar: const Icon(Icons.category_outlined, size: 15),
+                    label: Text('Looks like $s'),
+                    visualDensity: VisualDensity.compact,
+                    onPressed: () => setState(() {
+                      _category = s;
+                      _categoryChosen = true;
+                    }),
+                  ),
+                ),
+              );
+            },
           ),
           const SizedBox(height: 14),
           TextField(
