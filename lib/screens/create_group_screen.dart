@@ -8,6 +8,7 @@ import '../models/user.dart';
 import '../relay/relay_config.dart';
 import '../relay/relay_service.dart';
 import '../state/chat_store.dart';
+import '../state/score_store.dart';
 import '../theme/app_theme.dart';
 import '../widgets/user_avatar.dart';
 import 'chat_screen.dart';
@@ -76,6 +77,7 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
       members: members,
     );
     store.upsert(chat);
+    ScoreStore.instance.recordFlag('made_group');
     // Tell the other members' devices about the group right away, so it shows
     // up for them before anyone has typed anything.
     if (RelayConfig.isEnabled) RelayService.instance.sendGroupUpdate(chat);

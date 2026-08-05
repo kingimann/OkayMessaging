@@ -549,6 +549,7 @@ class _ChatScreenState extends State<ChatScreen> {
       return;
     }
     _store.notePoked(_chatId);
+    ScoreStore.instance.recordFlag('poked');
     Haptics.press();
     final now = DateTime.now();
     _deliver(Message(

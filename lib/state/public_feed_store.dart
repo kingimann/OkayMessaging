@@ -11,6 +11,7 @@ import 'feed_mute_store.dart';
 import 'feed_prefs.dart';
 import 'market_media.dart';
 import 'follow_store.dart';
+import 'score_store.dart';
 import '../payments/payment_service.dart';
 import 'session.dart' as local;
 
@@ -1398,6 +1399,13 @@ class PublicFeedStore extends ChangeNotifier {
         for (final p in _posts)
           p.id == repostOf ? p.copyWith(repostCount: p.repostCount + 1) : p
       ];
+    }
+    // After the insert, so a refused post earns nothing. A top-level post
+    // pays like a forum post; the badge is for saying something in public.
+    if (replyTo == null && repostOf == null) {
+      ScoreStore.instance
+        ..award(ScoreStore.pointsPerFeedPost)
+        ..recordFlag('public_post');
     }
     notifyListeners();
   }

@@ -43,6 +43,9 @@ class ScoreStore extends ChangeNotifier {
   static const int pointsPerPollVote = 1;
   static const int pointsPerForumPost = 3;
   static const int pointsPerForumComment = 2;
+  static const int pointsPerFeedPost = 3;
+  static const int pointsPerListing = 5;
+  static const int pointsPerSale = 15;
 
   /// Level titles and the score at which each unlocks (index 0 = level 1).
   static const List<String> levelTitles = [
@@ -143,6 +146,42 @@ class ScoreStore extends ChangeNotifier {
         description: 'Create a forum post',
         flag: 'forum_post'),
     Badge(
+        id: 'town_crier',
+        emoji: '📣',
+        label: 'Town crier',
+        description: 'Post on the public newsfeed',
+        flag: 'public_post'),
+    Badge(
+        id: 'merchant',
+        emoji: '🏷️',
+        label: 'Open for business',
+        description: 'Put something up for sale on the Marketplace',
+        flag: 'listed_item'),
+    Badge(
+        id: 'dealmaker',
+        emoji: '💰',
+        label: 'First sale',
+        description: 'Sell something on the Marketplace',
+        flag: 'sold_item'),
+    Badge(
+        id: 'poker',
+        emoji: '👉',
+        label: 'Hey',
+        description: 'Poke somebody',
+        flag: 'poked'),
+    Badge(
+        id: 'streak_week',
+        emoji: '🔥',
+        label: 'A week straight',
+        description: 'Keep a streak going for seven days',
+        flag: 'streak_7'),
+    Badge(
+        id: 'founder',
+        emoji: '👥',
+        label: 'Bring people together',
+        description: 'Start a group chat',
+        flag: 'made_group'),
+    Badge(
         id: 'social',
         emoji: '🎉',
         label: 'Social butterfly',
@@ -173,7 +212,10 @@ class ScoreStore extends ChangeNotifier {
   /// this is the same constants above, written down where they can be read.
   static const List<(String, int)> earningRules = [
     ('Open the app on a new day', pointsPerDailyCheckIn),
+    ('Sell something on the Marketplace', pointsPerSale),
+    ('List something for sale', pointsPerListing),
     ('Place a voice or video call', pointsPerCall),
+    ('Post on a newsfeed', pointsPerFeedPost),
     ('Post in a forum', pointsPerForumPost),
     ('Comment on a forum post', pointsPerForumComment),
     ('Send a message', pointsPerSend),

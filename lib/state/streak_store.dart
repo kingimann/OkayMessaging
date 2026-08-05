@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'score_store.dart';
+
 /// Per-chat streak bookkeeping. A "streak day" is a calendar day on which you
 /// and a contact each sent the other at least one message; the streak is the
 /// number of consecutive such days. Missing a day lets the streak lapse.
@@ -89,6 +91,9 @@ class StreakStore extends ChangeNotifier {
       d.count = (d.lastDay == yesterday) ? d.count + 1 : 1;
       d.lastDay = day;
       if (d.count > d.best) d.best = d.count;
+      // A week's streak is a badge ('A week straight') — checked on the
+      // advance rather than derived later, so it unlocks the day it is true.
+      if (d.count >= 7) ScoreStore.instance.recordFlag('streak_7');
     }
     _persist();
     notifyListeners();
@@ -126,6 +131,9 @@ class StreakStore extends ChangeNotifier {
       d.lastDay = day;
       changed = true;
     }
+    // The peer's device may be the one that counted day seven — the badge
+    // is about the streak, not about whose clock noticed it.
+    if (d.count >= 7) ScoreStore.instance.recordFlag('streak_7');
     if (changed) {
       _persist();
       notifyListeners();

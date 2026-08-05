@@ -5108,7 +5108,8 @@ void main() {
       StreakStore.instance.resetForTest();
       ChatStore.instance.reset();
       ScoreStore.instance.award(60);
-      // Taller than it was: the fortnight chart went in above the rules.
+      // Taller than it was: the fortnight chart went in above the rules,
+      // and the badge grid has grown since.
       tester.view.physicalSize = const Size(500, 2800);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.reset);
@@ -5126,7 +5127,10 @@ void main() {
       expect(find.textContaining('Next up:'), findsOneWidget);
       expect(find.textContaining('40 more points'), findsOneWidget);
 
-      // How the number moves — previously nowhere in the app.
+      // How the number moves — previously nowhere in the app. Below the
+      // fold now that the badge grid has more rows, so scroll to it.
+      await tester.scrollUntilVisible(find.text('HOW POINTS WORK'), 400,
+          scrollable: find.byType(Scrollable).first);
       expect(find.text('HOW POINTS WORK'), findsOneWidget);
       expect(find.text('+${ScoreStore.pointsPerDailyCheckIn}'),
           findsOneWidget);
@@ -32902,6 +32906,101 @@ void main() {
           1,
           reason: 'a poke that can be spammed is a harassment button');
       expect(find.textContaining('give it'), findsOneWidget);
+    });
+  });
+
+  group('More ways to earn Okay Score', () {
+    setUp(() {
+      SharedPreferences.setMockInitialValues({});
+      ScoreStore.instance.resetForTest();
+    });
+    tearDown(() => ScoreStore.instance.resetForTest());
+
+    test('posting on the server feed pays like the forum', () {
+      final feed = FeedStore.instance;
+      feed.resetForTest();
+      addTearDown(feed.resetForTest);
+      final score = ScoreStore.instance;
+      final before = score.points;
+      final post = feed.add('c1', 'worth points');
+      expect(score.points, before + ScoreStore.pointsPerFeedPost);
+      feed.add('c1', 'a reply', parentId: post.id);
+      expect(
+          score.points,
+          before +
+              ScoreStore.pointsPerFeedPost +
+              ScoreStore.pointsPerForumComment,
+          reason: 'a reply is the room\'s smaller coin');
+    });
+
+    test('listing pays once, selling pays more — and cannot be farmed', () {
+      final feed = FeedStore.instance;
+      feed.resetForTest();
+      addTearDown(feed.resetForTest);
+      final score = ScoreStore.instance;
+      final listing = feed.addListing('c1',
+          title: 'Lamp', priceCents: 1500, category: 'Home');
+      expect(score.flags, contains('listed_item'));
+      expect(score.isEarned('merchant'), isTrue);
+
+      final beforeSale = score.points;
+      feed.setListingSold(listing.id, true);
+      expect(score.points, beforeSale + ScoreStore.pointsPerSale);
+      expect(score.isEarned('dealmaker'), isTrue);
+      // Un-mark and re-mark: the same lamp is not two sales.
+      feed.setListingSold(listing.id, false);
+      feed.setListingSold(listing.id, true);
+      expect(score.points, beforeSale + ScoreStore.pointsPerSale,
+          reason: 'flipping the sold flag must not farm the sale points');
+    });
+
+    test('a public post earns and unlocks Town crier; a reply does not',
+        () async {
+      final pub = PublicFeedStore.instance;
+      pub.resetForTest();
+      addTearDown(pub.resetForTest);
+      PublicFeedStore.debugPostOverride = (_) async {};
+      addTearDown(() => PublicFeedStore.debugPostOverride = null);
+      final score = ScoreStore.instance;
+      final before = score.points;
+      await pub.post('hello, everyone');
+      expect(score.points, before + ScoreStore.pointsPerFeedPost);
+      expect(score.isEarned('town_crier'), isTrue);
+      final afterPost = score.points;
+      await pub.post('answering', replyTo: 'p_root');
+      expect(score.points, afterPost,
+          reason: 'replies are conversation, not publication');
+    });
+
+    test('a week-long streak unlocks its badge, whoever counted day seven',
+        () {
+      final streaks = StreakStore.instance;
+      streaks.resetForTest();
+      addTearDown(streaks.resetForTest);
+      final score = ScoreStore.instance;
+      expect(score.isEarned('streak_week'), isFalse);
+      // The peer's device counted to seven and broadcast it.
+      streaks.reconcile('c1', 7, at: DateTime(2026, 8, 5));
+      expect(score.isEarned('streak_week'), isTrue);
+    });
+
+    test('poking and founding a group are badges, and the rules say what '
+        'pays', () {
+      final score = ScoreStore.instance;
+      score.recordFlag('poked');
+      expect(score.isEarned('poker'), isTrue);
+      score.recordFlag('made_group');
+      expect(score.isEarned('founder'), isTrue);
+      // The written-down rules carry the new economy.
+      final labels = [for (final (label, _) in ScoreStore.earningRules) label];
+      expect(labels, contains('Sell something on the Marketplace'));
+      expect(labels, contains('List something for sale'));
+      expect(labels, contains('Post on a newsfeed'));
+      // And the wiring exists where the deeds happen.
+      expect(File('lib/screens/create_group_screen.dart').readAsStringSync(),
+          contains("recordFlag('made_group')"));
+      expect(File('lib/screens/chat_screen.dart').readAsStringSync(),
+          contains("recordFlag('poked')"));
     });
   });
 

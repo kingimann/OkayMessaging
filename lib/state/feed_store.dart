@@ -9,6 +9,7 @@ import '../payments/payment_service.dart';
 import '../relay/relay_config.dart';
 import 'feed_prefs.dart';
 import '../relay/relay_service.dart';
+import 'score_store.dart';
 import 'session.dart';
 
 /// One post in a server's X-style feed.
@@ -1119,6 +1120,11 @@ class FeedStore extends ChangeNotifier {
     notifyListeners();
     // Real-time: everyone in the server sees the post, like messages.
     if (RelayConfig.isEnabled) RelayService.instance.sendFeedPost(post);
+    // A post earns like a forum post does; a reply is the room's smaller
+    // coin, same as a forum comment.
+    ScoreStore.instance.award(parentId == null
+        ? ScoreStore.pointsPerFeedPost
+        : ScoreStore.pointsPerForumComment);
     return post;
   }
 
@@ -1173,6 +1179,9 @@ class FeedStore extends ChangeNotifier {
     _save();
     notifyListeners();
     if (RelayConfig.isEnabled) RelayService.instance.sendFeedPost(post);
+    ScoreStore.instance
+      ..award(ScoreStore.pointsPerListing)
+      ..recordFlag('listed_item');
     return post;
   }
 
@@ -1403,6 +1412,15 @@ class FeedStore extends ChangeNotifier {
     _save();
     notifyListeners();
     if (RelayConfig.isEnabled) RelayService.instance.sendFeedPost(updated);
+    // Selling is the marketplace's whole point, so it pays the most. The
+    // per-listing flag is the farm guard: un-marking and re-marking the
+    // same listing sold cannot earn the points twice.
+    if (sold && !ScoreStore.instance.flags.contains('sold_item_${post.id}')) {
+      ScoreStore.instance
+        ..recordFlag('sold_item_${post.id}')
+        ..recordFlag('sold_item')
+        ..award(ScoreStore.pointsPerSale);
+    }
     return true;
   }
 
