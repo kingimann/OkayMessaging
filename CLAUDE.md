@@ -477,6 +477,54 @@ seeded, which is the no-fake-data rule wearing a different hat.
 off-by-one to compensate for — the old `onReorder` is deprecated and
 compensating anyway swaps the wrong pair.
 
+## Creator subscriptions (2026-08-05)
+
+A creator turns on **Offer subscriptions** in Edit profile (a fixed monthly
+price tier from `AppUser.subscriptionTiersCents` + a free-text pitch). The flag
+`subscribable` + `subscriptionTier` + `subscriptionPitch` ride the sealed
+profile share UNGATED like `isBusiness` (turning it on IS announcing it),
+applied at the receiver AS SENT (a lapsed creator clears its tier/pitch), so it
+touches every full-rebuild site — `Session.signIn`/`updateProfile`/
+`setVerified`, `AppState.updateProfile`/`setVerified`,
+`ChatStore.updateContactProfile`, relay `encode`/`applyIncoming`.
+
+A creator can then mark a public-feed post **Subscribers only** (composer
+toggle, standalone text post — no reply/quote/poll/media). Readers pay a
+**monthly pass** (`CreatorSubStore`, a per-creator 30-day entitlement modelled
+on `StorageStore`) to read it.
+
+**Access-control, NOT end-to-end sealing — on purpose.** The public feed is
+world-readable and SERVER-MODERATED (`moderation-screen` reads every post's
+text). A sealed paid body could never be screened, and unscreenable paywalled
+content is the abuse vector that has burned other creator platforms. So the
+public row (`public_posts`) carries only a **teaser**; the real text lives in
+`public_paid_bodies`, which NOTHING may select directly — `public_paid_body(p)`
+(security definer, `docs/creator_subscriptions.sql`) is the one door and opens
+only for the author or an account with an active pass. `check_sql.sh` asserts
+the body is un-selectable, that only author/active-subscriber read it, and that
+a client cannot grant itself a pass. **True sealing is reserved for paid
+servers** (the follow-up), whose feed is already private.
+
+**Billing is IAP, and the entitlement is receipt-verified.** A creator sub is
+a CONSUMABLE (`StorePurchases.creatorSubProductId`, one per tier) — an
+auto-renewable SKU can't express per-creator, since Apple treats a second buy
+of one sub SKU as renewing the first. The write to `creator_subscriptions`
+happens ONLY in the `creator-subscribe` Edge Function, which verifies the Apple
+JWS (like `iap-validate`), refuses a non-tier product, and dedupes the
+transaction (`creator_sub_receipts`) so one receipt buys one month. The client
+never grants itself a paid body. Test mode simulates the purchase; `unlock()`
+reveals a locked post through the `public_paid_body` RPC.
+
+`PublicPost.paid`/`subCents`/`unlocked` + `locked`/`displayBody`. The locked
+card (`_PaidLock`) auto-unlocks for the author or an active subscriber and
+otherwise shows a Subscribe button; `showSubscribeSheet` (a reusable widget)
+runs the purchase. A creator's profile shows a Subscribe button when this
+device knows they're subscribable (a contact carries the flag). **Needs the
+user's own action to go live:** run `docs/creator_subscriptions.sql`, paste the
+`creator-subscribe` function, and create the `com.okaymessaging.creatorsub.
+tierN.monthly` consumable IAP products in App Store Connect. Until then it runs
+in test/simulation only.
+
 ## Verified-only features
 
 The **marketplace, wallet and Okay Drop** are behind

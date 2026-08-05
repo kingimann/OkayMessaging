@@ -83,6 +83,26 @@ class PublicPost {
   /// by nature and worth exactly what an X view count is worth.
   final int viewCount;
 
+  /// A subscribers-only post: its real text is served only to the author and
+  /// to accounts holding an active paid pass to the author. For everyone else
+  /// [body] is the public teaser and the full text lives behind the
+  /// `public_paid_body` RPC — never in the world-readable feed view. Because
+  /// the public feed is server-moderated, this is server-enforced access
+  /// rather than end-to-end sealing (a sealed body couldn't be screened);
+  /// true sealing is reserved for paid servers, where the feed is already
+  /// private.
+  final bool paid;
+
+  /// The author's monthly price in cents, denormalised onto the row so the
+  /// locked card can show the price to anyone — even a stranger who holds no
+  /// profile for the creator.
+  final int subCents;
+
+  /// The unlocked full text, once fetched for a subscriber/author. Never comes
+  /// off the wire in the feed view — it's filled in by [PublicFeedStore.unlock]
+  /// after the gated RPC answers. Null means still locked.
+  final String? unlocked;
+
   const PublicPost({
     required this.id,
     this.authorUsername = '',
@@ -107,7 +127,18 @@ class PublicPost {
     this.sparkCount = 0,
     this.sparkCents = 0,
     this.viewCount = 0,
+    this.paid = false,
+    this.subCents = 0,
+    this.unlocked,
   });
+
+  /// Whether this is a paywalled post still showing only its teaser — the
+  /// state the locked card is drawn for.
+  bool get locked => paid && unlocked == null;
+
+  /// What to render as the post's text: the unlocked body once fetched, the
+  /// teaser (or nothing) until then.
+  String get displayBody => unlocked ?? body;
 
   /// Whether this carries an image.
   bool get hasImage => imagePath.isNotEmpty;
@@ -168,6 +199,7 @@ class PublicPost {
     int? myVote,
     int? sparkCount,
     int? sparkCents,
+    String? unlocked,
   }) =>
       PublicPost(
         id: id,
@@ -193,6 +225,9 @@ class PublicPost {
         sparkCount: sparkCount ?? this.sparkCount,
         sparkCents: sparkCents ?? this.sparkCents,
         viewCount: viewCount,
+        paid: paid,
+        subCents: subCents,
+        unlocked: unlocked ?? this.unlocked,
       );
 
   /// The same post with this account's vote removed. A separate method
@@ -221,6 +256,9 @@ class PublicPost {
         sparkCount: sparkCount,
         sparkCents: sparkCents,
         viewCount: viewCount,
+        paid: paid,
+        subCents: subCents,
+        unlocked: unlocked,
       );
 
   factory PublicPost.fromRow(Map<String, dynamic> r) => PublicPost(
@@ -253,6 +291,8 @@ class PublicPost {
         sparkCount: (r['spark_count'] as num?)?.toInt() ?? 0,
         sparkCents: (r['spark_cents'] as num?)?.toInt() ?? 0,
         viewCount: (r['view_count'] as num?)?.toInt() ?? 0,
+        paid: r['paid'] as bool? ?? false,
+        subCents: (r['sub_cents'] as num?)?.toInt() ?? 0,
       );
 }
 
@@ -478,6 +518,14 @@ class PublicFeedStore extends ChangeNotifier {
             !(FeedPrefs.instance.hideReposts && p.repostOf != null))
         .toList();
     return List.unmodifiable(list);
+  }
+
+  /// Replaces the in-memory posts, for tests that need a known feed without a
+  /// server round trip.
+  @visibleForTesting
+  void debugSetPosts(List<PublicPost> posts) {
+    _posts = [...posts];
+    notifyListeners();
   }
 
   bool get loading => _loading;
@@ -903,6 +951,11 @@ class PublicFeedStore extends ChangeNotifier {
   static Future<(int, int)?> Function(String username)?
       debugFollowCountsOverride;
   @visibleForTesting
+  static Future<void> Function(String creator, String productId)?
+      debugSubscribeOverride;
+  @visibleForTesting
+  static Future<String?> Function(String postId)? debugPaidBodyOverride;
+  @visibleForTesting
   static Future<List<(String, String)>?> Function(String username)?
       debugFollowersOverride;
   @visibleForTesting
@@ -921,6 +974,57 @@ class PublicFeedStore extends ChangeNotifier {
       await client.rpc(follow ? 'public_follow' : 'public_unfollow',
           params: {'u': username.trim()});
     } catch (_) {}
+  }
+
+  /// Records a paid subscription to [creator] on the server so it can serve
+  /// their subscribers-only bodies to this account. [receipt] is the store's
+  /// signed transaction (JWS); the server VERIFIES it before granting — the
+  /// client is never trusted to grant itself paid content, exactly as the
+  /// storage subscription works. Silent on failure (no session/receipt, not
+  /// deployed): the local pass still governs what this device already holds,
+  /// and the server simply won't unlock new bodies until a real receipt lands.
+  Future<void> serverSubscribe(String creator, String receipt) async {
+    final override = debugSubscribeOverride;
+    if (override != null) return override(creator, receipt);
+    final client = _client;
+    if (client == null || creator.trim().isEmpty || receipt.isEmpty) return;
+    try {
+      await client.functions.invoke('creator-subscribe',
+          body: {'creator': creator.trim(), 'jws': receipt});
+    } catch (_) {}
+  }
+
+  /// Fetches the unlocked body of a subscribers-only post. The server returns
+  /// it only when this caller has an active pass to the author (or is the
+  /// author); otherwise null. The world-readable feed view never carries a
+  /// paid body, so this authenticated RPC is the only way in.
+  Future<String?> paidBody(String postId) async {
+    final override = debugPaidBodyOverride;
+    if (override != null) return override(postId);
+    final client = _client;
+    if (client == null || postId.isEmpty) return null;
+    try {
+      final body = await client.rpc('public_paid_body', params: {'p': postId});
+      final s = body is String ? body : (body?.toString() ?? '');
+      return s.isEmpty ? null : s;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Fetches and reveals the full text of a locked paid post, in place. A
+  /// no-op when the post isn't locked or the server won't serve the body (not
+  /// subscribed, offline). Returns whether it unlocked.
+  Future<bool> unlock(String postId) async {
+    final i = _posts.indexWhere((p) => p.id == postId);
+    if (i == -1 || !_posts[i].locked) return false;
+    final full = await paidBody(postId);
+    if (full == null) return false;
+    _posts = [
+      for (final p in _posts) p.id == postId ? p.copyWith(unlocked: full) : p
+    ];
+    notifyListeners();
+    return true;
   }
 
   /// (followers, following) for anybody, or null when the server can't say
@@ -1369,13 +1473,41 @@ class PublicFeedStore extends ChangeNotifier {
       String? gifUrl,
       Uint8List? video,
       List<String>? pollOptions,
-      Duration? pollRunsFor}) async {
+      Duration? pollRunsFor,
+      bool subscribersOnly = false,
+      String teaser = ''}) async {
     final problem = validate(text,
         hasImage: image != null,
         isRepost: repostOf != null,
         hasGif: (gifUrl ?? '').isNotEmpty,
         hasVideo: video != null);
     if (problem != null) throw PublicFeedError(problem);
+    // A subscribers-only post is a standalone piece of writing: its full text
+    // is served only to subscribers, so it cannot be a reply, a repost or a
+    // poll (those are conversation, not the thing being sold), and — for now —
+    // carries no media, because the public bucket is world-readable and there
+    // is no gated place to put a paid image yet. The text is what's paywalled.
+    if (subscribersOnly) {
+      final me = AppState.profile.value;
+      if (!me.subscribable) {
+        throw PublicFeedError(
+            'Turn on subscriptions in your profile before posting for '
+            'subscribers.');
+      }
+      if (replyTo != null || repostOf != null) {
+        throw PublicFeedError('A subscribers-only post is its own post.');
+      }
+      if (image != null || video != null || (gifUrl ?? '').isNotEmpty) {
+        throw PublicFeedError(
+            'Subscribers-only posts are text for now — no media yet.');
+      }
+      if ((pollOptions ?? const []).isNotEmpty) {
+        throw PublicFeedError('A poll can\'t be subscribers-only.');
+      }
+      if (text.trim().isEmpty) {
+        throw PublicFeedError('Write the post your subscribers will read.');
+      }
+    }
     // One piece of media. Two would have to share the width, and the second
     // would be a thumbnail nobody asked for — the same reason a poll and a
     // photo have never been allowed together.
@@ -1434,12 +1566,16 @@ class PublicFeedStore extends ChangeNotifier {
     if (video != null) {
       videoPath = await _uploadVideo(id, video);
     }
+    // For a paid post, the row carries only the public teaser; the real text
+    // is [unlocked] locally (the author always sees their own) and is written
+    // to the access-gated bodies table below.
+    final publicText = subscribersOnly ? teaser.trim() : text.trim();
     final post = PublicPost(
       id: id,
       authorUsername: me.username,
       authorName: me.name,
       authorVerified: me.verified,
-      body: text.trim(),
+      body: publicText,
       replyTo: replyTo,
       repostOf: repostOf,
       imagePath: imagePath,
@@ -1452,6 +1588,9 @@ class PublicFeedStore extends ChangeNotifier {
       // Nobody has voted yet, and an empty tally would render as no bars at
       // all rather than as a row of zeroes.
       pollVotes: [for (final _ in answers) 0],
+      paid: subscribersOnly,
+      subCents: subscribersOnly ? me.subscriptionCents : 0,
+      unlocked: subscribersOnly ? text.trim() : null,
     );
 
     final override = debugPostOverride;
@@ -1476,7 +1615,19 @@ class PublicFeedStore extends ChangeNotifier {
           if (answers.isNotEmpty) 'poll_options': answers,
           if (closesAt != null)
             'poll_closes_at': closesAt.toUtc().toIso8601String(),
+          if (subscribersOnly) 'paid': true,
+          if (subscribersOnly) 'sub_cents': post.subCents,
         });
+        // The real text goes to the access-gated table, never the feed view.
+        // Own-row RLS lets the author insert it; only the `public_paid_body`
+        // function (author or an active subscriber) can read it back.
+        if (subscribersOnly) {
+          await client.from('public_paid_bodies').insert({
+            'post_id': post.id,
+            'author_phone': AccountService.e164(phone),
+            'body': text.trim(),
+          });
+        }
       } catch (e) {
         throw PublicFeedError(_explain(e));
       }
@@ -1794,6 +1945,8 @@ class PublicFeedStore extends ChangeNotifier {
     debugViewedOverride = null;
     debugFollowOverride = null;
     debugFollowCountsOverride = null;
+    debugSubscribeOverride = null;
+    debugPaidBodyOverride = null;
     debugFollowersOverride = null;
     debugFollowingOverride = null;
     _followsPushed = false;

@@ -37,6 +37,8 @@ import '../widgets/emoji_gif_sheet.dart';
 import '../widgets/feed_post_parts.dart';
 import '../widgets/feed_video.dart';
 import '../widgets/verified_badge.dart';
+import '../widgets/subscribe_sheet.dart';
+import '../state/creator_sub_store.dart';
 import 'edit_profile_screen.dart';
 import 'feed_screen.dart' show FeedPostScreen;
 import 'forward_screen.dart';
@@ -1472,7 +1474,8 @@ class _ProfileActions extends StatelessWidget {
       );
     }
     return ListenableBuilder(
-      listenable: FollowStore.instance,
+      listenable: Listenable.merge(
+          [FollowStore.instance, CreatorSubStore.instance]),
       builder: (context, _) {
         final following = FollowStore.instance.isFollowing(username);
         void toggle() => FollowStore.instance.toggle(username);
@@ -1485,25 +1488,66 @@ class _ProfileActions extends StatelessWidget {
         );
         final text = Text(following ? 'Following' : 'Follow',
             maxLines: 1, overflow: TextOverflow.ellipsis);
-        return Row(
+        // A Subscribe button when this is a creator this device knows offers
+        // subscriptions (a contact carries the flag on the sealed profile
+        // share). A stranger's locked post still offers it on the card itself.
+        final creator = knownUserFor(username);
+        final subscribable = creator?.subscribable ?? false;
+        final subscribed = CreatorSubStore.instance.active(username);
+        return Column(
           mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // The pair every social profile has: talk to them, or keep up
-            // with them. Message rides the same resolution the marketplace
-            // uses — an existing chat first, then the directory.
-            OutlinedButton(
-              style: dense,
-              onPressed: () => openSellerChat(context,
-                  username: username,
-                  name: knownUserFor(username)?.name ?? username),
-              child: const Text('Message',
-                  maxLines: 1, overflow: TextOverflow.ellipsis),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // The pair every social profile has: talk to them, or keep up
+                // with them. Message rides the same resolution the marketplace
+                // uses — an existing chat first, then the directory.
+                OutlinedButton(
+                  style: dense,
+                  onPressed: () => openSellerChat(context,
+                      username: username,
+                      name: knownUserFor(username)?.name ?? username),
+                  child: const Text('Message',
+                      maxLines: 1, overflow: TextOverflow.ellipsis),
+                ),
+                const SizedBox(width: 8),
+                following
+                    ? OutlinedButton(
+                        style: dense, onPressed: toggle, child: text)
+                    : FilledButton(
+                        style: dense, onPressed: toggle, child: text),
+              ],
             ),
-            const SizedBox(width: 8),
-            following
-                ? OutlinedButton(
-                    style: dense, onPressed: toggle, child: text)
-                : FilledButton(style: dense, onPressed: toggle, child: text),
+            if (subscribable) ...[
+              const SizedBox(height: 8),
+              subscribed
+                  ? OutlinedButton.icon(
+                      style: dense,
+                      onPressed: null,
+                      icon: const Icon(Icons.check, size: 16),
+                      label: const Text('Subscribed'),
+                    )
+                  : FilledButton.icon(
+                      style: FilledButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                        padding: const EdgeInsets.symmetric(horizontal: 14),
+                        minimumSize: const Size(0, 36),
+                      ),
+                      onPressed: () => showSubscribeSheet(
+                        context,
+                        handle: username,
+                        name: creator?.name ?? '@$username',
+                        cents: creator?.subscriptionCents ?? 0,
+                        pitch: creator?.subscriptionPitch ?? '',
+                      ),
+                      icon: const Icon(Icons.workspace_premium, size: 16),
+                      label: Text(
+                          'Subscribe · \$${((creator?.subscriptionCents ?? 0) / 100).toStringAsFixed(2)}/mo',
+                          maxLines: 1, overflow: TextOverflow.ellipsis),
+                    ),
+            ],
           ],
         );
       },
@@ -1625,6 +1669,97 @@ class _Entry extends StatelessWidget {
   }
 }
 
+/// The locked card under a subscribers-only post: a teaser (above, as the body)
+/// then the price and a Subscribe button. If this device is the author, or
+/// already holds an active pass, it quietly fetches the full text instead —
+/// the server is the one that decides whether the body is served.
+class _PaidLock extends StatefulWidget {
+  final PublicPost post;
+  const _PaidLock({required this.post});
+
+  @override
+  State<_PaidLock> createState() => _PaidLockState();
+}
+
+class _PaidLockState extends State<_PaidLock> {
+  bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Entitled already? Reveal it without a tap. `mine` covers the author,
+    // and the store's RPC re-checks entitlement server-side regardless of what
+    // this local flag says.
+    final p = widget.post;
+    if (p.mine || CreatorSubStore.instance.active(p.authorUsername)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        PublicFeedStore.instance.unlock(p.id);
+      });
+    }
+  }
+
+  Future<void> _subscribe() async {
+    final p = widget.post;
+    setState(() => _busy = true);
+    final ok = await showSubscribeSheet(
+      context,
+      handle: p.authorUsername,
+      name: p.authorName.isEmpty ? '@${p.authorUsername}' : p.authorName,
+      cents: p.subCents,
+    );
+    if (ok && mounted) await PublicFeedStore.instance.unlock(p.id);
+    if (mounted) setState(() => _busy = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final p = widget.post;
+    final price = p.subCents > 0
+        ? '\$${(p.subCents / 100).toStringAsFixed(2)}/mo'
+        : '';
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: scheme.primary.withValues(alpha: 0.07),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: scheme.primary.withValues(alpha: 0.25)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.lock_outline, size: 18, color: scheme.primary),
+              const SizedBox(width: 6),
+              Text('Subscribers-only post',
+                  style: TextStyle(
+                      fontWeight: FontWeight.w700, color: scheme.primary)),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            p.mine
+                ? 'Only your subscribers can read this.'
+                : 'Subscribe to ${p.authorName.isEmpty ? '@${p.authorUsername}' : p.authorName} to read it.',
+            style: TextStyle(fontSize: 12.5, color: scheme.onSurfaceVariant),
+          ),
+          if (!p.mine) ...[
+            const SizedBox(height: 10),
+            FilledButton.icon(
+              onPressed: _busy ? null : _subscribe,
+              icon: const Icon(Icons.workspace_premium, size: 18),
+              label:
+                  Text(price.isEmpty ? 'Subscribe' : 'Subscribe · $price'),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
 /// One post, plus its like / reply / more actions.
 class _PostTile extends StatelessWidget {
   final PublicPost post;
@@ -1696,17 +1831,22 @@ class _PostTile extends StatelessWidget {
                     ),
                   ],
                   // A plain repost has nothing of its own to show; the quoted
-                  // post below carries the content.
-                  if (post.body.isNotEmpty) ...[
+                  // post below carries the content. For a paid post this is the
+                  // teaser until unlocked, then the full text.
+                  if (post.displayBody.isNotEmpty) ...[
                     const SizedBox(height: 4),
                     FeedBodyText(
-                      text: post.body,
+                      text: post.displayBody,
                       collapse: collapseLongBody,
                       focused: focused,
                       onTag: (t) =>
                           PublicFeedStore.instance.setTag(t.substring(1)),
                       onMention: (u) => openPublicProfile(context, u),
                     ),
+                  ],
+                  if (post.locked) ...[
+                    const SizedBox(height: 8),
+                    _PaidLock(post: post),
                   ],
                   if (post.hasImage) ...[
                     const SizedBox(height: 8),
@@ -2615,6 +2755,11 @@ class _ComposerState extends State<_Composer> {
   Uint8List? _video;
   String _videoName = '';
 
+  /// When on, this post is for the author's subscribers only. Available just to
+  /// a creator who has turned subscriptions on, and only for a standalone text
+  /// post (a reply, repost, poll or media post can't be paywalled).
+  bool _subscribersOnly = false;
+
   /// One piece of media at a time — the store refuses more, and two would
   /// have to share the width anyway.
   bool get _hasMedia => _image != null || _gifUrl != null || _video != null;
@@ -2772,7 +2917,8 @@ class _ComposerState extends State<_Composer> {
           gifUrl: _gifUrl,
           video: _video,
           pollOptions: [for (final c in _pollFields ?? const []) c.text],
-          pollRunsFor: _isPoll ? _pollRunsFor : null);
+          pollRunsFor: _isPoll ? _pollRunsFor : null,
+          subscribersOnly: _subscribersOnly);
       PublicFeedStore.instance.noteAuthored();
       // Cleared only once it is actually posted. A send that throws leaves
       // the draft exactly where it was, which is the whole point of having
@@ -3013,15 +3159,22 @@ class _ComposerState extends State<_Composer> {
                             // it is the one line that has to be read.
                             Row(
                               children: [
-                                Icon(Icons.public, size: 15, color: accent),
+                                Icon(
+                                    _subscribersOnly
+                                        ? Icons.workspace_premium
+                                        : Icons.public,
+                                    size: 15,
+                                    color: accent),
                                 const SizedBox(width: 6),
                                 Expanded(
                                   child: Text(
-                                    me.username.isEmpty
-                                        ? 'Everyone can see this — set a username '
-                                            'so people know who posted'
-                                        : 'Everyone can see this, as '
-                                            '@${me.username}',
+                                    _subscribersOnly
+                                        ? 'Only your subscribers can read this'
+                                        : me.username.isEmpty
+                                            ? 'Everyone can see this — set a username '
+                                                'so people know who posted'
+                                            : 'Everyone can see this, as '
+                                                '@${me.username}',
                                     style: TextStyle(
                                         fontSize: 13,
                                         fontWeight: FontWeight.w600,
@@ -3030,6 +3183,30 @@ class _ComposerState extends State<_Composer> {
                                 ),
                               ],
                             ),
+                            // The paywall toggle — only for a creator, and only
+                            // on a standalone text post (a reply, quote, poll or
+                            // media post can't be paywalled). Turning it on
+                            // clears any attachment, which the store also
+                            // refuses.
+                            if (widget.replyTo == null &&
+                                widget.quoteOf == null &&
+                                me.subscribable) ...[
+                              const SizedBox(height: 10),
+                              FilterChip(
+                                avatar: Icon(
+                                    _subscribersOnly
+                                        ? Icons.lock
+                                        : Icons.lock_open_outlined,
+                                    size: 18),
+                                label: Text(
+                                    'Subscribers only · \$${(me.subscriptionCents / 100).toStringAsFixed(2)}/mo'),
+                                selected: _subscribersOnly,
+                                onSelected: (_isPoll || _hasMedia) && !_subscribersOnly
+                                    ? null
+                                    : (on) =>
+                                        setState(() => _subscribersOnly = on),
+                              ),
+                            ],
                           ],
                         ),
                       ),
@@ -3053,7 +3230,8 @@ class _ComposerState extends State<_Composer> {
                     icon: const Icon(Icons.image_outlined),
                     color: accent,
                     tooltip: 'Add a photo',
-                    onPressed: _sending || _isPoll ? null : _pickImage,
+                    onPressed:
+                        _sending || _isPoll || _subscribersOnly ? null : _pickImage,
                   ),
                   // Both hidden until the server's feed has the columns for
                   // them. Offering a button whose post the insert would
@@ -3064,13 +3242,15 @@ class _ComposerState extends State<_Composer> {
                       icon: const Icon(Icons.gif_box_outlined),
                       color: accent,
                       tooltip: 'Add a GIF',
-                      onPressed: _sending || _isPoll ? null : _pickGif,
+                      onPressed:
+                          _sending || _isPoll || _subscribersOnly ? null : _pickGif,
                     ),
                     IconButton(
                       icon: const Icon(Icons.movie_outlined),
                       color: accent,
                       tooltip: 'Add a video',
-                      onPressed: _sending || _isPoll ? null : _pickVideo,
+                      onPressed:
+                          _sending || _isPoll || _subscribersOnly ? null : _pickVideo,
                     ),
                   ],
                   IconButton(
@@ -3082,6 +3262,7 @@ class _ComposerState extends State<_Composer> {
                     onPressed: _sending ||
                             widget.replyTo != null ||
                             widget.quoteOf != null ||
+                            _subscribersOnly ||
                             !PublicFeedStore.instance.pollsSupported
                         ? null
                         : _togglePoll,

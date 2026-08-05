@@ -28,6 +28,7 @@ const pasteFunctions = [
   'payments-topup',
   'iap-validate',
   'iap-notify',
+  'creator-subscribe',
   'iap-status',
   'identity-start',
   'identity-status',

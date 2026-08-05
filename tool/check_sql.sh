@@ -936,6 +936,74 @@ select pg_temp.expect_ok(
     where community_id = 'cm_test' and post_id = 'p1'$$,
   'deleting a post removes its durable copy');
 reset role;
+
+-- Creator subscriptions (creator_subscriptions.sql): a paid post's real text
+-- lives in public_paid_bodies and is served by public_paid_body() to the
+-- author or an active subscriber, and to NOBODY else — the client can neither
+-- read it directly nor grant itself a pass.
+set role authenticated;
+select pg_temp.as_user('15550001111');  -- alice, the creator
+select pg_temp.expect_ok(
+  $$insert into public.public_posts
+      (id, author_phone, author_username, body, paid, sub_cents)
+    values ('t_paid','15550001111','alice','a teaser',true,499)$$,
+  'a creator can post a paid post');
+select pg_temp.expect_ok(
+  $$insert into public.public_paid_bodies (post_id, author_phone, body)
+    values ('t_paid','15550001111','the secret text')$$,
+  'the creator writes the paid body as their own');
+select pg_temp.expect_fail(
+  $$insert into public.public_paid_bodies (post_id, author_phone, body)
+    values ('t_paid','15550002222','forged')$$,
+  'a paid body cannot be written under someone else''s phone');
+select pg_temp.expect_fail(
+  $$select body from public.public_paid_bodies$$,
+  'a paid body cannot be selected directly');
+do $$ begin
+  if (select public.public_paid_body('t_paid'))
+     is distinct from 'the secret text' then
+    raise exception 'CHECK FAILED: author cannot read own paid body';
+  end if;
+  raise notice '  ok   the author reads their own paid body';
+end $$;
+select pg_temp.as_user('15550002222');  -- bob, not subscribed
+do $$ begin
+  if (select public.public_paid_body('t_paid')) is not null then
+    raise exception 'CHECK FAILED: a non-subscriber read a paid body';
+  end if;
+  raise notice '  ok   a non-subscriber gets nothing back';
+end $$;
+select pg_temp.expect_fail(
+  $$insert into public.creator_subscriptions
+      (subscriber_phone, creator_phone, expires_at)
+    values ('15550002222','15550001111', now() + interval '30 days')$$,
+  'a client cannot grant itself a pass');
+reset role;
+-- The edge function (service role) records the verified pass.
+insert into public.creator_subscriptions
+    (subscriber_phone, creator_phone, expires_at)
+  values ('15550002222','15550001111', now() + interval '30 days');
+set role authenticated;
+select pg_temp.as_user('15550002222');
+do $$ begin
+  if (select public.public_paid_body('t_paid'))
+     is distinct from 'the secret text' then
+    raise exception 'CHECK FAILED: an active subscriber cannot read the body';
+  end if;
+  raise notice '  ok   an active subscriber reads the paid body';
+end $$;
+reset role;
+update public.creator_subscriptions set expires_at = now() - interval '1 day'
+  where subscriber_phone = '15550002222';
+set role authenticated;
+select pg_temp.as_user('15550002222');
+do $$ begin
+  if (select public.public_paid_body('t_paid')) is not null then
+    raise exception 'CHECK FAILED: an expired pass still read the body';
+  end if;
+  raise notice '  ok   an expired pass reads nothing';
+end $$;
+reset role;
 SQL
 
 DB=okaycheck
@@ -953,7 +1021,7 @@ apply() {
 }
 
 echo "postgres $(su pg -c "PATH=$PGBIN:\$PATH psql -h $RUN -p $PORT -d $DB -tAc 'show server_version'")"
-for f in "$WORK/harness.sql" supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/community_posts.sql; do
+for f in "$WORK/harness.sql" supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/community_posts.sql; do
   if apply "$f"; then
     echo "  applied $(basename "$f")"
   else
@@ -1016,7 +1084,7 @@ else
   echo "  FAILED  could not rebuild the previous shape"; exit 1
 fi
 
-for f in supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/community_posts.sql; do
+for f in supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/community_posts.sql; do
   if apply "$f"; then
     echo "  re-applied $(basename "$f")"
   else

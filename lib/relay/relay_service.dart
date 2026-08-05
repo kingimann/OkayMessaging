@@ -169,6 +169,9 @@ class RelayService {
     bool fromBusiness = false,
     String fromBusinessCategory = '',
     String fromBusinessHours = '',
+    bool fromSubscribable = false,
+    int fromSubscriptionTier = 0,
+    String fromSubscriptionPitch = '',
     String fromAbout = '',
     String fromEmoji = '',
     String fromPronouns = '',
@@ -205,6 +208,9 @@ class RelayService {
       'fromBusiness': fromBusiness,
       'fromBusinessCategory': fromBusinessCategory,
       'fromBusinessHours': fromBusinessHours,
+      'fromSubscribable': fromSubscribable,
+      'fromSubscriptionTier': fromSubscriptionTier,
+      'fromSubscriptionPitch': fromSubscriptionPitch,
       'fromAbout': fromAbout,
       'fromEmoji': fromEmoji,
       'fromPronouns': fromPronouns,
@@ -528,6 +534,11 @@ class RelayService {
         (content['fromBusinessCategory'] as String?)?.trim() ?? '';
     final sharedBusinessHours =
         (content['fromBusinessHours'] as String?)?.trim() ?? '';
+    final sharedSubscribable = content['fromSubscribable'] == true;
+    final sharedSubscriptionTier =
+        (content['fromSubscriptionTier'] as num?)?.toInt() ?? 0;
+    final sharedSubscriptionPitch =
+        (content['fromSubscriptionPitch'] as String?)?.trim() ?? '';
 
     final senderName = (content['fromName'] as String?)?.trim() ?? '';
 
@@ -562,6 +573,9 @@ class RelayService {
         isBusiness: sharedBusiness,
         businessCategory: sharedBusinessCategory,
         businessHours: sharedBusinessHours,
+        subscribable: sharedSubscribable,
+        subscriptionTier: sharedSubscriptionTier,
+        subscriptionPitch: sharedSubscriptionPitch,
       );
       // Born a request: a stranger's first message lands in Message requests,
       // not the chat list, and earns no receipts until it is accepted.
@@ -602,6 +616,9 @@ class RelayService {
         business: sharedBusiness,
         businessCategory: sharedBusinessCategory,
         businessHours: sharedBusinessHours,
+        subscribable: sharedSubscribable,
+        subscriptionTier: sharedSubscriptionTier,
+        subscriptionPitch: sharedSubscriptionPitch,
       );
     }
 
@@ -3168,6 +3185,12 @@ class RelayService {
       fromBusiness: me.isBusiness,
       fromBusinessCategory: me.isBusiness ? me.businessCategory : '',
       fromBusinessHours: me.isBusiness ? me.businessHours : '',
+      // Ungated like the business flag: offering a subscription IS the
+      // decision to announce it. Tier/pitch clear when it's off, so a
+      // former creator stops advertising a price at the receiver.
+      fromSubscribable: me.subscribable,
+      fromSubscriptionTier: me.subscribable ? me.subscriptionTier : 0,
+      fromSubscriptionPitch: me.subscribable ? me.subscriptionPitch : '',
       fromAbout: about,
       fromEmoji: avatarColor.isEmpty ? '' : me.emoji,
       fromPronouns: about.isEmpty ? '' : me.pronouns,

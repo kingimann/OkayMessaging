@@ -164,6 +164,7 @@ import 'package:okay_messaging/screens/receive_money_screen.dart';
 import 'package:okay_messaging/payments/storage_economics.dart';
 import 'package:okay_messaging/payments/purchase_outcome.dart';
 import 'package:okay_messaging/payments/store_purchases.dart';
+import 'package:okay_messaging/state/creator_sub_store.dart';
 import 'package:okay_messaging/state/backup_service.dart';
 import 'package:okay_messaging/screens/status_screen.dart';
 import 'package:okay_messaging/state/status_store.dart';
@@ -8712,6 +8713,272 @@ void main() {
       final people = File('lib/screens/people_screen.dart').readAsStringSync();
       expect(people, contains('u.isBusiness'));
       expect(people, contains('u.businessCategory.trim()'));
+    });
+  });
+
+  group('Creator subscriptions', () {
+    test('subscription fields survive the json round trip', () {
+      const u = AppUser(
+        id: 's1',
+        name: 'Rae',
+        avatarColor: '#7E57C2',
+        subscribable: true,
+        subscriptionTier: 1,
+        subscriptionPitch: 'Early drops',
+      );
+      final back = AppUser.fromJson(u.toJson());
+      expect(back.subscribable, isTrue);
+      expect(back.subscriptionTier, 1);
+      expect(back.subscriptionPitch, 'Early drops');
+      // The price comes off the tier ladder.
+      expect(back.subscriptionCents, AppUser.subscriptionTiersCents[1]);
+      // Old persisted profiles load clean.
+      final legacy = AppUser.fromJson(
+          {'id': 'u2', 'name': 'G', 'avatarColor': '#000000'});
+      expect(legacy.subscribable, isFalse);
+      expect(legacy.subscriptionCents, 0);
+    });
+
+    test('the subscription offer travels with a message, and can be cleared',
+        () {
+      ChatStore.instance.reset();
+      addTearDown(ChatStore.instance.reset);
+      final payload = RelayService.encode(
+        message: Message(
+            id: 'sb1',
+            text: 'hi',
+            time: DateTime(2026),
+            isMe: true,
+            status: MessageStatus.sent),
+        fromPhone: '+15550117788',
+        fromName: 'Rae',
+        fromSubscribable: true,
+        fromSubscriptionTier: 2,
+        fromSubscriptionPitch: 'Behind the scenes',
+        toPhone: '+15550112222',
+      );
+      RelayService.applyIncoming(payload, myPhone: '+15550112222');
+      final contact =
+          ChatStore.instance.chatWithContact('+15550117788')!.contact;
+      expect(contact.subscribable, isTrue);
+      expect(contact.subscriptionTier, 2);
+      expect(contact.subscriptionPitch, 'Behind the scenes');
+
+      // Like the business flag, it applies as sent: turning it off clears the
+      // tier and pitch, so a former creator stops advertising a price.
+      final plain = RelayService.encode(
+        message: Message(
+            id: 'sb2',
+            text: 'again',
+            time: DateTime(2026, 1, 2),
+            isMe: true,
+            status: MessageStatus.sent),
+        fromPhone: '+15550117788',
+        fromName: 'Rae',
+        toPhone: '+15550112222',
+      );
+      RelayService.applyIncoming(plain, myPhone: '+15550112222');
+      final still =
+          ChatStore.instance.chatWithContact('+15550117788')!.contact;
+      expect(still.subscribable, isFalse);
+      expect(still.subscriptionTier, 0);
+      expect(still.subscriptionPitch, '');
+    });
+
+    test('it only announces itself while the account says it is one', () {
+      final src = File('lib/relay/relay_service.dart').readAsStringSync();
+      expect(src, contains('fromSubscribable: me.subscribable'));
+      expect(
+          src,
+          contains(
+              'fromSubscriptionTier: me.subscribable ? me.subscriptionTier : 0'));
+    });
+
+    test('the fields persist through updateProfile and the badge flip',
+        () async {
+      SharedPreferences.setMockInitialValues({});
+      Session.instance.signInForTest();
+      addTearDown(Session.instance.resetForTest);
+      addTearDown(AppState.resetForTest);
+      await Session.instance.updateProfile(
+        name: 'Rae',
+        about: 'Maker',
+        subscribable: true,
+        subscriptionTier: 3,
+        subscriptionPitch: 'Weekly',
+      );
+      expect(Session.instance.user.value!.subscribable, isTrue);
+      // The verified rebuild must not strip the subscription (the field-drop
+      // this rebuild has had before).
+      await Session.instance.setVerified(true);
+      final me = Session.instance.user.value!;
+      expect(me.subscribable, isTrue);
+      expect(me.subscriptionTier, 3);
+      expect(me.subscriptionPitch, 'Weekly');
+    });
+
+    test('the store grants, stacks, expires and reconciles a pass', () async {
+      SharedPreferences.setMockInitialValues({});
+      final s = CreatorSubStore.instance;
+      s.resetForTest();
+      addTearDown(s.resetForTest);
+      await s.load();
+      expect(s.active('rae'), isFalse);
+
+      // A debug grant (a real purchase would go through StorePurchases).
+      await s.debugSubscribe('rae');
+      expect(s.active('rae'), isTrue);
+      expect(s.active('@Rae'), isTrue, reason: 'the handle normalises');
+      expect(s.daysLeft('rae'), greaterThan(27));
+
+      // The server's verdict overrides local: an expiry in the past lapses it.
+      await s.applyServer('rae',
+          active: true, expiresAt: DateTime.now().subtract(const Duration(days: 1)));
+      expect(s.active('rae'), isFalse);
+
+      // Denied outright clears it.
+      await s.debugSubscribe('rae');
+      await s.applyServer('rae', active: false);
+      expect(s.active('rae'), isFalse);
+    });
+
+    test('subscribing in test mode grants the pass and records the receipt',
+        () async {
+      SharedPreferences.setMockInitialValues({});
+      PaymentService.instance.setTestMode(true);
+      addTearDown(() => PaymentService.instance.setTestMode(false));
+      final s = CreatorSubStore.instance;
+      s.resetForTest();
+      addTearDown(s.resetForTest);
+      await s.load();
+      String? recordedCreator;
+      addTearDown(() => PublicFeedStore.debugSubscribeOverride = null);
+      PublicFeedStore.debugSubscribeOverride =
+          (creator, receipt) async => recordedCreator = creator;
+
+      final result = await s.subscribe('rae', 1);
+      expect(result.ok, isTrue);
+      expect(s.active('rae'), isTrue);
+      // The store hands the store receipt to serverSubscribe, which the edge
+      // function would verify. (In real test mode there is no server client,
+      // so it's a no-op; here the override observes the call.)
+      expect(recordedCreator, 'rae');
+    });
+
+    test('a paid post reads its paywall fields and locks until unlocked', () {
+      final locked = PublicPost.fromRow({
+        'id': 'p1',
+        'author_username': 'rae',
+        'author_name': 'Rae',
+        'body': 'A teaser',
+        'created_at': DateTime(2026).toIso8601String(),
+        'paid': true,
+        'sub_cents': 499,
+      });
+      expect(locked.paid, isTrue);
+      expect(locked.subCents, 499);
+      expect(locked.locked, isTrue);
+      expect(locked.displayBody, 'A teaser');
+
+      final opened = locked.copyWith(unlocked: 'The real post');
+      expect(opened.locked, isFalse);
+      expect(opened.displayBody, 'The real post');
+    });
+
+    test('posting subscribers-only splits the teaser from the gated body',
+        () async {
+      SharedPreferences.setMockInitialValues({});
+      Session.instance.signInForTest();
+      addTearDown(Session.instance.resetForTest);
+      addTearDown(AppState.resetForTest);
+      addTearDown(() => PublicFeedStore.debugPostOverride = null);
+      addTearDown(() => PublicFeedStore.debugScreenOverride = null);
+      // Screening always passes here.
+      PublicFeedStore.debugScreenOverride = (_) async => null;
+      // Become a creator.
+      await Session.instance.updateProfile(
+        name: 'Rae',
+        about: 'Maker',
+        subscribable: true,
+        subscriptionTier: 1,
+      );
+      PublicPost? captured;
+      PublicFeedStore.debugPostOverride = (p) async => captured = p;
+
+      await PublicFeedStore.instance.post('The paid words',
+          subscribersOnly: true, teaser: 'Peek');
+      expect(captured, isNotNull);
+      expect(captured!.paid, isTrue);
+      expect(captured!.subCents, AppUser.subscriptionTiersCents[1]);
+      // The row body is the public teaser; the real text is unlocked locally
+      // for the author who just wrote it.
+      expect(captured!.body, 'Peek');
+      expect(captured!.unlocked, 'The paid words');
+    });
+
+    test('a non-creator cannot post subscribers-only', () async {
+      SharedPreferences.setMockInitialValues({});
+      Session.instance.signInForTest();
+      addTearDown(Session.instance.resetForTest);
+      addTearDown(AppState.resetForTest);
+      addTearDown(() => PublicFeedStore.debugScreenOverride = null);
+      PublicFeedStore.debugScreenOverride = (_) async => null;
+      await Session.instance
+          .updateProfile(name: 'Nia', about: 'Hi'); // not subscribable
+      await expectLater(
+        PublicFeedStore.instance.post('paid', subscribersOnly: true),
+        throwsA(isA<PublicFeedError>()),
+      );
+    });
+
+    test('unlock fetches the gated body through the RPC', () async {
+      final store = PublicFeedStore.instance;
+      addTearDown(() => PublicFeedStore.debugPaidBodyOverride = null);
+      PublicFeedStore.debugPaidBodyOverride =
+          (postId) async => postId == 'p9' ? 'the secret' : null;
+      store.debugSetPosts([
+        PublicPost(
+          id: 'p9',
+          authorUsername: 'rae',
+          body: 'teaser',
+          createdAt: DateTime(2026),
+          paid: true,
+          subCents: 499,
+        ),
+      ]);
+      addTearDown(() => store.debugSetPosts(const []));
+      final ok = await store.unlock('p9');
+      expect(ok, isTrue);
+      expect(store.posts.firstWhere((p) => p.id == 'p9').displayBody,
+          'the secret');
+    });
+
+    test('the paywall bodies and passes are gated in the SQL', () {
+      final sql = File('docs/creator_subscriptions.sql').readAsStringSync();
+      // The private text lives in its own table, unreadable directly.
+      expect(sql, contains('create table if not exists public.public_paid_bodies'));
+      expect(sql,
+          contains('revoke select on table public.public_paid_bodies'));
+      // The pass table takes no client grants at all.
+      expect(sql,
+          contains('revoke all on table public.creator_subscriptions'));
+      // The one reader checks author-or-active-subscriber.
+      expect(sql, contains('public_paid_body'));
+    });
+
+    test('the subscribe function verifies the receipt before granting', () {
+      final src =
+          File('supabase/functions/creator-subscribe/index.ts').readAsStringSync();
+      // The client is never trusted: the JWS is verified, the product checked,
+      // and the transaction deduped so one receipt buys one month.
+      expect(src, contains('verifyAppleJws'));
+      expect(src, contains('CREATOR_SUB'));
+      expect(src, contains('creator_sub_receipts'));
+      expect(src, contains('receipt already used'));
+      final paste =
+          File('docs/edge_functions_paste/creator-subscribe.ts');
+      expect(paste.existsSync(), isTrue,
+          reason: 'run dart tool/paste_functions.dart');
     });
   });
 

@@ -490,7 +490,10 @@ class ChatStore extends ChangeNotifier {
       String? location,
       bool? business,
       String? businessCategory,
-      String? businessHours}) {
+      String? businessHours,
+      bool? subscribable,
+      int? subscriptionTier,
+      String? subscriptionPitch}) {
     final i = _chats.indexWhere((c) => c.contact.id == contactId);
     if (i == -1) return;
     final c = _chats[i].contact;
@@ -523,6 +526,14 @@ class ChatStore extends ChangeNotifier {
         !nextBusiness ? '' : (businessCategory ?? c.businessCategory);
     final nextBusinessHours =
         !nextBusiness ? '' : (businessHours ?? c.businessHours);
+    // Subscription flag applies as sent, same as business: turning it off
+    // clears the tier and pitch, so a creator who stops offering it doesn't
+    // keep advertising a price on a contact card forever.
+    final nextSubscribable = subscribable ?? c.subscribable;
+    final nextSubTier =
+        !nextSubscribable ? 0 : (subscriptionTier ?? c.subscriptionTier);
+    final nextSubPitch =
+        !nextSubscribable ? '' : (subscriptionPitch ?? c.subscriptionPitch);
     if (nextName == c.name &&
         nextColor == c.avatarColor &&
         nextAbout == c.about &&
@@ -536,7 +547,10 @@ class ChatStore extends ChangeNotifier {
         nextLocation == c.location &&
         nextBusiness == c.isBusiness &&
         nextBusinessCategory == c.businessCategory &&
-        nextBusinessHours == c.businessHours) {
+        nextBusinessHours == c.businessHours &&
+        nextSubscribable == c.subscribable &&
+        nextSubTier == c.subscriptionTier &&
+        nextSubPitch == c.subscriptionPitch) {
       return;
     }
     _replace(
@@ -562,6 +576,9 @@ class ChatStore extends ChangeNotifier {
           isBusiness: nextBusiness,
           businessCategory: nextBusinessCategory,
           businessHours: nextBusinessHours,
+          subscribable: nextSubscribable,
+          subscriptionTier: nextSubTier,
+          subscriptionPitch: nextSubPitch,
         ),
       ),
     );

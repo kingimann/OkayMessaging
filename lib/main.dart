@@ -59,6 +59,7 @@ import 'state/scheduler.dart';
 import 'state/score_store.dart';
 import 'state/session.dart';
 import 'state/storage_store.dart';
+import 'state/creator_sub_store.dart';
 import 'state/status_store.dart';
 import 'state/sticker_store.dart';
 import 'state/streak_store.dart';
@@ -123,6 +124,7 @@ Future<void> main() async {
   await _boot('feed', FeedStore.instance.load);
   await _boot('drafts', FeedDrafts.instance.load);
   await _boot('storage', StorageStore.instance.load);
+  await _boot('creator subs', CreatorSubStore.instance.load);
   // Reads the saved setting and brings the radio up if it was on. Off by
   // default, so on nearly every launch this does nothing at all.
   await _boot('mesh', MeshService.instance.load);

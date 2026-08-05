@@ -54,6 +54,21 @@ class AppUser {
   /// out, like [location].
   final String businessHours;
 
+  /// Whether this account offers a paid subscription — a monthly pass that
+  /// unlocks the "subscribers only" posts they publish to the public feed.
+  /// A self-declaration like [isBusiness]: turning it on IS the decision to
+  /// announce it, so it rides the profile share ungated and applies at the
+  /// receiver as sent.
+  final bool subscribable;
+
+  /// Which price tier they charge, an index into [subscriptionTiersCents].
+  /// Meaningless when [subscribable] is false.
+  final int subscriptionTier;
+
+  /// A short free-text pitch shown on the subscribe sheet ("Behind-the-scenes
+  /// and early drops"). Never parsed.
+  final String subscriptionPitch;
+
   const AppUser({
     required this.id,
     required this.name,
@@ -74,7 +89,28 @@ class AppUser {
     this.isBusiness = false,
     this.businessCategory = '',
     this.businessHours = '',
+    this.subscribable = false,
+    this.subscriptionTier = 0,
+    this.subscriptionPitch = '',
   });
+
+  /// The monthly price tiers a creator can charge, in cents. A fixed ladder
+  /// (not free text) because each tier maps to a pre-registered In-App
+  /// Purchase product — Apple bills digital subscriptions and only known
+  /// SKUs exist. Index into this list is [subscriptionTier].
+  static const List<int> subscriptionTiersCents = [299, 499, 999, 1999];
+
+  /// This account's monthly subscription price in cents, clamped to the
+  /// ladder. Zero when the account offers no subscription, or the tier is out
+  /// of range.
+  int get subscriptionCents {
+    if (!subscribable ||
+        subscriptionTier < 0 ||
+        subscriptionTier >= subscriptionTiersCents.length) {
+      return 0;
+    }
+    return subscriptionTiersCents[subscriptionTier];
+  }
 
   /// The categories the edit screen offers. A fixed list rather than free
   /// text so the label under a name is a word, not a pitch.
@@ -114,6 +150,9 @@ class AppUser {
         'isBusiness': isBusiness,
         'businessCategory': businessCategory,
         'businessHours': businessHours,
+        'subscribable': subscribable,
+        'subscriptionTier': subscriptionTier,
+        'subscriptionPitch': subscriptionPitch,
       };
 
   factory AppUser.fromJson(Map<String, dynamic> json) => AppUser(
@@ -136,6 +175,9 @@ class AppUser {
         isBusiness: json['isBusiness'] as bool? ?? false,
         businessCategory: json['businessCategory'] as String? ?? '',
         businessHours: json['businessHours'] as String? ?? '',
+        subscribable: json['subscribable'] as bool? ?? false,
+        subscriptionTier: (json['subscriptionTier'] as num?)?.toInt() ?? 0,
+        subscriptionPitch: json['subscriptionPitch'] as String? ?? '',
       );
 
   /// Initials used for the placeholder avatar (e.g. "John Doe" -> "JD").

@@ -30,6 +30,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   late String _emoji;
   late bool _isBusiness;
   late String _businessCategory;
+  late final TextEditingController _subPitch;
+  late bool _subscribable;
+  late int _subTier;
 
   /// A small set of emojis offered for the avatar.
   static const _emojiChoices = [
@@ -67,6 +70,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     _emoji = p.emoji;
     _isBusiness = p.isBusiness;
     _businessCategory = p.businessCategory;
+    _subPitch = TextEditingController(text: p.subscriptionPitch);
+    _subscribable = p.subscribable;
+    _subTier = p.subscriptionTier;
   }
 
   @override
@@ -78,6 +84,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     _link.dispose();
     _location.dispose();
     _businessHours.dispose();
+    _subPitch.dispose();
     super.dispose();
   }
 
@@ -116,6 +123,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         isBusiness: _isBusiness,
         businessCategory: _isBusiness ? _businessCategory : '',
         businessHours: _isBusiness ? _businessHours.text.trim() : '',
+        subscribable: _subscribable,
+        subscriptionTier: _subTier,
+        subscriptionPitch: _subscribable ? _subPitch.text.trim() : '',
       );
     } else {
       AppState.updateProfile(
@@ -132,6 +142,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         isBusiness: _isBusiness,
         businessCategory: _isBusiness ? _businessCategory : '',
         businessHours: _isBusiness ? _businessHours.text.trim() : '',
+        subscribable: _subscribable,
+        subscriptionTier: _subTier,
+        subscriptionPitch: _subscribable ? _subPitch.text.trim() : '',
       );
     }
     if (_username.text.trim().isNotEmpty || _emoji.isNotEmpty) {
@@ -356,6 +369,65 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                   icon: Icons.schedule_outlined,
                   label: 'Hours',
                   hint: 'Mon–Fri 9–5 — your words, never parsed'),
+            ],
+          ]),
+          const SizedBox(height: 12),
+          card([
+            SwitchListTile(
+              dense: true,
+              secondary: const Icon(Icons.workspace_premium_outlined, size: 20),
+              title: const Text('Offer subscriptions'),
+              subtitle: const Text(
+                  'Let people pay a monthly pass to read your '
+                  'subscribers-only posts'),
+              value: _subscribable,
+              onChanged: (v) => setState(() => _subscribable = v),
+            ),
+            if (_subscribable) ...[
+              Padding(
+                padding: const EdgeInsets.fromLTRB(14, 6, 14, 4),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text('Monthly price',
+                      style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: Theme.of(context).hintColor)),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(14, 0, 14, 4),
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (var i = 0;
+                        i < AppUser.subscriptionTiersCents.length;
+                        i++)
+                      ChoiceChip(
+                        label: Text(
+                            '\$${(AppUser.subscriptionTiersCents[i] / 100).toStringAsFixed(2)}/mo',
+                            style: const TextStyle(fontSize: 12.5)),
+                        visualDensity: VisualDensity.compact,
+                        selected: _subTier == i,
+                        onSelected: (_) => setState(() => _subTier = i),
+                      ),
+                  ],
+                ),
+              ),
+              field(_subPitch,
+                  icon: Icons.campaign_outlined,
+                  label: 'Pitch',
+                  hint: 'what subscribers get — "early drops, behind the '
+                      'scenes"'),
+              const Padding(
+                padding: EdgeInsets.fromLTRB(14, 2, 14, 10),
+                child: Text(
+                  'Billed through the App Store as a monthly pass. Turning '
+                  'this on announces it on your profile.',
+                  style: TextStyle(fontSize: 11.5, height: 1.3),
+                ),
+              ),
             ],
           ]),
           if (AppState.profile.value.phone.isNotEmpty) ...[

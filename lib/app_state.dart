@@ -267,6 +267,9 @@ class AppState {
     bool? isBusiness,
     String? businessCategory,
     String? businessHours,
+    bool? subscribable,
+    int? subscriptionTier,
+    String? subscriptionPitch,
   }) {
     final p = profile.value;
     profile.value = AppUser(
@@ -288,6 +291,9 @@ class AppState {
       isBusiness: isBusiness ?? p.isBusiness,
       businessCategory: businessCategory ?? p.businessCategory,
       businessHours: businessHours ?? p.businessHours,
+      subscribable: subscribable ?? p.subscribable,
+      subscriptionTier: subscriptionTier ?? p.subscriptionTier,
+      subscriptionPitch: subscriptionPitch ?? p.subscriptionPitch,
     );
   }
 
@@ -317,6 +323,9 @@ class AppState {
       isBusiness: p.isBusiness,
       businessCategory: p.businessCategory,
       businessHours: p.businessHours,
+      subscribable: p.subscribable,
+      subscriptionTier: p.subscriptionTier,
+      subscriptionPitch: p.subscriptionPitch,
     );
   }
 

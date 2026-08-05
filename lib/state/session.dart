@@ -127,6 +127,9 @@ class Session {
       isBusiness: prior?.isBusiness ?? false,
       businessCategory: prior?.businessCategory ?? '',
       businessHours: prior?.businessHours ?? '',
+      subscribable: prior?.subscribable ?? false,
+      subscriptionTier: prior?.subscriptionTier ?? 0,
+      subscriptionPitch: prior?.subscriptionPitch ?? '',
     );
     _prefs ??= await SharedPreferences.getInstance();
     await _prefs!.setString(_key, jsonEncode(me.toJson()));
@@ -251,6 +254,9 @@ class Session {
     bool? isBusiness,
     String? businessCategory,
     String? businessHours,
+    bool? subscribable,
+    int? subscriptionTier,
+    String? subscriptionPitch,
   }) async {
     final current = user.value;
     if (current == null) return;
@@ -288,6 +294,9 @@ class Session {
       isBusiness: isBusiness ?? current.isBusiness,
       businessCategory: businessCategory ?? current.businessCategory,
       businessHours: businessHours ?? current.businessHours,
+      subscribable: subscribable ?? current.subscribable,
+      subscriptionTier: subscriptionTier ?? current.subscriptionTier,
+      subscriptionPitch: subscriptionPitch ?? current.subscriptionPitch,
     );
     _prefs ??= await SharedPreferences.getInstance();
     await _prefs!.setString(_key, jsonEncode(updated.toJson()));
@@ -322,6 +331,9 @@ class Session {
       isBusiness: current.isBusiness,
       businessCategory: current.businessCategory,
       businessHours: current.businessHours,
+      subscribable: current.subscribable,
+      subscriptionTier: current.subscriptionTier,
+      subscriptionPitch: current.subscriptionPitch,
     );
     _prefs ??= await SharedPreferences.getInstance();
     await _prefs!.setString(_key, jsonEncode(updated.toJson()));

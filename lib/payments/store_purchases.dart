@@ -23,6 +23,32 @@ class StorePurchases {
   static String storageProductId(int gb) =>
       gb <= 0 ? '' : '$_prefix.storage.gb$gb.monthly';
 
+  /// A creator-subscription month, one product per price tier. Deliberately a
+  /// CONSUMABLE, not an auto-renewable subscription: a reader may subscribe to
+  /// many creators at the same tier, and Apple treats a second purchase of one
+  /// auto-renewable SKU as renewing the first — so it could never express "a
+  /// month of THIS creator". A consumable can be bought over and over, and the
+  /// app tracks which creator each month bought (a 30-day pass you renew, the
+  /// same shape as the storage pass). Tier index matches
+  /// [AppUser.subscriptionTiersCents].
+  static String creatorSubProductId(int tier) =>
+      (tier < 0 || tier >= 4) ? '' : '$_prefix.creatorsub.tier$tier.monthly';
+
+  /// Buys one month of a creator's subscription at [tier]. Returns the store
+  /// result; granting the entitlement is the caller's job (CreatorSubStore),
+  /// because — like a tip — a consumable carries no entitlement of its own.
+  Future<PurchaseResult> buyCreatorSub(int tier) async {
+    final id = creatorSubProductId(tier);
+    if (id.isEmpty) {
+      return const PurchaseResult(PurchaseOutcome.notOffered);
+    }
+    if (_testMode) {
+      await Future<void>.delayed(const Duration(milliseconds: 900));
+      return const PurchaseResult.bought('test-mode');
+    }
+    return AppleIap.buy(id, consumable: true);
+  }
+
   /// Fixed consumable tip products. Apple doesn't allow arbitrary amounts, so
   /// support is a small set of set prices.
   static const List<({int cents, String emoji, String label, String id})>
