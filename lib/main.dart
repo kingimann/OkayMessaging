@@ -214,6 +214,18 @@ Future<void> main() async {
   // holds a lock-out.
   unawaited(IdentityVerification.instance.refresh());
   unawaited(PlatformModeration.instance.refresh());
+  // Apple renews, cancels, and REFUNDS whether or not the app is open, and
+  // the storage quota gate is client-side — so a refund the server already
+  // honoured only takes effect here once the app asks. Asking every cold
+  // start (not only when the Cloud storage screen opens) closes the window
+  // between "Apple refunded" and "the app stops honouring it". Fire-and-
+  // forget, and only acted on when the server actually answers.
+  unawaited(IapEntitlement.instance.refresh().then((e) {
+    if (e != null) {
+      StorageStore.instance.applyServerEntitlement(
+          active: e.active, gb: e.gb, expiresAt: e.expiresAt);
+    }
+  }));
   await _boot('scheduler', Scheduler.instance.init);
   ChatStore.instance.startSweeper();
   runApp(const OkayMessagingApp());

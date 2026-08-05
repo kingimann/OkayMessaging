@@ -22524,6 +22524,19 @@ void main() {
       expect(storage.activeGb, StorageStore.freeGb);
     });
 
+    test('every cold start reconciles the entitlement, so a refund is felt '
+        'on next open — not only on the storage screen', () {
+      // The storage quota gate is client-side, so a refund the server
+      // already honoured only takes hold once the app asks. Asking used to
+      // happen ONLY when the Cloud storage screen opened; a refunded user
+      // who never returned there kept their quota. Launch now asks too.
+      final src = File('lib/main.dart').readAsStringSync();
+      expect(src, contains('IapEntitlement.instance.refresh()'),
+          reason: 'the launch sequence must reconcile the entitlement');
+      expect(src, contains('applyServerEntitlement('),
+          reason: 'and act on the server\'s answer, refund included');
+    });
+
     test('an expiry already past leaves the account on the free tier',
         () async {
       final storage = StorageStore.instance;
