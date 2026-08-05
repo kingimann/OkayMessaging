@@ -18735,8 +18735,12 @@ void main() {
           PublicFeedStore.debugColumnSets.first.contains('spark_count'), isTrue);
       expect(
           PublicFeedStore.debugColumnSets.first.contains('spark_cents'), isTrue);
-      // An unmigrated server steps down one generation and the bolt hides.
-      expect(PublicFeedStore.debugColumnSets[1].contains('spark_count'),
+      // An unmigrated server steps down to a generation without the bolt.
+      // (Index 1 is the pre-views generation and still carries sparks; the
+      // one below it predates them.)
+      expect(PublicFeedStore.debugColumnSets[1].contains('view_count'),
+          isFalse);
+      expect(PublicFeedStore.debugColumnSets[2].contains('spark_count'),
           isFalse);
 
       final post = PublicPost.fromRow({
@@ -32019,6 +32023,66 @@ void main() {
       await tester.tap(find.byTooltip('Reposts'));
       await tester.pumpAndSettle();
       expect(find.text('passed on'), findsOneWidget);
+    });
+  });
+
+  group('View counts (X-style)', () {
+    test('compactCount writes numbers the way X does', () {
+      expect(compactCount(0), '0');
+      expect(compactCount(999), '999');
+      expect(compactCount(1000), '1K');
+      expect(compactCount(1234), '1.2K');
+      expect(compactCount(9999), '9.9K');
+      expect(compactCount(45000), '45K');
+      expect(compactCount(999999), '999K');
+      expect(compactCount(1000000), '1M');
+      expect(compactCount(3400000), '3.4M');
+    });
+
+    testWidgets('opening a post counts one view, once per run',
+        (tester) async {
+      final store = PublicFeedStore.instance;
+      addTearDown(store.resetForTest);
+      final reported = <String>[];
+      PublicFeedStore.debugViewedOverride = reported.add;
+      PublicFeedStore.debugLoadOverride = () async => [
+            PublicPost(
+              id: 'v1',
+              authorUsername: 'ada',
+              body: 'watched',
+              viewCount: 1234,
+              createdAt: DateTime(2026, 1, 1),
+            )
+          ];
+      await store.load();
+      await tester.pumpWidget(
+          const MaterialApp(home: PublicThreadScreen(postId: 'v1')));
+      await tester.pumpAndSettle();
+      expect(reported, ['v1']);
+      // The count shows, compact, in the engagement line.
+      expect(find.textContaining('1.2K views'), findsOneWidget);
+      // A second open in the same run does not double-count.
+      store.notePostViewed('v1');
+      expect(reported, ['v1'],
+          reason: 'one reader is one view, not one per rebuild');
+    });
+
+    test('the tally is a counter with no viewer in it, proven in Postgres',
+        () {
+      final sql = File('docs/public_feed.sql').readAsStringSync();
+      expect(sql, contains('add column if not exists view_count'));
+      expect(sql,
+          contains('create or replace function public.public_post_viewed'));
+      // The grant list carries the column, or the security-invoker view
+      // dies with "permission denied" — the exact trap the file warns
+      // about, and the trap this change fell into first.
+      expect(sql, contains('created_at, view_count)'));
+      // There is no views TABLE — a per-viewer row would be a phone number
+      // next to a reading habit.
+      expect(sql.contains('public_post_views ('), isFalse);
+      final check = File('tool/check_sql.sh').readAsStringSync();
+      expect(check, contains('a view adds exactly one to the tally'));
+      expect(check, contains('the view tally cannot be written directly'));
     });
   });
 

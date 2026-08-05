@@ -131,6 +131,15 @@ do $$ begin
     or video_path <> '' or repost_of is not null);
 exception when duplicate_object then null; end $$;
 
+-- How many times a post was opened (2026-08-04). A COUNTER, not tracking:
+-- no viewer identity is stored anywhere — there is no views table with a
+-- phone in it, just a number on the post. Clients bump it through
+-- public_post_viewed below (once per post per app run, by their own
+-- discipline) and can never write it directly. Approximate by nature and
+-- worth exactly what an X view count is worth.
+alter table public.public_posts
+  add column if not exists view_count bigint not null default 0;
+
 create table if not exists public.public_post_likes (
   post_id     text not null references public.public_posts(id) on delete cascade,
   liker_phone text not null,
@@ -343,7 +352,7 @@ revoke select on table public.public_posts from anon, authenticated;
 -- the post comes back with its video silently missing and nothing says why.
 grant select (id, author_username, author_name, author_verified, body,
               reply_to, repost_of, image_path, gif_url, video_path,
-              poll_options, poll_closes_at, created_at)
+              poll_options, poll_closes_at, created_at, view_count)
   on public.public_posts to anon, authenticated;
 
 revoke select on table public.public_post_likes from anon, authenticated;
@@ -505,6 +514,7 @@ select
   p.poll_options,
   p.poll_closes_at,
   p.created_at,
+  p.view_count,
   public.public_post_like_count(p.id)   as like_count,
   public.public_post_reply_count(p.id)  as reply_count,
   public.public_post_repost_count(p.id) as repost_count,
@@ -575,3 +585,17 @@ as $$
 $$;
 
 grant execute on function public.public_post_likers(text) to anon, authenticated;
+
+-- Counts one view. The table grants clients no UPDATE, so this definer
+-- function is the only door, and all it can do is add one.
+create or replace function public.public_post_viewed(p text)
+returns void
+language sql
+volatile
+security definer
+set search_path = public
+as $$
+  update public.public_posts set view_count = view_count + 1 where id = p;
+$$;
+
+grant execute on function public.public_post_viewed(text) to anon, authenticated;

@@ -193,6 +193,28 @@ update public.usernames set hidden = false where phone = '15550001111';
 set role authenticated;
 select pg_temp.as_user('15550001111');
 
+-- Views: a tally with no viewer in it. The definer function is the only
+-- door and adds exactly one; a direct write bounces off.
+select pg_temp.expect_ok(
+  $$select public.public_post_viewed('t_p1')$$,
+  'a view can be counted');
+do $$ begin
+  if (select view_count from public.public_feed where id='t_p1') <> 1 then
+    raise exception 'CHECK FAILED: the view did not count, or counted wrong';
+  end if;
+  raise notice '  ok   a view adds exactly one to the tally';
+end $$;
+do $$ begin
+  begin
+    update public.public_posts set view_count = 999 where id = 't_p1';
+  exception when others then null; -- refused outright counts too
+  end;
+  if (select view_count from public.public_feed where id='t_p1') <> 1 then
+    raise exception 'SECURITY CHECK FAILED: a client wrote the view tally directly';
+  end if;
+  raise notice '  ok   the view tally cannot be written directly';
+end $$;
+
 -- The card-attach ledger is the waiting period: a row a client could read,
 -- write or delete is a hold a thief could inspect or skip.
 select pg_temp.expect_fail(

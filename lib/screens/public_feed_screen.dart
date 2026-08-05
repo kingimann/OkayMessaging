@@ -1922,6 +1922,9 @@ class _PublicThreadScreenState extends State<PublicThreadScreen> {
   @override
   void initState() {
     super.initState();
+    // Opening the post IS the view being counted — once per post per app
+    // run, and nothing about the viewer travels with it.
+    PublicFeedStore.instance.notePostViewed(widget.postId);
     if (PublicFeedStore.instance.byId(widget.postId) == null) _resolve();
   }
 
@@ -2011,18 +2014,27 @@ class _PublicThreadScreenState extends State<PublicThreadScreen> {
                 onOpen: (_) {},
               ),
               // Who's behind the numbers — only when there are numbers.
-              if (post.likeCount > 0 || post.repostCount > 0)
+              // Views ride the same line but stay plain text: a view count
+              // has no names behind it, on purpose.
+              if (post.viewCount > 0 ||
+                  post.likeCount > 0 ||
+                  post.repostCount > 0)
                 InkWell(
-                  onTap: () => showModalBottomSheet<void>(
-                    context: context,
-                    showDragHandle: true,
-                    isScrollControlled: true,
-                    builder: (_) => _EngagementSheet(post: post),
-                  ),
+                  onTap: (post.likeCount > 0 || post.repostCount > 0)
+                      ? () => showModalBottomSheet<void>(
+                            context: context,
+                            showDragHandle: true,
+                            isScrollControlled: true,
+                            builder: (_) => _EngagementSheet(post: post),
+                          )
+                      : null,
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
                     child: Text(
                       [
+                        if (post.viewCount > 0)
+                          '${compactCount(post.viewCount)} '
+                              '${post.viewCount == 1 ? "view" : "views"}',
                         if (post.likeCount > 0)
                           '${post.likeCount} '
                               '${post.likeCount == 1 ? "like" : "likes"}',

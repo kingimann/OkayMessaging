@@ -77,6 +77,11 @@ class PublicPost {
   final int sparkCount;
   final int sparkCents;
 
+  /// How many times this post was opened. A counter and nothing else — no
+  /// viewer identity exists anywhere, on the server or here. Approximate
+  /// by nature and worth exactly what an X view count is worth.
+  final int viewCount;
+
   const PublicPost({
     required this.id,
     this.authorUsername = '',
@@ -100,6 +105,7 @@ class PublicPost {
     this.myVote,
     this.sparkCount = 0,
     this.sparkCents = 0,
+    this.viewCount = 0,
   });
 
   /// Whether this carries an image.
@@ -185,6 +191,7 @@ class PublicPost {
         myVote: myVote ?? this.myVote,
         sparkCount: sparkCount ?? this.sparkCount,
         sparkCents: sparkCents ?? this.sparkCents,
+        viewCount: viewCount,
       );
 
   /// The same post with this account's vote removed. A separate method
@@ -212,6 +219,7 @@ class PublicPost {
         pollVotes: pollVotes,
         sparkCount: sparkCount,
         sparkCents: sparkCents,
+        viewCount: viewCount,
       );
 
   factory PublicPost.fromRow(Map<String, dynamic> r) => PublicPost(
@@ -243,6 +251,7 @@ class PublicPost {
         ],
         sparkCount: (r['spark_count'] as num?)?.toInt() ?? 0,
         sparkCents: (r['spark_cents'] as num?)?.toInt() ?? 0,
+        viewCount: (r['view_count'] as num?)?.toInt() ?? 0,
       );
 }
 
@@ -362,7 +371,12 @@ class PublicFeedStore extends ChangeNotifier {
   /// down a generation and tries again. This used to be a single boolean,
   /// which could only ever describe two schemas; polls made a third.
   static const List<String> _columnSets = [
-    // Current: sparks.
+    // Current: view counts.
+    'id, author_username, author_name, author_verified, body, reply_to, '
+        'repost_of, image_path, gif_url, video_path, poll_options, '
+        'poll_closes_at, created_at, view_count, like_count, reply_count, '
+        'repost_count, poll_votes, spark_count, spark_cents',
+    // Before views: sparks.
     'id, author_username, author_name, author_verified, body, reply_to, '
         'repost_of, image_path, gif_url, video_path, poll_options, '
         'poll_closes_at, created_at, like_count, reply_count, repost_count, '
@@ -875,6 +889,36 @@ class PublicFeedStore extends ChangeNotifier {
   /// Test hook: stands in for the own-likes fetch.
   @visibleForTesting
   static Future<List<PublicPost>> Function()? debugLikedPostsOverride;
+
+  /// Test hook: records view reports instead of calling the server.
+  @visibleForTesting
+  static void Function(String postId)? debugViewedOverride;
+
+  /// Posts already reported viewed this app run — the client's own
+  /// discipline against counting one reader as many.
+  final Set<String> _viewedReported = {};
+
+  /// Counts one view of [postId], fire-and-forget — once per post per app
+  /// run. A tally, not tracking: the call carries the post id and nothing
+  /// about the viewer, and the server stores a number, not a row.
+  void notePostViewed(String postId) {
+    if (postId.isEmpty || !_viewedReported.add(postId)) return;
+    final override = debugViewedOverride;
+    if (override != null) {
+      override(postId);
+      return;
+    }
+    final client = _client;
+    if (client == null) return;
+    // Best-effort: a view count is never worth an error surface, and a
+    // server without the function yet (public_feed.sql not re-run) just
+    // doesn't count.
+    Future(() async {
+      try {
+        await client.rpc('public_post_viewed', params: {'p': postId});
+      } catch (_) {}
+    });
+  }
 
   /// The posts THIS account has liked, newest first — the own-profile
   /// Likes tab. Own likes are the only ones the server lets anyone read,
@@ -1626,6 +1670,8 @@ class PublicFeedStore extends ChangeNotifier {
     debugLikersOverride = null;
     debugRepostersOverride = null;
     debugLikedPostsOverride = null;
+    debugViewedOverride = null;
+    _viewedReported.clear();
     _filter = FeedFilter.forYou;
     _query = '';
     _tag = '';
@@ -1634,4 +1680,17 @@ class PublicFeedStore extends ChangeNotifier {
     _columnLevel = 0;
     notifyListeners();
   }
+}
+
+/// A count the way X writes one: raw under a thousand, then '1.2K',
+/// '45K', '3.4M' — one decimal only while it still means anything. Pure.
+String compactCount(int n) {
+  if (n < 1000) return '$n';
+  if (n < 10000) {
+    final tenths = (n / 100).floor();
+    return tenths % 10 == 0 ? '${tenths ~/ 10}K' : '${tenths / 10}K';
+  }
+  if (n < 1000000) return '${(n / 1000).floor()}K';
+  final tenths = (n / 100000).floor();
+  return tenths % 10 == 0 ? '${tenths ~/ 10}M' : '${tenths / 10}M';
 }
