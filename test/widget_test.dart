@@ -32809,6 +32809,102 @@ void main() {
     });
   });
 
+  group('Poke', () {
+    setUp(() => SharedPreferences.setMockInitialValues({}));
+
+    test('a poke is a real message: json, preview, and the funnel stamps',
+        () {
+      final poke = Message(
+          id: 'pk1',
+          text: '👉 Poke',
+          time: DateTime(2026, 1, 1),
+          isMe: true,
+          status: MessageStatus.sent,
+          isPoke: true);
+      // Round trip — a restart must not turn a poke into a text.
+      expect(Message.fromJson(poke.toJson()).isPoke, isTrue);
+      // The delivery funnel copyWiths every outgoing message (protected,
+      // thread) — the poke has to survive that or it dies on send.
+      expect(poke.copyWith(protected: true).isPoke, isTrue);
+      // The chat list says what it is, not the emoji-text fallback.
+      final chat = Chat(
+          id: 'c',
+          contact: const AppUser(
+              id: 'x', name: 'X', avatarColor: '#111111', phone: 'x'),
+          messages: [poke]);
+      expect(chat.preview, '👉 Poke');
+      // And it rides the sealed wire both directions.
+      final relay = File('lib/relay/relay_service.dart').readAsStringSync();
+      expect(relay, contains("if (message.isPoke) 'isPoke': true"));
+      expect(relay, contains("isPoke: content['isPoke'] as bool? ?? false"));
+    });
+
+    test('one poke per chat per half-minute', () {
+      final store = ChatStore.instance;
+      store.hydrate(const {'chats': []});
+      addTearDown(store.reset);
+      expect(store.pokeCooldownLeft('c1'), Duration.zero);
+      store.notePoked('c1');
+      expect(store.pokeCooldownLeft('c1') > Duration.zero, isTrue);
+      // Another conversation is not on this one's clock.
+      expect(store.pokeCooldownLeft('c2'), Duration.zero);
+      store.reset();
+      expect(store.pokeCooldownLeft('c1'), Duration.zero);
+    });
+
+    testWidgets('an incoming poke buzzes, offers poke back, and the brake '
+        'holds', (tester) async {
+      final store = ChatStore.instance;
+      store.hydrate(const {'chats': []});
+      addTearDown(store.reset);
+      const contact = AppUser(
+          id: '+15550195',
+          name: 'Poker Pia',
+          avatarColor: '#111111',
+          phone: '+15550195');
+      final chat = Chat(id: 'chat_+15550195', contact: contact, messages: [
+        Message(
+            id: 'pk_in',
+            text: '👉 Poke',
+            time: DateTime(2026, 1, 1),
+            isMe: false,
+            status: MessageStatus.delivered,
+            isPoke: true),
+      ]);
+      store.upsert(chat);
+      await tester.pumpWidget(MaterialApp(home: ChatScreen(chat: chat)));
+      await tester.pumpAndSettle();
+      expect(find.text('Poked you'), findsOneWidget);
+      expect(find.text('Tap to poke back'), findsOneWidget);
+
+      final buzzesBefore = Haptics.debugCount;
+      await tester.tap(find.text('Poked you'));
+      await tester.pumpAndSettle();
+      final mine = store
+          .chatById(chat.id)!
+          .messages
+          .where((m) => m.isPoke && m.isMe);
+      expect(mine.length, 1, reason: 'poke back sends a poke');
+      expect(find.text('You poked them'), findsOneWidget);
+      expect(Haptics.debugCount, greaterThan(buzzesBefore));
+
+      // Straight away again: the cooldown answers, no second poke goes.
+      await tester.tap(find.text('You poked them'));
+      await tester.pump();
+      await tester.tap(find.text('Poked you'));
+      await tester.pumpAndSettle();
+      expect(
+          store
+              .chatById(chat.id)!
+              .messages
+              .where((m) => m.isPoke && m.isMe)
+              .length,
+          1,
+          reason: 'a poke that can be spammed is a harassment button');
+      expect(find.textContaining('give it'), findsOneWidget);
+    });
+  });
+
   group('Admins, the spam brake, and required listings', () {
     testWidgets('an admin passes the waivable gates; the wallet holds even '
         'them', (tester) async {

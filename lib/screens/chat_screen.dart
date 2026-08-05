@@ -162,6 +162,10 @@ class _ChatScreenState extends State<ChatScreen> {
     // handle themselves in _deliver).
     _followCount = _messages.length;
     _store.addListener(_maybeFollowNewMessage);
+    _store.addListener(_maybeBuzzOnPoke);
+    // A poke already on screen when the chat opens was buzzed by its own
+    // arrival (or predates this visit) — opening must not re-buzz it.
+    _buzzedPokeId = _store.chatById(_chatId)?.lastMessage?.id;
     // Registered here because dispose removes them — for a while it removed
     // listeners nothing had added, which silently switched off screenshot
     // announcements and the live blanking of protected chats.
@@ -382,6 +386,7 @@ class _ChatScreenState extends State<ChatScreen> {
     }
     _store.removeListener(_refreshSuggestions);
     _store.removeListener(_maybeFollowNewMessage);
+    _store.removeListener(_maybeBuzzOnPoke);
     ScreenshotWatch.instance.taken.removeListener(_onScreenshot);
     ScreenshotWatch.instance.capturing.removeListener(_onCapturing);
     RelayService.instance.screenshotPing.removeListener(_onRemoteScreenshot);
@@ -529,6 +534,43 @@ class _ChatScreenState extends State<ChatScreen> {
         .where((u) => u.id != me && !u.isGroup)
         .map((u) => u.name.split(' ').first)
         .toList();
+  }
+
+  /// Sends a poke — "hey" with no words. A real message underneath, so an
+  /// offline phone still gets it (mailbox), a pocket still buzzes (push)
+  /// and the chat list still counts it. The cooldown is the whole design:
+  /// a poke that can be spammed is a harassment button.
+  void _handlePoke() {
+    final left = _store.pokeCooldownLeft(_chatId);
+    if (left > Duration.zero) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(
+              'You just poked them — give it ${left.inSeconds + 1}s.')));
+      return;
+    }
+    _store.notePoked(_chatId);
+    Haptics.press();
+    final now = DateTime.now();
+    _deliver(Message(
+      id: 'local_${now.microsecondsSinceEpoch}',
+      text: '👉 Poke',
+      time: now,
+      isMe: true,
+      status: MessageStatus.sent,
+      isPoke: true,
+    ));
+  }
+
+  /// Buzzes when a poke lands while this conversation is on screen — the
+  /// buzz IS the feature; a silent poke is just a very short message.
+  /// Keyed by message id so a rebuild can't re-buzz the same poke.
+  String? _buzzedPokeId;
+  void _maybeBuzzOnPoke() {
+    final last = _store.chatById(_chatId)?.lastMessage;
+    if (last == null || !last.isPoke || last.isMe) return;
+    if (_buzzedPokeId == last.id) return;
+    _buzzedPokeId = last.id;
+    Haptics.press();
   }
 
   void _handleSend(String text) {
@@ -1277,6 +1319,10 @@ class _ChatScreenState extends State<ChatScreen> {
                 !widget.chat.contact.isGroup
             ? () => CallService.instance
                 .startOutgoing(widget.chat.contact, video: m.callVideo)
+            : null,
+        // And a poke is the natural place to poke back from.
+        onPokeBack: m.isPoke && !m.isMe && !_selectionMode
+            ? _handlePoke
             : null,
       );
 
@@ -2887,6 +2933,14 @@ class _ChatScreenState extends State<ChatScreen> {
               label: 'Request',
               color: const Color(0xFF5B6BF0),
               onTap: _requestMoney),
+        // A wordless "hey" — 1:1 only: poking a whole group is a fire
+        // alarm, and there is nobody to poke in your own notes.
+        if (!_isNoteToSelf && !widget.chat.contact.isGroup)
+          AttachmentOption(
+              icon: Icons.waving_hand_outlined,
+              label: 'Poke',
+              color: const Color(0xFFE8A33D),
+              onTap: _handlePoke),
         AttachmentOption(
             icon: Icons.poll_outlined,
             label: 'Poll',

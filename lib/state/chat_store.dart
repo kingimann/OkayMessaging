@@ -179,6 +179,7 @@ class ChatStore extends ChangeNotifier {
     _drafts.clear();
     _wallpapers.clear();
     _deletedMessageIds.clear();
+    _lastPokeAt.clear();
     notifyListeners();
   }
 
@@ -231,6 +232,23 @@ class ChatStore extends ChangeNotifier {
       _replace(i, _chats[i].copyWith(marketplace: marketplace));
     }
   }
+
+  /// One poke per chat per half-minute. A poke's whole content is "hey", and
+  /// ten of them in a row is not ten heys — it is somebody's phone buzzing
+  /// in their pocket until they mute you. In memory only: the brake is
+  /// against a burst, not against poking again after lunch.
+  static const Duration pokeCooldown = Duration(seconds: 30);
+  final Map<String, DateTime> _lastPokeAt = {};
+
+  /// How long until this chat may poke again; [Duration.zero] means now.
+  Duration pokeCooldownLeft(String chatId) {
+    final last = _lastPokeAt[chatId];
+    if (last == null) return Duration.zero;
+    final left = pokeCooldown - DateTime.now().difference(last);
+    return left.isNegative ? Duration.zero : left;
+  }
+
+  void notePoked(String chatId) => _lastPokeAt[chatId] = DateTime.now();
 
   /// Archived AND hidden is a real combination, and hiding wins: somebody who
   /// archived a chat and then hid it did not mean "unless you look here".

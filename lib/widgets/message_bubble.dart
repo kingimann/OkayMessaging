@@ -60,6 +60,9 @@ class MessageBubble extends StatelessWidget {
   /// Tapping a call-record chip calls that person back.
   final VoidCallback? onCallBack;
 
+  /// Tapping an incoming poke pokes back. Null on your own pokes.
+  final VoidCallback? onPokeBack;
+
   const MessageBubble({
     super.key,
     required this.message,
@@ -74,6 +77,7 @@ class MessageBubble extends StatelessWidget {
     this.onPollVote,
     this.onOpenForm,
     this.onCallBack,
+    this.onPokeBack,
   });
 
   @override
@@ -165,6 +169,19 @@ class MessageBubble extends StatelessWidget {
         metaColor: metaColor,
         onLongPress: onLongPress,
         onCallBack: onCallBack,
+      );
+    }
+
+    // A poke is a chip like a call record — nobody said anything, so a
+    // speech bubble would be the wrong shape for it.
+    if (message.isPoke) {
+      return _PokeBubble(
+        isMe: isMe,
+        bubbleColor: bubbleColor,
+        textColor: textColor,
+        metaColor: metaColor,
+        onLongPress: onLongPress,
+        onPokeBack: isMe ? null : onPokeBack,
       );
     }
 
@@ -1469,6 +1486,73 @@ class _FormContent extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// A poke in the thread: a chip, not a speech bubble — nobody said
+/// anything, somebody waved. Tapping an incoming one waves back.
+class _PokeBubble extends StatelessWidget {
+  final bool isMe;
+  final Color bubbleColor;
+  final Color textColor;
+  final Color metaColor;
+  final VoidCallback? onLongPress;
+  final VoidCallback? onPokeBack;
+
+  const _PokeBubble({
+    required this.isMe,
+    required this.bubbleColor,
+    required this.textColor,
+    required this.metaColor,
+    required this.onLongPress,
+    required this.onPokeBack,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+      child: GestureDetector(
+        onLongPress: onLongPress,
+        onTap: onPokeBack,
+        child: Container(
+          margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+          decoration: BoxDecoration(
+            color: bubbleColor.withValues(alpha: 0.75),
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: metaColor.withValues(alpha: 0.14),
+                  shape: BoxShape.circle,
+                ),
+                child: const Text('👉', style: TextStyle(fontSize: 15)),
+              ),
+              const SizedBox(width: 8),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(isMe ? 'You poked them' : 'Poked you',
+                      style: TextStyle(
+                          color: textColor,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600)),
+                  if (onPokeBack != null)
+                    Text('Tap to poke back',
+                        style: TextStyle(color: metaColor, fontSize: 11.5)),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

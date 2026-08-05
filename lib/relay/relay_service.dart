@@ -230,6 +230,7 @@ class RelayService {
       // traffic and files it accordingly — see the newborn-chat branch in
       // _onInboxMessage.
       if (message.marketplace) 'marketplace': true,
+      if (message.isPoke) 'isPoke': true,
       'threadRootId': message.threadRootId,
       'isForm': message.isForm,
       'formTitle': message.formTitle,
@@ -624,6 +625,7 @@ class RelayService {
         forwarded: content['forwarded'] as bool? ?? false,
         protected: content['protected'] as bool? ?? false,
         marketplace: content['marketplace'] as bool? ?? false,
+        isPoke: content['isPoke'] as bool? ?? false,
         threadRootId: content['threadRootId'] as String?,
         isForm: content['isForm'] as bool? ?? false,
         formTitle: content['formTitle'] as String? ?? '',
@@ -795,6 +797,7 @@ class RelayService {
         'fromName': payload['fromName'],
         'fromUsername': payload['fromUsername'],
         'marketplace': payload['marketplace'],
+        'isPoke': payload['isPoke'],
         'isImage': payload['isImage'],
         'imageSeed': payload['imageSeed'],
         'imageUrl': payload['imageUrl'],

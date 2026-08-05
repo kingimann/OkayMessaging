@@ -106,6 +106,7 @@ class Chat {
         _ => m.callVideo ? 'Video call' : 'Voice call',
       };
     }
+    if (m.isPoke) return '👉 Poke';
     if (m.isImage) return 'Photo';
     if (m.isVoice) return 'Voice message';
     if (m.isLocation) return 'Location';

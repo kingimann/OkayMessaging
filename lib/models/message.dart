@@ -195,6 +195,11 @@ class Message {
   /// 'paid' once it settles, or 'failed'. Empty for non-payment messages.
   final String paymentStatus;
 
+  /// A poke: no words, just "hey". Rides as a real message on purpose —
+  /// that is what buys store-and-forward for an offline phone, the push,
+  /// and the unread badge, none of which a fire-and-forget ping gets.
+  final bool isPoke;
+
   /// Call record shown in the conversation: '' for normal messages, else
   /// 'missed' (rang, never answered), 'declined', 'noanswer' (outgoing,
   /// nobody picked up) or 'ended' (a completed call — [callSeconds] long).
@@ -282,6 +287,7 @@ class Message {
     this.pollOptions = const [],
     this.pollVotes = const [],
     this.pollMyVote = -1,
+    this.isPoke = false,
     this.callEvent = '',
     this.callVideo = false,
     this.callSeconds = 0,
@@ -351,6 +357,7 @@ class Message {
         'pollOptions': pollOptions,
         'pollVotes': pollVotes,
         'pollMyVote': pollMyVote,
+        if (isPoke) 'isPoke': true,
         'callEvent': callEvent,
         'callVideo': callVideo,
         'callSeconds': callSeconds,
@@ -426,6 +433,7 @@ class Message {
                 .toList() ??
             const [],
         pollMyVote: json['pollMyVote'] as int? ?? -1,
+        isPoke: json['isPoke'] as bool? ?? false,
         callEvent: json['callEvent'] as String? ?? '',
         callVideo: json['callVideo'] as bool? ?? false,
         callSeconds: json['callSeconds'] as int? ?? 0,
@@ -504,6 +512,7 @@ class Message {
       pollOptions: pollOptions,
       pollVotes: pollVotes ?? this.pollVotes,
       pollMyVote: pollMyVote ?? this.pollMyVote,
+      isPoke: isPoke,
       callEvent: callEvent,
       callVideo: callVideo,
       callSeconds: callSeconds,
