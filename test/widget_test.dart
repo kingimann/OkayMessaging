@@ -33063,6 +33063,68 @@ void main() {
               'that guesses is worse than no chip');
     });
 
+    test('a shop is only what this device has really seen', () {
+      final feed = FeedStore.instance;
+      feed.resetForTest();
+      addTearDown(feed.resetForTest);
+      FeedPost listing(String id, String seller,
+              {bool sold = false}) =>
+          FeedPost(
+              id: id,
+              communityId: 'c1',
+              authorName: seller,
+              authorUsername: seller,
+              time: DateTime(2026, 1, 1),
+              text: '$id thing',
+              priceCents: 1000,
+              listingSold: sold);
+      feed.addRemote(listing('a', 'CafeGrace'));
+      feed.addRemote(listing('b', 'cafegrace', sold: true));
+      feed.addRemote(listing('c', 'somebodyelse'));
+
+      // Handle match is case-insensitive; sold stock is off the shelf.
+      expect(feed.listingsBySeller('cafeGrace').single.id, 'a');
+      // Nothing invented for nobody.
+      expect(feed.listingsBySeller(''), isEmpty);
+      expect(feed.listingsBySeller('you'), isEmpty);
+    });
+
+    testWidgets('the strip shows the shop, and vanishes with it',
+        (tester) async {
+      final feed = FeedStore.instance;
+      feed.resetForTest();
+      addTearDown(feed.resetForTest);
+      feed.addRemote(FeedPost(
+          id: 'shop1',
+          communityId: 'c1',
+          authorName: 'Grace',
+          authorUsername: 'cafegrace',
+          time: DateTime(2026, 1, 1),
+          text: 'Espresso machine',
+          priceCents: 9000));
+      await tester.pumpWidget(const MaterialApp(
+          home: Scaffold(
+              body: SellerShopStrip(username: 'cafegrace'))));
+      await tester.pumpAndSettle();
+      expect(find.text('Their shop'), findsOneWidget);
+      expect(find.text('Espresso machine'), findsOneWidget);
+
+      // An empty shelf is not drawn — it would advertise an absence.
+      await tester.pumpWidget(const MaterialApp(
+          home: Scaffold(body: SellerShopStrip(username: 'nobody'))));
+      await tester.pumpAndSettle();
+      expect(find.text('Their shop'), findsNothing);
+
+      // And both profile surfaces carry it, gated behind isBusiness.
+      for (final f in [
+        'lib/screens/contact_info_screen.dart',
+        'lib/screens/public_feed_screen.dart'
+      ]) {
+        expect(File(f).readAsStringSync(), contains('SellerShopStrip('),
+            reason: '$f should stock the storefront');
+      }
+    });
+
     testWidgets('the queue groups reports by account, standing sanction '
         'named first', (tester) async {
       final store = PlatformModeration.instance;

@@ -1,5 +1,6 @@
 import '../theme/app_theme.dart';
 import '../ads/ad_service.dart';
+import 'marketplace_screen.dart' show SellerShopStrip;
 import '../state/parental_controls.dart';
 import '../widgets/parental_gate.dart';
 import '../widgets/phone_gate.dart';
@@ -1194,6 +1195,7 @@ class _Header extends StatelessWidget {
                 ),
               ],
             ),
+            SellerShopStrip(username: known!.username),
           ],
           if (about.isNotEmpty) ...[
             const SizedBox(height: 14),

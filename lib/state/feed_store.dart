@@ -1299,6 +1299,18 @@ class FeedStore extends ChangeNotifier {
         saleCodeHashOf(code) == hash;
   }
 
+  /// The active listings this device can see from [username] — a business
+  /// contact's shop, resolved locally by handle with the same honesty as
+  /// knownBusinessSeller: only what has already reached this device,
+  /// because there is no server catalog to ask.
+  List<FeedPost> listingsBySeller(String username) {
+    final u = username.trim().toLowerCase();
+    if (u.isEmpty || u == 'you') return const [];
+    return listings(includeSold: false)
+        .where((l) => l.authorUsername.toLowerCase() == u)
+        .toList();
+  }
+
   /// Writes (or rewrites) the local user's review of a listing.
   ///
   /// One voice per person: an existing review by this user is deleted first —

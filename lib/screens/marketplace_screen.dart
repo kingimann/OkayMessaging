@@ -2128,6 +2128,53 @@ class ListingScreen extends StatelessWidget {
   }
 }
 
+/// A business contact's shop, for their profile surfaces: the active
+/// listings this device can already see from them, matched by handle —
+/// the same local honesty as [knownBusinessSeller]. Draws NOTHING when
+/// there are none: an empty shelf would advertise an absence.
+class SellerShopStrip extends StatelessWidget {
+  final String username;
+  const SellerShopStrip({super.key, required this.username});
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: FeedStore.instance,
+      builder: (context, _) {
+        final goods = FeedStore.instance.listingsBySeller(username);
+        if (goods.isEmpty) return const SizedBox.shrink();
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
+              child: Text('Their shop',
+                  style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.subtle(context))),
+            ),
+            SizedBox(
+              height: 168,
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                children: [
+                  for (final l in goods)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 10),
+                      child: _MiniListingCard(listing: l),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
 /// A quiet verification chip on the seller line: what the listing itself
 /// proves, said in two words.
 class _SellerChip extends StatelessWidget {
