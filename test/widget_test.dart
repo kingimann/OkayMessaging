@@ -33166,6 +33166,41 @@ void main() {
       expect(feed.listingsBySeller('you'), isEmpty);
     });
 
+    testWidgets('somebody else\'s profile offers Message beside Follow',
+        (tester) async {
+      final store = ChatStore.instance;
+      store.hydrate(const {'chats': []});
+      addTearDown(store.reset);
+      // A chat with them already exists, so Message resolves to it without
+      // the directory.
+      store.upsert(const Chat(
+          id: 'chat_+15550178',
+          contact: AppUser(
+              id: '+15550178',
+              name: 'Sam Social',
+              avatarColor: '#111111',
+              phone: '+15550178',
+              username: 'sam'),
+          messages: []));
+      await tester.pumpWidget(const MaterialApp(
+          home: PublicProfileScreen(username: 'sam', name: 'Sam Social')));
+      await tester.pumpAndSettle();
+      // The pair every social profile has: talk to them, or keep up.
+      expect(find.text('Message'), findsOneWidget);
+      expect(find.text('Follow'), findsOneWidget);
+
+      await tester.tap(find.text('Message'));
+      await tester.pumpAndSettle();
+      expect(find.byType(ChatScreen), findsOneWidget,
+          reason: 'Message opens the conversation itself');
+
+      // The banner layout carries the classic overhang.
+      final src =
+          File('lib/screens/public_feed_screen.dart').readAsStringSync();
+      expect(src, contains('bottom: -_avatarRadius + 8'),
+          reason: 'the avatar should overlap the banner\'s bottom edge');
+    });
+
     testWidgets('a contact\'s profile is one tap from their card in chat',
         (tester) async {
       // The chat path had no road to the person's PROFILE — posts,

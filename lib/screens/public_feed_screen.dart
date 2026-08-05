@@ -1,6 +1,6 @@
 import '../theme/app_theme.dart';
 import '../ads/ad_service.dart';
-import 'marketplace_screen.dart' show SellerShopButton;
+import 'marketplace_screen.dart' show SellerShopButton, openSellerChat;
 import '../state/parental_controls.dart';
 import '../widgets/parental_gate.dart';
 import '../widgets/phone_gate.dart';
@@ -1003,28 +1003,29 @@ class _AvatarRow extends StatelessWidget {
         (displayName.isEmpty ? '?' : displayName.replaceFirst('@', ''))
             .substring(0, 1)
             .toUpperCase();
+    // Tapping your own face to change it is where people look first, and
+    // it costs nothing to put the door there as well as on the button.
+    // Somebody else's avatar is not a control.
+    final avatar = GestureDetector(
+      onTap: isMe
+          ? () => Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => const EditProfileScreen()))
+          : null,
+      child: known != null
+          ? UserAvatar(user: known, radius: _avatarRadius)
+          : CircleAvatar(
+              radius: _avatarRadius,
+              backgroundColor: scheme.surfaceContainerHighest,
+              child: Text(initial,
+                  style: const TextStyle(
+                      fontSize: 28, fontWeight: FontWeight.w700)),
+            ),
+    );
     final row = Padding(
       padding: const EdgeInsets.fromLTRB(16, 14, 12, 0),
       child: Row(
         children: [
-          // Tapping your own face to change it is where people look first,
-          // and it costs nothing to put the door there as well as on the
-          // button. Somebody else's avatar is not a control.
-          GestureDetector(
-            onTap: isMe
-                ? () => Navigator.of(context).push(MaterialPageRoute(
-                    builder: (_) => const EditProfileScreen()))
-                : null,
-            child: known != null
-                ? UserAvatar(user: known, radius: _avatarRadius)
-                : CircleAvatar(
-                    radius: _avatarRadius,
-                    backgroundColor: scheme.surfaceContainerHighest,
-                    child: Text(initial,
-                        style: const TextStyle(
-                            fontSize: 28, fontWeight: FontWeight.w700)),
-                  ),
-          ),
+          avatar,
           const SizedBox(width: 12),
           // Expanded-and-aligned rather than a Spacer with a Flexible after
           // it: a Spacer is an Expanded too, so the two of them split the
@@ -1041,30 +1042,64 @@ class _AvatarRow extends StatelessWidget {
       ),
     );
     if (bannerHex.isEmpty) return row;
+    // With a banner, the page wears the classic social layout: a taller
+    // canvas with the avatar sitting half over its bottom edge, ringed in
+    // the scaffold color so it reads as placed on the page rather than
+    // pasted on the banner. The action buttons take the row beside the
+    // overhang.
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
-          child: Container(
-            height: 56,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(14),
-              gradient: LinearGradient(
-                begin: Alignment.centerLeft,
-                end: Alignment.centerRight,
-                colors: [
-                  UserAvatar.parseHex(bannerHex),
-                  UserAvatar.parseHex(
-                      (known?.avatarColor2.isNotEmpty ?? false)
-                          ? known!.avatarColor2
-                          : bannerHex),
-                ],
+        Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+              child: Container(
+                height: 96,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(14),
+                  gradient: LinearGradient(
+                    begin: Alignment.centerLeft,
+                    end: Alignment.centerRight,
+                    colors: [
+                      UserAvatar.parseHex(bannerHex),
+                      UserAvatar.parseHex(
+                          (known?.avatarColor2.isNotEmpty ?? false)
+                              ? known!.avatarColor2
+                              : bannerHex),
+                    ],
+                  ),
+                ),
               ),
             ),
+            Positioned(
+              left: 22,
+              bottom: -_avatarRadius + 8,
+              child: CircleAvatar(
+                radius: _avatarRadius + 4,
+                backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+                child: avatar,
+              ),
+            ),
+          ],
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 12, 0),
+          child: Row(
+            children: [
+              // Clears the overhanging avatar, so the buttons keep to the
+              // right the way every profile page has taught thumbs to expect.
+              const SizedBox(width: 2 * _avatarRadius + 16),
+              Expanded(
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: _ProfileActions(username: username, isMe: isMe),
+                ),
+              ),
+            ],
           ),
         ),
-        row,
       ],
     );
   }
@@ -1358,11 +1393,36 @@ class _ProfileActions extends StatelessWidget {
       builder: (context, _) {
         final following = FollowStore.instance.isFollowing(username);
         void toggle() => FollowStore.instance.toggle(username);
+        // Two buttons share the space one had, so both go dense — the
+        // default padding overflowed a 390-point phone beside the avatar.
+        final dense = OutlinedButton.styleFrom(
+          visualDensity: VisualDensity.compact,
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          minimumSize: const Size(0, 36),
+        );
         final text = Text(following ? 'Following' : 'Follow',
             maxLines: 1, overflow: TextOverflow.ellipsis);
-        return following
-            ? OutlinedButton(onPressed: toggle, child: text)
-            : FilledButton(onPressed: toggle, child: text);
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // The pair every social profile has: talk to them, or keep up
+            // with them. Message rides the same resolution the marketplace
+            // uses — an existing chat first, then the directory.
+            OutlinedButton(
+              style: dense,
+              onPressed: () => openSellerChat(context,
+                  username: username,
+                  name: knownUserFor(username)?.name ?? username),
+              child: const Text('Message',
+                  maxLines: 1, overflow: TextOverflow.ellipsis),
+            ),
+            const SizedBox(width: 8),
+            following
+                ? OutlinedButton(
+                    style: dense, onPressed: toggle, child: text)
+                : FilledButton(style: dense, onPressed: toggle, child: text),
+          ],
+        );
       },
     );
   }
