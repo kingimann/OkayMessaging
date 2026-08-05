@@ -731,9 +731,41 @@ class PaymentService {
     );
   }
 
+  /// Adds money to the caller's OWN wallet balance from their card — the
+  /// top-up. The typed [amountCents] is what lands; the fee rides on top,
+  /// like every card top-up people already know. Returns true when the
+  /// charge completes. Test mode simulates it, same as [sendMoney].
+  ///
+  /// A destination charge (see payments-topup): the intent lives on the
+  /// PLATFORM, so unlike a peer send there is no connected-account id to
+  /// hand the sheet.
+  Future<bool> addMoney({required int amountCents}) async {
+    if (ParentalControls.instance.blocks(ParentalRestriction.payments)) {
+      throw PaymentException('parental_locked');
+    }
+    if (testMode.value) {
+      await Future<void>.delayed(const Duration(milliseconds: 1200));
+      return true;
+    }
+    final intent = await _invoke('payments-topup', {
+      'amountCents': amountCents,
+      'currency': sendCurrency.value,
+      if (AccountEmail.instance.isSet)
+        'receiptEmail': AccountEmail.instance.email,
+    });
+    lastPaymentIntentId = intent['paymentIntentId'] as String? ?? '';
+    await StripeSheet.init(_publishableKey);
+    return StripeSheet.presentPayment(
+      clientSecret: intent['clientSecret'] as String,
+      merchantName: 'OkayMessenger',
+      // No stripeAccountId: a destination charge lives on the platform.
+    );
+  }
+
   // Cloud storage and developer tips are digital goods and bill through the
   // platform store (Apple / Google), not Stripe — see StorePurchases. Stripe
-  // here is strictly for real-world peer-to-peer transfers (sendMoney).
+  // here is strictly for real-world peer-to-peer transfers (sendMoney) and
+  // funding your own wallet (addMoney).
 }
 
 /// The test-mode notifier, with the reviewer account pinned to the sandbox.

@@ -11,6 +11,7 @@ import 'payment_controls_screen.dart';
 import 'native_onboarding_screen.dart';
 import 'payment_diagnostics_screen.dart';
 import 'payment_history_screen.dart';
+import 'receive_money_screen.dart';
 import '../widgets/app_dialogs.dart';
 import '../theme/app_theme.dart';
 import '../widgets/pull_to_refresh.dart';
@@ -152,6 +153,42 @@ class _WalletScreenState extends State<WalletScreen> {
     if (done == true && mounted) _refresh();
   }
 
+  void _openReceive() => Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => const ReceiveMoneyScreen()),
+      );
+
+  /// Top up the wallet from a card. The amount typed is what lands; the fee
+  /// rides on top, and the sheet shows the total before charging.
+  Future<void> _addMoney() async {
+    final cents = await showModalBottomSheet<int>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (_) => Padding(
+        padding: EdgeInsets.only(
+            bottom: MediaQuery.of(context).viewInsets.bottom),
+        child: const _AddMoneySheet(),
+      ),
+    );
+    if (cents == null || cents <= 0 || !mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final ok = await PaymentService.instance.addMoney(amountCents: cents);
+      if (!mounted) return;
+      messenger.showSnackBar(SnackBar(
+          content: Text(ok
+              ? 'Added to your wallet. It lands in a moment.'
+              : 'That didn\'t go through — nothing was charged.')));
+      if (ok) _refresh();
+    } on PaymentException catch (e) {
+      if (!mounted) return;
+      messenger.showSnackBar(SnackBar(
+          content: Text(e.code == 'parental_locked'
+              ? 'Payments are turned off by Screen Time.'
+              : 'Couldn\'t add money right now.')));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     // Wrapped here rather than at the button that opens this, so every way
@@ -241,6 +278,36 @@ class _WalletScreenState extends State<WalletScreen> {
                         onResume: _openControls,
                       ),
                       _BalanceCard(status: s),
+                      const SizedBox(height: 12),
+                      // The two ways to fill a wallet: put your own money in
+                      // (a card top-up), or be paid by somebody else. Both
+                      // need the account onboarded first — you cannot receive
+                      // into a balance that does not exist.
+                      if (s.canReceive)
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _WalletAction(
+                                  icon: Icons.add,
+                                  label: 'Add money',
+                                  onTap: _addMoney),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: _WalletAction(
+                                  icon: Icons.qr_code_2,
+                                  label: 'Receive',
+                                  onTap: _openReceive),
+                            ),
+                          ],
+                        )
+                      else
+                        // No account yet: receiving is still the way in, so
+                        // offer it — it opens the same onboarding.
+                        _WalletAction(
+                            icon: Icons.qr_code_2,
+                            label: 'Ways to get paid',
+                            onTap: _openReceive),
                       const SizedBox(height: 16),
                       if (!s.canReceive)
                         _OnboardCard(onStart: _startOnboarding)
@@ -296,6 +363,113 @@ class _WalletScreenState extends State<WalletScreen> {
           ),
         ),
       );
+}
+
+/// A wide tappable pill — Add money / Receive — under the balance.
+class _WalletAction extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+  const _WalletAction(
+      {required this.icon, required this.label, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Material(
+      color: scheme.primary.withValues(alpha: 0.10),
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 14),
+          child: Column(
+            children: [
+              Icon(icon, color: scheme.primary),
+              const SizedBox(height: 6),
+              Text(label,
+                  style: TextStyle(
+                      color: scheme.primary,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Enter an amount to add to the wallet. Returns cents on confirm. The typed
+/// amount is what lands; the sheet says the fee rides on top so the total is
+/// no surprise on the card statement.
+class _AddMoneySheet extends StatefulWidget {
+  const _AddMoneySheet();
+
+  @override
+  State<_AddMoneySheet> createState() => _AddMoneySheetState();
+}
+
+class _AddMoneySheetState extends State<_AddMoneySheet> {
+  final _amount = TextEditingController();
+
+  @override
+  void dispose() {
+    _amount.dispose();
+    super.dispose();
+  }
+
+  int get _cents {
+    final v = double.tryParse(_amount.text.trim());
+    return v == null ? 0 : (v * 100).round();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cents = _cents;
+    final total = cents <= 0 ? 0 : PaymentEconomics.grossUpCents(cents);
+    String money(int c) => '\$${(c / 100).toStringAsFixed(2)}';
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text('Add money',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _amount,
+            autofocus: true,
+            keyboardType:
+                const TextInputType.numberWithOptions(decimal: true),
+            onChanged: (_) => setState(() {}),
+            decoration: const InputDecoration(
+                prefixText: '\$ ',
+                hintText: '0',
+                labelText: 'Amount to add'),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            cents <= 0
+                ? 'The amount you type lands in your wallet; a card fee rides '
+                    'on top.'
+                : '${money(cents)} lands in your wallet · card charged '
+                    '${money(total)}',
+            style: TextStyle(fontSize: 12.5, color: AppColors.subtle(context)),
+          ),
+          const SizedBox(height: 14),
+          FilledButton(
+            onPressed:
+                cents <= 0 ? null : () => Navigator.of(context).pop(cents),
+            child: const Text('Continue'),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _BalanceCard extends StatelessWidget {

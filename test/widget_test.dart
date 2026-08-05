@@ -160,6 +160,7 @@ import 'package:okay_messaging/payments/connect_webview_stub.dart' as stub;
 import 'package:okay_messaging/payments/payment_amount_sheet.dart';
 import 'package:okay_messaging/screens/payment_history_screen.dart';
 import 'package:okay_messaging/screens/wallet_screen.dart';
+import 'package:okay_messaging/screens/receive_money_screen.dart';
 import 'package:okay_messaging/payments/storage_economics.dart';
 import 'package:okay_messaging/payments/purchase_outcome.dart';
 import 'package:okay_messaging/payments/store_purchases.dart';
@@ -5476,6 +5477,101 @@ void main() {
 
       svc.setTestMode(false);
       expect(svc.isConfigured, isFalse);
+    });
+
+    test('adding money in test mode succeeds without touching Stripe',
+        () async {
+      final svc = PaymentService.instance;
+      svc.setTestMode(true);
+      addTearDown(() => svc.setTestMode(false));
+      final ok = await svc.addMoney(amountCents: 5000);
+      expect(ok, isTrue);
+    });
+
+    test('top-up refuses when parental payments lock is on', () async {
+      final svc = PaymentService.instance;
+      final pc = ParentalControls.instance;
+      pc.resetForTest();
+      addTearDown(pc.resetForTest);
+      svc.setTestMode(true);
+      addTearDown(() => svc.setTestMode(false));
+      await pc.setPin('4321');
+      await pc.setBlocked(ParentalRestriction.payments, true);
+      expect(
+        () => svc.addMoney(amountCents: 1000),
+        throwsA(isA<PaymentException>()
+            .having((e) => e.code, 'code', 'parental_locked')),
+      );
+    });
+
+    test('the top-up function is a destination charge, grossed up, on the '
+        'platform', () {
+      final src = File('supabase/functions/payments-topup/index.ts')
+          .readAsStringSync();
+      // The card is grossed up so the typed amount lands.
+      expect(src, contains('grossUp(addedCents)'));
+      // Destination charge: the net transfers into the caller's own account,
+      // and the platform keeps only the fee.
+      expect(src, contains('transfer_data'));
+      expect(src, contains('application_fee_amount'));
+      // A destination charge lives on the platform, so the confirm must NOT
+      // carry a connected-account id — the direct-charge marker would be a bug.
+      expect(src.contains('stripeAccountId'), isFalse,
+          reason: 'a top-up is a destination charge, not a direct charge');
+      // Funding a wallet with a stranger's card is the laundering shape the
+      // identity gate refuses.
+      expect(src, contains('identity_required'));
+    });
+
+    test('the paste copy of the top-up function matches the source', () {
+      final src = File('supabase/functions/payments-topup/index.ts')
+          .readAsStringSync();
+      final paste = File('docs/edge_functions_paste/payments-topup.ts');
+      expect(paste.existsSync(), isTrue,
+          reason: 'run dart tool/paste_functions.dart');
+      // The paste copy is the source with the shared imports inlined, so the
+      // load-bearing body must survive the transform.
+      expect(paste.readAsStringSync(), contains('transfer_data'));
+      expect(src, contains('metadata'));
+    });
+
+    test('the receive-money screen builds a pay deep-link and share text', () {
+      const me = AppUser(
+          id: 'r',
+          name: 'Rae',
+          avatarColor: '#111111',
+          phone: '+1 555 0142',
+          username: 'rae');
+      final payload = ReceiveMoneyScreen.payloadFor(me);
+      // The pay flag distinguishes it from a plain add-contact QR; an older
+      // build without the flag still adds the contact (safe degrade).
+      expect(payload, startsWith('okaymsg://add?'));
+      expect(payload, contains('pay=1'));
+      expect(payload, contains('u=rae'));
+      // The shareable line leads with the handle — a handle beats a raw URI.
+      final text = ReceiveMoneyScreen.shareTextFor(me);
+      expect(text, contains('@rae'));
+      expect(text, contains(payload));
+    });
+
+    testWidgets('Share pay link routes through the test override',
+        (tester) async {
+      addTearDown(() => ReceiveMoneyScreen.debugShareOverride = null);
+      String? shared;
+      ReceiveMoneyScreen.debugShareOverride = (t) => shared = t;
+      tester.view.physicalSize = const Size(1200, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.pumpWidget(
+          const MaterialApp(home: ReceiveMoneyScreen()));
+      await tester.pump();
+      await tester.ensureVisible(find.text('Share pay link'));
+      await tester.pump();
+      await tester.tap(find.text('Share pay link'));
+      await tester.pump();
+      expect(shared, isNotNull);
+      expect(shared, contains('okaymsg://add?'));
     });
   });
 
