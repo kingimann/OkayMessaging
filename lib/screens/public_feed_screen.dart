@@ -1935,6 +1935,33 @@ class _PublicThreadScreenState extends State<PublicThreadScreen> {
                     replyTo: target.id, replyingToName: target.authorName),
                 onOpen: (_) {},
               ),
+              // Who's behind the numbers — only when there are numbers.
+              if (post.likeCount > 0 || post.repostCount > 0)
+                InkWell(
+                  onTap: () => showModalBottomSheet<void>(
+                    context: context,
+                    showDragHandle: true,
+                    isScrollControlled: true,
+                    builder: (_) => _EngagementSheet(post: post),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+                    child: Text(
+                      [
+                        if (post.likeCount > 0)
+                          '${post.likeCount} '
+                              '${post.likeCount == 1 ? "like" : "likes"}',
+                        if (post.repostCount > 0)
+                          '${post.repostCount} '
+                              '${post.repostCount == 1 ? "repost" : "reposts"}',
+                      ].join(' · '),
+                      style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.accentOn(context)),
+                    ),
+                  ),
+                ),
               const Divider(height: 1),
               if (replies.isEmpty)
                 Padding(
@@ -2008,6 +2035,145 @@ class _PublicThreadScreenState extends State<PublicThreadScreen> {
             ],
           );
         },
+      ),
+    );
+  }
+}
+
+/// Who liked and who reposted one post, as tappable people.
+///
+/// Likes come through the server's one window into the likes table — a
+/// directory join that answers usernames only (the table itself stores
+/// phones and shows nobody else's rows). Reposts are ordinary public posts
+/// and need no window. When the likes window isn't deployed yet the sheet
+/// says so rather than showing an empty list that reads as "nobody".
+class _EngagementSheet extends StatefulWidget {
+  final PublicPost post;
+  const _EngagementSheet({required this.post});
+
+  @override
+  State<_EngagementSheet> createState() => _EngagementSheetState();
+}
+
+class _EngagementSheetState extends State<_EngagementSheet> {
+  List<(String, String)>? _likers;
+  List<PublicPost>? _reposters;
+  bool _likersUnavailable = false;
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final store = PublicFeedStore.instance;
+    final likers = widget.post.likeCount > 0
+        ? await store.likersOf(widget.post.id)
+        : const <(String, String)>[];
+    final reposters = widget.post.repostCount > 0
+        ? await store.repostersOf(widget.post.id)
+        : const <PublicPost>[];
+    if (!mounted) return;
+    setState(() {
+      _likers = likers;
+      _likersUnavailable = likers == null;
+      _reposters = reposters;
+      _loading = false;
+    });
+  }
+
+  void _openProfile(String username, String name) {
+    Navigator.of(context).pop();
+    Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) =>
+            PublicProfileScreen(username: username, name: name)));
+  }
+
+  Widget _header(String text) => Padding(
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
+        child: Text(text,
+            style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.6,
+                color: AppColors.subtle(context))),
+      );
+
+  Widget _person(String username, String name) => ListTile(
+        dense: true,
+        leading: CircleAvatar(
+            radius: 17,
+            child: Text(username.isEmpty ? '?' : username[0].toUpperCase())),
+        title: Text(name.isEmpty ? '@$username' : name,
+            maxLines: 1, overflow: TextOverflow.ellipsis),
+        subtitle: name.isEmpty
+            ? null
+            : Text('@$username', maxLines: 1, overflow: TextOverflow.ellipsis),
+        onTap: username.isEmpty ? null : () => _openProfile(username, name),
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return const SizedBox(
+          height: 180, child: Center(child: CircularProgressIndicator()));
+    }
+    final likers = _likers ?? const <(String, String)>[];
+    final reposters = _reposters ?? const <PublicPost>[];
+    return SafeArea(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.7),
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            if (widget.post.likeCount > 0) ...[
+              _header('LIKED BY'),
+              if (_likersUnavailable)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+                  child: Text(
+                    'Who liked isn\'t available yet — the server needs the '
+                    'latest docs/public_feed.sql.',
+                    style: TextStyle(
+                        fontSize: 13, color: AppColors.subtle(context)),
+                  ),
+                )
+              else ...[
+                for (final (username, name) in likers)
+                  _person(username, name),
+                // Fewer names than the count is honest, not broken: a liker
+                // with no directory handle (or a deactivated one) has no
+                // name to show.
+                if (widget.post.likeCount > likers.length)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 2, 20, 8),
+                    child: Text(
+                      'and ${widget.post.likeCount - likers.length} more '
+                      'without a public handle',
+                      style: TextStyle(
+                          fontSize: 12.5, color: AppColors.subtle(context)),
+                    ),
+                  ),
+              ],
+            ],
+            if (widget.post.repostCount > 0) ...[
+              _header('REPOSTED BY'),
+              for (final r in reposters)
+                _person(r.authorUsername, r.authorName),
+              if (reposters.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+                  child: Text('Couldn\'t load reposts right now.',
+                      style: TextStyle(
+                          fontSize: 13, color: AppColors.subtle(context))),
+                ),
+            ],
+            const SizedBox(height: 8),
+          ],
+        ),
       ),
     );
   }

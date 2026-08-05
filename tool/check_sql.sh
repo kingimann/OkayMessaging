@@ -156,6 +156,43 @@ select pg_temp.expect_fail(
     values ('t_p1','15550002222')$$,
   'you cannot like as somebody else');
 
+-- WHO liked, as usernames. public_post_likers is the one window into the
+-- likes table (a directory join): it must answer handles from anybody's
+-- session, its shape must not even HAVE a phone column, and a hidden
+-- (deactivated) account must leave the list.
+reset role;
+insert into public.usernames (phone, username, name)
+  values ('15550001111','alice_dir','Alice') on conflict (phone) do update
+  set username = excluded.username, name = excluded.name;
+set role authenticated;
+select pg_temp.as_user('15550002222');
+do $$
+declare n int; got text;
+begin
+  select count(*) into n from public.public_post_likers('t_p1');
+  select username into got from public.public_post_likers('t_p1') limit 1;
+  if n <> 1 or got is distinct from 'alice_dir' then
+    raise exception 'SECURITY CHECK FAILED: who-liked answered % row(s), first %', n, got;
+  end if;
+  raise notice '  ok   who-liked answers usernames, from anybody''s session';
+end $$;
+select pg_temp.expect_fail(
+  $$select liker_phone from public.public_post_likers('t_p1')$$,
+  'the who-liked window has no phone column');
+reset role;
+update public.usernames set hidden = true where phone = '15550001111';
+set role authenticated;
+do $$ begin
+  if (select count(*) from public.public_post_likers('t_p1')) <> 0 then
+    raise exception 'SECURITY CHECK FAILED: a hidden account is still listed as a liker';
+  end if;
+  raise notice '  ok   a hidden account leaves the who-liked list';
+end $$;
+reset role;
+update public.usernames set hidden = false where phone = '15550001111';
+set role authenticated;
+select pg_temp.as_user('15550001111');
+
 -- The card-attach ledger is the waiting period: a row a client could read,
 -- write or delete is a hold a thief could inspect or skip.
 select pg_temp.expect_fail(

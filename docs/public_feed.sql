@@ -542,3 +542,36 @@ drop policy if exists public_media_insert on storage.objects;
 create policy public_media_insert on storage.objects
   for insert to authenticated
   with check (bucket_id = 'public-media');
+
+-- ---------------------------------------------------------------------------
+-- Who liked a post (2026-08-04). The likes table stores the liker's PHONE
+-- and its policy hides every row but your own — that stays exactly as it
+-- is. This function is the one window: it joins to the directory and
+-- answers USERNAMES only, so "who liked" is as public as a like on a
+-- public post while a phone number still never leaves the table. Likers
+-- with no directory row — or a hidden (deactivated) one — are simply not
+-- listed, so the like count can honestly exceed the names shown.
+-- (Reposts need nothing here: a repost is an ordinary public post whose
+-- repost_of points at the original, readable like any other.)
+
+-- Order-independent with docs/account_lifecycle.sql, which also adds this.
+alter table public.usernames
+  add column if not exists hidden boolean not null default false;
+
+create or replace function public.public_post_likers(p text)
+returns table(username text, name text)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select u.username, coalesce(u.name, '')
+    from public.public_post_likes l
+    join public.usernames u on u.phone = l.liker_phone
+   where l.post_id = p
+     and not coalesce(u.hidden, false)
+   order by l.created_at desc
+   limit 100;
+$$;
+
+grant execute on function public.public_post_likers(text) to anon, authenticated;

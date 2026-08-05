@@ -31861,6 +31861,94 @@ void main() {
     });
   });
 
+  group('Who liked and who reposted', () {
+    PublicPost pp(String id,
+            {int likes = 0, int reposts = 0, String author = 'ada'}) =>
+        PublicPost(
+          id: id,
+          authorUsername: author,
+          authorName: author,
+          body: 'body of $id',
+          likeCount: likes,
+          repostCount: reposts,
+          createdAt: DateTime(2026, 1, 1),
+        );
+
+    testWidgets('the sheet names likers and reposters, tappable',
+        (tester) async {
+      final store = PublicFeedStore.instance;
+      addTearDown(store.resetForTest);
+      PublicFeedStore.debugLoadOverride = () async =>
+          [pp('e1', likes: 3, reposts: 1)];
+      await store.load();
+      PublicFeedStore.debugLikersOverride = (id) async =>
+          [('grace', 'Grace Lin'), ('frankm', '')];
+      PublicFeedStore.debugRepostersOverride = (id) async =>
+          [pp('rp1', author: 'sam')];
+      await tester.pumpWidget(
+          const MaterialApp(home: PublicThreadScreen(postId: 'e1')));
+      await tester.pumpAndSettle();
+      // The numbers under the post are the door in.
+      expect(find.text('3 likes · 1 repost'), findsOneWidget);
+      await tester.tap(find.text('3 likes · 1 repost'));
+      await tester.pumpAndSettle();
+      expect(find.text('LIKED BY'), findsOneWidget);
+      expect(find.text('Grace Lin'), findsOneWidget);
+      expect(find.text('@frankm'), findsOneWidget);
+      expect(find.text('REPOSTED BY'), findsOneWidget);
+      expect(find.text('sam'), findsWidgets);
+      // Three likes, two handles: the difference is said, not hidden.
+      expect(find.textContaining('1 more without a public handle'),
+          findsOneWidget);
+      // A row opens the person's profile.
+      await tester.tap(find.text('Grace Lin'));
+      await tester.pumpAndSettle();
+      expect(find.byType(PublicProfileScreen), findsOneWidget);
+    });
+
+    testWidgets('an undeployed likers window says so, not "nobody"',
+        (tester) async {
+      final store = PublicFeedStore.instance;
+      addTearDown(store.resetForTest);
+      PublicFeedStore.debugLoadOverride = () async => [pp('e2', likes: 2)];
+      await store.load();
+      PublicFeedStore.debugLikersOverride = (id) async => null;
+      PublicFeedStore.debugRepostersOverride = (id) async => const [];
+      await tester.pumpWidget(
+          const MaterialApp(home: PublicThreadScreen(postId: 'e2')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('2 likes'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('isn\'t available yet'), findsOneWidget);
+    });
+
+    testWidgets('a post nobody touched offers no door', (tester) async {
+      final store = PublicFeedStore.instance;
+      addTearDown(store.resetForTest);
+      PublicFeedStore.debugLoadOverride = () async => [pp('e3')];
+      await store.load();
+      await tester.pumpWidget(
+          const MaterialApp(home: PublicThreadScreen(postId: 'e3')));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('likes'), findsNothing);
+      expect(find.textContaining('repost'), findsNothing);
+    });
+
+    test('the SQL window is executable-checked to leak handles, not phones',
+        () {
+      // The real assertions run in tool/check_sql.sh against a live
+      // Postgres; this pins that they stay wired.
+      final sql = File('docs/public_feed.sql').readAsStringSync();
+      expect(sql, contains('create or replace function public.public_post_likers'));
+      expect(sql, contains('security definer'));
+      expect(sql, contains("not coalesce(u.hidden, false)"));
+      final check = File('tool/check_sql.sh').readAsStringSync();
+      expect(check, contains('who-liked answers usernames'));
+      expect(check, contains('the who-liked window has no phone column'));
+      expect(check, contains('a hidden account leaves the who-liked list'));
+    });
+  });
+
   group('Login polish and the AI boundary', () {
     test('the login fields help the keyboard help you', () {
       final src =

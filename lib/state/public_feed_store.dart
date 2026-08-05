@@ -818,6 +818,65 @@ class PublicFeedStore extends ChangeNotifier {
   static Future<List<PublicPost>> Function(String postId)?
       debugThreadRepliesOverride;
 
+  /// Test hook: stands in for the who-liked RPC.
+  @visibleForTesting
+  static Future<List<(String, String)>?> Function(String postId)?
+      debugLikersOverride;
+
+  /// Test hook: stands in for the who-reposted query.
+  @visibleForTesting
+  static Future<List<PublicPost>> Function(String postId)?
+      debugRepostersOverride;
+
+  /// Who liked [postId] — (username, display name) pairs, newest first.
+  ///
+  /// Served by `public_post_likers` (docs/public_feed.sql): the likes table
+  /// stores phones and hides every row but your own, so this server-side
+  /// directory join is the ONE window, and it answers handles only. Null
+  /// means the answer is unavailable (the function isn't deployed, or
+  /// offline) — which is a different sentence from "nobody liked this".
+  /// Likers without a directory row, or with a hidden one, are not listed,
+  /// so the like count can honestly exceed the names.
+  Future<List<(String, String)>?> likersOf(String postId) async {
+    final override = debugLikersOverride;
+    if (override != null) return override(postId);
+    final client = _client;
+    if (client == null) return null;
+    try {
+      final rows =
+          await client.rpc('public_post_likers', params: {'p': postId});
+      return [
+        for (final r in (rows as List<dynamic>))
+          (
+            (r as Map)['username'] as String? ?? '',
+            r['name'] as String? ?? '',
+          )
+      ]..removeWhere((e) => e.$1.isEmpty);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Everyone whose repost points at [postId], newest first. A repost is an
+  /// ordinary public post, so this is a plain read — nothing to unhide.
+  Future<List<PublicPost>> repostersOf(String postId) async {
+    final override = debugRepostersOverride;
+    if (override != null) return override(postId);
+    final client = _client;
+    if (client == null) return const [];
+    try {
+      final rows = await client
+          .from('public_feed')
+          .select(_columns)
+          .eq('repost_of', postId)
+          .order('created_at', ascending: false)
+          .limit(100);
+      return _hydrate(rows);
+    } catch (_) {
+      return const [];
+    }
+  }
+
   /// One post, its replies, and the conversation above it, straight from
   /// the server — the fallback for opening a post the loaded timeline
   /// doesn't hold. A profile reaches months back while the timeline holds
@@ -1529,6 +1588,8 @@ class PublicFeedStore extends ChangeNotifier {
     debugProfileOverride = null;
     debugByIdsOverride = null;
     debugThreadRepliesOverride = null;
+    debugLikersOverride = null;
+    debugRepostersOverride = null;
     _filter = FeedFilter.forYou;
     _query = '';
     _tag = '';
