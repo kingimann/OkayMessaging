@@ -12,6 +12,7 @@ import '../state/favourites_store.dart';
 import '../state/follow_store.dart';
 import '../state/platform_moderation.dart';
 import 'marketplace_screen.dart' show SellerShopButton;
+import 'public_feed_screen.dart' show openPublicProfile;
 import '../state/session.dart' as local;
 import '../theme/app_theme.dart';
 import '../util/account_code.dart';
@@ -276,6 +277,14 @@ class ContactInfoScreen extends StatelessWidget {
             onMessage: () => Navigator.of(context).maybePop(),
             onCall: () => _startCall(context, video: false),
             onVideo: () => _startCall(context, video: true),
+            // The person's PROFILE — posts, follows, the newsfeed face of
+            // them — which chat previously had no road to at all. Only when
+            // they have a handle: the profile is keyed by username, and a
+            // contact without one has no profile to open, so no dead button.
+            onProfile: user.isGroup || user.username.trim().isEmpty
+                ? null
+                : () => openPublicProfile(context, user.username,
+                    name: user.name),
           ),
           const SizedBox(height: 20),
           InfoSection(
@@ -538,11 +547,13 @@ class _ActionButtons extends StatelessWidget {
   final VoidCallback onMessage;
   final VoidCallback onCall;
   final VoidCallback onVideo;
+  final VoidCallback? onProfile;
 
   const _ActionButtons({
     required this.onMessage,
     required this.onCall,
     required this.onVideo,
+    this.onProfile,
   });
 
   @override
@@ -562,6 +573,14 @@ class _ActionButtons extends StatelessWidget {
           Expanded(
               child: _TonalAction(
                   icon: Icons.videocam, label: 'Video', onTap: onVideo)),
+          if (onProfile != null) ...[
+            const SizedBox(width: 10),
+            Expanded(
+                child: _TonalAction(
+                    icon: Icons.person_outline,
+                    label: 'Profile',
+                    onTap: onProfile!)),
+          ],
         ],
       ),
     );

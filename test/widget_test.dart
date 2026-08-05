@@ -33166,6 +33166,36 @@ void main() {
       expect(feed.listingsBySeller('you'), isEmpty);
     });
 
+    testWidgets('a contact\'s profile is one tap from their card in chat',
+        (tester) async {
+      // The chat path had no road to the person's PROFILE — posts,
+      // follows, the newsfeed face of them — only to contact info.
+      await tester.pumpWidget(const MaterialApp(
+          home: ContactInfoScreen(
+              user: AppUser(
+                  id: '+15550175',
+                  name: 'Pia',
+                  avatarColor: '#111111',
+                  phone: '+15550175',
+                  username: 'pia'))));
+      await tester.pumpAndSettle();
+      expect(find.text('Profile'), findsOneWidget);
+      await tester.tap(find.text('Profile'));
+      await tester.pumpAndSettle();
+      expect(find.byType(PublicProfileScreen), findsOneWidget);
+
+      // A contact with no handle has no profile to open — no dead button.
+      await tester.pumpWidget(const MaterialApp(
+          home: ContactInfoScreen(
+              user: AppUser(
+                  id: '+15550176',
+                  name: 'No Handle',
+                  avatarColor: '#111111',
+                  phone: '+15550176'))));
+      await tester.pumpAndSettle();
+      expect(find.text('Profile'), findsNothing);
+    });
+
     testWidgets('the shop is a button into its own screen, and vanishes '
         'with the stock', (tester) async {
       final feed = FeedStore.instance;
