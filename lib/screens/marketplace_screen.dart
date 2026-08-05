@@ -518,7 +518,14 @@ Future<void> markListingSold(BuildContext context, FeedPost listing) async {
     if (existing.isArchived) store.setArchived(existing.id, false);
     chat = existing;
   } else {
-    chat = Chat(id: 'chat_${buyer.id}', contact: buyer, messages: const []);
+    // Born marketplace: this conversation exists because of the sale, so it
+    // files under the Marketplace section rather than among friends. An
+    // existing chat above is left where it is for the same reason reversed.
+    chat = Chat(
+        id: 'chat_${buyer.id}',
+        contact: buyer,
+        messages: const [],
+        marketplace: true);
     store.upsert(chat);
   }
   store.setDraft(chat.id, soldThanksDraft(listing));
@@ -694,7 +701,14 @@ Future<void> openSellerChat(
     if (existing.isArchived) store.setArchived(existing.id, false);
     chat = existing;
   } else {
-    chat = Chat(id: 'chat_${seller.id}', contact: seller, messages: const []);
+    // Born marketplace — see ChatStore.marketplaceChats. Only at creation:
+    // a friend you already talk to doesn't move sections because you asked
+    // about their couch.
+    chat = Chat(
+        id: 'chat_${seller.id}',
+        contact: seller,
+        messages: const [],
+        marketplace: true);
     store.upsert(chat);
   }
   if (opener.isNotEmpty && store.draftFor(chat.id).isEmpty) {

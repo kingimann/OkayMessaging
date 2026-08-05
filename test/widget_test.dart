@@ -152,6 +152,7 @@ import 'package:okay_messaging/screens/earnings_screen.dart';
 import 'package:okay_messaging/state/sidebar_prefs.dart';
 import 'package:okay_messaging/screens/sidebar_customize_screen.dart';
 import 'package:okay_messaging/screens/my_listings_screen.dart';
+import 'package:okay_messaging/screens/marketplace_chats_screen.dart';
 import 'package:okay_messaging/payments/connect_webview.dart';
 import 'package:okay_messaging/payments/connect_webview_stub.dart' as stub;
 import 'package:okay_messaging/payments/payment_amount_sheet.dart';
@@ -32567,6 +32568,125 @@ void main() {
       // Withheld browse-only, same reasoning as the Sell button: a
       // numberless account has nothing there to manage.
       expect(src, contains('if (!browseOnly)'));
+    });
+  });
+
+  group('A marketplace section in chats', () {
+    setUp(() => SharedPreferences.setMockInitialValues({}));
+
+    test('a chat born from a listing files under Marketplace, not chats',
+        () {
+      final store = ChatStore.instance;
+      store.hydrate(const {'chats': []});
+      addTearDown(store.reset);
+      store.upsert(const Chat(
+          id: 'chat_+15550190',
+          contact: AppUser(
+              id: '+15550190',
+              name: 'Seller Sam',
+              avatarColor: '#111111',
+              phone: '+15550190'),
+          messages: [],
+          marketplace: true,
+          unreadCount: 2));
+      store.upsert(const Chat(
+          id: 'chat_+15550191',
+          contact: AppUser(
+              id: '+15550191',
+              name: 'Friend Fay',
+              avatarColor: '#222222',
+              phone: '+15550191'),
+          messages: []));
+
+      expect(store.chats.map((c) => c.id), isNot(contains('chat_+15550190')),
+          reason: 'buyer traffic must not sit between friends');
+      expect(store.marketplaceChats.single.id, 'chat_+15550190');
+      expect(store.marketplaceUnread, 2);
+
+      // Either side can move it out — a buyer who became a friend.
+      store.setMarketplace('chat_+15550190', false);
+      expect(store.marketplaceChats, isEmpty);
+      expect(store.chats.map((c) => c.id), contains('chat_+15550190'));
+
+      // Archived wins over the section: a chat lives in one place.
+      store.setMarketplace('chat_+15550190', true);
+      store.setArchived('chat_+15550190', true);
+      expect(store.marketplaceChats, isEmpty);
+      expect(
+          store.archivedChats.map((c) => c.id), contains('chat_+15550190'));
+    });
+
+    test('the first message files the far side\'s NEW chat under '
+        'Marketplace — and never refiles an old friend', () {
+      final store = ChatStore.instance;
+      store.hydrate(const {'chats': []});
+      addTearDown(store.reset);
+
+      // A buyer this device has never talked to: born marketplace.
+      RelayService.applyIncoming({
+        'from': '+1 555 0192',
+        'id': 'mk_1',
+        'text': 'Is this still available? — "Trek bike" (\$120)',
+        'marketplace': true,
+      }, myPhone: '+1 555 0100', store: store);
+      expect(store.chatWithContact('+1 555 0192')!.marketplace, isTrue);
+
+      // A friend who buys something stays a friend: the flagged message
+      // lands in the existing chat without moving it.
+      store.upsert(const Chat(
+          id: 'chat_+15550193',
+          contact: AppUser(
+              id: '+15550193',
+              name: 'Old Friend',
+              avatarColor: '#333333',
+              phone: '+1 555 0193'),
+          messages: []));
+      RelayService.applyIncoming({
+        'from': '+1 555 0193',
+        'id': 'mk_2',
+        'text': 'I want the lamp actually',
+        'marketplace': true,
+      }, myPhone: '+1 555 0100', store: store);
+      expect(store.chatWithContact('+1 555 0193')!.marketplace, isFalse,
+          reason: 'an existing chat is never reclassified by one message');
+    });
+
+    testWidgets('the shelf lists them, and Move to chats is the way back',
+        (tester) async {
+      final store = ChatStore.instance;
+      store.hydrate(const {'chats': []});
+      addTearDown(store.reset);
+      store.upsert(const Chat(
+          id: 'chat_+15550194',
+          contact: AppUser(
+              id: '+15550194',
+              name: 'Seller Sam',
+              avatarColor: '#111111',
+              phone: '+15550194'),
+          messages: [],
+          marketplace: true));
+      await tester
+          .pumpWidget(const MaterialApp(home: MarketplaceChatsScreen()));
+      await tester.pumpAndSettle();
+      expect(find.text('Seller Sam'), findsOneWidget);
+      await tester.longPress(find.text('Seller Sam'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Move to chats'));
+      await tester.pumpAndSettle();
+      expect(store.chatById('chat_+15550194')!.marketplace, isFalse);
+      expect(find.text('No marketplace chats'), findsOneWidget);
+    });
+
+    test('the flag rides the delivery funnel and the wire, like protected',
+        () {
+      final chatScreen =
+          File('lib/screens/chat_screen.dart').readAsStringSync();
+      expect(chatScreen, contains('copyWith(marketplace: true)'),
+          reason: 'stamped once in _deliver, so no send path can forget');
+      final relay =
+          File('lib/relay/relay_service.dart').readAsStringSync();
+      expect(relay, contains("if (message.marketplace) 'marketplace': true"));
+      expect(relay, contains("marketplace: content['marketplace'] == true"));
     });
   });
 

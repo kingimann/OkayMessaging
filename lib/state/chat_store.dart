@@ -207,8 +207,30 @@ class ChatStore extends ChangeNotifier {
   /// so a screen added later is private by default instead of private only if
   /// somebody remembered. The ones that must see everything ask for
   /// [allChats] by name, which reads as the deliberate choice it is.
-  List<Chat> get chats => _sorted(
-      _chats.where((c) => !c.isArchived && !c.isRequest && !_concealed(c.id)));
+  /// Marketplace conversations are filtered here for the same reason — they
+  /// live in their own section ([marketplaceChats]) so buyer traffic cannot
+  /// bury friends.
+  List<Chat> get chats => _sorted(_chats.where((c) =>
+      !c.isArchived && !c.isRequest && !c.marketplace && !_concealed(c.id)));
+
+  /// The Marketplace section: conversations born from a listing. Archiving
+  /// one still wins — it goes to Archived, not two places at once.
+  List<Chat> get marketplaceChats => _sorted(_chats.where((c) =>
+      c.marketplace && !c.isArchived && !c.isRequest && !_concealed(c.id)));
+
+  /// Unread total for the Marketplace folder row, so a waiting buyer is
+  /// news on the chat list even with the folder closed.
+  int get marketplaceUnread => marketplaceChats.fold(
+      0, (sum, c) => sum + c.unreadCount);
+
+  /// Files a conversation in or out of the Marketplace section. Either
+  /// side's own choice — moving a chat out is how a buyer becomes a friend.
+  void setMarketplace(String id, bool marketplace) {
+    final i = _indexOf(id);
+    if (i != -1 && _chats[i].marketplace != marketplace) {
+      _replace(i, _chats[i].copyWith(marketplace: marketplace));
+    }
+  }
 
   /// Archived AND hidden is a real combination, and hiding wins: somebody who
   /// archived a chat and then hid it did not mean "unless you look here".

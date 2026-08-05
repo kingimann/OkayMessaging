@@ -1054,6 +1054,12 @@ class _ChatScreenState extends State<ChatScreen> {
     if (_store.isProtected(_chatId)) {
       message = message.copyWith(protected: true);
     }
+    // Same funnel again: a marketplace chat's messages say so on the wire,
+    // which is the only way the OTHER side's brand-new conversation knows
+    // to file itself in the marketplace section.
+    if (_store.chatById(_chatId)?.marketplace ?? false) {
+      message = message.copyWith(marketplace: true);
+    }
     // Same funnel, same reason: every send path lands here, so a thread reply
     // cannot escape into the room because one of them forgot.
     if (_inThread) {

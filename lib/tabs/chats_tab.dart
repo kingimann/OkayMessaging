@@ -8,6 +8,7 @@ import '../models/user.dart';
 import '../screens/chat_screen.dart';
 import '../screens/contacts_on_app_screen.dart';
 import '../screens/edit_profile_screen.dart';
+import '../screens/marketplace_chats_screen.dart';
 import '../screens/message_requests_screen.dart';
 import '../screens/new_chat_screen.dart';
 import '../screens/find_people_screen.dart';
@@ -208,6 +209,12 @@ class _ChatsTabState extends State<ChatsTab> {
             // folder would advertise a feature; a row with a count is news.
             if (store.requestCount > 0)
               _RequestsRow(count: store.requestCount),
+            // Same rule as requests: the folder exists only while there is
+            // something in it, so a fresh account never sees an empty shelf.
+            if (store.marketplaceChats.isNotEmpty)
+              _MarketplaceRow(
+                  count: store.marketplaceChats.length,
+                  unread: store.marketplaceUnread),
             Expanded(child: content),
           ],
         );
@@ -354,6 +361,49 @@ class _RequestsRow extends StatelessWidget {
       ),
       onTap: () => Navigator.of(context).push(MaterialPageRoute(
           builder: (_) => const MessageRequestsScreen())),
+    );
+  }
+}
+
+/// The Marketplace folder row: buyer and seller conversations live behind
+/// it instead of between friends. Only drawn while it holds something.
+class _MarketplaceRow extends StatelessWidget {
+  final int count;
+  final int unread;
+  const _MarketplaceRow({required this.count, required this.unread});
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = Theme.of(context).colorScheme.primary;
+    return ListTile(
+      leading: CircleAvatar(
+        radius: 22,
+        backgroundColor: accent.withValues(alpha: 0.14),
+        child: Icon(Icons.storefront_outlined, color: accent),
+      ),
+      title: const Text('Marketplace',
+          style: TextStyle(fontWeight: FontWeight.w600)),
+      subtitle: Text(
+          '$count ${count == 1 ? 'conversation' : 'conversations'} about '
+          'things for sale',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis),
+      trailing: unread == 0
+          ? null
+          : Container(
+              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+              decoration: BoxDecoration(
+                color: accent,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text('$unread',
+                  style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w700)),
+            ),
+      onTap: () => Navigator.of(context).push(MaterialPageRoute(
+          builder: (_) => const MarketplaceChatsScreen())),
     );
   }
 }

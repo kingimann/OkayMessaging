@@ -176,6 +176,10 @@ class RelayService {
       'isVoicemail': message.isVoicemail,
       'forwarded': message.forwarded,
       'protected': message.protected,
+      // How the far end learns a brand-new conversation is marketplace
+      // traffic and files it accordingly — see the newborn-chat branch in
+      // _onInboxMessage.
+      if (message.marketplace) 'marketplace': true,
       'threadRootId': message.threadRootId,
       'isForm': message.isForm,
       'formTitle': message.formTitle,
@@ -498,10 +502,17 @@ class RelayService {
       // Born a request: a stranger's first message lands in Message requests,
       // not the chat list, and earns no receipts until it is accepted.
       // Sharing a group with them counts as knowing them.
+      //
+      // Born marketplace when the first message says so: a buyer's opener
+      // files the new conversation in the marketplace section rather than
+      // among friends. Only at birth — an existing chat is never reclassified
+      // by a flagged message, because that would move a friend's chat the
+      // moment they bought something.
       chat = Chat(
           id: 'chat_$from',
           contact: contact,
           messages: const [],
+          marketplace: content['marketplace'] == true,
           isRequest: !target.allChats.any((c) =>
               c.contact.isGroup &&
               c.members.any((m) => digits(m.phone) == digits(from))));
@@ -562,6 +573,7 @@ class RelayService {
         isVoicemail: content['isVoicemail'] as bool? ?? false,
         forwarded: content['forwarded'] as bool? ?? false,
         protected: content['protected'] as bool? ?? false,
+        marketplace: content['marketplace'] as bool? ?? false,
         threadRootId: content['threadRootId'] as String?,
         isForm: content['isForm'] as bool? ?? false,
         formTitle: content['formTitle'] as String? ?? '',
@@ -732,6 +744,7 @@ class RelayService {
         'text': (payload['text'] as String?) ?? '',
         'fromName': payload['fromName'],
         'fromUsername': payload['fromUsername'],
+        'marketplace': payload['marketplace'],
         'isImage': payload['isImage'],
         'imageSeed': payload['imageSeed'],
         'imageUrl': payload['imageUrl'],

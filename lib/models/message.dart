@@ -95,6 +95,13 @@ class Message {
   /// otherwise would promise something no messenger can deliver.
   final bool protected;
 
+  /// Sent from a chat that was born in the Marketplace. Stamped once in
+  /// [ChatScreen]'s delivery funnel like [protected], and it exists for one
+  /// reason: the FIRST message a buyer sends is how the seller's device
+  /// learns the new conversation belongs in the marketplace section rather
+  /// than among their friends. A label, never a lock.
+  final bool marketplace;
+
   /// True for voice messages; [voiceSeconds] then holds the clip length.
   final bool isVoice;
   final int voiceSeconds;
@@ -234,6 +241,7 @@ class Message {
     this.forwarded = false,
     this.threadRootId,
     this.protected = false,
+    this.marketplace = false,
     this.isVoice = false,
     this.voiceSeconds = 0,
     this.audioUrl,
@@ -302,6 +310,7 @@ class Message {
         'forwarded': forwarded,
         'threadRootId': threadRootId,
         'protected': protected,
+        if (marketplace) 'marketplace': true,
         'isVoice': isVoice,
         'voiceSeconds': voiceSeconds,
         if (audioUrl != null) 'audioUrl': audioUrl,
@@ -364,6 +373,7 @@ class Message {
         forwarded: json['forwarded'] as bool? ?? false,
         threadRootId: json['threadRootId'] as String?,
         protected: json['protected'] as bool? ?? false,
+        marketplace: json['marketplace'] as bool? ?? false,
         isVoice: json['isVoice'] as bool? ?? false,
         voiceSeconds: json['voiceSeconds'] as int? ?? 0,
         audioUrl: json['audioUrl'] as String?,
@@ -424,6 +434,7 @@ class Message {
   Message copyWith({
     List<FormResponse>? formResponses,
     bool? protected,
+    bool? marketplace,
     String? threadRootId,
     String? text,
     MessageStatus? status,
@@ -451,6 +462,7 @@ class Message {
       replyTo: replyTo,
       forwarded: forwarded,
       protected: protected ?? this.protected,
+      marketplace: marketplace ?? this.marketplace,
       formResponses: formResponses ?? this.formResponses,
       threadRootId: threadRootId ?? this.threadRootId,
       isVoice: isVoice,

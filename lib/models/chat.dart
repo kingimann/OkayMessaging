@@ -32,6 +32,14 @@ class Chat {
   /// no presence — until you accept. Replying accepts implicitly.
   final bool isRequest;
 
+  /// A conversation that exists because of the Marketplace — started from a
+  /// listing (message seller, an offer, the sold handshake) or born on the
+  /// other side from such a first message. These sit in their own section of
+  /// the chat list, the way buyer traffic shouldn't bury friends. A chat you
+  /// already had with someone is never reclassified by them buying from you;
+  /// the flag is set at birth, and either side can move the chat out.
+  final bool marketplace;
+
   /// Ids of messages pinned to the top of this chat, oldest first. Free
   /// accounts can pin a few; Okay Pro lifts the limit.
   final List<String> pinnedMessageIds;
@@ -55,6 +63,7 @@ class Chat {
     this.confirmBeforeSend = false,
     this.protectContent = false,
     this.isRequest = false,
+    this.marketplace = false,
     this.pinnedMessageIds = const [],
     this.members = const [],
     this.disappearingSeconds = 0,
@@ -116,6 +125,7 @@ class Chat {
         'isFavorite': isFavorite,
         'confirmBeforeSend': confirmBeforeSend,
         if (isRequest) 'isRequest': true,
+        if (marketplace) 'marketplace': true,
         'pinnedMessageIds': pinnedMessageIds,
         'members': members.map((m) => m.toJson()).toList(),
         'disappearingSeconds': disappearingSeconds,
@@ -136,6 +146,7 @@ class Chat {
         isFavorite: json['isFavorite'] as bool? ?? false,
         confirmBeforeSend: json['confirmBeforeSend'] as bool? ?? false,
         isRequest: json['isRequest'] as bool? ?? false,
+        marketplace: json['marketplace'] as bool? ?? false,
         pinnedMessageIds: _readPinned(json),
         members: (json['members'] as List? ?? const [])
             .map((m) => AppUser.fromJson(Map<String, dynamic>.from(m as Map)))
@@ -154,6 +165,7 @@ class Chat {
     bool? isFavorite,
     bool? confirmBeforeSend,
     bool? isRequest,
+    bool? marketplace,
     List<String>? pinnedMessageIds,
     bool clearPinned = false,
     List<AppUser>? members,
@@ -171,6 +183,7 @@ class Chat {
       isFavorite: isFavorite ?? this.isFavorite,
       confirmBeforeSend: confirmBeforeSend ?? this.confirmBeforeSend,
       isRequest: isRequest ?? this.isRequest,
+      marketplace: marketplace ?? this.marketplace,
       pinnedMessageIds:
           clearPinned ? const [] : (pinnedMessageIds ?? this.pinnedMessageIds),
       members: members ?? this.members,
