@@ -112,6 +112,12 @@ class IdentityVerification extends ChangeNotifier {
   /// The reviewer/demo account passes outright: an App Review tester will
   /// not photograph a passport, and everything money-shaped is pinned to
   /// the payments sandbox for that account (see [ReviewerMode]).
+  ///
+  /// The owner's TEAM (admin + owner) is waived per-surface instead — see
+  /// [VerifiedGate.ownerMayPass] — because the wallet's hold is the
+  /// server's rule (Stripe wants the verified legal name on the intent no
+  /// matter who asks), and a blanket bypass here would just trade that
+  /// screen's explanation for a 403 three taps later.
   bool get allowsTrusted =>
       ReviewerMode.active ||
       !(debugGateOverride ?? RelayConfig.isEnabled) ||

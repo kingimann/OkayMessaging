@@ -25,7 +25,6 @@ import '../state/feed_store.dart';
 import '../state/market_media.dart';
 import '../util/geocoding.dart';
 import 'explore_map_screen.dart';
-import '../state/storage_store.dart';
 import '../util/file_moderation.dart';
 import '../util/photo_prep.dart';
 import '../widgets/app_dialogs.dart';
@@ -2617,6 +2616,15 @@ class _SellScreenState extends State<SellScreen> {
             ' MB — about 30 seconds.');
         return;
       }
+      // The real cap, read from the file itself where it can be: refused
+      // at pick time, not after an upload.
+      final seconds = MarketMedia.videoDurationSeconds(bytes);
+      if (seconds != null && seconds > MarketMedia.maxVideoSeconds) {
+        setState(() => _error =
+            'Videos can be up to ${MarketMedia.maxVideoSeconds} seconds — '
+            'this one runs ${seconds.round()}s. Trim it and try again.');
+        return;
+      }
       setState(() {
         _videoBytes = bytes;
         _error = null;
@@ -2708,6 +2716,37 @@ class _SellScreenState extends State<SellScreen> {
       setState(() => _error = 'Give it a title.');
       return;
     }
+    // The server's word filter guards its marketplace like its feed and its
+    // channels — a rule that applies to posts but not price tags isn't one.
+    // Told first: no point completing a listing the words already sink.
+    final hit = CommunityStore.instance
+        .filterHit(_communityId, '$title\n${_description.text}');
+    if (hit != null) {
+      setState(() =>
+          _error = '"$hit" is blocked by this server\'s word filter.');
+      return;
+    }
+    // A listing is a photo, a name and a description, or it is not a
+    // listing — a grid tile with no picture sells nothing, and a title
+    // with no sentences under it is a guess. (Edits included: an old bare
+    // listing gets completed on its next edit rather than staying bare.)
+    if (_photos.isEmpty) {
+      setState(() => _error = 'Add at least one photo.');
+      return;
+    }
+    if (_description.text.trim().isEmpty) {
+      setState(() =>
+          _error = 'Describe it — a sentence or two is enough.');
+      return;
+    }
+    if (widget.existing == null) {
+      final wait = FeedStore.instance.postCooldownLeft();
+      if (wait > Duration.zero) {
+        setState(() => _error =
+            'Slow down — you can post again in ${wait.inSeconds}s.');
+        return;
+      }
+    }
     final cents = parseListingPrice(_price.text);
     if (cents == null) {
       setState(() => _error = 'That price doesn\'t look like a number.');
@@ -2715,15 +2754,6 @@ class _SellScreenState extends State<SellScreen> {
     }
     if (_communityId.isEmpty) {
       setState(() => _error = 'Pick a server to list it in.');
-      return;
-    }
-    // The server's word filter guards its marketplace like its feed and its
-    // channels — a rule that applies to posts but not price tags isn't one.
-    final hit = CommunityStore.instance
-        .filterHit(_communityId, '$title\n${_description.text}');
-    if (hit != null) {
-      setState(() =>
-          _error = '"$hit" is blocked by this server\'s word filter.');
       return;
     }
     _finish(title, cents);
@@ -2775,8 +2805,9 @@ class _SellScreenState extends State<SellScreen> {
         brand: _brand.text.trim(),
         prevPriceCents: parseListingPrice(_wasPrice.text) ?? 0,
       );
-      // Posted — the draft's job is done.
+      // Posted — the draft's job is done, and the brake stamps.
       FeedDrafts.instance.clear(FeedDrafts.sellKey);
+      FeedStore.instance.noteAuthored();
     }
     if (removedVideo) {
       MarketMedia.instance.deleteVideo(existing.listingVideo);
@@ -2812,12 +2843,10 @@ class _SellScreenState extends State<SellScreen> {
     if (mounted) Navigator.of(context).pop(true);
   }
 
-  /// The video slot. Hosting a video costs real money (storage + egress per
-  /// view), so uploading is part of the cloud storage subscription — the one
-  /// paid thing this app sells, with unit economics the suite proves. The
-  /// locked tile says exactly that instead of hiding the feature.
+  /// The video slot. FREE to the seller — the owner's call (2026-08-04):
+  /// listing media never bills the person selling. What keeps that
+  /// affordable is the pair of caps (30 seconds, 12 MB), not a paywall.
   Widget _videoTile(BuildContext context) {
-    final subscribed = StorageStore.instance.isPaid;
     if (_uploadingVideo) {
       return Row(
         children: [
@@ -2855,26 +2884,10 @@ class _SellScreenState extends State<SellScreen> {
         ],
       );
     }
-    if (!subscribed) {
-      return Row(
-        children: [
-          Icon(Icons.videocam_off_outlined,
-              size: 20, color: AppColors.subtle(context)),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              'Add a video with cloud storage — hosting video costs real '
-              'storage, and the subscription is what pays for it.',
-              style: TextStyle(fontSize: 12.5, color: AppColors.subtle(context)),
-            ),
-          ),
-        ],
-      );
-    }
     return OutlinedButton.icon(
       onPressed: _pickVideo,
       icon: const Icon(Icons.videocam_outlined, size: 18),
-      label: const Text('Add a video (up to 12 MB, ~30s)'),
+      label: const Text('Add a video (up to 30 seconds)'),
     );
   }
 

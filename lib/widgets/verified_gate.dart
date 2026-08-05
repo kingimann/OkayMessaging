@@ -83,8 +83,12 @@ class VerifiedGate extends StatelessWidget {
       builder: (context, _) {
         final identity = IdentityVerification.instance;
         final owner = PlatformModeration.instance.isOwner;
+        // The waiver covers the owner's TEAM (admin + owner, 2026-08-04):
+        // a role only the owner can grant, from a table no client can
+        // write — a stronger identity claim than a document check, on the
+        // surfaces where the check is ours to waive at all.
         if (identity.allowsTrusted ||
-            (owner && ownerMayPass) ||
+            (PlatformModeration.instance.canAdminister && ownerMayPass) ||
             (numberlessMayPass && Session.instance.isNumberless)) {
           return child;
         }

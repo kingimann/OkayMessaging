@@ -31,11 +31,74 @@ class MarketMedia {
   static const bucket = 'market-media';
 
   /// The most raw bytes one listing video may be — roughly 30 seconds of
-  /// 720p phone video. The cap is what keeps the numbers sane: at the bucket
-  /// rate ($0.0213/GB-mo) a full 12MB video stores for ~$0.0003/month, and a
-  /// view's egress ($0.09/GB, ~16MB sealed) costs ~$0.0014 — small against
-  /// the storage subscription that gates uploading. No cap, no such claim.
+  /// 720p phone video. Listing media is FREE to the seller (the owner's
+  /// call, 2026-08-04): the caps are what make that affordable — at the
+  /// bucket rate ($0.0213/GB-mo) a full 12MB video stores for ~$0.0003 a
+  /// month, and a view's egress ($0.09/GB, ~16MB sealed) costs ~$0.0014.
+  /// No caps, no free.
   static const int maxVideoBytes = 12 * 1024 * 1024;
+
+  /// The longest a listing video may run. Enforced from the file's own
+  /// header wherever it can be read ([videoDurationSeconds]); the byte cap
+  /// stays as the floor for what can't be.
+  static const int maxVideoSeconds = 30;
+
+  /// The clip's length in seconds, read from the MP4/MOV header (the moov
+  /// box's mvhd), or null when it can't be known — WebM, a truncated
+  /// buffer, or a moov the file keeps at the very end. Null means "fall
+  /// back to the byte cap"; it never blocks on its own. Pure.
+  static double? videoDurationSeconds(Uint8List b) {
+    final data = ByteData.sublistView(b);
+    (int, int)? box(int pos, int end) {
+      if (pos + 8 > end) return null;
+      var size = data.getUint32(pos);
+      var header = 8;
+      if (size == 1) {
+        if (pos + 16 > end) return null;
+        size = data.getUint32(pos + 8) * 4294967296 + data.getUint32(pos + 12);
+        header = 16;
+      } else if (size == 0) {
+        size = end - pos;
+      }
+      if (size < header || pos + size > end) return null;
+      return (size, header);
+    }
+
+    String type(int pos) => String.fromCharCodes(b.sublist(pos + 4, pos + 8));
+
+    var pos = 0;
+    while (true) {
+      final s = box(pos, b.length);
+      if (s == null) return null;
+      final (size, header) = s;
+      if (type(pos) == 'moov') {
+        final moovEnd = pos + size;
+        var inner = pos + header;
+        while (true) {
+          final t = box(inner, moovEnd);
+          if (t == null) return null;
+          final (innerSize, innerHeader) = t;
+          if (type(inner) == 'mvhd') {
+            final at = inner + innerHeader;
+            final version = at < b.length ? b[at] : 0;
+            if (version == 1) {
+              if (at + 32 > b.length) return null;
+              final timescale = data.getUint32(at + 20);
+              final duration = data.getUint32(at + 24) * 4294967296 +
+                  data.getUint32(at + 28);
+              return timescale == 0 ? null : duration / timescale;
+            }
+            if (at + 20 > b.length) return null;
+            final timescale = data.getUint32(at + 12);
+            final duration = data.getUint32(at + 16);
+            return timescale == 0 ? null : duration / timescale;
+          }
+          inner += innerSize;
+        }
+      }
+      pos += size;
+    }
+  }
 
   /// Test hook: replaces the bucket round trip with an in-memory map.
   @visibleForTesting
@@ -98,6 +161,12 @@ class MarketMedia {
       throw MarketMediaError(
           'Videos can be up to ${maxVideoBytes ~/ (1024 * 1024)} MB — about '
           '30 seconds. Trim it and try again.');
+    }
+    final seconds = videoDurationSeconds(bytes);
+    if (seconds != null && seconds > maxVideoSeconds) {
+      throw MarketMediaError(
+          'Videos can be up to $maxVideoSeconds seconds — this one runs '
+          '${seconds.round()}s. Trim it and try again.');
     }
     final secret = _secretFor(communityId);
     if (secret == null) {

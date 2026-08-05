@@ -133,6 +133,14 @@ class _FeedScreenState extends State<FeedScreen> {
   void _post({String? gifUrl, String videoPath = ''}) {
     final text = _composer.text.trim();
     if (text.isEmpty && gifUrl == null && videoPath.isEmpty) return;
+    // The spam brake: the button refuses to be hammered.
+    final wait = FeedStore.instance.postCooldownLeft();
+    if (wait > Duration.zero) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content:
+              Text('Slow down — you can post again in ${wait.inSeconds}s.')));
+      return;
+    }
     // The server's word filter guards its feed like its channels.
     final hit = CommunityStore.instance.filterHit(widget.communityId, text);
     if (hit != null) {
@@ -142,6 +150,7 @@ class _FeedScreenState extends State<FeedScreen> {
     }
     FeedStore.instance
         .add(widget.communityId, text, gifUrl: gifUrl, videoPath: videoPath);
+    FeedStore.instance.noteAuthored();
     _composer.clear();
     FeedDrafts.instance.clear(_draftKey);
     FocusScope.of(context).unfocus();

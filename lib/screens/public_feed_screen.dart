@@ -2014,41 +2014,49 @@ class _PublicThreadScreenState extends State<PublicThreadScreen> {
                 onOpen: (_) {},
               ),
               // Who's behind the numbers — only when there are numbers.
-              // Views ride the same line but stay plain text: a view count
-              // has no names behind it, on purpose.
+              // A roomy band of full figures, not a crammed line of
+              // abbreviations: each count sits in its own block with its
+              // word under it. Likes and reposts open the people behind
+              // them; views stay plain, because a view count has no names
+              // behind it, on purpose.
               if (post.viewCount > 0 ||
                   post.likeCount > 0 ||
-                  post.repostCount > 0)
-                InkWell(
-                  onTap: (post.likeCount > 0 || post.repostCount > 0)
-                      ? () => showModalBottomSheet<void>(
-                            context: context,
-                            showDragHandle: true,
-                            isScrollControlled: true,
-                            builder: (_) => _EngagementSheet(post: post),
-                          )
-                      : null,
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
-                    child: Text(
-                      [
+                  post.repostCount > 0) ...[
+                const Divider(height: 1),
+                Builder(builder: (context) {
+                  void openSheet() => showModalBottomSheet<void>(
+                        context: context,
+                        showDragHandle: true,
+                        isScrollControlled: true,
+                        builder: (_) => _EngagementSheet(post: post),
+                      );
+                  return Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+                    child: Row(
+                      children: [
                         if (post.viewCount > 0)
-                          '${compactCount(post.viewCount)} '
-                              '${post.viewCount == 1 ? "view" : "views"}',
+                          _StatBlock(
+                            value: thousands(post.viewCount),
+                            label: post.viewCount == 1 ? 'View' : 'Views',
+                          ),
                         if (post.likeCount > 0)
-                          '${post.likeCount} '
-                              '${post.likeCount == 1 ? "like" : "likes"}',
+                          _StatBlock(
+                            value: thousands(post.likeCount),
+                            label: post.likeCount == 1 ? 'Like' : 'Likes',
+                            onTap: openSheet,
+                          ),
                         if (post.repostCount > 0)
-                          '${post.repostCount} '
-                              '${post.repostCount == 1 ? "repost" : "reposts"}',
-                      ].join(' · '),
-                      style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.accentOn(context)),
+                          _StatBlock(
+                            value: thousands(post.repostCount),
+                            label:
+                                post.repostCount == 1 ? 'Repost' : 'Reposts',
+                            onTap: openSheet,
+                          ),
+                      ],
                     ),
-                  ),
-                ),
+                  );
+                }),
+              ],
               const Divider(height: 1),
               if (replies.isEmpty)
                 Padding(
@@ -2122,6 +2130,42 @@ class _PublicThreadScreenState extends State<PublicThreadScreen> {
             ],
           );
         },
+      ),
+    );
+  }
+}
+
+/// One figure and its word, roomily. The number reads first and in full —
+/// no 'K', no 'M' — with the label under it in grey. A block with [onTap]
+/// has people behind its number and opens them.
+class _StatBlock extends StatelessWidget {
+  final String value;
+  final String label;
+  final VoidCallback? onTap;
+  const _StatBlock({required this.value, required this.label, this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 12),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(10),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(value,
+                  style: const TextStyle(
+                      fontSize: 18, fontWeight: FontWeight.w800)),
+              const SizedBox(height: 2),
+              Text(label,
+                  style: TextStyle(
+                      fontSize: 12.5, color: AppColors.subtle(context))),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -2600,6 +2644,15 @@ class _ComposerState extends State<_Composer> {
   }
 
   Future<void> _send() async {
+    // The spam brake: the button refuses to be hammered. Replies included —
+    // twenty seconds is invisible to a person writing sentences.
+    final wait = PublicFeedStore.instance.postCooldownLeft();
+    if (wait > Duration.zero) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content:
+              Text('Slow down — you can post again in ${wait.inSeconds}s.')));
+      return;
+    }
     setState(() => _sending = true);
     try {
       await PublicFeedStore.instance.post(_text.text,
@@ -2610,6 +2663,7 @@ class _ComposerState extends State<_Composer> {
           video: _video,
           pollOptions: [for (final c in _pollFields ?? const []) c.text],
           pollRunsFor: _isPoll ? _pollRunsFor : null);
+      PublicFeedStore.instance.noteAuthored();
       // Cleared only once it is actually posted. A send that throws leaves
       // the draft exactly where it was, which is the whole point of having
       // one.

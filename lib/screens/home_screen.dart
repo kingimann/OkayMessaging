@@ -796,7 +796,8 @@ class _VerifiedOnlyHint extends StatelessWidget {
             [IdentityVerification.instance, PlatformModeration.instance]),
         builder: (context, _) =>
             IdentityVerification.instance.allowsTrusted ||
-                    (ownerMayPass && PlatformModeration.instance.isOwner)
+                    (ownerMayPass &&
+                        PlatformModeration.instance.canAdminister)
                 ? const SizedBox.shrink()
                 : Tooltip(
                     message: 'Needs a verified account',

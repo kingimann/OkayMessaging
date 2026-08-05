@@ -84,6 +84,7 @@ import 'package:okay_messaging/screens/forum_screen.dart';
 import 'package:okay_messaging/screens/marketplace_screen.dart';
 import 'package:okay_messaging/screens/nearby_share_screen.dart';
 import 'package:okay_messaging/widgets/verified_badge.dart';
+import 'package:okay_messaging/widgets/verified_gate.dart';
 import 'package:okay_messaging/screens/map_screen.dart';
 import 'package:okay_messaging/screens/maps_settings_screen.dart';
 import 'package:okay_messaging/util/geocoding.dart';
@@ -9832,12 +9833,31 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Blue bike'), findsOneWidget);
 
-      // Selling walks through the form and lands in the grid.
+      // Selling walks through the form and lands in the grid. A listing
+      // must carry a photo, a name and a description now — the form
+      // refuses anything barer.
+      final chairPhoto = img.Image(width: 32, height: 24);
+      PhotoPrep.debugPickOverride =
+          () async => Uint8List.fromList(img.encodeJpg(chairPhoto));
+      addTearDown(() => PhotoPrep.debugPickOverride = null);
       await tester.tap(find.text('Sell'));
       await tester.pumpAndSettle();
       await tester.enterText(
           find.widgetWithText(TextField, 'What are you selling?'), 'Red chair');
       await tester.enterText(find.widgetWithText(TextField, 'Price'), '15');
+      // Bare: refused with the reason on screen.
+      await tester.tap(find.text('Post'));
+      await tester.pumpAndSettle();
+      expect(find.text('Add at least one photo.'), findsOneWidget);
+      await tester.tap(find.text('Add photos'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Post'));
+      await tester.pumpAndSettle();
+      expect(find.text('Describe it — a sentence or two is enough.'),
+          findsOneWidget);
+      await tester.enterText(
+          find.widgetWithText(TextField, 'Describe it — condition, size, pickup…'),
+          'Solid oak, barely used.');
       await tester.tap(find.text('Post'));
       await tester.pumpAndSettle();
       expect(find.text('Red chair'), findsOneWidget);
@@ -10413,46 +10433,84 @@ void main() {
           reason: 'the "up to 12 MB" label hardcodes this number');
     });
 
-    testWidgets('video upload is part of the storage subscription',
+    testWidgets('listing video is free to the seller, no subscription asked',
         (tester) async {
       FeedStore.instance.resetForTest();
-      addTearDown(() {
-        FeedStore.instance.resetForTest();
-        StorageStore.instance.debugSubscribe(0);
-      });
+      addTearDown(FeedStore.instance.resetForTest);
 
-      // The video slot lives behind the More-details fold now. The second
-      // pump reuses the first screen's state (same widget, no key), so the
-      // fold may already be open — then there is no button to tap.
-      Future<void> openFold() async {
-        try {
-          await tester.scrollUntilVisible(
-              find.textContaining('More details'), 200,
-              scrollable: find.byType(Scrollable).first);
-          await tester.tap(find.textContaining('More details'));
-          await tester.pumpAndSettle();
-        } catch (_) {
-          // Already open.
+      // The video slot lives behind the More-details fold.
+      await tester.pumpWidget(const MaterialApp(home: SellScreen()));
+      await tester.pump();
+      await tester.scrollUntilVisible(find.textContaining('More details'), 200,
+          scrollable: find.byType(Scrollable).first);
+      await tester.tap(find.textContaining('More details'));
+      await tester.pumpAndSettle();
+      await tester.drag(find.byType(Scrollable).first, const Offset(0, -1200));
+      await tester.pumpAndSettle();
+      // No paywall tile, no subscription check — the picker is just there.
+      expect(find.textContaining('cloud storage'), findsNothing);
+      expect(find.text('Add a video (up to 30 seconds)'), findsOneWidget);
+      final src =
+          File('lib/screens/marketplace_screen.dart').readAsStringSync();
+      final tile = src.substring(src.indexOf('Widget _videoTile'),
+          src.indexOf('/// Whether backing out now'));
+      expect(tile.contains('isPaid'), isFalse,
+          reason: 'listing media must never bill the seller');
+    });
+
+    test('a video longer than 30 seconds is refused by its own header', () {
+      // A minimal MP4: an ftyp box, then moov > mvhd claiming [seconds]s.
+      Uint8List mp4({required int seconds, int version = 0}) {
+        final bytes = <int>[];
+        void u32(int v) => bytes.addAll(
+            [(v >> 24) & 255, (v >> 16) & 255, (v >> 8) & 255, v & 255]);
+        // ftyp
+        u32(16);
+        bytes.addAll('ftyp'.codeUnits);
+        bytes.addAll('isom'.codeUnits);
+        u32(0);
+        // moov > mvhd (v0: 8 hdr + 4 verflags + 4 ctime + 4 mtime +
+        // 4 timescale + 4 duration = 28 content)
+        final mvhdSize = version == 0 ? 8 + 4 + 4 + 4 + 4 + 4 : 8 + 4 + 8 + 8 + 4 + 8;
+        u32(8 + mvhdSize);
+        bytes.addAll('moov'.codeUnits);
+        u32(mvhdSize);
+        bytes.addAll('mvhd'.codeUnits);
+        u32(version == 1 ? 0x01000000 : 0); // version + flags
+        if (version == 1) {
+          u32(0); u32(0); // ctime
+          u32(0); u32(0); // mtime
+          u32(1000); // timescale
+          u32(0); u32(seconds * 1000); // duration
+        } else {
+          u32(0); // ctime
+          u32(0); // mtime
+          u32(1000); // timescale
+          u32(seconds * 1000); // duration
         }
-        await tester.drag(
-            find.byType(Scrollable).first, const Offset(0, -1200));
-        await tester.pumpAndSettle();
+        return Uint8List.fromList(bytes);
       }
 
-      // Without the subscription the slot explains itself instead of hiding.
-      await tester.pumpWidget(const MaterialApp(home: SellScreen()));
-      await tester.pump();
-      await openFold();
-      expect(find.textContaining('Add a video with cloud storage'),
-          findsOneWidget);
-      expect(find.text('Add a video (up to 12 MB, ~30s)'), findsNothing);
-
-      // With it, the picker button appears.
-      StorageStore.instance.debugSubscribe(50);
-      await tester.pumpWidget(const MaterialApp(home: SellScreen()));
-      await tester.pump();
-      await openFold();
-      expect(find.text('Add a video (up to 12 MB, ~30s)'), findsOneWidget);
+      expect(MarketMedia.videoDurationSeconds(mp4(seconds: 12)), 12);
+      expect(MarketMedia.videoDurationSeconds(mp4(seconds: 45, version: 1)),
+          45);
+      // WebM and garbage read as unknown — the byte cap stays the floor.
+      expect(
+          MarketMedia.videoDurationSeconds(
+              Uint8List.fromList([0x1A, 0x45, 0xDF, 0xA3, 0, 0, 0, 0, 0, 0, 0, 0])),
+          isNull);
+      expect(MarketMedia.videoDurationSeconds(Uint8List(0)), isNull);
+      // And the pick path refuses over the line, in words.
+      final src =
+          File('lib/screens/marketplace_screen.dart').readAsStringSync();
+      expect(src, contains('MarketMedia.videoDurationSeconds(bytes)'));
+      expect(src, contains('MarketMedia.maxVideoSeconds'));
+      final media = File('lib/state/market_media.dart').readAsStringSync();
+      expect(media, contains('maxVideoSeconds = 30'));
+      expect(media.indexOf('videoDurationSeconds(bytes)') <
+              media.indexOf('final secret = _secretFor'),
+          isTrue,
+          reason: 'uploadVideo checks duration before sealing');
     });
 
     testWidgets('the seller screen gathers a seller\'s shop in one place',
@@ -10740,6 +10798,17 @@ void main() {
       await tester.pumpAndSettle();
       await tester.enterText(
           find.widgetWithText(TextField, 'What are you selling?'), 'Lamp');
+      // A listing needs a photo and a description to post at all now.
+      final lampPhoto = img.Image(width: 32, height: 24);
+      PhotoPrep.debugPickOverride =
+          () async => Uint8List.fromList(img.encodeJpg(lampPhoto));
+      addTearDown(() => PhotoPrep.debugPickOverride = null);
+      await tester.tap(find.text('Add photos'));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+          find.widgetWithText(
+              TextField, 'Describe it — condition, size, pickup…'),
+          'Warm light, new bulb.');
       // Condition lives behind the More-details fold now.
       await tester.scrollUntilVisible(find.textContaining('More details'), 200,
           scrollable: find.byType(Scrollable).first);
@@ -31892,9 +31961,14 @@ void main() {
       await tester.pumpWidget(
           const MaterialApp(home: PublicThreadScreen(postId: 'e1')));
       await tester.pumpAndSettle();
-      // The numbers under the post are the door in.
-      expect(find.text('3 likes · 1 repost'), findsOneWidget);
-      await tester.tap(find.text('3 likes · 1 repost'));
+      // The stat blocks under the post are the door in — full figures,
+      // each with its word. ('3' also appears in the action row's counts,
+      // so the words are what pin the band.)
+      expect(find.text('3'), findsWidgets);
+      expect(find.text('Likes'), findsOneWidget);
+      expect(find.text('Repost'), findsOneWidget,
+          reason: 'one repost is a Repost, not Reposts');
+      await tester.tap(find.text('Likes'));
       await tester.pumpAndSettle();
       expect(find.text('LIKED BY'), findsOneWidget);
       expect(find.text('Grace Lin'), findsOneWidget);
@@ -31921,7 +31995,7 @@ void main() {
       await tester.pumpWidget(
           const MaterialApp(home: PublicThreadScreen(postId: 'e2')));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('2 likes'));
+      await tester.tap(find.text('Likes'));
       await tester.pumpAndSettle();
       expect(find.textContaining('isn\'t available yet'), findsOneWidget);
     });
@@ -31934,8 +32008,9 @@ void main() {
       await tester.pumpWidget(
           const MaterialApp(home: PublicThreadScreen(postId: 'e3')));
       await tester.pumpAndSettle();
-      expect(find.textContaining('likes'), findsNothing);
-      expect(find.textContaining('repost'), findsNothing);
+      expect(find.text('Views'), findsNothing);
+      expect(find.text('Likes'), findsNothing);
+      expect(find.text('Reposts'), findsNothing);
     });
 
     test('the SQL window is executable-checked to leak handles, not phones',
@@ -32027,16 +32102,16 @@ void main() {
   });
 
   group('View counts (X-style)', () {
-    test('compactCount writes numbers the way X does', () {
-      expect(compactCount(0), '0');
-      expect(compactCount(999), '999');
-      expect(compactCount(1000), '1K');
-      expect(compactCount(1234), '1.2K');
-      expect(compactCount(9999), '9.9K');
-      expect(compactCount(45000), '45K');
-      expect(compactCount(999999), '999K');
-      expect(compactCount(1000000), '1M');
-      expect(compactCount(3400000), '3.4M');
+    test('counts are written out in full, grouped for reading', () {
+      // No 'K', no 'M' — the owner asked for nothing compact, and a whole
+      // number is also the honest one.
+      expect(thousands(0), '0');
+      expect(thousands(999), '999');
+      expect(thousands(1000), '1,000');
+      expect(thousands(1234), '1,234');
+      expect(thousands(45000), '45,000');
+      expect(thousands(999999), '999,999');
+      expect(thousands(1234567), '1,234,567');
     });
 
     testWidgets('opening a post counts one view, once per run',
@@ -32059,8 +32134,9 @@ void main() {
           const MaterialApp(home: PublicThreadScreen(postId: 'v1')));
       await tester.pumpAndSettle();
       expect(reported, ['v1']);
-      // The count shows, compact, in the engagement line.
-      expect(find.textContaining('1.2K views'), findsOneWidget);
+      // The count shows in full, in its own block with its word under it.
+      expect(find.text('1,234'), findsOneWidget);
+      expect(find.text('Views'), findsOneWidget);
       // A second open in the same run does not double-count.
       store.notePostViewed('v1');
       expect(reported, ['v1'],
@@ -32083,6 +32159,98 @@ void main() {
       final check = File('tool/check_sql.sh').readAsStringSync();
       expect(check, contains('a view adds exactly one to the tally'));
       expect(check, contains('the view tally cannot be written directly'));
+    });
+  });
+
+  group('Admins, the spam brake, and required listings', () {
+    testWidgets('an admin passes the waivable gates; the wallet holds even '
+        'them', (tester) async {
+      IdentityVerification.instance.resetForTest();
+      PlatformModeration.instance.resetForTest();
+      addTearDown(IdentityVerification.instance.resetForTest);
+      addTearDown(PlatformModeration.instance.resetForTest);
+      addTearDown(() => IdentityVerification.debugGateOverride = null);
+      IdentityVerification.debugGateOverride = true; // a server build
+      PlatformModeration.instance.debugSet(role: PlatformRole.admin);
+
+      // A waivable surface (marketplace, Okay Drop): the admin walks in
+      // without the ID check — the role is granted person-to-person by the
+      // owner, from a table no client can write.
+      await tester.pumpWidget(MaterialApp(
+        home: const VerifiedGate(
+          title: 'Marketplace',
+          reason: 'r',
+          ownerMayPass: true,
+          child: Text('inside the market'),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      expect(find.text('inside the market'), findsOneWidget);
+
+      // The wallet's hold is the SERVER's rule — Stripe wants the verified
+      // legal name on the intent no matter who asks — so even the team
+      // waits there, and the screen says why instead of 403ing later.
+      await tester.pumpWidget(MaterialApp(
+        home: const VerifiedGate(
+          title: 'Wallet',
+          reason: 'r',
+          child: Text('inside the wallet'),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      expect(find.text('inside the wallet'), findsNothing);
+
+      // Moderators moderate; they do not skip gates.
+      PlatformModeration.instance.debugSet(role: PlatformRole.moderator);
+      await tester.pumpWidget(MaterialApp(
+        home: const VerifiedGate(
+          title: 'Marketplace',
+          reason: 'r',
+          ownerMayPass: true,
+          child: Text('inside again'),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      expect(find.text('inside again'), findsNothing);
+    });
+
+    test('the composer brake: twenty seconds, both feeds, then free again',
+        () {
+      final server = FeedStore.instance;
+      final public = PublicFeedStore.instance;
+      server.resetForTest();
+      public.resetForTest();
+      addTearDown(server.resetForTest);
+      addTearDown(public.resetForTest);
+      expect(server.postCooldownLeft(), Duration.zero);
+      server.noteAuthored();
+      expect(server.postCooldownLeft(), greaterThan(Duration.zero));
+      expect(public.postCooldownLeft(), Duration.zero,
+          reason: 'the two feeds brake separately');
+      public.noteAuthored();
+      expect(public.postCooldownLeft(), greaterThan(Duration.zero));
+      // Wired at every composer: both feeds and the sell form refuse,
+      // in words, and stamp only on a real post.
+      for (final (file, needle) in [
+        ('lib/screens/public_feed_screen.dart', 'postCooldownLeft'),
+        ('lib/screens/feed_screen.dart', 'postCooldownLeft'),
+        ('lib/screens/marketplace_screen.dart', 'postCooldownLeft'),
+      ]) {
+        expect(File(file).readAsStringSync(), contains(needle),
+            reason: '$file lost its brake');
+      }
+    });
+
+    test('a listing is a photo, a name and a description — said in the form',
+        () {
+      final src =
+          File('lib/screens/marketplace_screen.dart').readAsStringSync();
+      final post = src.substring(
+          src.indexOf('void _post()'), src.indexOf('Future<void> _finish'));
+      expect(post, contains("'Add at least one photo.'"));
+      expect(post, contains('Describe it'));
+      expect(post.indexOf('_photos.isEmpty') < post.indexOf('parseListingPrice'),
+          isTrue);
     });
   });
 

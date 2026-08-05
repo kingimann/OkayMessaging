@@ -1388,6 +1388,24 @@ class FeedStore extends ChangeNotifier {
     return true;
   }
 
+  /// The soonest another post may follow the last — a spam brake at the
+  /// composer, not a rule of the bus: sends still deliver, this is the
+  /// button refusing to be hammered. Twenty seconds is invisible to a
+  /// person and a wall to a script.
+  static const Duration postCooldown = Duration(seconds: 20);
+  DateTime? _lastAuthoredAt;
+
+  /// How much longer the composer should refuse, or zero.
+  Duration postCooldownLeft() {
+    final at = _lastAuthoredAt;
+    if (at == null) return Duration.zero;
+    final left = postCooldown - DateTime.now().difference(at);
+    return left.isNegative ? Duration.zero : left;
+  }
+
+  /// Stamped by the composer when a post actually goes out.
+  void noteAuthored() => _lastAuthoredAt = DateTime.now();
+
   /// How long a listing must sit before its owner can re-top it.
   static const Duration bumpEvery = Duration(hours: 48);
 
@@ -1902,6 +1920,7 @@ class FeedStore extends ChangeNotifier {
     _savedIds.clear();
     _recentlyViewedIds.clear();
     _savedSearches.clear();
+    _lastAuthoredAt = null;
     _deletedIds.clear();
     _notifications.clear();
     _likedBy.clear();

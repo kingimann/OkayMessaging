@@ -894,6 +894,23 @@ class PublicFeedStore extends ChangeNotifier {
   @visibleForTesting
   static void Function(String postId)? debugViewedOverride;
 
+  /// The soonest another post may follow the last — a spam brake at the
+  /// composer, not a rule of the server: twenty seconds is invisible to a
+  /// person and a wall to a hammered button.
+  static const Duration postCooldown = Duration(seconds: 20);
+  DateTime? _lastAuthoredAt;
+
+  /// How much longer the composer should refuse, or zero.
+  Duration postCooldownLeft() {
+    final at = _lastAuthoredAt;
+    if (at == null) return Duration.zero;
+    final left = postCooldown - DateTime.now().difference(at);
+    return left.isNegative ? Duration.zero : left;
+  }
+
+  /// Stamped by the composer when a post actually goes out.
+  void noteAuthored() => _lastAuthoredAt = DateTime.now();
+
   /// Posts already reported viewed this app run — the client's own
   /// discipline against counting one reader as many.
   final Set<String> _viewedReported = {};
@@ -1672,6 +1689,7 @@ class PublicFeedStore extends ChangeNotifier {
     debugLikedPostsOverride = null;
     debugViewedOverride = null;
     _viewedReported.clear();
+    _lastAuthoredAt = null;
     _filter = FeedFilter.forYou;
     _query = '';
     _tag = '';
@@ -1682,15 +1700,14 @@ class PublicFeedStore extends ChangeNotifier {
   }
 }
 
-/// A count the way X writes one: raw under a thousand, then '1.2K',
-/// '45K', '3.4M' — one decimal only while it still means anything. Pure.
-String compactCount(int n) {
-  if (n < 1000) return '$n';
-  if (n < 10000) {
-    final tenths = (n / 100).floor();
-    return tenths % 10 == 0 ? '${tenths ~/ 10}K' : '${tenths / 10}K';
+/// A count written out in full, grouped for reading: 1234 -> '1,234'.
+/// No 'K', no 'M' — the whole number, every time. Pure.
+String thousands(int n) {
+  final digits = n.abs().toString();
+  final out = StringBuffer();
+  for (var i = 0; i < digits.length; i++) {
+    if (i > 0 && (digits.length - i) % 3 == 0) out.write(',');
+    out.write(digits[i]);
   }
-  if (n < 1000000) return '${(n / 1000).floor()}K';
-  final tenths = (n / 100000).floor();
-  return tenths % 10 == 0 ? '${tenths ~/ 10}M' : '${tenths / 10}M';
+  return n < 0 ? '-$out' : '$out';
 }
