@@ -2128,13 +2128,18 @@ class ListingScreen extends StatelessWidget {
   }
 }
 
-/// A business contact's shop, for their profile surfaces: the active
-/// listings this device can already see from them, matched by handle —
-/// the same local honesty as [knownBusinessSeller]. Draws NOTHING when
-/// there are none: an empty shelf would advertise an absence.
-class SellerShopStrip extends StatelessWidget {
+/// A business contact's shop, for their profile surfaces — as a BUTTON,
+/// not an inline shelf: the strip squeezed between profile lines read as
+/// clutter, and a profile is about the person first. The button says how
+/// much is stocked and opens [SellerShopScreen]; it draws NOTHING when
+/// the shop is empty, because an empty shelf would advertise an absence.
+/// The listings are only what this device has already seen, matched by
+/// handle — the same local honesty as [knownBusinessSeller].
+class SellerShopButton extends StatelessWidget {
   final String username;
-  const SellerShopStrip({super.key, required this.username});
+  final String sellerName;
+  const SellerShopButton(
+      {super.key, required this.username, this.sellerName = ''});
 
   @override
   Widget build(BuildContext context) {
@@ -2143,34 +2148,75 @@ class SellerShopStrip extends StatelessWidget {
       builder: (context, _) {
         final goods = FeedStore.instance.listingsBySeller(username);
         if (goods.isEmpty) return const SizedBox.shrink();
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
-              child: Text('Their shop',
-                  style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.subtle(context))),
+        final mine = username.trim().toLowerCase() ==
+            AppState.profile.value.username.trim().toLowerCase();
+        final accent = Theme.of(context).colorScheme.primary;
+        return Padding(
+          padding: const EdgeInsets.only(top: 10),
+          child: OutlinedButton.icon(
+            style: OutlinedButton.styleFrom(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+              side: BorderSide(color: accent.withValues(alpha: 0.45)),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(22)),
             ),
-            SizedBox(
-              height: 168,
-              child: ListView(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                children: [
-                  for (final l in goods)
-                    Padding(
-                      padding: const EdgeInsets.only(right: 10),
-                      child: _MiniListingCard(listing: l),
-                    ),
-                ],
-              ),
-            ),
-          ],
+            icon: const Icon(Icons.storefront_outlined, size: 18),
+            label: Text(
+                '${mine ? 'Your shop' : 'View shop'} · ${goods.length} '
+                '${goods.length == 1 ? 'item' : 'items'}'),
+            onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                builder: (_) => SellerShopScreen(
+                    username: username, sellerName: sellerName))),
+          ),
         );
       },
+    );
+  }
+}
+
+/// Everything a seller has up, full-size — the browse grid's own cards,
+/// scoped to one handle.
+class SellerShopScreen extends StatelessWidget {
+  final String username;
+  final String sellerName;
+  const SellerShopScreen(
+      {super.key, required this.username, this.sellerName = ''});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+          title: Text(
+              sellerName.trim().isEmpty ? 'Shop' : '$sellerName\'s shop')),
+      body: ListenableBuilder(
+        listenable: FeedStore.instance,
+        builder: (context, _) {
+          final goods = FeedStore.instance.listingsBySeller(username);
+          if (goods.isEmpty) {
+            return Center(
+              child: Text('Nothing for sale right now.',
+                  style: TextStyle(color: AppColors.subtle(context))),
+            );
+          }
+          return GridView.builder(
+            padding: const EdgeInsets.all(12),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 2,
+              mainAxisSpacing: 10,
+              crossAxisSpacing: 10,
+              childAspectRatio: 0.72,
+            ),
+            itemCount: goods.length,
+            itemBuilder: (context, i) => _ListingCard(
+              listing: goods[i],
+              serverName: '',
+              onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => ListingScreen(listingId: goods[i].id))),
+            ),
+          );
+        },
+      ),
     );
   }
 }

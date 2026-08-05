@@ -33166,8 +33166,8 @@ void main() {
       expect(feed.listingsBySeller('you'), isEmpty);
     });
 
-    testWidgets('the strip shows the shop, and vanishes with it',
-        (tester) async {
+    testWidgets('the shop is a button into its own screen, and vanishes '
+        'with the stock', (tester) async {
       final feed = FeedStore.instance;
       feed.resetForTest();
       addTearDown(feed.resetForTest);
@@ -33181,24 +33181,36 @@ void main() {
           priceCents: 9000));
       await tester.pumpWidget(const MaterialApp(
           home: Scaffold(
-              body: SellerShopStrip(username: 'cafegrace'))));
+              body: SellerShopButton(
+                  username: 'cafegrace', sellerName: 'Grace'))));
       await tester.pumpAndSettle();
-      expect(find.text('Their shop'), findsOneWidget);
+      // A button, not an inline shelf — the strip read as clutter on a
+      // profile, and the owner said so.
+      expect(find.text('View shop · 1 item'), findsOneWidget);
+      expect(find.text('Espresso machine'), findsNothing,
+          reason: 'the goods live behind the button, not on the profile');
+
+      await tester.tap(find.text('View shop · 1 item'));
+      await tester.pumpAndSettle();
+      expect(find.text('Grace\'s shop'), findsOneWidget);
       expect(find.text('Espresso machine'), findsOneWidget);
 
-      // An empty shelf is not drawn — it would advertise an absence.
+      // An empty shop draws no button — it would advertise an absence.
       await tester.pumpWidget(const MaterialApp(
-          home: Scaffold(body: SellerShopStrip(username: 'nobody'))));
+          home: Scaffold(body: SellerShopButton(username: 'nobody'))));
       await tester.pumpAndSettle();
-      expect(find.text('Their shop'), findsNothing);
+      expect(find.byType(OutlinedButton), findsNothing);
 
-      // And both profile surfaces carry it, gated behind isBusiness.
+      // Both profile surfaces carry it, and your own profile says yours.
+      final market =
+          File('lib/screens/marketplace_screen.dart').readAsStringSync();
+      expect(market, contains("'Your shop'"));
       for (final f in [
         'lib/screens/contact_info_screen.dart',
         'lib/screens/public_feed_screen.dart'
       ]) {
-        expect(File(f).readAsStringSync(), contains('SellerShopStrip('),
-            reason: '$f should stock the storefront');
+        expect(File(f).readAsStringSync(), contains('SellerShopButton('),
+            reason: '$f should carry the shop button');
       }
     });
 

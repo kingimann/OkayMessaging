@@ -11,7 +11,7 @@ import '../state/chat_store.dart';
 import '../state/favourites_store.dart';
 import '../state/follow_store.dart';
 import '../state/platform_moderation.dart';
-import 'marketplace_screen.dart' show SellerShopStrip;
+import 'marketplace_screen.dart' show SellerShopButton;
 import '../state/session.dart' as local;
 import '../theme/app_theme.dart';
 import '../util/account_code.dart';
@@ -181,10 +181,12 @@ class ContactInfoScreen extends StatelessWidget {
                 ),
               ),
             ],
-            // What the storefront actually stocks: their active listings,
-            // as far as this device has seen them. Nothing when none —
-            // the widget itself keeps that promise.
-            SellerShopStrip(username: user.username),
+            // What the storefront actually stocks: a button into their
+            // active listings, as far as this device has seen them.
+            // Nothing when none — the widget itself keeps that promise.
+            Center(
+                child: SellerShopButton(
+                    username: user.username, sellerName: user.name)),
           ],
           if (user.location.trim().isNotEmpty) ...[
             const SizedBox(height: 4),
