@@ -281,6 +281,23 @@ chatted with (handle match, case-insensitive; the directory carries no
 business fields, so anything else would be invention). `DemoSeed` adds a
 `demo_biz` café chat so screenshots show the surfaces.
 
+## Marketplace seller profiles (2026-08-05)
+
+`SellerScreen` (`marketplace_screen.dart`) is the Facebook-Marketplace-shaped
+seller profile — opened from the seller row on any listing. It gathers a
+seller's WHOLE shop (`FeedStore.listings()` filtered by handle, split into
+**For sale** and **Sold** sections), their rating across every listing
+(`sellerRating`), a reputation band (rating · for-sale · sold), verification
+chips (ID/Phone/Business, reusing `_SellerChip`), a **member-since** line from
+the earliest listing year, and their recent **reviews** gathered across all
+their listings (`_SellerReviews`). Actions: Message (`openSellerChat`), Follow
+(`FollowStore`), and Subscribe (`showSubscribeSheet`) when the seller offers it.
+The rich identity — storefront chip + category, location, bio — resolves ONLY
+from a seller this device knows (`_sellerUser`: yourself or a contact); a
+stranger shows what their listings can vouch for (name, verified badge, phone
+chip, rating) and no more, the same honesty rule `knownBusinessSeller` follows,
+because the directory carries no profile fields.
+
 ## Username-only accounts, and the one thing they can do
 
 Signing up with no phone number is a first-class choice on both login forms

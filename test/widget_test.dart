@@ -10932,8 +10932,10 @@ void main() {
       expect(find.text('Blue bike'), findsOneWidget);
       expect(find.text('Green lamp'), findsOneWidget);
       expect(find.text('Red desk'), findsNothing);
-      expect(find.textContaining('4.0 · 1 review'), findsOneWidget);
-      expect(find.textContaining('2 listings'), findsOneWidget);
+      // The reputation band: rating stat + a "For sale" count of two.
+      expect(find.text('4.0'), findsOneWidget);
+      expect(find.text('1 review'), findsOneWidget);
+      expect(find.textContaining('For sale · 2'), findsOneWidget);
 
       // Message from the profile opens the chat with NO prefilled question —
       // there is no listing being asked about.
@@ -10944,6 +10946,104 @@ void main() {
       expect(find.byType(ChatScreen), findsOneWidget);
       final chat = ChatStore.instance.chatWithContact('u_grace');
       expect(ChatStore.instance.draftFor(chat!.id), isEmpty);
+    });
+
+    testWidgets('the seller profile splits sold from active, and shows '
+        'reviews, follow and since', (tester) async {
+      tester.view.physicalSize = const Size(900, 3000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      FeedStore.instance.resetForTest();
+      ChatStore.instance.reset();
+      FollowStore.instance.resetForTest();
+      addTearDown(() {
+        FeedStore.instance.resetForTest();
+        ChatStore.instance.reset();
+        FollowStore.instance.resetForTest();
+      });
+      FeedStore.instance.addRemote(FeedPost(
+        id: 'sp_a',
+        communityId: 'c1',
+        authorName: 'Grace',
+        authorUsername: 'grace',
+        time: DateTime(2025, 1, 1),
+        text: 'Active bike',
+        priceCents: 2000,
+        listingCategory: 'Other',
+      ));
+      FeedStore.instance.addRemote(FeedPost(
+        id: 'sp_s',
+        communityId: 'c1',
+        authorName: 'Grace',
+        authorUsername: 'grace',
+        time: DateTime(2025, 1, 2),
+        text: 'Sold lamp',
+        priceCents: 500,
+        listingCategory: 'Other',
+        listingSold: true,
+      ));
+      FeedStore.instance.addReview('sp_a', rating: 5, text: 'Great seller');
+
+      await tester.pumpWidget(const MaterialApp(
+          home: SellerScreen(username: 'grace', name: 'Grace')));
+      await tester.pump();
+
+      // Active and sold are separate sections with their own counts.
+      expect(find.textContaining('For sale · 1'), findsOneWidget);
+      expect(find.textContaining('Sold · 1'), findsOneWidget);
+      // A member-since line from the earliest listing year.
+      expect(find.textContaining('Selling since 2025'), findsOneWidget);
+      // Reviews gathered across the seller's listings.
+      expect(find.text('Reviews'), findsOneWidget);
+      expect(find.text('Great seller'), findsOneWidget);
+      // A working follow button.
+      expect(find.text('Follow'), findsOneWidget);
+      await tester.tap(find.text('Follow'));
+      await tester.pump();
+      expect(FollowStore.instance.isFollowing('grace'), isTrue);
+      expect(find.text('Following'), findsOneWidget);
+    });
+
+    testWidgets('a known business seller wears its storefront on the profile',
+        (tester) async {
+      FeedStore.instance.resetForTest();
+      ChatStore.instance.reset();
+      addTearDown(() {
+        FeedStore.instance.resetForTest();
+        ChatStore.instance.reset();
+      });
+      // A business contact this device has actually chatted with.
+      ChatStore.instance.upsert(const Chat(
+        id: 'chat_cafe',
+        contact: AppUser(
+          id: 'u_cafe',
+          name: 'Okay Café',
+          avatarColor: '#8D6E63',
+          phone: '+15550101010',
+          username: 'okaycafe',
+          isBusiness: true,
+          businessCategory: 'Food & drink',
+        ),
+        messages: [],
+      ));
+      FeedStore.instance.addRemote(FeedPost(
+        id: 'sp_c',
+        communityId: 'c1',
+        authorName: 'Okay Café',
+        authorUsername: 'okaycafe',
+        time: DateTime(2026, 1, 1),
+        text: 'Beans',
+        priceCents: 1500,
+        listingCategory: 'Food & drink',
+      ));
+      await tester.pumpWidget(const MaterialApp(
+          home: SellerScreen(username: 'okaycafe', name: 'Okay Café')));
+      await tester.pump();
+      expect(find.byIcon(Icons.storefront_outlined), findsOneWidget);
+      // The category shows both on the identity line and as a chip.
+      expect(find.text('Food & drink'), findsWidgets);
+      expect(find.text('Business'), findsOneWidget);
     });
 
     test('a price drop is remembered; a raise is not advertised', () {

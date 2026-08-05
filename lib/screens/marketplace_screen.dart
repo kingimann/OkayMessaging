@@ -21,7 +21,9 @@ import '../widgets/parental_gate.dart';
 import '../widgets/pull_to_refresh.dart';
 import '../widgets/user_avatar.dart';
 import '../state/community_store.dart';
+import '../state/creator_sub_store.dart';
 import '../state/feed_store.dart';
+import '../state/follow_store.dart';
 import '../state/market_media.dart';
 import '../util/geocoding.dart';
 import 'explore_map_screen.dart';
@@ -31,6 +33,7 @@ import '../widgets/app_dialogs.dart';
 import '../widgets/chat_photo.dart';
 import '../widgets/listing_video.dart';
 import '../widgets/sanction_notice.dart';
+import '../widgets/subscribe_sheet.dart';
 import '../widgets/verified_badge.dart';
 import 'chat_screen.dart';
 import 'feed_screen.dart' show showPersonSheet, feedSpans;
@@ -3851,6 +3854,17 @@ class _SellScreenState extends State<SellScreen> {
 /// One seller, whole: who they are, how they've been rated, everything they
 /// have for sale that this device can see. Where the trust question — "who
 /// am I buying from?" — gets its one-screen answer.
+/// A seller's marketplace profile — the Facebook-Marketplace shape: who they
+/// are and how far they can be trusted, then everything they have for sale.
+///
+/// Opened from the seller row on any listing. It gathers a seller's whole shop
+/// (active AND sold), their rating across every listing, their verification
+/// standing, and the actions that make sense on a stranger — message them,
+/// follow them, subscribe if they offer it. The rich identity (storefront,
+/// place, bio) resolves ONLY from a seller this device actually knows — a
+/// contact or yourself — because the directory carries none of it; a stranger
+/// shows what their listings can vouch for and no more, the same honesty rule
+/// [knownBusinessSeller] follows.
 class SellerScreen extends StatelessWidget {
   final String username;
   final String name;
@@ -3863,128 +3877,424 @@ class SellerScreen extends StatelessWidget {
     return '';
   }
 
+  /// The full [AppUser] behind a handle, when this device holds one — yourself
+  /// or a contact. Null for a stranger (the directory has no profile fields).
+  AppUser? _sellerUser() {
+    if (username.isEmpty || username == 'you') return null;
+    final me = AppState.profile.value;
+    if (me.username.toLowerCase() == username.toLowerCase()) return me;
+    for (final c in ChatStore.instance.allChats) {
+      if (!c.contact.isGroup &&
+          c.contact.username.toLowerCase() == username.toLowerCase()) {
+        return c.contact;
+      }
+    }
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: Text(name)),
       body: ListenableBuilder(
-        listenable: FeedStore.instance,
+        listenable: Listenable.merge([
+          FeedStore.instance,
+          FollowStore.instance,
+          CreatorSubStore.instance,
+        ]),
         builder: (context, _) {
-          final listings = [
+          final all = [
             for (final l in FeedStore.instance.listings())
               if (l.authorUsername.toLowerCase() == username.toLowerCase()) l
-          ];
+          ]..sort((a, b) => b.time.compareTo(a.time));
+          final active = all.where((l) => !l.listingSold).toList();
+          final sold = all.where((l) => l.listingSold).toList();
           final (avg, count) = FeedStore.instance.sellerRating(username);
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
+          final seller = _sellerUser();
+          final me = AppState.profile.value;
+          final isMe = username.isNotEmpty &&
+              me.username.toLowerCase() == username.toLowerCase();
+          final verified = seller?.verified ?? all.any((l) => l.authorVerified);
+          final phoneVerified = all.any((l) => l.authorPhone.isNotEmpty);
+          final since = all.isEmpty
+              ? null
+              : all
+                  .map((l) => l.time.year)
+                  .reduce((a, b) => a < b ? a : b);
+
+          return ListView(
+            padding: EdgeInsets.zero,
             children: [
+              // --- Identity -------------------------------------------------
               Padding(
-                padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
                 child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    CircleAvatar(
-                      radius: 26,
-                      child: Text(
-                          name.isEmpty ? '?' : name[0].toUpperCase(),
-                          style: const TextStyle(fontSize: 20)),
-                    ),
-                    const SizedBox(width: 12),
+                    seller != null
+                        ? UserAvatar(user: seller, radius: 32)
+                        : CircleAvatar(
+                            radius: 32,
+                            child: Text(name.isEmpty ? '?' : name[0].toUpperCase(),
+                                style: const TextStyle(fontSize: 24)),
+                          ),
+                    const SizedBox(width: 14),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Row(
-                            mainAxisSize: MainAxisSize.min,
                             children: [
                               Flexible(
                                 child: Text(name,
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                     style: const TextStyle(
-                                        fontSize: 17,
+                                        fontSize: 20,
                                         fontWeight: FontWeight.w800)),
                               ),
-                              if (listings
-                                  .any((l) => l.authorVerified)) ...[
+                              if (verified) ...[
                                 const SizedBox(width: 5),
-                                const VerifiedBadge(size: 17),
+                                const VerifiedBadge(size: 18),
                               ],
                             ],
                           ),
                           if (username.isNotEmpty && username != 'you')
                             Text('@$username',
                                 style: TextStyle(
-                                    fontSize: 13,
+                                    fontSize: 13.5,
                                     color: AppColors.subtle(context))),
-                          Row(
-                            children: [
-                              if (count > 0) ...[
-                                const Icon(Icons.star_rounded,
-                                    size: 15, color: Color(0xFFF5A623)),
-                                const SizedBox(width: 2),
-                                Text(
-                                  '${avg.toStringAsFixed(1)} · $count '
-                                  '${count == 1 ? "review" : "reviews"} · ',
-                                  style: TextStyle(
-                                      fontSize: 12.5,
-                                      color: AppColors.subtle(context)),
+                          if (seller?.isBusiness == true) ...[
+                            const SizedBox(height: 4),
+                            Row(
+                              children: [
+                                Icon(Icons.storefront_outlined,
+                                    size: 15,
+                                    color: Theme.of(context).colorScheme.primary),
+                                const SizedBox(width: 4),
+                                Flexible(
+                                  child: Text(
+                                    seller!.businessCategory.isEmpty
+                                        ? 'Business'
+                                        : seller.businessCategory,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                        fontSize: 12.5,
+                                        fontWeight: FontWeight.w600,
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .primary),
+                                  ),
                                 ),
                               ],
-                              Text(
-                                '${listings.length} '
-                                '${listings.length == 1 ? "listing" : "listings"}',
+                            ),
+                          ],
+                          if ((seller?.location ?? '').isNotEmpty) ...[
+                            const SizedBox(height: 2),
+                            Row(
+                              children: [
+                                Icon(Icons.place_outlined,
+                                    size: 14, color: AppColors.subtle(context)),
+                                const SizedBox(width: 3),
+                                Flexible(
+                                  child: Text(seller!.location,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                          fontSize: 12.5,
+                                          color: AppColors.subtle(context))),
+                                ),
+                              ],
+                            ),
+                          ],
+                          if (since != null) ...[
+                            const SizedBox(height: 2),
+                            Text('Selling since $since',
                                 style: TextStyle(
-                                    fontSize: 12.5,
-                                    color: AppColors.subtle(context)),
-                              ),
-                            ],
-                          ),
+                                    fontSize: 12,
+                                    color: AppColors.subtle(context))),
+                          ],
                         ],
                       ),
-                    ),
-                    FilledButton(
-                      onPressed: () => openSellerChat(context,
-                          username: username, name: name),
-                      child: const Text('Message'),
                     ),
                   ],
                 ),
               ),
-              const Divider(height: 1),
-              Expanded(
-                child: listings.isEmpty
-                    ? Center(
-                        child: Text('Nothing for sale right now.',
-                            style: TextStyle(
-                                color: AppColors.subtle(context), fontSize: 14)),
-                      )
-                    : GridView.builder(
-                        padding: const EdgeInsets.all(12),
-                        gridDelegate:
-                            const SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: 2,
-                          mainAxisSpacing: 10,
-                          crossAxisSpacing: 10,
-                          childAspectRatio: 0.72,
-                        ),
-                        itemCount: listings.length,
-                        itemBuilder: (context, i) => _ListingCard(
-                          listing: listings[i],
-                          serverName:
-                              _serverName(listings[i].communityId),
-                          onTap: () => Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (_) => ListingScreen(
-                                  listingId: listings[i].id),
-                            ),
-                          ),
+              if ((seller?.about ?? '').isNotEmpty &&
+                  seller!.about != 'Hey there! I am using OkayMessenger.')
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 2, 16, 4),
+                  child: Text(seller.about,
+                      style: const TextStyle(fontSize: 13.5, height: 1.35)),
+                ),
+              // --- Reputation band -----------------------------------------
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
+                child: Row(
+                  children: [
+                    _SellerStat(
+                      value: count > 0 ? avg.toStringAsFixed(1) : '—',
+                      label: count == 0
+                          ? 'No ratings'
+                          : '$count ${count == 1 ? "review" : "reviews"}',
+                      icon: Icons.star_rounded,
+                      iconColor: const Color(0xFFF5A623),
+                    ),
+                    _SellerStat(
+                        value: '${active.length}', label: 'For sale'),
+                    _SellerStat(value: '${sold.length}', label: 'Sold'),
+                  ],
+                ),
+              ),
+              // --- Verification chips --------------------------------------
+              if (verified || phoneVerified || seller?.isBusiness == true)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 6,
+                    children: [
+                      if (verified) const _SellerChip(label: 'ID verified'),
+                      if (phoneVerified)
+                        const _SellerChip(label: 'Phone verified'),
+                      if (seller?.isBusiness == true)
+                        const _SellerChip(label: 'Business'),
+                    ],
+                  ),
+                ),
+              // --- Actions --------------------------------------------------
+              if (!isMe)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 6),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: FilledButton.icon(
+                          onPressed: () => openSellerChat(context,
+                              username: username, name: name),
+                          icon: const Icon(Icons.chat_bubble_outline, size: 18),
+                          label: const Text('Message'),
                         ),
                       ),
-              ),
+                      if (username.isNotEmpty && username != 'you') ...[
+                        const SizedBox(width: 8),
+                        _FollowButton(username: username),
+                      ],
+                    ],
+                  ),
+                ),
+              if (!isMe && seller != null && seller.subscribable)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
+                  child: SizedBox(
+                    width: double.infinity,
+                    child: CreatorSubStore.instance.active(username)
+                        ? OutlinedButton.icon(
+                            onPressed: null,
+                            icon: const Icon(Icons.check, size: 16),
+                            label: const Text('Subscribed'),
+                          )
+                        : FilledButton.tonalIcon(
+                            onPressed: () => showSubscribeSheet(
+                              context,
+                              handle: username,
+                              name: name,
+                              cents: seller.subscriptionCents,
+                              pitch: seller.subscriptionPitch,
+                            ),
+                            icon:
+                                const Icon(Icons.workspace_premium, size: 18),
+                            label: Text(
+                                'Subscribe · \$${(seller.subscriptionCents / 100).toStringAsFixed(2)}/mo'),
+                          ),
+                  ),
+                ),
+              const Divider(height: 20),
+              // --- For sale -------------------------------------------------
+              if (active.isNotEmpty) ...[
+                _SellerSectionHeader(
+                    label: 'For sale', count: active.length),
+                _sellerGrid(context, active),
+              ],
+              // --- Sold -----------------------------------------------------
+              if (sold.isNotEmpty) ...[
+                _SellerSectionHeader(label: 'Sold', count: sold.length),
+                _sellerGrid(context, sold),
+              ],
+              if (all.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.all(32),
+                  child: Center(
+                    child: Text('Nothing for sale right now.',
+                        style: TextStyle(
+                            color: AppColors.subtle(context), fontSize: 14)),
+                  ),
+                ),
+              // --- Reviews --------------------------------------------------
+              _SellerReviews(listings: all),
+              const SizedBox(height: 24),
             ],
           );
         },
       ),
+    );
+  }
+
+  Widget _sellerGrid(BuildContext context, List<FeedPost> listings) {
+    return GridView.builder(
+      padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 2,
+        mainAxisSpacing: 10,
+        crossAxisSpacing: 10,
+        childAspectRatio: 0.72,
+      ),
+      itemCount: listings.length,
+      itemBuilder: (context, i) => _ListingCard(
+        listing: listings[i],
+        serverName: _serverName(listings[i].communityId),
+        onTap: () => Navigator.of(context).push(
+          MaterialPageRoute(
+              builder: (_) => ListingScreen(listingId: listings[i].id)),
+        ),
+      ),
+    );
+  }
+}
+
+/// One number in the seller's trust band — the rating, the count for sale, the
+/// count sold.
+class _SellerStat extends StatelessWidget {
+  final String value;
+  final String label;
+  final IconData? icon;
+  final Color? iconColor;
+  const _SellerStat(
+      {required this.value, required this.label, this.icon, this.iconColor});
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Column(
+        children: [
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (icon != null && value != '—') ...[
+                Icon(icon, size: 17, color: iconColor),
+                const SizedBox(width: 2),
+              ],
+              Text(value,
+                  style: const TextStyle(
+                      fontSize: 18, fontWeight: FontWeight.w800)),
+            ],
+          ),
+          const SizedBox(height: 1),
+          Text(label,
+              style:
+                  TextStyle(fontSize: 11.5, color: AppColors.subtle(context))),
+        ],
+      ),
+    );
+  }
+}
+
+/// A section title with a count, above the For-sale and Sold grids.
+class _SellerSectionHeader extends StatelessWidget {
+  final String label;
+  final int count;
+  const _SellerSectionHeader({required this.label, required this.count});
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 2),
+        child: Text('$label · $count',
+            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
+      );
+}
+
+/// The follow/following pill on a seller profile, mirroring the social one.
+class _FollowButton extends StatelessWidget {
+  final String username;
+  const _FollowButton({required this.username});
+
+  @override
+  Widget build(BuildContext context) {
+    final following = FollowStore.instance.isFollowing(username);
+    final style = OutlinedButton.styleFrom(
+      visualDensity: VisualDensity.compact,
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      minimumSize: const Size(0, 40),
+    );
+    void toggle() => FollowStore.instance.toggle(username);
+    return following
+        ? OutlinedButton(
+            style: style, onPressed: toggle, child: const Text('Following'))
+        : FilledButton(
+            style: FilledButton.styleFrom(
+              visualDensity: VisualDensity.compact,
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              minimumSize: const Size(0, 40),
+            ),
+            onPressed: toggle,
+            child: const Text('Follow'));
+  }
+}
+
+/// A seller's recent reviews, gathered across every listing they've posted —
+/// the "how were they to deal with" section, drawn only when there are any.
+class _SellerReviews extends StatelessWidget {
+  final List<FeedPost> listings;
+  const _SellerReviews({required this.listings});
+
+  @override
+  Widget build(BuildContext context) {
+    final reviews = <FeedPost>[
+      for (final l in listings) ...FeedStore.instance.reviewsFor(l.id)
+    ]..sort((a, b) => b.time.compareTo(a.time));
+    if (reviews.isEmpty) return const SizedBox.shrink();
+    final shown = reviews.take(6).toList();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Divider(height: 20),
+        const Padding(
+          padding: EdgeInsets.fromLTRB(16, 4, 16, 4),
+          child: Text('Reviews',
+              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
+        ),
+        for (final r in shown)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 6, 16, 6),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Text(r.authorName.isEmpty ? 'Someone' : r.authorName,
+                        style: const TextStyle(
+                            fontSize: 13.5, fontWeight: FontWeight.w700)),
+                    const SizedBox(width: 6),
+                    _Stars(rating: r.rating, size: 14),
+                    if (r.confirmedPurchase) ...[
+                      const SizedBox(width: 6),
+                      const Icon(Icons.verified_user,
+                          size: 13, color: Color(0xFF2E7D32)),
+                    ],
+                  ],
+                ),
+                if (r.text.trim().isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Text(r.text.trim(),
+                      style: const TextStyle(fontSize: 13, height: 1.3)),
+                ],
+              ],
+            ),
+          ),
+      ],
     );
   }
 }
