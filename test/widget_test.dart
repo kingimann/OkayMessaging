@@ -32176,8 +32176,8 @@ void main() {
       // A waivable surface (marketplace, Okay Drop): the admin walks in
       // without the ID check — the role is granted person-to-person by the
       // owner, from a table no client can write.
-      await tester.pumpWidget(MaterialApp(
-        home: const VerifiedGate(
+      await tester.pumpWidget(const MaterialApp(
+        home: VerifiedGate(
           title: 'Marketplace',
           reason: 'r',
           ownerMayPass: true,
@@ -32190,8 +32190,8 @@ void main() {
       // The wallet's hold is the SERVER's rule — Stripe wants the verified
       // legal name on the intent no matter who asks — so even the team
       // waits there, and the screen says why instead of 403ing later.
-      await tester.pumpWidget(MaterialApp(
-        home: const VerifiedGate(
+      await tester.pumpWidget(const MaterialApp(
+        home: VerifiedGate(
           title: 'Wallet',
           reason: 'r',
           child: Text('inside the wallet'),
@@ -32202,8 +32202,8 @@ void main() {
 
       // Moderators moderate; they do not skip gates.
       PlatformModeration.instance.debugSet(role: PlatformRole.moderator);
-      await tester.pumpWidget(MaterialApp(
-        home: const VerifiedGate(
+      await tester.pumpWidget(const MaterialApp(
+        home: VerifiedGate(
           title: 'Marketplace',
           reason: 'r',
           ownerMayPass: true,
