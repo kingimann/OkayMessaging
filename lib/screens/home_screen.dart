@@ -11,6 +11,8 @@ import '../state/call_log.dart';
 import '../state/chat_store.dart';
 import '../state/feed_store.dart';
 import '../state/follow_store.dart';
+import '../state/sidebar_prefs.dart';
+import 'sidebar_customize_screen.dart';
 import '../tabs/activity_tab.dart';
 import '../tabs/calls_tab.dart';
 import '../tabs/chats_tab.dart';
@@ -473,6 +475,82 @@ class _AppSideBar extends StatelessWidget {
     Navigator.of(context).push(MaterialPageRoute(builder: (_) => screen));
   }
 
+  /// One app row by its [SidebarPrefs] id. The drawer draws these in the
+  /// user's order; the customize screen only needs names and icons, so this
+  /// stays the single place a row's destination and gates live.
+  Widget _appRow(BuildContext context, String id) {
+    switch (id) {
+      case 'newsfeed':
+        return ListTile(
+          leading: const Icon(Icons.public),
+          title: const Text('Newsfeed'),
+          trailing: const PhoneOnlyHint(),
+          subtitle: const Text('One public timeline, everyone on it'),
+          onTap: () => _go(context, const PublicFeedScreen()),
+        );
+      case 'maps':
+        return ListTile(
+          leading: const Icon(Icons.map_outlined),
+          title: const Text('Maps'),
+          subtitle: const Text('Search, navigate, share places'),
+          onTap: () => _go(context, const ExploreMapScreen()),
+        );
+      case 'marketplace':
+        return ListTile(
+          leading: const Icon(Icons.storefront_outlined),
+          title: const Text('Marketplace'),
+          trailing:
+              const _GateHint(ownerMayPass: true, numberlessMayPass: true),
+          subtitle: const Text('Buy and sell with your servers'),
+          onTap: () => _go(context, const MarketplaceScreen()),
+        );
+      case 'servers':
+        return ListTile(
+          leading: const Icon(Icons.groups_outlined),
+          title: const Text('Servers'),
+          // Servers IS a bottom tab, so this switches the bar rather
+          // than pushing a second copy of a screen that is already open
+          // behind the drawer — and says when it is the one showing,
+          // which nothing here used to do for any row.
+          selected: currentTab == 1,
+          selectedTileColor:
+              Theme.of(context).colorScheme.primary.withValues(alpha: 0.10),
+          onTap: () {
+            Navigator.of(context).pop();
+            onSelectTab(1);
+          },
+        );
+      case 'notes':
+        return ListTile(
+          leading: const Icon(Icons.sticky_note_2_outlined),
+          title: const Text('Notes'),
+          subtitle: const Text('Write things down, kept on this device'),
+          onTap: () => _go(context, const NotesScreen()),
+        );
+      case 'drop':
+        return ListTile(
+          leading: const Icon(Icons.wifi_tethering),
+          title: const Text('Okay Drop'),
+          trailing:
+              const _GateHint(ownerMayPass: true, numberlessMayPass: true),
+          // One line on the narrowest phone still sold — the drawer
+          // test taps every destination, and a second line here pushes
+          // the last one off the bottom.
+          subtitle: const Text('Photos, videos and files, phone to phone'),
+          onTap: () => _go(context, const NearbyShareScreen()),
+        );
+      case 'wallet':
+        return ListTile(
+          leading: const Icon(Icons.account_balance_wallet_outlined),
+          title: const Text('Wallet'),
+          trailing: const _GateHint(),
+          subtitle: const Text('Send and receive money'),
+          onTap: () => _go(context, const WalletScreen()),
+        );
+    }
+    return const SizedBox.shrink();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Drawer(
@@ -536,67 +614,30 @@ class _AppSideBar extends StatelessWidget {
               // and a drawer that lists the tab bar is a second copy of the
               // navigation rather than more of it. Servers is the exception,
               // because it is where the other apps' content lives.
-              _drawerHeader(context, 'Apps'),
-              ListTile(
-                leading: const Icon(Icons.public),
-                title: const Text('Newsfeed'),
-                trailing: const PhoneOnlyHint(),
-                subtitle: const Text('One public timeline, everyone on it'),
-                onTap: () => _go(context, const PublicFeedScreen()),
+              //
+              // Which rows show, and in what order, is the user's call
+              // (SidebarPrefs) — the tune button beside the header is where
+              // they say so.
+              Row(
+                children: [
+                  Expanded(child: _drawerHeader(context, 'Apps')),
+                  IconButton(
+                    icon: const Icon(Icons.tune, size: 18),
+                    tooltip: 'Customize sidebar',
+                    onPressed: () =>
+                        _go(context, const SidebarCustomizeScreen()),
+                  ),
+                  const SizedBox(width: 8),
+                ],
               ),
-              ListTile(
-                leading: const Icon(Icons.map_outlined),
-                title: const Text('Maps'),
-                subtitle: const Text('Search, navigate, share places'),
-                onTap: () => _go(context, const ExploreMapScreen()),
-              ),
-              ListTile(
-                leading: const Icon(Icons.storefront_outlined),
-                title: const Text('Marketplace'),
-                trailing:
-                    const _GateHint(ownerMayPass: true, numberlessMayPass: true),
-                subtitle: const Text('Buy and sell with your servers'),
-                onTap: () => _go(context, const MarketplaceScreen()),
-              ),
-              ListTile(
-                leading: const Icon(Icons.groups_outlined),
-                title: const Text('Servers'),
-                // Servers IS a bottom tab, so this switches the bar rather
-                // than pushing a second copy of a screen that is already open
-                // behind the drawer — and says when it is the one showing,
-                // which nothing here used to do for any row.
-                selected: currentTab == 1,
-                selectedTileColor:
-                    Theme.of(context).colorScheme.primary.withValues(alpha: 0.10),
-                onTap: () {
-                  Navigator.of(context).pop();
-                  onSelectTab(1);
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.sticky_note_2_outlined),
-                title: const Text('Notes'),
-                subtitle: const Text('Write things down, kept on this device'),
-                onTap: () => _go(context, const NotesScreen()),
-              ),
-              ListTile(
-                leading: const Icon(Icons.wifi_tethering),
-                title: const Text('Okay Drop'),
-                trailing:
-                    const _GateHint(ownerMayPass: true, numberlessMayPass: true),
-                // One line on the narrowest phone still sold — the drawer
-                // test taps every destination, and a second line here pushes
-                // the last one off the bottom.
-                subtitle:
-                    const Text('Photos, videos and files, phone to phone'),
-                onTap: () => _go(context, const NearbyShareScreen()),
-              ),
-              ListTile(
-                leading: const Icon(Icons.account_balance_wallet_outlined),
-                title: const Text('Wallet'),
-                trailing: const _GateHint(),
-                subtitle: const Text('Send and receive money'),
-                onTap: () => _go(context, const WalletScreen()),
+              ListenableBuilder(
+                listenable: SidebarPrefs.instance,
+                builder: (context, _) => Column(
+                  children: [
+                    for (final id in SidebarPrefs.instance.visible)
+                      _appRow(context, id),
+                  ],
+                ),
               ),
               const Divider(height: 17),
               ListTile(

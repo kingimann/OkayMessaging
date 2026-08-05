@@ -149,6 +149,8 @@ import 'package:okay_messaging/models/status_update.dart';
 import 'package:okay_messaging/payments/payment_service.dart';
 import 'package:okay_messaging/payments/earnings.dart';
 import 'package:okay_messaging/screens/earnings_screen.dart';
+import 'package:okay_messaging/state/sidebar_prefs.dart';
+import 'package:okay_messaging/screens/sidebar_customize_screen.dart';
 import 'package:okay_messaging/payments/connect_webview.dart';
 import 'package:okay_messaging/payments/connect_webview_stub.dart' as stub;
 import 'package:okay_messaging/payments/payment_amount_sheet.dart';
@@ -32398,6 +32400,93 @@ void main() {
           File('lib/screens/settings_screen.dart').readAsStringSync();
       expect(src, contains('EarningsScreen'));
       expect(src, contains("title: 'Earnings'"));
+    });
+  });
+
+  group('Customizable sidebar', () {
+    setUp(() {
+      SharedPreferences.setMockInitialValues({});
+      SidebarPrefs.instance.resetForTest();
+    });
+    tearDown(() => SidebarPrefs.instance.resetForTest());
+
+    test('hiding and reordering both survive a reload', () async {
+      final prefs = SidebarPrefs.instance;
+      expect(prefs.visible, SidebarPrefs.defaultOrder);
+      await prefs.setHidden('wallet', true);
+      expect(prefs.visible, isNot(contains('wallet')));
+      // Still listed where it can be found and turned back on.
+      expect(prefs.order, contains('wallet'));
+      // After-lift index, the same contract quick replies pinned down.
+      await prefs.reorder(0, 2);
+      expect(prefs.order[2], 'newsfeed');
+
+      // Reload from disk: both choices have to come back.
+      prefs.resetForTest();
+      expect(prefs.visible, SidebarPrefs.defaultOrder);
+      await prefs.load();
+      expect(prefs.isHidden('wallet'), isTrue);
+      expect(prefs.order[2], 'newsfeed');
+    });
+
+    test('stored rows this build dropped vanish; rows it added appear',
+        () async {
+      SharedPreferences.setMockInitialValues({
+        'sidebar_prefs_v1': ['maps', '-wallet', 'bogus'],
+      });
+      final prefs = SidebarPrefs.instance..resetForTest();
+      await prefs.load();
+      expect(prefs.order.first, 'maps');
+      expect(prefs.isHidden('wallet'), isTrue);
+      expect(prefs.order, isNot(contains('bogus')));
+      // Every row the stored list never heard of shows by default — a
+      // sidebar row added next year must not need opting into.
+      for (final id in SidebarPrefs.defaultOrder) {
+        expect(prefs.order, contains(id));
+      }
+      expect(prefs.visible, isNot(contains('wallet')));
+    });
+
+    testWidgets('a hidden row leaves the drawer; the tune button is the '
+        'way back', (tester) async {
+      await SidebarPrefs.instance.setHidden('maps', true);
+      await tester.pumpWidget(const OkayMessagingApp());
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Open navigation menu'));
+      await tester.pumpAndSettle();
+      expect(find.text('Maps'), findsNothing);
+      expect(find.text('Marketplace'), findsOneWidget);
+      await tester.tap(find.byTooltip('Customize sidebar'));
+      await tester.pumpAndSettle();
+      expect(find.text('Customize sidebar'), findsOneWidget);
+      // Maps is still listed here, switched off — this is where it
+      // comes back, so hiding a row can never strand it.
+      expect(find.text('Maps'), findsOneWidget);
+    });
+
+    testWidgets('the customize screen toggles rows and resets to stock',
+        (tester) async {
+      await tester
+          .pumpWidget(const MaterialApp(home: SidebarCustomizeScreen()));
+      await tester.pumpAndSettle();
+      // Nothing differs from stock yet, so there is nothing to reset.
+      expect(find.text('Reset'), findsNothing);
+      await tester.tap(find.descendant(
+          of: find.widgetWithText(ListTile, 'Notes'),
+          matching: find.byType(Switch)));
+      await tester.pumpAndSettle();
+      expect(SidebarPrefs.instance.isHidden('notes'), isTrue);
+      expect(find.text('Reset'), findsOneWidget);
+      await tester.tap(find.text('Reset'));
+      await tester.pumpAndSettle();
+      expect(SidebarPrefs.instance.isCustomized, isFalse);
+    });
+
+    test('Settings is not on the list — the way back stays put', () {
+      expect(SidebarPrefs.defaultOrder, isNot(contains('settings')));
+      final src = File('lib/screens/home_screen.dart').readAsStringSync();
+      expect(src, contains("title: const Text('Settings')"),
+          reason: 'the Settings row lives outside the customizable block');
     });
   });
 
