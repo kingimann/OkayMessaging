@@ -4,6 +4,8 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart' show AppLifecycleState, WidgetsBinding;
+
+import '../crypto/sealed_sender.dart';
 import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart' hide Session;
 
@@ -263,6 +265,11 @@ class RelayService {
       'from': fromPhone,
       ...sealed,
       'ts': message.time.toIso8601String(),
+      // The sealed-sender advertisement: this build can OPEN envelopes that
+      // hide who they are from. Advertised on legacy traffic first, relied
+      // on only after the peer has said it back — a sealed envelope sent to
+      // a build that cannot open it is a lost message, worse than metadata.
+      'sv': 1,
     };
   }
 
@@ -435,6 +442,12 @@ class RelayService {
   }) {
     final from = payload['from'] as String?;
     if (from == null || digits(from) == digits(myPhone)) return false;
+
+    // The sealed-sender handshake's other half: the peer's build says it
+    // can open sealed envelopes, and from here on ours sends them some.
+    if (payload['sv'] == 1) {
+      SecureKeyExchange.instance.rememberSealedCapable(from);
+    }
 
     final target = store ?? ChatStore.instance;
     final id = payload['id'] as String? ?? 'relay_${payload['ts']}';
@@ -880,6 +893,102 @@ class RelayService {
     } catch (_) {}
   }
 
+  /// Opens a sealed-sender envelope and routes what was inside through the
+  /// same handling the legacy event would have gotten — live broadcast and
+  /// mailbox replay both land here. An envelope that will not open is
+  /// dropped silently: it is anonymous by design, so there is nobody to
+  /// tell and nothing further to do.
+  @visibleForTesting
+  void applySealedEnvelope(Map<String, dynamic> envelope,
+      {required String myPhone, ChatStore? store}) {
+    final inner = SealedSender.unseal(envelope);
+    if (inner == null) return;
+    final event = inner['e'];
+    final payload = inner['p'];
+    if (event is! String || payload is! Map) return;
+    applyInboxEvent(event, Map<String, dynamic>.from(payload),
+        myPhone: myPhone, store: store);
+  }
+
+  /// One router for every 1:1 inbox event, however it arrived — named on
+  /// the channel (legacy) or inside a sealed envelope. The cases mirror
+  /// the live subscription and the mailbox switch exactly; a new event
+  /// type added to either must be added here, or its sealed form is
+  /// silently dropped (the test pins the roster).
+  @visibleForTesting
+  void applyInboxEvent(String event, Map<String, dynamic> payload,
+      {required String myPhone, ChatStore? store}) {
+    final me = myPhone;
+    switch (event) {
+      case 'msg':
+        // The full live-message handling (key caching, delivery receipt)
+        // when running for real; the bare apply when a test injects its
+        // own store — same split the mailbox drain has always had.
+        if (store != null) {
+          applyIncoming(payload, myPhone: me, store: store);
+        } else {
+          _onInboxMessage(payload, myPhone: me);
+        }
+      case 'receipt':
+        applyReceipt(payload, myPhone: me);
+      case 'edit' ||
+            'delete' ||
+            'reaction' ||
+            'poll' ||
+            'payst' ||
+            'form' ||
+            'vopen':
+        applyMessageEvent(event, payload, myPhone: me);
+      case 'gupd':
+        applyGroupUpdate(payload, myPhone: me);
+        final from = payload['from'] as String?;
+        final spk = payload['spk'] as String?;
+        if (from != null && spk != null) {
+          SecureKeyExchange.instance.rememberPeer(from, spk);
+        }
+      case 'callmiss':
+        _applyMissedCall(payload, myPhone: me);
+      case 'call':
+        _applyCallEvent(payload, me);
+      case 'skdm':
+        applySkdm(payload, myPhone: me);
+      case 'skreq':
+        applySkreq(payload, myPhone: me);
+      case 'fbreq':
+        applyFbreq(payload, myPhone: me);
+      case 'key':
+        applyKeyEvent(payload, myPhone: me);
+      // The pings, mirrored from the live handlers — sealed pings arrive
+      // as 'sealed' too, or typing and presence would re-draw the graph.
+      case 'typing':
+        final from = payload['from'] as String?;
+        if (from == null || digits(from) == digits(me)) return;
+        noteTypingPing(digits(from));
+      case 'presence':
+        final from = payload['from'] as String?;
+        if (from == null || digits(from) == digits(me)) return;
+        presenceFromDigits = digits(from);
+        presenceWhere = payload['where'] as String? ?? 'chat';
+        presencePing.value++;
+        if (presenceWhere == 'chat') maybeAnswerPresence(digits(from));
+      case 'shot':
+        final from = payload['from'] as String?;
+        if (from == null || digits(from) == digits(me)) return;
+        screenshotFromDigits = digits(from);
+        screenshotPing.value++;
+      case 'cap':
+        final from = payload['from'] as String?;
+        if (from == null || digits(from) == digits(me)) return;
+        recordingFromDigits = digits(from);
+        recordingPing.value++;
+      case 'gshot':
+        final from = payload['from'] as String?;
+        if (from == null || digits(from) == digits(me)) return;
+        ghostShotFromDigits = digits(from);
+        ghostShotPing.value++;
+    }
+  }
+
   /// Pure: unwraps fetched mailbox rows into (event, payload) pairs. Typed
   /// rows carry {'e': event, 'p': payload}; anything unwrapped is a plain
   /// message from before events were queued. Junk rows drop out.
@@ -932,6 +1041,8 @@ class RelayService {
       for (final (event, payload) in mailboxEntries(rows)) {
         try {
           switch (event) {
+            case 'sealed':
+              applySealedEnvelope(payload, myPhone: me);
             case 'msg':
               _onInboxMessage(payload, myPhone: me);
             case 'receipt':
@@ -1060,6 +1171,17 @@ class RelayService {
           callback: (rawEnvelope) {
             final payload = unwrapBroadcast(rawEnvelope);
             _onInboxMessage(Map<String, dynamic>.from(payload), myPhone: me);
+          },
+        )
+        .onBroadcast(
+          // Sealed sender: any 1:1 event, wearing an envelope only this
+          // device's identity key can open — the wire no longer says who
+          // it is from, or even what KIND of event it is.
+          event: 'sealed',
+          callback: (rawEnvelope) {
+            final payload = unwrapBroadcast(rawEnvelope);
+            applySealedEnvelope(Map<String, dynamic>.from(payload),
+                myPhone: me);
           },
         )
         .onBroadcast(
@@ -2639,7 +2761,11 @@ class RelayService {
         ..._packSignal(contactPhone, 'grp', 'g', jsonEncode(group)),
       ..._sealSignalPair(contactPhone, sdp: sdp),
     };
-    await channel.sendBroadcastMessage(event: 'call', payload: payload);
+    // Who calls whom is metadata like who messages whom — sealed the same.
+    final callSealed = sealedEnvelopeFor(contactPhone, 'call', payload);
+    await channel.sendBroadcastMessage(
+        event: callSealed == null ? 'call' : 'sealed',
+        payload: callSealed ?? payload);
     // The handshake also queues for a CLOSED app: a VoIP push rings CallKit
     // with no app running, and the mailbox is how the woken app learns what
     // it is answering. Stale offers die by the ts guard on the way back in;
@@ -2649,7 +2775,8 @@ class RelayService {
     // call and therefore online, and a queued copy replaying on the next
     // mailbox sweep would shove a stale SDP into a live connection.
     if (queue && const {'offer', 'answer', 'end', 'decline'}.contains(kind)) {
-      _mailboxPut(contactPhone, payload, event: 'call');
+      _mailboxPut(contactPhone, callSealed ?? payload,
+          event: callSealed == null ? 'call' : 'sealed');
     }
   }
 
@@ -2729,25 +2856,51 @@ class RelayService {
       'video': false,
       ..._sealSignalPair(contactPhone, ice: candidate),
     };
-    await channel.sendBroadcastMessage(event: 'call', payload: payload);
+    final iceSealed = sealedEnvelopeFor(contactPhone, 'call', payload);
+    await channel.sendBroadcastMessage(
+        event: iceSealed == null ? 'call' : 'sealed',
+        payload: iceSealed ?? payload);
     // Queued too: a callee waking from a VoIP push missed every live
     // candidate, and candidates are only ever signaled once. Stale ones are
     // harmless — a dead call's id matches nothing.
-    _mailboxPut(contactPhone, payload, event: 'call');
+    _mailboxPut(contactPhone, iceSealed ?? payload,
+        event: iceSealed == null ? 'call' : 'sealed');
   }
 
   /// The active call id, so ICE candidates can be tagged with it.
   String? _currentCallId;
   set currentCallId(String? id) => _currentCallId = id;
 
+  /// Sealed-sender wrap for one recipient: the whole legacy (event,
+  /// payload) pair moves inside an envelope only their identity key can
+  /// open, so the wire and the mailbox stop saying who it is from. Null —
+  /// meaning "send legacy" — until the peer has advertised it can open
+  /// these AND we hold their key; anything else would lose the message.
+  Map<String, dynamic>? sealedEnvelopeFor(
+      String contactPhone, String event, Map<String, dynamic> payload) {
+    final kx = SecureKeyExchange.instance;
+    if (!kx.sealedCapable(contactPhone)) return null;
+    final pub = kx.peerKey(contactPhone);
+    if (pub == null) return null;
+    return SealedSender.seal(pub, {'e': event, 'p': payload});
+  }
+
   /// Broadcasts [event] to [contactPhone]'s inbox live AND queues the same
   /// payload in their offline mailbox, so edits, deletes, reactions, votes
   /// and receipts survive the peer being away exactly like messages do.
+  /// Sealed when the peer can open sealed — one funnel, so no event type
+  /// leaks the sender by being forgotten.
   Future<void> _sendInboxEvent(
       String contactPhone, String event, Map<String, dynamic> payload) async {
     final name = inboxChannel(contactPhone);
     final channel =
         _sendChannels.putIfAbsent(name, () => _client.channel(name));
+    final sealed = sealedEnvelopeFor(contactPhone, event, payload);
+    if (sealed != null) {
+      await channel.sendBroadcastMessage(event: 'sealed', payload: sealed);
+      _mailboxPut(contactPhone, sealed, event: 'sealed');
+      return;
+    }
     await channel.sendBroadcastMessage(event: event, payload: payload);
     _mailboxPut(contactPhone, payload, event: event);
   }
@@ -2951,8 +3104,16 @@ class RelayService {
     final name = inboxChannel(contactPhone);
     final channel =
         _sendChannels.putIfAbsent(name, () => _client.channel(name));
-    await channel.sendBroadcastMessage(
-        event: event, payload: {'from': me.phone, ...extra});
+    final payload = {'from': me.phone, ...extra};
+    // Pings seal too, or typing and presence would keep drawing the very
+    // graph the sealed messages hide — the event NAME on the channel is
+    // metadata all by itself.
+    final sealed = sealedEnvelopeFor(contactPhone, event, payload);
+    if (sealed != null) {
+      await channel.sendBroadcastMessage(event: 'sealed', payload: sealed);
+      return;
+    }
+    await channel.sendBroadcastMessage(event: event, payload: payload);
   }
 
   /// Broadcasts an outgoing [message] to [contactPhone]'s inbox over REST (the
@@ -3024,11 +3185,21 @@ class RelayService {
       // off the key exchange itself; the default DoubleRatchet.instance is
       // what it reaches for.
     );
-    await channel.sendBroadcastMessage(event: 'msg', payload: payload);
-    // Also queue the sealed envelope so an offline recipient still gets it
-    // the next time their app opens — the store-and-forward every messenger
-    // relies on, holding only ciphertext the server can't read.
-    _mailboxPut(contactPhone, payload);
+    // Sealed sender when the peer can open it: the wire and the mailbox
+    // row stop saying who the message is from. The legacy shape otherwise
+    // — it carries the sv advertisement that upgrades the pair.
+    final sealedEnvelope = sealedEnvelopeFor(contactPhone, 'msg', payload);
+    if (sealedEnvelope != null) {
+      await channel.sendBroadcastMessage(
+          event: 'sealed', payload: sealedEnvelope);
+      _mailboxPut(contactPhone, sealedEnvelope, event: 'sealed');
+    } else {
+      await channel.sendBroadcastMessage(event: 'msg', payload: payload);
+      // Also queue the sealed envelope so an offline recipient still gets
+      // it the next time their app opens — the store-and-forward every
+      // messenger relies on, holding only ciphertext the server can't read.
+      _mailboxPut(contactPhone, payload);
+    }
     // And put it on the air, if the user turned the mesh on. Unconditionally
     // rather than only when offline: "am I online" is a question no device
     // answers reliably, and the recipient dedups by message id whichever way

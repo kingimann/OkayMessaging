@@ -34,6 +34,7 @@ import 'package:okay_messaging/widgets/recovery_gate.dart';
 import 'package:okay_messaging/screens/my_qr_screen.dart';
 import 'package:okay_messaging/data/mock_data.dart';
 import 'package:okay_messaging/crypto/key_exchange.dart';
+import 'package:okay_messaging/crypto/sealed_sender.dart';
 import 'package:okay_messaging/main.dart';
 import 'package:okay_messaging/state/callkit_bridge.dart';
 import 'package:okay_messaging/state/incoming_links.dart';
@@ -33232,6 +33233,157 @@ void main() {
       expect(sent.map((e) => e.$1).toSet(), {'ada', 'sam'});
       await PublicFeedStore.instance.pushLocalFollows(follows.following);
       expect(sent.length, 2, reason: 'the push is once per run, not a loop');
+    });
+
+    test('a sealed envelope opens only for its recipient, and never names '
+        'the sender', () {
+      final alice = SecureKeyExchange.freshForTest();
+      final bob = SecureKeyExchange.freshForTest();
+      final inner = {
+        'e': 'msg',
+        'p': {'from': '+1 555 0177', 'id': 'ss1', 'text': 'sealed hello'},
+      };
+      final env = SealedSender.seal(bob.myPublicKey!, inner)!;
+      // The wire shape: version, ephemeral key, ciphertext — and nothing
+      // else. No 'from' is the entire point.
+      expect(env.keys.toSet(), {'v', 'epk', 'sc'});
+      expect(jsonEncode(env).contains('5550177'), isFalse,
+          reason: 'the sender must not be readable anywhere outside');
+      expect(SealedSender.isSealed(env), isTrue);
+
+      // Bob opens it; Alice — any other key — cannot.
+      expect(SealedSender.unseal(env, kx: bob), inner);
+      expect(SealedSender.unseal(env, kx: alice), isNull);
+      // Tampering dies on the GCM tag; junk keys die quietly.
+      final bent = Map<String, dynamic>.from(env);
+      bent['sc'] = 'AAAA${(bent['sc'] as String).substring(4)}';
+      expect(SealedSender.unseal(bent, kx: bob), isNull);
+      expect(
+          SealedSender.unseal({'v': 1, 'epk': 'garbage', 'sc': env['sc']},
+              kx: bob),
+          isNull);
+      expect(SealedSender.seal('not-a-key', inner), isNull,
+          reason: 'a malformed recipient key means "send legacy"');
+    });
+
+    test('the handshake: advertised on legacy traffic, relied on only '
+        'after the peer says it back', () {
+      final kx = SecureKeyExchange.instance;
+      kx.resetForTest();
+      kx.ensureKeys();
+      addTearDown(kx.resetForTest);
+      final store = ChatStore.instance;
+      store.hydrate(const {'chats': []});
+      addTearDown(store.reset);
+
+      // Outgoing legacy messages carry the advertisement.
+      final payload = RelayService.encode(
+          message: Message(
+              id: 'sv1',
+              text: 'hi',
+              time: DateTime(2026, 8, 5),
+              isMe: true,
+              status: MessageStatus.sent),
+          fromPhone: '+1 555 0100',
+          fromName: 'Me',
+          toPhone: '+1 555 0177');
+      expect(payload['sv'], 1);
+
+      // Not sealable yet: no capability heard, no key held.
+      expect(
+          RelayService.instance
+              .sealedEnvelopeFor('+1 555 0177', 'msg', payload),
+          isNull);
+      // An incoming legacy message with the flag records the capability…
+      RelayService.applyIncoming({
+        'from': '+1 555 0177',
+        'id': 'in1',
+        'text': 'hello back',
+        'sv': 1,
+      }, myPhone: '+1 555 0100', store: store);
+      expect(kx.sealedCapable('+1 555 0177'), isTrue);
+      // …but capability without their key still refuses to seal —
+      // an unopenable envelope is a lost message.
+      expect(
+          RelayService.instance
+              .sealedEnvelopeFor('+1 555 0177', 'msg', payload),
+          isNull);
+      // With both, the envelope seals and says nothing about the sender.
+      kx.rememberPeer(
+          '+1 555 0177', SecureKeyExchange.freshForTest().myPublicKey!);
+      final env = RelayService.instance
+          .sealedEnvelopeFor('+1 555 0177', 'msg', payload)!;
+      expect(env.keys.toSet(), {'v', 'epk', 'sc'});
+    });
+
+    test('a sealed message walks the whole road: unseal, apply, arrive',
+        () {
+      final kx = SecureKeyExchange.instance;
+      kx.resetForTest();
+      kx.ensureKeys();
+      addTearDown(kx.resetForTest);
+      final store = ChatStore.instance;
+      store.hydrate(const {'chats': []});
+      addTearDown(store.reset);
+
+      final legacy = {
+        'from': '+1 555 0177',
+        'id': 'ss_msg1',
+        'text': 'came in sealed',
+      };
+      final env =
+          SealedSender.seal(kx.myPublicKey!, {'e': 'msg', 'p': legacy})!;
+      RelayService.instance.applySealedEnvelope(env,
+          myPhone: '+1 555 0100', store: store);
+      final chat = store.chatWithContact('+1 555 0177');
+      expect(chat, isNotNull);
+      expect(chat!.messages.single.text, 'came in sealed');
+
+      // A ping seals too — the event NAME on the channel is metadata.
+      final typing = SealedSender.seal(kx.myPublicKey!, {
+        'e': 'typing',
+        'p': {'from': '+1 555 0177'},
+      })!;
+      final pingsBefore = RelayService.instance.typingPing.value;
+      RelayService.instance
+          .applySealedEnvelope(typing, myPhone: '+1 555 0100');
+      expect(RelayService.instance.typingFromDigits, '15550177');
+      expect(RelayService.instance.typingPing.value, pingsBefore + 1);
+
+      // Somebody else's envelope is not ours to open: silently nothing.
+      final other = SecureKeyExchange.freshForTest();
+      final notMine = SealedSender.seal(
+          other.myPublicKey!, {'e': 'msg', 'p': legacy})!;
+      RelayService.instance.applySealedEnvelope(notMine,
+          myPhone: '+1 555 0100', store: store);
+      expect(store.chatWithContact('+1 555 0177')!.messages.length, 1,
+          reason: 'an unopenable envelope must do nothing at all');
+    });
+
+    test('every inbox event type has a sealed road, and both receive '
+        'paths route it', () {
+      final src = File('lib/relay/relay_service.dart').readAsStringSync();
+      // The dispatcher's roster: an event missing here arrives sealed and
+      // is silently dropped.
+      final at = src.indexOf('void applyInboxEvent');
+      expect(at, isNonNegative);
+      final dispatcher = src.substring(at, src.indexOf('/// Pure:', at));
+      for (final event in [
+        'msg', 'receipt', 'edit', 'delete', 'reaction', 'poll', 'payst',
+        'form', 'vopen', 'gupd', 'callmiss', 'call', 'skdm', 'skreq',
+        'fbreq', 'key', 'typing', 'presence', 'shot', 'cap', 'gshot', //
+      ]) {
+        expect(dispatcher.contains("'$event'"), isTrue,
+            reason: 'sealed $event would be silently dropped');
+      }
+      // Live subscription and mailbox drain both open sealed envelopes.
+      expect(src, contains("event: 'sealed'"));
+      expect(src, contains("case 'sealed':"));
+      // And all three send funnels can seal: messages, inbox events, pings.
+      expect(RegExp('sealedEnvelopeFor\\(').allMatches(src).length,
+          greaterThanOrEqualTo(5),
+          reason: 'send funnels: msg, inbox events, pings, and both '
+              'call-signaling sites');
     });
 
     testWidgets('the transparency page tells the hard parts too',

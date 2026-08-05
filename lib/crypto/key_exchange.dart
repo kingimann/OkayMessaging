@@ -62,6 +62,9 @@ class SecureKeyExchange {
         });
       } catch (_) {}
     }
+    _sealedPeers
+      ..clear()
+      ..addAll(prefs.getStringList(_kSealedPeers) ?? const []);
   }
 
   /// The cached public key for [phone], or null if we haven't received it yet.
@@ -84,6 +87,22 @@ class SecureKeyExchange {
     _prefs?.setString(_kPeers, jsonEncode(_peerKeys));
     if (previous != null) onPeerKeyChanged?.call(key);
     return true;
+  }
+
+  static const _kSealedPeers = 'sealed_capable_v1';
+  final Set<String> _sealedPeers = {};
+
+  /// Whether [phone]'s build has said it can open sealed-sender envelopes.
+  /// A sealed envelope sent to a build that cannot open it is a LOST
+  /// message, which is worse than metadata — so this is advertised (the
+  /// `sv` flag on a legacy message) before it is ever relied on.
+  bool sealedCapable(String phone) => _sealedPeers.contains(_digits(phone));
+
+  /// Records that [phone]'s build advertised sealed-sender support.
+  void rememberSealedCapable(String phone) {
+    if (_sealedPeers.add(_digits(phone))) {
+      _prefs?.setStringList(_kSealedPeers, _sealedPeers.toList()..sort());
+    }
   }
 
   /// A second, independent identity — for tests that need two devices.
@@ -172,11 +191,12 @@ class SecureKeyExchange {
     return FortunaRandom()..seed(KeyParameter(seed));
   }
 
-  /// Forgets the in-memory keys (tests).
+  /// Forgets the in-memory keys (tests, and the account wipe).
   void resetForTest() {
     _priv = null;
     _pub = null;
     _publicKeyB64 = null;
     _peerKeys.clear();
+    _sealedPeers.clear();
   }
 }

@@ -35,10 +35,13 @@ server-side.
 
 ### Message metadata (not content)
 - **Store-and-forward mailbox (`mailbox`)** — for each queued envelope: the
-  recipient's inbox, the **sender's number** (outside the ciphertext, for
-  routing), a timestamp, and the ciphertext size. Rows are deleted on
-  delivery and swept after **14 days**, so this is a sliding window, not a
-  history.
+  recipient's inbox, a timestamp, and the ciphertext size. **Sealed sender
+  (added 2026-08-05): between up-to-date builds the sender's number is no
+  longer on the envelope at all** — such rows say only that *someone* wrote
+  to a number. Envelopes from older builds, and the first messages of any
+  new pairing, still carry the sender's number outside the ciphertext for
+  routing. Rows are deleted on delivery and swept after **14 days**, so
+  this is a sliding window, not a history.
 - **Live relay (Realtime broadcast)** — not stored at all. There is no
   historical who-talked-to-whom log. A court could, however, compel
   **prospective** logging of channel metadata going forward; the channel

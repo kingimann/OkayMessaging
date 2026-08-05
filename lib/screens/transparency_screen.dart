@@ -51,9 +51,12 @@ class TransparencyScreen extends StatelessWidget {
               'legal name, if you use the wallet or the blue check — '
               'Stripe holds the ID documents. And delivery metadata: when '
               'a message waits for an offline phone, the server briefly '
-              'holds a sealed envelope labeled with who it is from, who it '
-              'is for, and when — deleted on delivery, and swept after 14 '
-              'days at the latest.'),
+              'holds a sealed envelope labeled with who it is for and '
+              'when — deleted on delivery, and swept after 14 days at the '
+              'latest. Between up-to-date phones the envelope no longer '
+              'says who it is FROM either; older apps, and the first '
+              'messages between two people, still name the sender for '
+              'routing.'),
           heading('If the law asks'),
           body('A legal order could get everything in the list above: who '
               'you are, who you message and when (within that 14-day '

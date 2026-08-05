@@ -173,6 +173,26 @@ iOS builds run on **Codemagic** (`codemagic.yaml`, workflow
   identity-key change buries the session. Tests pin the properties —
   including the honest healing boundary: a stolen session reads until a
   post-theft DH enters the root, and nothing after.
+- **Sealed sender (2026-08-05)**: between up-to-date builds, 1:1 traffic no
+  longer says WHO IT IS FROM on the wire or in the mailbox — the entire
+  legacy payload (event name included: 'msg', 'typing', 'call' are metadata
+  too) rides inside an outer envelope (`lib/crypto/sealed_sender.dart`,
+  ephemeral P-256 → ECDH with the recipient's identity key → AES-GCM),
+  broadcast as event `sealed`. The recipient opens it with its own key —
+  needing to know nothing about the sender — and routes the inside through
+  `applyInboxEvent`, ONE router mirroring the live subscription and the
+  mailbox switch; an event type added to either MUST be added there (a test
+  pins the roster) or its sealed form is silently dropped. **The handshake
+  is the safety**: legacy messages advertise `sv: 1`, and a device seals
+  only to peers who advertised AND whose identity key it holds — a sealed
+  envelope sent to an old build is a LOST message, worse than metadata.
+  Honest limits: the host still sees IPs/timing and the recipient inbox;
+  key-exchange (`key`) events stay legacy (bootstrap must be maximally
+  compatible); an envelope that fails to open is anonymous by design, so
+  the sealed-to-old-key repair path exists only for legacy traffic; push
+  titles still carry sender names (Apple-side metadata, deliberately
+  unchanged this round). The `sealedEnvelopeFor` funnels: `send`,
+  `_sendInboxEvent`, `_ping`, both call-signaling sites.
 - **The server/community broadcast bus rides Signal Sender Keys**
   (`lib/crypto/sender_key.dart`), because a pairwise ratchet can't key a
   one-to-many broadcast. Each sender owns a forward-secret symmetric chain
