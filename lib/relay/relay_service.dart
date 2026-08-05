@@ -898,6 +898,7 @@ class RelayService {
                   'fpost' ||
                   'fdel' ||
                   'flike' ||
+                  'fview' ||
                   'fspark' ||
                   'fvote' ||
                   'chdel' ||
@@ -1335,6 +1336,14 @@ class RelayService {
           },
         )
         .onBroadcast(
+          event: 'fview',
+          callback: (rawEnvelope) {
+            final payload = unwrapBroadcast(rawEnvelope);
+            _applyCommunityEvent(
+                'fview', Map<String, dynamic>.from(payload), me);
+          },
+        )
+        .onBroadcast(
           event: 'fspark',
           callback: (rawEnvelope) {
             final payload = unwrapBroadcast(rawEnvelope);
@@ -1520,6 +1529,14 @@ class RelayService {
               liked: body['liked'] as bool? ?? true,
               likerName: body['name'] as String? ?? 'Someone',
               likerUsername: body['username'] as String? ?? '',
+            );
+          }
+        case 'fview':
+          final id = body['id'];
+          if (id is String) {
+            FeedStore.instance.applyRemoteView(
+              id,
+              viewerUsername: body['username'] as String? ?? '',
             );
           }
         case 'fspark':
@@ -2123,6 +2140,16 @@ class RelayService {
         'liked': liked,
         'name': likerName,
         'username': likerUsername,
+      });
+
+  /// Broadcasts that a member opened a post — a unique-viewer tally, the
+  /// same replay-guarded shape a like rides. The username is the dedup key
+  /// and nothing more; it is never shown as "who viewed".
+  Future<void> sendFeedView(String communityId, String postId,
+          {required String viewerUsername}) =>
+      _sendCommunityEvent('fview', communityId, {
+        'id': postId,
+        'username': viewerUsername,
       });
 
   /// A spark — a real-money tip pinned to a post, à la Damus. The MONEY moved

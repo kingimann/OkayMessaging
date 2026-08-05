@@ -2035,18 +2035,18 @@ class _PublicThreadScreenState extends State<PublicThreadScreen> {
                     child: Row(
                       children: [
                         if (post.viewCount > 0)
-                          _StatBlock(
+                          FeedStatBlock(
                             value: thousands(post.viewCount),
                             label: post.viewCount == 1 ? 'View' : 'Views',
                           ),
                         if (post.likeCount > 0)
-                          _StatBlock(
+                          FeedStatBlock(
                             value: thousands(post.likeCount),
                             label: post.likeCount == 1 ? 'Like' : 'Likes',
                             onTap: openSheet,
                           ),
                         if (post.repostCount > 0)
-                          _StatBlock(
+                          FeedStatBlock(
                             value: thousands(post.repostCount),
                             label:
                                 post.repostCount == 1 ? 'Repost' : 'Reposts',
@@ -2130,42 +2130,6 @@ class _PublicThreadScreenState extends State<PublicThreadScreen> {
             ],
           );
         },
-      ),
-    );
-  }
-}
-
-/// One figure and its word, roomily. The number reads first and in full —
-/// no 'K', no 'M' — with the label under it in grey. A block with [onTap]
-/// has people behind its number and opens them.
-class _StatBlock extends StatelessWidget {
-  final String value;
-  final String label;
-  final VoidCallback? onTap;
-  const _StatBlock({required this.value, required this.label, this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(right: 12),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(10),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(value,
-                  style: const TextStyle(
-                      fontSize: 18, fontWeight: FontWeight.w800)),
-              const SizedBox(height: 2),
-              Text(label,
-                  style: TextStyle(
-                      fontSize: 12.5, color: AppColors.subtle(context))),
-            ],
-          ),
-        ),
       ),
     );
   }

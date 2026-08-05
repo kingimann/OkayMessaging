@@ -847,3 +847,41 @@ class FeedEndOfList extends StatelessWidget {
         ),
       );
 }
+
+
+/// One engagement figure and its word — compact enough for a phone row,
+/// still the full number ('1,234', never '1.2K'). A block with [onTap]
+/// has people behind its number and opens them; one without is a fact.
+class FeedStatBlock extends StatelessWidget {
+  final String value;
+  final String label;
+  final VoidCallback? onTap;
+  const FeedStatBlock(
+      {super.key, required this.value, required this.label, this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(value,
+                  style: const TextStyle(
+                      fontSize: 15.5, fontWeight: FontWeight.w800)),
+              Text(label,
+                  style: TextStyle(
+                      fontSize: 11.5, color: AppColors.subtle(context))),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}

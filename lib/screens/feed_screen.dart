@@ -10,6 +10,7 @@ import '../state/feed_store.dart';
 import '../state/market_media.dart';
 import '../widgets/listing_video.dart';
 import '../state/platform_moderation.dart';
+import '../state/public_feed_store.dart' show thousands;
 import '../theme/app_theme.dart';
 import '../state/session.dart' as local;
 import '../state/follow_store.dart';
@@ -1262,6 +1263,15 @@ class FeedPostScreen extends StatefulWidget {
 
 class _FeedPostScreenState extends State<FeedPostScreen> {
   @override
+  void initState() {
+    super.initState();
+    // Opening the post IS the view — counted once per member ever, fanned
+    // out like a like, deduped against replays.
+    WidgetsBinding.instance.addPostFrameCallback(
+        (_) => FeedStore.instance.recordPostView(widget.postId));
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Post')),
@@ -1302,28 +1312,32 @@ class _FeedPostScreenState extends State<FeedPostScreen> {
                         ),
                         onMention: (u) => showPersonSheet(context, username: u),
                       ),
-                      if (post.likes > 0 ||
-                          post.reposts > 0 ||
-                          replies.isNotEmpty)
+                      // The same stats band the public feed wears — full
+                      // figures, each with its word, none abbreviated.
+                      if (post.views > 0 ||
+                          post.likes > 0 ||
+                          post.reposts > 0)
                         Padding(
-                          padding: const EdgeInsets.fromLTRB(64, 0, 16, 10),
-                          child: Text(
-                            [
-                              if (replies.isNotEmpty)
-                                '${replies.length} '
-                                    '${replies.length == 1 ? 'reply' : 'replies'}',
-                              if (post.reposts > 0)
-                                '${post.reposts} '
-                                    '${post.reposts == 1 ? 'repost' : 'reposts'}',
+                          padding: const EdgeInsets.fromLTRB(16, 4, 16, 10),
+                          child: Row(
+                            children: [
+                              if (post.views > 0)
+                                FeedStatBlock(
+                                    value: thousands(post.views),
+                                    label:
+                                        post.views == 1 ? 'View' : 'Views'),
                               if (post.likes > 0)
-                                '${post.likes} '
-                                    '${post.likes == 1 ? 'like' : 'likes'}',
-                            ].join(' · '),
-                            style: TextStyle(
-                                fontSize: 12.5,
-                                color: Theme.of(context)
-                                    .colorScheme
-                                    .onSurfaceVariant),
+                                FeedStatBlock(
+                                    value: thousands(post.likes),
+                                    label:
+                                        post.likes == 1 ? 'Like' : 'Likes'),
+                              if (post.reposts > 0)
+                                FeedStatBlock(
+                                    value: thousands(post.reposts),
+                                    label: post.reposts == 1
+                                        ? 'Repost'
+                                        : 'Reposts'),
+                            ],
                           ),
                         ),
                       const Divider(height: 1),

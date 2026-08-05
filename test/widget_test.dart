@@ -32162,6 +32162,83 @@ void main() {
     });
   });
 
+  group('Views on the server feed', () {
+    setUp(() => SharedPreferences.setMockInitialValues({}));
+
+    test('opening a post counts once ever, and the guard survives a restart',
+        () async {
+      final store = FeedStore.instance;
+      store.resetForTest();
+      final post = store.add('c1', 'watched');
+      store.recordPostView(post.id);
+      expect(store.postById(post.id)!.views, 1);
+      // Opening it again tomorrow is still the same reader.
+      store.recordPostView(post.id);
+      expect(store.postById(post.id)!.views, 1);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      // Restart: memory cleared, state reloaded from disk. Both the count
+      // and the once-ever guard have to come back.
+      store.resetForTest();
+      await store.load();
+      expect(store.postById(post.id)!.views, 1);
+      store.recordPostView(post.id);
+      expect(store.postById(post.id)!.views, 1,
+          reason: 'the once-ever guard must survive the restart');
+    });
+
+    test('remote views tally unique viewers and shrug off replays', () {
+      final store = FeedStore.instance;
+      store.resetForTest();
+      final post = store.add('c1', 'seen around');
+      store.applyRemoteView(post.id, viewerUsername: 'grace');
+      store.applyRemoteView(post.id, viewerUsername: 'ada');
+      expect(store.postById(post.id)!.views, 2);
+      // The same mailbox row coming back adds nothing.
+      store.applyRemoteView(post.id, viewerUsername: 'grace');
+      expect(store.postById(post.id)!.views, 2);
+      // A nameless event has no dedup key, so it cannot be counted.
+      store.applyRemoteView(post.id, viewerUsername: '');
+      expect(store.postById(post.id)!.views, 2);
+    });
+
+    testWidgets('opening a server post counts the view and wears the band',
+        (tester) async {
+      final store = FeedStore.instance;
+      store.resetForTest();
+      final post = store.add('c1', 'a post worth opening');
+      await tester
+          .pumpWidget(MaterialApp(home: FeedPostScreen(postId: post.id)));
+      await tester.pumpAndSettle();
+      expect(store.postById(post.id)!.views, 1);
+      expect(find.text('View'), findsOneWidget);
+    });
+
+    test('the view event rides everywhere a like does, in the shared block',
+        () {
+      final relay = File('lib/relay/relay_service.dart').readAsStringSync();
+      // Live broadcast, the sealed handler, and the offline mailbox replay
+      // — miss any one and some member's open is silently dropped.
+      expect(relay, contains("event: 'fview'"));
+      expect(relay, contains("case 'fview':"));
+      expect(relay, contains("'fview' ||"),
+          reason: 'the mailbox replay allowlist must carry fview');
+      // Both thread screens draw the same block, at the slimmed size —
+      // "ui to big" was the complaint, so the size is the pin.
+      final parts =
+          File('lib/widgets/feed_post_parts.dart').readAsStringSync();
+      expect(parts, contains('class FeedStatBlock'));
+      expect(parts, contains('fontSize: 15.5'));
+      for (final f in [
+        'lib/screens/feed_screen.dart',
+        'lib/screens/public_feed_screen.dart'
+      ]) {
+        expect(File(f).readAsStringSync(), contains('FeedStatBlock('),
+            reason: '$f must use the shared block');
+      }
+    });
+  });
+
   group('Admins, the spam brake, and required listings', () {
     testWidgets('an admin passes the waivable gates; the wallet holds even '
         'them', (tester) async {

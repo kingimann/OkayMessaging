@@ -28,6 +28,11 @@ class FeedPost {
   final DateTime time;
   final String text;
   final int likes;
+
+  /// How many members have opened this post — unique viewers, counted
+  /// once each through the same replay-guarded fan-out likes use. A
+  /// number only; who viewed is a dedup key, never a surface.
+  final int views;
   final int reposts;
   final int replies;
   final bool liked;
@@ -169,6 +174,7 @@ class FeedPost {
     required this.time,
     required this.text,
     this.likes = 0,
+    this.views = 0,
     this.reposts = 0,
     this.replies = 0,
     this.liked = false,
@@ -204,6 +210,7 @@ class FeedPost {
 
   FeedPost copyWith({
     int? likes,
+    int? views,
     int? reposts,
     int? replies,
     bool? liked,
@@ -229,6 +236,7 @@ class FeedPost {
         time: time ?? this.time,
         text: text ?? this.text,
         likes: likes ?? this.likes,
+        views: views ?? this.views,
         reposts: reposts ?? this.reposts,
         replies: replies ?? this.replies,
         liked: liked ?? this.liked,
@@ -270,6 +278,7 @@ class FeedPost {
         'time': time.toIso8601String(),
         'text': text,
         'likes': likes,
+        if (views > 0) 'views': views,
         'reposts': reposts,
         'replies': replies,
         'liked': liked,
@@ -316,6 +325,7 @@ class FeedPost {
         time: DateTime.tryParse(j['time'] as String? ?? '') ?? DateTime.now(),
         text: j['text'] as String? ?? '',
         likes: j['likes'] as int? ?? 0,
+        views: j['views'] as int? ?? 0,
         reposts: j['reposts'] as int? ?? 0,
         replies: j['replies'] as int? ?? 0,
         liked: j['liked'] as bool? ?? false,
@@ -446,6 +456,9 @@ class FeedStore extends ChangeNotifier {
   // Which (post, liker) pairs this device has counted, so a replayed like
   // event (mailbox or reconnect) can't inflate the tally.
   final Set<String> _likedBy = {};
+
+  /// Replay guard for view events — same job as [_likedBy].
+  final Set<String> _postViewedBy = {};
 
   // Spark event ids already counted. Unlike likes a spark is not a toggle —
   // the same person can spark twice — so idempotency keys on the event.
@@ -939,6 +952,11 @@ class FeedStore extends ChangeNotifier {
   }
 
   /// Top-level posts for [communityId], newest first — replies live under
+  /// Every post this device holds, across all communities, read-only.
+  /// Earnings tallies sparks and sales from it — nothing else should need
+  /// the unfiltered list, so think twice before reaching for it.
+  List<FeedPost> get allPosts => List.unmodifiable(_posts);
+
   /// their parent (see [repliesTo]). With [onlyUsernames], keeps posts from
   /// those authors and your own. No seeded/demo content: every post here
   /// was written by a real person on this device or community — with ONE
@@ -1527,6 +1545,40 @@ class FeedStore extends ChangeNotifier {
     }
   }
 
+  /// Records that THIS member opened [postId], once ever: the local count
+  /// moves and the view fans out to the other members like a like does.
+  /// The guard key is the dedup and nothing else — who viewed is never a
+  /// surface, here or anywhere.
+  void recordPostView(String postId) {
+    final i = _posts.indexWhere((p) => p.id == postId);
+    if (i < 0) return;
+    final me = AppState.profile.value;
+    final username = me.username.isEmpty ? 'you' : me.username;
+    final key = 'view_${postId}_$username';
+    if (_postViewedBy.contains(key)) return;
+    _postViewedBy.add(key);
+    _posts[i] = _posts[i].copyWith(views: _posts[i].views + 1);
+    _save();
+    notifyListeners();
+    if (RelayConfig.isEnabled) {
+      RelayService.instance
+          .sendFeedView(_posts[i].communityId, postId, viewerUsername: username);
+    }
+  }
+
+  /// Applies a view that arrived from another member. Deduped like a like:
+  /// a replayed event can't inflate the count.
+  void applyRemoteView(String postId, {required String viewerUsername}) {
+    final i = _posts.indexWhere((p) => p.id == postId);
+    if (i < 0 || viewerUsername.isEmpty) return;
+    final key = 'view_${postId}_$viewerUsername';
+    if (_postViewedBy.contains(key)) return;
+    _postViewedBy.add(key);
+    _posts[i] = _posts[i].copyWith(views: _posts[i].views + 1);
+    _save();
+    notifyListeners();
+  }
+
   /// Applies a like/unlike that arrived from another member: moves the
   /// counter and, when it's a like of one of your posts, records a
   /// notification. Deduped so a replayed like can't inflate the count.
@@ -1858,6 +1910,10 @@ class FeedStore extends ChangeNotifier {
           ..clear()
           ..addAll(
               (decoded['likedBy'] as List? ?? const []).whereType<String>());
+        _postViewedBy
+          ..clear()
+          ..addAll(
+              (decoded['viewedBy'] as List? ?? const []).whereType<String>());
         _sparkIds
           ..clear()
           ..addAll(
@@ -1904,6 +1960,7 @@ class FeedStore extends ChangeNotifier {
             // whose delete failed comes back next launch, and without these
             // it would be counted a second time.
             'likedBy': _likedBy.toList(),
+            'viewedBy': _postViewedBy.toList(),
             'sparkIds': _sparkIds.toList(),
             'votedBy': _votedBy,
           }));
@@ -1924,6 +1981,7 @@ class FeedStore extends ChangeNotifier {
     _deletedIds.clear();
     _notifications.clear();
     _likedBy.clear();
+    _postViewedBy.clear();
     _sparkIds.clear();
     _votedBy.clear();
     _nextId = 1;
