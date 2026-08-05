@@ -32984,6 +32984,85 @@ void main() {
       expect(score.isEarned('streak_week'), isTrue);
     });
 
+    test('a sale code confirms a purchase; a wrong one stays an opinion',
+        () {
+      final feed = FeedStore.instance;
+      feed.resetForTest();
+      addTearDown(feed.resetForTest);
+      final listing = feed.addListing('c1',
+          title: 'Trek bike', priceCents: 12000, category: 'Sports');
+      // Somebody else's listing mints nothing — the code is the seller's
+      // to hand over.
+      feed.addRemote(FeedPost(
+          id: 'their_l',
+          communityId: 'c1',
+          authorName: 'Grace',
+          authorUsername: 'grace',
+          time: DateTime(2026, 1, 1),
+          text: 'Grace couch',
+          priceCents: 9000));
+      expect(feed.mintSaleCode('their_l'), isNull);
+
+      final code = feed.mintSaleCode(listing.id)!;
+      expect(code, hasLength(6));
+      expect(int.tryParse(code), isNotNull);
+      // The listing broadcast carries the HASH and never the code.
+      final carried = feed.postById(listing.id)!;
+      expect(carried.saleCodeHash, isNotEmpty);
+      expect(carried.saleCodeHash.contains(code), isFalse);
+      expect(carried.toJson()['saleCodeHash'], carried.saleCodeHash);
+      expect(feed.saleCodeMatches(listing.id, code), isTrue);
+      expect(feed.saleCodeMatches(listing.id, '000000'), isFalse);
+
+      // The buyer types it with their review — but reviews are for OTHER
+      // people's listings, so stage one of Grace's with a code this
+      // device knows.
+      final hash = FeedStore.saleCodeHashOf('424242');
+      feed.addRemote(FeedPost(
+          id: 'their_l2',
+          communityId: 'c1',
+          authorName: 'Grace',
+          authorUsername: 'grace',
+          time: DateTime(2026, 1, 1),
+          text: 'Grace lamp',
+          priceCents: 1500,
+          saleCodeHash: hash));
+      feed.addReview('their_l2', rating: 5, saleCode: '424242');
+      expect(feed.reviewsFor('their_l2').single.confirmedPurchase, isTrue);
+      // A wrong code still posts, without the chip — an opinion is allowed.
+      feed.addReview('their_l2', rating: 2, saleCode: '111111');
+      expect(feed.reviewsFor('their_l2').single.confirmedPurchase, isFalse);
+      // And the flag survives the wire's json round trip.
+      final review = feed.reviewsFor('their_l2').single;
+      expect(FeedPost.fromJson(review.toJson()).confirmedPurchase,
+          review.confirmedPurchase);
+    });
+
+    test('the handshake hands the buyer the code, and the UI says what it '
+        'proves', () {
+      final feed = FeedStore.instance;
+      feed.resetForTest();
+      addTearDown(feed.resetForTest);
+      final listing = feed.addListing('c1',
+          title: 'Kettle', priceCents: 800, category: 'Home');
+      final draft = soldThanksDraft(listing, saleCode: '123456');
+      expect(draft, contains('123456'));
+      expect(draft, contains('confirmed purchase'));
+      expect(soldThanksDraft(listing), isNot(contains('sale code')),
+          reason: '"Just mark sold" mints none — nobody to hand it to');
+
+      final src =
+          File('lib/screens/marketplace_screen.dart').readAsStringSync();
+      expect(src, contains("'Sale code (optional)'"));
+      expect(src, contains("'Confirmed purchase'"));
+      // The seller line vouches only for what the listing itself proves.
+      expect(src, contains("label: 'ID verified'"));
+      expect(src, contains("label: 'Phone verified'"));
+      expect(src.contains("label: 'Email verified'"), isFalse,
+          reason: 'nothing the listing carries proves an email — a chip '
+              'that guesses is worse than no chip');
+    });
+
     test('poking and founding a group are badges, and the rules say what '
         'pays', () {
       final score = ScoreStore.instance;

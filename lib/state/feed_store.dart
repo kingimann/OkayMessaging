@@ -1,5 +1,7 @@
 import 'dart:convert';
+import 'dart:math';
 
+import 'package:crypto/crypto.dart' show sha256;
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -98,6 +100,18 @@ class FeedPost {
 
   bool get isReview => rating > 0;
 
+  /// On a listing: SHA-256 of the sale code the seller minted at the sold
+  /// handshake — the code itself goes to the buyer over the E2E chat and is
+  /// never broadcast, so the hash lets a copy of the listing check a typed
+  /// code without the code being public. '' until a sale mints one.
+  final String saleCodeHash;
+
+  /// On a review: the author typed the sale code and it matched the
+  /// listing's hash — a confirmed purchase rather than a drive-by opinion.
+  /// Applied as sent, like [authorVerified]: the sender-key signature stops
+  /// forging WHO wrote it, and this claim is theirs.
+  final bool confirmedPurchase;
+
   /// What the listing asked before its last price change (0 = never
   /// changed). Only ever set by updateListing when the price moved, so a
   /// tile can say "was \$40" — the one edit buyers genuinely care about.
@@ -195,6 +209,8 @@ class FeedPost {
     this.listingRev = 0,
     this.authorVerified = false,
     this.rating = 0,
+    this.saleCodeHash = '',
+    this.confirmedPurchase = false,
     this.mediaPart = 0,
     this.listingVideo = '',
     this.listingDelivery = '',
@@ -224,6 +240,7 @@ class FeedPost {
     bool? pinned,
     bool? listingSold,
     int? listingRev,
+    String? saleCodeHash,
     DateTime? time,
     List<int>? pollVotes,
     int? pollMyVote,
@@ -257,6 +274,8 @@ class FeedPost {
         listingRev: listingRev ?? this.listingRev,
         authorVerified: authorVerified,
         rating: rating,
+        saleCodeHash: saleCodeHash ?? this.saleCodeHash,
+        confirmedPurchase: confirmedPurchase,
         mediaPart: mediaPart,
         listingVideo: listingVideo,
         listingDelivery: listingDelivery,
@@ -302,6 +321,8 @@ class FeedPost {
         },
         if (authorVerified) 'authorVerified': true,
         if (rating > 0) 'rating': rating,
+        if (saleCodeHash.isNotEmpty) 'saleCodeHash': saleCodeHash,
+        if (confirmedPurchase) 'confirmedPurchase': true,
         if (mediaPart > 0) 'mediaPart': mediaPart,
         if (listingVideo.isNotEmpty) 'listingVideo': listingVideo,
         if (listingDelivery.isNotEmpty) 'listingDelivery': listingDelivery,
@@ -347,6 +368,8 @@ class FeedPost {
         listingRev: (j['listingRev'] as num?)?.toInt() ?? 0,
         authorVerified: j['authorVerified'] as bool? ?? false,
         rating: (j['rating'] as num?)?.toInt() ?? 0,
+        saleCodeHash: j['saleCodeHash'] as String? ?? '',
+        confirmedPurchase: j['confirmedPurchase'] as bool? ?? false,
         mediaPart: (j['mediaPart'] as num?)?.toInt() ?? 0,
         listingVideo: j['listingVideo'] as String? ?? '',
         listingDelivery: j['listingDelivery'] as String? ?? '',
@@ -1237,6 +1260,45 @@ class FeedStore extends ChangeNotifier {
     return list;
   }
 
+  /// SHA-256 of a sale code, salted with a fixed label so the hash cannot
+  /// be mistaken for (or reused as) any other hash in the app.
+  static String saleCodeHashOf(String code) =>
+      sha256.convert(utf8.encode('okay-sale:${code.trim()}')).toString();
+
+  /// Mints the six-digit sale code for an OWN listing at the sold
+  /// handshake. Only the hash rides the listing broadcast — the code itself
+  /// goes to the buyer over the E2E chat — so any member's copy can check a
+  /// typed code without the code ever being public. Re-minting replaces the
+  /// old hash: one live code per sale, the newest one.
+  String? mintSaleCode(String listingId) {
+    final i = _posts.indexWhere((p) => p.id == listingId);
+    if (i == -1 || !_posts[i].isListing) return null;
+    final post = _posts[i];
+    final me = AppState.profile.value.username;
+    final mine = post.authorUsername == 'you' ||
+        (me.isNotEmpty && post.authorUsername == me);
+    if (!mine) return null;
+    final code = (Random.secure().nextInt(900000) + 100000).toString();
+    final updated = post.copyWith(
+        saleCodeHash: saleCodeHashOf(code), listingRev: post.listingRev + 1);
+    _posts[i] = updated;
+    _save();
+    notifyListeners();
+    if (RelayConfig.isEnabled) RelayService.instance.sendFeedPost(updated);
+    return code;
+  }
+
+  /// Whether [code] is the sale code for [listingId]. False when the
+  /// listing never minted one — nothing can confirm against nothing.
+  bool saleCodeMatches(String listingId, String code) {
+    final i = _posts.indexWhere((p) => p.id == listingId);
+    if (i == -1) return false;
+    final hash = _posts[i].saleCodeHash;
+    return hash.isNotEmpty &&
+        code.trim().isNotEmpty &&
+        saleCodeHashOf(code) == hash;
+  }
+
   /// Writes (or rewrites) the local user's review of a listing.
   ///
   /// One voice per person: an existing review by this user is deleted first —
@@ -1244,7 +1306,11 @@ class FeedStore extends ChangeNotifier {
   /// editing a review propagates with the machinery replies already have.
   /// Sellers cannot review their own listings; five stars you gave yourself
   /// would make every rating worthless.
-  bool addReview(String listingId, {required int rating, String text = ''}) {
+  /// With [saleCode], a matching code marks the review a confirmed
+  /// purchase; a wrong or absent code posts an ordinary (unconfirmed)
+  /// review — an opinion is still allowed, it just doesn't wear the chip.
+  bool addReview(String listingId,
+      {required int rating, String text = '', String saleCode = ''}) {
     final i = _posts.indexWhere((p) => p.id == listingId);
     if (i == -1 || !_posts[i].isListing) return false;
     final listing = _posts[i];
@@ -1267,6 +1333,7 @@ class FeedStore extends ChangeNotifier {
       text: text.trim(),
       parentId: listingId,
       rating: clamped,
+      confirmedPurchase: saleCodeMatches(listingId, saleCode),
     );
     _posts.add(review);
     _save();

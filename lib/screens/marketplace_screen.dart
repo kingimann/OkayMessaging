@@ -454,9 +454,13 @@ bool isBelowTypical(FeedPost l, List<FeedPost> all) {
 /// What the seller's drafted thank-you says when they name who bought a
 /// listing. Drafted into the composer, never sent by itself — the seller
 /// reads it before it leaves, like every other message. Pure.
-String soldThanksDraft(FeedPost listing) =>
+String soldThanksDraft(FeedPost listing, {String? saleCode}) =>
     'Just marked "${listing.text.split('\n').first}" as sold to you — '
-    'thanks! If you have a minute, you can rate the sale on the listing.';
+    'thanks! If you have a minute, you can rate the sale on the listing.'
+    // The code rides the E2E chat and nowhere else; typed with the buyer's
+    // review it marks it a confirmed purchase.
+    '${saleCode == null ? '' : '\nYour sale code is $saleCode — type it '
+        'with your review and it shows as a confirmed purchase.'}';
 
 /// Marking sold optionally asks who bought it. A picked buyer gets their
 /// chat opened with [soldThanksDraft] in the composer — which is also the
@@ -511,6 +515,10 @@ Future<void> markListingSold(BuildContext context, FeedPost listing) async {
   FeedStore.instance.setListingSold(listing.id, true);
   final buyer = choice.$2;
   if (buyer == null || !context.mounted) return;
+  // A named buyer gets a sale code with the thank-you: their review can
+  // then wear the confirmed-purchase chip. "Just mark sold" mints none —
+  // there is nobody to hand it to.
+  final saleCode = FeedStore.instance.mintSaleCode(listing.id);
   final store = ChatStore.instance;
   final existing = store.chatWithContact(buyer.id);
   final Chat chat;
@@ -528,7 +536,7 @@ Future<void> markListingSold(BuildContext context, FeedPost listing) async {
         marketplace: true);
     store.upsert(chat);
   }
-  store.setDraft(chat.id, soldThanksDraft(listing));
+  store.setDraft(chat.id, soldThanksDraft(listing, saleCode: saleCode));
   await Navigator.of(context).push(
     MaterialPageRoute(builder: (_) => ChatScreen(chat: chat)),
   );
@@ -1980,6 +1988,29 @@ class ListingScreen extends StatelessWidget {
                                 ],
                               ],
                             ),
+                            // What this device can honestly vouch for: the
+                            // ID check rides the listing as authorVerified,
+                            // and a phone number is only ever on a listing
+                            // when the account signed in with one. Email
+                            // is deliberately absent — nothing the listing
+                            // carries proves it, and a chip that guesses
+                            // is worse than no chip.
+                            if (!mine &&
+                                (listing.authorVerified ||
+                                    listing.authorPhone.isNotEmpty))
+                              Padding(
+                                padding: const EdgeInsets.only(top: 2),
+                                child: Wrap(
+                                  spacing: 6,
+                                  children: [
+                                    if (listing.authorVerified)
+                                      const _SellerChip(label: 'ID verified'),
+                                    if (listing.authorPhone.isNotEmpty)
+                                      const _SellerChip(
+                                          label: 'Phone verified'),
+                                  ],
+                                ),
+                              ),
                             Builder(builder: (context) {
                               final (avg, count) = FeedStore.instance
                                   .sellerRating(listing.authorUsername);
@@ -2093,6 +2124,36 @@ class ListingScreen extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+}
+
+/// A quiet verification chip on the seller line: what the listing itself
+/// proves, said in two words.
+class _SellerChip extends StatelessWidget {
+  final String label;
+  const _SellerChip({required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+      decoration: BoxDecoration(
+        color: const Color(0xFF12B76A).withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.check, size: 11, color: Color(0xFF12B76A)),
+          const SizedBox(width: 3),
+          Text(label,
+              style: const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF12B76A))),
+        ],
+      ),
     );
   }
 }
@@ -2264,6 +2325,25 @@ class _ReviewsSection extends StatelessWidget {
                         ),
                       ],
                     ),
+                    // The reviewer typed the sale code the seller handed
+                    // over at the sale — this one really bought it.
+                    if (r.confirmedPurchase)
+                      const Padding(
+                        padding: EdgeInsets.only(top: 3),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.verified_outlined,
+                                size: 13, color: Color(0xFF12B76A)),
+                            SizedBox(width: 4),
+                            Text('Confirmed purchase',
+                                style: TextStyle(
+                                    fontSize: 11.5,
+                                    fontWeight: FontWeight.w600,
+                                    color: Color(0xFF12B76A))),
+                          ],
+                        ),
+                      ),
                     if (r.text.isNotEmpty)
                       Padding(
                         padding: const EdgeInsets.only(top: 3),
@@ -2296,12 +2376,24 @@ class _ReviewSheetState extends State<_ReviewSheet> {
   late int _rating = widget.existing?.rating ?? 0;
   late final TextEditingController _text =
       TextEditingController(text: widget.existing?.text ?? '');
+  final TextEditingController _code = TextEditingController();
 
   @override
   void dispose() {
     _text.dispose();
+    _code.dispose();
     super.dispose();
   }
+
+  /// Whether this listing minted a sale code at all — no code, no field:
+  /// offering a box nothing could ever match would read as a broken form.
+  bool get _codeExists {
+    final l = FeedStore.instance.postById(widget.listingId);
+    return l != null && l.saleCodeHash.isNotEmpty;
+  }
+
+  bool get _codeMatches =>
+      FeedStore.instance.saleCodeMatches(widget.listingId, _code.text);
 
   @override
   Widget build(BuildContext context) => Padding(
@@ -2335,6 +2427,24 @@ class _ReviewSheetState extends State<_ReviewSheet> {
               decoration: const InputDecoration(
                   hintText: 'How did it go? (optional)'),
             ),
+            if (_codeExists) ...[
+              const SizedBox(height: 4),
+              TextField(
+                controller: _code,
+                keyboardType: TextInputType.number,
+                maxLength: 6,
+                onChanged: (_) => setState(() {}),
+                decoration: InputDecoration(
+                  hintText: 'Sale code (optional)',
+                  helperText: _code.text.trim().isEmpty
+                      ? 'The seller sent it with the sale — it marks '
+                          'yours a confirmed purchase.'
+                      : (_codeMatches
+                          ? '✓ Confirmed purchase'
+                          : 'That code doesn\'t match this listing.'),
+                ),
+              ),
+            ],
             const SizedBox(height: 4),
             FilledButton(
               // No stars, no review — the rating is the one required part.
@@ -2342,7 +2452,9 @@ class _ReviewSheetState extends State<_ReviewSheet> {
                   ? null
                   : () {
                       FeedStore.instance.addReview(widget.listingId,
-                          rating: _rating, text: _text.text);
+                          rating: _rating,
+                          text: _text.text,
+                          saleCode: _code.text);
                       Navigator.of(context).pop();
                     },
               child: Text(widget.existing == null ? 'Post review' : 'Save'),
