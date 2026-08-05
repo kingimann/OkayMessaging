@@ -224,8 +224,14 @@ class PlatformModeration extends ChangeNotifier {
     ];
   }
 
+  /// Test hook: stands in for the sanctions list, like the reports one.
+  @visibleForTesting
+  static Future<List<SanctionEntry>> Function()? debugSanctionsOverride;
+
   /// Live sanctions, for the console's list.
   Future<List<SanctionEntry>> sanctions() async {
+    final so = debugSanctionsOverride;
+    if (so != null) return so();
     final result =
         await _invoke('moderation-queue', const {'what': 'sanctions'});
     final rows = result?['sanctions'];

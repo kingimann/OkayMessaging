@@ -33063,6 +33063,70 @@ void main() {
               'that guesses is worse than no chip');
     });
 
+    testWidgets('the queue groups reports by account, standing sanction '
+        'named first', (tester) async {
+      final store = PlatformModeration.instance;
+      store.debugSet(role: PlatformRole.admin, loaded: true);
+      addTearDown(store.resetForTest);
+      PlatformModeration.debugReportsOverride = () async => [
+            ModerationReport(
+                id: 1,
+                targetPhone: '15550171',
+                targetHandle: 'spammy',
+                reason: 'Spam',
+                createdAt: DateTime(2026, 8, 1)),
+            ModerationReport(
+                id: 2,
+                targetPhone: '15550171',
+                targetHandle: 'spammy',
+                reason: 'Scam',
+                createdAt: DateTime(2026, 8, 2)),
+            ModerationReport(
+                id: 3,
+                targetPhone: '15550171',
+                reason: 'Spam',
+                createdAt: DateTime(2026, 8, 3)),
+            ModerationReport(
+                id: 4,
+                targetPhone: '15550172',
+                targetHandle: 'once',
+                reason: 'Harassment',
+                createdAt: DateTime(2026, 8, 3)),
+          ];
+      PlatformModeration.debugSanctionsOverride = () async => [
+            SanctionEntry(
+                phone: '15550171',
+                sanction: AccountSanction(
+                    kind: SanctionKind.timeout,
+                    reason: 'spam',
+                    createdAt: DateTime(2026, 8, 1))),
+          ];
+      addTearDown(() {
+        PlatformModeration.debugReportsOverride = null;
+        PlatformModeration.debugSanctionsOverride = null;
+      });
+      tester.view.physicalSize = const Size(500, 1800);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(const MaterialApp(home: AdminScreen()));
+      await tester.pumpAndSettle();
+
+      // Three reports on one account are one card, most-reported first,
+      // with the standing sanction said before anyone reaches the gavel.
+      expect(find.textContaining('@spammy · 3 reports'), findsOneWidget);
+      expect(find.textContaining('Already timed out'), findsOneWidget);
+      expect(find.text('Dismiss all'), findsOneWidget);
+      expect(find.textContaining('@once'), findsOneWidget);
+
+      // The card opens the account's reports, each dismissible alone —
+      // for the pile where one report is real and four are a brigade.
+      await tester.tap(find.textContaining('@spammy · 3 reports'));
+      await tester.pumpAndSettle();
+      expect(find.text('Scam'), findsWidgets);
+      expect(find.text('Dismiss'), findsWidgets);
+    });
+
     test('a role can be granted by handle, and a typo grants nobody', () {
       final fn =
           File('supabase/functions/roles-set/index.ts').readAsStringSync();

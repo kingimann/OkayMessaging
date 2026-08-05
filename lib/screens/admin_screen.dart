@@ -164,54 +164,162 @@ class _AdminScreenState extends State<AdminScreen> {
     );
   }
 
+  /// Reports grouped by the account they point at: five reports about one
+  /// person are one decision, not five rows to rediscover the pattern in.
+  /// Reports with no account attached stay single — there is nothing to
+  /// group them by and nobody to act on.
   List<Widget> _reportList(BuildContext context) {
     final reports = _reports ?? const <ModerationReport>[];
     if (reports.isEmpty) {
       return [_empty(Icons.flag_outlined, 'No open reports')];
     }
+    final byPhone = <String, List<ModerationReport>>{};
+    final loose = <ModerationReport>[];
+    for (final r in reports) {
+      if (r.targetPhone.isEmpty) {
+        loose.add(r);
+      } else {
+        byPhone.putIfAbsent(r.targetPhone, () => []).add(r);
+      }
+    }
+    // Most-reported first: the pile the queue exists to surface.
+    final grouped = byPhone.entries.toList()
+      ..sort((a, b) => b.value.length.compareTo(a.value.length));
     return [
-      for (final r in reports)
+      for (final e in grouped) _accountCard(context, e.key, e.value),
+      for (final r in loose)
         InfoSection(children: [
           InfoTile(
             leading: const Icon(Icons.flag_outlined),
             title: r.reason.isEmpty ? 'Report' : r.reason,
             subtitle: [
-              if (r.targetHandle.isNotEmpty) '@${r.targetHandle}',
               if (r.context.isNotEmpty) r.context,
               if (r.detail.isNotEmpty) r.detail,
+              'No account attached',
             ].join(' · '),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 8, 8),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    r.targetPhone.isEmpty
-                        ? 'No account attached'
-                        : AccountService.maskPhone(r.targetPhone),
-                    style: TextStyle(
-                        fontSize: 12.5, color: AppColors.subtle(context)),
-                  ),
-                ),
-                if (r.targetPhone.isNotEmpty)
-                  TextButton(
-                    onPressed: () => _actOn(context,
-                        phone: r.targetPhone, handle: r.targetHandle),
-                    child: const Text('Act'),
-                  ),
-                TextButton(
-                  onPressed: () async {
-                    await PlatformModeration.instance.markHandled(r.id);
-                    await _load();
-                  },
-                  child: const Text('Dismiss'),
-                ),
-              ],
+            trailing: TextButton(
+              onPressed: () async {
+                await PlatformModeration.instance.markHandled(r.id);
+                await _load();
+              },
+              child: const Text('Dismiss'),
             ),
           ),
         ]),
     ];
+  }
+
+  /// One reported account: how many reports, what they say, whether a
+  /// sanction already stands — the whole picture before the gavel.
+  Widget _accountCard(
+      BuildContext context, String phone, List<ModerationReport> reports) {
+    final handle = reports
+        .map((r) => r.targetHandle)
+        .firstWhere((h) => h.isNotEmpty, orElse: () => '');
+    final reasons = {
+      for (final r in reports)
+        if (r.reason.isNotEmpty) r.reason
+    };
+    final standing = _sanctions
+        ?.where((s) => s.phone == phone)
+        .firstOrNull;
+    return InfoSection(children: [
+      InfoTile(
+        leading: Icon(
+            reports.length > 1 ? Icons.flag : Icons.flag_outlined,
+            color: reports.length > 2 ? Colors.redAccent : null),
+        title: [
+          if (handle.isNotEmpty) '@$handle' else AccountService.maskPhone(phone),
+          if (reports.length > 1) '${reports.length} reports',
+        ].join(' · '),
+        subtitle: [
+          if (reasons.isNotEmpty) reasons.join(', '),
+          // A sanction already standing is the first thing to know — the
+          // next report on a banned account usually needs no second ban.
+          if (standing != null)
+            'Already ${sanctionKindLabel(standing.sanction.kind).toLowerCase()}',
+        ].join(' · '),
+        onTap: () => _accountSheet(context, phone, handle, reports),
+      ),
+      Padding(
+        padding: const EdgeInsets.fromLTRB(16, 0, 8, 8),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                handle.isEmpty
+                    ? 'Tap for the reports'
+                    : '${AccountService.maskPhone(phone)} · tap for the '
+                        'reports',
+                style: TextStyle(
+                    fontSize: 12.5, color: AppColors.subtle(context)),
+              ),
+            ),
+            TextButton(
+              onPressed: () =>
+                  _actOn(context, phone: phone, handle: handle),
+              child: const Text('Act'),
+            ),
+            TextButton(
+              onPressed: () async {
+                for (final r in reports) {
+                  await PlatformModeration.instance.markHandled(r.id);
+                }
+                await _load();
+              },
+              child: Text(
+                  reports.length > 1 ? 'Dismiss all' : 'Dismiss'),
+            ),
+          ],
+        ),
+      ),
+    ]);
+  }
+
+  /// The account's reports in full, each dismissible on its own — for the
+  /// pile where one report is real and four are a brigade.
+  Future<void> _accountSheet(BuildContext context, String phone,
+      String handle, List<ModerationReport> reports) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+              child: Text(
+                handle.isEmpty
+                    ? AccountService.maskPhone(phone)
+                    : '@$handle · ${AccountService.maskPhone(phone)}',
+                style: const TextStyle(
+                    fontSize: 16, fontWeight: FontWeight.w700),
+              ),
+            ),
+            for (final r in reports)
+              ListTile(
+                leading: const Icon(Icons.flag_outlined, size: 20),
+                title: Text(r.reason.isEmpty ? 'Report' : r.reason),
+                subtitle: Text([
+                  if (r.context.isNotEmpty) r.context,
+                  if (r.detail.isNotEmpty) r.detail,
+                ].join(' · ')),
+                trailing: TextButton(
+                  onPressed: () async {
+                    await PlatformModeration.instance.markHandled(r.id);
+                    if (sheetContext.mounted) {
+                      Navigator.of(sheetContext).pop();
+                    }
+                    await _load();
+                  },
+                  child: const Text('Dismiss'),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
   }
 
   List<Widget> _sanctionList(BuildContext context) {
