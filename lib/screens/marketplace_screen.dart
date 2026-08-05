@@ -3671,19 +3671,6 @@ class _SellScreenState extends State<SellScreen> {
           // category changes, so switching from Furniture to Vehicles swaps
           // the whole set. Absent for categories that ask none.
           ..._categoryFieldWidgets(context),
-          if (servers.length > 1 && widget.existing == null) ...[
-            _section('Where it posts'),
-            DropdownButtonFormField<String>(
-              isExpanded: true,
-              initialValue: _communityId,
-              items: [
-                for (final s in servers)
-                  DropdownMenuItem(value: s.id, child: Text(s.name)),
-              ],
-              onChanged: (v) => setState(() => _communityId = v ?? _communityId),
-              decoration: const InputDecoration(labelText: 'Server'),
-            ),
-          ],
           _section('Description'),
           TextField(
             controller: _description,
