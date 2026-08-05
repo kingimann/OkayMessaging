@@ -176,17 +176,14 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // A name-only account may READ the feed — the timeline is served by the
+    // anon key, the same as browsing the marketplace. What it can't do is
+    // POST: every write needs a session, gated per-action inside (see
+    // postNeedsPhone), so the door is open and only the pen is held.
     return ParentalGate(
       restriction: ParentalRestriction.publicFeed,
       title: 'Newsfeed',
-      child: PhoneGate(
-        title: 'Newsfeed',
-        reason: 'The public feed is a server the app reads and writes with '
-            'your account. An account with no phone number has no session to '
-            'read it with, and no name that anybody replying to a post could '
-            'hold to account.',
-        child: _guarded(context),
-      ),
+      child: _guarded(context),
     );
   }
 
@@ -1946,7 +1943,10 @@ class _PostTile extends StatelessWidget {
                     // is, or pass it on with something to say — so it asks
                     // which rather than picking one.
                     onRepost: () => _repostMenu(context),
-                    onLike: () => PublicFeedStore.instance.toggleLike(post.id),
+                    onLike: () {
+                      if (postNeedsPhone(context, what: 'Liking')) return;
+                      PublicFeedStore.instance.toggleLike(post.id);
+                    },
                     onShare: () {
                       Clipboard.setData(ClipboardData(text: post.body));
                       ScaffoldMessenger.of(context).showSnackBar(
@@ -1964,6 +1964,7 @@ class _PostTile extends StatelessWidget {
 
   /// Repost, or quote it with something of your own.
   void _repostMenu(BuildContext context) {
+    if (postNeedsPhone(context, what: 'Reposting')) return;
     final mine = PublicFeedStore.instance.myRepostOf(post.id) != null;
     showModalBottomSheet<void>(
       context: context,
@@ -2649,12 +2650,16 @@ Future<void> _reportPost(BuildContext context, PublicPost post) async {
 /// screen while the keyboard is up is a sheet fighting the keyboard — every
 /// timeline this one is modelled on opens a page instead.
 Future<void> _openComposer(BuildContext context,
-        {String? replyTo, String? replyingToName, String? quoteOf}) =>
-    Navigator.of(context).push<void>(MaterialPageRoute(
-      fullscreenDialog: true,
-      builder: (_) => _Composer(
-          replyTo: replyTo, replyingToName: replyingToName, quoteOf: quoteOf),
-    ));
+    {String? replyTo, String? replyingToName, String? quoteOf}) async {
+  // A name-only account reads the feed but can't add to it. The one funnel
+  // every post/reply/quote passes through, so none is missed.
+  if (postNeedsPhone(context)) return;
+  await Navigator.of(context).push<void>(MaterialPageRoute(
+    fullscreenDialog: true,
+    builder: (_) => _Composer(
+        replyTo: replyTo, replyingToName: replyingToName, quoteOf: quoteOf),
+  ));
+}
 
 /// The post being answered, above the composer.
 ///
@@ -3522,7 +3527,10 @@ class _Poll extends StatelessWidget {
                     accent: accent,
                   )
                 : OutlinedButton(
-                    onPressed: () => PublicFeedStore.instance.vote(post.id, i),
+                    onPressed: () {
+                      if (postNeedsPhone(context, what: 'Voting')) return;
+                      PublicFeedStore.instance.vote(post.id, i);
+                    },
                     style: OutlinedButton.styleFrom(
                       foregroundColor: accent,
                       // THE SAME HEIGHT AS THE RESULT IT TURNS INTO. Voting

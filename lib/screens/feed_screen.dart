@@ -18,6 +18,7 @@ import '../util/file_moderation.dart';
 import '../util/photo_prep.dart';
 import '../widgets/app_dialogs.dart';
 import '../widgets/chat_photo.dart';
+import '../widgets/phone_gate.dart';
 import '../widgets/emoji_gif_sheet.dart';
 import '../payments/payment_service.dart';
 import '../state/identity_verification.dart';
@@ -226,6 +227,9 @@ class _FeedScreenState extends State<FeedScreen> {
   /// placeholder wrapped onto two lines before a single character was typed.
   /// Writing is the whole job of this screen; it gets the whole screen.
   void _openComposer() {
+    // A name-only account reads a server's feed but can't post to it — same
+    // rule as the public newsfeed, for the same reason.
+    if (postNeedsPhone(context)) return;
     Navigator.of(context).push(MaterialPageRoute<void>(
       fullscreenDialog: true,
       builder: (pageContext) => FeedComposerScreen(
@@ -1085,6 +1089,7 @@ Future<void> offerSpark(BuildContext context, FeedPost post) async {
 /// The draft is kept per post, so backing out of a half-written reply and
 /// coming back finds it — the same key the public composer uses.
 void openFeedReply(BuildContext context, FeedPost post) {
+  if (postNeedsPhone(context)) return;
   Navigator.of(context).push<void>(MaterialPageRoute(
     fullscreenDialog: true,
     builder: (_) => _FeedReplyComposer(post: post),

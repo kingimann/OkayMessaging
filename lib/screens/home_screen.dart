@@ -491,8 +491,10 @@ class _AppSideBar extends StatelessWidget {
       case 'newsfeed':
         return ListTile(
           leading: const Icon(Icons.public),
+          // No padlock: a name-only account can READ the feed (posting is
+          // gated per-action inside), so the row opens for everyone — a
+          // padlock on a row that opens is a worse lie than none.
           title: const Text('Newsfeed'),
-          trailing: const PhoneOnlyHint(),
           subtitle: const Text('One public timeline, everyone on it'),
           onTap: () => _go(context, const PublicFeedScreen()),
         );

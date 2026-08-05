@@ -107,6 +107,49 @@ class PhoneGate extends StatelessWidget {
   }
 }
 
+/// The read-only rule for the public surfaces (newsfeed, servers): a
+/// username-only account may LOOK but not create content. Reading is served by
+/// the anon key, so browsing works; but every write needs the Supabase session
+/// a numberless account doesn't have, and — the part that decides it — a public
+/// post with no number behind it has nobody to answer for it, which is exactly
+/// the spam a name-only signup would otherwise wave through.
+///
+/// Returns true (and shows the reason) when this account may not post, so a
+/// caller reads as `if (postNeedsPhone(context)) return;`.
+bool postNeedsPhone(BuildContext context, {String what = 'Posting'}) {
+  if (!Session.instance.isNumberless) return false;
+  showModalBottomSheet<void>(
+    context: context,
+    showDragHandle: true,
+    builder: (_) => Padding(
+      padding: const EdgeInsets.fromLTRB(28, 4, 28, 32),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.phone_locked_outlined,
+              size: 44, color: AppColors.subtle(context)),
+          const SizedBox(height: 14),
+          Text('$what needs a phone number',
+              textAlign: TextAlign.center,
+              style:
+                  const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+          const SizedBox(height: 10),
+          Text(
+            'You can read and follow along with a name-only account. Adding a '
+            'post, reply or reaction needs a phone number — it\'s what a public '
+            'post is answered for. Chats work as they are; to post, sign out '
+            'and make an account with a number (this one stays on this device).',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+                fontSize: 13.5, height: 1.45, color: AppColors.subtle(context)),
+          ),
+        ],
+      ),
+    ),
+  );
+  return true;
+}
+
 /// A quiet padlock on a row that leads somewhere a username-only account
 /// cannot go, so the gate is not a surprise at the end of a tap. Nothing at
 /// all on an account that has a number.

@@ -1547,6 +1547,13 @@ class PublicFeedStore extends ChangeNotifier {
     if (phone.trim().isEmpty) {
       throw PublicFeedError('Sign in to post.');
     }
+    // A name-only account may read the feed but not add to it: the insert
+    // needs a session it doesn't have, and a public post with no number
+    // behind it has nobody to answer for it. The UI gates this before the
+    // composer opens; this is the backstop under it.
+    if (local.Session.instance.isNumberless) {
+      throw PublicFeedError('Posting needs a phone number.');
+    }
     // Before the image upload, so a blocked post leaves nothing behind in
     // the bucket to sweep up later. The answers are screened with the
     // question: they are public text on a public post, and a poll whose

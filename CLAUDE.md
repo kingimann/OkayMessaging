@@ -308,15 +308,24 @@ store-and-forward. Everything that reads or writes the server has nothing to
 answer with.
 
 So `PhoneGate` (`lib/widgets/phone_gate.dart`) wraps what genuinely needs a
-session — the Newsfeed (its RLS inserts need a JWT) and the Wallet — around
-the screen, never the row, for the same reason as `VerifiedGate`.
+session — the **Wallet** — around the screen, never the row, for the same
+reason as `VerifiedGate`.
 **Servers OPENED for numberless on 2026-08-04** (a correction, not a
 loosening): the community bus is sealed broadcast + the anon-key mailbox +
 the sealed `community_posts` store — the same transports numberless chat
-already rides — so the gate's stated reason had stopped being true, and it
-was why a numberless member's server posts existed for nobody. A test pins
-the gate out. Marketplace is browse-only for numberless (selling needs the
-ID check), Okay Drop and Maps are open. Notes and Settings stay
+already rides. **The Newsfeed and Servers went READ-ONLY for numberless on
+2026-08-05** (the owner's call): reading the public feed is served by the
+anon key (like browsing the marketplace), so a name-only account can now
+LOOK — but every WRITE needs a session, and a public post with no number
+behind it has nobody to answer for it, which is the spam a name-only signup
+would otherwise wave through. So `postNeedsPhone(context)` (in `phone_gate.dart`)
+gates each write ACTION — the public composer/reply/quote (one funnel,
+`_openComposer`), like, repost, vote; the server composer and reply — showing
+a "Posting needs a phone number" sheet, with `PublicFeedStore.post()` throwing
+as the backstop under it. The newsfeed drawer row lost its padlock (a padlock
+on a row that opens is a worse lie than none). Marketplace is browse-only for
+numberless (selling needs the ID check), Okay Drop and Maps are open. Notes and
+Settings stay
 open: Notes is local-only and locking it would protect nobody, and Settings is
 the way out. There is **no owner waiver** — an owner without a number has no
 session either, so letting them through would show a screen that cannot load.

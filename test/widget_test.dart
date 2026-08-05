@@ -24473,13 +24473,13 @@ void main() {
           reason: 'the marketplace and Okay Drop rows must drop the phone '
               'padlock — both open for a numberless account');
 
-      // The one row only the phone gate shuts: Newsfeed (its RLS insert
-      // needs a session). Servers dropped both padlock and gate — the
-      // community bus rides the same anon-key transports as chat, so the
-      // gate's reason stopped being true. The second match is inside
-      // _GateHint, which is how a row behind BOTH gates shows one padlock
-      // instead of two.
-      expect(RegExp(r'PhoneOnlyHint\(\)').allMatches(src).length, 2,
+      // The Newsfeed row lost its padlock on 2026-08-05: a name-only account
+      // can READ the feed (posting is gated per-action inside), so the row
+      // opens for everyone — a padlock on a row that opens is a worse lie
+      // than none. Servers likewise carry no gate. The one remaining match
+      // is inside _GateHint, which is how a row behind BOTH gates shows one
+      // padlock instead of two — no drawer row draws a bare PhoneOnlyHint now.
+      expect(RegExp(r'PhoneOnlyHint\(\)').allMatches(src).length, 1,
           reason: 'a phone-gated row lost its padlock, or gained one it '
               'cannot back up');
     });
@@ -24495,29 +24495,36 @@ void main() {
         expect(File(path).readAsStringSync().contains('VerifiedGate('), isTrue,
             reason: path);
       }
-      // The same rule for the phone gate, on everything a username-only
-      // account cannot use. Chat is not in this list, and that is the point:
-      // broadcast and the mailbox are both reachable with the anon key, so
-      // messages work for an account with no session at all.
-      for (final path in [
-        'lib/screens/wallet_screen.dart',
-        'lib/screens/public_feed_screen.dart',
-      ]) {
-        expect(File(path).readAsStringSync().contains('PhoneGate('), isTrue,
-            reason: '$path is reachable without a phone number');
-      }
-      // Servers OPENED for numberless accounts, deliberately: the
-      // community bus is sealed broadcast + the anon-key mailbox + the
-      // sealed post store — the same transports numberless chat already
-      // rides — so the old gate locked people out of rooms their posts
-      // could technically reach. This pin keeps it open.
+      // The same rule for the phone gate, on the Wallet — the one surface a
+      // username-only account genuinely cannot use (a card, a bank and an ID
+      // check all attach to a number). Chat is not here, and that is the
+      // point: broadcast and the mailbox ride the anon key, so messages work
+      // with no session at all.
       expect(
-          File('lib/screens/communities.dart')
+          File('lib/screens/wallet_screen.dart')
               .readAsStringSync()
               .contains('PhoneGate('),
-          isFalse,
-          reason: 'servers work without a session; the gate must not '
-              'quietly return');
+          isTrue,
+          reason: 'the wallet is reachable without a phone number');
+      // The Newsfeed and Servers are READ-ONLY for numberless (2026-08-05),
+      // not fully gated: reading is anon-key served, so the SCREEN opens and
+      // only the WRITE actions are gated (postNeedsPhone). A full PhoneGate
+      // would lock out the reading the anon key already allows, so neither
+      // screen carries one.
+      for (final path in [
+        'lib/screens/public_feed_screen.dart',
+        'lib/screens/communities.dart',
+      ]) {
+        expect(File(path).readAsStringSync().contains('PhoneGate('), isFalse,
+            reason: '$path is read-only for numberless, not gated shut');
+      }
+      // And the write path IS gated, per-action.
+      expect(
+          File('lib/screens/public_feed_screen.dart')
+              .readAsStringSync()
+              .contains('postNeedsPhone(context)'),
+          isTrue,
+          reason: 'posting to the feed must still need a phone number');
       // Chat, calls, browsing the marketplace, the map, Okay Drop and the
       // Alerts tab all work without a session — the relay rides the anon
       // key, the map is tiles and local state, Okay Drop is two phones and
@@ -29450,6 +29457,74 @@ void main() {
       expect(find.text('Marketplace needs a verified account'), findsNothing);
       expect(find.widgetWithText(FloatingActionButton, 'Sell'), findsNothing,
           reason: 'a numberless account browses and messages, never lists');
+    });
+
+    testWidgets('the newsfeed opens for a numberless account — no gate screen',
+        (t) async {
+      Session.instance.signInForTest(phone: AccountCode.mint(), name: 'ada');
+      addTearDown(Session.instance.signOut);
+      await t.pumpWidget(const MaterialApp(home: PublicFeedScreen()));
+      await t.pumpAndSettle();
+      // The old full-screen phone gate is gone — reading is open.
+      expect(find.text('Newsfeed needs a phone number'), findsNothing);
+    });
+
+    testWidgets('postNeedsPhone blocks a name-only account and says why',
+        (t) async {
+      Session.instance.signInForTest(phone: AccountCode.mint(), name: 'ada');
+      addTearDown(Session.instance.signOut);
+      var blocked = false;
+      await t.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (c) => TextButton(
+              onPressed: () => blocked = postNeedsPhone(c),
+              child: const Text('go'),
+            ),
+          ),
+        ),
+      ));
+      await t.tap(find.text('go'));
+      await t.pumpAndSettle();
+      expect(blocked, isTrue);
+      expect(find.text('Posting needs a phone number'), findsOneWidget);
+    });
+
+    testWidgets('a numbered account is never blocked from posting', (t) async {
+      Session.instance.signInForTest(phone: '15551230000', name: 'Ada');
+      addTearDown(Session.instance.signOut);
+      var blocked = true;
+      await t.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (c) => TextButton(
+              onPressed: () => blocked = postNeedsPhone(c),
+              child: const Text('go'),
+            ),
+          ),
+        ),
+      ));
+      await t.tap(find.text('go'));
+      await t.pumpAndSettle();
+      expect(blocked, isFalse);
+      expect(find.textContaining('needs a phone number'), findsNothing);
+    });
+
+    test('the store refuses a public post from a name-only account', () async {
+      Session.instance.signInForTest(phone: AccountCode.mint(), name: 'ada');
+      addTearDown(Session.instance.signOut);
+      await expectLater(
+        PublicFeedStore.instance.post('hello'),
+        throwsA(isA<PublicFeedError>()),
+      );
+    });
+
+    test('the public and server composers both gate a name-only account', () {
+      // The chokepoints, pinned so a new post path can't skip the gate.
+      final feed = File('lib/screens/public_feed_screen.dart').readAsStringSync();
+      expect(feed, contains('if (postNeedsPhone(context)) return;'));
+      final server = File('lib/screens/feed_screen.dart').readAsStringSync();
+      expect(server, contains('if (postNeedsPhone(context)) return;'));
     });
 
     test('the username is the account, so it is normalised and kept', () async {
