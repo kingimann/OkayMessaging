@@ -32690,6 +32690,125 @@ void main() {
     });
   });
 
+  group('Presence: in the chat, online, or away', () {
+    setUp(() => SharedPreferences.setMockInitialValues({}));
+
+    testWidgets('the header climbs its three rungs and climbs back down',
+        (tester) async {
+      final store = ChatStore.instance;
+      store.hydrate(const {'chats': []});
+      addTearDown(store.reset);
+      // id == phone, or _isRealPeer refuses the whole presence apparatus.
+      const contact = AppUser(
+          id: '+15550185',
+          name: 'Pia Presence',
+          avatarColor: '#111111',
+          phone: '+15550185');
+      const chat = Chat(id: 'chat_+15550185', contact: contact, messages: []);
+      store.upsert(chat);
+      final relay = RelayService.instance;
+      addTearDown(() {
+        relay.presenceFromDigits = null;
+        relay.presenceWhere = 'chat';
+      });
+
+      await tester.pumpWidget(const MaterialApp(home: ChatScreen(chat: chat)));
+      await tester.pumpAndSettle();
+      expect(find.text('last seen recently'), findsOneWidget,
+          reason: 'nothing fresh has been heard — claim nothing more');
+
+      // Their ping says they are looking at THIS conversation.
+      relay.presenceFromDigits = '15550185';
+      relay.presenceWhere = 'chat';
+      relay.presencePing.value++;
+      await tester.pump();
+      expect(find.text('in this chat'), findsOneWidget);
+
+      // The app-open pong: online, but somewhere else in the app.
+      relay.presenceWhere = 'app';
+      relay.presencePing.value++;
+      await tester.pump();
+      expect(find.text('online'), findsOneWidget);
+      expect(find.text('in this chat'), findsNothing);
+
+      // Quiet long enough and the claim is withdrawn, not left stale.
+      await tester.pump(const Duration(seconds: 36));
+      expect(find.text('last seen recently'), findsOneWidget);
+    });
+
+    test('the app answers a chat ping with an app pong — only when safe',
+        () {
+      final store = ChatStore.instance;
+      store.hydrate(const {'chats': []});
+      addTearDown(store.reset);
+      final sent = <(String, String)>[];
+      RelayService.debugPresenceSendOverride =
+          (phone, where) => sent.add((phone, where));
+      RelayService.debugForegroundOverride = () => true;
+      addTearDown(() {
+        RelayService.debugPresenceSendOverride = null;
+        RelayService.debugForegroundOverride = null;
+        RelayService.instance.openChatDigits = '';
+        AppState.shareLastSeen.value = true;
+      });
+      Chat mk(String last4, {bool isRequest = false}) => Chat(
+          id: 'chat_+1555018$last4',
+          contact: AppUser(
+              id: '+1555018$last4',
+              name: 'P$last4',
+              avatarColor: '#111111',
+              phone: '+1555018$last4'),
+          messages: const [],
+          isRequest: isRequest);
+
+      store.upsert(mk('6'));
+      RelayService.instance.maybeAnswerPresence('15550186');
+      expect(sent, [('+15550186', 'app')],
+          reason: 'a known contact opening your chat learns the app is open');
+
+      // Rate-limited: their next ping seconds later earns no second pong.
+      RelayService.instance.maybeAnswerPresence('15550186');
+      expect(sent.length, 1);
+
+      // A stranger's unaccepted request learns nothing…
+      store.upsert(mk('7', isRequest: true));
+      RelayService.instance.maybeAnswerPresence('15550187');
+      expect(sent.length, 1);
+      // …nor does a number with no conversation at all…
+      RelayService.instance.maybeAnswerPresence('15550188');
+      expect(sent.length, 1);
+      // …nor is a pong sent while THIS device is already in their chat —
+      // the periodic chat ping is saying something stronger.
+      store.upsert(mk('9'));
+      RelayService.instance.openChatDigits = '15550189';
+      RelayService.instance.maybeAnswerPresence('15550189');
+      expect(sent.length, 1);
+      RelayService.instance.openChatDigits = '';
+      // …nor with last-seen hidden…
+      AppState.shareLastSeen.value = false;
+      RelayService.instance.maybeAnswerPresence('15550189');
+      expect(sent.length, 1);
+      AppState.shareLastSeen.value = true;
+      // …nor from the background.
+      RelayService.debugForegroundOverride = () => false;
+      RelayService.instance.maybeAnswerPresence('15550189');
+      expect(sent.length, 1);
+    });
+
+    test('the wire stays honest about what a ping means', () {
+      final relay = File('lib/relay/relay_service.dart').readAsStringSync();
+      // An older build only ever pings from inside the conversation, so
+      // 'chat' is what a where-less ping honestly decodes to.
+      expect(relay, contains("payload['where'] as String? ?? 'chat'"));
+      // Only a 'chat' ping is answered — pong answering pong would loop.
+      expect(relay,
+          contains("if (presenceWhere == 'chat') maybeAnswerPresence"));
+      // ChatScreen tells the answerer which chat is on screen, both ways.
+      final cs = File('lib/screens/chat_screen.dart').readAsStringSync();
+      expect(cs, contains('RelayService.instance.openChatDigits ='));
+    });
+  });
+
   group('Admins, the spam brake, and required listings', () {
     testWidgets('an admin passes the waivable gates; the wallet holds even '
         'them', (tester) async {

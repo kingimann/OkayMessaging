@@ -3,6 +3,7 @@ import '../models/form_spec.dart';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart' show AppLifecycleState, WidgetsBinding;
 import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart' hide Session;
 
@@ -76,9 +77,58 @@ class RelayService {
     });
   }
 
-  /// Same pattern for "online" presence pings.
+  /// Same pattern for "online" presence pings. [presenceWhere] is what the
+  /// last ping said about where the sender is: 'chat' means looking at the
+  /// conversation with you (the only thing the original ping could mean, so
+  /// it is also the default a ping from an older build decodes to), 'app'
+  /// means the app is open somewhere else — the answer-pong below.
   String? presenceFromDigits;
+  String presenceWhere = 'chat';
   final ValueNotifier<int> presencePing = ValueNotifier<int>(0);
+
+  /// The 1:1 conversation on screen right now (digits, '' when none), kept
+  /// by ChatScreen. The presence answer needs it: someone already in the
+  /// peer's chat is pinging 'chat' every few seconds, and an 'app' pong on
+  /// top would demote their own header from "in this chat" to "online".
+  String openChatDigits = '';
+
+  /// Rate limit for presence answers, per peer — an answer to every ping
+  /// would double the presence traffic for nothing.
+  final Map<String, DateTime> _lastPresenceAnswer = {};
+
+  /// Tests stand in for "is the app foregrounded" — the binding's lifecycle
+  /// state is null in a test and never resumed.
+  @visibleForTesting
+  static bool Function()? debugForegroundOverride;
+
+  static bool _foregrounded() =>
+      debugForegroundOverride?.call() ??
+      WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
+
+  /// Answers a peer who just opened the conversation with this account
+  /// ('chat' ping) with an 'app' pong, so their header can say "online"
+  /// rather than nothing — but only when that is true and safe to say:
+  /// the app is actually foregrounded, this account shares its last-seen,
+  /// the peer is an accepted contact (no request, no block), and this
+  /// device is not already in their chat saying something stronger.
+  @visibleForTesting
+  void maybeAnswerPresence(String fromDigits) {
+    if (!_foregrounded()) return;
+    if (!AppState.shareLastSeen.value) return;
+    if (openChatDigits == fromDigits) return;
+    final chat = ChatStore.instance.allChats
+        .where((c) => !c.contact.isGroup && digits(c.contact.phone) == fromDigits)
+        .firstOrNull;
+    if (chat == null || chat.isRequest) return;
+    if (AppState.isBlocked(chat.contact.phone)) return;
+    final last = _lastPresenceAnswer[fromDigits];
+    final now = DateTime.now();
+    if (last != null && now.difference(last) < const Duration(seconds: 10)) {
+      return;
+    }
+    _lastPresenceAnswer[fromDigits] = now;
+    sendPresence(chat.contact.phone, where: 'app');
+  }
 
   SupabaseClient get _client => Supabase.instance.client;
 
@@ -1096,7 +1146,14 @@ class RelayService {
             final from = payload['from'] as String?;
             if (from == null || digits(from) == digits(me)) return;
             presenceFromDigits = digits(from);
+            // 'chat' is what a ping from an older build means too: those
+            // builds only ever ping from inside the conversation.
+            presenceWhere = payload['where'] as String? ?? 'chat';
             presencePing.value++;
+            // They just opened (or are sitting in) the chat with this
+            // account — answer with "the app is open here" so their header
+            // can say online instead of guessing.
+            if (presenceWhere == 'chat') maybeAnswerPresence(digits(from));
           },
         )
         .onBroadcast(
@@ -2849,9 +2906,24 @@ class RelayService {
   Future<void> sendGhostShotNotice(String contactPhone) async =>
       _ping(contactPhone, 'gshot');
 
-  /// Sends an "online" presence ping to [contactPhone]'s inbox.
-  Future<void> sendPresence(String contactPhone) async =>
-      _ping(contactPhone, 'presence');
+  /// Tests observe outgoing presence here — the real send needs a live
+  /// relay client, which the suite never has.
+  @visibleForTesting
+  static void Function(String contactPhone, String where)?
+      debugPresenceSendOverride;
+
+  /// Sends a presence ping to [contactPhone]'s inbox. [where] is 'chat'
+  /// (looking at the conversation with them — what ChatScreen sends) or
+  /// 'app' (open somewhere else — the answer-pong). Older builds ignore the
+  /// field and read either as "online", which both honestly are.
+  Future<void> sendPresence(String contactPhone, {String where = 'chat'}) {
+    final observe = debugPresenceSendOverride;
+    if (observe != null) {
+      observe(contactPhone, where);
+      return Future.value();
+    }
+    return _ping(contactPhone, 'presence', extra: {'where': where});
+  }
 
   /// Bumped when the far end says they screenshotted the conversation;
   /// [screenshotFromDigits] is whose. Same shape as the typing ping, because
@@ -2868,15 +2940,16 @@ class RelayService {
   final ValueNotifier<int> ghostShotPing = ValueNotifier<int>(0);
   String ghostShotFromDigits = '';
 
-  Future<void> _ping(String contactPhone, String event) async {
+  Future<void> _ping(String contactPhone, String event,
+      {Map<String, dynamic> extra = const {}}) async {
     if (!_initialized || digits(contactPhone).isEmpty) return;
     final me = Session.instance.user.value;
     if (me == null) return;
     final name = inboxChannel(contactPhone);
     final channel =
         _sendChannels.putIfAbsent(name, () => _client.channel(name));
-    await channel
-        .sendBroadcastMessage(event: event, payload: {'from': me.phone});
+    await channel.sendBroadcastMessage(
+        event: event, payload: {'from': me.phone, ...extra});
   }
 
   /// Broadcasts an outgoing [message] to [contactPhone]'s inbox over REST (the

@@ -124,7 +124,10 @@ class _ChatScreenState extends State<ChatScreen> {
 
   /// Presence: whether the peer is currently online, plus timers to broadcast
   /// our own presence and to revert the peer to offline after a quiet period.
+  /// [_peerWhere] is what their freshest ping said: 'chat' means they are in
+  /// THIS conversation right now, 'app' means the app is open elsewhere.
   bool _peerOnline = false;
+  String _peerWhere = 'chat';
   Timer? _presenceSend;
   Timer? _presenceRevert;
 
@@ -170,6 +173,13 @@ class _ChatScreenState extends State<ChatScreen> {
     // A push for the conversation you are reading should not draw a banner
     // over the message the app has already put on screen.
     PushService.instance.setOpenChat(widget.chat.contact.phone);
+    // The presence answer-pong reads this: while THIS chat is on screen, an
+    // incoming ping from its contact needs no "online elsewhere" answer —
+    // the periodic chat ping above it is already saying something stronger.
+    if (!widget.chat.contact.isGroup) {
+      RelayService.instance.openChatDigits =
+          RelayService.digits(widget.chat.contact.phone);
+    }
     // When opened from search, jump to the matched message once it's laid out.
     if (widget.initialMessageId != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -178,11 +188,16 @@ class _ChatScreenState extends State<ChatScreen> {
             () => _jumpToMessage(widget.initialMessageId!));
       });
     }
+    // Listening costs nothing and needs no relay — the notifier is local.
+    // Ungated so the header logic is the same code (and the same tests) with
+    // and without a configured relay; only the SEND side below needs one.
+    if (_isRealPeer(widget.chat.contact)) {
+      RelayService.instance.presencePing.addListener(_onPresencePing);
+    }
     if (RelayConfig.isEnabled) {
       RelayService.instance.typingPing.addListener(_onTypingPing);
       if (_isRealPeer(widget.chat.contact)) {
         _store.addListener(_maybeSendReadReceipt);
-        RelayService.instance.presencePing.addListener(_onPresencePing);
         // Announce we're here now, then keep announcing while the chat is open
         // (unless the user has hidden their online status).
         _broadcastPresence();
@@ -322,7 +337,13 @@ class _ChatScreenState extends State<ChatScreen> {
       return;
     }
     if (!mounted) return;
-    if (!_peerOnline) setState(() => _peerOnline = true);
+    final where = RelayService.instance.presenceWhere;
+    if (!_peerOnline || _peerWhere != where) {
+      setState(() {
+        _peerOnline = true;
+        _peerWhere = where;
+      });
+    }
     _presenceRevert?.cancel();
     _presenceRevert = Timer(const Duration(seconds: 35), () {
       if (mounted) setState(() => _peerOnline = false);
@@ -355,6 +376,10 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   void dispose() {
     PushService.instance.setOpenChat(null);
+    if (RelayService.instance.openChatDigits ==
+        RelayService.digits(widget.chat.contact.phone)) {
+      RelayService.instance.openChatDigits = '';
+    }
     _store.removeListener(_refreshSuggestions);
     _store.removeListener(_maybeFollowNewMessage);
     ScreenshotWatch.instance.taken.removeListener(_onScreenshot);
@@ -362,9 +387,11 @@ class _ChatScreenState extends State<ChatScreen> {
     RelayService.instance.screenshotPing.removeListener(_onRemoteScreenshot);
     RelayService.instance.recordingPing.removeListener(_onRemoteRecording);
     RelayService.instance.ghostShotPing.removeListener(_onRemoteGhostShot);
+    if (_isRealPeer(widget.chat.contact)) {
+      RelayService.instance.presencePing.removeListener(_onPresencePing);
+    }
     if (RelayConfig.isEnabled) {
       RelayService.instance.typingPing.removeListener(_onTypingPing);
-      RelayService.instance.presencePing.removeListener(_onPresencePing);
       _store.removeListener(_maybeSendReadReceipt);
     }
     _typingClear?.cancel();
@@ -3110,10 +3137,17 @@ class _ChatScreenState extends State<ChatScreen> {
                                       )
                                     : Text(
                                         () {
-                                          final presence = (contact.isOnline ||
-                                                  _peerOnline)
-                                              ? 'online'
-                                              : 'last seen recently';
+                                          // Three honest rungs: their ping
+                                          // said they are in THIS chat, or
+                                          // the app answered from elsewhere
+                                          // (online), or nothing fresh.
+                                          final presence = _peerOnline &&
+                                                  _peerWhere == 'chat'
+                                              ? 'in this chat'
+                                              : (contact.isOnline ||
+                                                      _peerOnline)
+                                                  ? 'online'
+                                                  : 'last seen recently';
                                           // A business says what it is where
                                           // you're actually talking to it.
                                           if (!contact.isBusiness) {
