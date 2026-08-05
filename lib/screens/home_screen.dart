@@ -202,9 +202,12 @@ class _HomeScreenState extends State<HomeScreen>
               ListenableBuilder(
                 listenable: ChatStore.instance,
                 builder: (context, _) {
-                  final unread = ChatStore.instance.chats
-                      .where((c) => c.unreadCount > 0)
-                      .toList();
+                  // "All" means all: the Marketplace folder's unreads too,
+                  // or the button clears the list and leaves the badge lit.
+                  final unread = [
+                    ...ChatStore.instance.chats,
+                    ...ChatStore.instance.marketplaceChats,
+                  ].where((c) => c.unreadCount > 0).toList();
                   if (unread.isEmpty) return const SizedBox.shrink();
                   return IconButton(
                     icon: const Icon(Icons.done_all),
@@ -261,8 +264,13 @@ class _HomeScreenState extends State<HomeScreen>
             missedCalls: CallLog.instance.newMissedCount,
             activityCount: CallLog.instance.newMissedCount +
                 FeedStore.instance.unseenNotificationCount +
-                ChatStore.instance.chats
-                    .fold(0, (n, c) => n + (c.unreadCount > 0 ? 1 : 0)),
+                // Both shelves: a buyer waiting in the Marketplace folder
+                // is still unread news the tab is showing (the folder row
+                // wears its own badge there).
+                [
+                  ...ChatStore.instance.chats,
+                  ...ChatStore.instance.marketplaceChats,
+                ].fold(0, (n, c) => n + (c.unreadCount > 0 ? 1 : 0)),
             onSelect: _onSelectTab,
           ),
         ),

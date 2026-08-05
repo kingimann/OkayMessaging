@@ -202,9 +202,12 @@ class _ChatScreenState extends State<ChatScreen> {
       RelayService.instance.typingPing.addListener(_onTypingPing);
       if (_isRealPeer(widget.chat.contact)) {
         _store.addListener(_maybeSendReadReceipt);
-        // Announce we're here now, then keep announcing while the chat is open
-        // (unless the user has hidden their online status).
-        _broadcastPresence();
+        // Announce we're here now, then keep announcing while the chat is
+        // open (unless the user has hidden their online status). The first
+        // announce waits a frame: _broadcastPresence asks the route whether
+        // it is current, and ModalRoute.of cannot be asked from initState.
+        WidgetsBinding.instance
+            .addPostFrameCallback((_) => _broadcastPresence());
         _presenceSend = Timer.periodic(
           const Duration(seconds: 15),
           (_) => _broadcastPresence(),
@@ -327,6 +330,14 @@ class _ChatScreenState extends State<ChatScreen> {
 
   void _broadcastPresence() {
     if (!AppState.shareLastSeen.value) return;
+    // A chat buried under another route is NOT being looked at, and its
+    // ping would say it is — the same reason a screenshot of the chat list
+    // isn't announced as one of the conversation. The check also self-heals
+    // openChatDigits after a covering chat's dispose cleared it, so the
+    // answer-pong logic never suppresses (or answers) for the wrong peer.
+    if (!mounted || !(ModalRoute.of(context)?.isCurrent ?? true)) return;
+    RelayService.instance.openChatDigits =
+        RelayService.digits(widget.chat.contact.phone);
     // Presence is "I am here, looking at our chat" — exactly the thing an
     // unaccepted request must not learn. Checked live on every tick.
     if (_store.chatById(_chatId)?.isRequest ?? false) return;

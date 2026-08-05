@@ -32692,6 +32692,20 @@ void main() {
       expect(relay, contains("if (message.marketplace) 'marketplace': true"));
       expect(relay, contains("marketplace: content['marketplace'] == true"));
     });
+
+    test('a waiting buyer still lights the tab badge, and Mark all read '
+        'means all', () {
+      // Splitting marketplace chats out of `chats` silently dropped their
+      // unreads from the nav badge — a buyer's message stopped being news.
+      // Both unread sites must read both shelves.
+      final src = File('lib/screens/home_screen.dart').readAsStringSync();
+      expect(
+          RegExp(r'marketplaceChats')
+              .allMatches(src)
+              .length,
+          greaterThanOrEqualTo(2),
+          reason: 'the tab badge and Mark-all-read each need both shelves');
+    });
   });
 
   group('Presence: in the chat, online, or away', () {
@@ -32810,6 +32824,12 @@ void main() {
       // ChatScreen tells the answerer which chat is on screen, both ways.
       final cs = File('lib/screens/chat_screen.dart').readAsStringSync();
       expect(cs, contains('RelayService.instance.openChatDigits ='));
+      // A chat buried under another route must not claim "in this chat":
+      // the ping pauses while covered, and resuming self-heals the
+      // open-chat marker the covering chat's dispose cleared.
+      expect(cs,
+          contains("!(ModalRoute.of(context)?.isCurrent ?? true)) return;"),
+          reason: 'the presence broadcast must check route currency');
     });
   });
 
