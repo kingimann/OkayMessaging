@@ -215,6 +215,95 @@ do $$ begin
   raise notice '  ok   the view tally cannot be written directly';
 end $$;
 
+-- Follows: the social graph keeps its phones to itself. The definer
+-- functions are the only doors; both ends of an edge are stored by phone
+-- so a rename never orphans it; the windows answer usernames only.
+reset role;
+insert into public.usernames (phone, username, name)
+  values ('15550002222','bob_dir','Bob') on conflict (phone) do update
+  set username = excluded.username, name = excluded.name;
+set role authenticated;
+select pg_temp.as_user('15550001111');
+select pg_temp.expect_ok(
+  $$select public.public_follow('bob_dir')$$, 'a follow can be made');
+select public.public_follow('bob_dir'); -- twice: idempotent, not doubled
+select public.public_follow('alice_dir'); -- yourself: refused silently
+select public.public_follow('nobody_dir'); -- unknown handle: silent no-op
+do $$
+declare fs bigint; fg bigint;
+begin
+  select followers, following into fs, fg
+    from public.public_follow_counts('bob_dir');
+  if fs <> 1 then
+    raise exception 'SECURITY CHECK FAILED: bob has % follower(s), not 1', fs;
+  end if;
+  select followers, following into fs, fg
+    from public.public_follow_counts('alice_dir');
+  if fg <> 1 or fs <> 0 then
+    raise exception 'SECURITY CHECK FAILED: alice follows %, followed by %', fg, fs;
+  end if;
+  raise notice '  ok   follow counts once: no doubles, no self, no ghosts';
+end $$;
+do $$ begin
+  if (select username from public.public_followers('bob_dir') limit 1)
+      is distinct from 'alice_dir' then
+    raise exception 'SECURITY CHECK FAILED: the follower list is wrong';
+  end if;
+  if (select username from public.public_following('alice_dir') limit 1)
+      is distinct from 'bob_dir' then
+    raise exception 'SECURITY CHECK FAILED: the following list is wrong';
+  end if;
+  raise notice '  ok   the follow windows answer usernames';
+end $$;
+select pg_temp.expect_fail(
+  $$select follower_phone from public.public_followers('bob_dir')$$,
+  'the follower window has no phone column');
+select pg_temp.expect_fail(
+  $$select * from public.public_follows$$,
+  'the follows table itself is closed to clients');
+-- A rename survives: the edge is phones underneath.
+reset role;
+update public.usernames set username = 'bob_renamed'
+ where phone = '15550002222';
+set role authenticated;
+do $$
+declare fs bigint; fg bigint;
+begin
+  select followers, following into fs, fg
+    from public.public_follow_counts('bob_renamed');
+  if fs <> 1 then
+    raise exception 'SECURITY CHECK FAILED: the follow was lost to a rename';
+  end if;
+  raise notice '  ok   a follow survives the followed account renaming';
+end $$;
+-- A hidden follower leaves the list but not the count-keeping edge design:
+-- the WINDOW filters, same as who-liked.
+reset role;
+update public.usernames set hidden = true where phone = '15550001111';
+set role authenticated;
+do $$ begin
+  if (select count(*) from public.public_followers('bob_renamed')) <> 0 then
+    raise exception 'SECURITY CHECK FAILED: a hidden account is still listed as a follower';
+  end if;
+  raise notice '  ok   a hidden account leaves the follower list';
+end $$;
+reset role;
+update public.usernames set hidden = false where phone = '15550001111';
+update public.usernames set username = 'bob_dir' where phone = '15550002222';
+set role authenticated;
+select pg_temp.expect_ok(
+  $$select public.public_unfollow('bob_dir')$$, 'an unfollow can be made');
+do $$
+declare fs bigint; fg bigint;
+begin
+  select followers, following into fs, fg
+    from public.public_follow_counts('bob_dir');
+  if fs <> 0 then
+    raise exception 'SECURITY CHECK FAILED: the unfollow did not take';
+  end if;
+  raise notice '  ok   an unfollow takes';
+end $$;
+
 -- The card-attach ledger is the waiting period: a row a client could read,
 -- write or delete is a hold a thief could inspect or skip.
 select pg_temp.expect_fail(

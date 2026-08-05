@@ -1,8 +1,13 @@
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Who the user follows, by username (no '@'). Kept on this device — the
-/// social graph, like everything else here, stores nothing on a server.
+import 'public_feed_store.dart';
+
+/// Who the user follows, by username (no '@'). This device's list is the
+/// source of truth for YOUR follows — it filters your timeline and works
+/// numberless. Since 2026-08-05 (the owner's call) each change is ALSO
+/// recorded on the server graph, best-effort, which is what makes follower
+/// and following counts real on everybody's profile.
 class FollowStore extends ChangeNotifier {
   FollowStore._();
   static final FollowStore instance = FollowStore._();
@@ -39,6 +44,9 @@ class FollowStore extends ChangeNotifier {
     if (nowFollowing) _following.add(u);
     _save();
     notifyListeners();
+    // Fire-and-forget: the local change already took, and the server edge
+    // is the tally's business, not the button's.
+    PublicFeedStore.instance.serverSetFollow(u, nowFollowing);
     return nowFollowing;
   }
 

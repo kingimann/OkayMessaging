@@ -653,6 +653,10 @@ class PublicFeedStore extends ChangeNotifier {
     _error = null;
     _reachedEnd = false;
     notifyListeners();
+    // The follows made before the server graph existed get recorded once
+    // per run, so the counts don't start at zero for everybody who was
+    // already following people. Unawaited: the feed is what was asked for.
+    pushLocalFollows(FollowStore.instance.following);
     try {
       final fetched = await _fetch(limit: limit, before: null);
       _posts = fetched;
@@ -884,6 +888,98 @@ class PublicFeedStore extends ChangeNotifier {
       ]..removeWhere((e) => e.$1.isEmpty);
     } catch (_) {
       return null;
+    }
+  }
+
+  // --- Follows: the server social graph (2026-08-05, the owner's call) ---
+  // Best-effort BESIDE FollowStore's local list, never instead of it: the
+  // local list is what filters your timeline and works numberless; the
+  // server edge is what makes the numbers real on everybody's profile.
+
+  @visibleForTesting
+  static Future<void> Function(String username, bool follow)?
+      debugFollowOverride;
+  @visibleForTesting
+  static Future<(int, int)?> Function(String username)?
+      debugFollowCountsOverride;
+  @visibleForTesting
+  static Future<List<(String, String)>?> Function(String username)?
+      debugFollowersOverride;
+  @visibleForTesting
+  static Future<List<(String, String)>?> Function(String username)?
+      debugFollowingOverride;
+
+  /// Records (or removes) the follow on the server. Silent on failure —
+  /// no session, function not yet run, offline — because the local list
+  /// already took the change and is the one the user watches.
+  Future<void> serverSetFollow(String username, bool follow) async {
+    final override = debugFollowOverride;
+    if (override != null) return override(username, follow);
+    final client = _client;
+    if (client == null || username.trim().isEmpty) return;
+    try {
+      await client.rpc(follow ? 'public_follow' : 'public_unfollow',
+          params: {'u': username.trim()});
+    } catch (_) {}
+  }
+
+  /// (followers, following) for anybody, or null when the server can't say
+  /// — which the UI shows as absence, never as zero.
+  Future<(int, int)?> followCounts(String username) async {
+    final override = debugFollowCountsOverride;
+    if (override != null) return override(username);
+    final client = _client;
+    if (client == null) return null;
+    try {
+      final rows = await client
+          .rpc('public_follow_counts', params: {'u': username.trim()});
+      final row = (rows as List<dynamic>).firstOrNull;
+      if (row is! Map) return null;
+      return (
+        (row['followers'] as num?)?.toInt() ?? 0,
+        (row['following'] as num?)?.toInt() ?? 0,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<List<(String, String)>?> _followWindow(
+      String fn, String username) async {
+    final client = _client;
+    if (client == null) return null;
+    try {
+      final rows = await client.rpc(fn, params: {'u': username.trim()});
+      return [
+        for (final r in (rows as List<dynamic>))
+          (
+            (r as Map)['username'] as String? ?? '',
+            r['name'] as String? ?? '',
+          )
+      ]..removeWhere((e) => e.$1.isEmpty);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Who follows them / who they follow — usernames only, like the likers
+  /// window, and null when unavailable.
+  Future<List<(String, String)>?> followersOf(String username) =>
+      debugFollowersOverride?.call(username) ??
+      _followWindow('public_followers', username);
+  Future<List<(String, String)>?> followingOf(String username) =>
+      debugFollowingOverride?.call(username) ??
+      _followWindow('public_following', username);
+
+  /// One push per run: the follows made before the server graph existed
+  /// (or while offline) get recorded, so the counts don't start from zero
+  /// for everybody who was already following people.
+  bool _followsPushed = false;
+  Future<void> pushLocalFollows(Iterable<String> usernames) async {
+    if (_followsPushed) return;
+    _followsPushed = true;
+    for (final u in usernames) {
+      await serverSetFollow(u, true);
     }
   }
 
@@ -1696,6 +1792,11 @@ class PublicFeedStore extends ChangeNotifier {
     debugRepostersOverride = null;
     debugLikedPostsOverride = null;
     debugViewedOverride = null;
+    debugFollowOverride = null;
+    debugFollowCountsOverride = null;
+    debugFollowersOverride = null;
+    debugFollowingOverride = null;
+    _followsPushed = false;
     _viewedReported.clear();
     _lastAuthoredAt = null;
     _filter = FeedFilter.forYou;

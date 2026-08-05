@@ -18339,11 +18339,14 @@ void main() {
       expect(find.text('3'), findsWidgets);
       expect(find.byTooltip('Posts'), findsWidgets);
 
-      // No follower count anywhere. This app knows who YOU follow, on your own
-      // device; it does not know who follows anybody, and there is no table
-      // that would say — so a number here could only be invented.
-      expect(find.textContaining('follower'), findsNothing);
-      expect(find.textContaining('Follower'), findsNothing);
+      // Followers exist now — the owner's call (2026-08-05): a server
+      // graph was BUILT for them (public_follows, phones inside and
+      // usernames out), so the number is real rather than invented. What
+      // this pin now holds is the honesty rule that replaced the absence:
+      // with no server answer in this test, the stat is a dash, never a
+      // zero the app cannot know.
+      expect(find.textContaining('Follower'), findsOneWidget);
+      expect(find.text('—'), findsWidgets);
 
       await t.tap(find.byTooltip('Replies'));
       await t.pumpAndSettle();
@@ -33164,6 +33167,94 @@ void main() {
       // Nothing invented for nobody.
       expect(feed.listingsBySeller(''), isEmpty);
       expect(feed.listingsBySeller('you'), isEmpty);
+    });
+
+    testWidgets('every profile wears real follower numbers, or honest '
+        'absence', (tester) async {
+      final store = PublicFeedStore.instance;
+      store.resetForTest();
+      addTearDown(store.resetForTest);
+      PublicFeedStore.debugProfileOverride = (u) async => [];
+      PublicFeedStore.debugFollowCountsOverride = (u) async => (42, 7);
+      PublicFeedStore.debugFollowersOverride = (u) async => [
+            ('grace', 'Grace Hopper'),
+          ];
+      await tester.pumpWidget(const MaterialApp(
+          home: PublicProfileScreen(username: 'sam', name: 'Sam')));
+      await tester.pumpAndSettle();
+      expect(find.text('42'), findsOneWidget);
+      expect(find.text('Followers'), findsOneWidget);
+      expect(find.text('7'), findsOneWidget);
+      expect(find.text('Following'), findsOneWidget);
+
+      // The list behind the number: usernames only, each row a door.
+      await tester.tap(find.text('Followers'));
+      await tester.pumpAndSettle();
+      expect(find.text('Grace Hopper'), findsOneWidget);
+      expect(find.text('@grace'), findsOneWidget);
+
+      // No server answer: absence, never zero — a profile must not say
+      // "0 followers" about somebody whose followers it cannot count.
+      // (The empty pump in between: same widget type at the same slot
+      // keeps its State, and Pat would inherit Sam's counts.)
+      store.resetForTest();
+      PublicFeedStore.debugProfileOverride = (u) async => [];
+      await tester.pumpWidget(const SizedBox());
+      await tester.pumpWidget(const MaterialApp(
+          home: PublicProfileScreen(username: 'pat', name: 'Pat')));
+      await tester.pumpAndSettle();
+      // Followers and Following both dashed; the lone 0 on screen is the
+      // POSTS count, which really is zero and really is known.
+      expect(find.text('—'), findsNWidgets(2));
+    });
+
+    test('a follow toggle records the edge, and old follows push up once',
+        () async {
+      final follows = FollowStore.instance;
+      follows.resetForTest();
+      addTearDown(follows.resetForTest);
+      addTearDown(PublicFeedStore.instance.resetForTest);
+      final sent = <(String, bool)>[];
+      PublicFeedStore.debugFollowOverride =
+          (u, f) async => sent.add((u, f));
+
+      follows.toggle('Grace'); // cleaned to lowercase on the way
+      follows.toggle('grace');
+      expect(sent, [('grace', true), ('grace', false)]);
+
+      // The follows made before the graph existed go up once per run.
+      sent.clear();
+      follows.toggle('ada');
+      follows.toggle('sam');
+      sent.clear();
+      await PublicFeedStore.instance.pushLocalFollows(follows.following);
+      expect(sent.map((e) => e.$1).toSet(), {'ada', 'sam'});
+      await PublicFeedStore.instance.pushLocalFollows(follows.following);
+      expect(sent.length, 2, reason: 'the push is once per run, not a loop');
+    });
+
+    test('the follows table keeps its phones to itself, in executable SQL',
+        () {
+      final sql = File('docs/public_feed.sql').readAsStringSync();
+      expect(sql, contains('create table if not exists public.public_follows'));
+      // No direct grants at all: the definer functions are the only doors.
+      expect(sql,
+          contains('revoke all on table public.public_follows'));
+      for (final fn in [
+        'public_follow',
+        'public_unfollow',
+        'public_follow_counts',
+        'public_followers',
+        'public_following',
+      ]) {
+        expect(sql, contains('function public.$fn('),
+            reason: '$fn is part of the graph\'s only door');
+      }
+      // And the throwaway-Postgres run asserts the guarantees hold.
+      final check = File('tool/check_sql.sh').readAsStringSync();
+      expect(check, contains('a follow survives the followed account renaming'));
+      expect(check, contains('the follower window has no phone column'));
+      expect(check, contains('the follows table itself is closed to clients'));
     });
 
     testWidgets('somebody else\'s profile offers Message beside Follow',

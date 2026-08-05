@@ -599,3 +599,131 @@ as $$
 $$;
 
 grant execute on function public.public_post_viewed(text) to anon, authenticated;
+
+-- ---------------------------------------------------------------------------
+-- 6. Follows — the one social-graph table (2026-08-05, the owner's call:
+--    follower and following counts should be real for everybody).
+--
+-- Same privacy shape as likes: phones inside, usernames out. Both ends of
+-- an edge are stored by PHONE — the follower's vouched for by the JWT, the
+-- followed resolved from their handle at follow time INSIDE a definer
+-- function, so a later username change never orphans the edge and the
+-- handle→phone mapping never crosses the wire. There are NO direct grants
+-- on the table at all: the functions below are the only doors, and none of
+-- them ever returns a phone number.
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.public_follows (
+  follower_phone text not null,
+  followed_phone text not null,
+  created_at     timestamptz not null default now(),
+  primary key (follower_phone, followed_phone)
+);
+
+alter table public.public_follows enable row level security;
+revoke all on table public.public_follows from anon, authenticated;
+
+-- Follow by handle. Idempotent; a self-follow or an unknown handle is a
+-- silent no-op — the client treats the server graph as best-effort beside
+-- its local list, so there is nothing useful to throw at it.
+create or replace function public.public_follow(u text)
+returns void
+language plpgsql
+volatile
+security definer
+set search_path = public
+as $$
+declare
+  me   text := (auth.jwt() ->> 'phone');
+  them text;
+begin
+  if me is null or me = '' then return; end if;
+  select phone into them from public.usernames
+   where lower(username) = lower(u) limit 1;
+  if them is null or them = me then return; end if;
+  insert into public.public_follows (follower_phone, followed_phone)
+  values (me, them)
+  on conflict do nothing;
+end;
+$$;
+
+create or replace function public.public_unfollow(u text)
+returns void
+language plpgsql
+volatile
+security definer
+set search_path = public
+as $$
+declare
+  me   text := (auth.jwt() ->> 'phone');
+  them text;
+begin
+  if me is null or me = '' then return; end if;
+  select phone into them from public.usernames
+   where lower(username) = lower(u) limit 1;
+  if them is null then return; end if;
+  delete from public.public_follows
+   where follower_phone = me and followed_phone = them;
+end;
+$$;
+
+-- Both numbers in one round trip, for the profile header.
+create or replace function public.public_follow_counts(u text)
+returns table(followers bigint, following bigint)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select
+    (select count(*)
+       from public.public_follows f
+       join public.usernames t on t.phone = f.followed_phone
+      where lower(t.username) = lower(u)),
+    (select count(*)
+       from public.public_follows f
+       join public.usernames s on s.phone = f.follower_phone
+      where lower(s.username) = lower(u));
+$$;
+
+-- Who follows them / who they follow — usernames only, hidden accounts
+-- filtered, bounded like the likers window.
+create or replace function public.public_followers(u text)
+returns table(username text, name text)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select s.username, coalesce(s.name, '')
+    from public.public_follows f
+    join public.usernames t on t.phone = f.followed_phone
+    join public.usernames s on s.phone = f.follower_phone
+   where lower(t.username) = lower(u)
+     and not coalesce(s.hidden, false)
+   order by f.created_at desc
+   limit 100;
+$$;
+
+create or replace function public.public_following(u text)
+returns table(username text, name text)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select t.username, coalesce(t.name, '')
+    from public.public_follows f
+    join public.usernames s on s.phone = f.follower_phone
+    join public.usernames t on t.phone = f.followed_phone
+   where lower(s.username) = lower(u)
+     and not coalesce(t.hidden, false)
+   order by f.created_at desc
+   limit 100;
+$$;
+
+grant execute on function public.public_follow(text) to authenticated;
+grant execute on function public.public_unfollow(text) to authenticated;
+grant execute on function public.public_follow_counts(text) to anon, authenticated;
+grant execute on function public.public_followers(text) to anon, authenticated;
+grant execute on function public.public_following(text) to anon, authenticated;

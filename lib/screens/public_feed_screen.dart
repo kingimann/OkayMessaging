@@ -651,8 +651,16 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
     _load();
   }
 
+  /// (followers, following) from the server graph; null until it answers,
+  /// and stays null when it can't — shown as absence, never as zero.
+  (int, int)? _followCounts;
+
   Future<void> _load() async {
     setState(() => _error = null);
+    // Alongside the posts, not after them — the header shouldn't wait.
+    PublicFeedStore.instance.followCounts(widget.username).then((c) {
+      if (mounted && c != null) setState(() => _followCounts = c);
+    });
     try {
       final posts = await PublicFeedStore.instance.postsBy(widget.username);
       if (!mounted) return;
@@ -741,6 +749,7 @@ class _PublicProfileScreenState extends State<PublicProfileScreen> {
                   known: _known,
                   isMe: _isMe,
                   postCount: posts?.length,
+                  followCounts: _followCounts,
                 ),
               ),
               // The verification chips used to sit here. They are three
@@ -1143,6 +1152,10 @@ class _Header extends StatelessWidget {
   final bool isMe;
   final int? postCount;
 
+  /// (followers, following) from the server graph; null when it hasn't
+  /// answered (or can't), which renders as absence rather than zero.
+  final (int, int)? followCounts;
+
   const _Header({
     required this.username,
     required this.displayName,
@@ -1150,7 +1163,58 @@ class _Header extends StatelessWidget {
     required this.known,
     required this.isMe,
     required this.postCount,
+    required this.followCounts,
   });
+
+  /// Who follows them / who they follow, the same sheet shape the likers
+  /// window uses: usernames only, each row a door to that profile.
+  Future<void> _showFollowList(BuildContext context,
+      {required bool followers}) async {
+    final list = followers
+        ? await PublicFeedStore.instance.followersOf(username)
+        : await PublicFeedStore.instance.followingOf(username);
+    if (!context.mounted) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+              child: Text(followers ? 'FOLLOWERS' : 'FOLLOWING',
+                  style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.6,
+                      color: AppColors.subtle(sheetContext))),
+            ),
+            if (list == null || list.isEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 4, 20, 16),
+                child: Text(
+                    list == null
+                        ? 'The server couldn\'t answer right now.'
+                        : 'Nobody yet.',
+                    style: TextStyle(color: AppColors.subtle(sheetContext))),
+              )
+            else
+              for (final (handle, name) in list)
+                ListTile(
+                  leading: const Icon(Icons.person_outline, size: 20),
+                  title: Text(name.isEmpty ? '@$handle' : name),
+                  subtitle: name.isEmpty ? null : Text('@$handle'),
+                  onTap: () {
+                    Navigator.of(sheetContext).pop();
+                    openPublicProfile(context, handle, name: name);
+                  },
+                ),
+          ],
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1285,23 +1349,42 @@ class _Header extends StatelessWidget {
               spacing: 20,
               runSpacing: 10,
               children: [
-                // Real, from the server, and the only count that means
-                // anything on somebody else's profile.
                 ProfileStat(
                     value: postCount == null ? '—' : '$postCount',
                     label: postCount == 1 ? 'Post' : 'Posts',
                     onTap: null),
-                if (isMe) ...[
-                  ProfileStat(
-                      value: '${FollowStore.instance.followingCount}',
-                      label: 'Following',
-                      onTap: () => Navigator.of(context).push(MaterialPageRoute(
-                          builder: (_) => const PeopleScreen()))),
+                // Real numbers for EVERYBODY, from the server graph (the
+                // owner's call, 2026-08-05). Absent — not zero — until the
+                // server answers; on your own profile the following count
+                // falls back to the local list, which is never wrong about
+                // your own follows.
+                ProfileStat(
+                    value: followCounts == null
+                        ? '—'
+                        : '${followCounts!.$1}',
+                    label: followCounts?.$1 == 1 ? 'Follower' : 'Followers',
+                    onTap: followCounts == null
+                        ? null
+                        : () => _showFollowList(context, followers: true)),
+                ProfileStat(
+                    value: followCounts != null
+                        ? '${followCounts!.$2}'
+                        : (isMe
+                            ? '${FollowStore.instance.followingCount}'
+                            : '—'),
+                    label: 'Following',
+                    onTap: followCounts != null
+                        ? () => _showFollowList(context, followers: false)
+                        : (isMe
+                            ? () => Navigator.of(context).push(
+                                MaterialPageRoute(
+                                    builder: (_) => const PeopleScreen()))
+                            : null)),
+                if (isMe)
                   ProfileStat(
                       value: '${CommunityStore.instance.communities.length}',
                       label: 'Servers',
                       onTap: null),
-                ],
               ],
             ),
           ),
