@@ -147,6 +147,8 @@ import 'package:okay_messaging/util/random_identity.dart';
 import 'package:okay_messaging/state/file_transfer.dart';
 import 'package:okay_messaging/models/status_update.dart';
 import 'package:okay_messaging/payments/payment_service.dart';
+import 'package:okay_messaging/payments/earnings.dart';
+import 'package:okay_messaging/screens/earnings_screen.dart';
 import 'package:okay_messaging/payments/connect_webview.dart';
 import 'package:okay_messaging/payments/connect_webview_stub.dart' as stub;
 import 'package:okay_messaging/payments/payment_amount_sheet.dart';
@@ -32236,6 +32238,166 @@ void main() {
         expect(File(f).readAsStringSync(), contains('FeedStatBlock('),
             reason: '$f must use the shared block');
       }
+    });
+  });
+
+  group('Earnings', () {
+    setUp(() => SharedPreferences.setMockInitialValues({}));
+
+    test('money labels drop the cents only when there are none', () {
+      expect(moneyLabel(0), '\$0');
+      expect(moneyLabel(500), '\$5');
+      expect(moneyLabel(1250), '\$12.50');
+      expect(moneyLabel(120000), '\$1200');
+    });
+
+    test('the tally counts only money that honestly came in', () {
+      FeedPost server({
+        required String id,
+        required String author,
+        int sparkCents = 0,
+        int sparks = 0,
+        int? priceCents,
+        bool sold = false,
+      }) =>
+          FeedPost(
+            id: id,
+            communityId: 'c1',
+            authorName: author,
+            authorUsername: author,
+            time: DateTime(2026, 1, 1),
+            text: 'p',
+            sparkCents: sparkCents,
+            sparks: sparks,
+            priceCents: priceCents,
+            listingSold: sold,
+          );
+      PaymentRecord pay({
+        bool sent = false,
+        String status = 'succeeded',
+        String kind = 'transfer',
+        String note = '',
+        int cents = 1000,
+      }) =>
+          PaymentRecord(
+            id: 'r',
+            sent: sent,
+            otherPhone: '1',
+            amountCents: cents,
+            feeCents: 0,
+            currency: 'CAD',
+            status: status,
+            kind: kind,
+            note: note,
+          );
+
+      final e = computeEarnings(
+        myUsername: 'me',
+        serverPosts: [
+          server(id: 'a', author: 'you', sparkCents: 300, sparks: 2),
+          server(id: 'b', author: 'ME', sparkCents: 200, sparks: 1),
+          // Somebody else's sparks are their earnings, not mine.
+          server(id: 'c', author: 'grace', sparkCents: 900, sparks: 3),
+          server(id: 'd', author: 'me', priceCents: 2000, sold: true),
+          // Unsold asks nothing has been earned from; free is free.
+          server(id: 'e', author: 'me', priceCents: 5000),
+          server(id: 'f', author: 'me', priceCents: 0, sold: true),
+          server(id: 'g', author: 'grace', priceCents: 700, sold: true),
+        ],
+        publicPosts: [
+          PublicPost(
+              id: 'p1',
+              authorUsername: 'me',
+              body: 'x',
+              createdAt: DateTime(2026, 1, 1),
+              sparkCount: 1,
+              sparkCents: 150),
+          PublicPost(
+              id: 'p2',
+              authorUsername: 'grace',
+              body: 'x',
+              createdAt: DateTime(2026, 1, 1),
+              sparkCents: 400),
+        ],
+        history: [
+          pay(cents: 1500),
+          pay(cents: 800, sent: true), // money out, not in
+          pay(cents: 600, status: 'pending'), // hasn't moved yet
+          // A spark rides a transfer — already counted on the post, so the
+          // payments line must leave it out or the dollar counts twice.
+          pay(cents: 300, note: 'Spark for your post'),
+          pay(cents: 2500, kind: 'payout'), // my own money moving to my bank
+        ],
+      );
+
+      expect(e.paymentsIncluded, isTrue);
+      expect(e.lines, hasLength(3));
+      final sparks = e.lines[0], sales = e.lines[1], payments = e.lines[2];
+      expect(sparks.cents, 300 + 200 + 150);
+      expect(sparks.count, 2 + 1 + 1);
+      expect(sales.cents, 2000);
+      expect(sales.count, 1);
+      expect(payments.cents, 1500);
+      expect(payments.count, 1);
+      expect(e.totalCents, 650 + 2000 + 1500);
+
+      // No wallet answer: the payments line is ABSENT, not a zero that
+      // reads as "nobody ever paid you".
+      final offline = computeEarnings(
+          myUsername: 'me', serverPosts: const [], publicPosts: const []);
+      expect(offline.paymentsIncluded, isFalse);
+      expect(offline.lines, hasLength(2));
+    });
+
+    testWidgets('the screen totals what the device knows and says so',
+        (tester) async {
+      final store = FeedStore.instance;
+      store.resetForTest();
+      addTearDown(store.resetForTest);
+      addTearDown(() => EarningsScreen.debugHistoryOverride = null);
+      final post = store.add('c1', 'spark me');
+      store.applyRemoteSpark(post.id,
+          sparkId: 's1',
+          cents: 500,
+          sparkerName: 'Grace',
+          sparkerUsername: 'grace');
+      final listing = store.addListing('c1',
+          title: 'Lamp', priceCents: 1500, category: 'Home');
+      store.setListingSold(listing.id, true);
+      EarningsScreen.debugHistoryOverride = () async => [
+            const PaymentRecord(
+                id: 'h1',
+                sent: false,
+                otherPhone: '1',
+                amountCents: 2000,
+                feeCents: 0,
+                currency: 'CAD',
+                status: 'succeeded'),
+          ];
+      await tester.pumpWidget(const MaterialApp(home: EarningsScreen()));
+      await tester.pumpAndSettle();
+      expect(find.text('\$40'), findsOneWidget); // 500 + 1500 + 2000
+      expect(find.text('Sparks on your posts'), findsOneWidget);
+      expect(find.text('Marketplace sales'), findsOneWidget);
+      expect(find.text('Payments received'), findsOneWidget);
+      // The screen owns up to what the numbers are — asks, not appraisals.
+      expect(find.textContaining('listed price'), findsOneWidget);
+
+      // The wallet failing to answer drops the line and says why, rather
+      // than showing a zero.
+      EarningsScreen.debugHistoryOverride = () async => throw 'no session';
+      await tester.pumpWidget(const SizedBox());
+      await tester.pumpWidget(const MaterialApp(home: EarningsScreen()));
+      await tester.pumpAndSettle();
+      expect(find.text('Payments received'), findsNothing);
+      expect(find.textContaining('couldn\'t be read'), findsOneWidget);
+    });
+
+    test('the way in is Settings, next to the wallet', () {
+      final src =
+          File('lib/screens/settings_screen.dart').readAsStringSync();
+      expect(src, contains('EarningsScreen'));
+      expect(src, contains("title: 'Earnings'"));
     });
   });
 

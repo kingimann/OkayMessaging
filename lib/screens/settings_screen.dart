@@ -28,6 +28,7 @@ import 'admin_screen.dart';
 import 'backup_screen.dart';
 import 'chats_settings_screen.dart';
 import 'cloud_sync_screen.dart';
+import 'earnings_screen.dart';
 import 'edit_profile_screen.dart';
 import 'legal_screen.dart';
 import 'maps_settings_screen.dart';
@@ -301,6 +302,14 @@ class SettingsView extends StatelessWidget {
               subtitle: 'Balance, cash out, receive money',
               onTap: () => Navigator.of(context).push(
                 MaterialPageRoute(builder: (_) => const WalletScreen()),
+              ),
+            ),
+            InfoTile(
+              leading: const Icon(Icons.trending_up),
+              title: 'Earnings',
+              subtitle: 'How much you\'ve earned, and from where',
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const EarningsScreen()),
               ),
             ),
             InfoTile(
