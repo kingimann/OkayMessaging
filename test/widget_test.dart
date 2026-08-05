@@ -33063,6 +33063,30 @@ void main() {
               'that guesses is worse than no chip');
     });
 
+    test('a role can be granted by handle, and a typo grants nobody', () {
+      final fn =
+          File('supabase/functions/roles-set/index.ts').readAsStringSync();
+      // The server resolves the handle itself — the app never guesses a
+      // phone from a name — and an unknown one is a 404, not a silent no-op.
+      expect(fn, contains('targetUsername'));
+      expect(fn, contains('unknown_username'));
+      // Case-insensitive EXACT: ilike with its wildcards escaped, because
+      // '_' is a legal username character and an ilike wildcard.
+      expect(fn, contains(r'replace(/[\\%_]/g'));
+      // The paste copy is what actually gets deployed — it must carry the
+      // same change, or the dashboard deploys yesterday's function.
+      expect(
+          File('docs/edge_functions_paste/roles-set.ts').readAsStringSync(),
+          contains('targetUsername'));
+      // The client strips a pasted-in @ and refuses to grant owner.
+      final client =
+          File('lib/state/platform_moderation.dart').readAsStringSync();
+      expect(client, contains('setRoleByHandle'));
+      // And the Team tab takes either spelling in one field.
+      final ui = File('lib/screens/admin_screen.dart').readAsStringSync();
+      expect(ui, contains('Phone number or @username'));
+    });
+
     test('poking and founding a group are badges, and the rules say what '
         'pays', () {
       final score = ScoreStore.instance;

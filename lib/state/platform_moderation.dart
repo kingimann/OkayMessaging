@@ -299,6 +299,20 @@ class PlatformModeration extends ChangeNotifier {
     return result?['ok'] == true;
   }
 
+  /// The same grant, addressed by handle — the server resolves it against
+  /// the directory (case-insensitive, exact) and refuses an unknown one, so
+  /// a typo grants nobody rather than somebody unexpected.
+  Future<bool> setRoleByHandle(String username, PlatformRole role) async {
+    final handle = username.trim().replaceFirst(RegExp(r'^@'), '');
+    if (handle.isEmpty || role == PlatformRole.owner) return false;
+    final result = await _invoke('roles-set', {
+      'what': 'set',
+      'targetUsername': handle,
+      'role': role.name,
+    });
+    return result?['ok'] == true;
+  }
+
   /// Files a report. This is what the app's Report buttons now do — a report
   /// used to hide something locally and go nowhere, because there was no
   /// central moderator to send it to.

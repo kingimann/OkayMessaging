@@ -299,7 +299,8 @@ class _AdminScreenState extends State<AdminScreen> {
         InfoTile(
           leading: const Icon(Icons.person_add_alt_outlined),
           title: 'Grant a role',
-          subtitle: 'Make someone a moderator or an admin, by number',
+          subtitle:
+              'Make someone a moderator or an admin, by number or @username',
           onTap: () => _grantRole(context),
         ),
       ]),
@@ -367,7 +368,7 @@ class _AdminScreenState extends State<AdminScreen> {
   }
 
   Future<void> _grantRole(BuildContext context) async {
-    final phone = TextEditingController();
+    final who = TextEditingController();
     var role = PlatformRole.moderator;
     final ok = await showDialog<bool>(
       context: context,
@@ -378,10 +379,9 @@ class _AdminScreenState extends State<AdminScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               TextField(
-                controller: phone,
-                keyboardType: TextInputType.phone,
-                decoration:
-                    const InputDecoration(labelText: 'Phone number'),
+                controller: who,
+                decoration: const InputDecoration(
+                    labelText: 'Phone number or @username'),
               ),
               const SizedBox(height: 12),
               SegmentedButton<PlatformRole>(
@@ -410,7 +410,24 @@ class _AdminScreenState extends State<AdminScreen> {
       ),
     );
     if (ok != true) return;
-    await _applyRole(phone.text, role);
+    // Anything with a letter in it is a handle — a phone number never has
+    // one, and a username always does (digits-only handles don't exist:
+    // they would be indistinguishable from numbers everywhere).
+    final raw = who.text.trim();
+    if (RegExp(r'[A-Za-z]').hasMatch(raw)) {
+      if (!mounted) return;
+      final messenger = ScaffoldMessenger.of(this.context);
+      final done =
+          await PlatformModeration.instance.setRoleByHandle(raw, role);
+      messenger.showSnackBar(SnackBar(
+          content: Text(done
+              ? 'Now ${platformRoleName(role)}.'
+              : 'The server refused that — check the username, and that '
+                  'the current roles-set function is deployed.')));
+      if (done) _load();
+    } else {
+      await _applyRole(raw, role);
+    }
   }
 }
 

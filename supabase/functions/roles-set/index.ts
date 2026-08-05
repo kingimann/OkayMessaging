@@ -4,6 +4,9 @@
 // POST { what: 'list' }
 //   -> { roles: [{ phone, role, username?, name? }] }
 // POST { what: 'set', targetPhone, role: 'admin' | 'moderator' | 'member' }
+// POST { what: 'set', targetUsername, role }   — the same, addressed by
+//   handle: resolved against the directory (case-insensitive, exact), and
+//   an unknown handle answers 404 rather than silently granting nobody.
 //   -> { ok: true }
 //
 // OWNER ONLY, both verbs, checked HERE against platform_roles with a phone
@@ -81,7 +84,20 @@ Deno.serve(async (req) => {
 
   if (what !== "set") return json({ error: "bad_request" }, 400);
 
-  const target = String(body.targetPhone ?? "").replace(/\D/g, "");
+  let target = String(body.targetPhone ?? "").replace(/\D/g, "");
+  const handle = String(body.targetUsername ?? "").trim().replace(/^@/, "");
+  if (!target && handle) {
+    // Case-insensitive EXACT match: ilike with its wildcards escaped,
+    // because '_' is a legal username character and an ilike wildcard.
+    const escaped = handle.replace(/[\\%_]/g, (c) => "\\" + c);
+    const { data: hit } = await admin
+      .from("usernames")
+      .select("phone")
+      .ilike("username", escaped)
+      .maybeSingle();
+    target = String(hit?.phone ?? "").replace(/\D/g, "");
+    if (!target) return json({ error: "unknown_username" }, 404);
+  }
   const role = String(body.role ?? "");
   if (!target) return json({ error: "no_target" }, 400);
   if (target === phone) return json({ error: "cannot_change_self" }, 400);
