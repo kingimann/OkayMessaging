@@ -12219,29 +12219,6 @@ void main() {
       expect(FeedStore.instance.listings(), isEmpty);
     });
 
-    testWidgets('many saved places scroll instead of overflowing the sheet',
-        (tester) async {
-      SavedPlacesStore.instance.resetForTest();
-      addTearDown(SavedPlacesStore.instance.resetForTest);
-      for (var i = 0; i < 20; i++) {
-        SavedPlacesStore.instance
-            .toggle(SavedPlace('Place $i', 43.0 + i * 0.01, -79.0));
-      }
-
-      await tester.pumpWidget(const MaterialApp(
-        home: ExploreMapScreen(debugMyLocation: LatLng(43.6, -79.3)),
-      ));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 300));
-      await tester.tap(find.byTooltip('Saved places'));
-      await tester.pumpAndSettle();
-
-      // Twenty rows in a half-screen sheet: no overflow error arriving here
-      // means the list scrolls. And each row says how far away it is.
-      expect(tester.takeException(), isNull);
-      expect(find.textContaining('away'), findsWidgets);
-    });
-
     test('every category that ever shipped still exists', () {
       // Categories live as strings on listings already out on the relay;
       // renaming or dropping one orphans every listing filed under it. This
@@ -14572,37 +14549,6 @@ void main() {
       await tester.pump();
     });
 
-    testWidgets('an empty sheet rests low, not a third of the screen',
-        (tester) async {
-      // A flat 0.30 gave every new account a third of the screen as an empty
-      // slab: nothing is saved yet, so the row under the handle renders
-      // nothing at all.
-      await tester.pumpWidget(const MaterialApp(
-        home: ExploreMapScreen(debugMyLocation: LatLng(43.6, -79.3)),
-      ));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 300));
-
-      final screen = tester.getSize(find.byType(ExploreMapScreen));
-      final sheetTop = tester
-          .getTopLeft(find.byType(DraggableScrollableSheet).first)
-          .dy;
-      // The sheet's own box fills the stack; what matters is where its
-      // Material actually starts.
-      final material = find
-          .descendant(
-              of: find.byType(DraggableScrollableSheet),
-              matching: find.byType(Material))
-          .first;
-      final covered = screen.height - tester.getTopLeft(material).dy;
-      expect(covered, lessThan(screen.height * 0.22),
-          reason: 'an empty sheet should not eat a third of the map '
-              '(covers $covered of ${screen.height}, top $sheetTop)');
-
-      // And it says why it is empty rather than showing nothing.
-      expect(find.textContaining('show up here'), findsOneWidget);
-    });
-
     testWidgets('the zoom buttons respect the map\'s own limits',
         (tester) async {
       // The buttons clamped to 20 while every map here allows 20.5, so after
@@ -14638,43 +14584,30 @@ void main() {
           reason: 'zoom in must never move the camera out');
     });
 
-    testWidgets('the map controls sit low, within reach of a thumb',
+    testWidgets('the explore map is clean — no floating controls or sheet',
         (tester) async {
-      // They were pinned just under the status bar: six controls parked at
-      // the far corner of a big phone, over the part of the map someone is
-      // usually looking at.
+      // The right-side control column (locate, saved, friends, style, zoom)
+      // and the bottom sheet were removed for a bare, full-bleed map: only the
+      // back button floats, a long-press drops a pin, and it pinch-zooms.
       await tester.pumpWidget(const MaterialApp(
         home: ExploreMapScreen(debugMyLocation: LatLng(43.6, -79.3)),
       ));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
 
-      final screen = tester.getSize(find.byType(ExploreMapScreen));
-      final layers = tester.getCenter(find.byTooltip('Map style')).dy;
-      expect(layers, greaterThan(screen.height * 0.5),
-          reason: 'the style button is at $layers of ${screen.height}');
-
-      // And still clear of the sheet rather than buried behind it.
-      final sheetTop = tester
-          .getTopLeft(find
-              .descendant(
-                  of: find.byType(DraggableScrollableSheet),
-                  matching: find.byType(Material))
-              .first)
-          .dy;
-      expect(tester.getBottomLeft(find.byTooltip('Zoom out')).dy,
-          lessThanOrEqualTo(sheetTop));
+      expect(find.byType(MapControls), findsNothing);
+      expect(find.byType(DraggableScrollableSheet), findsNothing);
+      expect(find.byTooltip('Zoom out'), findsNothing);
+      expect(find.byTooltip('Map style'), findsNothing);
+      // The back button still floats over the map.
+      expect(find.byTooltip('Back'), findsOneWidget);
     });
 
-    testWidgets('the tile credit is not buried under the sheet',
+    testWidgets('the tile credit stays visible without the sheet',
         (tester) async {
       // Mapbox's terms — and OpenStreetMap's — require the credit to be
-      // visible. It was offset by the sheet's *minimum* size while the sheet
-      // rested well above that, so at rest it sat underneath.
-      //
-      // A saved place is what gives the sheet content now; it used to be a
-      // recent search, which went with the search bar.
-      SavedPlacesStore.instance.toggle(const SavedPlace('Home', 43.6, -79.3));
+      // visible. With the sheet gone it simply sits at the bottom; assert it
+      // still renders in the lower half of the screen.
       await tester.pumpWidget(const MaterialApp(
         home: ExploreMapScreen(debugMyLocation: LatLng(43.6, -79.3)),
       ));
@@ -14683,16 +14616,9 @@ void main() {
 
       final credit = find.byType(OsmAttribution);
       expect(credit, findsOneWidget);
-      final creditBottom = tester.getBottomLeft(credit).dy;
-      final sheetTop = tester
-          .getTopLeft(find
-              .descendant(
-                  of: find.byType(DraggableScrollableSheet),
-                  matching: find.byType(Material))
-              .first)
-          .dy;
-      expect(creditBottom, lessThanOrEqualTo(sheetTop),
-          reason: 'credit at $creditBottom is under the sheet at $sheetTop');
+      final screen = tester.getSize(find.byType(ExploreMapScreen));
+      expect(tester.getBottomLeft(credit).dy,
+          greaterThan(screen.height * 0.5));
     });
 
     testWidgets('saved places pin onto the idle map and open their card',
@@ -14818,13 +14744,12 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
 
-      // No app bar — the map runs edge to edge under floating controls.
+      // No app bar — the map runs edge to edge, only the back button floats.
       expect(find.byType(AppBar), findsNothing);
       expect(find.byTooltip('Back'), findsOneWidget);
-      // Saved and Friends live in the floating map controls now — the
-      // space under the search bar stays clean.
-      expect(find.byTooltip('Saved places'), findsOneWidget);
-      expect(find.byTooltip('Friends map'), findsOneWidget);
+      // The floating control column was removed — no Saved/Friends/style/zoom.
+      expect(find.byTooltip('Saved places'), findsNothing);
+      expect(find.byTooltip('Friends map'), findsNothing);
       expect(find.text('Food'), findsNothing);
 
       await tester.pumpWidget(const SizedBox());
@@ -15065,11 +14990,6 @@ void main() {
       // FlutterMap tile timers never settle, so pump fixed frames.
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
-
-      // The picking-only sentence. The empty-state copy underneath also
-      // mentions pressing and holding, so matching on that alone finds two.
-      expect(find.textContaining('pick one you have saved'), findsOneWidget,
-          reason: 'picking mode never says how to choose a point');
 
       // Long press drops a pin. Reverse geocoding cannot reach the network in
       // a test, so the fallback name — the coordinates — is what comes back,
