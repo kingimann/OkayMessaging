@@ -659,9 +659,17 @@ memory is per-user, on-device, and built only from what the user typed TO THE
 ASSISTANT. A viewer (the chat's ⋮ → "What Okay AI remembers") shows and deletes
 each item. `draft()` sends `learn: false` and no memory. A test pins that
 `ai_memory.dart` has no network path. **The real "trained by users"** path is a
-later pipeline: collect the assistant conversations (with consent) → curate
-(the guardrail) → periodically fine-tune your own model → point
-`OPENROUTER_AI_MODEL` at it.
+later pipeline, and its FOUNDATION is now built: `AiConsent` (opt-in, OFF by
+default, "Help improve Okay AI" in the chat ⋮) + 👍/👎 on each assistant reply.
+When consented, `AiAssistant.rate` sends the exchange + rating to the
+`ai-feedback` function → `ai_training_samples` (a corpus; `docs/ai_training.sql`,
+no client grants — a `check_sql.sh` assertion pins it can't be read or written
+by a client; the submitter is a salted hash, not a phone). ONLY assistant
+conversations are ever eligible — never human chats — and the rating is the
+curation signal (`rating = 1` is what a fine-tune trains on, filtered). What's
+left is the periodic fine-tune itself: export the thumbs-up rows → train an open
+model → point `OPENROUTER_AI_MODEL` at it. **Needs the user's action:** run
+`docs/ai_training.sql`, paste `ai-feedback`.
 
 **Rate limit + pay gate.** Two layers. The CLIENT product tier: a free
 `AiAssistant.freePerDay` (15) messages a day; past it `needsUpgrade` shows an

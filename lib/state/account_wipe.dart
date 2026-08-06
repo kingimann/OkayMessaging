@@ -20,6 +20,7 @@ import 'chat_lock.dart';
 import 'chat_store.dart';
 import 'cloud_sync.dart';
 import 'ai_assistant.dart';
+import 'ai_consent.dart';
 import 'ai_memory.dart';
 import 'ai_pass_store.dart';
 import 'community_store.dart';
@@ -144,6 +145,7 @@ class AccountWipe {
     CommunitySubStore.instance.resetForTest();
     AiAssistant.instance.resetForTest();
     AiMemory.instance.resetForTest();
+    AiConsent.instance.resetForTest();
     AiPassStore.instance.resetForTest();
     IdentityVerification.instance.resetForTest();
     AccountEmail.instance.resetForTest();

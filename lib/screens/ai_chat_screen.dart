@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../state/ai_assistant.dart';
+import '../state/ai_consent.dart';
 import '../state/ai_memory.dart';
 import '../state/ai_pass_store.dart';
 import '../theme/app_theme.dart';
@@ -97,6 +98,62 @@ class _AiChatScreenState extends State<AiChatScreen> {
         content: Text(result.ok
             ? 'You\'re subscribed — enjoy unlimited Okay AI.'
             : 'That didn\'t go through — nothing was charged.')));
+  }
+
+  /// Records a 👍/👎 on an assistant reply. If the user hasn't opted in to
+  /// helping improve Okay AI, offer that first — the rating only becomes
+  /// training data with consent.
+  Future<void> _rate(int index, int rating) async {
+    await AiAssistant.instance.rate(index, rating);
+    if (rating != 0 && !AiConsent.instance.on && mounted) {
+      final on = await showModalBottomSheet<bool>(
+        context: context,
+        showDragHandle: true,
+        builder: (sheetContext) => SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Icon(Icons.volunteer_activism_outlined, size: 32),
+                const SizedBox(height: 8),
+                const Text('Help improve Okay AI?',
+                    textAlign: TextAlign.center,
+                    style:
+                        TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+                const SizedBox(height: 8),
+                Text(
+                  'Turn this on and your rated chats WITH OKAY AI help train it '
+                  '— never your private messages, which stay encrypted on your '
+                  'device. You can turn it off anytime.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                      color: Theme.of(sheetContext)
+                          .colorScheme
+                          .onSurfaceVariant),
+                ),
+                const SizedBox(height: 16),
+                FilledButton(
+                  onPressed: () => Navigator.of(sheetContext).pop(true),
+                  child: const Text('Turn on'),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.of(sheetContext).pop(false),
+                  child: const Text('Not now'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      if (on == true) {
+        await AiConsent.instance.set(true);
+        // Now that consent is on, submit the rating that prompted this.
+        await AiAssistant.instance.rate(index, 0); // clear then re-apply
+        await AiAssistant.instance.rate(index, rating);
+      }
+    }
   }
 
   /// What Okay AI remembers about you — viewable and deletable, on this device
@@ -218,6 +275,13 @@ class _AiChatScreenState extends State<AiChatScreen> {
             onSelected: (v) async {
               if (v == 'memory') {
                 _showMemory();
+              } else if (v == 'improve') {
+                final messenger = ScaffoldMessenger.of(context);
+                await AiConsent.instance.set(!AiConsent.instance.on);
+                messenger.showSnackBar(SnackBar(
+                    content: Text(AiConsent.instance.on
+                        ? 'Thanks — your rated Okay AI chats help train it.'
+                        : 'Turned off. New chats won\'t be collected.')));
               } else if (v == 'clear') {
                 final ok = await showAppConfirmDialog(
                   context,
@@ -231,10 +295,15 @@ class _AiChatScreenState extends State<AiChatScreen> {
                 if (ok) await AiAssistant.instance.clear();
               }
             },
-            itemBuilder: (_) => const [
-              PopupMenuItem(
+            itemBuilder: (_) => [
+              const PopupMenuItem(
                   value: 'memory', child: Text('What Okay AI remembers')),
               PopupMenuItem(
+                  value: 'improve',
+                  child: Text(AiConsent.instance.on
+                      ? 'Stop helping improve Okay AI'
+                      : 'Help improve Okay AI')),
+              const PopupMenuItem(
                   value: 'clear', child: Text('Clear conversation')),
             ],
           ),
@@ -255,7 +324,11 @@ class _AiChatScreenState extends State<AiChatScreen> {
                   itemCount: turns.length + (sending ? 1 : 0),
                   itemBuilder: (context, i) {
                     if (i == turns.length) return const _Typing();
-                    return _Bubble(turn: turns[i]);
+                    return _Bubble(
+                      turn: turns[i],
+                      onRate:
+                          turns[i].fromUser ? null : (r) => _rate(i, r),
+                    );
                   },
                 );
               },
@@ -353,31 +426,84 @@ class _AiChatScreenState extends State<AiChatScreen> {
 
 class _Bubble extends StatelessWidget {
   final AiTurn turn;
-  const _Bubble({required this.turn});
+  final ValueChanged<int>? onRate;
+  const _Bubble({required this.turn, this.onRate});
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final mine = turn.fromUser;
-    return Align(
-      alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
-      child: Container(
-        margin: const EdgeInsets.symmetric(vertical: 4),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        constraints: BoxConstraints(
-            maxWidth: MediaQuery.of(context).size.width * 0.82),
-        decoration: BoxDecoration(
-          color: mine ? scheme.primary : scheme.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(16),
+    return Column(
+      crossAxisAlignment:
+          mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+      children: [
+        Align(
+          alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
+          child: Container(
+            margin: const EdgeInsets.only(top: 4),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            constraints: BoxConstraints(
+                maxWidth: MediaQuery.of(context).size.width * 0.82),
+            decoration: BoxDecoration(
+              color: mine ? scheme.primary : scheme.surfaceContainerHighest,
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: SelectableText(
+              turn.text,
+              style: TextStyle(
+                  fontSize: 15,
+                  height: 1.35,
+                  color: mine ? Colors.white : scheme.onSurface),
+            ),
+          ),
         ),
-        child: SelectableText(
-          turn.text,
-          style: TextStyle(
-              fontSize: 15,
-              height: 1.35,
-              color: mine ? Colors.white : scheme.onSurface),
-        ),
-      ),
+        // 👍/👎 on an assistant reply — the curation signal for training.
+        if (!mine && onRate != null)
+          Padding(
+            padding: const EdgeInsets.only(left: 4, bottom: 2),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _RateButton(
+                  icon: Icons.thumb_up_outlined,
+                  filled: Icons.thumb_up,
+                  active: turn.rating == 1,
+                  onTap: () => onRate!(1),
+                ),
+                _RateButton(
+                  icon: Icons.thumb_down_outlined,
+                  filled: Icons.thumb_down,
+                  active: turn.rating == -1,
+                  onTap: () => onRate!(-1),
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _RateButton extends StatelessWidget {
+  final IconData icon;
+  final IconData filled;
+  final bool active;
+  final VoidCallback onTap;
+  const _RateButton(
+      {required this.icon,
+      required this.filled,
+      required this.active,
+      required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return IconButton(
+      visualDensity: VisualDensity.compact,
+      iconSize: 16,
+      color: active ? scheme.primary : scheme.onSurfaceVariant,
+      icon: Icon(active ? filled : icon),
+      onPressed: onTap,
     );
   }
 }

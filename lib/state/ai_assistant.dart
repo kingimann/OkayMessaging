@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../relay/relay_config.dart';
+import 'ai_consent.dart';
 import 'ai_memory.dart';
 import 'ai_pass_store.dart';
 
@@ -13,16 +14,33 @@ class AiTurn {
   final bool fromUser;
   final String text;
   final DateTime time;
-  const AiTurn(
-      {required this.fromUser, required this.text, required this.time});
 
-  Map<String, dynamic> toJson() =>
-      {'u': fromUser, 't': text, 'at': time.toIso8601String()};
+  /// The user's rating of an assistant reply: 0 none, 1 👍, -1 👎. The curation
+  /// signal for training — only a rated (usually thumbs-up) exchange is worth
+  /// keeping. Always 0 on a user turn.
+  final int rating;
+
+  const AiTurn(
+      {required this.fromUser,
+      required this.text,
+      required this.time,
+      this.rating = 0});
+
+  AiTurn withRating(int r) =>
+      AiTurn(fromUser: fromUser, text: text, time: time, rating: r);
+
+  Map<String, dynamic> toJson() => {
+        'u': fromUser,
+        't': text,
+        'at': time.toIso8601String(),
+        if (rating != 0) 'r': rating,
+      };
 
   factory AiTurn.fromJson(Map<String, dynamic> j) => AiTurn(
         fromUser: j['u'] as bool? ?? false,
         text: j['t'] as String? ?? '',
         time: DateTime.tryParse(j['at'] as String? ?? '') ?? DateTime(2024),
+        rating: (j['r'] as num?)?.toInt() ?? 0,
       );
 }
 
@@ -252,6 +270,42 @@ class AiAssistant extends ChangeNotifier {
     }
   }
 
+  /// Rates the assistant reply at [index] (1 👍, -1 👎, 0 to clear). The rating
+  /// shows locally at once; when the user has opted in to helping improve Okay
+  /// AI ([AiConsent]), the exchange — the prompting message and the reply —
+  /// plus the rating is sent to the training corpus via the `ai-feedback`
+  /// function. Without consent nothing is uploaded. Returns whether it was
+  /// submitted server-side.
+  Future<bool> rate(int index, int rating) async {
+    if (index < 0 || index >= _turns.length || _turns[index].fromUser) {
+      return false;
+    }
+    // Toggle off if the same rating is tapped again.
+    final applied = _turns[index].rating == rating ? 0 : rating;
+    _turns[index] = _turns[index].withRating(applied);
+    notifyListeners();
+    await _save();
+
+    if (applied == 0 || !AiConsent.instance.on) return false;
+    final prompt = index > 0 ? _turns[index - 1].text : '';
+    final reply = _turns[index].text;
+    if (prompt.trim().isEmpty || reply.trim().isEmpty) return false;
+    try {
+      final override = debugFeedbackOverride;
+      if (override != null) {
+        await override(prompt, reply, applied);
+        return true;
+      }
+      final client = _client;
+      if (client == null) return false;
+      await client.functions.invoke('ai-feedback',
+          body: {'prompt': prompt, 'reply': reply, 'rating': applied});
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// Clears the conversation (local only — nothing is stored server-side).
   Future<void> clear() async {
     _turns.clear();
@@ -264,6 +318,11 @@ class AiAssistant extends ChangeNotifier {
   static Future<String?> Function(List<Map<String, String>> messages)?
       debugReplyOverride;
 
+  /// Stands in for the feedback submission in tests.
+  @visibleForTesting
+  static Future<void> Function(String prompt, String reply, int rating)?
+      debugFeedbackOverride;
+
   @visibleForTesting
   void resetForTest() {
     _turns.clear();
@@ -271,5 +330,6 @@ class AiAssistant extends ChangeNotifier {
     _usedToday = 0;
     _dayStamp = '';
     debugReplyOverride = null;
+    debugFeedbackOverride = null;
   }
 }

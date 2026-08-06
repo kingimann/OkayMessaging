@@ -1062,6 +1062,14 @@ select pg_temp.expect_fail(
 select pg_temp.expect_fail(
   $$select * from public.ai_usage$$,
   'the AI usage table is closed to clients');
+-- The training corpus is closed to clients both ways: no read, no write.
+select pg_temp.expect_fail(
+  $$select * from public.ai_training_samples$$,
+  'the AI training corpus cannot be read by a client');
+select pg_temp.expect_fail(
+  $$insert into public.ai_training_samples (prompt, reply, rating)
+    values ('p','r',1)$$,
+  'a client cannot write to the AI training corpus');
 reset role;
 SQL
 
@@ -1080,7 +1088,7 @@ apply() {
 }
 
 echo "postgres $(su pg -c "PATH=$PGBIN:\$PATH psql -h $RUN -p $PORT -d $DB -tAc 'show server_version'")"
-for f in "$WORK/harness.sql" supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/community_posts.sql docs/ai_usage.sql; do
+for f in "$WORK/harness.sql" supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql; do
   if apply "$f"; then
     echo "  applied $(basename "$f")"
   else
@@ -1143,7 +1151,7 @@ else
   echo "  FAILED  could not rebuild the previous shape"; exit 1
 fi
 
-for f in supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/community_posts.sql docs/ai_usage.sql; do
+for f in supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql; do
   if apply "$f"; then
     echo "  re-applied $(basename "$f")"
   else

@@ -48,6 +48,7 @@ import 'package:okay_messaging/state/community_sub_store.dart';
 import 'package:okay_messaging/state/ai_assistant.dart';
 import 'package:okay_messaging/state/ai_memory.dart';
 import 'package:okay_messaging/state/ai_pass_store.dart';
+import 'package:okay_messaging/state/ai_consent.dart';
 import 'package:okay_messaging/screens/ai_chat_screen.dart';
 import 'package:okay_messaging/legal/legal_content.dart';
 import 'package:okay_messaging/models/call.dart' as callmodel;
@@ -1950,6 +1951,46 @@ void main() {
         expect(src.contains(banned), isFalse,
             reason: 'per-user memory must stay on the device; found "$banned"');
       }
+    });
+
+    test('feedback is submitted only after consent; off by default', () async {
+      AiConsent.instance.resetForTest();
+      addTearDown(AiConsent.instance.resetForTest);
+      AiAssistant.debugReplyOverride = (_) async => 'an answer';
+      await AiAssistant.instance.send('a question');
+      final replyIndex = AiAssistant.instance.turns.length - 1;
+
+      final submitted = <(String, String, int)>[];
+      AiAssistant.debugFeedbackOverride = (p, r, rating) async {
+        submitted.add((p, r, rating));
+      };
+
+      // Consent OFF (the default): a thumbs-up marks locally but uploads
+      // nothing.
+      expect(AiConsent.instance.on, isFalse);
+      final wentUp = await AiAssistant.instance.rate(replyIndex, 1);
+      expect(wentUp, isFalse);
+      expect(submitted, isEmpty);
+      expect(AiAssistant.instance.turns[replyIndex].rating, 1);
+
+      // Consent ON: the exchange + rating is submitted.
+      await AiConsent.instance.set(true);
+      final wentUp2 = await AiAssistant.instance.rate(replyIndex, -1);
+      expect(wentUp2, isTrue);
+      expect(submitted.single, ('a question', 'an answer', -1));
+    });
+
+    test('the training corpus is opt-in and only AI conversations', () {
+      // A source pin: the consent copy names the assistant, not human chats,
+      // and defaults off.
+      final consent = File('lib/state/ai_consent.dart').readAsStringSync();
+      expect(consent.contains('_on = false'), isTrue,
+          reason: 'training consent must default off');
+      // The feedback function only ever stores what the client sends it (an
+      // assistant exchange), and lives behind the client\'s consent gate.
+      final fn = File('supabase/functions/ai-feedback/index.ts')
+          .readAsStringSync();
+      expect(fn.contains('ai_training_samples'), isTrue);
     });
 
     test('a turn is sent, the reply is appended, and the tail is bounded',

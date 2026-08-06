@@ -2,6 +2,7 @@ import 'dart:async';
 import 'state/quick_replies.dart';
 import 'state/translate_service.dart';
 import 'state/ai_assistant.dart';
+import 'state/ai_consent.dart';
 import 'state/ai_memory.dart';
 import 'state/ai_pass_store.dart';
 import 'state/sidebar_prefs.dart';
@@ -111,6 +112,7 @@ Future<void> main() async {
   await _boot('translation', TranslateService.instance.load);
   await _boot('assistant', AiAssistant.instance.load);
   await _boot('ai memory', AiMemory.instance.load);
+  await _boot('ai consent', AiConsent.instance.load);
   await _boot('ai pass', AiPassStore.instance.load);
   await _boot('sidebar', SidebarPrefs.instance.load);
   await _boot('two-step', TwoStepVerification.instance.load);
