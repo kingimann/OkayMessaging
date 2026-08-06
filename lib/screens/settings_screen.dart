@@ -19,9 +19,11 @@ import '../state/chat_store.dart';
 import '../state/platform_moderation.dart';
 import '../state/push_diagnostics.dart';
 import '../state/relay_diagnostics.dart';
+import '../state/identity_verification.dart';
 import '../state/session.dart';
 import '../state/storage_store.dart';
 import '../widgets/app_dialogs.dart';
+import '../widgets/pull_to_refresh.dart';
 import '../widgets/info_section.dart';
 import '../widgets/user_avatar.dart';
 import 'account_email_screen.dart';
@@ -68,9 +70,20 @@ class SettingsView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.only(bottom: 96),
-      children: [
+    return PullToRefresh(
+      // The shared refresh resyncs the relay and pulls server-kept state
+      // (follows, score, communities, email); settings adds the verification
+      // status, whose blue-check row lives on this hub.
+      onRefresh: () async {
+        if (RelayConfig.isEnabled) {
+          try {
+            await IdentityVerification.instance.refresh();
+          } catch (_) {}
+        }
+      },
+      child: ListView(
+        padding: const EdgeInsets.only(bottom: 96),
+        children: [
         const SizedBox(height: 6),
         _ProfileCard(),
         // What this account has proven: the phone behind sign-in, the email
@@ -557,7 +570,8 @@ class SettingsView extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 24),
-      ],
+        ],
+      ),
     );
   }
 
