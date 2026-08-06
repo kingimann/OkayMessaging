@@ -45,6 +45,8 @@ import 'package:okay_messaging/util/phone_format.dart';
 import 'package:okay_messaging/util/voip_numbers.dart';
 import 'package:okay_messaging/state/translate_service.dart';
 import 'package:okay_messaging/state/community_sub_store.dart';
+import 'package:okay_messaging/state/ai_assistant.dart';
+import 'package:okay_messaging/screens/ai_chat_screen.dart';
 import 'package:okay_messaging/legal/legal_content.dart';
 import 'package:okay_messaging/models/call.dart' as callmodel;
 import 'package:okay_messaging/screens/notes_screen.dart';
@@ -1887,6 +1889,92 @@ void main() {
       expect(store.byId(c.id)!.roles.single.name, 'Helper');
       expect(store.byId(c.id)!.roles.single.tier, MemberRole.moderator);
       expect(find.text('Helper'), findsOneWidget);
+    });
+  });
+
+  group('Okay AI assistant', () {
+    setUp(() {
+      AiAssistant.instance.resetForTest();
+      SharedPreferences.setMockInitialValues({});
+    });
+    tearDown(() => AiAssistant.instance.resetForTest());
+
+    test('a turn is sent, the reply is appended, and the tail is bounded',
+        () async {
+      List<Map<String, String>>? seen;
+      AiAssistant.debugReplyOverride = (messages) async {
+        seen = messages;
+        return 'Hello back';
+      };
+      final ok = await AiAssistant.instance.send('Hi there');
+      expect(ok, isTrue);
+      final turns = AiAssistant.instance.turns;
+      expect(turns.length, 2);
+      expect(turns.first.fromUser, isTrue);
+      expect(turns.first.text, 'Hi there');
+      expect(turns.last.fromUser, isFalse);
+      expect(turns.last.text, 'Hello back');
+      // The model saw the conversation as role/content pairs, user last.
+      expect(seen!.last, {'role': 'user', 'content': 'Hi there'});
+    });
+
+    test('a failed reply appends an honest error, never dead-ends', () async {
+      AiAssistant.debugReplyOverride = (_) async => null;
+      final ok = await AiAssistant.instance.send('Hello');
+      expect(ok, isFalse);
+      expect(AiAssistant.instance.turns.last.fromUser, isFalse);
+      expect(AiAssistant.instance.turns.last.text, contains('try again'));
+    });
+
+    test('history persists and clears', () async {
+      AiAssistant.debugReplyOverride = (_) async => 'ok';
+      await AiAssistant.instance.send('remember this');
+      // A fresh load reads the saved turns back.
+      AiAssistant.instance.resetForTest();
+      AiAssistant.debugReplyOverride = (_) async => 'ok';
+      await AiAssistant.instance.load();
+      expect(AiAssistant.instance.turns.map((t) => t.text),
+          contains('remember this'));
+      await AiAssistant.instance.clear();
+      expect(AiAssistant.instance.turns, isEmpty);
+    });
+
+    test('the assistant is walled off from human chats and encryption', () {
+      final src = File('lib/state/ai_assistant.dart').readAsStringSync();
+      // It talks to its own function and nothing else — no chat store, no
+      // relay, no crypto. The one server surface is the ai-chat function.
+      for (final banned in [
+        'ChatStore',
+        'RelayService',
+        'double_ratchet',
+        'sealed_sender',
+      ]) {
+        expect(src.contains(banned), isFalse,
+            reason: 'the assistant must never reach into a human chat; '
+                'found "$banned"');
+      }
+      expect(src.contains("'ai-chat'"), isTrue);
+    });
+
+    testWidgets('you can send a message and see the reply', (tester) async {
+      AiAssistant.debugReplyOverride = (_) async => 'The answer is 42.';
+      await tester.pumpWidget(const MaterialApp(home: AiChatScreen()));
+      await tester.pumpAndSettle();
+      expect(find.text('Ask Okay AI anything'), findsOneWidget);
+
+      await tester.enterText(find.byType(TextField), 'What is the answer?');
+      await tester.tap(find.byTooltip('Send'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('What is the answer?'), findsOneWidget);
+      expect(find.text('The answer is 42.'), findsOneWidget);
+    });
+
+    test('Okay AI leads the default sidebar order', () {
+      expect(SidebarPrefs.defaultOrder.first, 'okayai');
+      final (icon, name) = SidebarCustomizeScreen.metaFor('okayai');
+      expect(name, 'Okay AI');
+      expect(icon, Icons.auto_awesome);
     });
   });
 
@@ -33711,16 +33799,18 @@ void main() {
       expect(prefs.visible, isNot(contains('wallet')));
       // Still listed where it can be found and turned back on.
       expect(prefs.order, contains('wallet'));
-      // After-lift index, the same contract quick replies pinned down.
+      // After-lift index, the same contract quick replies pinned down. The
+      // item lifted from 0 (the first default row) lands at index 2.
+      final moved = SidebarPrefs.defaultOrder.first;
       await prefs.reorder(0, 2);
-      expect(prefs.order[2], 'newsfeed');
+      expect(prefs.order[2], moved);
 
       // Reload from disk: both choices have to come back.
       prefs.resetForTest();
       expect(prefs.visible, SidebarPrefs.defaultOrder);
       await prefs.load();
       expect(prefs.isHidden('wallet'), isTrue);
-      expect(prefs.order[2], 'newsfeed');
+      expect(prefs.order[2], moved);
     });
 
     test('stored rows this build dropped vanish; rows it added appear',

@@ -19,6 +19,7 @@ import 'call_log.dart';
 import 'chat_lock.dart';
 import 'chat_store.dart';
 import 'cloud_sync.dart';
+import 'ai_assistant.dart';
 import 'community_store.dart';
 import 'community_sub_store.dart';
 import 'creator_sub_store.dart';
@@ -139,6 +140,7 @@ class AccountWipe {
     StorageStore.instance.resetForTest();
     CreatorSubStore.instance.resetForTest();
     CommunitySubStore.instance.resetForTest();
+    AiAssistant.instance.resetForTest();
     IdentityVerification.instance.resetForTest();
     AccountEmail.instance.resetForTest();
     BackupService.instance.resetForTest();

@@ -17,6 +17,7 @@ class SidebarPrefs extends ChangeNotifier {
   /// build shows up by default — visible-by-default is the analog of the
   /// chat list's private-by-default: nobody has to remember to opt in.
   static const List<String> defaultOrder = [
+    'okayai',
     'newsfeed',
     'maps',
     'marketplace',

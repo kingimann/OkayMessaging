@@ -10,6 +10,7 @@ class SidebarCustomizeScreen extends StatelessWidget {
   const SidebarCustomizeScreen({super.key});
 
   static (IconData, String) metaFor(String id) => switch (id) {
+        'okayai' => (Icons.auto_awesome, 'Okay AI'),
         'newsfeed' => (Icons.public, 'Newsfeed'),
         'maps' => (Icons.map_outlined, 'Maps'),
         'marketplace' => (Icons.storefront_outlined, 'Marketplace'),

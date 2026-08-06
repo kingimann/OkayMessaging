@@ -618,6 +618,32 @@ owner rotates the key.
 `community-subscribe`, and create the `com.okaymessaging.communitysub.tierN.
 monthly` consumable IAP products. Until then it runs test/simulation only.
 
+## Okay AI — the built-in assistant (2026-08-06)
+
+A general-purpose assistant in the shape of Grok or Claude, reached from the
+drawer (`okayai`, first in `SidebarPrefs.defaultOrder`) → `AiChatScreen`.
+`AiAssistant` (`lib/state/ai_assistant.dart`) holds the conversation locally and
+sends the tail to the `ai-chat` Edge Function → OpenRouter (a capable model via
+`OPENROUTER_AI_MODEL`, falling back to the cheap moderation model, then a
+default). The API key stays server-side; inert without `OPENROUTER_API_KEY`
+(the client says "not set up yet").
+
+**Why a HOSTED assistant is allowed beside the "AI only on device" rule.** This
+is a different thing from a human chat: the user is knowingly talking to a
+machine, not to a person the app is keeping private — the same reasoning that
+lets the public feed use a hosted model. It is **walled off**: `AiAssistant`
+names no `ChatStore`, `RelayService`, or crypto (a test pins this), so it can
+only ever see what the user types into the assistant chat. It never reads a
+human-to-human conversation, a server feed, or any encrypted content. Do not
+wire it to any of those. Labeled "AI assistant · can make mistakes" so nobody
+mistakes it for a person. The conversation is account-scoped (wiped on account
+switch).
+
+**Needs the user's own action to answer:** set `OPENROUTER_API_KEY` (already
+there if the feed moderator runs) and paste the `ai-chat` function; optionally
+`OPENROUTER_AI_MODEL` for a smarter model than the classifier's. Cost is
+per-token — a rate limit is a sensible follow-up.
+
 ## On-device translation (2026-08-06)
 
 `TranslateService` (`lib/state/translate_service.dart`) + `okay/translate` →

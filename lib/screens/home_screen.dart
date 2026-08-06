@@ -24,6 +24,7 @@ import 'explore_map_screen.dart';
 import 'new_chat_screen.dart';
 import '../widgets/nearby_offer_host.dart';
 import 'nearby_share_screen.dart';
+import 'ai_chat_screen.dart';
 import 'notes_screen.dart';
 import 'marketplace_screen.dart';
 import 'public_feed_screen.dart';
@@ -488,6 +489,13 @@ class _AppSideBar extends StatelessWidget {
   /// stays the single place a row's destination and gates live.
   Widget _appRow(BuildContext context, String id) {
     switch (id) {
+      case 'okayai':
+        return ListTile(
+          leading: const Icon(Icons.auto_awesome),
+          title: const Text('Okay AI'),
+          subtitle: const Text('Your built-in AI assistant'),
+          onTap: () => _go(context, const AiChatScreen()),
+        );
       case 'newsfeed':
         return ListTile(
           leading: const Icon(Icons.public),
