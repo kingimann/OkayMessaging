@@ -392,7 +392,13 @@ class _AiChatScreenState extends State<AiChatScreen> {
       body: Column(
         children: [
           Expanded(
-            child: ListenableBuilder(
+            // Tapping anywhere in the conversation dismisses the keyboard —
+            // there is no Done key on the message field, so this is the way
+            // out. Dragging the list does it too (below).
+            child: GestureDetector(
+              onTap: () => FocusScope.of(context).unfocus(),
+              behavior: HitTestBehavior.opaque,
+              child: ListenableBuilder(
               listenable: AiAssistant.instance,
               builder: (context, _) {
                 final turns = AiAssistant.instance.turns;
@@ -400,6 +406,8 @@ class _AiChatScreenState extends State<AiChatScreen> {
                 final sending = AiAssistant.instance.sending;
                 return ListView.builder(
                   controller: _scroll,
+                  keyboardDismissBehavior:
+                      ScrollViewKeyboardDismissBehavior.onDrag,
                   padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
                   itemCount: turns.length + (sending ? 1 : 0),
                   itemBuilder: (context, i) {
@@ -412,6 +420,7 @@ class _AiChatScreenState extends State<AiChatScreen> {
                   },
                 );
               },
+            ),
             ),
           ),
           _composer(context, scheme),

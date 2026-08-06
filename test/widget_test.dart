@@ -2192,6 +2192,20 @@ void main() {
       expect(content.any((p) => p['type'] == 'image_url'), isTrue);
     });
 
+    testWidgets('tapping the conversation dismisses the keyboard',
+        (tester) async {
+      AiAssistant.debugReplyOverride = (_) async => 'hi';
+      await tester.pumpWidget(const MaterialApp(home: AiChatScreen()));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), 'hello');
+      await tester.pump();
+      expect(tester.testTextInput.isVisible, isTrue);
+      // Tap the empty conversation area above the composer.
+      await tester.tapAt(const Offset(200, 300));
+      await tester.pumpAndSettle();
+      expect(tester.testTextInput.isVisible, isFalse);
+    });
+
     test('a reply with a fenced code block splits into text + code', () {
       final blocks = MiniMarkdown.blocks(
           'Here is how:\n```dart\nvoid main() {}\n```\nDone.');
