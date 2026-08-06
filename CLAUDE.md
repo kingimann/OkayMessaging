@@ -706,6 +706,15 @@ left is the periodic fine-tune itself: export the thumbs-up rows → train an op
 model → point `OPENROUTER_AI_MODEL` at it. **Needs the user's action:** run
 `docs/ai_training.sql`, paste `ai-feedback`.
 
+**Owner is never rate-limited (2026-08-06).** The app OWNER
+(`PlatformModeration.instance.isOwner`, a server-verified role no client can
+forge) skips BOTH gates: client-side `AiAssistant._unlimited` waives the free
+tier / pay sheet, and server-side `ai-chat` skips the cap when the caller's
+phone digits are in the `AI_OWNER_PHONES` env (comma-separated). The client
+half is cosmetic (bypassable); the env is the real exemption. Owner status is
+false until it loads, so the safe way round. **Needs the owner's action:** set
+`AI_OWNER_PHONES` to their number.
+
 **Rate limit + pay gate.** Two layers. The CLIENT product tier: a free
 `AiAssistant.freePerDay` (15) messages a day; past it `needsUpgrade` shows an
 upgrade sheet, and `AiPassStore` sells a 30-day unlimited pass (a consumable

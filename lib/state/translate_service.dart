@@ -24,26 +24,34 @@ class TranslateService extends ChangeNotifier {
   static const _prefKey = 'translate_target_v1';
 
   /// The languages offered as a translation target. Code → display name; the
-  /// code is what the platform framework speaks (BCP-47 base). Kept short and
-  /// common rather than exhaustive — the framework supports more, but a wall
-  /// of a hundred languages is worse to pick from than a useful dozen.
+  /// code is what the platform framework speaks (BCP-47 base).
+  ///
+  /// This is the FULL set Apple's on-device Translation framework supports —
+  /// not an arbitrary list. Offering a language the framework can't translate
+  /// would be a dead option that silently fails, so the map is kept to exactly
+  /// what works. Chinese appears twice because Simplified and Traditional are
+  /// separate models.
   static const Map<String, String> languages = {
     'en': 'English',
-    'es': 'Spanish',
+    'ar': 'Arabic',
+    'zh-Hans': 'Chinese (Simplified)',
+    'zh-Hant': 'Chinese (Traditional)',
+    'nl': 'Dutch',
     'fr': 'French',
     'de': 'German',
-    'it': 'Italian',
-    'pt': 'Portuguese',
-    'nl': 'Dutch',
-    'ru': 'Russian',
-    'ar': 'Arabic',
     'hi': 'Hindi',
-    'zh': 'Chinese',
+    'id': 'Indonesian',
+    'it': 'Italian',
     'ja': 'Japanese',
     'ko': 'Korean',
-    'tr': 'Turkish',
     'pl': 'Polish',
+    'pt': 'Portuguese',
+    'ru': 'Russian',
+    'es': 'Spanish',
+    'th': 'Thai',
+    'tr': 'Turkish',
     'uk': 'Ukrainian',
+    'vi': 'Vietnamese',
   };
 
   String _target = '';

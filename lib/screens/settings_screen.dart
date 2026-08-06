@@ -806,30 +806,46 @@ class SettingsView extends StatelessWidget {
       context: context,
       showDragHandle: true,
       isScrollControlled: true,
+      // Bound the height so a long list scrolls INSIDE the sheet instead of
+      // stretching it to the top of the screen and cramming the title under
+      // the status bar. The header stays put; only the list scrolls.
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.of(context).size.height * 0.72,
+      ),
       builder: (sheetContext) => SafeArea(
-        child: ListView(
-          shrinkWrap: true,
+        top: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 4),
-              child: Text('Translate messages into',
-                  style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 0.6,
-                      color: AppColors.subtle(sheetContext))),
-            ),
-            for (final entry in TranslateService.languages.entries)
-              ListTile(
-                title: Text(entry.value),
-                trailing: svc.target == entry.key
-                    ? const Icon(Icons.check, size: 20)
-                    : null,
-                onTap: () {
-                  svc.setTarget(entry.key);
-                  Navigator.of(sheetContext).pop();
-                },
+            const Padding(
+              padding: EdgeInsets.fromLTRB(20, 4, 20, 8),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text('Translate messages into',
+                    style: TextStyle(
+                        fontSize: 17, fontWeight: FontWeight.w700)),
               ),
+            ),
+            Flexible(
+              child: ListView(
+                shrinkWrap: true,
+                children: [
+                  for (final entry in TranslateService.languages.entries)
+                    ListTile(
+                      title: Text(entry.value),
+                      trailing: svc.target == entry.key
+                          ? Icon(Icons.check,
+                              size: 20,
+                              color: Theme.of(sheetContext).colorScheme.primary)
+                          : null,
+                      onTap: () {
+                        svc.setTarget(entry.key);
+                        Navigator.of(sheetContext).pop();
+                      },
+                    ),
+                ],
+              ),
+            ),
           ],
         ),
       ),

@@ -1947,6 +1947,20 @@ void main() {
       expect(await AiAssistant.instance.send('now it works'), isTrue);
     });
 
+    test('the app owner is never rate-limited', () async {
+      addTearDown(PlatformModeration.instance.resetForTest);
+      AiAssistant.debugReplyOverride = (_) async => 'ok';
+      // A normal account hits the gate after the free allowance.
+      for (var i = 0; i < AiAssistant.freePerDay; i++) {
+        await AiAssistant.instance.send('q$i');
+      }
+      expect(AiAssistant.instance.needsUpgrade, isTrue);
+      // The owner is exempt — no gate, unlimited remaining.
+      PlatformModeration.instance.debugSet(role: PlatformRole.owner);
+      expect(AiAssistant.instance.needsUpgrade, isFalse);
+      expect(AiAssistant.instance.remainingFreeToday, greaterThan(1000));
+    });
+
     test('the memory store holds no network path — it is on-device', () {
       final src = File('lib/state/ai_memory.dart').readAsStringSync();
       for (final banned in ['http', 'Supabase', 'functions.invoke']) {

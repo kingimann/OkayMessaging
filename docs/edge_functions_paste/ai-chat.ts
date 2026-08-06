@@ -267,9 +267,18 @@ Deno.serve(async (req) => {
   // when signed in, else the request IP) and checked BEFORE the model call, so
   // an over-cap request spends no tokens. Fails OPEN if the tally table isn't
   // set up, so a missing migration never breaks the assistant.
+  const me = (await callerPhone(req)) ?? "";
+  // The app OWNER is never capped: their phone digits go in AI_OWNER_PHONES
+  // (comma-separated). This is the server half of the owner exemption — the
+  // client waives its own free-tier gate for the owner too.
+  const owners = (Deno.env.get("AI_OWNER_PHONES") ?? "")
+    .split(",")
+    .map((s) => s.replace(/\D/g, ""))
+    .filter((s) => s.length > 0);
+  const isOwner = me.length > 0 && owners.includes(me.replace(/\D/g, ""));
+
   const cap = parseInt(Deno.env.get("AI_DAILY_CAP") ?? "40", 10);
-  if (cap > 0) {
-    const me = (await callerPhone(req)) ?? "";
+  if (cap > 0 && !isOwner) {
     const ip = (req.headers.get("x-forwarded-for") ?? "")
       .split(",")[0].trim();
     const usageKey = me || ip || "anon";

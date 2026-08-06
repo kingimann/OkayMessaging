@@ -9,6 +9,7 @@ import 'ai_attachment.dart';
 import 'ai_consent.dart';
 import 'ai_memory.dart';
 import 'ai_pass_store.dart';
+import 'platform_moderation.dart';
 
 /// The lightweight record of an attachment kept in a saved turn — for display
 /// only, never the full image or file text, which would bloat local storage.
@@ -120,18 +121,27 @@ class AiAssistant extends ChangeNotifier {
   bool get sending => _sending;
   bool get isEmpty => _turns.isEmpty;
 
-  /// Free messages left today (a big number when a pass makes it unlimited).
+  /// Whether this account is never rate-limited: a pass makes it unlimited,
+  /// and so does being the app OWNER — the operator shouldn't pay their own
+  /// gate. (Owner status is server-verified and false until it loads, so it's
+  /// the safe way round.) The server enforces the real ceiling separately via
+  /// AI_DAILY_CAP + AI_OWNER_PHONES.
+  bool get _unlimited =>
+      AiPassStore.instance.active || PlatformModeration.instance.isOwner;
+
+  /// Free messages left today (a big number when a pass or owner status makes
+  /// it unlimited).
   int get remainingFreeToday {
-    if (AiPassStore.instance.active) return 1 << 30;
+    if (_unlimited) return 1 << 30;
     _rollDay();
     final left = freePerDay - _usedToday;
     return left < 0 ? 0 : left;
   }
 
-  /// Whether the free daily allowance is spent and no pass is active — the
+  /// Whether the free daily allowance is spent and nothing lifts it — the
   /// point where the UI shows the upgrade gate instead of sending.
   bool get needsUpgrade {
-    if (AiPassStore.instance.active) return false;
+    if (_unlimited) return false;
     _rollDay();
     return _usedToday >= freePerDay;
   }
