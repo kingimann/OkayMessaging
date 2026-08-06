@@ -49,6 +49,19 @@ class _AiChatScreenState extends State<AiChatScreen> {
   ];
 
   @override
+  void initState() {
+    super.initState();
+    // Open on the latest message, like every chat — the assistant thread is
+    // restored from disk and would otherwise start at the top. A jump, not an
+    // animation: on first open there is nothing to animate away from.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scroll.hasClients) {
+        _scroll.jumpTo(_scroll.position.maxScrollExtent);
+      }
+    });
+  }
+
+  @override
   void dispose() {
     _input.dispose();
     _scroll.dispose();

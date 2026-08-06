@@ -778,7 +778,7 @@ void main() {
     addTearDown(() => PhotoPrep.debugPickOverride = null);
 
     // Open the inline attachment panel and pick Photos.
-    await tester.tap(find.byIcon(Icons.attach_file));
+    await tester.tap(find.byTooltip('Attach'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Photos'));
     await tester.pumpAndSettle();
@@ -801,7 +801,7 @@ void main() {
     await tester.tap(find.text('Bob Carter'));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byIcon(Icons.attach_file));
+    await tester.tap(find.byTooltip('Attach'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Location'));
     // The map hosts a FlutterMap whose tile timers never settle, so pump
@@ -862,7 +862,7 @@ void main() {
     await tester.tap(find.text('Bob Carter'));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byIcon(Icons.attach_file));
+    await tester.tap(find.byTooltip('Attach'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Contact'));
     await tester.pumpAndSettle();
@@ -1777,8 +1777,11 @@ void main() {
     await tester.longPress(find.text('Did you see the game last night?'));
     await tester.pumpAndSettle();
 
-    // Open the full emoji picker from the reaction row's "+".
-    await tester.tap(find.byIcon(Icons.add));
+    // Open the full emoji picker from the reaction row's "+". The composer's
+    // attach button is a bare "+" too now, so scope to the reaction row's,
+    // which sits in a CircleAvatar.
+    await tester.tap(find.descendant(
+        of: find.byType(CircleAvatar), matching: find.byIcon(Icons.add)));
     await tester.pumpAndSettle();
     expect(find.text('React with…'), findsOneWidget);
 
@@ -25318,11 +25321,14 @@ void main() {
       await t.tap(find.byType(TextField).last);
       await t.pumpAndSettle();
 
-      final composer = t.getRect(find.byType(TextField).last);
+      // The text field is the top row of the composer card now; the whole bar
+      // is what rides the keyboard, so measure each for what it proves.
+      final field = t.getRect(find.byType(TextField).last);
+      final bar = t.getRect(find.byType(ChatInputBar));
       final message = t.getRect(find.text('Did you see the game last night?'));
-      expect(composer.top, greaterThan(message.bottom),
+      expect(field.top, greaterThan(message.bottom),
           reason: 'still under the conversation with the keyboard up');
-      expect(composer.bottom, closeTo(844 - 336, 24),
+      expect(bar.bottom, closeTo(844 - 336, 24),
           reason: 'it rides the top of the keyboard');
     });
   });

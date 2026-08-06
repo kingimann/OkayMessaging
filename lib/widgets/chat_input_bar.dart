@@ -432,144 +432,151 @@ class _ChatInputBarState extends State<ChatInputBar> {
   }
 
   Widget _buildComposer(bool isDark, Color fieldColor) {
+    // One rounded card: the message across the top, the controls along the
+    // bottom — the plus on the left, the send/mic on the right. A softer,
+    // roomier shape than the old single-row pill.
+    final border = isDark ? const Color(0xFF33363B) : const Color(0xFFE2E5E9);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(6, 4, 6, 6),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          Expanded(
-            child: Container(
-              decoration: BoxDecoration(
-                color: fieldColor,
-                borderRadius: BorderRadius.circular(24),
-              ),
-              child: Row(
-                children: [
-                  IconButton(
-                    icon: Icon(
-                      _emojiOpen
-                          ? Icons.keyboard
-                          : Icons.emoji_emotions_outlined,
-                    ),
-                    color: Colors.grey,
-                    onPressed: () => setState(() {
-                      _emojiOpen = !_emojiOpen;
+      padding: const EdgeInsets.fromLTRB(10, 4, 10, 6),
+      child: Container(
+        decoration: BoxDecoration(
+          color: fieldColor,
+          borderRadius: BorderRadius.circular(26),
+          border: Border.all(color: border, width: 0.8),
+        ),
+        padding: const EdgeInsets.fromLTRB(16, 6, 8, 8),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // The message itself, across the top.
+            ValueListenableBuilder<bool>(
+              valueListenable: AppState.enterToSend,
+              builder: (context, enterToSend, _) => TextField(
+                controller: _controller,
+                minLines: 1,
+                maxLines: 6,
+                textCapitalization: TextCapitalization.sentences,
+                // When enter-to-send is on, the return key submits; otherwise
+                // it inserts a newline and the send button is used instead.
+                textInputAction: enterToSend
+                    ? TextInputAction.send
+                    : TextInputAction.newline,
+                onTap: () {
+                  if (_emojiOpen || _attachOpen) {
+                    setState(() {
+                      _emojiOpen = false;
                       _attachOpen = false;
-                      // The panel replaces the keyboard — never both at once.
-                      if (_emojiOpen) {
-                        FocusManager.instance.primaryFocus?.unfocus();
-                      }
-                    }),
+                    });
+                  }
+                },
+                decoration: const InputDecoration(
+                  hintText: 'Message',
+                  border: InputBorder.none,
+                  isCollapsed: true,
+                  contentPadding: EdgeInsets.symmetric(vertical: 8),
+                ),
+                onSubmitted: enterToSend ? (_) => _send() : null,
+              ),
+            ),
+            const SizedBox(height: 6),
+            // The controls, along the bottom.
+            Row(
+              children: [
+                // The plus, on the left: everything that isn't typing —
+                // photos, documents, the rest — lives in its panel, so the
+                // bar stays lean. Fires onAttach when the caller gave no
+                // inline options.
+                IconButton(
+                  icon: Icon(_attachOpen ? Icons.close : Icons.add),
+                  color: isDark ? Colors.white70 : Colors.black54,
+                  tooltip: 'Attach',
+                  visualDensity: VisualDensity.compact,
+                  style: IconButton.styleFrom(
+                    shape: CircleBorder(side: BorderSide(color: border)),
                   ),
-                  Expanded(
-                    child: ValueListenableBuilder<bool>(
-                      valueListenable: AppState.enterToSend,
-                      builder: (context, enterToSend, _) => TextField(
-                        controller: _controller,
-                        minLines: 1,
-                        maxLines: 5,
-                        textCapitalization: TextCapitalization.sentences,
-                        // When enter-to-send is on, the return key submits;
-                        // otherwise it inserts a newline and the send button
-                        // is used instead.
-                        textInputAction: enterToSend
-                            ? TextInputAction.send
-                            : TextInputAction.newline,
-                        onTap: () {
-                          if (_emojiOpen || _attachOpen) {
-                            setState(() {
-                              _emojiOpen = false;
-                              _attachOpen = false;
-                            });
-                          }
-                        },
-                        decoration: const InputDecoration(
-                          hintText: 'Message',
-                          border: InputBorder.none,
-                        ),
-                        onSubmitted: enterToSend ? (_) => _send() : null,
+                  onPressed: widget.attachments.isEmpty
+                      ? widget.onAttach
+                      : () => setState(() {
+                            _attachOpen = !_attachOpen;
+                            _emojiOpen = false;
+                            // The panel replaces the keyboard — never both at
+                            // once.
+                            if (_attachOpen) {
+                              FocusManager.instance.primaryFocus?.unfocus();
+                            }
+                          }),
+                ),
+                IconButton(
+                  icon: Icon(
+                      _emojiOpen ? Icons.keyboard : Icons.emoji_emotions_outlined),
+                  color: Colors.grey,
+                  tooltip: 'Emoji',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () => setState(() {
+                    _emojiOpen = !_emojiOpen;
+                    _attachOpen = false;
+                    if (_emojiOpen) {
+                      FocusManager.instance.primaryFocus?.unfocus();
+                    }
+                  }),
+                ),
+                // GIFs are a one-tap thing everywhere people know them from;
+                // straight onto the picker's GIF tab (which also has emoji).
+                if (widget.onSendGif != null)
+                  IconButton(
+                    icon: const Icon(Icons.gif_box_outlined),
+                    color: Colors.grey,
+                    tooltip: 'GIF',
+                    visualDensity: VisualDensity.compact,
+                    onPressed: () async {
+                      setState(() {
+                        _emojiOpen = false;
+                        _attachOpen = false;
+                      });
+                      final picked =
+                          await showEmojiGifSheet(context, initialTab: 1);
+                      final url = picked?.gif?.url;
+                      if (url != null) widget.onSendGif?.call(url);
+                      final emoji = picked?.emoji;
+                      if (emoji != null) _insertEmoji(emoji);
+                    },
+                  ),
+                const Spacer(),
+                // SCHEDULING, WHERE IT CAN BE FOUND — the long-press on send
+                // still works, and now there is a button too, but only once
+                // something is typed.
+                if (_hasText && widget.onSchedule != null)
+                  IconButton(
+                    icon: const Icon(Icons.schedule),
+                    color: Colors.grey,
+                    tooltip: 'Send later',
+                    visualDensity: VisualDensity.compact,
+                    onPressed: _schedule,
+                  ),
+                const SizedBox(width: 2),
+                GestureDetector(
+                  onTap: _hasText ? _send : _startRecording,
+                  onLongPress: _hasText ? _schedule : null,
+                  child: CircleAvatar(
+                    radius: 22,
+                    backgroundColor: AppColors.accentOn(context),
+                    child: AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 200),
+                      transitionBuilder: (child, animation) =>
+                          ScaleTransition(scale: animation, child: child),
+                      child: Icon(
+                        _hasText ? Icons.send : Icons.mic,
+                        key: ValueKey(_hasText),
+                        color: AppColors.onAccent(context),
                       ),
                     ),
                   ),
-                  // GIFs are a one-tap thing everywhere people know them
-                  // from; buried in the attachment panel they read as
-                  // missing. Straight onto the picker's GIF tab — which
-                  // also has emoji, so the whole expressive kit is one tap.
-                  if (widget.onSendGif != null)
-                    IconButton(
-                      icon: const Icon(Icons.gif_box_outlined),
-                      color: Colors.grey,
-                      tooltip: 'GIF',
-                      onPressed: () async {
-                        setState(() {
-                          _emojiOpen = false;
-                          _attachOpen = false;
-                        });
-                        final picked =
-                            await showEmojiGifSheet(context, initialTab: 1);
-                        final url = picked?.gif?.url;
-                        if (url != null) widget.onSendGif?.call(url);
-                        final emoji = picked?.emoji;
-                        if (emoji != null) _insertEmoji(emoji);
-                      },
-                    ),
-                  // One attach button owns everything else that isn't
-                  // typing — photos, documents, and the rest live in its
-                  // panel, so the bar stays lean.
-                  IconButton(
-                    icon: Icon(_attachOpen ? Icons.close : Icons.attach_file),
-                    color: Colors.grey,
-                    tooltip: 'Attach',
-                    onPressed: widget.attachments.isEmpty
-                        ? widget.onAttach
-                        : () => setState(() {
-                              _attachOpen = !_attachOpen;
-                              _emojiOpen = false;
-                              // The panel replaces the keyboard — never
-                              // both stacked at once.
-                              if (_attachOpen) {
-                                FocusManager.instance.primaryFocus?.unfocus();
-                              }
-                            }),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          // SCHEDULING, WHERE IT CAN BE FOUND. It has worked for a long time
-          // by long-pressing send, which nothing advertises and nobody
-          // discovers — the long-press still works, and now there is a
-          // button too. Only once something is typed: an empty box has
-          // nothing to schedule, and a permanently-there clock would be a
-          // control that does nothing most of the time.
-          if (_hasText && widget.onSchedule != null) ...[
-            const SizedBox(width: 2),
-            IconButton(
-              icon: const Icon(Icons.schedule),
-              tooltip: 'Send later',
-              onPressed: _schedule,
+                ),
+              ],
             ),
           ],
-          const SizedBox(width: 6),
-          GestureDetector(
-            onTap: _hasText ? _send : _startRecording,
-            onLongPress: _hasText ? _schedule : null,
-            child: CircleAvatar(
-              radius: 24,
-              backgroundColor: AppColors.accentOn(context),
-              child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 200),
-                transitionBuilder: (child, animation) =>
-                    ScaleTransition(scale: animation, child: child),
-                child: Icon(
-                  _hasText ? Icons.send : Icons.mic,
-                  key: ValueKey(_hasText),
-                  color: AppColors.onAccent(context),
-                ),
-              ),
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
