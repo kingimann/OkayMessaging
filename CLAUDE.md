@@ -781,6 +781,24 @@ Two things that look like bugs and are not:
   otherwise read a verified account as unverified. `refresh()` still
   overwrites it, including downgrades.
 
+## Owner-editable legal documents (2026-08-06)
+
+The Terms of Service and Privacy Policy can be updated by the OWNER from inside
+the app — no build. The build still ships built-in documents
+(`legal_content.dart`, `legalVersion`); `LegalStore` (`lib/state/legal_store.dart`)
+overlays an owner-published version on top and is what every screen reads
+(`LegalScreen`, `LegalConsent`). `LegalConsent.needsConsent` now compares the
+accepted version against `LegalStore.version` (the higher of the build's
+`legalVersion` and the published version), so publishing re-prompts everyone.
+Publishing goes through the owner-gated `legal-set` Edge Function (checks
+`platform_roles` = owner, exactly like `roles-set`); the `legal_documents` table
+(`docs/legal_documents.sql`) is world-readable but has NO client write grants —
+`check_sql.sh` pins that a client can read it and cannot publish/alter it. The
+editor is Settings → **Edit legal documents** (owner-only, gated on
+`PlatformModeration.isOwner`); it edits each doc as plain text where a `# ` line
+starts a section. Fetched on launch and cached (survives offline). **Needs the
+owner's action:** run `docs/legal_documents.sql`, paste `legal-set`.
+
 ## Waiting on the user (nothing here is code)
 
 0c. **Ads (2026-08-04):** AdMob banners on the two PUBLIC surfaces only

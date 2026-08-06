@@ -198,6 +198,7 @@ import 'package:okay_messaging/mesh/mesh_packet.dart';
 import 'package:okay_messaging/mesh/mesh_router.dart';
 import 'package:okay_messaging/mesh/mesh_service.dart';
 import 'package:okay_messaging/state/legal_consent.dart';
+import 'package:okay_messaging/state/legal_store.dart';
 import 'package:okay_messaging/state/crash_reporter.dart';
 import 'package:okay_messaging/widgets/empty_state.dart';
 import 'package:okay_messaging/screens/home_screen.dart';
@@ -2244,6 +2245,44 @@ void main() {
       expect(spans.firstWhere((s) => s.code).text, 'Future');
       final literal = MiniMarkdown.inline('2 ** 3 is not bold');
       expect(literal.any((s) => s.bold), isFalse);
+    });
+  });
+
+  group('Owner-editable legal documents', () {
+    setUp(() {
+      SharedPreferences.setMockInitialValues({});
+      LegalStore.instance.resetForTest();
+    });
+    tearDown(() => LegalStore.instance.resetForTest());
+
+    test('defaults to the built-in documents and version', () {
+      expect(LegalStore.instance.terms, isNotEmpty);
+      expect(LegalStore.instance.privacy, isNotEmpty);
+      expect(LegalStore.instance.version, legalVersion);
+    });
+
+    test('publishing overrides the docs and re-prompts consent', () async {
+      // A user who accepted the current built-in version needs no consent.
+      LegalConsent.instance.resetForTest(accepted: legalVersion);
+      expect(LegalConsent.instance.needsConsent, isFalse);
+
+      // The owner publishes new documents (the function is stubbed).
+      LegalStore.debugPublishOverride = (t, p, u) async => legalVersion + 3;
+      final v = await LegalStore.instance.publish(
+        terms: const [LegalSection('Terms', 'New terms body')],
+        privacy: const [LegalSection('Privacy', 'New privacy body')],
+        lastUpdated: 'Last updated: today',
+      );
+      expect(v, legalVersion + 3);
+      expect(LegalStore.instance.terms.first.body, 'New terms body');
+      expect(LegalStore.instance.version, legalVersion + 3);
+      expect(LegalStore.instance.lastUpdated, 'Last updated: today');
+
+      // The bump re-prompts the user who accepted the old version; accepting
+      // the new one clears it.
+      expect(LegalConsent.instance.needsConsent, isTrue);
+      await LegalConsent.instance.accept();
+      expect(LegalConsent.instance.needsConsent, isFalse);
     });
   });
 
@@ -27954,6 +27993,10 @@ void main() {
       const deviceScoped = {
         'app_lock.dart', // the device PIN belongs to the phone's owner
         'legal_consent.dart', // the human accepted the terms, not the account
+        // The Terms/Privacy text is public policy — identical for every
+        // account and carrying no account data — so its cached copy is
+        // device-scoped, like legal_consent above.
+        'legal_store.dart',
         'onboarding_store.dart', // the human has seen the tour
         'session.dart', // the identity itself — replaced by the sign-in
         'persistence.dart', // app-level settings, reset via AppState

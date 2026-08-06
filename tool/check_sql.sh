@@ -1070,6 +1070,19 @@ select pg_temp.expect_fail(
   $$insert into public.ai_training_samples (prompt, reply, rating)
     values ('p','r',1)$$,
   'a client cannot write to the AI training corpus');
+-- Legal documents: clients may READ the current text (fetched on launch) but
+-- may never write it — only the owner-gated legal-set function does.
+do $$ begin
+  perform count(*) from public.legal_documents;
+  raise notice '  ok   legal documents are readable by clients';
+end $$;
+select pg_temp.expect_fail(
+  $$insert into public.legal_documents (id, terms, privacy)
+    values (1, '[]'::jsonb, '[]'::jsonb)$$,
+  'a client cannot publish legal documents');
+select pg_temp.expect_fail(
+  $$update public.legal_documents set version = 999 where id = 1$$,
+  'a client cannot alter legal documents');
 reset role;
 SQL
 
@@ -1088,7 +1101,7 @@ apply() {
 }
 
 echo "postgres $(su pg -c "PATH=$PGBIN:\$PATH psql -h $RUN -p $PORT -d $DB -tAc 'show server_version'")"
-for f in "$WORK/harness.sql" supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql; do
+for f in "$WORK/harness.sql" supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql; do
   if apply "$f"; then
     echo "  applied $(basename "$f")"
   else
@@ -1151,7 +1164,7 @@ else
   echo "  FAILED  could not rebuild the previous shape"; exit 1
 fi
 
-for f in supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql; do
+for f in supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql; do
   if apply "$f"; then
     echo "  re-applied $(basename "$f")"
   else

@@ -46,6 +46,7 @@ const pasteFunctions = [
   'roles-set',
   'ai-chat',
   'ai-feedback',
+  'legal-set',
 ];
 
 /// Whatever the paste copy's own header should say for [name].

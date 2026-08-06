@@ -7,6 +7,11 @@ class LegalSection {
   final String title;
   final String body;
   const LegalSection(this.title, this.body);
+
+  Map<String, dynamic> toJson() => {'title': title, 'body': body};
+
+  factory LegalSection.fromJson(Map<String, dynamic> j) =>
+      LegalSection(j['title'] as String? ?? '', j['body'] as String? ?? '');
 }
 
 const String legalLastUpdated = 'Last updated: July 2026';

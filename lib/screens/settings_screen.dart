@@ -31,6 +31,7 @@ import 'chats_settings_screen.dart';
 import 'cloud_sync_screen.dart';
 import 'earnings_screen.dart';
 import 'edit_profile_screen.dart';
+import 'legal_edit_screen.dart';
 import 'legal_screen.dart';
 import 'maps_settings_screen.dart';
 import 'my_qr_screen.dart';
@@ -451,6 +452,22 @@ class SettingsView extends StatelessWidget {
               onTap: () => Navigator.of(context).push(
                 MaterialPageRoute(builder: (_) => LegalScreen.terms()),
               ),
+            ),
+            // Owner only: edit the Terms and Privacy Policy for everyone,
+            // without shipping a build. Appears when owner status loads.
+            ListenableBuilder(
+              listenable: PlatformModeration.instance,
+              builder: (context, _) => PlatformModeration.instance.isOwner
+                  ? InfoTile(
+                      leading: const Icon(Icons.gavel_outlined),
+                      title: 'Edit legal documents',
+                      subtitle: 'Update Terms & Privacy for everyone',
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute(
+                            builder: (_) => const LegalEditScreen()),
+                      ),
+                    )
+                  : const SizedBox.shrink(),
             ),
             InfoTile(
               leading: const Icon(Icons.numbers),

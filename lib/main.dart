@@ -55,6 +55,7 @@ import 'state/feed_prefs.dart';
 import 'state/notes_store.dart';
 import 'state/follow_store.dart';
 import 'state/legal_consent.dart';
+import 'state/legal_store.dart';
 import 'state/live_location_broadcaster.dart';
 import 'state/onboarding_store.dart';
 import 'state/persistence.dart';
@@ -116,6 +117,9 @@ Future<void> main() async {
   await _boot('ai pass', AiPassStore.instance.load);
   await _boot('sidebar', SidebarPrefs.instance.load);
   await _boot('two-step', TwoStepVerification.instance.load);
+  // Legal documents (cached copy) load BEFORE consent, so the acceptance gate
+  // compares against the effective version, owner-published or built-in.
+  await _boot('legal docs', LegalStore.instance.load);
   await _boot('legal', LegalConsent.instance.load);
   await _boot('email', AccountEmail.instance.load);
   await _boot('communities', CommunityStore.instance.load);
@@ -228,6 +232,8 @@ Future<void> main() async {
   // holds a lock-out.
   unawaited(IdentityVerification.instance.refresh());
   unawaited(PlatformModeration.instance.refresh());
+  // Pull the latest legal documents; a bump re-prompts consent on next check.
+  unawaited(LegalStore.instance.refresh());
   // Apple renews, cancels, and REFUNDS whether or not the app is open, and
   // the storage quota gate is client-side — so a refund the server already
   // honoured only takes effect here once the app asks. Asking every cold
