@@ -589,6 +589,29 @@ community model, propagated over the sealed community bus like every other
 structural update. `CustomRole.fromJson` reads an unknown/`owner` tier as the
 harmless member floor, so a newer build can't smuggle power onto an older one.
 
+## On-device translation (2026-08-06)
+
+`TranslateService` (`lib/state/translate_service.dart`) + `okay/translate` →
+`ios/Runner/Translate.swift` (Apple's **Translation** framework). A "Translate
+to <lang>" action on any text message opens a sheet with the translation, the
+original, and a Copy button; the target language lives in Settings → Chats
+(`_pickTranslationLanguage`), defaulting to the device locale.
+
+**On-device, ALWAYS — same rule as `SmartReplies`.** Message bodies are E2E
+encrypted, so a cloud translator would mean decrypting somebody's chat
+somewhere it can be read. There is NO network path in `translate_service.dart`
+(a test asserts it names no `http`/`Supabase`/`functions.invoke`), not even for
+the public feed, so one Translate button behaves the same everywhere. Apple's
+framework fetches the language pack once (with the system's own consent) and
+translates offline after.
+
+Two guards on the Swift, like `SmartReplies`: `#if canImport(Translation)`
+(compile-time — older Xcode stubs it) and `if #available(iOS 17.4, *)`
+(runtime — the app deploys to iOS 13). `TranslationSession(` is in the
+iOS-availability guard test's symbol list. **Never compiled here** — the first
+real check is a Codemagic build; on the web build and iPhones below iOS 17.4
+`available` returns false and the action says so plainly rather than failing.
+
 ## Verified-only features
 
 The **marketplace, wallet and Okay Drop** are behind

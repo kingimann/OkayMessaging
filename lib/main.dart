@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'state/quick_replies.dart';
+import 'state/translate_service.dart';
 import 'state/sidebar_prefs.dart';
 import 'state/chat_lock.dart';
 
@@ -103,6 +104,7 @@ Future<void> main() async {
   await _boot('lock', AppLock.instance.load);
   await _boot('chat locks', ChatLock.instance.load);
   await _boot('quick replies', QuickReplies.instance.load);
+  await _boot('translation', TranslateService.instance.load);
   await _boot('sidebar', SidebarPrefs.instance.load);
   await _boot('two-step', TwoStepVerification.instance.load);
   await _boot('legal', LegalConsent.instance.load);

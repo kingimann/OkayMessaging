@@ -10,6 +10,7 @@ import '../relay/relay_config.dart';
 import '../state/account_email.dart';
 import '../state/account_service.dart';
 import '../state/account_wipe.dart';
+import '../state/translate_service.dart';
 import '../state/demo_seed.dart';
 import '../state/call_diagnostics.dart';
 import '../state/backup_service.dart';
@@ -131,6 +132,17 @@ class SettingsView extends StatelessWidget {
               subtitle: 'Saved answers, one tap away in any chat',
               onTap: () => Navigator.of(context).push(
                 MaterialPageRoute(builder: (_) => const QuickRepliesScreen()),
+              ),
+            ),
+            ListenableBuilder(
+              listenable: TranslateService.instance,
+              builder: (context, _) => InfoTile(
+                leading: const Icon(Icons.translate),
+                title: 'Translation language',
+                subtitle:
+                    'Translate messages into ${TranslateService.instance.targetName()} · '
+                    'on this device, never uploaded',
+                onTap: () => _pickTranslationLanguage(context),
               ),
             ),
           ],
@@ -785,6 +797,42 @@ class SettingsView extends StatelessWidget {
     ChatStore.instance.clearAll();
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('All chats cleared')),
+    );
+  }
+
+  void _pickTranslationLanguage(BuildContext context) {
+    final svc = TranslateService.instance;
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (sheetContext) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 4),
+              child: Text('Translate messages into',
+                  style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.6,
+                      color: AppColors.subtle(sheetContext))),
+            ),
+            for (final entry in TranslateService.languages.entries)
+              ListTile(
+                title: Text(entry.value),
+                trailing: svc.target == entry.key
+                    ? const Icon(Icons.check, size: 20)
+                    : null,
+                onTap: () {
+                  svc.setTarget(entry.key);
+                  Navigator.of(sheetContext).pop();
+                },
+              ),
+          ],
+        ),
+      ),
     );
   }
 

@@ -1,4 +1,5 @@
 import '../state/smart_replies.dart';
+import '../state/translate_service.dart';
 import 'quick_replies_screen.dart';
 import '../state/quick_replies.dart';
 import '../state/session.dart';
@@ -1682,6 +1683,18 @@ class _ChatScreenState extends State<ChatScreen> {
                       );
                     },
                   ),
+                // Translate — on-device only, so it sits on an encrypted chat
+                // without the text ever leaving the phone.
+                if (message.text.trim().isNotEmpty && _mayLeaveChat(message))
+                  ListTile(
+                    leading: const Icon(Icons.translate),
+                    title: Text(
+                        'Translate to ${TranslateService.instance.targetName()}'),
+                    onTap: () {
+                      Navigator.of(sheetContext).pop();
+                      _translateMessage(message);
+                    },
+                  ),
                 // Spark: money pinned to something they said, same rails as
                 // Send money. Their messages only. In a group it pays the
                 // SENDER — offered only when their digits rode on the
@@ -1739,6 +1752,92 @@ class _ChatScreenState extends State<ChatScreen> {
           ),
         );
       },
+    );
+  }
+
+  /// Translates a message on-device and shows the result. The text never
+  /// leaves the phone — see [TranslateService]. Unavailable on the web build
+  /// and on iPhones below iOS 17.4, which is said plainly rather than failing
+  /// silently.
+  Future<void> _translateMessage(Message message) async {
+    final svc = TranslateService.instance;
+    final messenger = ScaffoldMessenger.of(context);
+    if (!await svc.available) {
+      messenger.showSnackBar(const SnackBar(
+          content: Text(
+              'On-device translation needs iOS 17.4 or later.')));
+      return;
+    }
+    final translated = await svc.translate(message.text);
+    if (!mounted) return;
+    if (translated == null) {
+      messenger.showSnackBar(const SnackBar(
+          content: Text('Couldn\'t translate that.')));
+      return;
+    }
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(20, 0, 20,
+              20 + MediaQuery.of(sheetContext).viewInsets.bottom),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.translate, size: 18),
+                  const SizedBox(width: 8),
+                  Text('Translated to ${svc.targetName()}',
+                      style: const TextStyle(
+                          fontWeight: FontWeight.w700, fontSize: 15)),
+                ],
+              ),
+              const SizedBox(height: 12),
+              SelectableText(translated,
+                  style: const TextStyle(fontSize: 16, height: 1.35)),
+              const SizedBox(height: 16),
+              Text('Original',
+                  style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: Theme.of(sheetContext)
+                          .colorScheme
+                          .onSurfaceVariant)),
+              const SizedBox(height: 4),
+              Text(message.text,
+                  style: TextStyle(
+                      fontSize: 14,
+                      color: Theme.of(sheetContext)
+                          .colorScheme
+                          .onSurfaceVariant)),
+              const SizedBox(height: 16),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                  onPressed: () {
+                    Clipboard.setData(ClipboardData(text: translated));
+                    Navigator.of(sheetContext).pop();
+                    messenger.showSnackBar(const SnackBar(
+                        content: Text('Translation copied')));
+                  },
+                  icon: const Icon(Icons.copy, size: 16),
+                  label: const Text('Copy'),
+                ),
+              ),
+              Text('Translated on your device — the text never left the phone.',
+                  style: TextStyle(
+                      fontSize: 11.5,
+                      color: Theme.of(sheetContext)
+                          .colorScheme
+                          .onSurfaceVariant)),
+            ],
+          ),
+        ),
+      ),
     );
   }
 

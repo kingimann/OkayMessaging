@@ -43,6 +43,7 @@ import 'package:okay_messaging/screens/new_chat_screen.dart';
 import 'package:okay_messaging/util/account_code.dart';
 import 'package:okay_messaging/util/phone_format.dart';
 import 'package:okay_messaging/util/voip_numbers.dart';
+import 'package:okay_messaging/state/translate_service.dart';
 import 'package:okay_messaging/legal/legal_content.dart';
 import 'package:okay_messaging/models/call.dart' as callmodel;
 import 'package:okay_messaging/screens/notes_screen.dart';
@@ -1927,6 +1928,62 @@ void main() {
           .readAsStringSync();
       expect(src, contains('VoipNumbers.reason'),
           reason: 'the phone field validator must call the gate');
+    });
+  });
+
+  group('On-device translation', () {
+    setUp(() => TranslateService.instance.resetForTest());
+    tearDown(() => TranslateService.instance.resetForTest());
+
+    test('translates through the channel and caches the answer', () async {
+      TranslateService.debugAvailableOverride = true;
+      var calls = 0;
+      TranslateService.debugTranslateOverride = (text, target) async {
+        calls++;
+        return '[$target] $text';
+      };
+      final svc = TranslateService.instance;
+      final out = await svc.translate('hello', into: 'es');
+      expect(out, '[es] hello');
+      // A second identical request is served from cache, not the framework.
+      final again = await svc.translate('hello', into: 'es');
+      expect(again, '[es] hello');
+      expect(calls, 1, reason: 'the second call hits the cache');
+    });
+
+    test('blank text and an unavailable device both return null', () async {
+      final svc = TranslateService.instance;
+      TranslateService.debugAvailableOverride = true;
+      expect(await svc.translate('   '), isNull);
+      // Unavailable device: no translation, no crash.
+      TranslateService.debugAvailableOverride = false;
+      expect(await svc.translate('hello'), isNull);
+    });
+
+    test('the target language persists and only accepts known codes',
+        () async {
+      SharedPreferences.setMockInitialValues({});
+      final svc = TranslateService.instance;
+      await svc.setTarget('fr');
+      expect(svc.target, 'fr');
+      expect(svc.targetName(), 'French');
+      // An unknown code is ignored.
+      await svc.setTarget('zz');
+      expect(svc.target, 'fr');
+      // It survives a reload.
+      svc.resetForTest();
+      await svc.load();
+      expect(svc.target, 'fr');
+    });
+
+    test('the service holds no network path — it is on-device only', () {
+      final src =
+          File('lib/state/translate_service.dart').readAsStringSync();
+      for (final banned in ['http', 'Supabase', 'functions.invoke', 'Dio']) {
+        expect(src.contains(banned), isFalse,
+            reason: 'translation of encrypted chat must never leave the '
+                'device; found "$banned"');
+      }
     });
   });
 
@@ -27435,6 +27492,10 @@ void main() {
         // The parent's rule about the DEVICE, exactly like the app PIN — a
         // child switching accounts must not shed it.
         'parental_controls.dart',
+        // The language you read in belongs to the human holding the phone,
+        // not the account — like the theme. Switching accounts shouldn't
+        // reset it, and it carries no account data to leak.
+        'translate_service.dart',
       };
       for (final f in Directory('lib/state').listSync().whereType<File>()) {
         final name = f.path.split(Platform.pathSeparator).last;
@@ -29402,6 +29463,8 @@ void main() {
         '.list',
         'CXProviderConfiguration()',
         'setBadgeCount(',
+        // Apple's Translation framework — iOS 17.4 for the programmatic API.
+        'TranslationSession(',
       ];
 
       for (final file in Directory('ios/Runner')

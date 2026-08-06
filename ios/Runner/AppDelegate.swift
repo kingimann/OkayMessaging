@@ -122,6 +122,12 @@ import WebRTC
     let replyMessenger = engineBridge.pluginRegistry
       .registrar(forPlugin: "OkaySmartReplies")!.messenger()
     SmartReplies.register(with: replyMessenger)
+    // On-device translation (Apple's Translation framework). Wiring the channel
+    // asks for nothing and downloads nothing; a language pack is fetched, with
+    // the system's own consent, only when Dart first calls "translate".
+    let translateMessenger = engineBridge.pluginRegistry
+      .registrar(forPlugin: "OkayTranslate")!.messenger()
+    Translate.register(with: translateMessenger)
     // Bluetooth mesh. Registering only wires the channel — no radio starts and
     // no permission is asked for until Dart calls "start", which happens only
     // if the user turned the mesh on.
