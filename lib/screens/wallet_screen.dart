@@ -196,6 +196,78 @@ class _WalletScreenState extends State<WalletScreen> {
     }
   }
 
+  bool _cashingOut = false;
+
+  /// The Cash-App "Cash Out" action, hoisted so the big button owns it: to a
+  /// debit card instantly when that's available, otherwise it explains why and
+  /// leaves the automatic bank payout to run. No card yet → add one first.
+  Future<void> _cashOut(WalletStatus s) async {
+    final messenger = ScaffoldMessenger.of(context);
+    if (!s.hasDebitCard) {
+      _openAddCard(s.currency.toLowerCase());
+      return;
+    }
+    if (!s.canCashOutInstantly) {
+      messenger.showSnackBar(SnackBar(
+          content: Text(s.cardLocked
+              ? 'Instant cash out is locked after recent card changes. Your '
+                  'balance still pays out to your bank.'
+              : s.cardHoldDaysLeft > 0
+                  ? 'Instant cash out unlocks in ${s.cardHoldDaysLeft} business '
+                      '${s.cardHoldDaysLeft == 1 ? 'day' : 'days'}. Bank payout '
+                      'is unaffected.'
+                  : !InstantPayoutEconomics.isSupportedIn(s.country)
+                      ? 'Instant cash out isn\'t available in your country yet. '
+                          'Your balance pays out to your bank automatically.'
+                      : s.instantAvailableCents <= 0
+                          ? 'Nothing to cash out yet.'
+                          : 'At least '
+                              '${s.money(InstantPayoutEconomics.minimumCents)} '
+                              'needs to be available to cash out instantly.')));
+      return;
+    }
+    final amount = s.instantAvailableCents;
+    final fee = InstantPayoutEconomics.feeCents(amount, s.country);
+    final lands = InstantPayoutEconomics.landsCents(amount, s.country);
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Cash out instantly?'),
+        content: Text(
+          '${s.money(amount)} from your balance\n'
+          '− ${s.money(fee)} Stripe\'s instant fee\n'
+          '= ${s.money(lands)} on your '
+          '${s.cardBrand ?? 'card'} ••${s.cardLast4 ?? '••'}\n\n'
+          'Usually within 30 minutes. Waiting for the normal payout to your '
+          'bank costs nothing.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Cash out'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    setState(() => _cashingOut = true);
+    final outcome =
+        await PaymentService.instance.cashOutInstantly(amount, country: s.country);
+    if (!mounted) return;
+    setState(() => _cashingOut = false);
+    messenger.showSnackBar(SnackBar(
+      content: Text(outcome.ok
+          ? 'On its way — ${s.money(outcome.amountCents - outcome.feeCents)} '
+              'to ••${s.cardLast4 ?? '••'}'
+          : outcome.message),
+    ));
+    if (outcome.ok) _refresh();
+  }
+
   /// A readable line for each way a top-up can be refused.
   String _addMoneyError(String code) {
     switch (code) {
@@ -292,7 +364,7 @@ class _WalletScreenState extends State<WalletScreen> {
                 final s = snap.data!;
                 return PullToRefresh(
                   child: ListView(
-                    padding: const EdgeInsets.all(16),
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
                     children: [
                       if (PaymentService.instance.testMode.value)
                         const _TestModeBanner(),
@@ -300,48 +372,42 @@ class _WalletScreenState extends State<WalletScreen> {
                         key: ValueKey(_controlsEpoch),
                         onResume: _openControls,
                       ),
-                      _BalanceCard(status: s),
-                      const SizedBox(height: 12),
-                      // The two ways to fill a wallet: put your own money in
-                      // (a card top-up), or be paid by somebody else. Both
-                      // need the account onboarded first — you cannot receive
-                      // into a balance that does not exist.
-                      if (s.canReceive)
+                      // Cash App's face: a big centred balance, then the two
+                      // signature actions.
+                      _BalanceHero(status: s),
+                      const SizedBox(height: 28),
+                      if (!s.canReceive) ...[
+                        _OnboardCard(onStart: _startOnboarding),
+                      ] else ...[
                         Row(
                           children: [
                             Expanded(
-                              child: _WalletAction(
-                                  icon: Icons.add,
-                                  label: 'Add money',
-                                  onTap: _addMoney),
+                              child: _CashPill(
+                                label: 'Add Cash',
+                                icon: Icons.add,
+                                filled: true,
+                                onTap: _addMoney,
+                              ),
                             ),
-                            const SizedBox(width: 10),
+                            const SizedBox(width: 12),
                             Expanded(
-                              child: _WalletAction(
-                                  icon: Icons.qr_code_2,
-                                  label: 'Receive',
-                                  onTap: _openReceive),
+                              child: _CashPill(
+                                label: 'Cash Out',
+                                icon: Icons.arrow_downward,
+                                busy: _cashingOut,
+                                onTap: () => _cashOut(s),
+                              ),
                             ),
                           ],
-                        )
-                      else
-                        // No account yet: receiving is still the way in, so
-                        // offer it — it opens the same onboarding.
-                        _WalletAction(
-                            icon: Icons.qr_code_2,
-                            label: 'Ways to get paid',
-                            onTap: _openReceive),
-                      const SizedBox(height: 16),
-                      if (!s.canReceive)
-                        _OnboardCard(onStart: _startOnboarding)
-                      else ...[
-                        _CashOutCard(
-                          status: s,
-                          onDone: _refresh,
-                          onAddCard: () =>
-                              _openAddCard(s.currency.toLowerCase()),
                         ),
-                        const SizedBox(height: 16),
+                        const SizedBox(height: 12),
+                        _CashPill(
+                          label: 'Receive',
+                          icon: Icons.qr_code_2,
+                          tertiary: true,
+                          onTap: _openReceive,
+                        ),
+                        const SizedBox(height: 24),
                         _PayoutCard(
                           status: s,
                           onChangeBank: () => _openChangeBank(s),
@@ -388,34 +454,67 @@ class _WalletScreenState extends State<WalletScreen> {
       );
 }
 
-/// A wide tappable pill — Add money / Receive — under the balance.
-class _WalletAction extends StatelessWidget {
+/// Cash App's big rounded action buttons. [filled] is the bright-green primary
+/// (Add Cash), the default is a solid neutral (Cash Out), and [tertiary] is a
+/// quieter tinted pill (Receive).
+class _CashPill extends StatelessWidget {
   final IconData icon;
   final String label;
   final VoidCallback onTap;
-  const _WalletAction(
-      {required this.icon, required this.label, required this.onTap});
+  final bool filled;
+  final bool tertiary;
+  final bool busy;
+  const _CashPill({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.filled = false,
+    this.tertiary = false,
+    this.busy = false,
+  });
+
+  /// Cash App's signature bright green, used for the primary action.
+  static const Color cashGreen = Color(0xFF00C244);
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final Color bg;
+    final Color fg;
+    if (filled) {
+      bg = cashGreen;
+      fg = Colors.white;
+    } else if (tertiary) {
+      bg = scheme.surfaceContainerHighest;
+      fg = scheme.onSurface;
+    } else {
+      bg = scheme.onSurface.withValues(alpha: 0.90);
+      fg = scheme.surface;
+    }
     return Material(
-      color: scheme.primary.withValues(alpha: 0.10),
-      borderRadius: BorderRadius.circular(14),
+      color: bg,
+      borderRadius: BorderRadius.circular(30),
       child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(14),
+        onTap: busy ? null : onTap,
+        borderRadius: BorderRadius.circular(30),
         child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 14),
-          child: Column(
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(icon, color: scheme.primary),
-              const SizedBox(height: 6),
+              if (busy)
+                SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: fg))
+              else
+                Icon(icon, color: fg, size: 20),
+              const SizedBox(width: 8),
               Text(label,
                   style: TextStyle(
-                      color: scheme.primary,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600)),
+                      color: fg,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700)),
             ],
           ),
         ),
@@ -495,42 +594,39 @@ class _AddMoneySheetState extends State<_AddMoneySheet> {
   }
 }
 
-class _BalanceCard extends StatelessWidget {
+/// Cash App's hero: the balance, big and centred, is the whole top of the
+/// screen — no card, no gradient, just the number.
+class _BalanceHero extends StatelessWidget {
   final WalletStatus status;
-  const _BalanceCard({required this.status});
+  const _BalanceHero({required this.status});
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(22),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFF12B76A), Color(0xFF0B7C4C)],
-        ),
-        borderRadius: BorderRadius.circular(20),
-      ),
+    final subtle = AppColors.subtle(context);
+    return Padding(
+      padding: const EdgeInsets.only(top: 20),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          const Text('Available balance',
-              style: TextStyle(color: Colors.white70, fontSize: 13)),
-          const SizedBox(height: 6),
-          Text(status.money(status.availableCents),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              status.money(status.availableCents),
               style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 40,
-                  fontWeight: FontWeight.w800)),
-          if (status.pendingCents > 0) ...[
-            const SizedBox(height: 4),
-            Text('${status.money(status.pendingCents)} pending',
-                style: const TextStyle(color: Colors.white70, fontSize: 13)),
-          ],
-          const SizedBox(height: 10),
-          Text(status.currency.toUpperCase(),
-              style: const TextStyle(color: Colors.white60, fontSize: 12)),
+                fontSize: 64,
+                fontWeight: FontWeight.w800,
+                letterSpacing: -1.5,
+                height: 1.0,
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            status.pendingCents > 0
+                ? 'Balance · ${status.money(status.pendingCents)} pending'
+                : 'Balance · ${status.currency.toUpperCase()}',
+            style: TextStyle(color: subtle, fontSize: 13.5),
+          ),
         ],
       ),
     );
@@ -585,186 +681,6 @@ class _OnboardCard extends StatelessWidget {
                 onPressed: onStart,
                 child: const Text('Set up with Stripe'),
               ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// Cashing out to a debit card, in minutes rather than the usual days.
-///
-/// The fee is on the card **before** the button, not in a receipt afterwards.
-/// Stripe takes its cut out of the amount, so the number that lands is smaller
-/// than the number tapped, and an app that only mentions that once the money
-/// has moved has picked the wrong moment to be honest.
-class _CashOutCard extends StatefulWidget {
-  final WalletStatus status;
-  final VoidCallback onDone;
-  final VoidCallback onAddCard;
-  const _CashOutCard({
-    required this.status,
-    required this.onDone,
-    required this.onAddCard,
-  });
-
-  @override
-  State<_CashOutCard> createState() => _CashOutCardState();
-}
-
-class _CashOutCardState extends State<_CashOutCard> {
-  bool _busy = false;
-
-  WalletStatus get _s => widget.status;
-
-  Future<void> _cashOut() async {
-    final amount = _s.instantAvailableCents;
-    final fee = InstantPayoutEconomics.feeCents(amount, _s.country);
-    final lands = InstantPayoutEconomics.landsCents(amount, _s.country);
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Cash out instantly?'),
-        // The three numbers that matter, separately. "You get $31.68" alone
-        // invites "why not $32?" at exactly the moment nobody can ask.
-        content: Text(
-          '${_s.money(amount)} from your balance\n'
-          '− ${_s.money(fee)} Stripe\'s instant fee\n'
-          '= ${_s.money(lands)} on your '
-          '${_s.cardBrand ?? 'card'} ••${_s.cardLast4 ?? '••'}\n\n'
-          'Usually within 30 minutes. Waiting for the normal payout to your '
-          'bank costs nothing.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('Cash out'),
-          ),
-        ],
-      ),
-    );
-    if (ok != true || !mounted) return;
-
-    setState(() => _busy = true);
-    final outcome =
-        await PaymentService.instance.cashOutInstantly(amount, country: _s.country);
-    if (!mounted) return;
-    setState(() => _busy = false);
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(outcome.ok
-          ? 'On its way — ${_s.money(outcome.amountCents - outcome.feeCents)} '
-              'to ••${_s.cardLast4 ?? '••'}'
-          : outcome.message),
-    ));
-    if (outcome.ok) widget.onDone();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final s = _s;
-    final subtle = AppColors.subtle(context);
-    // Nothing to move is not a problem to explain, so this says nothing at
-    // all rather than drawing a disabled button and a reason.
-    if (s.instantAvailableCents <= 0 && s.hasDebitCard) {
-      return const SizedBox.shrink();
-    }
-
-    final canGo = s.canCashOutInstantly;
-    final fee = InstantPayoutEconomics.feeCents(s.instantAvailableCents, s.country);
-
-    return Card(
-      elevation: 0,
-      color: Theme.of(context).colorScheme.surfaceContainerHighest,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Padding(
-        padding: const EdgeInsets.all(18),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                const Icon(Icons.bolt, color: Color(0xFF12B76A)),
-                const SizedBox(width: 10),
-                const Expanded(
-                  child: Text('Cash out instantly',
-                      style: TextStyle(
-                          fontSize: 15.5, fontWeight: FontWeight.w600)),
-                ),
-                if (canGo)
-                  Text(s.money(s.instantAvailableCents),
-                      style: const TextStyle(
-                          fontSize: 15.5, fontWeight: FontWeight.w700)),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Text(
-              !s.hasDebitCard
-                  ? 'Add a debit card and your balance can land in minutes '
-                      'instead of waiting for the bank payout.'
-                  : s.cardLocked
-                      ? 'Instant payouts are locked: the card on this '
-                          'account changed too often. The lock lifts on its '
-                          'own once the recent changes are more than 30 '
-                          'days old. Bank payouts are unaffected.'
-                  : s.cardHoldDaysLeft > 0
-                      ? 'Your card was added recently. As a security '
-                          'measure, instant payouts unlock in '
-                          '${s.cardHoldDaysLeft} business '
-                          '${s.cardHoldDaysLeft == 1 ? 'day' : 'days'} — '
-                          'bank payouts are unaffected.'
-                  : !InstantPayoutEconomics.isSupportedIn(s.country)
-                      ? 'Stripe does not offer instant payouts in this '
-                          'country yet. Your balance still pays out to your '
-                          'bank on the normal schedule.'
-                      : !InstantPayoutEconomics.isWorthCashingOut(
-                              s.instantAvailableCents)
-                          ? 'At least '
-                              '${s.money(InstantPayoutEconomics.minimumCents)} '
-                              'needs to be instantly available.'
-                          : 'To your ${s.cardBrand ?? 'card'} '
-                              '••${s.cardLast4 ?? '••'}, usually within 30 '
-                              'minutes. Stripe charges '
-                              '${InstantPayoutEconomics.percentFor(s.country)}% '
-                              '(${s.money(fee)}) and takes it from the amount.',
-              style: TextStyle(color: subtle, fontSize: 13.5, height: 1.35),
-            ),
-            const SizedBox(height: 14),
-            SizedBox(
-              width: double.infinity,
-              child: canGo
-                  ? FilledButton.icon(
-                      style: FilledButton.styleFrom(
-                        backgroundColor: const Color(0xFF12B76A),
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                      ),
-                      onPressed: _busy ? null : _cashOut,
-                      icon: _busy
-                          ? const SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(
-                                  strokeWidth: 2, color: Colors.white))
-                          : const Icon(Icons.bolt),
-                      label: Text(_busy
-                          ? 'Sending'
-                          : 'Cash out ${s.money(s.instantAvailableCents)}'),
-                    )
-                  : OutlinedButton(
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                      ),
-                      // The card is attached through Stripe's own component:
-                      // debit card details must never reach this app.
-                      onPressed: s.hasDebitCard ? null : widget.onAddCard,
-                      child: Text(s.hasDebitCard
-                          ? 'Not available right now'
-                          : 'Add a debit card'),
-                    ),
             ),
           ],
         ),

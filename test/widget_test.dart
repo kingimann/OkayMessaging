@@ -6247,6 +6247,16 @@ void main() {
       expect(src, contains('identity_required'));
     });
 
+    test('the wallet wears the Cash App layout — big balance + Add/Cash Out',
+        () {
+      final src = File('lib/screens/wallet_screen.dart').readAsStringSync();
+      // A centred hero balance and the two signature actions.
+      expect(src, contains('_BalanceHero'));
+      expect(src, contains("label: 'Add Cash'"));
+      expect(src, contains("label: 'Cash Out'"));
+      expect(src, contains("label: 'Receive'"));
+    });
+
     test('top-up refuses when parental payments lock is on', () async {
       final svc = PaymentService.instance;
       final pc = ParentalControls.instance;
