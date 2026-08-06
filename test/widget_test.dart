@@ -15626,7 +15626,7 @@ void main() {
 
       // Nobody is sharing live location → no invented pins, an honest
       // empty state instead.
-      expect(find.textContaining('No friends on the map yet'), findsOneWidget);
+      expect(find.textContaining('Long-press the map to drop a pin'), findsOneWidget);
 
       // A real live share puts that friend on the map.
       final friend = ChatStore.instance.chats
@@ -15636,7 +15636,7 @@ void main() {
           RelayService.digits(friend.phone), base.latitude, base.longitude);
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
-      expect(find.textContaining('No friends on the map yet'), findsNothing);
+      expect(find.textContaining('Long-press the map to drop a pin'), findsNothing);
 
       await tester.pumpWidget(const SizedBox());
       await tester.pump();

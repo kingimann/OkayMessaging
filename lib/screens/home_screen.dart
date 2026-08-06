@@ -20,7 +20,7 @@ import '../theme/app_theme.dart';
 import 'archived_chats_screen.dart';
 import 'chat_search_delegate.dart';
 import 'communities.dart';
-import 'explore_map_screen.dart';
+import 'map_screen.dart';
 import 'new_chat_screen.dart';
 import '../widgets/nearby_offer_host.dart';
 import 'nearby_share_screen.dart';
@@ -510,8 +510,10 @@ class _AppSideBar extends StatelessWidget {
         return ListTile(
           leading: const Icon(Icons.map_outlined),
           title: const Text('Maps'),
-          subtitle: const Text('Search, navigate, share places'),
-          onTap: () => _go(context, const ExploreMapScreen()),
+          subtitle: const Text('Friends, live location, drop a pin'),
+          // The Snapchat-style friends map is the main map now; pin-dropping
+          // lives inside it (long-press → Drop a pin).
+          onTap: () => _go(context, const MapScreen()),
         );
       case 'marketplace':
         return ListTile(
