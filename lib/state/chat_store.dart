@@ -493,7 +493,8 @@ class ChatStore extends ChangeNotifier {
       String? businessHours,
       bool? subscribable,
       int? subscriptionTier,
-      String? subscriptionPitch}) {
+      String? subscriptionPitch,
+      String? subscriptionTiersJson}) {
     final i = _chats.indexWhere((c) => c.contact.id == contactId);
     if (i == -1) return;
     final c = _chats[i].contact;
@@ -534,6 +535,9 @@ class ChatStore extends ChangeNotifier {
         !nextSubscribable ? 0 : (subscriptionTier ?? c.subscriptionTier);
     final nextSubPitch =
         !nextSubscribable ? '' : (subscriptionPitch ?? c.subscriptionPitch);
+    final nextSubTiers = !nextSubscribable
+        ? ''
+        : (subscriptionTiersJson ?? c.subscriptionTiersJson);
     if (nextName == c.name &&
         nextColor == c.avatarColor &&
         nextAbout == c.about &&
@@ -550,7 +554,8 @@ class ChatStore extends ChangeNotifier {
         nextBusinessHours == c.businessHours &&
         nextSubscribable == c.subscribable &&
         nextSubTier == c.subscriptionTier &&
-        nextSubPitch == c.subscriptionPitch) {
+        nextSubPitch == c.subscriptionPitch &&
+        nextSubTiers == c.subscriptionTiersJson) {
       return;
     }
     _replace(
@@ -579,6 +584,7 @@ class ChatStore extends ChangeNotifier {
           subscribable: nextSubscribable,
           subscriptionTier: nextSubTier,
           subscriptionPitch: nextSubPitch,
+          subscriptionTiersJson: nextSubTiers,
         ),
       ),
     );

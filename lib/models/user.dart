@@ -1,3 +1,34 @@
+import 'dart:convert';
+
+/// One subscription tier a creator offers — a name, a monthly price (one of
+/// [AppUser.subscriptionTiersCents]) and a free-text perks line. Every tier
+/// unlocks the same subscribers-only posts; higher tiers are more support and
+/// whatever extra the creator promises in [perks].
+class SubscriptionTier {
+  final String name;
+  final int cents;
+  final String perks;
+  const SubscriptionTier(
+      {required this.name, required this.cents, this.perks = ''});
+
+  Map<String, dynamic> toJson() => {
+        'name': name,
+        'cents': cents,
+        if (perks.isNotEmpty) 'perks': perks,
+      };
+
+  factory SubscriptionTier.fromJson(Map<String, dynamic> j) => SubscriptionTier(
+        name: (j['name'] as String? ?? '').trim(),
+        cents: (j['cents'] as num?)?.toInt() ?? 0,
+        perks: (j['perks'] as String? ?? '').trim(),
+      );
+
+  /// Encode a list of tiers to the string [AppUser.subscriptionTiersJson]
+  /// stores. Empty in, empty string out.
+  static String encode(List<SubscriptionTier> tiers) =>
+      tiers.isEmpty ? '' : jsonEncode([for (final t in tiers) t.toJson()]);
+}
+
 /// Represents a person in the app (a contact or the current user).
 class AppUser {
   final String id;
@@ -66,8 +97,16 @@ class AppUser {
   final int subscriptionTier;
 
   /// A short free-text pitch shown on the subscribe sheet ("Behind-the-scenes
-  /// and early drops"). Never parsed.
+  /// and early drops"). Never parsed. Legacy: the single-tier pitch, still
+  /// carried so an older build's one price keeps working.
   final String subscriptionPitch;
+
+  /// The creator's subscription TIERS, as a JSON array string — each entry a
+  /// name, a price (one of [subscriptionTiersCents]) and a free-text perks
+  /// line. Kept as a string so it rides the profile share and persists like
+  /// every other scalar field rather than needing bespoke plumbing. Read
+  /// through [subscriptionTiers], which falls back to the legacy single tier.
+  final String subscriptionTiersJson;
 
   const AppUser({
     required this.id,
@@ -92,6 +131,7 @@ class AppUser {
     this.subscribable = false,
     this.subscriptionTier = 0,
     this.subscriptionPitch = '',
+    this.subscriptionTiersJson = '',
   });
 
   /// The monthly price tiers a creator can charge, in cents. A fixed ladder
@@ -100,16 +140,35 @@ class AppUser {
   /// SKUs exist. Index into this list is [subscriptionTier].
   static const List<int> subscriptionTiersCents = [299, 499, 999, 1999];
 
-  /// This account's monthly subscription price in cents, clamped to the
-  /// ladder. Zero when the account offers no subscription, or the tier is out
-  /// of range.
-  int get subscriptionCents {
-    if (!subscribable ||
-        subscriptionTier < 0 ||
-        subscriptionTier >= subscriptionTiersCents.length) {
-      return 0;
+  /// The creator's tiers, newest model first, with a fall-back to the legacy
+  /// single tier so an account set up before tiers existed still offers its
+  /// one price. Empty when the account offers no subscription.
+  List<SubscriptionTier> get subscriptionTiers {
+    if (!subscribable) return const [];
+    if (subscriptionTiersJson.isNotEmpty) {
+      try {
+        final list = jsonDecode(subscriptionTiersJson) as List;
+        final tiers = [
+          for (final t in list)
+            SubscriptionTier.fromJson((t as Map).cast<String, dynamic>())
+        ]..removeWhere((t) => t.cents <= 0);
+        if (tiers.isNotEmpty) return tiers;
+      } catch (_) {}
     }
-    return subscriptionTiersCents[subscriptionTier];
+    // Legacy single tier.
+    final i = subscriptionTier;
+    final cents = (i >= 0 && i < subscriptionTiersCents.length)
+        ? subscriptionTiersCents[i]
+        : subscriptionTiersCents.first;
+    return [SubscriptionTier(name: 'Subscriber', cents: cents, perks: subscriptionPitch)];
+  }
+
+  /// The headline price — the CHEAPEST tier, so a card can read "from $X/mo".
+  /// Zero when the account offers no subscription.
+  int get subscriptionCents {
+    final tiers = subscriptionTiers;
+    if (tiers.isEmpty) return 0;
+    return tiers.map((t) => t.cents).reduce((a, b) => a < b ? a : b);
   }
 
   /// The categories the edit screen offers. A fixed list rather than free
@@ -153,6 +212,7 @@ class AppUser {
         'subscribable': subscribable,
         'subscriptionTier': subscriptionTier,
         'subscriptionPitch': subscriptionPitch,
+        'subscriptionTiersJson': subscriptionTiersJson,
       };
 
   factory AppUser.fromJson(Map<String, dynamic> json) => AppUser(
@@ -178,6 +238,7 @@ class AppUser {
         subscribable: json['subscribable'] as bool? ?? false,
         subscriptionTier: (json['subscriptionTier'] as num?)?.toInt() ?? 0,
         subscriptionPitch: json['subscriptionPitch'] as String? ?? '',
+        subscriptionTiersJson: json['subscriptionTiersJson'] as String? ?? '',
       );
 
   /// Initials used for the placeholder avatar (e.g. "John Doe" -> "JD").

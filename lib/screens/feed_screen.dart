@@ -1020,12 +1020,16 @@ class _PostCard extends StatelessWidget {
 /// author's digits rode along (legacy posts carried none), with payments
 /// wired into this build. Pure eligibility — the money checks run on tap.
 bool canSparkPost(FeedPost post) {
+  // A post whose author's digits didn't ride along (legacy posts) can't be
+  // paid — there's no one to resolve. Everything else about the money is
+  // checked on tap, so the bolt stays visible and explains itself rather than
+  // vanishing when payments aren't set up yet.
   if (post.authorPhone.isEmpty) return false;
   final me = AppState.profile.value.username;
   final mine = post.authorUsername == 'you' ||
       (me.isNotEmpty &&
           post.authorUsername.toLowerCase() == me.toLowerCase());
-  return !mine && PaymentService.instance.isConfigured;
+  return !mine;
 }
 
 /// The spark flow: the same identity/receiver ladder chat's Send money walks,
@@ -1034,13 +1038,19 @@ bool canSparkPost(FeedPost post) {
 Future<void> offerSpark(BuildContext context, FeedPost post) async {
   final svc = PaymentService.instance;
   final messenger = ScaffoldMessenger.of(context);
+  if (!svc.isConfigured) {
+    messenger.showSnackBar(const SnackBar(
+        content: Text('Sparks tip a post with real money — set up payments '
+            'in your Wallet to send one.')));
+    return;
+  }
   if (!svc.canSendOnThisDevice && !svc.testMode.value) {
     messenger.showSnackBar(
         const SnackBar(content: Text('Sparks are sent from the iPhone app.')));
     return;
   }
   // The wallet's own gate, reached through a bolt instead of a drawer row.
-  if (!IdentityVerification.instance.allowsTrusted) {
+  if (!svc.testMode.value && !IdentityVerification.instance.allowsTrusted) {
     messenger.showSnackBar(
         const SnackBar(content: Text('Verify your ID to send money.')));
     return;

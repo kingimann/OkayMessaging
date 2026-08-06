@@ -8751,6 +8751,94 @@ void main() {
       expect(legacy.subscriptionCents, 0);
     });
 
+    test('multiple tiers: encode, parse, cheapest headline, and round trip',
+        () {
+      const tiers = [
+        SubscriptionTier(name: 'Supporter', cents: 299, perks: 'the posts'),
+        SubscriptionTier(name: 'VIP', cents: 1999, perks: 'a shoutout'),
+      ];
+      final u = AppUser(
+        id: 't1',
+        name: 'Rae',
+        avatarColor: '#7E57C2',
+        subscribable: true,
+        subscriptionTiersJson: SubscriptionTier.encode(tiers),
+      );
+      // Two tiers, parsed back in order, with the cheapest as the headline.
+      expect(u.subscriptionTiers.length, 2);
+      expect(u.subscriptionTiers.first.name, 'Supporter');
+      expect(u.subscriptionTiers.last.perks, 'a shoutout');
+      expect(u.subscriptionCents, 299, reason: 'from the cheapest tier');
+      // Survives the JSON round trip.
+      final back = AppUser.fromJson(u.toJson());
+      expect(back.subscriptionTiers.length, 2);
+      expect(back.subscriptionTiers.last.cents, 1999);
+      // A subscribable account with NO tier JSON still offers its legacy tier.
+      const oneTier = AppUser(
+        id: 't2',
+        name: 'Nia',
+        avatarColor: '#000000',
+        subscribable: true,
+        subscriptionTier: 2,
+        subscriptionPitch: 'weekly drops',
+      );
+      expect(oneTier.subscriptionTiers.length, 1);
+      expect(oneTier.subscriptionTiers.single.cents,
+          AppUser.subscriptionTiersCents[2]);
+      expect(oneTier.subscriptionTiers.single.perks, 'weekly drops');
+    });
+
+    test('tiers travel with a message and clear when subscriptions go off', () {
+      ChatStore.instance.reset();
+      addTearDown(ChatStore.instance.reset);
+      const tiers = [
+        SubscriptionTier(name: 'Fan', cents: 499),
+        SubscriptionTier(name: 'Patron', cents: 999, perks: 'early'),
+      ];
+      RelayService.applyIncoming(
+        RelayService.encode(
+          message: Message(
+              id: 'tj1',
+              text: 'hi',
+              time: DateTime(2026),
+              isMe: true,
+              status: MessageStatus.sent),
+          fromPhone: '+15550119911',
+          fromName: 'Rae',
+          fromSubscribable: true,
+          fromSubscriptionTiers: SubscriptionTier.encode(tiers),
+          toPhone: '+15550112222',
+        ),
+        myPhone: '+15550112222',
+      );
+      final contact =
+          ChatStore.instance.chatWithContact('+15550119911')!.contact;
+      expect(contact.subscriptionTiers.length, 2);
+      expect(contact.subscriptionTiers.last.name, 'Patron');
+      expect(contact.subscriptionCents, 499);
+
+      // Turning subscriptions off clears the tiers at the receiver, like the
+      // single-tier fields.
+      RelayService.applyIncoming(
+        RelayService.encode(
+          message: Message(
+              id: 'tj2',
+              text: 'again',
+              time: DateTime(2026, 1, 2),
+              isMe: true,
+              status: MessageStatus.sent),
+          fromPhone: '+15550119911',
+          fromName: 'Rae',
+          toPhone: '+15550112222',
+        ),
+        myPhone: '+15550112222',
+      );
+      final after =
+          ChatStore.instance.chatWithContact('+15550119911')!.contact;
+      expect(after.subscribable, isFalse);
+      expect(after.subscriptionTiers, isEmpty);
+    });
+
     test('the subscription offer travels with a message, and can be cleared',
         () {
       ChatStore.instance.reset();
@@ -19460,6 +19548,9 @@ void main() {
       expect(PublicFeedStore.instance.sparkedByMe('sp1'), isTrue);
       // Your own post never grows a bolt, whatever the other gates say.
       expect(canSparkPublicPost(p.copyWith(mine: true)), isFalse);
+      // But someone else's does — the bolt is visible even before payments
+      // are set up (which is checked on tap), so the feature is findable.
+      expect(canSparkPublicPost(p), isTrue);
     });
 
     testWidgets('a timed-out account is told, not silently ignored',
@@ -23496,9 +23587,21 @@ void main() {
             'text': 'legacy'
           }).sparks,
           0);
-      // No digits → no bolt, and your own post is never sparkable.
-      expect(canSparkPost(back.copyWith()), isFalse,
-          reason: 'payments are not configured in a test build');
+      // A phone and not yours → the bolt shows. Whether payments are actually
+      // ready is checked ON TAP now, so the button no longer vanishes on an
+      // unconfigured build — that was why sparks felt invisible.
+      expect(canSparkPost(back.copyWith()), isTrue);
+      // No digits → nobody to resolve → no bolt.
+      expect(
+          canSparkPost(FeedPost(
+              id: 'p_nodigits',
+              communityId: 'c1',
+              authorName: 'A',
+              authorUsername: 'a',
+              time: DateTime(2024),
+              text: 'legacy')),
+          isFalse);
+      // Your own post is never sparkable, whatever the other gates say.
       expect(
           canSparkPost(FeedPost(
               id: 'p2',

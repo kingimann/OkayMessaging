@@ -30,9 +30,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   late String _emoji;
   late bool _isBusiness;
   late String _businessCategory;
-  late final TextEditingController _subPitch;
   late bool _subscribable;
-  late int _subTier;
+  late List<_TierDraft> _tiers;
 
   /// A small set of emojis offered for the avatar.
   static const _emojiChoices = [
@@ -70,9 +69,18 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     _emoji = p.emoji;
     _isBusiness = p.isBusiness;
     _businessCategory = p.businessCategory;
-    _subPitch = TextEditingController(text: p.subscriptionPitch);
     _subscribable = p.subscribable;
-    _subTier = p.subscriptionTier;
+    final existing = p.subscriptionTiers;
+    _tiers = existing.isEmpty
+        ? [
+            _TierDraft(
+                name: 'Subscriber',
+                cents: AppUser.subscriptionTiersCents.first)
+          ]
+        : [
+            for (final t in existing)
+              _TierDraft(name: t.name, cents: t.cents, perks: t.perks)
+          ];
   }
 
   @override
@@ -84,7 +92,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     _link.dispose();
     _location.dispose();
     _businessHours.dispose();
-    _subPitch.dispose();
+    for (final t in _tiers) {
+      t.dispose();
+    }
     super.dispose();
   }
 
@@ -108,6 +118,26 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   Future<void> _save() async {
     final messenger = ScaffoldMessenger.of(context);
     final navigator = Navigator.of(context);
+    final builtTiers = _subscribable
+        ? [
+            for (final d in _tiers)
+              SubscriptionTier(
+                name: d.name.text.trim().isEmpty
+                    ? 'Subscriber'
+                    : d.name.text.trim(),
+                cents: d.cents,
+                perks: d.perks.text.trim(),
+              )
+          ]
+        : <SubscriptionTier>[];
+    final tiersJson = SubscriptionTier.encode(builtTiers);
+    // Back-compat: an older build reads only the single legacy tier, so aim it
+    // at the cheapest one.
+    var legacyCents = AppUser.subscriptionTiersCents.first;
+    for (final t in builtTiers) {
+      if (t.cents < legacyCents) legacyCents = t.cents;
+    }
+    final legacyTier = AppUser.subscriptionTiersCents.indexOf(legacyCents);
     if (Session.instance.isSignedIn) {
       await Session.instance.updateProfile(
         name: _name.text,
@@ -124,8 +154,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         businessCategory: _isBusiness ? _businessCategory : '',
         businessHours: _isBusiness ? _businessHours.text.trim() : '',
         subscribable: _subscribable,
-        subscriptionTier: _subTier,
-        subscriptionPitch: _subscribable ? _subPitch.text.trim() : '',
+        subscriptionTier: legacyTier < 0 ? 0 : legacyTier,
+        subscriptionPitch: '',
+        subscriptionTiersJson: tiersJson,
       );
     } else {
       AppState.updateProfile(
@@ -143,8 +174,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         businessCategory: _isBusiness ? _businessCategory : '',
         businessHours: _isBusiness ? _businessHours.text.trim() : '',
         subscribable: _subscribable,
-        subscriptionTier: _subTier,
-        subscriptionPitch: _subscribable ? _subPitch.text.trim() : '',
+        subscriptionTier: legacyTier < 0 ? 0 : legacyTier,
+        subscriptionPitch: '',
+        subscriptionTiersJson: tiersJson,
       );
     }
     if (_username.text.trim().isNotEmpty || _emoji.isNotEmpty) {
@@ -153,6 +185,82 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     navigator.pop();
     messenger.showSnackBar(
       const SnackBar(content: Text('Profile updated')),
+    );
+  }
+
+  /// The first ladder price not already used by a tier, so "Add tier" doesn't
+  /// default to a duplicate price.
+  int _nextUnusedCents() {
+    final used = _tiers.map((t) => t.cents).toSet();
+    for (final c in AppUser.subscriptionTiersCents) {
+      if (!used.contains(c)) return c;
+    }
+    return AppUser.subscriptionTiersCents.first;
+  }
+
+  /// One editable subscription tier: a name, a price from the fixed ladder,
+  /// and an optional perks line.
+  Widget _tierEditor(int i) {
+    final t = _tiers[i];
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      margin: const EdgeInsets.fromLTRB(8, 6, 8, 2),
+      padding: const EdgeInsets.fromLTRB(12, 6, 6, 10),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        border:
+            Border.all(color: scheme.outlineVariant.withValues(alpha: 0.5)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: t.name,
+                  textCapitalization: TextCapitalization.words,
+                  decoration: const InputDecoration(
+                      isDense: true,
+                      labelText: 'Tier name',
+                      hintText: 'Supporter, VIP…'),
+                ),
+              ),
+              if (_tiers.length > 1)
+                IconButton(
+                  icon: const Icon(Icons.close, size: 18),
+                  tooltip: 'Remove tier',
+                  onPressed: () =>
+                      setState(() => _tiers.removeAt(i).dispose()),
+                ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final c in AppUser.subscriptionTiersCents)
+                ChoiceChip(
+                  label: Text('\$${(c / 100).toStringAsFixed(2)}/mo',
+                      style: const TextStyle(fontSize: 12.5)),
+                  visualDensity: VisualDensity.compact,
+                  selected: t.cents == c,
+                  onSelected: (_) => setState(() => t.cents = c),
+                ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          TextField(
+            controller: t.perks,
+            textCapitalization: TextCapitalization.sentences,
+            decoration: const InputDecoration(
+                isDense: true,
+                labelText: 'Perks (optional)',
+                hintText: 'early drops, behind the scenes…'),
+          ),
+        ],
+      ),
     );
   }
 
@@ -384,47 +492,29 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
               onChanged: (v) => setState(() => _subscribable = v),
             ),
             if (_subscribable) ...[
-              Padding(
-                padding: const EdgeInsets.fromLTRB(14, 6, 14, 4),
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text('Monthly price',
-                      style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: Theme.of(context).hintColor)),
+              for (var i = 0; i < _tiers.length; i++)
+                _tierEditor(i),
+              if (_tiers.length < AppUser.subscriptionTiersCents.length)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(6, 2, 14, 6),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton.icon(
+                      onPressed: () => setState(() => _tiers.add(_TierDraft(
+                          name: 'Tier ${_tiers.length + 1}',
+                          cents: _nextUnusedCents()))),
+                      icon: const Icon(Icons.add, size: 18),
+                      label: const Text('Add another tier'),
+                    ),
+                  ),
                 ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(14, 0, 14, 4),
-                child: Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    for (var i = 0;
-                        i < AppUser.subscriptionTiersCents.length;
-                        i++)
-                      ChoiceChip(
-                        label: Text(
-                            '\$${(AppUser.subscriptionTiersCents[i] / 100).toStringAsFixed(2)}/mo',
-                            style: const TextStyle(fontSize: 12.5)),
-                        visualDensity: VisualDensity.compact,
-                        selected: _subTier == i,
-                        onSelected: (_) => setState(() => _subTier = i),
-                      ),
-                  ],
-                ),
-              ),
-              field(_subPitch,
-                  icon: Icons.campaign_outlined,
-                  label: 'Pitch',
-                  hint: 'what subscribers get — "early drops, behind the '
-                      'scenes"'),
               const Padding(
                 padding: EdgeInsets.fromLTRB(14, 2, 14, 10),
                 child: Text(
-                  'Billed through the App Store as a monthly pass. Turning '
-                  'this on announces it on your profile.',
+                  'Each tier is a monthly pass billed through the App Store. '
+                  'Every tier unlocks the same subscribers-only posts — higher '
+                  'tiers are more support and whatever extra you promise. '
+                  'Turning this on announces it on your profile.',
                   style: TextStyle(fontSize: 11.5, height: 1.3),
                 ),
               ),
@@ -649,5 +739,20 @@ class _ColorPicker extends StatelessWidget {
           ),
       ],
     );
+  }
+}
+
+/// A mutable draft of one subscription tier while the profile is being edited.
+class _TierDraft {
+  final TextEditingController name;
+  int cents;
+  final TextEditingController perks;
+  _TierDraft({String name = '', required this.cents, String perks = ''})
+      : name = TextEditingController(text: name),
+        perks = TextEditingController(text: perks);
+
+  void dispose() {
+    name.dispose();
+    perks.dispose();
   }
 }

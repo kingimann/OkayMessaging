@@ -541,6 +541,17 @@ transaction (`creator_sub_receipts`) so one receipt buys one month. The client
 never grants itself a paid body. Test mode simulates the purchase; `unlock()`
 reveals a locked post through the `public_paid_body` RPC.
 
+**Tiers (2026-08-06):** a creator offers up to four named price TIERS, not one.
+`SubscriptionTier` (name + cents + perks) — the list rides `AppUser`'s
+`subscriptionTiersJson` (a JSON string, so it flows through every rebuild site
+and the profile share like any scalar), read through `subscriptionTiers` which
+falls back to the legacy single `subscriptionTier`/`subscriptionPitch` for older
+profiles. `subscriptionCents` is now the CHEAPEST tier (the "from $X/mo"
+headline). Every tier unlocks the SAME subscribers-only posts — tiers are price
+levels + whatever perks the creator names, and each maps to one of the four
+`creatorsub.tierN` IAP products, so no new SKUs. Edit profile has a tier editor;
+`showSubscribeSheet(tiers:)` shows a pick list.
+
 `PublicPost.paid`/`subCents`/`unlocked` + `locked`/`displayBody`. The locked
 card (`_PaidLock`) auto-unlocks for the author or an active subscriber and
 otherwise shows a Subscribe button; `showSubscribeSheet` (a reusable widget)

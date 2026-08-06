@@ -72,10 +72,13 @@ void openPublicProfile(BuildContext context, String username, {String? name}) {
 /// server whose feed carries the tallies, with payments wired into this
 /// build. The author's payment address is never known here — the server
 /// resolves it from the post id, which is the whole privacy design.
+/// The bolt shows on anyone else's post — sparking is a way to say thanks with
+/// money, and hiding the button until payments are fully wired left people
+/// unable to find the feature at all. What it takes to COMPLETE a spark (a
+/// verified ID, payments set up, the recipient onboarded) is checked on tap,
+/// where it can be explained, not used to make the button vanish.
 bool canSparkPublicPost(PublicPost post) =>
-    !post.mine &&
-    PublicFeedStore.instance.sparksSupported &&
-    PaymentService.instance.isConfigured;
+    !post.mine && post.authorUsername.isNotEmpty;
 
 /// The public-feed spark flow: the same identity ladder as the server
 /// feed's, then the shared one-tap sheet, then the REAL payment — with the
@@ -85,12 +88,18 @@ bool canSparkPublicPost(PublicPost post) =>
 Future<void> offerPublicSpark(BuildContext context, PublicPost post) async {
   final svc = PaymentService.instance;
   final messenger = ScaffoldMessenger.of(context);
+  if (!svc.isConfigured) {
+    messenger.showSnackBar(const SnackBar(
+        content: Text('Sparks tip a post with real money — set up payments '
+            'in your Wallet to send one.')));
+    return;
+  }
   if (!svc.canSendOnThisDevice && !svc.testMode.value) {
     messenger.showSnackBar(
         const SnackBar(content: Text('Sparks are sent from the iPhone app.')));
     return;
   }
-  if (!IdentityVerification.instance.allowsTrusted) {
+  if (!svc.testMode.value && !IdentityVerification.instance.allowsTrusted) {
     messenger.showSnackBar(
         const SnackBar(content: Text('Verify your ID to send money.')));
     return;
@@ -1536,12 +1545,11 @@ class _ProfileActions extends StatelessWidget {
                         context,
                         handle: username,
                         name: creator?.name ?? '@$username',
-                        cents: creator?.subscriptionCents ?? 0,
-                        pitch: creator?.subscriptionPitch ?? '',
+                        tiers: creator?.subscriptionTiers ?? const [],
                       ),
                       icon: const Icon(Icons.workspace_premium, size: 16),
                       label: Text(
-                          'Subscribe · \$${((creator?.subscriptionCents ?? 0) / 100).toStringAsFixed(2)}/mo',
+                          '${(creator?.subscriptionTiers.length ?? 0) > 1 ? "Subscribe from" : "Subscribe ·"} \$${((creator?.subscriptionCents ?? 0) / 100).toStringAsFixed(2)}/mo',
                           maxLines: 1, overflow: TextOverflow.ellipsis),
                     ),
             ],
@@ -1698,11 +1706,18 @@ class _PaidLockState extends State<_PaidLock> {
   Future<void> _subscribe() async {
     final p = widget.post;
     setState(() => _busy = true);
+    // The full tier list only reaches us for a creator this device knows
+    // (their sealed profile share carries it). A stranger's locked card falls
+    // back to the single price denormalised on the post.
+    final creator = knownUserFor(p.authorUsername);
+    final tiers = (creator != null && creator.subscriptionTiers.isNotEmpty)
+        ? creator.subscriptionTiers
+        : [SubscriptionTier(name: 'Subscriber', cents: p.subCents)];
     final ok = await showSubscribeSheet(
       context,
       handle: p.authorUsername,
       name: p.authorName.isEmpty ? '@${p.authorUsername}' : p.authorName,
-      cents: p.subCents,
+      tiers: tiers,
     );
     if (ok && mounted) await PublicFeedStore.instance.unlock(p.id);
     if (mounted) setState(() => _busy = false);

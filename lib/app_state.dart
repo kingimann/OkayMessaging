@@ -270,6 +270,7 @@ class AppState {
     bool? subscribable,
     int? subscriptionTier,
     String? subscriptionPitch,
+    String? subscriptionTiersJson,
   }) {
     final p = profile.value;
     profile.value = AppUser(
@@ -294,6 +295,8 @@ class AppState {
       subscribable: subscribable ?? p.subscribable,
       subscriptionTier: subscriptionTier ?? p.subscriptionTier,
       subscriptionPitch: subscriptionPitch ?? p.subscriptionPitch,
+      subscriptionTiersJson:
+          subscriptionTiersJson ?? p.subscriptionTiersJson,
     );
   }
 
@@ -326,6 +329,7 @@ class AppState {
       subscribable: p.subscribable,
       subscriptionTier: p.subscriptionTier,
       subscriptionPitch: p.subscriptionPitch,
+      subscriptionTiersJson: p.subscriptionTiersJson,
     );
   }
 

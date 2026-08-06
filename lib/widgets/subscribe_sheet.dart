@@ -4,26 +4,24 @@ import '../models/user.dart';
 import '../payments/purchase_outcome.dart';
 import '../state/creator_sub_store.dart';
 
-/// The bottom sheet that sells a creator subscription: the price, what it is,
-/// and a button that runs the monthly-pass purchase. Returns true when the
-/// pass was bought (so the caller can unlock the post it was opened from).
+/// The bottom sheet that sells a creator subscription. Shows every tier the
+/// creator offers, lets the reader pick one, and runs the monthly-pass
+/// purchase for the chosen price. Returns true when a pass was bought (so the
+/// caller can unlock the post it opened from). A creator with one tier gets a
+/// one-line sheet; several tiers become a pick list.
 Future<bool> showSubscribeSheet(
   BuildContext context, {
   required String handle,
   required String name,
-  required int cents,
-  String pitch = '',
+  required List<SubscriptionTier> tiers,
 }) async {
+  final live = [for (final t in tiers) if (t.cents > 0) t];
+  if (live.isEmpty) return false;
   final bought = await showModalBottomSheet<bool>(
     context: context,
     isScrollControlled: true,
     showDragHandle: true,
-    builder: (_) => _SubscribeSheet(
-      handle: handle,
-      name: name,
-      cents: cents,
-      pitch: pitch,
-    ),
+    builder: (_) => _SubscribeSheet(handle: handle, name: name, tiers: live),
   );
   return bought ?? false;
 }
@@ -46,17 +44,14 @@ int tierForCents(int cents) {
   return best;
 }
 
+String _money(int cents) => '\$${(cents / 100).toStringAsFixed(2)}';
+
 class _SubscribeSheet extends StatefulWidget {
   final String handle;
   final String name;
-  final int cents;
-  final String pitch;
-  const _SubscribeSheet({
-    required this.handle,
-    required this.name,
-    required this.cents,
-    required this.pitch,
-  });
+  final List<SubscriptionTier> tiers;
+  const _SubscribeSheet(
+      {required this.handle, required this.name, required this.tiers});
 
   @override
   State<_SubscribeSheet> createState() => _SubscribeSheetState();
@@ -64,20 +59,30 @@ class _SubscribeSheet extends StatefulWidget {
 
 class _SubscribeSheetState extends State<_SubscribeSheet> {
   bool _busy = false;
+  // Default to the cheapest tier — the least-committing way in.
+  late int _selected = _cheapestIndex();
 
-  String get _price => '\$${(widget.cents / 100).toStringAsFixed(2)}';
+  int _cheapestIndex() {
+    var best = 0;
+    for (var i = 1; i < widget.tiers.length; i++) {
+      if (widget.tiers[i].cents < widget.tiers[best].cents) best = i;
+    }
+    return best;
+  }
+
+  SubscriptionTier get _tier => widget.tiers[_selected];
 
   Future<void> _subscribe() async {
     setState(() => _busy = true);
     final messenger = ScaffoldMessenger.of(context);
     final navigator = Navigator.of(context);
     final result = await CreatorSubStore.instance
-        .subscribe(widget.handle, tierForCents(widget.cents));
+        .subscribe(widget.handle, tierForCents(_tier.cents));
     if (!mounted) return;
     if (result.ok) {
       navigator.pop(true);
-      messenger.showSnackBar(SnackBar(
-          content: Text('Subscribed to ${widget.name}. Enjoy.')));
+      messenger.showSnackBar(
+          SnackBar(content: Text('Subscribed to ${widget.name}. Enjoy.')));
     } else {
       setState(() => _busy = false);
       messenger.showSnackBar(SnackBar(
@@ -90,15 +95,16 @@ class _SubscribeSheetState extends State<_SubscribeSheet> {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final multi = widget.tiers.length > 1;
     return Padding(
       padding: EdgeInsets.fromLTRB(
-          22, 4, 22, 22 + MediaQuery.of(context).viewInsets.bottom),
+          20, 4, 20, 20 + MediaQuery.of(context).viewInsets.bottom),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Icon(Icons.workspace_premium, size: 40, color: scheme.primary),
-          const SizedBox(height: 10),
+          Icon(Icons.workspace_premium, size: 38, color: scheme.primary),
+          const SizedBox(height: 8),
           Text('Subscribe to ${widget.name}',
               textAlign: TextAlign.center,
               style:
@@ -108,31 +114,113 @@ class _SubscribeSheetState extends State<_SubscribeSheet> {
                 textAlign: TextAlign.center,
                 style: TextStyle(color: scheme.onSurfaceVariant)),
           const SizedBox(height: 14),
-          if (widget.pitch.trim().isNotEmpty) ...[
-            Text(widget.pitch.trim(),
-                textAlign: TextAlign.center,
-                style: const TextStyle(height: 1.35)),
-            const SizedBox(height: 14),
+          if (multi)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Text('Choose a tier',
+                  style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: scheme.onSurfaceVariant)),
+            ),
+          for (var i = 0; i < widget.tiers.length; i++) ...[
+            const SizedBox(height: 8),
+            _TierCard(
+              tier: widget.tiers[i],
+              selected: i == _selected,
+              selectable: multi,
+              onTap: () => setState(() => _selected = i),
+            ),
           ],
-          Text('$_price / month',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w800,
-                  color: scheme.primary)),
-          const SizedBox(height: 4),
+          const SizedBox(height: 12),
           Text(
-            'A monthly pass, billed through the App Store. It unlocks every '
-            'subscribers-only post from ${widget.name} while it\'s active.',
+            'A monthly pass, billed through the App Store. Every tier unlocks '
+            'the same subscribers-only posts while it\'s active.',
             textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 12.5, color: scheme.onSurfaceVariant),
+            style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
           ),
-          const SizedBox(height: 18),
+          const SizedBox(height: 14),
           FilledButton(
             onPressed: _busy ? null : _subscribe,
-            child: Text(_busy ? 'One moment…' : 'Subscribe · $_price/mo'),
+            child: Text(_busy
+                ? 'One moment…'
+                : 'Subscribe · ${_money(_tier.cents)}/mo'),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _TierCard extends StatelessWidget {
+  final SubscriptionTier tier;
+  final bool selected;
+  final bool selectable;
+  final VoidCallback onTap;
+  const _TierCard(
+      {required this.tier,
+      required this.selected,
+      required this.selectable,
+      required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return InkWell(
+      onTap: selectable ? onTap : null,
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(14),
+          color: selected
+              ? scheme.primary.withValues(alpha: 0.08)
+              : Colors.transparent,
+          border: Border.all(
+            color: selected
+                ? scheme.primary
+                : scheme.outlineVariant.withValues(alpha: 0.6),
+            width: selected ? 1.6 : 1,
+          ),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (selectable) ...[
+              Icon(
+                  selected
+                      ? Icons.radio_button_checked
+                      : Icons.radio_button_off,
+                  size: 20,
+                  color: selected ? scheme.primary : scheme.onSurfaceVariant),
+              const SizedBox(width: 10),
+            ],
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(tier.name.isEmpty ? 'Subscriber' : tier.name,
+                      style: const TextStyle(
+                          fontSize: 15, fontWeight: FontWeight.w700)),
+                  if (tier.perks.trim().isNotEmpty) ...[
+                    const SizedBox(height: 2),
+                    Text(tier.perks.trim(),
+                        style: TextStyle(
+                            fontSize: 12.5,
+                            height: 1.3,
+                            color: scheme.onSurfaceVariant)),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text('${_money(tier.cents)}/mo',
+                style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                    color: scheme.primary)),
+          ],
+        ),
       ),
     );
   }

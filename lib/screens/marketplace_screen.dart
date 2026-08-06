@@ -4437,8 +4437,7 @@ class SellerScreen extends StatelessWidget {
                               context,
                               handle: username,
                               name: name,
-                              cents: seller.subscriptionCents,
-                              pitch: seller.subscriptionPitch,
+                              tiers: seller.subscriptionTiers,
                             ),
                             icon:
                                 const Icon(Icons.workspace_premium, size: 18),

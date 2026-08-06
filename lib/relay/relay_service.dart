@@ -172,6 +172,7 @@ class RelayService {
     bool fromSubscribable = false,
     int fromSubscriptionTier = 0,
     String fromSubscriptionPitch = '',
+    String fromSubscriptionTiers = '',
     String fromAbout = '',
     String fromEmoji = '',
     String fromPronouns = '',
@@ -211,6 +212,7 @@ class RelayService {
       'fromSubscribable': fromSubscribable,
       'fromSubscriptionTier': fromSubscriptionTier,
       'fromSubscriptionPitch': fromSubscriptionPitch,
+      'fromSubscriptionTiers': fromSubscriptionTiers,
       'fromAbout': fromAbout,
       'fromEmoji': fromEmoji,
       'fromPronouns': fromPronouns,
@@ -539,6 +541,9 @@ class RelayService {
         (content['fromSubscriptionTier'] as num?)?.toInt() ?? 0;
     final sharedSubscriptionPitch =
         (content['fromSubscriptionPitch'] as String?)?.trim() ?? '';
+    // JSON, so never trimmed of meaning — take it as-is.
+    final sharedSubscriptionTiers =
+        (content['fromSubscriptionTiers'] as String?) ?? '';
 
     final senderName = (content['fromName'] as String?)?.trim() ?? '';
 
@@ -576,6 +581,7 @@ class RelayService {
         subscribable: sharedSubscribable,
         subscriptionTier: sharedSubscriptionTier,
         subscriptionPitch: sharedSubscriptionPitch,
+        subscriptionTiersJson: sharedSubscriptionTiers,
       );
       // Born a request: a stranger's first message lands in Message requests,
       // not the chat list, and earns no receipts until it is accepted.
@@ -619,6 +625,7 @@ class RelayService {
         subscribable: sharedSubscribable,
         subscriptionTier: sharedSubscriptionTier,
         subscriptionPitch: sharedSubscriptionPitch,
+        subscriptionTiersJson: sharedSubscriptionTiers,
       );
     }
 
@@ -3191,6 +3198,7 @@ class RelayService {
       fromSubscribable: me.subscribable,
       fromSubscriptionTier: me.subscribable ? me.subscriptionTier : 0,
       fromSubscriptionPitch: me.subscribable ? me.subscriptionPitch : '',
+      fromSubscriptionTiers: me.subscribable ? me.subscriptionTiersJson : '',
       fromAbout: about,
       fromEmoji: avatarColor.isEmpty ? '' : me.emoji,
       fromPronouns: about.isEmpty ? '' : me.pronouns,

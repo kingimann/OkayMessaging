@@ -130,6 +130,7 @@ class Session {
       subscribable: prior?.subscribable ?? false,
       subscriptionTier: prior?.subscriptionTier ?? 0,
       subscriptionPitch: prior?.subscriptionPitch ?? '',
+      subscriptionTiersJson: prior?.subscriptionTiersJson ?? '',
     );
     _prefs ??= await SharedPreferences.getInstance();
     await _prefs!.setString(_key, jsonEncode(me.toJson()));
@@ -257,6 +258,7 @@ class Session {
     bool? subscribable,
     int? subscriptionTier,
     String? subscriptionPitch,
+    String? subscriptionTiersJson,
   }) async {
     final current = user.value;
     if (current == null) return;
@@ -297,6 +299,8 @@ class Session {
       subscribable: subscribable ?? current.subscribable,
       subscriptionTier: subscriptionTier ?? current.subscriptionTier,
       subscriptionPitch: subscriptionPitch ?? current.subscriptionPitch,
+      subscriptionTiersJson:
+          subscriptionTiersJson ?? current.subscriptionTiersJson,
     );
     _prefs ??= await SharedPreferences.getInstance();
     await _prefs!.setString(_key, jsonEncode(updated.toJson()));
@@ -334,6 +338,7 @@ class Session {
       subscribable: current.subscribable,
       subscriptionTier: current.subscriptionTier,
       subscriptionPitch: current.subscriptionPitch,
+      subscriptionTiersJson: current.subscriptionTiersJson,
     );
     _prefs ??= await SharedPreferences.getInstance();
     await _prefs!.setString(_key, jsonEncode(updated.toJson()));
