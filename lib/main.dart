@@ -541,14 +541,23 @@ class _OkayMessagingAppState extends State<OkayMessagingApp>
           home: const AuthGate(),
           builder: (context, child) => _LockOverlay(
             child: _CallOverlay(
-              child: Stack(
-                children: [
-                  child ?? const SizedBox.shrink(),
-                  // Voice-room presence outlives the room screen; this is
-                  // what says so anywhere in the app, and the way back.
-                  const VoiceChannelBanner(),
-                  const FileTransferBanner(),
-                ],
+              // App-wide: a tap on any empty area dismisses the keyboard.
+              // Translucent so it only claims taps that no field or button
+              // took — tapping a TextField still focuses it, buttons still
+              // fire, scrolling is untouched (onTap never claims a drag).
+              // Every screen gets this without each remembering to add it.
+              child: GestureDetector(
+                onTap: () => FocusManager.instance.primaryFocus?.unfocus(),
+                behavior: HitTestBehavior.translucent,
+                child: Stack(
+                  children: [
+                    child ?? const SizedBox.shrink(),
+                    // Voice-room presence outlives the room screen; this is
+                    // what says so anywhere in the app, and the way back.
+                    const VoiceChannelBanner(),
+                    const FileTransferBanner(),
+                  ],
+                ),
               ),
             ),
           ),
