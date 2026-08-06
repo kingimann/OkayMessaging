@@ -1,10 +1,15 @@
+import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../state/ai_assistant.dart';
+import '../state/ai_attachment.dart';
 import '../state/ai_consent.dart';
 import '../state/ai_memory.dart';
 import '../state/ai_pass_store.dart';
 import '../theme/app_theme.dart';
+import '../util/file_moderation.dart';
+import '../util/photo_prep.dart';
 import '../widgets/app_dialogs.dart';
 
 /// The built-in AI assistant chat — "Okay AI", a general-purpose helper in the
@@ -15,6 +20,11 @@ import '../widgets/app_dialogs.dart';
 class AiChatScreen extends StatefulWidget {
   const AiChatScreen({super.key});
 
+  /// Test seam for picking a file without the platform picker. Given whether
+  /// the image-only path was chosen, returns (bytes, name) or null to cancel.
+  @visibleForTesting
+  static Future<(Uint8List, String)?> Function(bool imageOnly)? debugPick;
+
   @override
   State<AiChatScreen> createState() => _AiChatScreenState();
 }
@@ -22,6 +32,9 @@ class AiChatScreen extends StatefulWidget {
 class _AiChatScreenState extends State<AiChatScreen> {
   final _input = TextEditingController();
   final _scroll = ScrollController();
+
+  /// Images/files staged for the next send, shown above the composer.
+  final List<AiAttachment> _pending = [];
 
   static const _starters = [
     'Explain a hard idea simply',
@@ -39,14 +52,79 @@ class _AiChatScreenState extends State<AiChatScreen> {
 
   Future<void> _send([String? preset]) async {
     final text = (preset ?? _input.text).trim();
-    if (text.isEmpty) return;
+    if (text.isEmpty && _pending.isEmpty) return;
     if (AiAssistant.instance.needsUpgrade) {
       _showUpgrade();
       return;
     }
+    final attachments = List<AiAttachment>.from(_pending);
     _input.clear();
-    await AiAssistant.instance.send(text);
+    setState(_pending.clear);
+    await AiAssistant.instance.send(text, attachments: attachments);
     _toBottom();
+  }
+
+  /// Offers the two things a hosted assistant can actually read: a photo (seen
+  /// by a vision model) or a text file (its content folded in). Anything else
+  /// is refused when picked, with a plain reason.
+  Future<void> _attach() async {
+    final choice = await showModalBottomSheet<bool>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.image_outlined),
+              title: const Text('Photo'),
+              subtitle: const Text('Okay AI can look at it'),
+              onTap: () => Navigator.of(sheetContext).pop(true),
+            ),
+            ListTile(
+              leading: const Icon(Icons.description_outlined),
+              title: const Text('File'),
+              subtitle: const Text('A text file it can read'),
+              onTap: () => Navigator.of(sheetContext).pop(false),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (choice == null || !mounted) return;
+    await _pick(imageOnly: choice);
+  }
+
+  Future<void> _pick({required bool imageOnly}) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      Uint8List? bytes;
+      String name = '';
+      final override = AiChatScreen.debugPick;
+      if (override != null) {
+        final picked = await override(imageOnly);
+        if (picked == null) return;
+        bytes = picked.$1;
+        name = picked.$2;
+      } else {
+        final result = await FilePicker.pickFiles(
+          type: imageOnly ? FileType.image : FileType.any,
+          withData: true,
+        );
+        final file = result?.files.firstOrNull;
+        bytes = file?.bytes;
+        name = file?.name ?? '';
+      }
+      if (bytes == null || bytes.isEmpty) return;
+      final attachment = AiAttachment.prepare(bytes, name);
+      if (!mounted) return;
+      setState(() => _pending.add(attachment));
+    } on FileRejected catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text(e.reason)));
+    } catch (_) {
+      messenger.showSnackBar(
+          const SnackBar(content: Text('Couldn\'t add that file.')));
+    }
   }
 
   /// The pay gate: the free daily allowance is spent, so offer the pass. Test
@@ -384,41 +462,183 @@ class _AiChatScreenState extends State<AiChatScreen> {
     return SafeArea(
       top: false,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 6, 8, 8),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.end,
+        padding: const EdgeInsets.fromLTRB(6, 6, 8, 8),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Expanded(
-              child: TextField(
-                controller: _input,
-                minLines: 1,
-                maxLines: 5,
-                textCapitalization: TextCapitalization.sentences,
-                decoration: InputDecoration(
-                  hintText: 'Message Okay AI',
-                  filled: true,
-                  fillColor: scheme.surfaceContainerHighest,
-                  contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(22),
-                    borderSide: BorderSide.none,
+            if (_pending.isNotEmpty) _pendingStrip(scheme),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                ListenableBuilder(
+                  listenable: AiAssistant.instance,
+                  builder: (context, _) => IconButton(
+                    onPressed:
+                        AiAssistant.instance.sending ? null : _attach,
+                    icon: const Icon(Icons.add_circle_outline),
+                    tooltip: 'Attach a photo or file',
                   ),
                 ),
-                onSubmitted: (_) => _send(),
-              ),
-            ),
-            const SizedBox(width: 6),
-            ListenableBuilder(
-              listenable: AiAssistant.instance,
-              builder: (context, _) => IconButton.filled(
-                onPressed: AiAssistant.instance.sending ? null : () => _send(),
-                icon: const Icon(Icons.arrow_upward),
-                tooltip: 'Send',
-              ),
+                Expanded(
+                  child: TextField(
+                    controller: _input,
+                    minLines: 1,
+                    maxLines: 5,
+                    textCapitalization: TextCapitalization.sentences,
+                    decoration: InputDecoration(
+                      hintText: 'Message Okay AI',
+                      filled: true,
+                      fillColor: scheme.surfaceContainerHighest,
+                      contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 10),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(22),
+                        borderSide: BorderSide.none,
+                      ),
+                    ),
+                    onSubmitted: (_) => _send(),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                ListenableBuilder(
+                  listenable: AiAssistant.instance,
+                  builder: (context, _) => IconButton.filled(
+                    onPressed:
+                        AiAssistant.instance.sending ? null : () => _send(),
+                    icon: const Icon(Icons.arrow_upward),
+                    tooltip: 'Send',
+                  ),
+                ),
+              ],
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _pendingStrip(ColorScheme scheme) {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Padding(
+        padding: const EdgeInsets.only(left: 8, bottom: 6),
+        child: Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (var i = 0; i < _pending.length; i++)
+              _PendingChip(
+                attachment: _pending[i],
+                onRemove: () => setState(() => _pending.removeAt(i)),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// A staged attachment above the composer, with a remove button.
+class _PendingChip extends StatelessWidget {
+  final AiAttachment attachment;
+  final VoidCallback onRemove;
+  const _PendingChip({required this.attachment, required this.onRemove});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final thumb = attachment.isImage
+        ? PhotoPrep.bytesFromDataUri(attachment.thumbDataUri)
+        : null;
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        if (thumb != null)
+          ClipRRect(
+            borderRadius: BorderRadius.circular(10),
+            child: Image.memory(thumb,
+                width: 54, height: 54, fit: BoxFit.cover),
+          )
+        else
+          Container(
+            constraints: const BoxConstraints(maxWidth: 180),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+            decoration: BoxDecoration(
+              color: scheme.surfaceContainerHighest,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.description_outlined, size: 16),
+                const SizedBox(width: 6),
+                Flexible(
+                  child: Text(attachment.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 12.5)),
+                ),
+              ],
+            ),
+          ),
+        Positioned(
+          top: -8,
+          right: -8,
+          child: GestureDetector(
+            onTap: onRemove,
+            child: Container(
+              decoration: BoxDecoration(
+                color: scheme.surface,
+                shape: BoxShape.circle,
+                border: Border.all(color: scheme.outlineVariant),
+              ),
+              padding: const EdgeInsets.all(1),
+              child: Icon(Icons.close, size: 15, color: scheme.onSurface),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// An attachment as it appears inside a sent bubble: a thumbnail for an image,
+/// a small file chip for a text file.
+class _AttachmentTile extends StatelessWidget {
+  final AiAttachmentRef ref;
+  const _AttachmentTile({required this.ref});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final thumb =
+        ref.isImage ? PhotoPrep.bytesFromDataUri(ref.thumb) : null;
+    if (thumb != null) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: Image.memory(thumb, width: 150, height: 150, fit: BoxFit.cover),
+      );
+    }
+    return Container(
+      constraints: const BoxConstraints(maxWidth: 220),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(ref.isImage ? Icons.image_outlined : Icons.description_outlined,
+              size: 18),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(ref.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 13)),
+          ),
+        ],
       ),
     );
   }
@@ -437,26 +657,42 @@ class _Bubble extends StatelessWidget {
       crossAxisAlignment:
           mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
       children: [
-        Align(
-          alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
-          child: Container(
-            margin: const EdgeInsets.only(top: 4),
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            constraints: BoxConstraints(
-                maxWidth: MediaQuery.of(context).size.width * 0.82),
-            decoration: BoxDecoration(
-              color: mine ? scheme.primary : scheme.surfaceContainerHighest,
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: SelectableText(
-              turn.text,
-              style: TextStyle(
-                  fontSize: 15,
-                  height: 1.35,
-                  color: mine ? Colors.white : scheme.onSurface),
+        if (turn.attachments.isNotEmpty)
+          Align(
+            alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
+            child: Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                alignment: mine ? WrapAlignment.end : WrapAlignment.start,
+                children: [
+                  for (final a in turn.attachments) _AttachmentTile(ref: a),
+                ],
+              ),
             ),
           ),
-        ),
+        if (turn.text.isNotEmpty)
+          Align(
+            alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
+            child: Container(
+              margin: const EdgeInsets.only(top: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              constraints: BoxConstraints(
+                  maxWidth: MediaQuery.of(context).size.width * 0.82),
+              decoration: BoxDecoration(
+                color: mine ? scheme.primary : scheme.surfaceContainerHighest,
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: SelectableText(
+                turn.text,
+                style: TextStyle(
+                    fontSize: 15,
+                    height: 1.35,
+                    color: mine ? Colors.white : scheme.onSurface),
+              ),
+            ),
+          ),
         // 👍/👎 on an assistant reply — the curation signal for training.
         if (!mine && onRate != null)
           Padding(

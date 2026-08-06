@@ -3,10 +3,19 @@
 //
 // POST { messages: [{ role: 'user'|'assistant', content }], } -> { reply, configured }
 //
+// content is either a string (a plain message) or, for a user turn carrying
+// attachments, an array of parts: { type: 'text', text } and
+// { type: 'image_url', image_url: { url: 'data:image/…' } }. That is the
+// OpenRouter/OpenAI vision shape, so an image the user hands the assistant is
+// seen by a vision-capable model; a text file's content arrives folded into a
+// text part. Only user turns may carry images.
+//
 // ENGINE: OpenRouter (chat completions), the same provider the feed moderator
 // already uses. Billed per token, so the model is overridable with the
 // OPENROUTER_AI_MODEL secret (a capable default, distinct from the cheap
-// classifier model moderation runs on).
+// classifier model moderation runs on). The default model is vision-capable;
+// if OPENROUTER_AI_MODEL is pointed at one that is not, images are ignored by
+// the provider.
 //
 // WHY THIS IS ALLOWED TO LEAVE THE DEVICE. Everything people write TO EACH
 // OTHER in this app is end-to-end encrypted and must never reach a server that
@@ -30,7 +39,8 @@ const SYSTEM = `You are Okay AI, the friendly built-in assistant of the ` +
   `OkayMessenger app. You are helpful, honest, and concise. Answer clearly, ` +
   `admit when you are unsure, and never claim to be a human. You cannot read ` +
   `the user's private chats or personal data — you only see what they type to ` +
-  `you here. If asked to do something you cannot, say so plainly.`;
+  `you here. The user may attach an image or a text file for you to look at; ` +
+  `use it when present. If asked to do something you cannot, say so plainly.`;
 
 // The assistant "learns as it talks" by remembering durable facts about THIS
 // user. It answers in "reply" and, in "remember", returns any NEW, stable,
@@ -55,6 +65,56 @@ function memoryPreamble(memories: string[]): string {
 // A sane ceiling so one runaway conversation can't send a novel to the model.
 const MAX_MESSAGES = 24;
 const MAX_CHARS_PER_MESSAGE = 4000;
+// A folded-in text file may be longer than a chat line, so its text part gets
+// a roomier cap. Images are bounded by count and by data-URL size instead.
+const MAX_TEXT_PART_CHARS = 16000;
+const MAX_IMAGES = 6;
+const MAX_IMAGE_URL_CHARS = 2_200_000; // ~1.6 MB of base64
+
+type Part =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string } };
+
+// Coerces one message's content into what the model accepts, dropping anything
+// unrecognised: a trimmed/capped string, or a sanitized parts array with only
+// text and inline `data:image/…` URLs (bounded in count and size). Returns null
+// when nothing usable is left, so the message is skipped.
+function normalizeContent(raw: unknown): string | Part[] | null {
+  if (typeof raw === "string") {
+    const s = raw.trim();
+    return s.length ? s.slice(0, MAX_CHARS_PER_MESSAGE) : null;
+  }
+  if (!Array.isArray(raw)) return null;
+  const parts: Part[] = [];
+  let images = 0;
+  let hasText = false;
+  for (const p of raw) {
+    if (typeof p !== "object" || p === null) continue;
+    const type = String((p as Record<string, unknown>).type ?? "");
+    if (type === "text") {
+      let t = String((p as Record<string, unknown>).text ?? "").trim();
+      if (!t) continue;
+      if (t.length > MAX_TEXT_PART_CHARS) t = t.slice(0, MAX_TEXT_PART_CHARS);
+      parts.push({ type: "text", text: t });
+      hasText = true;
+    } else if (type === "image_url" && images < MAX_IMAGES) {
+      const iu = (p as Record<string, unknown>).image_url;
+      const url = iu && typeof iu === "object"
+        ? String((iu as Record<string, unknown>).url ?? "")
+        : "";
+      if (!url.startsWith("data:image/")) continue;
+      if (url.length > MAX_IMAGE_URL_CHARS) continue;
+      parts.push({ type: "image_url", image_url: { url } });
+      images++;
+    }
+  }
+  if (parts.length === 0) return null;
+  // Some providers want a text part alongside images; supply a neutral one.
+  if (!hasText) {
+    parts.unshift({ type: "text", text: "Please look at the attached image." });
+  }
+  return parts;
+}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -69,16 +129,15 @@ Deno.serve(async (req) => {
   }
 
   const raw = Array.isArray(body.messages) ? body.messages : [];
-  const history: { role: string; content: string }[] = [];
+  const history: { role: string; content: string | Part[] }[] = [];
   for (const m of raw) {
     if (typeof m !== "object" || m === null) continue;
     const role = String((m as Record<string, unknown>).role ?? "");
-    let content = String((m as Record<string, unknown>).content ?? "").trim();
-    if (content.length === 0) continue;
     if (role !== "user" && role !== "assistant") continue;
-    if (content.length > MAX_CHARS_PER_MESSAGE) {
-      content = content.slice(0, MAX_CHARS_PER_MESSAGE);
-    }
+    const content = normalizeContent((m as Record<string, unknown>).content);
+    if (content === null) continue;
+    // Only user turns carry images; an assistant turn is always plain text.
+    if (role === "assistant" && typeof content !== "string") continue;
     history.push({ role, content });
   }
   const trimmed = history.slice(-MAX_MESSAGES);

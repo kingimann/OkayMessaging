@@ -647,6 +647,23 @@ compliant shape of "help me reply": the encrypted thread is never read, so no
 chat content reaches the model. A test pins that `draft()` sends the
 instruction and not the conversation.
 
+**Photos and files (2026-08-06).** The assistant composer's + button attaches
+an IMAGE or a TEXT FILE (`AiAttachment.prepare`, `lib/state/ai_attachment.dart`,
+pure/testable): an image is run through `PhotoPrep` to a vision-sized
+`data:image/jpeg` URL and rides to a vision model as OpenRouter multimodal
+`content` (`{type:'image_url'}`); a text file's decoded content (capped) is
+folded into the text part. Everything else — video, PDF, archive, executable —
+is REFUSED with a plain reason (the model can't read raw bytes, and a paid call
+on nothing is worse than a no). Same `FileModeration` gate as every other
+out-of-device path. Only the just-sent turn carries attachments (old images are
+never re-sent); the saved turn keeps a small display ref + thumbnail, not the
+full image. `ai-chat` `normalizeContent` accepts string OR parts array, caps
+images (6) and data-URL size, and only lets USER turns carry images. This is the
+SAME carve-out as the rest of Okay AI — the user is knowingly showing the file
+to the machine — and `ai_attachment.dart` names no chat/relay/crypto, so it can
+only ever see what the user explicitly attaches HERE. Needs a vision-capable
+`OPENROUTER_AI_MODEL` (the default `gpt-4o-mini` is one).
+
 **It "learns as it talks" — per-user MEMORY, not weight training.** The
 `ai-chat` function, on a learning turn (`learn: true`), returns `{ reply,
 memories }`: the model puts durable, non-sensitive facts about the user in

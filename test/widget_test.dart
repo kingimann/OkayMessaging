@@ -46,6 +46,7 @@ import 'package:okay_messaging/util/voip_numbers.dart';
 import 'package:okay_messaging/state/translate_service.dart';
 import 'package:okay_messaging/state/community_sub_store.dart';
 import 'package:okay_messaging/state/ai_assistant.dart';
+import 'package:okay_messaging/state/ai_attachment.dart';
 import 'package:okay_messaging/state/ai_memory.dart';
 import 'package:okay_messaging/state/ai_pass_store.dart';
 import 'package:okay_messaging/state/ai_consent.dart';
@@ -1995,7 +1996,7 @@ void main() {
 
     test('a turn is sent, the reply is appended, and the tail is bounded',
         () async {
-      List<Map<String, String>>? seen;
+      List<Map<String, dynamic>>? seen;
       AiAssistant.debugReplyOverride = (messages) async {
         seen = messages;
         return 'Hello back';
@@ -2038,7 +2039,7 @@ void main() {
       AiAssistant.debugReplyOverride = (_) async => 'earlier reply';
       await AiAssistant.instance.send('private thing i said');
 
-      List<Map<String, String>>? seen;
+      List<Map<String, dynamic>>? seen;
       AiAssistant.debugReplyOverride = (messages) async {
         seen = messages;
         return 'Sure, I can\'t make it — thanks for the invite!';
@@ -2092,6 +2093,102 @@ void main() {
       final (icon, name) = SidebarCustomizeScreen.metaFor('okayai');
       expect(name, 'Okay AI');
       expect(icon, Icons.auto_awesome);
+    });
+
+    test('an image attachment becomes a vision data: URL for the model',
+        () async {
+      final photo = img.Image(width: 40, height: 30);
+      img.fill(photo, color: img.ColorRgb8(20, 140, 90));
+      final att = AiAttachment.prepare(
+          Uint8List.fromList(img.encodeJpg(photo)), 'cat.jpg');
+      expect(att.kind, 'image');
+      expect(att.imageDataUri.startsWith('data:image/'), isTrue);
+
+      List<Map<String, dynamic>>? seen;
+      AiAssistant.debugReplyOverride = (messages) async {
+        seen = messages;
+        return 'That is a cat.';
+      };
+      final ok = await AiAssistant.instance
+          .send('What is this?', attachments: [att]);
+      expect(ok, isTrue);
+      // The last message went as multimodal content: a text part plus an
+      // image_url part carrying the data: URL.
+      final content = seen!.last['content'] as List;
+      expect(content.any((p) => p['type'] == 'text'), isTrue);
+      final imagePart = content.firstWhere((p) => p['type'] == 'image_url');
+      expect((imagePart['image_url']['url'] as String).startsWith('data:image/'),
+          isTrue);
+      // The user turn keeps a display ref (kind + name), not the full image.
+      final userTurn = AiAssistant.instance.turns[
+          AiAssistant.instance.turns.length - 2];
+      expect(userTurn.attachments.single.kind, 'image');
+      expect(userTurn.attachments.single.name, 'cat.jpg');
+    });
+
+    test('a text file is folded into the message; binaries are refused',
+        () async {
+      final notes = Uint8List.fromList(
+          utf8.encode('Shopping list:\n- milk\n- eggs'));
+      final att = AiAttachment.prepare(notes, 'list.txt');
+      expect(att.kind, 'text');
+      expect(att.text, contains('milk'));
+
+      List<Map<String, dynamic>>? seen;
+      AiAssistant.debugReplyOverride = (messages) async {
+        seen = messages;
+        return 'Two items.';
+      };
+      await AiAssistant.instance.send('How many?', attachments: [att]);
+      final content = seen!.last['content'] as List;
+      final textPart =
+          content.firstWhere((p) => p['type'] == 'text')['text'] as String;
+      expect(textPart, contains('list.txt'));
+      expect(textPart, contains('milk'));
+
+      // A Windows executable (MZ header) is refused with a reason, not sent.
+      final exe = Uint8List.fromList(
+          [0x4D, 0x5A, 0x90, 0x00, 0x03, 0x00, 0x00, 0x00]);
+      expect(() => AiAttachment.prepare(exe, 'bad.exe'),
+          throwsA(isA<FileRejected>()));
+    });
+
+    test('an attachment-only message (no text) still sends', () async {
+      final photo = img.Image(width: 24, height: 24);
+      final att = AiAttachment.prepare(
+          Uint8List.fromList(img.encodeJpg(photo)), 'blank.jpg');
+      AiAssistant.debugReplyOverride = (_) async => 'I see it.';
+      final ok = await AiAssistant.instance.send('', attachments: [att]);
+      expect(ok, isTrue);
+      expect(AiAssistant.instance.turns.last.text, 'I see it.');
+    });
+
+    testWidgets('you can attach a photo and send it', (tester) async {
+      final photo = img.Image(width: 32, height: 32);
+      img.fill(photo, color: img.ColorRgb8(200, 60, 60));
+      AiChatScreen.debugPick =
+          (_) async => (Uint8List.fromList(img.encodeJpg(photo)), 'pic.jpg');
+      addTearDown(() => AiChatScreen.debugPick = null);
+      List<Map<String, dynamic>>? seen;
+      AiAssistant.debugReplyOverride = (messages) async {
+        seen = messages;
+        return 'Nice red square.';
+      };
+
+      await tester.pumpWidget(const MaterialApp(home: AiChatScreen()));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Attach a photo or file'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Photo'));
+      await tester.pumpAndSettle();
+      // The pending image shows above the composer before sending.
+      expect(find.byType(Image), findsWidgets);
+
+      await tester.tap(find.byTooltip('Send'));
+      await tester.pumpAndSettle();
+      expect(find.text('Nice red square.'), findsOneWidget);
+      final content = seen!.last['content'] as List;
+      expect(content.any((p) => p['type'] == 'image_url'), isTrue);
     });
   });
 

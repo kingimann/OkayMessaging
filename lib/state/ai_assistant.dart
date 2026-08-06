@@ -5,9 +5,33 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../relay/relay_config.dart';
+import 'ai_attachment.dart';
 import 'ai_consent.dart';
 import 'ai_memory.dart';
 import 'ai_pass_store.dart';
+
+/// The lightweight record of an attachment kept in a saved turn — for display
+/// only, never the full image or file text, which would bloat local storage.
+/// For an image a small [thumb] is kept so the bubble still shows it.
+@immutable
+class AiAttachmentRef {
+  final String kind; // 'image' | 'text'
+  final String name;
+  final String thumb; // small data: URI for an image, '' otherwise
+  const AiAttachmentRef(
+      {required this.kind, required this.name, this.thumb = ''});
+
+  bool get isImage => kind == 'image';
+
+  Map<String, dynamic> toJson() =>
+      {'k': kind, 'n': name, if (thumb.isNotEmpty) 'th': thumb};
+
+  factory AiAttachmentRef.fromJson(Map<String, dynamic> j) => AiAttachmentRef(
+        kind: j['k'] as String? ?? 'text',
+        name: j['n'] as String? ?? 'Attachment',
+        thumb: j['th'] as String? ?? '',
+      );
+}
 
 /// One turn in the assistant conversation.
 class AiTurn {
@@ -20,20 +44,31 @@ class AiTurn {
   /// keeping. Always 0 on a user turn.
   final int rating;
 
+  /// Attachments the user sent with this turn (images/files). Display refs
+  /// only; the bytes went to the model at send time and aren't re-sent.
+  final List<AiAttachmentRef> attachments;
+
   const AiTurn(
       {required this.fromUser,
       required this.text,
       required this.time,
-      this.rating = 0});
+      this.rating = 0,
+      this.attachments = const []});
 
-  AiTurn withRating(int r) =>
-      AiTurn(fromUser: fromUser, text: text, time: time, rating: r);
+  AiTurn withRating(int r) => AiTurn(
+      fromUser: fromUser,
+      text: text,
+      time: time,
+      rating: r,
+      attachments: attachments);
 
   Map<String, dynamic> toJson() => {
         'u': fromUser,
         't': text,
         'at': time.toIso8601String(),
         if (rating != 0) 'r': rating,
+        if (attachments.isNotEmpty)
+          'a': [for (final a in attachments) a.toJson()],
       };
 
   factory AiTurn.fromJson(Map<String, dynamic> j) => AiTurn(
@@ -41,6 +76,10 @@ class AiTurn {
         text: j['t'] as String? ?? '',
         time: DateTime.tryParse(j['at'] as String? ?? '') ?? DateTime(2024),
         rating: (j['r'] as num?)?.toInt() ?? 0,
+        attachments: [
+          for (final a in (j['a'] as List<dynamic>? ?? const []))
+            AiAttachmentRef.fromJson(Map<String, dynamic>.from(a as Map))
+        ],
       );
 }
 
@@ -148,14 +187,29 @@ class AiAssistant extends ChangeNotifier {
   /// Sends [text] to the assistant and appends its reply. The user turn shows
   /// immediately; a failure appends an honest error turn rather than throwing,
   /// so the chat never dead-ends. Returns whether a reply came back.
-  Future<bool> send(String text) async {
+  ///
+  /// [attachments] are images/files the user handed to the assistant with this
+  /// message: an image rides to a vision model as a `data:` URL, a text file's
+  /// content is folded in. They travel with THIS turn only — older images are
+  /// not re-sent — and are the one thing besides the user's own words that
+  /// reaches the model.
+  Future<bool> send(String text,
+      {List<AiAttachment> attachments = const []}) async {
     final t = text.trim();
-    if (t.isEmpty || _sending) return false;
+    if ((t.isEmpty && attachments.isEmpty) || _sending) return false;
     // The pay gate: past the free daily allowance, a pass is required. The UI
     // checks [needsUpgrade] first and shows the gate; this is the backstop.
     if (needsUpgrade) return false;
 
-    _turns.add(AiTurn(fromUser: true, text: t, time: DateTime.now()));
+    _turns.add(AiTurn(
+      fromUser: true,
+      text: t,
+      time: DateTime.now(),
+      attachments: [
+        for (final a in attachments)
+          AiAttachmentRef(kind: a.kind, name: a.name, thumb: a.thumbDataUri)
+      ],
+    ));
     _sending = true;
     _rollDay();
     _usedToday++;
@@ -163,12 +217,18 @@ class AiAssistant extends ChangeNotifier {
     await _save();
     await _saveUsage();
 
-    final payload = [
+    final payload = <Map<String, dynamic>>[
       for (final turn in _turns.length > _maxContext
           ? _turns.sublist(_turns.length - _maxContext)
           : _turns)
         {'role': turn.fromUser ? 'user' : 'assistant', 'content': turn.text}
     ];
+    // The just-sent turn carries the images/files as multimodal content; every
+    // earlier turn stays plain text (old images are never re-sent).
+    if (attachments.isNotEmpty && payload.isNotEmpty) {
+      payload[payload.length - 1]['content'] =
+          _multimodalContent(t, attachments);
+    }
 
     String? reply;
     List<String> newMemories = const [];
@@ -234,6 +294,34 @@ class AiAssistant extends ChangeNotifier {
     notifyListeners();
     await _save();
     return reply != null;
+  }
+
+  /// Builds the OpenRouter multimodal `content` array for a message that
+  /// carries attachments: the user's typed text plus any text files folded in
+  /// as one text part, then one `image_url` part per image. When nothing was
+  /// typed, a neutral instruction stands in so the model has a prompt.
+  static List<Map<String, dynamic>> _multimodalContent(
+      String text, List<AiAttachment> attachments) {
+    final buffer = StringBuffer(text.trim());
+    for (final a in attachments.where((a) => a.kind == 'text')) {
+      if (buffer.isNotEmpty) buffer.write('\n\n');
+      buffer.write('--- Attached file: ${a.name} ---\n${a.text}');
+    }
+    final images = attachments.where((a) => a.isImage).toList();
+    var textPart = buffer.toString().trim();
+    if (textPart.isEmpty) {
+      textPart = images.isNotEmpty
+          ? 'Please look at the attached image.'
+          : 'Please review the attached file.';
+    }
+    return [
+      {'type': 'text', 'text': textPart},
+      for (final a in images)
+        {
+          'type': 'image_url',
+          'image_url': {'url': a.imageDataUri}
+        },
+    ];
   }
 
   /// A ONE-SHOT draft from an instruction, for the "write a message for me"
@@ -313,9 +401,11 @@ class AiAssistant extends ChangeNotifier {
     await _save();
   }
 
-  /// Stands in for the Edge Function call in tests.
+  /// Stands in for the Edge Function call in tests. Content is `String` for a
+  /// plain message or a `List` of parts for one carrying attachments, so the
+  /// value type is dynamic.
   @visibleForTesting
-  static Future<String?> Function(List<Map<String, String>> messages)?
+  static Future<String?> Function(List<Map<String, dynamic>> messages)?
       debugReplyOverride;
 
   /// Stands in for the feedback submission in tests.
