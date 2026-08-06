@@ -42,6 +42,7 @@ import 'package:okay_messaging/models/feed_notification.dart';
 import 'package:okay_messaging/screens/new_chat_screen.dart';
 import 'package:okay_messaging/util/account_code.dart';
 import 'package:okay_messaging/util/phone_format.dart';
+import 'package:okay_messaging/util/voip_numbers.dart';
 import 'package:okay_messaging/legal/legal_content.dart';
 import 'package:okay_messaging/models/call.dart' as callmodel;
 import 'package:okay_messaging/screens/notes_screen.dart';
@@ -1884,6 +1885,48 @@ void main() {
       expect(store.byId(c.id)!.roles.single.name, 'Helper');
       expect(store.byId(c.id)!.roles.single.tier, MemberRole.moderator);
       expect(find.text('Helper'), findsOneWidget);
+    });
+  });
+
+  group('VoIP / virtual number gate', () {
+    test('toll-free, premium and non-geographic NANP ranges are refused', () {
+      // Toll-free.
+      expect(VoipNumbers.reason('+1 800 555 0100'), contains('Toll-free'));
+      expect(VoipNumbers.reason('+1 833 555 0100'), isNotNull);
+      // Premium 900.
+      expect(VoipNumbers.reason('+1 900 555 0100'), contains('premium'));
+      // Personal-communications / VoIP 5XX.
+      expect(VoipNumbers.reason('+1 500 555 0100'), contains('VoIP'));
+      expect(VoipNumbers.reason('+1 521 555 0100'), isNotNull);
+    });
+
+    test('an ordinary mobile number passes', () {
+      expect(VoipNumbers.reason('+1 415 555 0132'), isNull);
+      expect(VoipNumbers.reason('+1 212 555 0100'), isNull);
+      // 11 digits with the leading country 1 is read the same way.
+      expect(VoipNumbers.reason('+1 14155550132'), isNull);
+    });
+
+    test('the reviewer/demo account is exempt even on its 500 range', () {
+      // App Review's account lives on a 500 code; blocking it would lock the
+      // reviewer out. It must pass despite 500 being a refused range.
+      expect(VoipNumbers.reason('+1 500 555 0006'), isNull);
+      // A different 500 number is still refused.
+      expect(VoipNumbers.reason('+1 500 555 0007'), isNotNull);
+    });
+
+    test('numbers outside the NANP are left alone (no false block)', () {
+      // A UK mobile — we don't have a prefix map for it, so we don't guess.
+      expect(VoipNumbers.reason('+44 7911 123456'), isNull);
+      // Empty / partial input is the length validator's job, not this.
+      expect(VoipNumbers.reason(''), isNull);
+    });
+
+    test('the login form runs the VoIP check', () {
+      final src = File('lib/screens/auth/phone_login_screen.dart')
+          .readAsStringSync();
+      expect(src, contains('VoipNumbers.reason'),
+          reason: 'the phone field validator must call the gate');
     });
   });
 

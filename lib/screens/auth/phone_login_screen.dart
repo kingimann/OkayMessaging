@@ -15,6 +15,7 @@ import '../../state/two_step.dart';
 import '../../util/account_code.dart';
 import '../../util/haptics.dart';
 import '../../util/random_identity.dart';
+import '../../util/voip_numbers.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/recovery_gate.dart';
 import '../../widgets/user_avatar.dart';
@@ -363,6 +364,10 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen>
 
   String _friendly(Object e) {
     final s = e.toString();
+    // The VoIP/toll-free backstop throws its own already-friendly reason.
+    if (s.contains('mobile number')) {
+      return s.replaceFirst(RegExp(r'^[A-Za-z]*Error:\s*'), '');
+    }
     if (s.contains('provider') || s.contains('not enabled') || s.contains('sms')) {
       return 'Couldn\'t send the code. The SMS provider may not be enabled yet.';
     }
@@ -942,7 +947,10 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen>
               onFieldSubmitted: (_) => onSubmit?.call(),
               validator: (v) {
                 final digits = (v ?? '').replaceAll(RegExp(r'\D'), '');
-                return digits.length < 6 ? 'Enter a valid number' : null;
+                if (digits.length < 6) return 'Enter a valid number';
+                // Refuse toll-free / premium / VoIP ranges: an account needs a
+                // number that can answer for it.
+                return VoipNumbers.reason('$_dialCode $digits');
               },
             ),
           ),

@@ -10,6 +10,7 @@ import 'package:supabase_flutter/supabase_flutter.dart' hide Session;
 import '../models/user.dart';
 import '../relay/relay_config.dart';
 import '../util/account_code.dart';
+import '../util/voip_numbers.dart';
 import 'session.dart';
 
 /// Result of checking a username against the server registry.
@@ -65,8 +66,12 @@ class AccountService {
       RegExp(r'^[a-z0-9_.]{3,}$').hasMatch(normalizeUsername(username));
 
   /// Sends a one-time SMS code to [phone]. Throws if the SMS provider is not
-  /// enabled on the Supabase project.
+  /// enabled on the Supabase project, or (a backstop under the login form's
+  /// own check) if the number is a toll-free / premium / VoIP range that can't
+  /// stand behind an account.
   Future<void> sendCode(String phone) {
+    final voip = VoipNumbers.reason(phone);
+    if (voip != null) throw StateError(voip);
     return _client.auth.signInWithOtp(phone: e164(phone));
   }
 
