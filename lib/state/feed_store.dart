@@ -81,6 +81,12 @@ class FeedPost {
   /// Whether the seller has marked this listing sold.
   final bool listingSold;
 
+  /// Whether the seller has marked this listing reserved (on hold for a
+  /// buyer, not yet sold). Presentation only — the item stays in the shop
+  /// and searchable, wearing a "Reserved" badge — so a change of mind is one
+  /// tap back. A sold listing is never also reserved.
+  final bool listingReserved;
+
   /// Monotonic revision for listing updates. addRemote replaces a listing
   /// only when this is higher, so a mailbox replaying a stale copy can never
   /// roll back a sold flag.
@@ -214,6 +220,7 @@ class FeedPost {
     this.listingCategory = '',
     this.listingCondition = '',
     this.listingSold = false,
+    this.listingReserved = false,
     this.listingRev = 0,
     this.authorVerified = false,
     this.rating = 0,
@@ -248,6 +255,7 @@ class FeedPost {
     bool? edited,
     bool? pinned,
     bool? listingSold,
+    bool? listingReserved,
     int? listingRev,
     String? saleCodeHash,
     DateTime? time,
@@ -280,6 +288,7 @@ class FeedPost {
         listingCategory: listingCategory,
         listingCondition: listingCondition,
         listingSold: listingSold ?? this.listingSold,
+        listingReserved: listingReserved ?? this.listingReserved,
         listingRev: listingRev ?? this.listingRev,
         authorVerified: authorVerified,
         rating: rating,
@@ -327,6 +336,7 @@ class FeedPost {
           if (listingCondition.isNotEmpty)
             'listingCondition': listingCondition,
           if (listingSold) 'listingSold': true,
+          if (listingReserved) 'listingReserved': true,
           'listingRev': listingRev,
         },
         if (authorVerified) 'authorVerified': true,
@@ -377,6 +387,7 @@ class FeedPost {
         listingCategory: j['listingCategory'] as String? ?? '',
         listingCondition: j['listingCondition'] as String? ?? '',
         listingSold: j['listingSold'] as bool? ?? false,
+        listingReserved: j['listingReserved'] as bool? ?? false,
         listingRev: (j['listingRev'] as num?)?.toInt() ?? 0,
         authorVerified: j['authorVerified'] as bool? ?? false,
         rating: (j['rating'] as num?)?.toInt() ?? 0,
@@ -1233,6 +1244,43 @@ class FeedStore extends ChangeNotifier {
     return post;
   }
 
+  /// Clones one of your listings into a fresh, unsold, un-reserved copy —
+  /// same title, price, category, condition and photos, a new id and a new
+  /// timestamp. For a seller relisting the same kind of thing without
+  /// retyping it. Returns the new listing, or null if [postId] isn't a
+  /// listing of yours.
+  FeedPost? duplicateListing(String postId) {
+    final srcIndex =
+        _posts.indexWhere((p) => p.id == postId && p.isListing);
+    if (srcIndex == -1) return null;
+    final src = _posts[srcIndex];
+    final me = AppState.profile.value.username;
+    final mine = src.authorUsername == 'you' ||
+        (me.isNotEmpty && src.authorUsername == me);
+    if (!mine) return null;
+    final photos = listingPhotos(postId);
+    final title = src.text.split('\n').first;
+    final description =
+        src.text.contains('\n') ? src.text.substring(title.length + 1) : '';
+    return addListing(
+      src.communityId,
+      title: title,
+      priceCents: src.priceCents ?? 0,
+      category: src.listingCategory,
+      description: description,
+      photoUrl: photos.isNotEmpty ? photos.first : src.gifUrl,
+      extraPhotos: photos.length > 1 ? photos.sublist(1) : const [],
+      videoPath: src.listingVideo,
+      condition: src.listingCondition,
+      delivery: src.listingDelivery,
+      quantity: src.listingQuantity,
+      offers: src.listingOffers,
+      place: src.listingPlace,
+      brand: src.listingBrand,
+      attributes: Map<String, String>.from(src.listingAttributes),
+    );
+  }
+
   /// Extra photos ride as child posts, one broadcast each — see
   /// [FeedPost.mediaPart] for why they cannot share the listing's envelope.
   void _addPhotoParts(FeedPost listing, List<String> photos) {
@@ -1478,6 +1526,7 @@ class FeedStore extends ChangeNotifier {
       listingCategory: category,
       listingCondition: condition ?? post.listingCondition,
       listingSold: post.listingSold,
+      listingReserved: post.listingReserved,
       listingRev: post.listingRev + 1,
       listingVideo: videoPath ?? post.listingVideo,
       listingDelivery: delivery ?? post.listingDelivery,
@@ -1516,8 +1565,11 @@ class FeedStore extends ChangeNotifier {
     final mine = post.authorUsername == 'you' ||
         (me.isNotEmpty && post.authorUsername == me);
     if (!mine || post.listingSold == sold) return false;
-    final updated =
-        post.copyWith(listingSold: sold, listingRev: post.listingRev + 1);
+    // A sold listing is never also reserved — the hold resolved into a sale.
+    final updated = post.copyWith(
+        listingSold: sold,
+        listingReserved: sold ? false : post.listingReserved,
+        listingRev: post.listingRev + 1);
     _posts[i] = updated;
     _save();
     notifyListeners();
@@ -1531,6 +1583,29 @@ class FeedStore extends ChangeNotifier {
         ..recordFlag('sold_item')
         ..award(ScoreStore.pointsPerSale);
     }
+    return true;
+  }
+
+  /// Flips a listing's reserved flag (own, unsold listings only) and tells
+  /// the server. Reserving a sold listing is a no-op — the sale is the
+  /// stronger truth. Rides the same revision ratchet as the sold flag so a
+  /// stale replay can't undo it.
+  bool setListingReserved(String postId, bool reserved) {
+    final i = _posts.indexWhere((p) => p.id == postId);
+    if (i == -1 || !_posts[i].isListing) return false;
+    final post = _posts[i];
+    final me = AppState.profile.value.username;
+    final mine = post.authorUsername == 'you' ||
+        (me.isNotEmpty && post.authorUsername == me);
+    if (!mine || post.listingSold || post.listingReserved == reserved) {
+      return false;
+    }
+    final updated = post.copyWith(
+        listingReserved: reserved, listingRev: post.listingRev + 1);
+    _posts[i] = updated;
+    _save();
+    notifyListeners();
+    if (RelayConfig.isEnabled) RelayService.instance.sendFeedPost(updated);
     return true;
   }
 

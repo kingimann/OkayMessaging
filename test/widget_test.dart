@@ -10297,9 +10297,14 @@ void main() {
       await tester.tap(find.byTooltip('Filter'));
       await tester.pumpAndSettle();
       // Chips carry counts now ("Sports · 1") and sit below the sort list.
-      await tester.ensureVisible(find.textContaining('Sports'));
+      // Scope to the sheet — the browse strip on the body carries the same
+      // "Sports · 1" label.
+      final sheetSports = find.descendant(
+          of: find.byType(BottomSheet),
+          matching: find.textContaining('Sports'));
+      await tester.ensureVisible(sheetSports);
       await tester.pumpAndSettle();
-      await tester.tap(find.textContaining('Sports'));
+      await tester.tap(sheetSports);
       await tester.pumpAndSettle();
       expect(find.text('Blue bike'), findsOneWidget);
       expect(find.text('Green lamp'), findsNothing);
@@ -10713,6 +10718,110 @@ void main() {
       expect(categoryFieldsFor('Bikes').map((f) => f.label), contains('Type'));
       // An untouched category still returns nothing, cleanly.
       expect(categoryFieldsFor('Antiques'), isEmpty);
+    });
+
+    test('listingNearArea matches a place to the buyer\'s area by words', () {
+      FeedPost at(String place) => FeedPost(
+            id: 'x',
+            communityId: 'c1',
+            authorName: 'A',
+            authorUsername: 'a',
+            time: DateTime(2026),
+            text: 't',
+            priceCents: 100,
+            listingPlace: place,
+          );
+      expect(listingNearArea(at('Toronto'), 'Toronto, ON'), isTrue);
+      expect(listingNearArea(at('downtown Toronto'), 'Toronto'), isTrue);
+      expect(listingNearArea(at('Toronto'), 'Vancouver'), isFalse);
+      // No place, or no area, is never "near".
+      expect(listingNearArea(at(''), 'Toronto'), isFalse);
+      expect(listingNearArea(at('Toronto'), ''), isFalse);
+    });
+
+    testWidgets('the browse strip lists stocked categories and filters on tap',
+        (tester) async {
+      FeedStore.instance.resetForTest();
+      addTearDown(FeedStore.instance.resetForTest);
+      FeedStore.instance.addRemote(FeedPost(
+          id: 'b1',
+          communityId: 'c1',
+          authorName: 'A',
+          authorUsername: 'a',
+          time: DateTime.now(),
+          text: 'Sofa',
+          priceCents: 5000,
+          listingCategory: 'Furniture'));
+      FeedStore.instance.addRemote(FeedPost(
+          id: 'b2',
+          communityId: 'c1',
+          authorName: 'A',
+          authorUsername: 'a',
+          time: DateTime.now(),
+          text: 'Phone',
+          priceCents: 20000,
+          listingCategory: 'Phones & Tablets'));
+      await tester.pumpWidget(const MaterialApp(home: MarketplaceScreen()));
+      await tester.pump();
+      // The strip shows a chip per stocked category with a count.
+      expect(find.text('Browse'), findsOneWidget);
+      expect(find.text('Furniture · 1'), findsOneWidget);
+      // Tapping one filters the grid to it.
+      await tester.tap(find.text('Furniture · 1'));
+      await tester.pumpAndSettle();
+      expect(find.text('Sofa'), findsOneWidget);
+      expect(find.text('Phone'), findsNothing);
+    });
+
+    testWidgets('Near you keeps only listings in the buyer\'s area',
+        (tester) async {
+      tester.view.physicalSize = const Size(500, 2200);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      FeedStore.instance.resetForTest();
+      addTearDown(FeedStore.instance.resetForTest);
+      final prev = AppState.profile.value;
+      addTearDown(() => AppState.profile.value = prev);
+      AppState.profile.value = const AppUser(
+          id: 'me',
+          name: 'Me',
+          avatarColor: '#000000',
+          username: 'me',
+          location: 'Toronto');
+      FeedStore.instance.addRemote(FeedPost(
+          id: 'n1',
+          communityId: 'c1',
+          authorName: 'A',
+          authorUsername: 'a',
+          time: DateTime.now(),
+          text: 'Near lamp',
+          priceCents: 500,
+          listingCategory: 'Other',
+          listingPlace: 'Toronto'));
+      FeedStore.instance.addRemote(FeedPost(
+          id: 'n2',
+          communityId: 'c1',
+          authorName: 'A',
+          authorUsername: 'a',
+          time: DateTime.now(),
+          text: 'Far desk',
+          priceCents: 900,
+          listingCategory: 'Other',
+          listingPlace: 'Vancouver'));
+      await tester.pumpWidget(const MaterialApp(home: MarketplaceScreen()));
+      await tester.pump();
+      expect(find.text('Near lamp'), findsOneWidget);
+      expect(find.text('Far desk'), findsOneWidget);
+      // Turn on Near you.
+      await tester.tap(find.byTooltip('Filter'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilterChip, 'Near you'));
+      await tester.pumpAndSettle();
+      Navigator.of(tester.element(find.text('SORT'))).pop();
+      await tester.pumpAndSettle();
+      expect(find.text('Near lamp'), findsOneWidget);
+      expect(find.text('Far desk'), findsNothing);
     });
 
     testWidgets('condition, delivery and hide-sold filters narrow the grid',
@@ -33363,6 +33472,116 @@ void main() {
       // Withheld browse-only, same reasoning as the Sell button: a
       // numberless account has nothing there to manage.
       expect(src, contains('if (!browseOnly)'));
+    });
+
+    test('reserved: a hold that clears, and that a sale supersedes', () {
+      final store = FeedStore.instance;
+      store.resetForTest();
+      addTearDown(store.resetForTest);
+      final l = store.addListing('c1',
+          title: 'Sofa', priceCents: 20000, category: 'Home & Garden');
+      expect(l.listingReserved, isFalse);
+
+      // Mark reserved; the listing stays in the shop, just flagged.
+      expect(store.setListingReserved(l.id, true), isTrue);
+      expect(store.postById(l.id)!.listingReserved, isTrue);
+      expect(store.listings().any((p) => p.id == l.id), isTrue,
+          reason: 'reserved is presentation only — still for sale');
+      // Setting the same value twice is a no-op.
+      expect(store.setListingReserved(l.id, true), isFalse);
+
+      // Selling clears the reservation — the hold resolved into a sale.
+      store.setListingSold(l.id, true);
+      final sold = store.postById(l.id)!;
+      expect(sold.listingSold, isTrue);
+      expect(sold.listingReserved, isFalse);
+      // A sold listing can't be reserved back.
+      expect(store.setListingReserved(l.id, true), isFalse);
+
+      // Not your listing, not your call.
+      store.addRemote(FeedPost(
+          id: 'their1',
+          communityId: 'c1',
+          authorName: 'Ivy',
+          authorUsername: 'ivy',
+          time: DateTime(2026, 1, 1),
+          text: 'Ivy chair',
+          priceCents: 3000));
+      expect(store.setListingReserved('their1', true), isFalse);
+    });
+
+    test('duplicate: a fresh, unsold copy carrying the details and photos',
+        () {
+      final store = FeedStore.instance;
+      store.resetForTest();
+      addTearDown(store.resetForTest);
+      final l = store.addListing('c1',
+          title: 'Road bike',
+          priceCents: 45000,
+          category: 'Sports',
+          description: 'Barely ridden',
+          photoUrl: 'cover.jpg',
+          extraPhotos: ['b.jpg', 'c.jpg'],
+          condition: 'Like new',
+          brand: 'Trek',
+          place: 'Kingston');
+      store.setListingSold(l.id, true);
+
+      final copy = store.duplicateListing(l.id);
+      expect(copy, isNotNull);
+      expect(copy!.id, isNot(l.id));
+      expect(copy.listingSold, isFalse,
+          reason: 'a relist starts available');
+      expect(copy.listingReserved, isFalse);
+      expect(copy.text.split('\n').first, 'Road bike');
+      expect(copy.text, contains('Barely ridden'));
+      expect(copy.priceCents, 45000);
+      expect(copy.listingCategory, 'Sports');
+      expect(copy.listingCondition, 'Like new');
+      expect(copy.listingBrand, 'Trek');
+      expect(copy.listingPlace, 'Kingston');
+      // Every photo comes across, cover first.
+      expect(store.listingPhotos(copy.id), ['cover.jpg', 'b.jpg', 'c.jpg']);
+
+      // A stranger's listing can't be duplicated onto your account.
+      store.addRemote(FeedPost(
+          id: 'their2',
+          communityId: 'c1',
+          authorName: 'Ivy',
+          authorUsername: 'ivy',
+          time: DateTime(2026, 1, 1),
+          text: 'Ivy chair',
+          priceCents: 3000));
+      expect(store.duplicateListing('their2'), isNull);
+    });
+
+    testWidgets('the manager reserves and duplicates from the menu',
+        (tester) async {
+      final store = FeedStore.instance;
+      store.resetForTest();
+      addTearDown(store.resetForTest);
+      store.addListing('c1',
+          title: 'Desk', priceCents: 8000, category: 'Home & Garden');
+
+      await tester.pumpWidget(const MaterialApp(home: MyListingsScreen()));
+      await tester.pumpAndSettle();
+      expect(find.text('1 active · 0 sold'), findsOneWidget);
+
+      // Reserve it: the row picks up a Reserved note, still active.
+      await tester.tap(find.byTooltip('Manage').first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Mark reserved'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Reserved'), findsOneWidget);
+      expect(find.text('1 active · 0 sold'), findsOneWidget);
+
+      // Duplicate it: a second active listing appears.
+      await tester.tap(find.byTooltip('Manage').first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Duplicate listing'));
+      await tester.pumpAndSettle();
+      expect(find.text('2 active · 0 sold'), findsOneWidget);
+      expect(find.text('Desk'), findsNWidgets(2));
     });
   });
 

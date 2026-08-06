@@ -43,6 +43,7 @@ class MyListingsScreen extends StatelessWidget {
     final canBump = !l.listingSold && store.canBumpListing(l.id);
     final bits = [
       _price(l),
+      if (l.listingReserved && !l.listingSold) 'Reserved',
       if (l.views > 0) '${l.views} ${l.views == 1 ? 'viewer' : 'viewers'}',
       if (l.listingQuantity > 1) '${l.listingQuantity} available',
     ].join(' · ');
@@ -84,8 +85,17 @@ class MyListingsScreen extends StatelessWidget {
                   builder: (_) => SellScreen(existing: l)));
             case 'sold':
               FeedStore.instance.setListingSold(l.id, !l.listingSold);
+            case 'reserve':
+              FeedStore.instance
+                  .setListingReserved(l.id, !l.listingReserved);
             case 'bump':
               FeedStore.instance.bumpListing(l.id);
+            case 'duplicate':
+              final copy = FeedStore.instance.duplicateListing(l.id);
+              if (copy != null) {
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                    content: Text('Copied to a new listing.')));
+              }
             case 'delete':
               _delete(context, l);
           }
@@ -97,9 +107,16 @@ class MyListingsScreen extends StatelessWidget {
               value: 'sold',
               child:
                   Text(l.listingSold ? 'Mark available' : 'Mark sold')),
+          if (!l.listingSold)
+            PopupMenuItem(
+                value: 'reserve',
+                child: Text(
+                    l.listingReserved ? 'Clear reserved' : 'Mark reserved')),
           if (canBump)
             const PopupMenuItem(
                 value: 'bump', child: Text('Bump to the top')),
+          const PopupMenuItem(
+              value: 'duplicate', child: Text('Duplicate listing')),
           const PopupMenuItem(value: 'delete', child: Text('Delete')),
         ],
       ),

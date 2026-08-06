@@ -181,6 +181,98 @@ const Map<String, List<String>> kMarketplaceCategoryGroups = {
   ],
 };
 
+/// A glyph for the browse strip. A best-effort map — anything unlisted gets a
+/// neutral tag, because a wrong icon is worse than a plain one.
+IconData marketplaceCategoryIcon(String category) {
+  switch (category) {
+    case 'Electronics':
+    case 'Phones & Tablets':
+      return Icons.smartphone_outlined;
+    case 'Computers':
+      return Icons.laptop_outlined;
+    case 'TV & Audio':
+      return Icons.speaker_outlined;
+    case 'Cameras & Photo':
+      return Icons.camera_alt_outlined;
+    case 'Video Games & Consoles':
+      return Icons.sports_esports_outlined;
+    case 'Appliances':
+    case 'Kitchen & Dining':
+      return Icons.kitchen_outlined;
+    case 'Furniture':
+    case 'Home Decor':
+      return Icons.chair_outlined;
+    case 'Home & Garden':
+    case 'Garden & Plants':
+      return Icons.yard_outlined;
+    case 'Tools & Home Improvement':
+    case 'Building Materials':
+      return Icons.handyman_outlined;
+    case 'Clothing':
+    case 'Shoes':
+      return Icons.checkroom_outlined;
+    case 'Jewelry & Accessories':
+    case 'Watches':
+      return Icons.diamond_outlined;
+    case 'Beauty & Health':
+    case 'Health & Wellness':
+      return Icons.spa_outlined;
+    case 'Baby & Kids':
+      return Icons.child_friendly_outlined;
+    case 'Vehicles':
+      return Icons.directions_car_outlined;
+    case 'Auto Parts':
+      return Icons.settings_outlined;
+    case 'Motorcycles':
+      return Icons.two_wheeler_outlined;
+    case 'Bikes':
+      return Icons.pedal_bike_outlined;
+    case 'Boats & Watercraft':
+      return Icons.sailing_outlined;
+    case 'Sports':
+    case 'Fitness & Gym':
+    case 'Camping & Outdoors':
+      return Icons.sports_soccer_outlined;
+    case 'Games & Toys':
+      return Icons.toys_outlined;
+    case 'Trading Cards & Comics':
+      return Icons.style_outlined;
+    case 'Musical Instruments':
+      return Icons.music_note_outlined;
+    case 'Pet Supplies':
+      return Icons.pets_outlined;
+    case 'Books':
+    case 'Movies & Music':
+      return Icons.menu_book_outlined;
+    case 'Art & Collectibles':
+    case 'Antiques':
+    case 'Crafts & Hobbies':
+    case 'Handmade':
+      return Icons.palette_outlined;
+    case 'Tickets':
+      return Icons.confirmation_number_outlined;
+    case 'Luggage & Travel':
+    case 'Bags & Luggage':
+      return Icons.luggage_outlined;
+    case 'Office & Business':
+      return Icons.work_outline;
+    case 'Farm & Garden Equipment':
+      return Icons.agriculture_outlined;
+    case 'Food & Drink':
+      return Icons.restaurant_outlined;
+    case 'Property & Rentals':
+      return Icons.home_outlined;
+    case 'Services':
+      return Icons.build_outlined;
+    case 'Free stuff':
+      return Icons.redeem_outlined;
+    case 'Wanted':
+      return Icons.search_outlined;
+    default:
+      return Icons.sell_outlined;
+  }
+}
+
 /// One category-specific field on the sell form. [choices] empty means a
 /// free-text box; non-empty draws a chip picker. [suffix] is a unit shown
 /// after a number ('mi', 'sq ft'). Pure data — the field's answer is stored
@@ -609,6 +701,21 @@ bool listingInPriceRange(FeedPost l, {int? minCents, int? maxCents}) {
   if (minCents != null && p < minCents) return false;
   if (maxCents != null && p > maxCents) return false;
   return true;
+}
+
+/// Whether a listing's place reads as being in the buyer's [area]. No GPS —
+/// both are free text ("Toronto", "Toronto, ON", "downtown Toronto"), so this
+/// is word-overlap: any shared token of two or more letters counts. Pure, so
+/// the "Near you" filter is testable without a map.
+bool listingNearArea(FeedPost l, String area) {
+  final place = l.listingPlace.trim().toLowerCase();
+  final home = area.trim().toLowerCase();
+  if (place.isEmpty || home.isEmpty) return false;
+  if (place.contains(home) || home.contains(place)) return true;
+  final placeWords = place.split(RegExp(r'[^a-z0-9]+')).where((w) => w.length > 1);
+  final homeWords =
+      area.trim().toLowerCase().split(RegExp(r'[^a-z0-9]+')).where((w) => w.length > 1).toSet();
+  return placeWords.any(homeWords.contains);
 }
 
 /// Title words → the category they usually mean. Most specific families
@@ -1060,6 +1167,10 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
   final Set<String> _conditions = {};
   String _delivery = '';
   bool _hideSold = false;
+
+  /// "Near you": keep only listings whose place reads as the buyer's own area
+  /// (their profile location). Text-matched, since listings carry no coords.
+  bool _nearMe = false;
   ListingSort _sort = ListingSort.newest;
   final TextEditingController _minPrice = TextEditingController();
   final TextEditingController _maxPrice = TextEditingController();
@@ -1207,8 +1318,10 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
                   ),
                 ),
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
-                  child: Row(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
                     children: [
                       FilterChip(
                         avatar: const Icon(Icons.redeem_outlined, size: 15),
@@ -1220,7 +1333,6 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
                           setSheet(() {});
                         },
                       ),
-                      const SizedBox(width: 8),
                       FilterChip(
                         avatar: const Icon(Icons.visibility_off_outlined,
                             size: 15),
@@ -1232,9 +1344,36 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
                           setSheet(() {});
                         },
                       ),
+                      FilterChip(
+                        avatar: const Icon(Icons.near_me_outlined, size: 15),
+                        label: const Text('Near you'),
+                        visualDensity: VisualDensity.compact,
+                        selected: _nearMe,
+                        onSelected: (v) {
+                          setState(() => _nearMe = v);
+                          setSheet(() {});
+                        },
+                      ),
                     ],
                   ),
                 ),
+                if (_nearMe && AppState.profile.value.location.trim().isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                    child: Text(
+                        'Add your location in Edit profile to find listings '
+                        'near you.',
+                        style: TextStyle(
+                            fontSize: 11.5, color: AppColors.subtle(context))),
+                  )
+                else if (_nearMe)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                    child: Text('Near ${AppState.profile.value.location}',
+                        style: TextStyle(
+                            fontSize: 11.5, color: AppColors.subtle(context))),
+                  ),
+                const SizedBox(height: 4),
                 const Divider(height: 1),
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
@@ -1471,6 +1610,7 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
         _conditions.isNotEmpty ||
         _delivery.isNotEmpty ||
         _hideSold ||
+        _nearMe ||
         _minCents != null ||
         _maxCents != null ||
         _sort != ListingSort.newest;
@@ -1595,6 +1735,13 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
                 if (!l.listingSold) l
             ];
           }
+          if (_nearMe) {
+            final area = AppState.profile.value.location;
+            listings = [
+              for (final l in listings)
+                if (listingNearArea(l, area)) l
+            ];
+          }
           // Sorted, with sold sunk to the end rather than hidden — a buyer
           // mid-conversation can still find one.
           listings = sortListings(listings, _sort);
@@ -1604,9 +1751,50 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
           final drops = FeedStore.instance.savedPriceDrops();
           final recents = FeedStore.instance.recentlyViewed();
           final browsing = !hasFilter && q.isEmpty;
+          // The categories that actually have something in them, most-stocked
+          // first — a browse strip that never opens on an empty aisle.
+          final catCounts = <String, int>{};
+          for (final l in FeedStore.instance.listings()) {
+            if (l.listingCategory.isNotEmpty) {
+              catCounts[l.listingCategory] =
+                  (catCounts[l.listingCategory] ?? 0) + 1;
+            }
+          }
+          final browseCats = catCounts.keys.toList()
+            ..sort((a, b) => catCounts[b]!.compareTo(catCounts[a]!));
           return Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              if (browsing && browseCats.length >= 2) ...[
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
+                  child: Text('Browse',
+                      style: TextStyle(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.subtle(context))),
+                ),
+                SizedBox(
+                  height: 38,
+                  child: ListView(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    children: [
+                      for (final c in browseCats)
+                        Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: ActionChip(
+                            avatar: Icon(marketplaceCategoryIcon(c), size: 16),
+                            label: Text('$c · ${catCounts[c]}'),
+                            visualDensity: VisualDensity.compact,
+                            onPressed: () =>
+                                setState(() => _category = c),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
               if (browsing && drops.isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
@@ -1769,6 +1957,13 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
                           label: const Text('Hide sold'),
                           visualDensity: VisualDensity.compact,
                           onDeleted: () => setState(() => _hideSold = false),
+                        ),
+                      if (_nearMe)
+                        InputChip(
+                          avatar: const Icon(Icons.near_me_outlined, size: 15),
+                          label: const Text('Near you'),
+                          visualDensity: VisualDensity.compact,
+                          onDeleted: () => setState(() => _nearMe = false),
                         ),
                       if (_minCents != null || _maxCents != null)
                         InputChip(
@@ -1967,7 +2162,9 @@ class _ListingCard extends StatelessWidget {
                   ),
                 ),
                 if (listing.listingSold)
-                  const Positioned(left: 8, top: 8, child: _SoldBadge()),
+                  const Positioned(left: 8, top: 8, child: _SoldBadge())
+                else if (listing.listingReserved)
+                  const Positioned(left: 8, top: 8, child: _ReservedBadge()),
                 if (listing.listingVideo.isNotEmpty)
                   Positioned(
                     right: 8,
@@ -2057,12 +2254,41 @@ class _ListingCard extends StatelessWidget {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(fontSize: 13.5)),
-          if (serverName.isNotEmpty)
-            Text(serverName,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style:
-                    TextStyle(fontSize: 11.5, color: AppColors.subtle(context))),
+          // Place · condition — what a buyer scans for after the price. Falls
+          // back to the server name when a listing carries neither.
+          Builder(builder: (context) {
+            final subtle = AppColors.subtle(context);
+            final bits = [
+              if (listing.listingCondition.isNotEmpty) listing.listingCondition,
+              if (listing.listingPlace.isEmpty && serverName.isNotEmpty)
+                serverName,
+            ];
+            final hasPlace = listing.listingPlace.isNotEmpty;
+            if (!hasPlace && bits.isEmpty) return const SizedBox.shrink();
+            return Row(
+              children: [
+                if (hasPlace) ...[
+                  Icon(Icons.place_outlined, size: 11.5, color: subtle),
+                  const SizedBox(width: 2),
+                  Flexible(
+                    child: Text(listing.listingPlace,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(fontSize: 11.5, color: subtle)),
+                  ),
+                  if (bits.isNotEmpty)
+                    Text(' · ', style: TextStyle(fontSize: 11.5, color: subtle)),
+                ],
+                if (bits.isNotEmpty)
+                  Flexible(
+                    child: Text(bits.join(' · '),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(fontSize: 11.5, color: subtle)),
+                  ),
+              ],
+            );
+          }),
         ],
       ),
     );
@@ -2298,6 +2524,7 @@ class ListingScreen extends StatelessWidget {
                 return _ListingGallery(
                   photos: photos,
                   sold: listing.listingSold,
+                  reserved: listing.listingReserved,
                   title: title,
                 );
               }),
@@ -3030,9 +3257,13 @@ class _ReviewSheetState extends State<_ReviewSheet> {
 class _ListingGallery extends StatefulWidget {
   final List<String> photos;
   final bool sold;
+  final bool reserved;
   final String title;
   const _ListingGallery(
-      {required this.photos, required this.sold, required this.title});
+      {required this.photos,
+      required this.sold,
+      this.reserved = false,
+      required this.title});
 
   @override
   State<_ListingGallery> createState() => _ListingGalleryState();
@@ -3069,7 +3300,10 @@ class _ListingGalleryState extends State<_ListingGallery> {
           ),
         ),
         if (widget.sold)
-          const Positioned(left: 14, top: 14, child: _SoldBadge(large: true)),
+          const Positioned(left: 14, top: 14, child: _SoldBadge(large: true))
+        else if (widget.reserved)
+          const Positioned(
+              left: 14, top: 14, child: _ReservedBadge(large: true)),
         if (many)
           Positioned(
             right: 12,
@@ -3158,6 +3392,29 @@ class _SoldBadge extends StatelessWidget {
           borderRadius: BorderRadius.circular(6),
         ),
         child: Text('SOLD',
+            style: TextStyle(
+                color: Colors.white,
+                fontSize: large ? 12.5 : 11,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 0.5)),
+      );
+}
+
+/// The amber RESERVED tag — an item on hold for a buyer but still in the
+/// shop, so it reads as distinct from a finished SOLD sale.
+class _ReservedBadge extends StatelessWidget {
+  final bool large;
+  const _ReservedBadge({this.large = false});
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: EdgeInsets.symmetric(
+            horizontal: large ? 10 : 8, vertical: large ? 4 : 3),
+        decoration: BoxDecoration(
+          color: const Color(0xFFB25E00).withValues(alpha: 0.92),
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: Text('RESERVED',
             style: TextStyle(
                 color: Colors.white,
                 fontSize: large ? 12.5 : 11,
