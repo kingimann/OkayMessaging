@@ -663,13 +663,19 @@ later pipeline: collect the assistant conversations (with consent) → curate
 (the guardrail) → periodically fine-tune your own model → point
 `OPENROUTER_AI_MODEL` at it.
 
-**Rate limit + pay gate.** A free `AiAssistant.freePerDay` (15) messages a day;
-past it `needsUpgrade` is true and the chat shows an upgrade sheet.
-`AiPassStore` is a 30-day unlimited pass (a consumable IAP,
-`StorePurchases.buyAiPass` → `okayai.pro.monthly`; test mode simulates it). The
-gate is currently client-side — real cost control wants a server-side per-caller
-counter in `ai-chat` (a `ai_usage` table), the sensible next step. The price is
-the owner's to finalise.
+**Rate limit + pay gate.** Two layers. The CLIENT product tier: a free
+`AiAssistant.freePerDay` (15) messages a day; past it `needsUpgrade` shows an
+upgrade sheet, and `AiPassStore` sells a 30-day unlimited pass (a consumable
+IAP, `StorePurchases.buyAiPass` → `okayai.pro.monthly`; test mode simulates).
+The SERVER ceiling (the real cost control, since a modified client bypasses the
+first): `ai-chat` bumps `public.ai_note_usage(caller)` before the model call and
+returns 429 past `AI_DAILY_CAP` (env, default 40) — counted per caller (their
+phone, or the request IP), checked before any tokens are spent, and FAILS OPEN
+if `docs/ai_usage.sql` isn't run. `ai_usage` has no client grants (a
+`check_sql.sh` assertion pins that a client can't bump it or read it). The
+server cap is an abuse ceiling above the 15/day free tier; a paid user is still
+capped at `AI_DAILY_CAP` until the pass is recorded server-side (a follow-up) —
+so set `AI_DAILY_CAP` generously. The price is the owner's to finalise.
 
 **Needs the user's own action to answer:** set `OPENROUTER_API_KEY` (already
 there if the feed moderator runs) and paste the `ai-chat` function; optionally

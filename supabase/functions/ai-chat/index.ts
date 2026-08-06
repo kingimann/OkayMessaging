@@ -20,7 +20,7 @@
 // { reply: '', configured: false } and the client says the assistant isn't set
 // up yet — never a crash.
 
-import { corsHeaders, json } from "../_shared/http.ts";
+import { admin, callerPhone, corsHeaders, json } from "../_shared/http.ts";
 
 const DEFAULT_MODEL = "openai/gpt-4o-mini";
 
@@ -99,6 +99,29 @@ Deno.serve(async (req) => {
 
   const key = Deno.env.get("OPENROUTER_API_KEY") ?? "";
   if (!key) return json({ reply: "", configured: false });
+
+  // Server-side rate limit — the real cost control, since the client's free
+  // tier can be bypassed by a modified app. Counted per caller (their phone
+  // when signed in, else the request IP) and checked BEFORE the model call, so
+  // an over-cap request spends no tokens. Fails OPEN if the tally table isn't
+  // set up, so a missing migration never breaks the assistant.
+  const cap = parseInt(Deno.env.get("AI_DAILY_CAP") ?? "40", 10);
+  if (cap > 0) {
+    const me = (await callerPhone(req)) ?? "";
+    const ip = (req.headers.get("x-forwarded-for") ?? "")
+      .split(",")[0].trim();
+    const usageKey = me || ip || "anon";
+    try {
+      const { data, error } = await admin.rpc("ai_note_usage", {
+        k: usageKey,
+      });
+      if (!error && typeof data === "number" && data > cap) {
+        return json({ error: "rate_limited", configured: true }, 429);
+      }
+    } catch (_) {
+      // Table/RPC not deployed — fail open, no ceiling until it exists.
+    }
+  }
 
   try {
     const model = Deno.env.get("OPENROUTER_AI_MODEL") ||

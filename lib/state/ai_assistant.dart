@@ -155,6 +155,7 @@ class AiAssistant extends ChangeNotifier {
     String? reply;
     List<String> newMemories = const [];
     bool configured = true;
+    bool rateLimited = false;
     try {
       final override = debugReplyOverride;
       if (override != null) {
@@ -173,6 +174,7 @@ class AiAssistant extends ChangeNotifier {
           final data = res.data;
           if (data is Map) {
             configured = data['configured'] != false;
+            if (data['error'] == 'rate_limited') rateLimited = true;
             final r = data['reply'];
             if (r is String && r.trim().isNotEmpty) reply = r.trim();
             final mem = data['memories'];
@@ -182,7 +184,12 @@ class AiAssistant extends ChangeNotifier {
           }
         }
       }
-    } catch (_) {
+    } catch (e) {
+      // The functions client throws on a non-2xx; the server's daily ceiling
+      // returns 429, which reads as a rate-limit here.
+      if ('$e'.contains('429') || '$e'.contains('rate_limited')) {
+        rateLimited = true;
+      }
       reply = null;
     }
 
@@ -197,9 +204,12 @@ class AiAssistant extends ChangeNotifier {
     } else {
       _turns.add(AiTurn(
         fromUser: false,
-        text: configured
-            ? 'Sorry — I couldn\'t answer just now. Please try again.'
-            : 'The assistant isn\'t set up on this server yet.',
+        text: rateLimited
+            ? 'You\'ve reached today\'s limit for Okay AI. Try again '
+                'tomorrow, or subscribe for more.'
+            : configured
+                ? 'Sorry — I couldn\'t answer just now. Please try again.'
+                : 'The assistant isn\'t set up on this server yet.',
         time: DateTime.now(),
       ));
     }

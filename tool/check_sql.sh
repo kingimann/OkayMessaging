@@ -1041,6 +1041,28 @@ do $$ begin
   raise notice '  ok   an expired pass reads nothing';
 end $$;
 reset role;
+
+-- AI rate limit: the tally increments per caller/day, and no client may call
+-- the bump function or touch the table.
+do $$
+declare a int; b int;
+begin
+  select public.ai_note_usage('probe') into a;
+  select public.ai_note_usage('probe') into b;
+  if a <> 1 or b <> 2 then
+    raise exception 'CHECK FAILED: ai usage did not increment (% then %)', a, b;
+  end if;
+  raise notice '  ok   the AI usage tally increments per caller/day';
+end $$;
+set role authenticated;
+select pg_temp.as_user('15550001111');
+select pg_temp.expect_fail(
+  $$select public.ai_note_usage('sneaky')$$,
+  'a client cannot bump the AI usage tally');
+select pg_temp.expect_fail(
+  $$select * from public.ai_usage$$,
+  'the AI usage table is closed to clients');
+reset role;
 SQL
 
 DB=okaycheck
@@ -1058,7 +1080,7 @@ apply() {
 }
 
 echo "postgres $(su pg -c "PATH=$PGBIN:\$PATH psql -h $RUN -p $PORT -d $DB -tAc 'show server_version'")"
-for f in "$WORK/harness.sql" supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/community_posts.sql; do
+for f in "$WORK/harness.sql" supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/community_posts.sql docs/ai_usage.sql; do
   if apply "$f"; then
     echo "  applied $(basename "$f")"
   else
@@ -1121,7 +1143,7 @@ else
   echo "  FAILED  could not rebuild the previous shape"; exit 1
 fi
 
-for f in supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/community_posts.sql; do
+for f in supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/community_posts.sql docs/ai_usage.sql; do
   if apply "$f"; then
     echo "  re-applied $(basename "$f")"
   else
