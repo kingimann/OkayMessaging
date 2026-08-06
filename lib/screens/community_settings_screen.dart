@@ -6,6 +6,7 @@ import '../models/community.dart';
 import '../state/community_store.dart';
 import '../widgets/app_dialogs.dart';
 import '../widgets/info_section.dart';
+import 'community_roles_screen.dart';
 
 Color _hex(String s) => Color(int.parse(s.replaceFirst('#', 'ff'), radix: 16));
 
@@ -185,6 +186,18 @@ class CommunitySettingsScreen extends StatelessWidget {
                   title: 'Who can invite people',
                   subtitle: invitePolicyLabel(community.invitePolicy),
                   onTap: () => _pickInvitePolicy(context, community),
+                ),
+                InfoTile(
+                  leading: const Icon(Icons.workspace_premium_outlined),
+                  title: 'Roles',
+                  subtitle: community.roles.isEmpty
+                      ? 'Create named, coloured roles to badge members and '
+                          'grant powers'
+                      : '${community.roles.length} '
+                          '${community.roles.length == 1 ? 'role' : 'roles'}',
+                  onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                      builder: (_) =>
+                          CommunityRolesScreen(communityId: communityId))),
                 ),
                 InfoTile(
                   leading: Icon(community.discoverableNearby

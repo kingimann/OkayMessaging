@@ -58,6 +58,7 @@ import 'package:okay_messaging/screens/contact_info_screen.dart';
 import 'package:okay_messaging/screens/chats_settings_screen.dart';
 import 'package:okay_messaging/screens/okay_pro_screen.dart';
 import 'package:okay_messaging/screens/community_settings_screen.dart';
+import 'package:okay_messaging/screens/community_roles_screen.dart';
 import 'package:okay_messaging/screens/create_server_screen.dart';
 import 'package:okay_messaging/models/platform_role.dart';
 import 'package:okay_messaging/screens/admin_screen.dart';
@@ -1764,6 +1765,126 @@ void main() {
         const Member(id: 'x', name: 'Mo', role: MemberRole.moderator).toJson());
     expect(revived.role, MemberRole.moderator);
     expect(roleName(MemberRole.moderator), 'Moderator');
+  });
+
+  group('Custom server roles', () {
+    setUp(() => CommunityStore.instance.resetForTest());
+
+    test('effectiveRole lifts a member to their custom role\'s tier', () {
+      const bob = Member(id: 'bob', name: 'Bob'); // base member
+      const helper = CustomRole(
+          id: 'r1', name: 'Helper', tier: MemberRole.moderator);
+      const vip = CustomRole(id: 'r2', name: 'VIP'); // cosmetic
+      final c = Community(
+        id: 'c', name: 'C', color: '#000',
+        roles: [helper, vip],
+        members: [
+          bob.copyWith(roleId: 'r1'),
+          const Member(id: 'ann', name: 'Ann', role: MemberRole.admin)
+              .copyWith(roleId: 'r2'),
+          const Member(id: 'cal', name: 'Cal'),
+        ],
+      );
+      // A base member wearing a moderator-tier role effectively moderates.
+      expect(c.effectiveRole(c.members[0]), MemberRole.moderator);
+      // A base admin wearing a cosmetic role keeps the higher of the two.
+      expect(c.effectiveRole(c.members[1]), MemberRole.admin);
+      // No role → the plain built-in role.
+      expect(c.effectiveRole(c.members[2]), MemberRole.member);
+      expect(c.roleById('r1'), helper);
+      expect(c.roleById('nope'), isNull);
+    });
+
+    test('a role can never mint an owner, even from bad JSON', () {
+      final r = CustomRole.fromJson(
+          {'id': 'r', 'name': 'X', 'tier': 'owner', 'color': '#111'});
+      expect(r.tier, MemberRole.member,
+          reason: 'owner smuggled into a role tier reads as the floor');
+      final store = CommunityStore.instance;
+      final c = store.createCommunity('Guild');
+      final made = store.addRole(c.id, 'Boss', tier: MemberRole.owner);
+      expect(made!.tier, MemberRole.admin,
+          reason: 'the highest a role grants is admin');
+    });
+
+    test('create, edit, assign, and delete roles (admin-gated)', () {
+      final store = CommunityStore.instance;
+      final c = store.createCommunity('Guild'); // me = owner
+      store.addMember(
+          c.id, const Member(id: 'bob', name: 'Bob'));
+
+      final role = store.addRole(c.id, 'Helper',
+          color: '#12B76A', tier: MemberRole.moderator);
+      expect(role, isNotNull);
+      expect(store.byId(c.id)!.roles.single.name, 'Helper');
+
+      // Edit it.
+      store.updateRole(c.id, role!.id, name: 'Mods', tier: MemberRole.admin);
+      final edited = store.byId(c.id)!.roles.single;
+      expect(edited.name, 'Mods');
+      expect(edited.tier, MemberRole.admin);
+
+      // Assign it to Bob; his effective role climbs to admin.
+      store.assignRole(c.id, 'bob', role.id);
+      final bob = store.byId(c.id)!.members.firstWhere((m) => m.id == 'bob');
+      expect(bob.roleId, role.id);
+      expect(store.byId(c.id)!.effectiveRole(bob), MemberRole.admin);
+
+      // Assigning a role that doesn't exist is a no-op.
+      store.assignRole(c.id, 'bob', 'ghost');
+      expect(store.byId(c.id)!.members.firstWhere((m) => m.id == 'bob').roleId,
+          role.id);
+
+      // Deleting the role strips it from everyone wearing it.
+      store.deleteRole(c.id, role.id);
+      expect(store.byId(c.id)!.roles, isEmpty);
+      expect(store.byId(c.id)!.members.firstWhere((m) => m.id == 'bob').roleId,
+          '');
+    });
+
+    test('roles and assignments survive a JSON round trip; old JSON is empty',
+        () {
+      final store = CommunityStore.instance;
+      final c = store.createCommunity('Guild');
+      store.addMember(c.id, const Member(id: 'bob', name: 'Bob'));
+      final role = store.addRole(c.id, 'VIP', color: '#EF5DA8')!;
+      store.assignRole(c.id, 'bob', role.id);
+
+      final revived = Community.fromJson(store.byId(c.id)!.toJson());
+      expect(revived.roles.single.name, 'VIP');
+      expect(revived.roles.single.color, '#EF5DA8');
+      expect(revived.members.firstWhere((m) => m.id == 'bob').roleId, role.id);
+
+      // A server from before the feature has no roles and no assignments.
+      final oldJson = store.byId(c.id)!.toJson()..remove('roles');
+      final old = Community.fromJson(oldJson);
+      expect(old.roles, isEmpty);
+    });
+
+    testWidgets('an admin builds a role and badges a member from the UI',
+        (tester) async {
+      final store = CommunityStore.instance;
+      final c = store.createCommunity('Guild');
+      store.addMember(c.id, const Member(id: 'bob', name: 'Bob'));
+
+      await tester.pumpWidget(MaterialApp(
+          home: CommunityRolesScreen(communityId: c.id)));
+      await tester.pumpAndSettle();
+      expect(find.text('No roles yet'), findsOneWidget);
+
+      // Create a role from the + action.
+      await tester.tap(find.byTooltip('New role'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).first, 'Helper');
+      await tester.tap(find.text('Moderator'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Create role'));
+      await tester.pumpAndSettle();
+
+      expect(store.byId(c.id)!.roles.single.name, 'Helper');
+      expect(store.byId(c.id)!.roles.single.tier, MemberRole.moderator);
+      expect(find.text('Helper'), findsOneWidget);
+    });
   });
 
   test('a server is born with its privacy settings, not wide open', () {

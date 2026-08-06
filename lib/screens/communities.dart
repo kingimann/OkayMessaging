@@ -31,6 +31,7 @@ import '../widgets/chat_photo.dart';
 import '../widgets/emoji_gif_sheet.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/pull_to_refresh.dart';
+import 'community_roles_screen.dart' show roleTierBlurb;
 import '../widgets/poll_widgets.dart';
 import '../payments/payment_service.dart';
 import '../widgets/rich_message_text.dart';
@@ -2730,6 +2731,11 @@ class _MembersSheetState extends State<_MembersSheet> {
                       child: Icon(Icons.volume_off,
                           size: 17, color: Colors.orange.shade700),
                     ),
+                  if (community.roleById(m.roleId) case final r?)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 6),
+                      child: _CustomRoleChip(role: r),
+                    ),
                   if (m.role != MemberRole.member) _RoleBadge(role: m.role),
                 ],
               ),
@@ -2796,6 +2802,19 @@ class _MembersSheetState extends State<_MembersSheet> {
                   enabled: m.role != r,
                   onTap: () => Navigator.pop(context, 'role:${r.name}'),
                 ),
+              // Custom roles the server has defined — a coloured badge that can
+              // also grant powers, assigned on top of the built-in role.
+              if ((store.byId(community.id)?.roles ?? const []).isNotEmpty) ...[
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.workspace_premium_outlined),
+                  title: const Text('Assign a role'),
+                  subtitle: Text(
+                      store.byId(community.id)?.roleById(m.roleId)?.name ??
+                          'None'),
+                  onTap: () => Navigator.pop(context, 'crole'),
+                ),
+              ],
               const Divider(height: 1),
               ListTile(
                 leading: const Icon(Icons.person_remove_outlined,
@@ -2827,6 +2846,9 @@ class _MembersSheetState extends State<_MembersSheet> {
       case 'mute':
         store.toggleMuteMember(community.id, m.id);
         break;
+      case 'crole':
+        if (context.mounted) await _pickCustomRole(context, m);
+        break;
       case 'remove':
         store.removeMember(community.id, m.id);
         break;
@@ -2834,6 +2856,60 @@ class _MembersSheetState extends State<_MembersSheet> {
         store.banMember(community.id, m.id);
         break;
     }
+  }
+
+  /// Picks (or clears) the custom role a member wears, from the roles the
+  /// server has defined.
+  Future<void> _pickCustomRole(BuildContext context, Member m) async {
+    final store = CommunityStore.instance;
+    final roles = store.byId(community.id)?.roles ?? const [];
+    final current = m.roleId;
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (_) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              title: Text('Role for ${m.name}',
+                  style: const TextStyle(fontWeight: FontWeight.w700)),
+            ),
+            const Divider(height: 1),
+            ListTile(
+              leading: Icon(current.isEmpty
+                  ? Icons.radio_button_checked
+                  : Icons.radio_button_off),
+              title: const Text('No role'),
+              onTap: () => Navigator.pop(context, '__none__'),
+            ),
+            for (final r in roles)
+              ListTile(
+                onTap: () => Navigator.pop(context, r.id),
+                leading: Container(
+                  width: 22,
+                  height: 22,
+                  decoration: BoxDecoration(
+                      color: Color(int.parse(
+                          r.color.replaceFirst('#', 'ff'),
+                          radix: 16)),
+                      shape: BoxShape.circle),
+                  child: current == r.id
+                      ? const Icon(Icons.check, size: 14, color: Colors.white)
+                      : null,
+                ),
+                title: Text(r.name),
+                subtitle: Text(roleTierBlurb(r.tier),
+                    maxLines: 1, overflow: TextOverflow.ellipsis),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (picked == null) return;
+    // A sentinel stands in for the empty string, which the sheet can't return
+    // as a distinct "clear" without colliding with "dismissed".
+    store.assignRole(community.id, m.id, picked == '__none__' ? '' : picked);
   }
 
   IconData _roleIcon(MemberRole r) => switch (r) {
@@ -2874,6 +2950,40 @@ class _RoleBadge extends StatelessWidget {
           Icon(icon, size: 14, color: color),
           const SizedBox(width: 4),
           Text(roleName(role),
+              style: TextStyle(
+                  color: color, fontSize: 12, fontWeight: FontWeight.w600)),
+        ],
+      ),
+    );
+  }
+}
+
+/// A member's custom-role badge: the role's colour and name, shown beside them
+/// in the roster.
+class _CustomRoleChip extends StatelessWidget {
+  final CustomRole role;
+  const _CustomRoleChip({required this.role});
+
+  @override
+  Widget build(BuildContext context) {
+    final color =
+        Color(int.parse(role.color.replaceFirst('#', 'ff'), radix: 16));
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: 5),
+          Text(role.name,
               style: TextStyle(
                   color: color, fontSize: 12, fontWeight: FontWeight.w600)),
         ],

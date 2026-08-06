@@ -1080,7 +1080,10 @@ class CommunityStore extends ChangeNotifier {
     final me = community.members
         .cast<Member?>()
         .firstWhere((m) => m?.id == 'me', orElse: () => null);
-    return me?.role;
+    // The effective role folds in any custom role's tier, so a member handed
+    // a moderator- or admin-tier role gets those powers through the same
+    // funnel every permission check already reads.
+    return me == null ? null : community.effectiveRole(me);
   }
 
   /// Whether the local user can moderate [community] — delete/pin messages,
@@ -1348,6 +1351,78 @@ class CommunityStore extends ChangeNotifier {
     onStructureChanged?.call(communityId);
   }
 
+  // --- Custom roles ------------------------------------------------------
+
+  /// Creates a custom role on [communityId] and returns it (or null when the
+  /// caller can't manage the server or the name is blank). Admins and the
+  /// owner only — the same gate every structural change uses. A role's tier is
+  /// clamped so it can never mint an owner.
+  CustomRole? addRole(String communityId, String name,
+      {String color = '#17708A', MemberRole tier = MemberRole.member}) {
+    final community = byId(communityId);
+    if (community == null || !canManageServer(communityId)) return null;
+    final clean = name.trim();
+    if (clean.isEmpty) return null;
+    final safeTier =
+        tier == MemberRole.owner ? MemberRole.admin : tier;
+    final role = CustomRole(
+      id: '${communityId}_role_${community.roles.length}_${clean.hashCode}',
+      name: clean,
+      color: color,
+      tier: safeTier,
+    );
+    _replace(community.copyWith(roles: [...community.roles, role]));
+    onStructureChanged?.call(communityId);
+    return role;
+  }
+
+  /// Edits a role's name, colour or tier (admins/owner only).
+  void updateRole(String communityId, String roleId,
+      {String? name, String? color, MemberRole? tier}) {
+    final community = byId(communityId);
+    if (community == null || !canManageServer(communityId)) return;
+    final roles = community.roles.map((r) {
+      if (r.id != roleId) return r;
+      final safeTier = tier == MemberRole.owner ? MemberRole.admin : tier;
+      final cleanName = name?.trim();
+      return r.copyWith(
+        name: (cleanName == null || cleanName.isEmpty) ? null : cleanName,
+        color: color,
+        tier: safeTier,
+      );
+    }).toList();
+    _replace(community.copyWith(roles: roles));
+    onStructureChanged?.call(communityId);
+  }
+
+  /// Deletes a role and strips it from everyone wearing it, so no member is
+  /// left pointing at a role that no longer exists (admins/owner only).
+  void deleteRole(String communityId, String roleId) {
+    final community = byId(communityId);
+    if (community == null || !canManageServer(communityId)) return;
+    final roles = community.roles.where((r) => r.id != roleId).toList();
+    final members = community.members
+        .map((m) => m.roleId == roleId ? m.copyWith(roleId: '') : m)
+        .toList();
+    _replace(community.copyWith(roles: roles, members: members));
+    onStructureChanged?.call(communityId);
+  }
+
+  /// Assigns [roleId] to a member (or clears it with ''). Admins/owner only.
+  /// The owner's own entry can be badged but never demoted — its built-in
+  /// role stays owner regardless.
+  void assignRole(String communityId, String memberId, String roleId) {
+    final community = byId(communityId);
+    if (community == null || !canManageServer(communityId)) return;
+    // Clearing is always fine; assigning requires the role to exist.
+    if (roleId.isNotEmpty && community.roleById(roleId) == null) return;
+    final members = community.members
+        .map((m) => m.id == memberId ? m.copyWith(roleId: roleId) : m)
+        .toList();
+    _replace(community.copyWith(members: members));
+    onStructureChanged?.call(communityId);
+  }
+
   /// Removes a member (the owner can't be removed).
   void removeMember(String communityId, String memberId) {
     final community = byId(communityId);
@@ -1496,22 +1571,27 @@ class CommunityStore extends ChangeNotifier {
       description:
           snapshot['description'] as String? ?? mine.description,
       channels: channels,
+      roles: [
+        for (final raw in (snapshot['roles'] as List? ?? const []))
+          if (raw is Map) CustomRole.fromJson(Map<String, dynamic>.from(raw)),
+      ],
       members: [
         for (final m in members)
           if (m.id != wireId(myDigits)) m,
-        // My own entry keeps its local 'me' identity, at the role the
-        // roster now assigns it.
-        Member(
+        // My own entry keeps its local 'me' identity, at the role — and now
+        // the custom-role badge — the roster assigns it.
+        () {
+          final mine = members.cast<Member?>().firstWhere(
+              (m) => m?.id == wireId(myDigits),
+              orElse: () => null);
+          return Member(
             id: 'me',
             name: 'You',
-            role: members
-                .cast<Member?>()
-                .firstWhere((m) => m?.id == wireId(myDigits),
-                    orElse: () => null)
-                ?.role ??
-                me?.role ??
-                MemberRole.member,
-            online: true),
+            role: mine?.role ?? me?.role ?? MemberRole.member,
+            roleId: mine?.roleId ?? me?.roleId ?? '',
+            online: true,
+          );
+        }(),
       ],
       slowModeSeconds:
           (snapshot['slowModeSeconds'] as num?)?.toInt() ??
@@ -1560,6 +1640,10 @@ class CommunityStore extends ChangeNotifier {
         for (final raw in (snapshot['channels'] as List? ?? const []))
           if (raw is Map)
             Channel.fromJson(Map<String, dynamic>.from(raw)),
+      ],
+      roles: [
+        for (final raw in (snapshot['roles'] as List? ?? const []))
+          if (raw is Map) CustomRole.fromJson(Map<String, dynamic>.from(raw)),
       ],
       members: [
         ...members,

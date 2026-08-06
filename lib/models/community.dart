@@ -342,6 +342,68 @@ bool roleCanModerate(MemberRole r) => roleRank(r) >= roleRank(MemberRole.moderat
 /// Whether [r] can change server settings, channels, and roles.
 bool roleCanManageServer(MemberRole r) => roleRank(r) >= roleRank(MemberRole.admin);
 
+/// The permission tiers a custom role may confer, offered to the admin who
+/// creates one. 'owner' is deliberately absent — a role can lift a member to
+/// admin at most, never to the one seat that can delete the server.
+const customRoleTiers = <MemberRole>[
+  MemberRole.member,
+  MemberRole.moderator,
+  MemberRole.admin,
+];
+
+/// A server-defined role: a named, coloured label an admin creates and hands
+/// to members — the Discord "role" people ask for. Beyond decoration it
+/// carries a [tier], the base privilege it confers, so a custom role composes
+/// with the built-in owner/admin/moderator/member ladder instead of replacing
+/// the enforcement that already guards every action. A 'member'-tier role is
+/// purely cosmetic (a "VIP" chip); a 'moderator'- or 'admin'-tier role grants
+/// those powers to whoever wears it.
+class CustomRole {
+  final String id;
+  final String name;
+
+  /// Hex colour for the badge, e.g. '#E0533D'.
+  final String color;
+
+  /// The privilege this role grants. Never [MemberRole.owner].
+  final MemberRole tier;
+
+  const CustomRole({
+    required this.id,
+    required this.name,
+    this.color = '#17708A',
+    this.tier = MemberRole.member,
+  });
+
+  CustomRole copyWith({String? name, String? color, MemberRole? tier}) =>
+      CustomRole(
+        id: id,
+        name: name ?? this.name,
+        color: color ?? this.color,
+        tier: tier ?? this.tier,
+      );
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'name': name,
+        'color': color,
+        'tier': tier.name,
+      };
+
+  factory CustomRole.fromJson(Map<String, dynamic> j) => CustomRole(
+        id: j['id'] as String,
+        name: j['name'] as String? ?? '',
+        color: j['color'] as String? ?? '#17708A',
+        // A tier from a newer build we don't understand, or 'owner' smuggled
+        // in, both read as the harmless floor rather than granting power.
+        tier: switch (j['tier'] as String?) {
+          'admin' => MemberRole.admin,
+          'moderator' => MemberRole.moderator,
+          _ => MemberRole.member,
+        },
+      );
+}
+
 /// A person in a community's roster.
 class Member {
   final String id;
@@ -349,18 +411,27 @@ class Member {
   final MemberRole role;
   final bool online;
 
+  /// Id of the [CustomRole] this member wears ('' = none). The role's colour
+  /// and name badge them, and its tier can lift what they're allowed to do —
+  /// see [Community.effectiveRole].
+  final String roleId;
+
   const Member({
     required this.id,
     required this.name,
     this.role = MemberRole.member,
     this.online = false,
+    this.roleId = '',
   });
 
-  Member copyWith({String? name, MemberRole? role, bool? online}) => Member(
+  Member copyWith(
+          {String? name, MemberRole? role, bool? online, String? roleId}) =>
+      Member(
         id: id,
         name: name ?? this.name,
         role: role ?? this.role,
         online: online ?? this.online,
+        roleId: roleId ?? this.roleId,
       );
 
   Map<String, dynamic> toJson() => {
@@ -368,6 +439,7 @@ class Member {
         'name': name,
         'role': role.name,
         'online': online,
+        if (roleId.isNotEmpty) 'roleId': roleId,
       };
 
   factory Member.fromJson(Map<String, dynamic> json) => Member(
@@ -375,6 +447,7 @@ class Member {
         name: json['name'] as String,
         role: _roleFrom(json['role'] as String?),
         online: json['online'] as bool? ?? false,
+        roleId: json['roleId'] as String? ?? '',
       );
 }
 
@@ -428,6 +501,10 @@ class Community {
   final List<Channel> channels;
   final List<Member> members;
 
+  /// The server's custom roles, created by its admins. Empty on a plain
+  /// server and on builds that predate the feature.
+  final List<CustomRole> roles;
+
   // --- Moderation ---------------------------------------------------------
 
   /// Seconds a non-moderator must wait between channel messages (0 = off).
@@ -476,6 +553,7 @@ class Community {
     this.description = '',
     this.channels = const [],
     this.members = const [],
+    this.roles = const [],
     this.slowModeSeconds = 0,
     this.membersCanCreateChannels = true,
     this.membersCanPost = true,
@@ -499,6 +577,27 @@ class Community {
   List<Channel> channelsIn(String category) =>
       channels.where((c) => c.category == category).toList();
 
+  /// The custom role with [id], or null when there's no such role (or [id] is
+  /// empty).
+  CustomRole? roleById(String id) {
+    if (id.isEmpty) return null;
+    for (final r in roles) {
+      if (r.id == id) return r;
+    }
+    return null;
+  }
+
+  /// A member's real privilege: the higher of their built-in [Member.role] and
+  /// the tier of any custom role they wear. This is the single place custom
+  /// roles turn into power — [CommunityStore.myRole] reads it, so every
+  /// permission check that already funnels through myRole picks a role's grant
+  /// up for free, and no check gets a second, forgettable code path.
+  MemberRole effectiveRole(Member m) {
+    final custom = roleById(m.roleId);
+    if (custom == null) return m.role;
+    return roleRank(custom.tier) > roleRank(m.role) ? custom.tier : m.role;
+  }
+
   /// The decoded [secret] bytes, or null when this server predates secrets.
   List<int>? get secretBytes {
     if (secret.isEmpty) return null;
@@ -516,6 +615,7 @@ class Community {
     String? description,
     List<Channel>? channels,
     List<Member>? members,
+    List<CustomRole>? roles,
     int? slowModeSeconds,
     bool? membersCanCreateChannels,
     bool? membersCanPost,
@@ -535,6 +635,7 @@ class Community {
         description: description ?? this.description,
         channels: channels ?? this.channels,
         members: members ?? this.members,
+        roles: roles ?? this.roles,
         slowModeSeconds: slowModeSeconds ?? this.slowModeSeconds,
         membersCanCreateChannels:
             membersCanCreateChannels ?? this.membersCanCreateChannels,
@@ -556,6 +657,7 @@ class Community {
         'description': description,
         'channels': channels.map((c) => c.toJson()).toList(),
         'members': members.map((m) => m.toJson()).toList(),
+        'roles': roles.map((r) => r.toJson()).toList(),
         'slowModeSeconds': slowModeSeconds,
         'membersCanCreateChannels': membersCanCreateChannels,
         'membersCanPost': membersCanPost,
@@ -579,6 +681,9 @@ class Community {
             .toList(),
         members: (json['members'] as List? ?? const [])
             .map((m) => Member.fromJson(Map<String, dynamic>.from(m as Map)))
+            .toList(),
+        roles: (json['roles'] as List? ?? const [])
+            .map((r) => CustomRole.fromJson(Map<String, dynamic>.from(r as Map)))
             .toList(),
         slowModeSeconds: (json['slowModeSeconds'] as num?)?.toInt() ?? 0,
         membersCanCreateChannels:

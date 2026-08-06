@@ -562,6 +562,33 @@ user's own action to go live:** run `docs/creator_subscriptions.sql`, paste the
 tierN.monthly` consumable IAP products in App Store Connect. Until then it runs
 in test/simulation only.
 
+## Custom server roles (2026-08-06)
+
+A server admin/owner defines **custom roles** — the Discord "role" people ask
+for: a name, a colour, and a **permission tier** (`CustomRole` on
+`Community.roles`, `Member.roleId` points at one). The tier is the whole trick:
+a role carries one of member/moderator/admin (never owner — a role can lift at
+most to admin), and `Community.effectiveRole(member)` returns the HIGHER of the
+member's built-in role and their role's tier. `CommunityStore.myRole` reads
+`effectiveRole`, so a moderator- or admin-tier role grants real power through
+the ONE funnel every permission check (`canModerate`/`canManageServer` and
+their callers) already uses — no second, forgettable code path. A member-tier
+role is cosmetic: just a coloured badge.
+
+Managed in **Server settings → Roles** (`CommunityRolesScreen`): create, edit
+colour/name/tier, delete. Deleting a role strips it from everyone wearing it
+(no member left pointing at a ghost). Assigned from the member sheet
+(`_pickCustomRole` in `communities.dart`), badged as a colour+name chip
+(`_CustomRoleChip`) beside the built-in `_RoleBadge`. All admin-gated
+(`canManageServer`), the same gate every structural change uses.
+
+Rides the existing structural sync: `roles` is in `Community.toJson`, so
+`applyStructure` and `joinFromInvite` carry it, and `Member.roleId` rides the
+member roster already synced. No server work — this is the local-first
+community model, propagated over the sealed community bus like every other
+structural update. `CustomRole.fromJson` reads an unknown/`owner` tier as the
+harmless member floor, so a newer build can't smuggle power onto an older one.
+
 ## Verified-only features
 
 The **marketplace, wallet and Okay Drop** are behind
