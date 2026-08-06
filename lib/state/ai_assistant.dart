@@ -9,6 +9,7 @@ import 'ai_attachment.dart';
 import 'ai_consent.dart';
 import 'ai_memory.dart';
 import 'ai_pass_store.dart';
+import 'ai_persona.dart';
 import 'platform_moderation.dart';
 
 /// The lightweight record of an attachment kept in a saved turn — for display
@@ -116,10 +117,36 @@ class AiAssistant extends ChangeNotifier {
   bool _sending = false;
   int _usedToday = 0;
   String _dayStamp = '';
+  bool _incognito = false;
 
   List<AiTurn> get turns => List.unmodifiable(_turns);
   bool get sending => _sending;
   bool get isEmpty => _turns.isEmpty;
+
+  /// Incognito: an ephemeral session that is never written to the device and
+  /// never reaches the learning path. While it's on, the conversation lives in
+  /// memory only (no history saved), no on-device memory is sent as context or
+  /// folded back in, the model is told `learn: false`, and nothing is eligible
+  /// for the training corpus. The daily allowance still counts — incognito is
+  /// about not remembering, not about being free. The DAY the request is made
+  /// still leaves the server's own usage/IP trail (an honest limit); this hides
+  /// it on the device, not from the host.
+  bool get incognito => _incognito;
+
+  /// Enters/leaves incognito. Entering starts a fresh ephemeral thread and
+  /// leaves the saved conversation untouched on disk; leaving discards the
+  /// ephemeral thread and brings the saved one back.
+  Future<void> setIncognito(bool on) async {
+    if (on == _incognito) return;
+    _incognito = on;
+    _turns.clear();
+    if (!on) {
+      // Back to normal: reload the conversation that was saved before we left.
+      await load();
+    } else {
+      notifyListeners();
+    }
+  }
 
   /// Whether this account is never rate-limited: a pass makes it unlimited,
   /// and so does being the app OWNER — the operator shouldn't pay their own
@@ -187,6 +214,10 @@ class AiAssistant extends ChangeNotifier {
   }
 
   Future<void> _save() async {
+    // Incognito never persists: the ephemeral thread must not reach disk, and
+    // this guard also stops a clear() mid-incognito from overwriting the real
+    // saved conversation with the empty ephemeral one.
+    if (_incognito) return;
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(
@@ -253,11 +284,15 @@ class AiAssistant extends ChangeNotifier {
         if (client == null) {
           configured = false;
         } else {
+          final style = AiPersona.instance.instruction;
           final res = await client.functions.invoke('ai-chat', body: {
             'messages': payload,
-            // The user's on-device memory, so the assistant "knows" them.
-            'memories': AiMemory.instance.items,
-            'learn': true,
+            // The user's on-device memory, so the assistant "knows" them —
+            // withheld in incognito, along with the learning turn.
+            if (!_incognito) 'memories': AiMemory.instance.items,
+            'learn': !_incognito,
+            // The chosen personality/tone, when it isn't the default voice.
+            if (style.isNotEmpty) 'style': style,
           });
           final data = res.data;
           if (data is Map) {
@@ -283,8 +318,9 @@ class AiAssistant extends ChangeNotifier {
 
     _sending = false;
     // Fold anything worth remembering into the on-device memory — how it
-    // "learns" about this user, per user, never leaving the device.
-    if (newMemories.isNotEmpty) {
+    // "learns" about this user, per user, never leaving the device. Skipped in
+    // incognito: an incognito turn leaves no trace, here included.
+    if (!_incognito && newMemories.isNotEmpty) {
       await AiMemory.instance.addAll(newMemories);
     }
     if (reply != null) {
@@ -384,7 +420,8 @@ class AiAssistant extends ChangeNotifier {
     notifyListeners();
     await _save();
 
-    if (applied == 0 || !AiConsent.instance.on) return false;
+    // Incognito never contributes to the training corpus, consent or not.
+    if (applied == 0 || _incognito || !AiConsent.instance.on) return false;
     final prompt = index > 0 ? _turns[index - 1].text : '';
     final reply = _turns[index].text;
     if (prompt.trim().isEmpty || reply.trim().isEmpty) return false;
@@ -429,6 +466,7 @@ class AiAssistant extends ChangeNotifier {
     _sending = false;
     _usedToday = 0;
     _dayStamp = '';
+    _incognito = false;
     debugReplyOverride = null;
     debugFeedbackOverride = null;
   }

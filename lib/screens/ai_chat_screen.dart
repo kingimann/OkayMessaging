@@ -7,6 +7,7 @@ import '../state/ai_assistant.dart';
 import '../state/ai_attachment.dart';
 import '../state/ai_consent.dart';
 import '../state/ai_memory.dart';
+import '../state/ai_persona.dart';
 import '../state/ai_pass_store.dart';
 import '../state/session.dart';
 import '../theme/app_theme.dart';
@@ -314,6 +315,116 @@ class _AiChatScreenState extends State<AiChatScreen> {
     );
   }
 
+  /// Pick Okay AI's personality — a tone it follows while keeping its limits.
+  /// The Custom option takes the user's own words.
+  void _showPersona() {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (sheetContext) => ListenableBuilder(
+        listenable: AiPersona.instance,
+        builder: (context, _) {
+          final selectedId = AiPersona.instance.id;
+          return SafeArea(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(20, 0, 20, 4),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text('Personality',
+                        style: TextStyle(
+                            fontSize: 16, fontWeight: FontWeight.w700)),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+                  child: Text(
+                    'How Okay AI talks to you. It still keeps its limits — a '
+                    'personality changes the tone, not the rules.',
+                    style: TextStyle(
+                        fontSize: 12.5,
+                        color: Theme.of(sheetContext)
+                            .colorScheme
+                            .onSurfaceVariant),
+                  ),
+                ),
+                Flexible(
+                  child: ListView(
+                    shrinkWrap: true,
+                    children: [
+                      for (final p in AiPersona.presets)
+                        ListTile(
+                          leading: Icon(
+                            p.id == selectedId
+                                ? Icons.radio_button_checked
+                                : Icons.radio_button_unchecked,
+                            color: p.id == selectedId
+                                ? Theme.of(sheetContext).colorScheme.primary
+                                : null,
+                          ),
+                          title: Text(p.label),
+                          subtitle: Text(p.id == 'custom' &&
+                                  AiPersona.instance.custom.isNotEmpty
+                              ? AiPersona.instance.custom
+                              : p.blurb),
+                          onTap: () async {
+                            if (p.id == 'custom') {
+                              Navigator.of(sheetContext).pop();
+                              await _editCustomPersona();
+                            } else {
+                              await AiPersona.instance.select(p.id);
+                            }
+                          },
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  /// Free-text personality — the user describes the voice they want.
+  Future<void> _editCustomPersona() async {
+    final controller =
+        TextEditingController(text: AiPersona.instance.custom);
+    final result = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Custom personality'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLines: 3,
+          maxLength: 300,
+          decoration: const InputDecoration(
+            hintText: 'e.g. A patient tutor who explains with examples',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () =>
+                Navigator.of(dialogContext).pop(controller.text.trim()),
+            child: const Text('Use'),
+          ),
+        ],
+      ),
+    );
+    if (result != null) {
+      await AiPersona.instance.select('custom', customText: result);
+    }
+  }
+
   void _toBottom() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scroll.hasClients) {
@@ -342,33 +453,62 @@ class _AiChatScreenState extends State<AiChatScreen> {
     return Scaffold(
       appBar: AppBar(
         titleSpacing: 0,
-        title: Row(
-          children: [
-            CircleAvatar(
-              radius: 16,
-              backgroundColor: scheme.primary,
-              child: Icon(Icons.auto_awesome,
-                  size: 17, color: scheme.onPrimary),
-            ),
-            const SizedBox(width: 10),
-            const Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
+        title: ListenableBuilder(
+          listenable: AiAssistant.instance,
+          builder: (context, _) {
+            final incognito = AiAssistant.instance.incognito;
+            return Row(
               children: [
-                Text('Okay AI',
-                    style: TextStyle(
-                        fontSize: 16, fontWeight: FontWeight.w700)),
-                Text('AI assistant · can make mistakes',
-                    style: TextStyle(fontSize: 11.5, color: Colors.grey)),
+                CircleAvatar(
+                  radius: 16,
+                  backgroundColor:
+                      incognito ? Colors.grey.shade800 : scheme.primary,
+                  child: Icon(
+                      incognito
+                          ? Icons.visibility_off_outlined
+                          : Icons.auto_awesome,
+                      size: 17,
+                      color: incognito ? Colors.white : scheme.onPrimary),
+                ),
+                const SizedBox(width: 10),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text('Okay AI',
+                        style: TextStyle(
+                            fontSize: 16, fontWeight: FontWeight.w700)),
+                    Text(
+                        incognito
+                            ? 'Incognito · not saved'
+                            : 'AI assistant · can make mistakes',
+                        style: TextStyle(
+                            fontSize: 11.5,
+                            color: incognito
+                                ? scheme.primary
+                                : Colors.grey)),
+                  ],
+                ),
               ],
-            ),
-          ],
+            );
+          },
         ),
         actions: [
           PopupMenuButton<String>(
             onSelected: (v) async {
               if (v == 'memory') {
                 _showMemory();
+              } else if (v == 'persona') {
+                _showPersona();
+              } else if (v == 'incognito') {
+                final on = !AiAssistant.instance.incognito;
+                final messenger = ScaffoldMessenger.of(context);
+                await AiAssistant.instance.setIncognito(on);
+                messenger.showSnackBar(SnackBar(
+                    content: Text(on
+                        ? 'Incognito on — this chat isn\'t saved and won\'t '
+                            'be remembered.'
+                        : 'Incognito off — your saved chat is back.')));
               } else if (v == 'improve') {
                 final messenger = ScaffoldMessenger.of(context);
                 await AiConsent.instance.set(!AiConsent.instance.on);
@@ -390,6 +530,13 @@ class _AiChatScreenState extends State<AiChatScreen> {
               }
             },
             itemBuilder: (_) => [
+              PopupMenuItem(
+                  value: 'incognito',
+                  child: Text(AiAssistant.instance.incognito
+                      ? 'Turn off incognito'
+                      : 'Incognito chat')),
+              const PopupMenuItem(
+                  value: 'persona', child: Text('Personality')),
               const PopupMenuItem(
                   value: 'memory', child: Text('What Okay AI remembers')),
               PopupMenuItem(

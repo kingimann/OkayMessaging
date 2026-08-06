@@ -734,6 +734,23 @@ there if the feed moderator runs) and paste the `ai-chat` function; optionally
 `OPENROUTER_AI_MODEL` for a smarter model; create the `okayai.pro.monthly` IAP
 product when going live on the pass.
 
+**Incognito + personality (2026-08-06).** Two per-user AI controls, both in the
+chat ⋮. **Incognito** (`AiAssistant.incognito`/`setIncognito`) is an ephemeral
+session: `_save()` is guarded to a no-op so the thread never touches disk (and a
+`clear()` mid-incognito can't wipe the real saved chat), no on-device memory is
+sent or folded back, `learn: false`, and `rate()` uploads nothing to the corpus
+regardless of consent. Entering starts a fresh thread and leaves the saved one
+on disk; leaving reloads it. Honest limit stated in-app: it hides the chat on
+the DEVICE, not from the host (the request still leaves the usual usage/IP
+trail). **Personality** (`AiPersona`, `lib/state/ai_persona.dart`) is a
+persisted tone preference — five presets + a free-text Custom — sent as the
+`style` field on the `ai-chat` request; the function folds it into the system
+prompt AFTER the real rules (a tone, not a jailbreak). `AiPersona` names no
+chat/relay/crypto (a test pins it), same wall as the rest of Okay AI. The daily
+allowance still counts in incognito — it's about not remembering, not being
+free. **Needs the user's action:** re-paste `ai-chat` for the `style` field to
+take effect (inert, ignored, until then).
+
 ## On-device translation (2026-08-06)
 
 `TranslateService` (`lib/state/translate_service.dart`) + `okay/translate` →

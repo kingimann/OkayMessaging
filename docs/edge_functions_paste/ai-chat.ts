@@ -259,6 +259,18 @@ Deno.serve(async (req) => {
   // The one-shot draft path asks for a plain reply and no learning.
   const learn = body.learn !== false;
 
+  // The user-chosen personality/style, if any: a short instruction the client
+  // sends to shape the assistant's tone (a preset or their own words). Capped
+  // and folded into the system prompt as a preference — never a way to unset
+  // the assistant's real limits, which the system prompt states after it.
+  const style = (typeof body.style === "string" ? body.style : "")
+    .trim()
+    .slice(0, 300);
+  const styleLine = style
+    ? `\n\nThe user has chosen this tone/personality for you — follow it in ` +
+      `style, without dropping any of the rules above: ${style}`
+    : "";
+
   const key = Deno.env.get("OPENROUTER_API_KEY") ?? "";
   if (!key) return json({ reply: "", configured: false });
 
@@ -296,8 +308,8 @@ Deno.serve(async (req) => {
 
   try {
     const system = learn
-      ? SYSTEM + memoryPreamble(memories) + "\n\n" + FORMAT
-      : SYSTEM + memoryPreamble(memories);
+      ? SYSTEM + styleLine + memoryPreamble(memories) + "\n\n" + FORMAT
+      : SYSTEM + styleLine + memoryPreamble(memories);
     // 4000 is a large answer (hundreds of lines) and stays under every common
     // model's output cap, so it never 400s the way 8000 can on a 4096-cap
     // model. Raise it with AI_MAX_TOKENS if your model allows more.

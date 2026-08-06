@@ -48,6 +48,7 @@ import 'package:okay_messaging/state/community_sub_store.dart';
 import 'package:okay_messaging/state/ai_assistant.dart';
 import 'package:okay_messaging/state/ai_attachment.dart';
 import 'package:okay_messaging/state/ai_memory.dart';
+import 'package:okay_messaging/state/ai_persona.dart';
 import 'package:okay_messaging/state/ai_pass_store.dart';
 import 'package:okay_messaging/state/ai_consent.dart';
 import 'package:okay_messaging/screens/ai_chat_screen.dart';
@@ -2040,6 +2041,86 @@ void main() {
       final fn = File('supabase/functions/ai-feedback/index.ts')
           .readAsStringSync();
       expect(fn.contains('ai_training_samples'), isTrue);
+    });
+
+    test('incognito leaves nothing on the device and restores the saved chat',
+        () async {
+      SharedPreferences.setMockInitialValues({});
+      final ai = AiAssistant.instance;
+      AiAssistant.debugReplyOverride = (_) async => 'ok';
+      await ai.send('remember this');
+      expect(ai.turns.length, 2);
+
+      // Entering starts a fresh, ephemeral thread.
+      await ai.setIncognito(true);
+      expect(ai.incognito, isTrue);
+      expect(ai.turns, isEmpty);
+      await ai.send('a secret');
+      expect(ai.turns.map((t) => t.text), contains('a secret'));
+
+      // Nothing incognito reached disk — the saved thread is untouched.
+      final prefs = await SharedPreferences.getInstance();
+      final onDisk = prefs.getString('ai_assistant_history_v1') ?? '';
+      expect(onDisk, isNot(contains('a secret')));
+      expect(onDisk, contains('remember this'));
+
+      // Leaving brings the saved chat back; the secret is gone for good.
+      await ai.setIncognito(false);
+      expect(ai.incognito, isFalse);
+      expect(ai.turns.map((t) => t.text), contains('remember this'));
+      expect(ai.turns.map((t) => t.text), isNot(contains('a secret')));
+    });
+
+    test('incognito never sends memory, never learns, never trains', () async {
+      AiConsent.instance.resetForTest();
+      addTearDown(AiConsent.instance.resetForTest);
+      final ai = AiAssistant.instance;
+      AiAssistant.debugReplyOverride = (_) async => 'ok';
+      var uploaded = false;
+      AiAssistant.debugFeedbackOverride = (_, __, ___) async {
+        uploaded = true;
+      };
+      await ai.setIncognito(true);
+      await ai.send('hello');
+      // Even with consent ON, an incognito reply is never eligible to train.
+      await AiConsent.instance.set(true);
+      final idx = ai.turns.length - 1;
+      final sent = await ai.rate(idx, 1);
+      expect(sent, isFalse);
+      expect(uploaded, isFalse);
+      // The wiring that carries this is present in source.
+      final src = File('lib/state/ai_assistant.dart').readAsStringSync();
+      expect(src, contains("'learn': !_incognito"));
+      expect(src, contains("if (!_incognito) 'memories'"));
+    });
+
+    test('personality presets and custom resolve to a style instruction',
+        () async {
+      SharedPreferences.setMockInitialValues({});
+      final persona = AiPersona.instance;
+      persona.resetForTest();
+      addTearDown(persona.resetForTest);
+      expect(persona.instruction, '', reason: 'default sends no style line');
+      await persona.select('concise');
+      expect(persona.instruction.toLowerCase(), contains('brief'));
+      await persona.select('custom', customText: 'Talk like a ship captain');
+      expect(persona.id, 'custom');
+      expect(persona.instruction, 'Talk like a ship captain');
+      // An empty custom falls back to the default voice.
+      await persona.select('custom', customText: '   ');
+      expect(persona.instruction, '');
+      // Walled off like the rest of Okay AI, and both ends carry the style.
+      final psrc = File('lib/state/ai_persona.dart').readAsStringSync();
+      for (final banned in [
+        'http', 'Supabase', 'functions.invoke', 'ChatStore', 'RelayService'
+      ]) {
+        expect(psrc.contains(banned), isFalse,
+            reason: 'persona is a preference, not a network path: $banned');
+      }
+      expect(File('lib/state/ai_assistant.dart').readAsStringSync(),
+          contains("'style': style"));
+      expect(File('supabase/functions/ai-chat/index.ts').readAsStringSync(),
+          contains('body.style'));
     });
 
     test('a turn is sent, the reply is appended, and the tail is bounded',
@@ -28076,6 +28157,12 @@ void main() {
         // not the account — like the theme. Switching accounts shouldn't
         // reset it, and it carries no account data to leak.
         'translate_service.dart',
+        // Okay AI's chosen personality is a tone preference — how the
+        // assistant talks, like the language above — carrying no account
+        // data, so it stays with the device across an account switch. (The
+        // assistant's per-user MEMORY, which does hold personal facts, is
+        // account-scoped and wiped; that's ai_memory.dart, not this.)
+        'ai_persona.dart',
       };
       for (final f in Directory('lib/state').listSync().whereType<File>()) {
         final name = f.path.split(Platform.pathSeparator).last;
