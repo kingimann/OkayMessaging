@@ -1823,6 +1823,7 @@ class _PostTile extends StatelessWidget {
                     name: post.authorName,
                     username: post.authorUsername,
                     time: post.createdAt,
+                    edited: post.edited,
                     verified: post.authorVerified,
                     onAuthor: () => openPublicProfile(
                         context, post.authorUsername,
@@ -2153,6 +2154,20 @@ class _PostTile extends StatelessWidget {
                     }
                   },
                 ),
+              // Editing your own post, but only for a few minutes after
+              // posting — the public feed is otherwise append-only so a post
+              // people have acted on can't be quietly rewritten.
+              if (PublicFeedStore.instance.canEdit(post))
+                ListTile(
+                  leading: const Icon(Icons.edit_outlined),
+                  title: const Text('Edit post'),
+                  subtitle: const Text(
+                      'For a few minutes after posting; the edit is marked'),
+                  onTap: () async {
+                    Navigator.of(sheetContext).pop();
+                    await _editPost(context, post);
+                  },
+                ),
               if (post.mine)
                 ListTile(
                   leading: const Icon(Icons.delete_outline, color: Colors.red),
@@ -2189,6 +2204,44 @@ class _PostTile extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  /// Edit dialog for an own public post: prefilled with the current text, saved
+  /// through PublicFeedStore.editPost (which re-screens it and stamps it).
+  Future<void> _editPost(BuildContext context, PublicPost post) async {
+    final controller = TextEditingController(text: post.body);
+    final messenger = ScaffoldMessenger.of(context);
+    final newText = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Edit post'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLines: 6,
+          minLines: 3,
+          maxLength: PublicFeedStore.maxLength,
+          decoration: const InputDecoration(hintText: 'Say something'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () =>
+                Navigator.of(dialogContext).pop(controller.text.trim()),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    if (newText == null) return;
+    try {
+      await PublicFeedStore.instance.editPost(post.id, newText);
+    } catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text('$e')));
+    }
   }
 }
 
@@ -2726,6 +2779,7 @@ class _ReplyingTo extends StatelessWidget {
                     name: post.authorName,
                     username: post.authorUsername,
                     time: post.createdAt,
+                    edited: post.edited,
                     verified: post.authorVerified,
                   ),
                   if (post.body.isNotEmpty) ...[

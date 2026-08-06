@@ -9885,6 +9885,70 @@ void main() {
       expect(captured!.unlocked, 'The paid words');
     });
 
+    test('an author can edit their own recent post — re-screened and stamped',
+        () async {
+      SharedPreferences.setMockInitialValues({});
+      Session.instance.signInForTest();
+      addTearDown(Session.instance.resetForTest);
+      addTearDown(AppState.resetForTest);
+      addTearDown(PublicFeedStore.instance.resetForTest);
+      final screened = <String>[];
+      PublicFeedStore.debugScreenOverride = (t) async {
+        screened.add(t);
+        return null;
+      };
+      PublicFeedStore.debugPostOverride = (_) async {};
+      (String, String)? wrote;
+      PublicFeedStore.debugEditOverride = (id, text) async => wrote = (id, text);
+
+      await PublicFeedStore.instance.post('First draft');
+      final post = PublicFeedStore.instance.posts
+          .firstWhere((p) => p.body == 'First draft');
+      expect(PublicFeedStore.instance.canEdit(post), isTrue);
+
+      await PublicFeedStore.instance.editPost(post.id, 'Fixed the typo');
+      // The new text was screened again, and written with a stamp.
+      expect(screened, contains('Fixed the typo'));
+      expect(wrote?.$2, 'Fixed the typo');
+      final after =
+          PublicFeedStore.instance.posts.firstWhere((p) => p.id == post.id);
+      expect(after.body, 'Fixed the typo');
+      expect(after.edited, isTrue);
+    });
+
+    test('editing is offered only for own, plain, recent posts', () {
+      final store = PublicFeedStore.instance;
+      PublicPost p({
+        bool mine = true,
+        bool paid = false,
+        List<String> poll = const [],
+        String? repost,
+        Duration age = Duration.zero,
+      }) =>
+          PublicPost(
+            id: 'x',
+            body: 'b',
+            createdAt: DateTime.now().subtract(age),
+            mine: mine,
+            paid: paid,
+            pollOptions: poll,
+            repostOf: repost,
+          );
+      expect(store.canEdit(p()), isTrue);
+      expect(store.canEdit(p(mine: false)), isFalse,
+          reason: 'only your own');
+      expect(store.canEdit(p(paid: true)), isFalse,
+          reason: 'a paywalled body is not a paragraph you tweak');
+      expect(store.canEdit(p(poll: const ['a', 'b'])), isFalse);
+      expect(store.canEdit(p(repost: 'y')), isFalse);
+      expect(store.canEdit(p(age: const Duration(minutes: 20))), isFalse,
+          reason: 'the window has closed');
+      // The server enforces the same, in its own words.
+      final sql = File('docs/public_feed_edit.sql').readAsStringSync();
+      expect(sql, contains('public_posts_update_own'));
+      expect(sql, contains("interval '15 minutes'"));
+    });
+
     test('a blank teaser falls back to a default so the row is never empty',
         () async {
       SharedPreferences.setMockInitialValues({});

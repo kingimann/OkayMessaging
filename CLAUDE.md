@@ -562,6 +562,30 @@ user's own action to go live:** run `docs/creator_subscriptions.sql`, paste the
 tierN.monthly` consumable IAP products in App Store Connect. Until then it runs
 in test/simulation only.
 
+## Editing a public-feed post (2026-08-06)
+
+A narrow, deliberate opening in the otherwise **append-only** public feed
+(`docs/public_feed.sql` `revoke update`s outright — an editable public post with
+no history is a way to bait people then rewrite it). The author may edit their
+OWN post's TEXT, only within **15 minutes** of posting, and every edit is
+**stamped** (`PublicPost.editedAt` → "· edited" via `FeedPostHeader.edited`).
+`PublicFeedStore.editPost` re-screens the new text through the same
+`moderation-screen` speed bump as a new post, then writes `body` + `edited_at`;
+`canEdit` gates the UI (own, not paid/poll/repost, in-window) and the chat ⋮
+shows "Edit post". **The server is the real gate**, in `docs/public_feed_edit.sql`:
+a column-level `grant update (body, edited_at)` (so nothing else can move) + a
+`public_posts_update_own` RLS policy carrying `author_phone = jwt.phone` AND the
+15-minute window in both USING and WITH CHECK. That file also **re-creates the
+feed view as the final word on its shape** — carrying `paid`/`sub_cents` (from
+creator subs) AND the new `edited_at`, appended LAST because create-or-replace
+can only add view columns at the end — so running it also restores the paywall
+columns if a `public_feed.sql` re-run dropped them. `check_sql.sh` applies it
+last and pins: author edits within window (stamped), a stranger can't, an edit
+can't touch anything but the text, and the window closes. **Needs the user's
+action:** run `docs/public_feed_edit.sql` (after `public_feed.sql` +
+`creator_subscriptions.sql`). Deliberately NOT built for the community/server
+feed here — that was the public-feed ask.
+
 ## Custom server roles (2026-08-06)
 
 A server admin/owner defines **custom roles** — the Discord "role" people ask

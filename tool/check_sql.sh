@@ -429,20 +429,56 @@ do $$ begin
   raise notice '  ok   a banned author leaves the feed';
 end $$;
 
--- Editing a public post is not offered to anyone.
-select pg_temp.expect_fail(
-  $$update public.public_posts set body = 'rewritten' where id = 't_p1'$$,
-  'rewriting a public post is refused');
--- Belt and braces: even if the privilege were there, RLS grants no UPDATE
--- policy, so assert the text really is untouched rather than trusting the
--- statement to have errored. An UPDATE that matches no policy affects zero
--- rows *without* raising, which is how this check first passed while asserting
--- the wrong thing.
+-- Editing a public post (docs/public_feed_edit.sql): the author may fix their
+-- OWN post, but only within the window, only the text, and it is stamped.
+select pg_temp.as_user('15550001111');
+select pg_temp.expect_ok(
+  $$update public.public_posts set body = 'edited', edited_at = now()
+      where id = 't_p1'$$,
+  'the author can edit their own recent post');
 do $$ begin
-  if (select body from public.public_feed where id='t_p1') <> 'hello' then
-    raise exception 'SECURITY CHECK FAILED: a public post was rewritten';
+  if (select body from public.public_feed where id='t_p1') <> 'edited' then
+    raise exception 'CHECK FAILED: the author edit did not take';
   end if;
-  raise notice '  ok   the post text is unchanged';
+  if (select edited_at from public.public_feed where id='t_p1') is null then
+    raise exception 'CHECK FAILED: an edit was not stamped';
+  end if;
+  raise notice '  ok   the author edits their own recent post, and it is stamped';
+end $$;
+
+-- A stranger cannot edit someone else's post. RLS filters the row out, so the
+-- UPDATE affects zero rows WITHOUT raising — assert the text is untouched
+-- rather than trusting the statement to have errored.
+select pg_temp.as_user('15550002222');
+do $$ begin
+  update public.public_posts set body = 'hijacked' where id = 't_p1';
+  if (select body from public.public_feed where id='t_p1') <> 'edited' then
+    raise exception 'SECURITY CHECK FAILED: a stranger rewrote a post';
+  end if;
+  raise notice '  ok   a stranger cannot edit your post';
+end $$;
+
+-- Not even the author may touch anything but the body/stamp — the column grant
+-- refuses it before RLS is consulted, so this one really does raise.
+select pg_temp.as_user('15550001111');
+select pg_temp.expect_fail(
+  $$update public.public_posts set author_username = 'someoneelse'
+      where id = 't_p1'$$,
+  'an edit cannot change anything but the text');
+
+-- And the window closes: a post older than 15 minutes is no longer editable.
+-- RLS again filters it out silently, so assert the text is untouched.
+reset role;
+insert into public.public_posts (id, author_phone, author_username, body, created_at)
+  values ('t_old','15550001111','alice','old post', now() - interval '20 minutes');
+set role authenticated;
+select pg_temp.as_user('15550001111');
+do $$ begin
+  update public.public_posts set body = 'too late' where id = 't_old';
+  if (select body from public.public_feed where id='t_old') <> 'old post' then
+    raise exception 'SECURITY CHECK FAILED: an out-of-window edit was allowed';
+  end if;
+  raise notice '  ok   the edit window closes after 15 minutes';
 end $$;
 
 -- The new shapes: reposts, quote posts, image-only posts, and the rules that
@@ -1101,7 +1137,7 @@ apply() {
 }
 
 echo "postgres $(su pg -c "PATH=$PGBIN:\$PATH psql -h $RUN -p $PORT -d $DB -tAc 'show server_version'")"
-for f in "$WORK/harness.sql" supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql; do
+for f in "$WORK/harness.sql" supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql; do
   if apply "$f"; then
     echo "  applied $(basename "$f")"
   else
@@ -1164,7 +1200,7 @@ else
   echo "  FAILED  could not rebuild the previous shape"; exit 1
 fi
 
-for f in supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql; do
+for f in supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql; do
   if apply "$f"; then
     echo "  re-applied $(basename "$f")"
   else

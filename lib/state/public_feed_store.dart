@@ -47,6 +47,11 @@ class PublicPost {
   /// by definition — there is nobody to keep it from.
   final String videoPath;
   final DateTime createdAt;
+
+  /// When the author last edited the body, or null if never. A public post can
+  /// be edited only by its author, only within a short window after posting,
+  /// and every edit is stamped here so the card can say "edited".
+  final DateTime? editedAt;
   final int likeCount;
   final int replyCount;
   final int repostCount;
@@ -115,6 +120,7 @@ class PublicPost {
     this.gifUrl = '',
     this.videoPath = '',
     required this.createdAt,
+    this.editedAt,
     this.likeCount = 0,
     this.replyCount = 0,
     this.repostCount = 0,
@@ -139,6 +145,9 @@ class PublicPost {
   /// What to render as the post's text: the unlocked body once fetched, the
   /// teaser (or nothing) until then.
   String get displayBody => unlocked ?? body;
+
+  /// Whether the author has edited this since posting.
+  bool get edited => editedAt != null;
 
   /// Whether this carries an image.
   bool get hasImage => imagePath.isNotEmpty;
@@ -190,6 +199,8 @@ class PublicPost {
   }
 
   PublicPost copyWith({
+    String? body,
+    DateTime? editedAt,
     int? likeCount,
     int? replyCount,
     int? repostCount,
@@ -206,13 +217,14 @@ class PublicPost {
         authorUsername: authorUsername,
         authorName: authorName,
         authorVerified: authorVerified,
-        body: body,
+        body: body ?? this.body,
         replyTo: replyTo,
         repostOf: repostOf,
         imagePath: imagePath,
         gifUrl: gifUrl,
         videoPath: videoPath,
         createdAt: createdAt,
+        editedAt: editedAt ?? this.editedAt,
         likeCount: likeCount ?? this.likeCount,
         replyCount: replyCount ?? this.replyCount,
         repostCount: repostCount ?? this.repostCount,
@@ -245,6 +257,7 @@ class PublicPost {
         gifUrl: gifUrl,
         videoPath: videoPath,
         createdAt: createdAt,
+        editedAt: editedAt,
         likeCount: likeCount,
         replyCount: replyCount,
         repostCount: repostCount,
@@ -275,6 +288,8 @@ class PublicPost {
         createdAt: DateTime.tryParse(r['created_at'] as String? ?? '')
                 ?.toLocal() ??
             DateTime.now(),
+        editedAt:
+            DateTime.tryParse(r['edited_at'] as String? ?? '')?.toLocal(),
         likeCount: (r['like_count'] as num?)?.toInt() ?? 0,
         replyCount: (r['reply_count'] as num?)?.toInt() ?? 0,
         repostCount: (r['repost_count'] as num?)?.toInt() ?? 0,
@@ -1698,6 +1713,71 @@ class PublicFeedStore extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// How long an author has to edit their own public post after posting. Kept
+  /// in step with the server policy in docs/public_feed_edit.sql — long enough
+  /// for a typo, too short to bait people and then rewrite it. The public feed
+  /// is otherwise append-only on purpose.
+  static const Duration editWindow = Duration(minutes: 15);
+
+  /// Whether [post] is one this account may still edit: its own, a plain text
+  /// post (never a paid, poll or repost row — those aren't a paragraph you
+  /// tweak), and still inside the window.
+  bool canEdit(PublicPost post) =>
+      post.mine &&
+      !post.paid &&
+      !post.isPoll &&
+      post.repostOf == null &&
+      DateTime.now().difference(post.createdAt) < editWindow;
+
+  /// Test seam for the edit's server write, matching [debugPostOverride].
+  @visibleForTesting
+  static Future<void> Function(String postId, String newText)?
+      debugEditOverride;
+
+  /// Edits the text of one of your own public posts, within the window. The new
+  /// text is re-screened through the same moderation speed bump as a new post,
+  /// then the body and an `edited_at` stamp are written to the row — the server
+  /// RLS independently enforces author + window, so a modified client gains
+  /// nothing. Throws a [PublicFeedError] the composer can show.
+  Future<void> editPost(String postId, String newText) async {
+    final i = _posts.indexWhere((p) => p.id == postId);
+    if (i < 0) throw PublicFeedError('That post is gone.');
+    final post = _posts[i];
+    if (!canEdit(post)) {
+      throw PublicFeedError('This post can no longer be edited.');
+    }
+    final trimmed = newText.trim();
+    final problem = validate(trimmed);
+    if (problem != null) throw PublicFeedError(problem);
+    if (trimmed == post.body) return; // nothing to change
+    // Re-screened like a new post: an edit is the obvious way to slip past the
+    // screen that ran at post time.
+    final blocked = await screen(trimmed);
+    if (blocked != null) throw PublicFeedError(blocked);
+
+    final now = DateTime.now();
+    final override = debugEditOverride;
+    if (override != null) {
+      await override(postId, trimmed);
+    } else {
+      final client = _client;
+      if (client == null) throw PublicFeedError('No server configured.');
+      try {
+        await client.from('public_posts').update({
+          'body': trimmed,
+          'edited_at': now.toUtc().toIso8601String(),
+        }).eq('id', postId);
+      } catch (e) {
+        throw PublicFeedError(_explain(e));
+      }
+    }
+    _posts = [
+      for (final p in _posts)
+        p.id == postId ? p.copyWith(body: trimmed, editedAt: now) : p
+    ];
+    notifyListeners();
+  }
+
   /// Bucket holding post images. Public, because the posts are: sealing an
   /// attachment on a world-readable post would mean a world-readable key.
   static const String bucket = 'public-media';
@@ -1980,6 +2060,7 @@ class PublicFeedStore extends ChangeNotifier {
     _error = null;
     debugLoadOverride = null;
     debugPostOverride = null;
+    debugEditOverride = null;
     debugLikeOverride = null;
     debugVoteOverride = null;
     debugUploadOverride = null;
