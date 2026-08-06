@@ -393,6 +393,10 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   void dispose() {
     PushService.instance.setOpenChat(null);
+    // Snapchat-style "After viewing": leaving the (whole) chat after reading it
+    // clears its messages from this device. Not from a thread — that would wipe
+    // the room from under a side conversation.
+    if (!_inThread) _store.expireViewed(_chatId);
     if (RelayService.instance.openChatDigits ==
         RelayService.digits(widget.chat.contact.phone)) {
       RelayService.instance.openChatDigits = '';

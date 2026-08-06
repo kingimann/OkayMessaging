@@ -764,6 +764,17 @@ class ChatStore extends ChangeNotifier {
     }
   }
 
+  /// Snapchat-style: called when a chat with [Chat.afterViewing] is left after
+  /// being read — clears its messages from this device. A no-op for every
+  /// other chat, so the chat screen can call it on leave unconditionally.
+  void expireViewed(String chatId) {
+    final i = _indexOf(chatId);
+    if (i == -1) return;
+    if (_chats[i].disappearingSeconds != Chat.afterViewing) return;
+    if (_chats[i].messages.isEmpty) return;
+    _replace(i, _chats[i].copyWith(messages: const []));
+  }
+
   /// Removes any messages whose expiry has passed. Returns the number deleted.
   /// [now] is injectable for tests.
   int sweepExpired([DateTime? now]) {

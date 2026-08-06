@@ -48,8 +48,14 @@ class Chat {
   final List<AppUser> members;
 
   /// Disappearing-messages timer in seconds; 0 means off. New messages in this
-  /// chat are deleted from the device this long after they're sent.
+  /// chat are deleted from the device this long after they're sent. The special
+  /// value [afterViewing] (Snapchat-style) clears the conversation from this
+  /// device when you leave it after reading — no fixed clock.
   final int disappearingSeconds;
+
+  /// Sentinel for [disappearingSeconds]: delete the conversation once it has
+  /// been viewed and closed, rather than on a timer from send.
+  static const int afterViewing = -1;
 
   const Chat({
     required this.id,

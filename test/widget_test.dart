@@ -1559,6 +1559,38 @@ void main() {
     expect(msg.expiresAt, isNull);
   });
 
+  test('disappearing "after viewing" clears the chat on leave, no timer stamp',
+      () {
+    ChatStore.instance.reset();
+    final bob = ChatStore.instance.chatWithContact('u_bob')!;
+    ChatStore.instance.setDisappearing(bob.id, Chat.afterViewing);
+    ChatStore.instance.addMessage(
+      bob.id,
+      Message(id: 'snap1', text: 'seen once', time: DateTime(2024), isMe: false),
+    );
+    // No send-timer expiry — it lives until the chat is left.
+    final msg = ChatStore.instance
+        .chatById(bob.id)!
+        .messages
+        .firstWhere((m) => m.id == 'snap1');
+    expect(msg.expiresAt, isNull);
+    expect(ChatStore.instance.sweepExpired(DateTime(2030)), 0,
+        reason: 'a timed sweep must not touch an after-viewing message');
+
+    // Leaving the chat after viewing clears it.
+    ChatStore.instance.expireViewed(bob.id);
+    expect(ChatStore.instance.chatById(bob.id)!.messages, isEmpty);
+
+    // A no-op on an ordinary chat.
+    final ann = ChatStore.instance.chatWithContact('u_alice')!;
+    ChatStore.instance.addMessage(
+      ann.id,
+      Message(id: 'keep2', text: 'stays', time: DateTime(2024), isMe: true),
+    );
+    ChatStore.instance.expireViewed(ann.id);
+    expect(ChatStore.instance.chatById(ann.id)!.messages, isNotEmpty);
+  });
+
   testWidgets('Blocking a contact replaces the composer with a banner',
       (tester) async {
     await tester.pumpWidget(const OkayMessagingApp());

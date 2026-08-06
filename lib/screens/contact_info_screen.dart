@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter/services.dart';
 
 import '../app_state.dart';
+import '../models/chat.dart';
 import '../models/user.dart';
 import '../state/call_service.dart';
 import '../state/chat_store.dart';
@@ -687,6 +688,7 @@ class _ChatSettingsSection extends StatelessWidget {
 
   String _ttlLabel(int seconds) => switch (seconds) {
         0 => 'Off',
+        Chat.afterViewing => 'After viewing',
         3600 => '1 hour',
         86400 => '1 day',
         604800 => '1 week',
@@ -696,6 +698,9 @@ class _ChatSettingsSection extends StatelessWidget {
   Future<void> _chooseDisappearing(BuildContext context) async {
     const options = <String, int>{
       'Off': 0,
+      // Snapchat's signature: the conversation clears from this device once
+      // you've viewed it and left.
+      'After viewing': Chat.afterViewing,
       '1 hour': 3600,
       '1 day': 86400,
       '1 week': 604800,
@@ -712,20 +717,30 @@ class _ChatSettingsSection extends StatelessWidget {
             const Padding(
               padding: EdgeInsets.fromLTRB(20, 0, 20, 10),
               child: Text(
-                'New messages in this chat will be deleted from this device '
-                'after the selected time.',
+                '"After viewing" clears the chat from this device when you '
+                'leave it. A timer deletes new messages that long after '
+                'they\'re sent. Either way, only from this device.',
                 style: TextStyle(color: Colors.grey, fontSize: 13),
               ),
             ),
-            for (final entry in options.entries)
-              ListTile(
-                title: Text(entry.key),
-                trailing: entry.value == current
-                    ? Icon(Icons.check,
-                        color: Theme.of(sheetContext).colorScheme.primary)
-                    : null,
-                onTap: () => Navigator.of(sheetContext).pop(entry.value),
+            Flexible(
+              child: ListView(
+                shrinkWrap: true,
+                children: [
+                  for (final entry in options.entries)
+                    ListTile(
+                      title: Text(entry.key),
+                      trailing: entry.value == current
+                          ? Icon(Icons.check,
+                              color:
+                                  Theme.of(sheetContext).colorScheme.primary)
+                          : null,
+                      onTap: () =>
+                          Navigator.of(sheetContext).pop(entry.value),
+                    ),
+                ],
               ),
+            ),
           ],
         ),
       ),
