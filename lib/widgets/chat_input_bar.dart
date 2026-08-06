@@ -441,10 +441,10 @@ class _ChatInputBarState extends State<ChatInputBar> {
       child: Container(
         decoration: BoxDecoration(
           color: fieldColor,
-          borderRadius: BorderRadius.circular(26),
+          borderRadius: BorderRadius.circular(24),
           border: Border.all(color: border, width: 0.8),
         ),
-        padding: const EdgeInsets.fromLTRB(16, 6, 8, 8),
+        padding: const EdgeInsets.fromLTRB(16, 4, 6, 6),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -474,12 +474,12 @@ class _ChatInputBarState extends State<ChatInputBar> {
                   hintText: 'Message',
                   border: InputBorder.none,
                   isCollapsed: true,
-                  contentPadding: EdgeInsets.symmetric(vertical: 8),
+                  contentPadding: EdgeInsets.symmetric(vertical: 6),
                 ),
                 onSubmitted: enterToSend ? (_) => _send() : null,
               ),
             ),
-            const SizedBox(height: 6),
+            const SizedBox(height: 2),
             // The controls, along the bottom.
             Row(
               children: [
@@ -555,22 +555,38 @@ class _ChatInputBarState extends State<ChatInputBar> {
                     onPressed: _schedule,
                   ),
                 const SizedBox(width: 2),
+                // Send is a filled accent circle; an idle mic is a quiet
+                // outlined one (like the plus) rather than a heavy filled
+                // button that dominates an empty composer.
                 GestureDetector(
                   onTap: _hasText ? _send : _startRecording,
                   onLongPress: _hasText ? _schedule : null,
-                  child: CircleAvatar(
-                    radius: 22,
-                    backgroundColor: AppColors.accentOn(context),
-                    child: AnimatedSwitcher(
-                      duration: const Duration(milliseconds: 200),
-                      transitionBuilder: (child, animation) =>
-                          ScaleTransition(scale: animation, child: child),
-                      child: Icon(
-                        _hasText ? Icons.send : Icons.mic,
-                        key: ValueKey(_hasText),
-                        color: AppColors.onAccent(context),
-                      ),
-                    ),
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 180),
+                    transitionBuilder: (child, animation) =>
+                        ScaleTransition(scale: animation, child: child),
+                    child: _hasText
+                        ? CircleAvatar(
+                            key: const ValueKey(true),
+                            radius: 20,
+                            backgroundColor: AppColors.accentOn(context),
+                            child: Icon(Icons.send,
+                                size: 19, color: AppColors.onAccent(context)),
+                          )
+                        : Container(
+                            key: const ValueKey(false),
+                            width: 40,
+                            height: 40,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              border: Border.all(color: border),
+                            ),
+                            child: Icon(Icons.mic,
+                                size: 20,
+                                color: isDark
+                                    ? Colors.white70
+                                    : Colors.black54),
+                          ),
                   ),
                 ),
               ],
