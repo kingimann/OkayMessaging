@@ -99,6 +99,15 @@ const List<String> kMarketplaceCategories = [
   'Property & Rentals',
   'Services',
   'Wanted',
+  // 2026-08-05: more of the things people were filing under 'Other'.
+  'Kitchen & Dining',
+  'Home Decor',
+  'Fitness & Gym',
+  'Trading Cards & Comics',
+  'Handmade',
+  'Garden & Plants',
+  'Health & Wellness',
+  'Luggage & Travel',
 ];
 
 /// How the picker groups the list. Display only, so unlike the list above
@@ -120,6 +129,9 @@ const Map<String, List<String>> kMarketplaceCategoryGroups = {
     'Furniture',
     'Appliances',
     'Home & Garden',
+    'Kitchen & Dining',
+    'Home Decor',
+    'Garden & Plants',
     'Tools & Home Improvement',
     'Building Materials',
     'Farm & Garden Equipment',
@@ -141,20 +153,25 @@ const Map<String, List<String>> kMarketplaceCategoryGroups = {
   ],
   'Leisure': [
     'Sports',
+    'Fitness & Gym',
     'Camping & Outdoors',
     'Games & Toys',
+    'Trading Cards & Comics',
     'Musical Instruments',
     'Books',
     'Movies & Music',
     'Art & Collectibles',
     'Antiques',
     'Crafts & Hobbies',
+    'Handmade',
     'Tickets',
   ],
   'Everything else': [
     'Baby & Kids',
     'Pet Supplies',
     'Food & Drink',
+    'Health & Wellness',
+    'Luggage & Travel',
     'Office & Business',
     'Property & Rentals',
     'Services',
@@ -246,6 +263,195 @@ const Map<String, List<CategoryField>> kCategoryFields = {
     CategoryField('Rate', choices: ['per hour', 'per job', 'per day', 'fixed']),
     CategoryField('Availability'),
     CategoryField('Serves', choices: ['On site', 'Remote', 'Both']),
+  ],
+  // 2026-08-05: structured fields for the busiest categories, so the details
+  // that used to be crammed into the description are their own answers — richer
+  // listings and, at the buyer's end, a filterable spec table.
+  'Electronics': [
+    CategoryField('Brand'),
+    CategoryField('Model'),
+  ],
+  'Phones & Tablets': [
+    CategoryField('Brand'),
+    CategoryField('Model'),
+    CategoryField('Storage',
+        choices: ['16GB', '32GB', '64GB', '128GB', '256GB', '512GB', '1TB']),
+    CategoryField('Network',
+        choices: ['Unlocked', 'Locked', 'eSIM only']),
+    CategoryField('Colour'),
+  ],
+  'Computers': [
+    CategoryField('Brand'),
+    CategoryField('Type', choices: [
+      'Laptop',
+      'Desktop',
+      'All-in-one',
+      'Tablet',
+      'Parts',
+    ]),
+    CategoryField('RAM',
+        choices: ['4GB', '8GB', '16GB', '32GB', '64GB']),
+    CategoryField('Storage'),
+  ],
+  'TV & Audio': [
+    CategoryField('Brand'),
+    CategoryField('Type', choices: [
+      'TV',
+      'Speaker',
+      'Soundbar',
+      'Headphones',
+      'Amplifier',
+      'Turntable',
+      'Other',
+    ]),
+    CategoryField('Screen size', numeric: true, suffix: 'in'),
+  ],
+  'Cameras & Photo': [
+    CategoryField('Brand'),
+    CategoryField('Type', choices: [
+      'DSLR',
+      'Mirrorless',
+      'Point & shoot',
+      'Film',
+      'Action',
+      'Lens',
+      'Accessory',
+    ]),
+  ],
+  'Video Games & Consoles': [
+    CategoryField('Platform', choices: [
+      'PlayStation',
+      'Xbox',
+      'Nintendo Switch',
+      'PC',
+      'Retro',
+      'Other',
+    ]),
+    CategoryField('Type', choices: ['Game', 'Console', 'Accessory']),
+  ],
+  'Clothing': [
+    CategoryField('Size', choices: [
+      'XS',
+      'S',
+      'M',
+      'L',
+      'XL',
+      'XXL',
+      'One size',
+    ]),
+    CategoryField('For', choices: [
+      'Women',
+      'Men',
+      'Unisex',
+      'Girls',
+      'Boys',
+    ]),
+    CategoryField('Colour'),
+    CategoryField('Brand'),
+  ],
+  'Shoes': [
+    CategoryField('Size', numeric: true),
+    CategoryField('For', choices: ['Women', 'Men', 'Unisex', 'Kids']),
+    CategoryField('Brand'),
+    CategoryField('Colour'),
+  ],
+  'Furniture': [
+    CategoryField('Type', choices: [
+      'Sofa',
+      'Chair',
+      'Table',
+      'Bed',
+      'Dresser',
+      'Desk',
+      'Shelving',
+      'Other',
+    ]),
+    CategoryField('Material'),
+    CategoryField('Colour'),
+  ],
+  'Appliances': [
+    CategoryField('Brand'),
+    CategoryField('Type', choices: [
+      'Fridge',
+      'Washer',
+      'Dryer',
+      'Dishwasher',
+      'Oven',
+      'Microwave',
+      'Small appliance',
+      'Other',
+    ]),
+  ],
+  'Bikes': [
+    CategoryField('Type', choices: [
+      'Road',
+      'Mountain',
+      'Hybrid',
+      'Electric',
+      'Kids',
+      'BMX',
+      'Other',
+    ]),
+    CategoryField('Frame size'),
+    CategoryField('Wheel size', suffix: 'in'),
+  ],
+  'Books': [
+    CategoryField('Format',
+        choices: ['Paperback', 'Hardcover', 'Audiobook', 'eBook']),
+    CategoryField('Genre'),
+  ],
+  'Jewelry & Accessories': [
+    CategoryField('Type', choices: [
+      'Ring',
+      'Necklace',
+      'Bracelet',
+      'Earrings',
+      'Watch',
+      'Other',
+    ]),
+    CategoryField('Material'),
+  ],
+  'Watches': [
+    CategoryField('Brand'),
+    CategoryField('Movement',
+        choices: ['Automatic', 'Quartz', 'Mechanical', 'Smart']),
+  ],
+  'Musical Instruments': [
+    CategoryField('Type', choices: [
+      'Guitar',
+      'Keyboard',
+      'Drums',
+      'Wind',
+      'String',
+      'DJ / Studio',
+      'Other',
+    ]),
+    CategoryField('Brand'),
+  ],
+  'Sports': [
+    CategoryField('Sport'),
+    CategoryField('For', choices: ['Adult', 'Youth', 'Kids']),
+  ],
+  'Baby & Kids': [
+    CategoryField('Age group', choices: [
+      'Newborn',
+      '0–2 yrs',
+      '3–5 yrs',
+      '6–8 yrs',
+      '9–12 yrs',
+    ]),
+    CategoryField('Type'),
+  ],
+  'Pet Supplies': [
+    CategoryField('Pet', choices: [
+      'Dog',
+      'Cat',
+      'Bird',
+      'Fish',
+      'Small pet',
+      'Reptile',
+      'Other',
+    ]),
   ],
 };
 
@@ -846,6 +1052,14 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
   /// Free stuff only. Its own flag rather than a max of $0, because the
   /// price boxes read a typed 0 as "no bound" (blank means free there).
   bool _freeOnly = false;
+
+  /// Ways to narrow — or filter OUT — what's shown. Conditions is a set so a
+  /// buyer can keep "New" and "Like new" and drop the rest; delivery keeps
+  /// only listings offering a way to get the thing; hide-sold clears the
+  /// crossed-out ones a browser has scrolled past a hundred times.
+  final Set<String> _conditions = {};
+  String _delivery = '';
+  bool _hideSold = false;
   ListingSort _sort = ListingSort.newest;
   final TextEditingController _minPrice = TextEditingController();
   final TextEditingController _maxPrice = TextEditingController();
@@ -994,18 +1208,96 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
                 ),
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: FilterChip(
-                      avatar: const Icon(Icons.redeem_outlined, size: 15),
-                      label: const Text('Free stuff only'),
-                      visualDensity: VisualDensity.compact,
-                      selected: _freeOnly,
-                      onSelected: (v) {
-                        setState(() => _freeOnly = v);
-                        setSheet(() {});
-                      },
-                    ),
+                  child: Row(
+                    children: [
+                      FilterChip(
+                        avatar: const Icon(Icons.redeem_outlined, size: 15),
+                        label: const Text('Free only'),
+                        visualDensity: VisualDensity.compact,
+                        selected: _freeOnly,
+                        onSelected: (v) {
+                          setState(() => _freeOnly = v);
+                          setSheet(() {});
+                        },
+                      ),
+                      const SizedBox(width: 8),
+                      FilterChip(
+                        avatar: const Icon(Icons.visibility_off_outlined,
+                            size: 15),
+                        label: const Text('Hide sold'),
+                        visualDensity: VisualDensity.compact,
+                        selected: _hideSold,
+                        onSelected: (v) {
+                          setState(() => _hideSold = v);
+                          setSheet(() {});
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+                const Divider(height: 1),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                  child: Text('CONDITION',
+                      style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.6,
+                          color: AppColors.subtle(context))),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final c in kListingConditions)
+                        FilterChip(
+                          label: Text(c),
+                          visualDensity: VisualDensity.compact,
+                          selected: _conditions.contains(c),
+                          onSelected: (on) {
+                            setState(() {
+                              if (on) {
+                                _conditions.add(c);
+                              } else {
+                                _conditions.remove(c);
+                              }
+                            });
+                            setSheet(() {});
+                          },
+                        ),
+                    ],
+                  ),
+                ),
+                const Divider(height: 1),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                  child: Text('DELIVERY',
+                      style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.6,
+                          color: AppColors.subtle(context))),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final (value, label) in kListingDeliveryOptions)
+                        ChoiceChip(
+                          label: Text(label),
+                          visualDensity: VisualDensity.compact,
+                          selected: _delivery == value,
+                          onSelected: (_) {
+                            setState(() =>
+                                _delivery = _delivery == value ? '' : value);
+                            setSheet(() {});
+                          },
+                        ),
+                    ],
                   ),
                 ),
                 const Divider(height: 1),
@@ -1176,6 +1468,9 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
         _mineOnly ||
         _savedOnly ||
         _freeOnly ||
+        _conditions.isNotEmpty ||
+        _delivery.isNotEmpty ||
+        _hideSold ||
         _minCents != null ||
         _maxCents != null ||
         _sort != ListingSort.newest;
@@ -1280,6 +1575,24 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
             listings = [
               for (final l in listings)
                 if ((l.priceCents ?? 0) == 0) l
+            ];
+          }
+          if (_conditions.isNotEmpty) {
+            listings = [
+              for (final l in listings)
+                if (_conditions.contains(l.listingCondition)) l
+            ];
+          }
+          if (_delivery.isNotEmpty) {
+            listings = [
+              for (final l in listings)
+                if (l.listingDelivery == _delivery) l
+            ];
+          }
+          if (_hideSold) {
+            listings = [
+              for (final l in listings)
+                if (!l.listingSold) l
             ];
           }
           // Sorted, with sold sunk to the end rather than hidden — a buyer
@@ -1432,6 +1745,30 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
                           visualDensity: VisualDensity.compact,
                           onDeleted: () =>
                               setState(() => _category = ''),
+                        ),
+                      for (final c in _conditions)
+                        InputChip(
+                          avatar: const Icon(Icons.grade_outlined, size: 15),
+                          label: Text(c),
+                          visualDensity: VisualDensity.compact,
+                          onDeleted: () =>
+                              setState(() => _conditions.remove(c)),
+                        ),
+                      if (_delivery.isNotEmpty)
+                        InputChip(
+                          avatar:
+                              const Icon(Icons.local_shipping_outlined, size: 15),
+                          label: Text(listingDeliveryLabel(_delivery)),
+                          visualDensity: VisualDensity.compact,
+                          onDeleted: () => setState(() => _delivery = ''),
+                        ),
+                      if (_hideSold)
+                        InputChip(
+                          avatar: const Icon(Icons.visibility_off_outlined,
+                              size: 15),
+                          label: const Text('Hide sold'),
+                          visualDensity: VisualDensity.compact,
+                          onDeleted: () => setState(() => _hideSold = false),
                         ),
                       if (_minCents != null || _maxCents != null)
                         InputChip(

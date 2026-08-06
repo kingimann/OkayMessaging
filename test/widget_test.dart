@@ -10604,6 +10604,103 @@ void main() {
       expect(find.text('Green lamp'), findsNothing);
     });
 
+    test('the expanded categories carry structured fields', () {
+      // A few of the new categories exist and are grouped (nothing filed under
+      // 'Other' by accident), and the busy ones now carry their own fields.
+      for (final c in [
+        'Kitchen & Dining',
+        'Home Decor',
+        'Fitness & Gym',
+        'Handmade',
+      ]) {
+        expect(kMarketplaceCategories, contains(c));
+        expect(kMarketplaceCategoryGroups.values.expand((g) => g), contains(c),
+            reason: '$c must appear in a picker group');
+      }
+      // Structured fields for the big categories that used to have none.
+      expect(categoryFieldsFor('Phones & Tablets').map((f) => f.label),
+          containsAll(['Brand', 'Storage', 'Network']));
+      expect(categoryFieldsFor('Clothing').map((f) => f.label),
+          containsAll(['Size', 'For', 'Colour']));
+      expect(categoryFieldsFor('Bikes').map((f) => f.label), contains('Type'));
+      // An untouched category still returns nothing, cleanly.
+      expect(categoryFieldsFor('Antiques'), isEmpty);
+    });
+
+    testWidgets('condition, delivery and hide-sold filters narrow the grid',
+        (tester) async {
+      tester.view.physicalSize = const Size(500, 2200);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      FeedStore.instance.resetForTest();
+      addTearDown(FeedStore.instance.resetForTest);
+      FeedStore.instance.addRemote(FeedPost(
+        id: 'f_new',
+        communityId: 'c1',
+        authorName: 'Grace',
+        authorUsername: 'grace',
+        time: DateTime.now(),
+        text: 'New drill',
+        priceCents: 4000,
+        listingCategory: 'Tools & Home Improvement',
+        listingCondition: 'New',
+      ));
+      FeedStore.instance.addRemote(FeedPost(
+        id: 'f_used',
+        communityId: 'c1',
+        authorName: 'Grace',
+        authorUsername: 'grace',
+        time: DateTime.now(),
+        text: 'Used saw',
+        priceCents: 1500,
+        listingCategory: 'Tools & Home Improvement',
+        listingCondition: 'Good',
+      ));
+      FeedStore.instance.addRemote(FeedPost(
+        id: 'f_sold',
+        communityId: 'c1',
+        authorName: 'Grace',
+        authorUsername: 'grace',
+        time: DateTime.now(),
+        text: 'Sold hammer',
+        priceCents: 800,
+        listingCategory: 'Tools & Home Improvement',
+        listingSold: true,
+      ));
+
+      await tester.pumpWidget(const MaterialApp(home: MarketplaceScreen()));
+      await tester.pump();
+      expect(find.text('New drill'), findsOneWidget);
+      expect(find.text('Used saw'), findsOneWidget);
+      expect(find.text('Sold hammer'), findsOneWidget);
+
+      // Condition = New keeps only the new one.
+      await tester.tap(find.byTooltip('Filter'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilterChip, 'New'));
+      await tester.pumpAndSettle();
+      Navigator.of(tester.element(find.text('SORT'))).pop();
+      await tester.pumpAndSettle();
+      expect(find.text('New drill'), findsOneWidget);
+      expect(find.text('Used saw'), findsNothing);
+      expect(find.text('Sold hammer'), findsNothing);
+
+      // Reopen, toggle New back off (so the sold item is eligible again), and
+      // turn on Hide sold — which drops the crossed-out one.
+      await tester.tap(find.byTooltip('Filter'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilterChip, 'New'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilterChip, 'Hide sold'));
+      await tester.pumpAndSettle();
+      Navigator.of(tester.element(find.text('SORT'))).pop();
+      await tester.pumpAndSettle();
+      expect(find.text('Sold hammer'), findsNothing);
+      expect(find.text('New drill'), findsOneWidget);
+      expect(find.text('Used saw'), findsOneWidget);
+    });
+
     test('extra photos ride as child posts and die with the listing', () {
       FeedStore.instance.resetForTest();
       addTearDown(FeedStore.instance.resetForTest);
@@ -11305,6 +11402,13 @@ void main() {
       addTearDown(() => PhotoPrep.debugPickOverride = null);
       await tester.tap(find.text('Add photos'));
       await tester.pumpAndSettle();
+      // The default category now carries structured fields, so the description
+      // can sit below the fold in the lazy form — scroll it into view first.
+      await tester.scrollUntilVisible(
+          find.widgetWithText(
+              TextField, 'Describe it — condition, size, pickup…'),
+          200,
+          scrollable: find.byType(Scrollable).first);
       await tester.enterText(
           find.widgetWithText(
               TextField, 'Describe it — condition, size, pickup…'),
@@ -27395,7 +27499,10 @@ void main() {
 
     test('this week is the last seven days, not everything', () {
       final store = ScoreStore.instance;
-      final today = DateTime(2026, 8, 1);
+      // Relative to the REAL clock, because thisWeek reads today from it — a
+      // hardcoded date drifts out of the window as time passes and the -2-day
+      // award falls off the edge.
+      final today = DateTime.now();
       store.award(50, now: today.subtract(const Duration(days: 10)));
       store.award(3, now: today.subtract(const Duration(days: 2)));
       store.award(4, now: today);
@@ -32262,7 +32369,7 @@ void main() {
       // there), so free stuff needs a flag of its own to be findable.
       expect(src, contains('bool _freeOnly = false;'));
       expect(src, contains("(l.priceCents ?? 0) == 0"));
-      expect(src, contains("'Free stuff only'"));
+      expect(src, contains("'Free only'"));
       // And it clears from the active-filters row like every other filter.
       expect(src, contains('_freeOnly = false'));
     });
@@ -33738,7 +33845,7 @@ void main() {
       expect(categoryFieldsFor('Property & Rentals')
           .any((f) => f.label == 'Bedrooms'), isTrue);
       // A category with no spec asks nothing.
-      expect(categoryFieldsFor('Books'), isEmpty);
+      expect(categoryFieldsFor('Antiques'), isEmpty);
       // Trimming, so a stray space still resolves.
       expect(categoryFieldsFor('Vehicles ').isNotEmpty, isTrue);
 
