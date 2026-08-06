@@ -626,6 +626,12 @@ revoke all on table public.public_follows from anon, authenticated;
 -- Follow by handle. Idempotent; a self-follow or an unknown handle is a
 -- silent no-op — the client treats the server graph as best-effort beside
 -- its local list, so there is nothing useful to throw at it.
+-- Both edges are keyed by the phone format the username directory stores
+-- (E.164, with the leading '+'). The JWT's `phone` claim, though, arrives
+-- WITHOUT the '+', so writing it raw made `follower_phone` a value that could
+-- never join back to `usernames.phone` — the follower's own row — and the
+-- FOLLOWING count silently stayed 0 for everyone. So resolve the caller to
+-- their directory phone first (compare on digits only), and store THAT.
 create or replace function public.public_follow(u text)
 returns void
 language plpgsql
@@ -634,10 +640,16 @@ security definer
 set search_path = public
 as $$
 declare
-  me   text := (auth.jwt() ->> 'phone');
+  jwt_phone text := (auth.jwt() ->> 'phone');
+  me   text;
   them text;
 begin
-  if me is null or me = '' then return; end if;
+  if jwt_phone is null or jwt_phone = '' then return; end if;
+  select phone into me from public.usernames
+   where regexp_replace(phone, '\D', '', 'g')
+       = regexp_replace(jwt_phone, '\D', '', 'g')
+   limit 1;
+  if me is null then return; end if;
   select phone into them from public.usernames
    where lower(username) = lower(u) limit 1;
   if them is null or them = me then return; end if;
@@ -655,10 +667,16 @@ security definer
 set search_path = public
 as $$
 declare
-  me   text := (auth.jwt() ->> 'phone');
+  jwt_phone text := (auth.jwt() ->> 'phone');
+  me   text;
   them text;
 begin
-  if me is null or me = '' then return; end if;
+  if jwt_phone is null or jwt_phone = '' then return; end if;
+  select phone into me from public.usernames
+   where regexp_replace(phone, '\D', '', 'g')
+       = regexp_replace(jwt_phone, '\D', '', 'g')
+   limit 1;
+  if me is null then return; end if;
   select phone into them from public.usernames
    where lower(username) = lower(u) limit 1;
   if them is null then return; end if;

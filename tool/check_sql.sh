@@ -261,6 +261,43 @@ select pg_temp.expect_fail(
 select pg_temp.expect_fail(
   $$select * from public.public_follows$$,
   'the follows table itself is closed to clients');
+-- Regression: the directory stores phones in E.164 (a leading '+'), but the
+-- JWT's `phone` claim arrives WITHOUT it. A follower written straight from the
+-- JWT could never join back to its own usernames row, so the FOLLOWING count
+-- stayed 0. Carol's directory phone carries the '+'; her JWT does not.
+reset role;
+insert into public.usernames (phone, username, name)
+  values ('+15550004444','carol_dir','Carol') on conflict (phone) do nothing;
+set role authenticated;
+select pg_temp.as_user('15550004444'); -- JWT: digits only, no '+'
+select public.public_follow('bob_dir');
+do $$
+declare fg bigint;
+begin
+  select following into fg from public.public_follow_counts('carol_dir');
+  if fg <> 1 then
+    raise exception 'CHECK FAILED: E.164 follower not counted (following=%)', fg;
+  end if;
+  if (select username from public.public_following('carol_dir') limit 1)
+      is distinct from 'bob_dir' then
+    raise exception 'CHECK FAILED: E.164 follower missing from the window';
+  end if;
+  raise notice '  ok   a follower whose directory phone has a +'' still counts';
+end $$;
+-- Unfollow canonicalises the same way; this also restores bob to one follower
+-- for the rename check below.
+select public.public_unfollow('bob_dir');
+do $$
+declare fg bigint;
+begin
+  select following into fg from public.public_follow_counts('carol_dir');
+  if fg <> 0 then
+    raise exception 'CHECK FAILED: E.164 unfollow did not remove the edge (following=%)', fg;
+  end if;
+  raise notice '  ok   an E.164 follower can unfollow too';
+end $$;
+-- Restore the caller to alice for the checks that follow.
+select pg_temp.as_user('15550001111');
 -- A rename survives: the edge is phones underneath.
 reset role;
 update public.usernames set username = 'bob_renamed'
