@@ -35235,6 +35235,7 @@ void main() {
         'msg', 'receipt', 'edit', 'delete', 'reaction', 'poll', 'payst',
         'form', 'vopen', 'gupd', 'callmiss', 'call', 'skdm', 'skreq',
         'fbreq', 'key', 'typing', 'presence', 'shot', 'cap', 'gshot', //
+        'status',
       ]) {
         expect(dispatcher.contains("'$event'"), isTrue,
             reason: 'sealed $event would be silently dropped');
@@ -35247,6 +35248,49 @@ void main() {
           greaterThanOrEqualTo(5),
           reason: 'send funnels: msg, inbox events, pings, and both '
               'call-signaling sites');
+    });
+
+    test('a friend\'s story arrives over the relay and lands in the store',
+        () {
+      StatusStore.instance.resetForTest();
+      addTearDown(StatusStore.instance.resetForTest);
+
+      // A fresh story from a peer folds into the store as an "other" thread,
+      // keyed by the sender's digits so the map can light its ring.
+      RelayService.instance.applyStatus({
+        'from': '+1 555 0177',
+        'id': 'st_peer_1',
+        'name': 'Alice Bennett',
+        'ac': '#E57373',
+        'text': 'On the ferry ⛴️',
+        'bg': '#0BA5EC',
+        't': DateTime.now().toIso8601String(),
+      }, myPhone: '+1 555 0100');
+      final threads = StatusStore.instance.otherThreads();
+      final mine = threads.where((t) => t.authorId == '15550177');
+      expect(mine, hasLength(1));
+      expect(mine.first.updates.single.text, 'On the ferry ⛴️');
+
+      // My own echo is dropped, and so is one already past its 24h window.
+      RelayService.instance.applyStatus({
+        'from': '+1 555 0100',
+        'id': 'st_self',
+        'text': 'my own',
+        't': DateTime.now().toIso8601String(),
+      }, myPhone: '+1 555 0100');
+      RelayService.instance.applyStatus({
+        'from': '+1 555 0177',
+        'id': 'st_old',
+        'text': 'yesterday',
+        't': DateTime.now()
+            .subtract(const Duration(hours: 25))
+            .toIso8601String(),
+      }, myPhone: '+1 555 0100');
+      final after = StatusStore.instance.otherThreads();
+      expect(after.expand((t) => t.updates).map((u) => u.id),
+          isNot(contains('st_self')));
+      expect(after.expand((t) => t.updates).map((u) => u.id),
+          isNot(contains('st_old')));
     });
 
     testWidgets('the transparency page tells the hard parts too',

@@ -77,7 +77,10 @@ class StatusStore extends ChangeNotifier {
   }
 
   /// Posts a new status for the current user and persists it.
-  void post({
+  /// Posts one of the current user's stories. Returns the created update so the
+  /// caller can broadcast it to friends over the relay (this store stays pure —
+  /// it never touches the network itself).
+  StatusUpdate? post({
     required String text,
     required String bgColor,
     required String authorName,
@@ -85,8 +88,8 @@ class StatusStore extends ChangeNotifier {
     String myId = 'me',
     DateTime? now,
   }) {
-    if (text.trim().isEmpty) return;
-    _all.add(StatusUpdate(
+    if (text.trim().isEmpty) return null;
+    final update = StatusUpdate(
       id: 'st_${(now ?? DateTime.now()).microsecondsSinceEpoch}',
       authorId: myId,
       authorName: authorName,
@@ -94,8 +97,21 @@ class StatusStore extends ChangeNotifier {
       text: text.trim(),
       bgColor: bgColor,
       time: now ?? DateTime.now(),
-    ));
+    );
+    _all.add(update);
     _persistMine();
+    notifyListeners();
+    return update;
+  }
+
+  /// Folds in a story that arrived from a friend over the relay. Ignored if
+  /// it's my own echo or a duplicate id; kept in memory (not persisted — only
+  /// my own stories persist) and swept by the same 24-hour active window.
+  void addRemote(StatusUpdate update, {String myId = 'me'}) {
+    if (update.authorId == myId) return;
+    if (update.text.trim().isEmpty) return;
+    if (_all.any((u) => u.id == update.id)) return;
+    _all.add(update);
     notifyListeners();
   }
 

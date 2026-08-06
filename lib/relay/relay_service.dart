@@ -19,12 +19,14 @@ import '../crypto/sender_key.dart';
 import '../models/chat.dart';
 import '../models/community.dart';
 import '../models/message.dart';
+import '../models/status_update.dart';
 import '../models/user.dart';
 import '../state/call_service.dart';
 import '../state/chat_store.dart';
 import '../state/community_store.dart';
 import '../state/push_service.dart';
 import '../state/feed_store.dart';
+import '../state/status_store.dart';
 import '../state/file_transfer.dart';
 import '../state/live_location_store.dart';
 import '../state/score_store.dart';
@@ -1010,6 +1012,8 @@ class RelayService {
         if (from == null || digits(from) == digits(me)) return;
         ghostShotFromDigits = digits(from);
         ghostShotPing.value++;
+      case 'status':
+        applyStatus(payload, myPhone: me);
     }
   }
 
@@ -1313,6 +1317,15 @@ class RelayService {
             if (parsed == null || parsed.fromDigits == digits(me)) return;
             LiveLocationStore.instance
                 .update(parsed.fromDigits, parsed.lat, parsed.lng);
+          },
+        )
+        .onBroadcast(
+          // A friend's story, live. (Sealed ones arrive as 'sealed' and route
+          // through applyInboxEvent's 'status' case; this is the legacy path.)
+          event: 'status',
+          callback: (rawEnvelope) {
+            final payload = unwrapBroadcast(rawEnvelope);
+            applyStatus(Map<String, dynamic>.from(payload), myPhone: me);
           },
         )
         .onBroadcast(
@@ -3058,6 +3071,56 @@ class RelayService {
       event: 'loc',
       payload: {'from': me.phone, 'lat': lat, 'lng': lng},
     );
+  }
+
+  /// Broadcasts one of my stories to my friends (1:1 contacts). Rides the
+  /// sealed inbox-event rails, so it delivers live AND through the offline
+  /// mailbox — a friend who was away still gets it while it's within its
+  /// 24-hour window. The story text is E2E-sealed to each recipient like any
+  /// other content.
+  Future<void> sendStatus(StatusUpdate update) async {
+    if (!_initialized) return;
+    final me = Session.instance.user.value;
+    if (me == null) return;
+    final payload = <String, dynamic>{
+      'from': me.phone,
+      'id': update.id,
+      'name': me.name,
+      'ac': update.avatarColor,
+      'text': update.text,
+      'bg': update.bgColor,
+      't': update.time.toIso8601String(),
+    };
+    final seen = <String>{};
+    for (final chat in ChatStore.instance.chats) {
+      final u = chat.contact;
+      if (u.isGroup) continue;
+      final d = digits(u.phone);
+      if (d.isEmpty || d == digits(me.phone) || !seen.add(d)) continue;
+      unawaited(_sendInboxEvent(u.phone, 'status', payload));
+    }
+  }
+
+  /// Folds a story that arrived from a friend into the [StatusStore], dropping
+  /// my own echo and anything already past the 24-hour active window.
+  void applyStatus(Map<String, dynamic> payload, {required String myPhone}) {
+    final from = payload['from'] as String?;
+    if (from == null || digits(from) == digits(myPhone)) return;
+    final text = (payload['text'] as String? ?? '').trim();
+    if (text.isEmpty) return;
+    final time =
+        DateTime.tryParse(payload['t'] as String? ?? '') ?? DateTime.now();
+    if (DateTime.now().difference(time).inHours >= 24) return;
+    StatusStore.instance.addRemote(StatusUpdate(
+      id: (payload['id'] as String?) ??
+          'st_${digits(from)}_${time.microsecondsSinceEpoch}',
+      authorId: digits(from),
+      authorName: (payload['name'] as String? ?? '').trim(),
+      avatarColor: payload['ac'] as String? ?? '#7A5CFF',
+      text: text,
+      bgColor: payload['bg'] as String? ?? '#7A5CFF',
+      time: time,
+    ));
   }
 
   /// Sends a lightweight "typing" ping to [contactPhone]'s inbox.

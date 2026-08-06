@@ -209,12 +209,14 @@ class _StatusComposerScreenState extends State<StatusComposerScreen> {
   void _post() {
     if (_controller.text.trim().isEmpty) return;
     final me = AppState.profile.value;
-    StatusStore.instance.post(
+    final update = StatusStore.instance.post(
       text: _controller.text,
       bgColor: _bg,
       authorName: me.name,
       avatarColor: me.avatarColor,
     );
+    // Send it to friends so it actually appears on their feed and Snap Map.
+    if (update != null) RelayService.instance.sendStatus(update);
     Navigator.of(context).pop();
   }
 
