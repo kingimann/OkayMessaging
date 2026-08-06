@@ -1,6 +1,7 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../state/ai_assistant.dart';
 import '../state/ai_attachment.dart';
@@ -9,6 +10,7 @@ import '../state/ai_memory.dart';
 import '../state/ai_pass_store.dart';
 import '../theme/app_theme.dart';
 import '../util/file_moderation.dart';
+import '../util/mini_markdown.dart';
 import '../util/photo_prep.dart';
 import '../widgets/app_dialogs.dart';
 
@@ -602,6 +604,112 @@ class _PendingChip extends StatelessWidget {
   }
 }
 
+/// Renders an assistant reply as light Markdown: paragraphs with inline **bold**
+/// and `code`, and fenced code blocks as monospaced, copyable panels.
+class _RichReply extends StatelessWidget {
+  final String text;
+  const _RichReply({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final blocks = MiniMarkdown.blocks(text);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (var i = 0; i < blocks.length; i++) ...[
+          if (i > 0) const SizedBox(height: 8),
+          if (blocks[i].isCode)
+            _CodeBlock(code: blocks[i].text, language: blocks[i].language)
+          else
+            SelectableText.rich(
+              TextSpan(
+                children: [
+                  for (final s in MiniMarkdown.inline(blocks[i].text))
+                    TextSpan(
+                      text: s.text,
+                      style: TextStyle(
+                        fontWeight: s.bold ? FontWeight.w700 : null,
+                        fontFamily: s.code ? 'monospace' : null,
+                        backgroundColor:
+                            s.code ? scheme.surface : null,
+                      ),
+                    ),
+                ],
+              ),
+              style: TextStyle(
+                  fontSize: 15, height: 1.35, color: scheme.onSurface),
+            ),
+        ],
+      ],
+    );
+  }
+}
+
+/// A fenced code block: monospaced, horizontally scrollable, with a copy button
+/// — the thing that makes coding answers actually usable.
+class _CodeBlock extends StatelessWidget {
+  final String code;
+  final String language;
+  const _CodeBlock({required this.code, required this.language});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      margin: const EdgeInsets.only(top: 2),
+      decoration: BoxDecoration(
+        color: scheme.surface,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: scheme.outlineVariant),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  language.isEmpty ? 'code' : language,
+                  style: TextStyle(
+                      fontSize: 11.5,
+                      color: scheme.onSurfaceVariant,
+                      fontWeight: FontWeight.w600),
+                ),
+              ),
+              TextButton.icon(
+                onPressed: () {
+                  Clipboard.setData(ClipboardData(text: code));
+                  ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Code copied')));
+                },
+                icon: const Icon(Icons.copy, size: 15),
+                label: const Text('Copy'),
+                style: TextButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                    padding: const EdgeInsets.symmetric(horizontal: 8)),
+              ),
+            ],
+          ),
+          Divider(height: 1, color: scheme.outlineVariant),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+            child: SelectableText(
+              code,
+              style: const TextStyle(
+                  fontFamily: 'monospace', fontSize: 13, height: 1.4),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 /// An attachment as it appears inside a sent bubble: a thumbnail for an image,
 /// a small file chip for a text file.
 class _AttachmentTile extends StatelessWidget {
@@ -684,13 +792,15 @@ class _Bubble extends StatelessWidget {
                 color: mine ? scheme.primary : scheme.surfaceContainerHighest,
                 borderRadius: BorderRadius.circular(16),
               ),
-              child: SelectableText(
-                turn.text,
-                style: TextStyle(
-                    fontSize: 15,
-                    height: 1.35,
-                    color: mine ? Colors.white : scheme.onSurface),
-              ),
+              // The user's own words are plain; an assistant reply is rendered
+              // as light Markdown so code and emphasis read the way it meant.
+              child: mine
+                  ? SelectableText(
+                      turn.text,
+                      style: const TextStyle(
+                          fontSize: 15, height: 1.35, color: Colors.white),
+                    )
+                  : _RichReply(text: turn.text),
             ),
           ),
         // 👍/👎 on an assistant reply — the curation signal for training.

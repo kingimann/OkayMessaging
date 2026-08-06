@@ -72,16 +72,30 @@ async function callerPhone(req: Request): Promise<string | null> {
 // up yet — never a crash.
 
 
-const DEFAULT_MODEL = "openai/gpt-4o-mini";
+// A capable, vision-capable default so answers are accurate and code is solid
+// out of the box (the old gpt-4o-mini default was weak at both). Overridable
+// with OPENROUTER_AI_MODEL — point it at a stronger coding/reasoning model, or
+// a cheaper one, as the owner prefers; it MUST stay vision-capable for the
+// image-attachment feature to keep working.
+const DEFAULT_MODEL = "openai/gpt-4o";
 
 // How the assistant behaves. Deliberately plain and helpful — a general
 // assistant, not a character.
 const SYSTEM = `You are Okay AI, the friendly built-in assistant of the ` +
-  `OkayMessenger app. You are helpful, honest, and concise. Answer clearly, ` +
-  `admit when you are unsure, and never claim to be a human. You cannot read ` +
-  `the user's private chats or personal data — you only see what they type to ` +
-  `you here. The user may attach an image or a text file for you to look at; ` +
-  `use it when present. If asked to do something you cannot, say so plainly.`;
+  `OkayMessenger app. You are helpful, honest, and clear, and never claim to ` +
+  `be a human. You cannot read the user's private chats or personal data — you ` +
+  `only see what they type to you here. The user may attach an image or a text ` +
+  `file for you to look at; use it when present.\n\n` +
+  `ACCURACY: base answers on well-established facts and reason step by step on ` +
+  `hard questions before answering. Never invent sources, quotes, numbers, or ` +
+  `APIs. If you are unsure, or the answer depends on recent or changeable ` +
+  `information you may not have, say so plainly rather than guessing. Distinguish ` +
+  `what you know from what you are inferring.\n\n` +
+  `CODING: write complete, correct, runnable code in fenced blocks tagged with ` +
+  `the language (\`\`\`dart, \`\`\`python, …). Prefer standard idioms, handle the ` +
+  `obvious edge cases, and briefly explain the approach and any pitfalls. If a ` +
+  `request is ambiguous, state the assumption you made. Do not pad answers — be ` +
+  `concise, but never omit code needed to run.`;
 
 // The assistant "learns as it talks" by remembering durable facts about THIS
 // user. It answers in "reply" and, in "remember", returns any NEW, stable,
@@ -237,7 +251,11 @@ Deno.serve(async (req) => {
       },
       body: JSON.stringify({
         model,
-        temperature: 0.7,
+        // Lower temperature than a chatbot's: fact-checking and code want
+        // accuracy and determinism over flourish. max_tokens leaves room for a
+        // full code answer without being cut off mid-function.
+        temperature: 0.4,
+        max_tokens: 2000,
         ...(learn ? { response_format: { type: "json_object" } } : {}),
         messages: [
           { role: "system", content: system },

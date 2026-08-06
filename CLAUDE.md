@@ -647,6 +647,18 @@ compliant shape of "help me reply": the encrypted thread is never read, so no
 chat content reaches the model. A test pins that `draft()` sends the
 instruction and not the conversation.
 
+**Smarter answers + readable code (2026-08-06).** The default model is
+`openai/gpt-4o` (was `gpt-4o-mini` — weak at fact-checking and coding), kept
+vision-capable so attachments still work; `OPENROUTER_AI_MODEL` overrides. The
+system prompt now pushes accuracy (reason step by step, never fabricate
+sources/APIs, say when unsure) and quality coding (complete runnable code in
+tagged fences, state assumptions); `temperature` dropped to 0.4 and
+`max_tokens` 2000 so a code answer isn't cut off. Replies render as light
+Markdown (`lib/util/mini_markdown.dart`, pure/tested — `MiniMarkdown.blocks`
+splits fenced code, `.inline` does **bold**/`code`): assistant bubbles show
+code in a monospaced, horizontally-scrolling panel with a Copy button, an
+unclosed fence still reads as code. User bubbles stay plain.
+
 **Photos and files (2026-08-06).** The assistant composer's + button attaches
 an IMAGE or a TEXT FILE (`AiAttachment.prepare`, `lib/state/ai_attachment.dart`,
 pure/testable): an image is run through `PhotoPrep` to a vision-sized

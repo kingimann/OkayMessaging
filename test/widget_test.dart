@@ -205,6 +205,7 @@ import 'package:okay_messaging/widgets/app_dialogs.dart';
 import 'package:image/image.dart' as img;
 import 'package:okay_messaging/state/live_location_broadcaster.dart';
 import 'package:okay_messaging/util/file_moderation.dart';
+import 'package:okay_messaging/util/mini_markdown.dart';
 import 'package:okay_messaging/util/photo_prep.dart';
 import 'package:okay_messaging/widgets/chat_photo.dart';
 import 'package:okay_messaging/widgets/chat_input_bar.dart';
@@ -2189,6 +2190,32 @@ void main() {
       expect(find.text('Nice red square.'), findsOneWidget);
       final content = seen!.last['content'] as List;
       expect(content.any((p) => p['type'] == 'image_url'), isTrue);
+    });
+
+    test('a reply with a fenced code block splits into text + code', () {
+      final blocks = MiniMarkdown.blocks(
+          'Here is how:\n```dart\nvoid main() {}\n```\nDone.');
+      expect(blocks.length, 3);
+      expect(blocks[0].isCode, isFalse);
+      expect(blocks[0].text, 'Here is how:');
+      expect(blocks[1].isCode, isTrue);
+      expect(blocks[1].language, 'dart');
+      expect(blocks[1].text, 'void main() {}');
+      expect(blocks[2].text, 'Done.');
+    });
+
+    test('an unclosed code fence still renders as code, not prose', () {
+      final blocks = MiniMarkdown.blocks('```\nlet x = 1\nlet y = 2');
+      expect(blocks.single.isCode, isTrue);
+      expect(blocks.single.text, 'let x = 1\nlet y = 2');
+    });
+
+    test('inline bold and code are parsed; stray markers stay literal', () {
+      final spans = MiniMarkdown.inline('Use **await** and `Future` here');
+      expect(spans.firstWhere((s) => s.bold).text, 'await');
+      expect(spans.firstWhere((s) => s.code).text, 'Future');
+      final literal = MiniMarkdown.inline('2 ** 3 is not bold');
+      expect(literal.any((s) => s.bold), isFalse);
     });
   });
 
