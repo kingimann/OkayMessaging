@@ -8,11 +8,13 @@ import '../state/ai_attachment.dart';
 import '../state/ai_consent.dart';
 import '../state/ai_memory.dart';
 import '../state/ai_pass_store.dart';
+import '../state/session.dart';
 import '../theme/app_theme.dart';
 import '../util/file_moderation.dart';
 import '../util/mini_markdown.dart';
 import '../util/photo_prep.dart';
 import '../widgets/app_dialogs.dart';
+import '../widgets/phone_gate.dart';
 
 /// The built-in AI assistant chat — "Okay AI", a general-purpose helper in the
 /// shape of Grok or Claude. A dedicated surface, deliberately separate from the
@@ -324,6 +326,18 @@ class _AiChatScreenState extends State<AiChatScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // A name-only (numberless) account can't use Okay AI: it has no server
+    // session, so nothing holds it to the usage limits, and the assistant is a
+    // paid, abuse-prone surface. Add a number to unlock it.
+    if (Session.instance.isNumberless) {
+      return const PhoneGate(
+        title: 'Okay AI',
+        reason: 'The assistant runs on a server, and an account with no phone '
+            'number can\'t be held to its usage limits. Add a number to chat '
+            'with Okay AI.',
+        child: SizedBox.shrink(),
+      );
+    }
     final scheme = Theme.of(context).colorScheme;
     return Scaffold(
       appBar: AppBar(

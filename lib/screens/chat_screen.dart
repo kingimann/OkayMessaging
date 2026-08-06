@@ -2868,6 +2868,13 @@ class _ChatScreenState extends State<ChatScreen> {
   /// model — so an encrypted chat's contents never leave the device, and the
   /// draft is inserted, never auto-sent.
   Future<void> _handleAiDraft() async {
+    // Okay AI is off for name-only accounts (no session to meter it), so the
+    // in-chat draft is too — same rule as the assistant screen.
+    if (Session.instance.isNumberless) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Okay AI needs a phone number. Add one to use it.')));
+      return;
+    }
     final instruction = await showAppTextPrompt(
       context,
       icon: Icons.auto_awesome,

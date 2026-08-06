@@ -2104,6 +2104,23 @@ void main() {
       expect(find.text('The answer is 42.'), findsOneWidget);
     });
 
+    testWidgets('a name-only account cannot use Okay AI', (tester) async {
+      // A minted account code stands in for the phone — that IS a numberless
+      // account. signInForTest is in-memory only, so it leaves no state behind.
+      Session.instance.signInForTest(
+          phone: AccountCode.mint(), name: 'Ada', username: 'ada');
+      addTearDown(() {
+        Session.instance.resetForTest();
+        AppState.resetForTest();
+      });
+      expect(Session.instance.isNumberless, isTrue);
+      await tester.pumpWidget(const MaterialApp(home: AiChatScreen()));
+      await tester.pumpAndSettle();
+      // The phone gate stands in front, and there is no composer to type into.
+      expect(find.text('Okay AI needs a phone number'), findsOneWidget);
+      expect(find.byType(TextField), findsNothing);
+    });
+
     test('Okay AI leads the default sidebar order', () {
       expect(SidebarPrefs.defaultOrder.first, 'okayai');
       final (icon, name) = SidebarCustomizeScreen.metaFor('okayai');
