@@ -13,7 +13,9 @@ import '../models/message.dart';
 import '../relay/relay_config.dart';
 import '../relay/relay_service.dart';
 import '../state/community_store.dart';
+import '../state/community_sub_store.dart';
 import '../state/voice_media.dart';
+import 'subscribe_sheet.dart' show tierForCents;
 import '../payments/payment_amount_sheet.dart';
 import '../theme/app_theme.dart';
 import '../utils/date_formatter.dart';
@@ -984,6 +986,73 @@ class _ServerInviteContent extends StatelessWidget {
     );
   }
 
+  /// A paid server: buy (or renew) a month of membership, then join. Runs the
+  /// consumable IAP through CommunitySubStore; test mode simulates it. A store
+  /// failure joins nothing.
+  Future<void> _subscribeAndJoin(
+      BuildContext context, Map<String, dynamic> snapshot) async {
+    final id = snapshot['id'] as String? ?? '';
+    final cents = (snapshot['priceCents'] as num?)?.toInt() ?? 0;
+    final name = snapshot['name'] as String? ?? 'this server';
+    final pitch = (snapshot['subPitch'] as String? ?? '').trim();
+    if (id.isEmpty || cents <= 0) return;
+    final messenger = ScaffoldMessenger.of(context);
+    final go = await showModalBottomSheet<bool>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Icon(Icons.workspace_premium,
+                  size: 36, color: Theme.of(sheetContext).colorScheme.primary),
+              const SizedBox(height: 8),
+              Text('Subscribe to $name',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                      fontSize: 18, fontWeight: FontWeight.w700)),
+              if (pitch.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text(pitch,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                        color: Theme.of(sheetContext)
+                            .colorScheme
+                            .onSurfaceVariant)),
+              ],
+              const SizedBox(height: 6),
+              Text('A monthly pass, billed through the App Store.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                      fontSize: 12,
+                      color:
+                          Theme.of(sheetContext).colorScheme.onSurfaceVariant)),
+              const SizedBox(height: 14),
+              FilledButton(
+                onPressed: () => Navigator.of(sheetContext).pop(true),
+                child: Text(
+                    'Subscribe · \$${(cents / 100).toStringAsFixed(2)}/mo'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (go != true || !context.mounted) return;
+    final result =
+        await CommunitySubStore.instance.subscribe(id, tierForCents(cents));
+    if (!context.mounted) return;
+    if (!result.ok) {
+      messenger.showSnackBar(const SnackBar(
+          content: Text('That didn\'t go through — nothing was charged.')));
+      return;
+    }
+    _join(context, snapshot);
+  }
+
   @override
   Widget build(BuildContext context) {
     final snapshot = _snapshot;
@@ -995,12 +1064,19 @@ class _ServerInviteContent extends StatelessWidget {
     final colorHex = snapshot['color'] as String? ?? '#7A5CFF';
     final color = Color(
         int.parse(colorHex.replaceFirst('#', 'ff'), radix: 16));
+    final paid = snapshot['paid'] as bool? ?? false;
+    final priceCents = (snapshot['priceCents'] as num?)?.toInt() ?? 0;
     return ListenableBuilder(
-      listenable: CommunityStore.instance,
+      listenable:
+          Listenable.merge([CommunityStore.instance, CommunitySubStore.instance]),
       builder: (context, _) {
-        final joined =
-            CommunityStore.instance.byId(snapshot['id'] as String? ?? '') !=
-                null;
+        final serverId = snapshot['id'] as String? ?? '';
+        final joined = CommunityStore.instance.byId(serverId) != null;
+        // A paid server needs an active membership pass before the join opens.
+        final needsPass = paid &&
+            priceCents > 0 &&
+            !message.isMe &&
+            !CommunitySubStore.instance.active(serverId);
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
@@ -1025,7 +1101,10 @@ class _ServerInviteContent extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Text('Server invite',
+                      Text(
+                          paid && priceCents > 0
+                              ? 'Paid server · \$${(priceCents / 100).toStringAsFixed(2)}/mo'
+                              : 'Server invite',
                           style:
                               TextStyle(fontSize: 11.5, color: metaColor)),
                       Text(name,
@@ -1052,6 +1131,15 @@ class _ServerInviteContent extends StatelessWidget {
                   const SizedBox(width: 5),
                   Text('Joined', style: TextStyle(color: metaColor)),
                 ],
+              )
+            else if (needsPass)
+              FilledButton.tonal(
+                style: FilledButton.styleFrom(
+                  visualDensity: VisualDensity.compact,
+                ),
+                onPressed: () => _subscribeAndJoin(context, snapshot),
+                child: Text(
+                    'Subscribe · \$${(priceCents / 100).toStringAsFixed(2)}/mo'),
               )
             else
               FilledButton.tonal(

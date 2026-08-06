@@ -589,6 +589,35 @@ community model, propagated over the sealed community bus like every other
 structural update. `CustomRole.fromJson` reads an unknown/`owner` tier as the
 harmless member floor, so a newer build can't smuggle power onto an older one.
 
+## Paid servers (2026-08-06)
+
+The membership twin of creator subscriptions. A server owner/admin turns on
+**Paid membership** in Server settings (`setPaidMembership`, a fixed monthly
+tier from `AppUser.subscriptionTiersCents`) → `Community.paid`/`priceCents`/
+`subPitch`, which ride the structure sync and the invite snapshot
+(`exportInvite`) so a recipient sees the price before joining. The invite card
+(`_ServerInviteContent`) then shows **Subscribe · $X/mo** instead of Join;
+tapping runs a consumable IAP through `CommunitySubStore` (per-server 30-day
+pass, modelled on `CreatorSubStore`) and joins on success. Test mode simulates
+the buy. Reuses the four price tiers as a SEPARATE SKU family
+(`StorePurchases.communitySubProductId` → `communitysub.tierN.monthly`).
+
+**Access-control at the JOIN, not sealing — and honest about where the line
+is.** A paid server's traffic is already E2E sealed under its `secret`, so the
+paywall gates getting IN. The MVP is CLIENT-enforced at the join button and the
+sealed invite still carries the secret, so a modified client isn't stopped by
+it — stated plainly in `community_sub_store.dart`. The receipt-verified
+hardening (`community-subscribe` verifies the Apple JWS and writes
+`community_passes`; the owner's device then releases the secret to a
+verified-paid joiner, sealed to them, like a Bluetooth-findable server answers
+a stranger) is the follow-up; content sealing is unchanged either way. A member
+who lapses keeps the secret they hold, like any departed member, until the
+owner rotates the key.
+
+**Needs the user's own action to go live:** run `docs/paid_servers.sql`, paste
+`community-subscribe`, and create the `com.okaymessaging.communitysub.tierN.
+monthly` consumable IAP products. Until then it runs test/simulation only.
+
 ## On-device translation (2026-08-06)
 
 `TranslateService` (`lib/state/translate_service.dart`) + `okay/translate` →

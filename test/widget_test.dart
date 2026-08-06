@@ -44,6 +44,7 @@ import 'package:okay_messaging/util/account_code.dart';
 import 'package:okay_messaging/util/phone_format.dart';
 import 'package:okay_messaging/util/voip_numbers.dart';
 import 'package:okay_messaging/state/translate_service.dart';
+import 'package:okay_messaging/state/community_sub_store.dart';
 import 'package:okay_messaging/legal/legal_content.dart';
 import 'package:okay_messaging/models/call.dart' as callmodel;
 import 'package:okay_messaging/screens/notes_screen.dart';
@@ -1886,6 +1887,117 @@ void main() {
       expect(store.byId(c.id)!.roles.single.name, 'Helper');
       expect(store.byId(c.id)!.roles.single.tier, MemberRole.moderator);
       expect(find.text('Helper'), findsOneWidget);
+    });
+  });
+
+  group('Paid servers', () {
+    setUp(() {
+      CommunityStore.instance.resetForTest();
+      CommunitySubStore.instance.resetForTest();
+      SharedPreferences.setMockInitialValues({});
+    });
+    tearDown(() => CommunitySubStore.instance.resetForTest());
+
+    test('paid membership: on needs a price, off clears everything, syncs',
+        () {
+      final store = CommunityStore.instance;
+      final c = store.createCommunity('Studio'); // me = owner
+      // A price of 0 can't be "paid".
+      store.setPaidMembership(c.id, paid: true, priceCents: 0);
+      expect(store.byId(c.id)!.paid, isFalse);
+      // A real price turns it on and rides the JSON round trip.
+      store.setPaidMembership(c.id,
+          paid: true, priceCents: 500, pitch: 'Members-only channels');
+      final on = store.byId(c.id)!;
+      expect(on.paid, isTrue);
+      expect(on.priceCents, 500);
+      expect(on.subPitch, 'Members-only channels');
+      final revived = Community.fromJson(on.toJson());
+      expect(revived.paid, isTrue);
+      expect(revived.priceCents, 500);
+      // A build from before the feature reads as free.
+      final old = Community.fromJson(on.toJson()..remove('paid'));
+      expect(old.paid, isFalse);
+      // Turning it off clears the price and pitch.
+      store.setPaidMembership(c.id, paid: false);
+      final off = store.byId(c.id)!;
+      expect(off.paid, isFalse);
+      expect(off.priceCents, 0);
+      expect(off.subPitch, '');
+    });
+
+    test('the invite carries the price so a recipient sees it before joining',
+        () {
+      final store = CommunityStore.instance;
+      final c = store.createCommunity('Studio');
+      store.setPaidMembership(c.id,
+          paid: true, priceCents: 1000, pitch: 'Come in');
+      final invite =
+          store.exportInvite(c.id, myDigits: '15551234567', myName: 'Ada')!;
+      expect(invite['paid'], true);
+      expect(invite['priceCents'], 1000);
+      expect(invite['subPitch'], 'Come in');
+    });
+
+    test('a membership pass is a per-server 30-day pass that stacks', () async {
+      final subs = CommunitySubStore.instance;
+      expect(subs.active('srv1'), isFalse);
+      await subs.debugSubscribe('srv1');
+      expect(subs.active('srv1'), isTrue);
+      expect(subs.active('srv2'), isFalse, reason: 'passes are per server');
+      expect(subs.daysLeft('srv1'), inInclusiveRange(29, 30));
+      // The server's verdict can clear a pass it denies.
+      await subs.applyServer('srv1', active: false);
+      expect(subs.active('srv1'), isFalse);
+    });
+
+    testWidgets('a paid invite asks to subscribe, then joins on a test buy',
+        (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      Session.instance.signInForTest();
+      addTearDown(Session.instance.resetForTest);
+      addTearDown(AppState.resetForTest);
+      addTearDown(() => PaymentService.instance.setTestMode(false));
+      // Test mode simulates the purchase without charging.
+      PaymentService.instance.setTestMode(true);
+
+      final invite = {
+        'v': 1,
+        'id': 'srv_paid',
+        'name': 'The Studio',
+        'color': '#17708A',
+        'secret': base64Encode(List<int>.filled(32, 7)),
+        'paid': true,
+        'priceCents': 500,
+        'subPitch': 'Members-only',
+        'channels': const [],
+        'members': const [],
+      };
+      final msg = Message(
+        id: 'm_invite',
+        text: '',
+        time: DateTime(2026),
+        isMe: false,
+        serverInvite: jsonEncode(invite),
+      );
+      await tester.pumpWidget(MaterialApp(
+          home: Scaffold(body: MessageBubble(message: msg))));
+      await tester.pumpAndSettle();
+
+      // The card offers to subscribe, not to join for free.
+      expect(find.textContaining('Subscribe · \$5.00/mo'), findsOneWidget);
+      expect(CommunityStore.instance.byId('srv_paid'), isNull);
+
+      await tester.tap(find.textContaining('Subscribe · \$5.00/mo').first);
+      await tester.pumpAndSettle();
+      // Confirm on the sheet — its button is the one that appeared on top.
+      await tester.tap(
+          find.widgetWithText(FilledButton, 'Subscribe · \$5.00/mo').last);
+      await tester.pumpAndSettle(const Duration(seconds: 2));
+
+      expect(CommunitySubStore.instance.active('srv_paid'), isTrue);
+      expect(CommunityStore.instance.byId('srv_paid'), isNotNull,
+          reason: 'joined once the pass was bought');
     });
   });
 

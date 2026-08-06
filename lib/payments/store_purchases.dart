@@ -49,6 +49,27 @@ class StorePurchases {
     return AppleIap.buy(id, consumable: true);
   }
 
+  /// The IAP product for a month of a PAID SERVER's membership at [tier] — a
+  /// consumable, the same shape as a creator sub, so the same four price
+  /// levels map to four products. A separate SKU family from creatorsub so a
+  /// membership month and a creator month can't be confused for one another.
+  static String communitySubProductId(int tier) =>
+      (tier < 0 || tier >= 4) ? '' : '$_prefix.communitysub.tier$tier.monthly';
+
+  /// Buys one month of a paid server's membership at [tier]. Returns the store
+  /// result; granting the local pass is the caller's job (CommunitySubStore).
+  Future<PurchaseResult> buyCommunitySub(int tier) async {
+    final id = communitySubProductId(tier);
+    if (id.isEmpty) {
+      return const PurchaseResult(PurchaseOutcome.notOffered);
+    }
+    if (_testMode) {
+      await Future<void>.delayed(const Duration(milliseconds: 900));
+      return const PurchaseResult.bought('test-mode');
+    }
+    return AppleIap.buy(id, consumable: true);
+  }
+
   /// Fixed consumable tip products. Apple doesn't allow arbitrary amounts, so
   /// support is a small set of set prices.
   static const List<({int cents, String emoji, String label, String id})>

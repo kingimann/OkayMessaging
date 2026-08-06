@@ -544,6 +544,26 @@ class Community {
   /// Ids of members whose messages and posts are hidden for you.
   final List<String> mutedIds;
 
+  // --- Paid membership ---------------------------------------------------
+
+  /// Whether joining this server costs a monthly subscription. Off = a free
+  /// server, the default and what every existing server is.
+  ///
+  /// Unlike a paid PUBLIC post, this is not access-control over readable
+  /// content — a server's traffic is already E2E sealed under [secret], so the
+  /// paywall gates getting IN (receiving the invite and its secret), not
+  /// screening what's said. The honest limit that follows: a member who lapses
+  /// keeps the secret they were handed, like any departed member, until the
+  /// owner rotates the server key.
+  final bool paid;
+
+  /// The monthly price in cents when [paid]. Maps to one of the four IAP
+  /// membership tiers, same shape as a creator subscription.
+  final int priceCents;
+
+  /// A short free-text pitch shown on the subscribe sheet ('' = none).
+  final String subPitch;
+
   const Community({
     required this.id,
     required this.name,
@@ -563,6 +583,9 @@ class Community {
     this.bannedWords = const [],
     this.bannedMembers = const [],
     this.mutedIds = const [],
+    this.paid = false,
+    this.priceCents = 0,
+    this.subPitch = '',
   });
 
   /// Category headers in first-seen order, so channels render grouped.
@@ -625,6 +648,9 @@ class Community {
     List<String>? bannedWords,
     List<Member>? bannedMembers,
     List<String>? mutedIds,
+    bool? paid,
+    int? priceCents,
+    String? subPitch,
   }) =>
       Community(
         id: id,
@@ -646,6 +672,9 @@ class Community {
         bannedWords: bannedWords ?? this.bannedWords,
         bannedMembers: bannedMembers ?? this.bannedMembers,
         mutedIds: mutedIds ?? this.mutedIds,
+        paid: paid ?? this.paid,
+        priceCents: priceCents ?? this.priceCents,
+        subPitch: subPitch ?? this.subPitch,
       );
 
   Map<String, dynamic> toJson() => {
@@ -667,6 +696,11 @@ class Community {
         'bannedWords': bannedWords,
         'bannedMembers': bannedMembers.map((m) => m.toJson()).toList(),
         'mutedIds': mutedIds,
+        if (paid) ...{
+          'paid': true,
+          'priceCents': priceCents,
+          if (subPitch.isNotEmpty) 'subPitch': subPitch,
+        },
       };
 
   factory Community.fromJson(Map<String, dynamic> json) => Community(
@@ -700,5 +734,8 @@ class Community {
             .map((m) => Member.fromJson(Map<String, dynamic>.from(m as Map)))
             .toList(),
         mutedIds: (json['mutedIds'] as List?)?.cast<String>() ?? const [],
+        paid: json['paid'] as bool? ?? false,
+        priceCents: (json['priceCents'] as num?)?.toInt() ?? 0,
+        subPitch: json['subPitch'] as String? ?? '',
       );
 }

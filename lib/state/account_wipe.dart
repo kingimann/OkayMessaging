@@ -20,6 +20,7 @@ import 'chat_lock.dart';
 import 'chat_store.dart';
 import 'cloud_sync.dart';
 import 'community_store.dart';
+import 'community_sub_store.dart';
 import 'creator_sub_store.dart';
 import 'favourites_store.dart';
 import 'feed_drafts.dart';
@@ -137,6 +138,7 @@ class AccountWipe {
     StreakStore.instance.resetForTest();
     StorageStore.instance.resetForTest();
     CreatorSubStore.instance.resetForTest();
+    CommunitySubStore.instance.resetForTest();
     IdentityVerification.instance.resetForTest();
     AccountEmail.instance.resetForTest();
     BackupService.instance.resetForTest();

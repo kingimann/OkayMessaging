@@ -1185,6 +1185,22 @@ class CommunityStore extends ChangeNotifier {
     onStructureChanged?.call(communityId);
   }
 
+  /// Turns paid membership on or off for a server (owner/admin only). Off
+  /// clears the price and pitch so a free server carries none. A price of 0
+  /// can't be "paid" — that's a free server said the long way.
+  void setPaidMembership(String communityId,
+      {required bool paid, int priceCents = 0, String pitch = ''}) {
+    final community = byId(communityId);
+    if (community == null || !canManageServer(communityId)) return;
+    final on = paid && priceCents > 0;
+    _replace(community.copyWith(
+      paid: on,
+      priceCents: on ? priceCents : 0,
+      subPitch: on ? pitch.trim() : '',
+    ));
+    onStructureChanged?.call(communityId);
+  }
+
   /// Adds a word to the server's filter (deduplicated, case-insensitive).
   void addBannedWord(String communityId, String word) {
     final community = byId(communityId);
@@ -1505,6 +1521,13 @@ class CommunityStore extends ChangeNotifier {
       'membersCanMessage': community.membersCanMessage,
       'invitePolicy': community.invitePolicy,
       'bannedWords': community.bannedWords,
+      // Paid membership travels with the invite so the recipient sees the
+      // price before joining and the join button can gate on it.
+      if (community.paid) ...{
+        'paid': true,
+        'priceCents': community.priceCents,
+        if (community.subPitch.isNotEmpty) 'subPitch': community.subPitch,
+      },
     };
   }
 

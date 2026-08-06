@@ -3,6 +3,7 @@ import '../theme/app_theme.dart';
 import 'package:flutter/services.dart';
 
 import '../models/community.dart';
+import '../models/user.dart';
 import '../state/community_store.dart';
 import '../widgets/app_dialogs.dart';
 import '../widgets/info_section.dart';
@@ -198,6 +199,15 @@ class CommunitySettingsScreen extends StatelessWidget {
                   onTap: () => Navigator.of(context).push(MaterialPageRoute(
                       builder: (_) =>
                           CommunityRolesScreen(communityId: communityId))),
+                ),
+                InfoTile(
+                  leading: const Icon(Icons.paid_outlined),
+                  title: 'Paid membership',
+                  subtitle: community.paid
+                      ? 'Members pay '
+                          '\$${(community.priceCents / 100).toStringAsFixed(2)}/mo to join'
+                      : 'Off — anyone with an invite can join for free',
+                  onTap: () => _editPaidMembership(context, community),
                 ),
                 InfoTile(
                   leading: Icon(community.discoverableNearby
@@ -519,6 +529,78 @@ class CommunitySettingsScreen extends StatelessWidget {
     if (picked != null) {
       CommunityStore.instance.setInvitePolicy(communityId, picked);
     }
+  }
+
+  /// Turns paid membership on or off and sets the monthly price, from the same
+  /// fixed tiers a creator subscription uses. A price of nothing is "off".
+  Future<void> _editPaidMembership(
+      BuildContext context, Community community) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(20, 0, 20, 4),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text('Paid membership',
+                    style:
+                        TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                    'People pay a monthly pass to join. The server\'s traffic '
+                    'is end-to-end encrypted either way — this gates the join, '
+                    'not the reading.',
+                    style: TextStyle(
+                        fontSize: 12.5, color: AppColors.subtle(sheetContext))),
+              ),
+            ),
+            ListTile(
+              leading: Icon(
+                  !community.paid
+                      ? Icons.radio_button_checked
+                      : Icons.radio_button_off,
+                  color: !community.paid
+                      ? Theme.of(sheetContext).colorScheme.primary
+                      : Colors.grey),
+              title: const Text('Free to join'),
+              onTap: () {
+                CommunityStore.instance
+                    .setPaidMembership(communityId, paid: false);
+                Navigator.pop(sheetContext);
+              },
+            ),
+            for (final cents in AppUser.subscriptionTiersCents)
+              ListTile(
+                leading: Icon(
+                    community.paid && community.priceCents == cents
+                        ? Icons.radio_button_checked
+                        : Icons.radio_button_off,
+                    color: community.paid && community.priceCents == cents
+                        ? Theme.of(sheetContext).colorScheme.primary
+                        : Colors.grey),
+                title: Text('\$${(cents / 100).toStringAsFixed(2)} / month'),
+                onTap: () {
+                  CommunityStore.instance.setPaidMembership(communityId,
+                      paid: true,
+                      priceCents: cents,
+                      pitch: community.subPitch);
+                  Navigator.pop(sheetContext);
+                },
+              ),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _confirmLeave(BuildContext context, Community community) async {
