@@ -1939,6 +1939,29 @@ void main() {
       expect(AiAssistant.instance.turns, isEmpty);
     });
 
+    test('draft() sends only the instruction, never the conversation', () async {
+      // Seed a conversation so we can prove the draft ignores it.
+      AiAssistant.debugReplyOverride = (_) async => 'earlier reply';
+      await AiAssistant.instance.send('private thing i said');
+
+      List<Map<String, String>>? seen;
+      AiAssistant.debugReplyOverride = (messages) async {
+        seen = messages;
+        return 'Sure, I can\'t make it — thanks for the invite!';
+      };
+      final draft =
+          await AiAssistant.instance.draft('politely decline the invite');
+      expect(draft, contains('invite'));
+      // Exactly one message went to the model, and it was the instruction —
+      // the conversation ("private thing i said") is nowhere in it.
+      expect(seen!.length, 1);
+      expect(seen!.single['content'], contains('politely decline'));
+      expect(seen!.single['content'], isNot(contains('private thing i said')));
+      // The draft did not get appended to the assistant conversation.
+      expect(AiAssistant.instance.turns.map((t) => t.text),
+          isNot(contains('Sure, I can\'t make it — thanks for the invite!')));
+    });
+
     test('the assistant is walled off from human chats and encryption', () {
       final src = File('lib/state/ai_assistant.dart').readAsStringSync();
       // It talks to its own function and nothing else — no chat store, no

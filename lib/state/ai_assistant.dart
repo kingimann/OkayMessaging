@@ -138,6 +138,39 @@ class AiAssistant extends ChangeNotifier {
     return reply != null;
   }
 
+  /// A ONE-SHOT draft from an instruction, for the "write a message for me"
+  /// button in a chat. Sends ONLY [instruction] — never the conversation, so
+  /// no encrypted chat content reaches the model — and returns the drafted
+  /// text (or null on failure). Does not touch the assistant conversation.
+  Future<String?> draft(String instruction) async {
+    final t = instruction.trim();
+    if (t.isEmpty) return null;
+    final payload = [
+      {
+        'role': 'user',
+        'content':
+            'Write a short message I can send in a chat. Reply with ONLY the '
+                'message text, no preamble or quotes. What I want to say: $t',
+      }
+    ];
+    try {
+      final override = debugReplyOverride;
+      if (override != null) return await override(payload);
+      final client = _client;
+      if (client == null) return null;
+      final res =
+          await client.functions.invoke('ai-chat', body: {'messages': payload});
+      final data = res.data;
+      if (data is Map) {
+        final r = data['reply'];
+        if (r is String && r.trim().isNotEmpty) return r.trim();
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Clears the conversation (local only — nothing is stored server-side).
   Future<void> clear() async {
     _turns.clear();

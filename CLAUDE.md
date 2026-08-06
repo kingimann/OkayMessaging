@@ -639,6 +639,14 @@ wire it to any of those. Labeled "AI assistant · can make mistakes" so nobody
 mistakes it for a person. The conversation is account-scoped (wiped on account
 switch).
 
+**In-chat "AI draft"** (attachment panel): the user says what they want to say,
+`AiAssistant.draft(instruction)` sends ONLY that instruction (a one-shot, never
+the conversation, never appended to the assistant chat) to `ai-chat`, and the
+result drops into the composer draft — inserted, never auto-sent. This is the
+compliant shape of "help me reply": the encrypted thread is never read, so no
+chat content reaches the model. A test pins that `draft()` sends the
+instruction and not the conversation.
+
 **Needs the user's own action to answer:** set `OPENROUTER_API_KEY` (already
 there if the feed moderator runs) and paste the `ai-chat` function; optionally
 `OPENROUTER_AI_MODEL` for a smarter model than the classifier's. Cost is

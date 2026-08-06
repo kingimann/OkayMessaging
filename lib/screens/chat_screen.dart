@@ -1,5 +1,6 @@
 import '../state/smart_replies.dart';
 import '../state/translate_service.dart';
+import '../state/ai_assistant.dart';
 import 'quick_replies_screen.dart';
 import '../state/quick_replies.dart';
 import '../state/session.dart';
@@ -2861,6 +2862,35 @@ class _ChatScreenState extends State<ChatScreen> {
         _chatId, existing.isEmpty ? reply : '$existing $reply');
   }
 
+  /// "Write a message for me": the user says what they want to say, Okay AI
+  /// drafts it, and it drops into the composer to edit and send. It NEVER
+  /// reads the conversation — only the instruction the user types goes to the
+  /// model — so an encrypted chat's contents never leave the device, and the
+  /// draft is inserted, never auto-sent.
+  Future<void> _handleAiDraft() async {
+    final instruction = await showAppTextPrompt(
+      context,
+      icon: Icons.auto_awesome,
+      title: 'Write a message',
+      hint: 'What do you want to say? e.g. politely decline the invite',
+      maxLines: 3,
+      capitalization: TextCapitalization.sentences,
+    );
+    if (instruction == null || instruction.trim().isEmpty || !mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.showSnackBar(const SnackBar(
+        content: Text('Drafting…'), duration: Duration(milliseconds: 900)));
+    final draft = await AiAssistant.instance.draft(instruction);
+    if (!mounted) return;
+    if (draft == null) {
+      messenger.showSnackBar(const SnackBar(
+          content: Text('Couldn\'t draft that. Is the assistant set up?')));
+      return;
+    }
+    final existing = _store.draftFor(_chatId).trimRight();
+    _store.setDraft(_chatId, existing.isEmpty ? draft : '$existing $draft');
+  }
+
   /// Builds a form and sends it as a message.
   Future<void> _handleCreateForm() async {
     final result =
@@ -3079,6 +3109,11 @@ class _ChatScreenState extends State<ChatScreen> {
             label: 'Form',
             color: const Color(0xFF2E90FA),
             onTap: _handleCreateForm),
+        AttachmentOption(
+            icon: Icons.auto_awesome,
+            label: 'AI draft',
+            color: const Color(0xFF17708A),
+            onTap: _handleAiDraft),
       ];
 
   @override
