@@ -260,6 +260,40 @@ Future<void> tapInSettings(WidgetTester tester, Finder finder) async {
   await tester.pumpAndSettle();
 }
 
+/// Opens Settings the way the app does now that the profile left the bottom
+/// bar: through the drawer's Settings row (its gear used to be the You tab's).
+Future<void> openSettingsForTest(WidgetTester tester) async {
+  await tester.tap(find.byTooltip('Open navigation menu'));
+  await tester.pumpAndSettle();
+  final settings = find.text('Settings');
+  await tester.scrollUntilVisible(settings, 120,
+      scrollable: find.descendant(
+          of: find.byType(Drawer), matching: find.byType(Scrollable)));
+  await tester.pumpAndSettle();
+  await tester.tap(settings);
+  await tester.pumpAndSettle();
+}
+
+/// Opens the You/profile tab through the drawer's profile card — its bottom
+/// pill is gone, so the card at the top of the drawer is the way in.
+Future<void> openYouTabForTest(WidgetTester tester) async {
+  await tester.tap(find.byTooltip('Open navigation menu'));
+  await tester.pumpAndSettle();
+  await tester.tap(find
+      .descendant(of: find.byType(Drawer), matching: find.byType(InkWell))
+      .first);
+  await tester.pumpAndSettle();
+}
+
+/// Switches to the Servers tab through the drawer's Servers row — it left the
+/// bottom bar for the drawer, so this is the way in.
+Future<void> openServersTabForTest(WidgetTester tester) async {
+  await tester.tap(find.byTooltip('Open navigation menu'));
+  await tester.pumpAndSettle();
+  await tester.tap(find.text('Servers'));
+  await tester.pumpAndSettle();
+}
+
 
 void main() {
   // Singletons persist across tests; reset them so each starts clean. Most
@@ -311,8 +345,10 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Calls'), findsWidgets);
 
-    // The new "You" tab hosts settings.
-    expect(find.byIcon(Icons.person_outline), findsOneWidget);
+    // The profile is no longer a bottom pill; it opens from the drawer card,
+    // and the app bar then titles it "You".
+    await openYouTabForTest(tester);
+    expect(find.text('You'), findsWidgets);
   });
 
   testWidgets('At least one conversation is listed on the Chats tab',
@@ -540,8 +576,7 @@ void main() {
     await tester.pumpWidget(const OkayMessagingApp());
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byIcon(Icons.person_outline));
-    await tester.pumpAndSettle();
+    await openYouTabForTest(tester);
 
     // The edit button is gone; your own avatar is the door.
     await tester.tap(find.byType(CircleAvatar).first);
@@ -581,10 +616,7 @@ void main() {
     await tester.pumpWidget(const OkayMessagingApp());
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byIcon(Icons.person_outline));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('Settings'));
-    await tester.pumpAndSettle();
+    await openSettingsForTest(tester);
     // Settings gained two tiles above this one, so it is below the fold now.
     await tester.ensureVisible(find.text('Chats & appearance'));
     await tester.pumpAndSettle();
@@ -3662,9 +3694,8 @@ void main() {
     await tester.pumpWidget(const OkayMessagingApp());
     await tester.pumpAndSettle();
 
-    // Switch to the Servers tab (its pill shows the outline icon when idle).
-    await tester.tap(find.byIcon(Icons.groups_outlined));
-    await tester.pumpAndSettle();
+    // Servers moved off the bottom bar to the drawer; open it there.
+    await openServersTabForTest(tester);
     expect(find.text('Design Team'), findsOneWidget);
 
     await tester.tap(find.text('Design Team'));
@@ -4069,10 +4100,7 @@ void main() {
     await tester.pumpWidget(const OkayMessagingApp());
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byIcon(Icons.person_outline));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('Settings'));
-    await tester.pumpAndSettle();
+    await openSettingsForTest(tester);
     await tester.tap(find.text('Privacy & security'));
     await tester.pumpAndSettle();
 
@@ -4172,8 +4200,7 @@ void main() {
     await tester.pumpWidget(const OkayMessagingApp());
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byIcon(Icons.person_outline));
-    await tester.pumpAndSettle();
+    await openYouTabForTest(tester);
 
     await tester.tap(find.byIcon(Icons.qr_code));
     await tester.pumpAndSettle();
@@ -4187,10 +4214,7 @@ void main() {
     await tester.pumpWidget(const OkayMessagingApp());
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byIcon(Icons.person_outline));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('Settings'));
-    await tester.pumpAndSettle();
+    await openSettingsForTest(tester);
     await tester.tap(find.text('Privacy & security'));
     await tester.pumpAndSettle();
 
@@ -4211,10 +4235,7 @@ void main() {
     await tester.pumpWidget(const OkayMessagingApp());
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byIcon(Icons.person_outline));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('Settings'));
-    await tester.pumpAndSettle();
+    await openSettingsForTest(tester);
     await tester.tap(find.text('Privacy & security'));
     await tester.pumpAndSettle();
 
@@ -4274,10 +4295,7 @@ void main() {
     await tester.pumpWidget(const OkayMessagingApp());
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byIcon(Icons.person_outline));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('Settings'));
-    await tester.pumpAndSettle();
+    await openSettingsForTest(tester);
 
     // The hub shows grouped entry points into the sub-screens.
     expect(find.text('Privacy & security'), findsOneWidget);
@@ -4304,8 +4322,7 @@ void main() {
     await tester.pumpWidget(const OkayMessagingApp());
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byIcon(Icons.person_outline));
-    await tester.pumpAndSettle();
+    await openYouTabForTest(tester);
     await tester.tap(find.byType(CircleAvatar).first);
     await tester.pumpAndSettle();
 
@@ -4349,10 +4366,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(ChatStore.instance.chats, isNotEmpty);
 
-    await tester.tap(find.byIcon(Icons.person_outline));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('Settings'));
-    await tester.pumpAndSettle();
+    await openSettingsForTest(tester);
 
     final tile = find.text('Storage and data');
     await tester.scrollUntilVisible(tile, 120,
@@ -14752,6 +14766,25 @@ void main() {
           reason: 'still on the home screen, not a pushed copy');
     });
 
+    test('Servers and You left the bottom bar for the drawer', () {
+      final src = File('lib/screens/home_screen.dart').readAsStringSync();
+      final barStart = src.indexOf('class AppBottomNavBar');
+      final bar = src.substring(barStart, src.indexOf('class _AppSideBar'));
+      // The bar carries the three everyday destinations.
+      expect(bar.contains("label: 'Chats'"), isTrue);
+      expect(bar.contains("label: 'Calls'"), isTrue);
+      expect(bar.contains("label: 'Alerts'"), isTrue);
+      // And no longer the two that moved to the drawer.
+      expect(bar.contains("label: 'Servers'"), isFalse,
+          reason: 'Servers is a drawer row now, not a bottom pill');
+      expect(bar.contains("label: 'You'"), isFalse,
+          reason: 'the profile is the drawer card now, not a bottom pill');
+      // The drawer profile card switches to the profile tab (index 4), the
+      // same way the Servers row switches to its tab — so both stay reachable.
+      expect(src, contains('onSelectTab(4)'),
+          reason: 'the profile card must still reach the profile tab');
+    });
+
     test('screen share reports an honest error with no active call', () async {
       expect(await CallMedia.instance.toggleScreenShare(), isNotNull);
       expect(CallMedia.instance.screenSharing.value, isFalse);
@@ -20695,6 +20728,23 @@ void main() {
       expect(find.text('New post'), findsNothing);
     });
 
+    testWidgets('Newsfeed: compose is top-right and the app nav bar rides the '
+        'bottom', (t) async {
+      await t.pumpWidget(const MaterialApp(home: PublicFeedScreen()));
+      await t.pumpAndSettle();
+      // Compose left the floating button for the app bar's top-right.
+      expect(find.byType(FloatingActionButton), findsNothing,
+          reason: 'the New post button moved off the bottom');
+      expect(
+          find.descendant(
+              of: find.byType(AppBar),
+              matching: find.byTooltip('New post')),
+          findsOneWidget,
+          reason: 'compose is an app-bar action now');
+      // The app's bottom navigation bar rides this pushed screen too.
+      expect(find.byType(AppBottomNavBar), findsOneWidget);
+    });
+
     testWidgets('the timeline is laid out like the feeds people arrive from',
         (t) async {
       t.view.physicalSize = const Size(500, 1400);
@@ -20767,18 +20817,26 @@ void main() {
       await t.pumpWidget(const MaterialApp(home: PublicFeedScreen()));
       await t.pumpAndSettle();
 
+      // Scope to the timeline: the app's bottom nav bar now rides this screen,
+      // and its Chats pill draws the same chat-bubble glyph as a post's reply
+      // action — an unscoped find would see two.
+      final timeline = find
+          .ancestor(of: find.text('hello'), matching: find.byType(Scrollable))
+          .first;
+      Finder action(IconData icon) =>
+          find.descendant(of: timeline, matching: find.byIcon(icon));
       for (final icon in [
         Icons.chat_bubble_outline,
         Icons.repeat,
         Icons.favorite_border,
         Icons.ios_share,
       ]) {
-        expect(find.byIcon(icon), findsOneWidget, reason: '$icon is missing');
+        expect(action(icon), findsOneWidget, reason: '$icon is missing');
       }
       // Spread across the post rather than bunched at the left: the gap
       // between the first and last action is most of the width.
-      final reply = t.getRect(find.byIcon(Icons.chat_bubble_outline));
-      final share = t.getRect(find.byIcon(Icons.ios_share));
+      final reply = t.getRect(action(Icons.chat_bubble_outline));
+      final share = t.getRect(action(Icons.ios_share));
       expect(share.center.dx - reply.center.dx, greaterThan(200),
           reason: 'evenly spread, so every target is under a thumb');
 
@@ -25117,8 +25175,9 @@ void main() {
     testWidgets('every tab lays out on every phone', (t) async {
       // The suite runs at 800x600. Every layout bug that reached a real phone
       // — the bar overflowing, the composer at the top — was invisible here
-      // for exactly that reason. This walks the five destinations at the four
-      // widths iPhones actually come in.
+      // for exactly that reason. This walks the three bottom-bar destinations
+      // at the four widths iPhones actually come in. (Servers and You moved off
+      // the bar to the drawer; their layout is covered by the sidebar test.)
       for (final width in [320.0, 375.0, 390.0, 430.0]) {
         t.view.physicalSize = Size(width, 844);
         t.view.devicePixelRatio = 1.0;
@@ -25126,10 +25185,8 @@ void main() {
         await t.pumpAndSettle();
         for (final (i, icon) in const [
           (0, Icons.chat_bubble_outline),
-          (1, Icons.groups_outlined),
           (2, Icons.call_outlined),
           (3, Icons.notifications_none),
-          (4, Icons.person_outline),
         ]) {
           final pill = find.byIcon(icon);
           if (pill.evaluate().isEmpty) continue; // already the selected one
@@ -26631,14 +26688,12 @@ void main() {
         (t) async {
       // The profile tab carries its own tab bar and a grid, so it is the one
       // most likely to hand its controller a number of positions other than
-      // one — which is what the guard in _scrollTabToTop is for. As it stands
-      // it attaches exactly one, so this covers the re-tap rather than the
-      // guard; the guard is belt and braces and says so.
+      // one — which is what the guard in _scrollTabToTop is for. It left the
+      // bottom bar for the drawer card, so it is opened that way now; opening
+      // it twice stands in for the re-tap and proves it lays out without error.
       await home(t);
-      await t.tap(navPill('You'));
-      await t.pumpAndSettle();
-      await t.tap(navPill('You'));
-      await t.pumpAndSettle();
+      await openYouTabForTest(t);
+      await openYouTabForTest(t);
       expect(t.takeException(), isNull);
     });
 
@@ -26734,8 +26789,7 @@ void main() {
         CommunityStore.instance.deleteCommunity(c.id);
       }
       await home(t);
-      await t.tap(navPill('Servers'));
-      await t.pumpAndSettle();
+      await openServersTabForTest(t);
       expect(find.text('No servers yet'), findsOneWidget);
       // It said "Create a server to organise channels" and left people to
       // find the small + in the corner by themselves.
@@ -26752,11 +26806,20 @@ void main() {
       // one sits hard against the right edge, close enough that a screenshot
       // reads as clipped. Measured, it fits — but there is no room left for a
       // fourth, and this is what will say so.
+      Future<void> visit(String label) async {
+        if (label == 'Servers') {
+          await openServersTabForTest(t);
+        } else if (label == 'You') {
+          await openYouTabForTest(t);
+        } else {
+          await t.tap(navPill(label));
+          await t.pumpAndSettle();
+        }
+      }
       for (final width in [320.0, 390.0]) {
         for (final label in ['Chats', 'Servers', 'Calls', 'Alerts', 'You']) {
           await home(t, width: width);
-          await t.tap(navPill(label));
-          await t.pumpAndSettle();
+          await visit(label);
           final glyphs = find.descendant(
               of: find.byType(AppBar), matching: find.byType(Icon));
           for (var i = 0; i < glyphs.evaluate().length; i++) {
@@ -26776,8 +26839,14 @@ void main() {
       // the five destinations.
       await home(t);
       for (final label in ['Chats', 'Servers', 'Calls', 'Alerts', 'You']) {
-        await t.tap(navPill(label));
-        await t.pumpAndSettle();
+        if (label == 'Servers') {
+          await openServersTabForTest(t);
+        } else if (label == 'You') {
+          await openYouTabForTest(t);
+        } else {
+          await t.tap(navPill(label));
+          await t.pumpAndSettle();
+        }
         expect(find.byTooltip('Search'), findsOneWidget,
             reason: 'no way to search from $label');
       }

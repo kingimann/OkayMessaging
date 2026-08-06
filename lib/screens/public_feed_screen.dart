@@ -1,5 +1,6 @@
 import '../theme/app_theme.dart';
 import '../ads/ad_service.dart';
+import 'home_screen.dart' show AppBottomNavBar, HomeScreen;
 import 'marketplace_screen.dart' show SellerShopButton, openSellerChat;
 import '../state/parental_controls.dart';
 import '../widgets/parental_gate.dart';
@@ -268,19 +269,35 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
                 },
               ),
             ),
+          // Compose lives top-right now (it used to be a floating button), so
+          // the bottom is free for the app's navigation bar below.
+          if (!_searching)
+            IconButton(
+              icon: const Icon(Icons.edit_outlined),
+              tooltip: 'New post',
+              onPressed: () => _compose(),
+            ),
         ],
       ),
-      // Round and iconic, where the compose button lives on a timeline like
-      // this one.
-      floatingActionButton: FloatingActionButton(
-        onPressed: () => _compose(),
-        tooltip: 'New post',
-        child: const Icon(Icons.edit_outlined),
+      // The app's navigation bar rides this pushed screen too, over the
+      // world-readable ad banner. Tapping a destination pops back home and
+      // switches to that tab (the Newsfeed itself is not a tab, so index -1
+      // leaves every pill unselected).
+      bottomNavigationBar: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const AdBannerSlot(),
+          ListenableBuilder(
+            listenable: AppBottomNavBar.badgeListenable,
+            builder: (context, _) => AppBottomNavBar(
+              index: -1,
+              missedCalls: AppBottomNavBar.missedCallsNow,
+              activityCount: AppBottomNavBar.activityCountNow,
+              onSelect: (i) => HomeScreen.goToTab(context, i),
+            ),
+          ),
+        ],
       ),
-      // A non-personalized banner, on this surface because it is already
-      // world-readable by design. Never inside conversations — a test
-      // holds ads out of every chat file.
-      bottomNavigationBar: const AdBannerSlot(),
       body: ListenableBuilder(
         // FeedMuteStore is in here because the timeline is filtered by it:
         // without it a mute would not remove the post until something else

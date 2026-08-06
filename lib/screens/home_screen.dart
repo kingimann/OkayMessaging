@@ -30,7 +30,6 @@ import 'marketplace_screen.dart';
 import 'public_feed_screen.dart';
 import 'settings_screen.dart';
 import 'wallet_screen.dart';
-import 'edit_profile_screen.dart';
 import 'starred_messages_screen.dart';
 import '../app_state.dart';
 import '../util/build_info.dart';
@@ -49,6 +48,17 @@ class HomeScreen extends StatefulWidget {
   /// does the sidebar's row for the same tab.
   @visibleForTesting
   static Key debugNavPillKey(String label) => _NavPill.keyFor(label);
+
+  /// Lets a PUSHED screen (e.g. the Newsfeed, which carries the app's bottom
+  /// bar) send the app to a bottom tab: it pops back to the home route, then
+  /// the home screen — listening below — switches. Null between requests.
+  static final ValueNotifier<int?> tabRequest = ValueNotifier<int?>(null);
+
+  /// Pops back to home and switches to bottom tab [index].
+  static void goToTab(BuildContext context, int index) {
+    Navigator.of(context).popUntil((r) => r.isFirst);
+    tabRequest.value = index;
+  }
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -80,7 +90,22 @@ class _HomeScreenState extends State<HomeScreen>
       .drive(Tween(begin: 0.35, end: 1.0));
 
   @override
+  void initState() {
+    super.initState();
+    HomeScreen.tabRequest.addListener(_onTabRequest);
+  }
+
+  /// A pushed screen asked to switch tabs (via [HomeScreen.goToTab]).
+  void _onTabRequest() {
+    final i = HomeScreen.tabRequest.value;
+    if (i == null || !mounted) return;
+    HomeScreen.tabRequest.value = null;
+    _onSelectTab(i);
+  }
+
+  @override
   void dispose() {
+    HomeScreen.tabRequest.removeListener(_onTabRequest);
     _tabFadeController.dispose();
     for (final c in _tabScrollControllers) {
       c.dispose();
@@ -258,20 +283,11 @@ class _HomeScreenState extends State<HomeScreen>
           ),
         ),
         bottomNavigationBar: ListenableBuilder(
-          listenable: Listenable.merge(
-              [CallLog.instance, ChatStore.instance, FeedStore.instance]),
-          builder: (context, _) => _ModernNavBar(
+          listenable: AppBottomNavBar.badgeListenable,
+          builder: (context, _) => AppBottomNavBar(
             index: _index,
-            missedCalls: CallLog.instance.newMissedCount,
-            activityCount: CallLog.instance.newMissedCount +
-                FeedStore.instance.unseenNotificationCount +
-                // Both shelves: a buyer waiting in the Marketplace folder
-                // is still unread news the tab is showing (the folder row
-                // wears its own badge there).
-                [
-                  ...ChatStore.instance.chats,
-                  ...ChatStore.instance.marketplaceChats,
-                ].fold(0, (n, c) => n + (c.unreadCount > 0 ? 1 : 0)),
+            missedCalls: AppBottomNavBar.missedCallsNow,
+            activityCount: AppBottomNavBar.activityCountNow,
             onSelect: _onSelectTab,
           ),
         ),
@@ -337,18 +353,42 @@ class _YouTab extends StatelessWidget {
       );
 }
 
-class _ModernNavBar extends StatelessWidget {
+/// The app's floating "liquid glass" bottom navigation bar. Public so a pushed
+/// screen that wants the same bar (the Newsfeed) can mount it and route taps
+/// back to the home tabs via [HomeScreen.goToTab]. [index] is -1 when the
+/// hosting screen is not itself one of the tabs, so no pill reads as selected.
+class AppBottomNavBar extends StatelessWidget {
   final int index;
   final int missedCalls;
   final int activityCount;
   final ValueChanged<int> onSelect;
 
-  const _ModernNavBar({
+  const AppBottomNavBar({
+    super.key,
     required this.index,
     required this.onSelect,
     this.missedCalls = 0,
     this.activityCount = 0,
   });
+
+  /// Missed calls awaiting attention — the Calls pill's badge.
+  static int get missedCallsNow => CallLog.instance.newMissedCount;
+
+  /// New missed calls, feed notifications and unread conversations combined —
+  /// the Alerts pill's badge. Both chat shelves count (a Marketplace buyer is
+  /// still unread news). Computed here so the home bar and the Newsfeed's copy
+  /// show the identical number.
+  static int get activityCountNow => CallLog.instance.newMissedCount +
+      FeedStore.instance.unseenNotificationCount +
+      [
+        ...ChatStore.instance.chats,
+        ...ChatStore.instance.marketplaceChats,
+      ].fold(0, (n, c) => n + (c.unreadCount > 0 ? 1 : 0));
+
+  /// The stores whose changes move the two badges — wrap the bar in a
+  /// ListenableBuilder on this so a pushed copy stays in sync too.
+  static Listenable get badgeListenable => Listenable.merge(
+      [CallLog.instance, ChatStore.instance, FeedStore.instance]);
 
   @override
   Widget build(BuildContext context) {
@@ -402,14 +442,9 @@ class _ModernNavBar extends StatelessWidget {
                 onTap: () => onSelect(0),
               ),
               const SizedBox(width: 6),
-              _NavPill(
-                icon: Icons.groups_outlined,
-                activeIcon: Icons.groups,
-                label: 'Servers',
-                selected: index == 1,
-                onTap: () => onSelect(1),
-              ),
-              const SizedBox(width: 6),
+              // Servers and You (the profile) are deliberately NOT on the bar —
+              // both live in the drawer now (the Servers row, and the profile
+              // card at its top). The bar carries the three everyday tabs.
               _NavPill(
                 icon: Icons.call_outlined,
                 activeIcon: Icons.call,
@@ -426,14 +461,6 @@ class _ModernNavBar extends StatelessWidget {
                 selected: index == 3,
                 badgeCount: activityCount,
                 onTap: () => onSelect(3),
-              ),
-              const SizedBox(width: 6),
-              _NavPill(
-                icon: Icons.person_outline,
-                activeIcon: Icons.person,
-                label: 'You',
-                selected: index == 4,
-                onTap: () => onSelect(4),
               ),
             ],
           ),
@@ -581,7 +608,14 @@ class _AppSideBar extends StatelessWidget {
             padding: EdgeInsets.zero,
             children: [
               InkWell(
-                onTap: () => _go(context, const EditProfileScreen()),
+                // The profile left the bottom bar, so tapping your card here is
+                // the way to it now — it switches to the profile tab (like the
+                // Servers row switches to that one) rather than pushing a second
+                // copy. Editing lives inside the profile and in Settings.
+                onTap: () {
+                  Navigator.of(context).pop();
+                  onSelectTab(4);
+                },
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(16, 20, 16, 16),
                   child: Row(
@@ -619,8 +653,8 @@ class _AppSideBar extends StatelessWidget {
                           ],
                         ),
                       ),
-                      const Icon(Icons.edit_outlined,
-                          size: 18, color: Colors.grey),
+                      const Icon(Icons.chevron_right,
+                          size: 20, color: Colors.grey),
                     ],
                   ),
                 ),

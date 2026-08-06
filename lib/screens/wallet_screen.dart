@@ -323,6 +323,14 @@ class _WalletScreenState extends State<WalletScreen> {
         title: const Text('Wallet'),
         actions: [
           if (PaymentService.instance.isConfigured) ...[
+            // Transactions moved off the floating button into the bar's
+            // top-right, where the other wallet actions live.
+            IconButton(
+              icon: const Icon(Icons.receipt_long_outlined),
+              tooltip: 'Transactions',
+              onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => const PaymentHistoryScreen())),
+            ),
             IconButton(
               icon: const Icon(Icons.tune),
               tooltip: 'Payment controls',
@@ -342,14 +350,6 @@ class _WalletScreenState extends State<WalletScreen> {
           ),
         ],
       ),
-      floatingActionButton: !PaymentService.instance.isConfigured
-          ? null
-          : FloatingActionButton.extended(
-              onPressed: () => Navigator.of(context).push(MaterialPageRoute(
-                  builder: (_) => const PaymentHistoryScreen())),
-              icon: const Icon(Icons.receipt_long_outlined),
-              label: const Text('Transactions'),
-            ),
       body: !PaymentService.instance.isConfigured
           ? const _NotConfigured()
           : FutureBuilder<WalletStatus>(
