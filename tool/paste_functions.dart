@@ -29,6 +29,7 @@ const pasteFunctions = [
   'iap-validate',
   'iap-notify',
   'creator-subscribe',
+  'community-subscribe',
   'iap-status',
   'identity-start',
   'identity-status',
@@ -43,6 +44,8 @@ const pasteFunctions = [
   'delete-account',
   'turn-credentials',
   'roles-set',
+  'ai-chat',
+  'ai-feedback',
 ];
 
 /// Whatever the paste copy's own header should say for [name].
