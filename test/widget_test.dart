@@ -9016,6 +9016,55 @@ void main() {
       expect(captured!.unlocked, 'The paid words');
     });
 
+    test('a blank teaser falls back to a default so the row is never empty',
+        () async {
+      SharedPreferences.setMockInitialValues({});
+      Session.instance.signInForTest();
+      addTearDown(Session.instance.resetForTest);
+      addTearDown(AppState.resetForTest);
+      addTearDown(() => PublicFeedStore.debugPostOverride = null);
+      addTearDown(() => PublicFeedStore.debugScreenOverride = null);
+      PublicFeedStore.debugScreenOverride = (_) async => null;
+      await Session.instance.updateProfile(
+        name: 'Rae',
+        about: 'Maker',
+        subscribable: true,
+        subscriptionTier: 1,
+      );
+      PublicPost? captured;
+      PublicFeedStore.debugPostOverride = (p) async => captured = p;
+
+      // No teaser at all — the exact case the composer used to send, which
+      // wrote an empty public body and tripped the non-empty CHECK.
+      await PublicFeedStore.instance.post('Hi', subscribersOnly: true);
+      expect(captured, isNotNull);
+      expect(captured!.body, isNotEmpty,
+          reason: 'the public row must carry something the table accepts');
+      expect(captured!.body, PublicFeedStore.defaultPaidTeaser);
+      // None of the paid text leaks into the public preview.
+      expect(captured!.body, isNot(contains('Hi')));
+      expect(captured!.unlocked, 'Hi');
+    });
+
+    test('a teaser longer than the public body cap is refused clearly',
+        () async {
+      SharedPreferences.setMockInitialValues({});
+      Session.instance.signInForTest();
+      addTearDown(Session.instance.resetForTest);
+      addTearDown(AppState.resetForTest);
+      addTearDown(() => PublicFeedStore.debugScreenOverride = null);
+      PublicFeedStore.debugScreenOverride = (_) async => null;
+      await Session.instance.updateProfile(
+        name: 'Rae', about: 'Maker', subscribable: true, subscriptionTier: 1);
+      final longTeaser = 'x' * (PublicFeedStore.maxTeaserLength + 1);
+      await expectLater(
+        PublicFeedStore.instance
+            .post('body', subscribersOnly: true, teaser: longTeaser),
+        throwsA(predicate(
+            (e) => '$e'.contains('public preview'))),
+      );
+    });
+
     test('a subscribers-only post gets the long-form length cap', () {
       // Over the timeline's tweet-length cap, which subscribers-only long-form
       // content routinely is.

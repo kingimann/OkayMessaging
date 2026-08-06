@@ -2780,6 +2780,11 @@ class _ComposerState extends State<_Composer> {
   /// post (a reply, repost, poll or media post can't be paywalled).
   bool _subscribersOnly = false;
 
+  /// The public preview under a paid post — what non-subscribers see to decide
+  /// whether to subscribe. Optional: left blank, the store fills in a generic
+  /// line, so the paid text is never leaked by default.
+  final _teaser = TextEditingController();
+
   /// One piece of media at a time — the store refuses more, and two would
   /// have to share the width anyway.
   bool get _hasMedia => _image != null || _gifUrl != null || _video != null;
@@ -2911,6 +2916,7 @@ class _ComposerState extends State<_Composer> {
   @override
   void dispose() {
     _text.dispose();
+    _teaser.dispose();
     _focus.dispose();
     for (final c in _pollFields ?? const <TextEditingController>[]) {
       c.dispose();
@@ -2938,7 +2944,8 @@ class _ComposerState extends State<_Composer> {
           video: _video,
           pollOptions: [for (final c in _pollFields ?? const []) c.text],
           pollRunsFor: _isPoll ? _pollRunsFor : null,
-          subscribersOnly: _subscribersOnly);
+          subscribersOnly: _subscribersOnly,
+          teaser: _teaser.text);
       PublicFeedStore.instance.noteAuthored();
       // Cleared only once it is actually posted. A send that throws leaves
       // the draft exactly where it was, which is the whole point of having
@@ -3228,6 +3235,29 @@ class _ComposerState extends State<_Composer> {
                                     : (on) =>
                                         setState(() => _subscribersOnly = on),
                               ),
+                              // The public preview: what everyone sees under
+                              // the lock. Optional — left blank, a generic line
+                              // fills it, so none of the paid text leaks.
+                              if (_subscribersOnly) ...[
+                                const SizedBox(height: 10),
+                                TextField(
+                                  controller: _teaser,
+                                  maxLines: 2,
+                                  maxLength: PublicFeedStore.maxTeaserLength,
+                                  textCapitalization:
+                                      TextCapitalization.sentences,
+                                  decoration: const InputDecoration(
+                                    isDense: true,
+                                    border: OutlineInputBorder(),
+                                    labelText: 'Public preview (optional)',
+                                    helperText:
+                                        'Shown to everyone under the lock — a '
+                                        'hook to subscribe. The post itself '
+                                        'stays private.',
+                                    helperMaxLines: 2,
+                                  ),
+                                ),
+                              ],
                             ],
                           ],
                         ),

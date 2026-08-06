@@ -587,6 +587,16 @@ class PublicFeedStore extends ChangeNotifier {
   /// only a sane client bound, not a storage limit.)
   static const int maxPaidLength = 20000;
 
+  /// The public preview shown under a paid post when the creator writes none.
+  /// It fills the public row (which can't be empty) without giving away any of
+  /// the gated text.
+  static const String defaultPaidTeaser =
+      'Subscribers-only post. Subscribe to read it.';
+
+  /// The teaser rides in the public `body` column, so it lives under the same
+  /// 500-character cap ordinary posts do.
+  static int get maxTeaserLength => maxLength;
+
   /// The character cap that applies to a post, given whether it's paywalled.
   static int maxLengthFor(bool subscribersOnly) =>
       subscribersOnly ? maxPaidLength : maxLength;
@@ -1520,6 +1530,12 @@ class PublicFeedStore extends ChangeNotifier {
       if (text.trim().isEmpty) {
         throw PublicFeedError('Write the post your subscribers will read.');
       }
+      // The teaser shows publicly and rides the 500-char body column, so it's
+      // held to that even though the paid body isn't.
+      if (teaser.trim().length > maxTeaserLength) {
+        throw PublicFeedError(
+            'Keep the public preview under $maxTeaserLength characters.');
+      }
     }
     // One piece of media. Two would have to share the width, and the second
     // would be a thumbnail nobody asked for — the same reason a poll and a
@@ -1588,8 +1604,13 @@ class PublicFeedStore extends ChangeNotifier {
     }
     // For a paid post, the row carries only the public teaser; the real text
     // is [unlocked] locally (the author always sees their own) and is written
-    // to the access-gated bodies table below.
-    final publicText = subscribersOnly ? teaser.trim() : text.trim();
+    // to the access-gated bodies table below. A blank teaser would leave the
+    // public row with an empty body — which the table's non-empty CHECK
+    // rejects — so fall back to a generic preview line. That keeps the row
+    // valid without leaking any of the paid text.
+    final publicText = subscribersOnly
+        ? (teaser.trim().isEmpty ? defaultPaidTeaser : teaser.trim())
+        : text.trim();
     final post = PublicPost(
       id: id,
       authorUsername: me.username,
@@ -1939,9 +1960,15 @@ class PublicFeedStore extends ChangeNotifier {
       return 'You can\'t post right now. If your account is timed out or '
           'suspended, posting comes back when that ends.';
     }
-    if (text.contains('public_posts_body_check') ||
-        text.contains('violates check constraint')) {
+    if (text.contains('public_posts_body_check')) {
       return 'That post is too long.';
+    }
+    // Any other CHECK the row trips — most often a paid post whose public
+    // teaser came out empty. The client fills a default teaser now, so this
+    // is a backstop with an honest message rather than the old "too long".
+    if (text.contains('violates check constraint')) {
+      return 'Couldn\'t post that. A subscribers-only post needs a public '
+          'preview line.';
     }
     return 'Couldn\'t post. Check your connection and try again.';
   }
