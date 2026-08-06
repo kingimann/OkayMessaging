@@ -692,12 +692,16 @@ the public feed, so one Translate button behaves the same everywhere. Apple's
 framework fetches the language pack once (with the system's own consent) and
 translates offline after.
 
-Two guards on the Swift, like `SmartReplies`: `#if canImport(Translation)`
-(compile-time — older Xcode stubs it) and `if #available(iOS 17.4, *)`
-(runtime — the app deploys to iOS 13). `TranslationSession(` is in the
-iOS-availability guard test's symbol list. **Never compiled here** — the first
-real check is a Codemagic build; on the web build and iPhones below iOS 17.4
-`available` returns false and the action says so plainly rather than failing.
+**Translate.swift is a COMPILE-SAFE STUB right now** (`available` → false).
+Apple's Translation framework exposes NO constructable `TranslationSession` — it
+is vended only through SwiftUI's `.translationTask` (iOS 18+), so a working
+version must host an off-screen SwiftUI view and drive it from the channel. The
+first attempt constructed the session directly and **failed the Codemagic
+archive** (`'nil' is not compatible with 'Locale.Language'`), which no gate here
+can catch — there's no Xcode on the box. So on-device translation currently
+reports unavailable and the Dart side degrades to "Translation isn't available
+on this device yet." The real `.translationTask` implementation is a follow-up
+whose only test is a device build — write it carefully or leave the stub.
 
 ## Verified-only features
 

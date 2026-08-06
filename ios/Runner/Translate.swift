@@ -1,24 +1,19 @@
 import Flutter
 import Foundation
 
-#if canImport(Translation)
-  import Translation
-#endif
-
-/// On-device text translation, backed by Apple's Translation framework.
+/// On-device text translation channel (`okay/translate`).
 ///
-/// TWO GUARDS, NOT ONE — the same shape SmartReplies uses. `canImport` is the
-/// compile-time guard: the Translation framework's programmatic API only
-/// exists in a recent SDK, so an older Xcode compiles this into a stub rather
-/// than failing the archive. `@available(iOS 17.4, *)` is the runtime guard:
-/// the app deploys to iOS 13, so most phones running this binary have no such
-/// API to call into and must get a clean "not available" rather than a crash.
-///
-/// Nothing here leaves the device. The text arrives from Dart, goes into the
-/// on-device translator, and the result comes back — no network, and no
-/// `print` of message text. This is what lets a Translate button sit on an
-/// end-to-end-encrypted chat without breaking the promise that message bodies
-/// are never readable off-device.
+/// COMPILE-SAFE STUB. Apple's Translation framework does not expose a
+/// constructable `TranslationSession` — it is vended only through SwiftUI's
+/// `.translationTask` modifier (iOS 18+), which means a working implementation
+/// has to host an off-screen SwiftUI view and drive it from the channel. That
+/// is deliberately NOT done here yet: an earlier attempt to construct the
+/// session directly failed the Codemagic archive, and there is no Xcode on the
+/// box these sessions run on to catch that before a build. So this reports
+/// "unavailable", the Dart side (`TranslateService`) degrades to "translation
+/// isn't available on this device", and nothing breaks. The real
+/// `.translationTask` implementation is a follow-up whose only test is a device
+/// build — write it carefully or not at all.
 enum Translate {
   static func register(with messenger: FlutterBinaryMessenger) {
     let channel = FlutterMethodChannel(
@@ -26,57 +21,14 @@ enum Translate {
     channel.setMethodCallHandler { call, result in
       switch call.method {
       case "available":
-        result(isAvailable)
+        result(false)
       case "translate":
-        guard let args = call.arguments as? [String: Any],
-          let text = args["text"] as? String,
-          let target = args["target"] as? String
-        else {
-          result(FlutterError(
-            code: "bad_args", message: "text and target required",
-            details: nil))
-          return
-        }
-        translate(text: text, target: target, result: result)
+        // No on-device translator wired up yet — a null answer the Dart side
+        // shows as "couldn't translate", never a crash.
+        result(nil)
       default:
         result(FlutterMethodNotImplemented)
       }
     }
-  }
-
-  static var isAvailable: Bool {
-    #if canImport(Translation)
-      if #available(iOS 17.4, *) { return true }
-      return false
-    #else
-      return false
-    #endif
-  }
-
-  private static func translate(
-    text: String, target: String, result: @escaping FlutterResult
-  ) {
-    #if canImport(Translation)
-      if #available(iOS 17.4, *) {
-        Task {
-          do {
-            // A session with no fixed source language lets the framework
-            // detect it; the target is the language the reader picked.
-            let session = TranslationSession(
-              installedSource: nil,
-              target: Locale.Language(identifier: target))
-            let response = try await session.translate(text)
-            result(response.targetText)
-          } catch {
-            // A missing language pack the user declined to download, or an
-            // unsupported pair — a null answer the Dart side shows as
-            // "couldn't translate", never an error banner.
-            result(nil)
-          }
-        }
-        return
-      }
-    #endif
-    result(nil)
   }
 }

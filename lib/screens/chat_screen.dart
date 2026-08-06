@@ -1766,7 +1766,7 @@ class _ChatScreenState extends State<ChatScreen> {
     if (!await svc.available) {
       messenger.showSnackBar(const SnackBar(
           content: Text(
-              'On-device translation needs iOS 17.4 or later.')));
+              'Translation isn\'t available on this device yet.')));
       return;
     }
     final translated = await svc.translate(message.text);
