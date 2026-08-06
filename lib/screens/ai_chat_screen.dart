@@ -333,8 +333,8 @@ class _AiChatScreenState extends State<AiChatScreen> {
             CircleAvatar(
               radius: 16,
               backgroundColor: scheme.primary,
-              child: const Icon(Icons.auto_awesome,
-                  size: 17, color: Colors.white),
+              child: Icon(Icons.auto_awesome,
+                  size: 17, color: scheme.onPrimary),
             ),
             const SizedBox(width: 10),
             const Column(
@@ -440,8 +440,8 @@ class _AiChatScreenState extends State<AiChatScreen> {
             CircleAvatar(
               radius: 30,
               backgroundColor: scheme.primary,
-              child: const Icon(Icons.auto_awesome,
-                  size: 30, color: Colors.white),
+              child: Icon(Icons.auto_awesome,
+                  size: 30, color: scheme.onPrimary),
             ),
             const SizedBox(height: 16),
             const Text('Ask Okay AI anything',
@@ -806,8 +806,12 @@ class _Bubble extends StatelessWidget {
               child: mine
                   ? SelectableText(
                       turn.text,
-                      style: const TextStyle(
-                          fontSize: 15, height: 1.35, color: Colors.white),
+                      // onPrimary, not a hardcoded white: the Ink theme's
+                      // primary is LIGHT, so white text on it is invisible.
+                      style: TextStyle(
+                          fontSize: 15,
+                          height: 1.35,
+                          color: scheme.onPrimary),
                     )
                   : _RichReply(text: turn.text),
             ),
