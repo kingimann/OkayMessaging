@@ -970,6 +970,19 @@ class FeedStore extends ChangeNotifier {
             p
       ];
 
+  /// Every saved listing this device can still see, newest first — the
+  /// wishlist. Hidden/muted ones drop out like they do in the grid; sold ones
+  /// stay (a saver wants to know it went), and price-dropped ones keep their
+  /// struck-through "was" price so the screen can highlight the deal.
+  List<FeedPost> savedListings() => [
+        for (final p in _posts)
+          if (p.isListing &&
+              _savedIds.contains(p.id) &&
+              !_hiddenIds.contains(p.id) &&
+              !_mutedUsernames.contains(p.authorUsername.toLowerCase()))
+            p
+      ]..sort((a, b) => b.time.compareTo(a.time));
+
   /// Saves/unsaves a post for the Saved filter; returns true when now saved.
   bool toggleSaved(String postId) {
     final nowSaved = !_savedIds.remove(postId);

@@ -631,11 +631,16 @@ int? parseListingPrice(String raw) {
 enum ListingSort {
   newest('Newest first'),
   priceLow('Price: low to high'),
-  priceHigh('Price: high to low');
+  priceHigh('Price: high to low'),
+  reduced('Price drops first');
 
   const ListingSort(this.label);
   final String label;
 }
+
+/// Whether [l]'s asking price is a drop from a higher "was" price that still
+/// stands — the deal a bargain-hunter sorts for. Pure.
+bool listingReduced(FeedPost l) => l.prevPriceCents > (l.priceCents ?? 0);
 
 /// [listings] in [sort] order, with sold items sunk to the end whatever the
 /// order — visible, but never ahead of something that can still be bought.
@@ -644,7 +649,7 @@ enum ListingSort {
 List<FeedPost> sortListings(List<FeedPost> listings, ListingSort sort) {
   final list = List<FeedPost>.of(listings)
     ..sort((a, b) => b.time.compareTo(a.time));
-  if (sort != ListingSort.newest) {
+  if (sort == ListingSort.priceLow || sort == ListingSort.priceHigh) {
     // Stable merge sort via mergeSort semantics: List.sort is not stable, so
     // sort by price on an already newest-first list using a comparator that
     // never returns 0 ties away — compare price, then time.
@@ -653,6 +658,15 @@ List<FeedPost> sortListings(List<FeedPost> listings, ListingSort sort) {
       final byPrice =
           sort == ListingSort.priceLow ? pa.compareTo(pb) : pb.compareTo(pa);
       return byPrice != 0 ? byPrice : b.time.compareTo(a.time);
+    });
+  } else if (sort == ListingSort.reduced) {
+    // Reduced ones float up (newest drop first); everything else keeps the
+    // newest-first order behind them. The comparator ties back to time so it
+    // stays stable rather than reshuffling equal rows on each rebuild.
+    list.sort((a, b) {
+      final ra = listingReduced(a), rb = listingReduced(b);
+      if (ra != rb) return ra ? -1 : 1;
+      return b.time.compareTo(a.time);
     });
   }
   return [
@@ -1649,6 +1663,22 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
             tooltip: 'Filter',
             onPressed: _openFilters,
           ),
+          // The wishlist. Saving is local, so it's offered on the browse-only
+          // path too. The badge counts saved items whose price just dropped —
+          // the reason to look now rather than later.
+          Builder(builder: (context) {
+            final drops = FeedStore.instance.savedPriceDrops().length;
+            return IconButton(
+              icon: Badge(
+                isLabelVisible: drops > 0,
+                label: Text('$drops'),
+                child: const Icon(Icons.bookmark_border),
+              ),
+              tooltip: 'Saved',
+              onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => const SavedListingsScreen())),
+            );
+          }),
           // The seller hub. Withheld browse-only for the Sell button's
           // reason: a numberless account has nothing there to manage.
           if (!browseOnly)
@@ -2120,6 +2150,128 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
       );
 }
 
+/// The wishlist as its own screen — everything you bookmarked, in one grid,
+/// instead of a filter buried behind the funnel. Price-dropped saves float to
+/// the top under a banner, because a drop is the reason to reopen this at all;
+/// sold ones stay but sink, dimmed by the card itself.
+class SavedListingsScreen extends StatelessWidget {
+  const SavedListingsScreen({super.key});
+
+  String _serverName(String id) {
+    for (final c in CommunityStore.instance.communities) {
+      if (c.id == id) return c.name;
+    }
+    return '';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Saved')),
+      body: ListenableBuilder(
+        listenable: FeedStore.instance,
+        builder: (context, _) {
+          final saved = FeedStore.instance.savedListings();
+          // Reduced-and-still-for-sale first, then the rest newest-first, then
+          // sold at the very back — the order a saver scans.
+          saved.sort((a, b) {
+            int rank(FeedPost p) {
+              if (p.listingSold) return 2;
+              return listingReduced(p) ? 0 : 1;
+            }
+
+            final byRank = rank(a).compareTo(rank(b));
+            return byRank != 0 ? byRank : b.time.compareTo(a.time);
+          });
+          final drops = FeedStore.instance.savedPriceDrops();
+          if (saved.isEmpty) {
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 40),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.bookmark_border,
+                        size: 52, color: Colors.grey.shade400),
+                    const SizedBox(height: 14),
+                    const Text('Nothing saved yet',
+                        style: TextStyle(
+                            fontSize: 17, fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Tap the bookmark on a listing to keep it here. You\'ll '
+                      'see it if the price drops.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                          color: AppColors.subtle(context), fontSize: 14),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (drops.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+                  child: Material(
+                    color: Theme.of(context)
+                        .colorScheme
+                        .primaryContainer
+                        .withValues(alpha: 0.55),
+                    borderRadius: BorderRadius.circular(12),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 10),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.trending_down, size: 18),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              drops.length == 1
+                                  ? 'Price drop on 1 saved listing'
+                                  : 'Price drops on ${drops.length} saved '
+                                      'listings',
+                              style: const TextStyle(
+                                  fontSize: 13.5, fontWeight: FontWeight.w600),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              Expanded(
+                child: GridView.builder(
+                  padding: const EdgeInsets.fromLTRB(12, 12, 12, 24),
+                  gridDelegate:
+                      const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 2,
+                    mainAxisSpacing: 10,
+                    crossAxisSpacing: 10,
+                    childAspectRatio: 0.72,
+                  ),
+                  itemCount: saved.length,
+                  itemBuilder: (context, i) => _ListingCard(
+                    listing: saved[i],
+                    serverName: _serverName(saved[i].communityId),
+                    onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                        builder: (_) =>
+                            ListingScreen(listingId: saved[i].id))),
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
 /// One tile in the browse grid: photo (or a placeholder), price, title.
 class _ListingCard extends StatelessWidget {
   final FeedPost listing;
@@ -2165,6 +2317,16 @@ class _ListingCard extends StatelessWidget {
                   const Positioned(left: 8, top: 8, child: _SoldBadge())
                 else if (listing.listingReserved)
                   const Positioned(left: 8, top: 8, child: _ReservedBadge()),
+                // Condition as a real badge, not buried in the subtitle line —
+                // it's the second thing a buyer scans after the price. Hidden
+                // on a sold tile, where nothing on it is for sale anymore.
+                if (!listing.listingSold &&
+                    listing.listingCondition.isNotEmpty)
+                  Positioned(
+                    left: 8,
+                    bottom: 8,
+                    child: _ConditionBadge(listing.listingCondition),
+                  ),
                 if (listing.listingVideo.isNotEmpty)
                   Positioned(
                     right: 8,
@@ -2254,12 +2416,12 @@ class _ListingCard extends StatelessWidget {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(fontSize: 13.5)),
-          // Place · condition — what a buyer scans for after the price. Falls
-          // back to the server name when a listing carries neither.
+          // Place — what a buyer scans for after the price (condition now
+          // rides as a badge on the photo). Falls back to the server name
+          // when a listing carries no place.
           Builder(builder: (context) {
             final subtle = AppColors.subtle(context);
             final bits = [
-              if (listing.listingCondition.isNotEmpty) listing.listingCondition,
               if (listing.listingPlace.isEmpty && serverName.isNotEmpty)
                 serverName,
             ];
@@ -2582,6 +2744,12 @@ class ListingScreen extends StatelessWidget {
                           listing.listingCategory,
                         if (serverName.isNotEmpty) serverName,
                         feedAge(listing.time),
+                        // Buyer-facing social proof: how many have looked. Was
+                        // a seller-only number until now. Omitted at zero so a
+                        // just-posted listing doesn't advertise its own quiet.
+                        if (listing.views > 0)
+                          '${listing.views} '
+                              '${listing.views == 1 ? "view" : "views"}',
                       ].join(' · '),
                       style: TextStyle(
                           fontSize: 13, color: AppColors.subtle(context)),
@@ -3398,6 +3566,33 @@ class _SoldBadge extends StatelessWidget {
                 fontWeight: FontWeight.w800,
                 letterSpacing: 0.5)),
       );
+}
+
+/// A small translucent condition pill for the corner of a listing photo.
+/// "New" and "Like new" carry a green tint — the conditions a buyer hunts
+/// for — while the rest stay neutral, so the colour means something.
+class _ConditionBadge extends StatelessWidget {
+  final String condition;
+  const _ConditionBadge(this.condition);
+
+  @override
+  Widget build(BuildContext context) {
+    final c = condition.toLowerCase();
+    final fresh = c == 'new' || c == 'like new';
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+      decoration: BoxDecoration(
+        color: (fresh ? const Color(0xFF00875A) : Colors.black)
+            .withValues(alpha: fresh ? 0.86 : 0.6),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(condition,
+          style: const TextStyle(
+              color: Colors.white,
+              fontSize: 10.5,
+              fontWeight: FontWeight.w700)),
+    );
+  }
 }
 
 /// The amber RESERVED tag — an item on hold for a buyer but still in the

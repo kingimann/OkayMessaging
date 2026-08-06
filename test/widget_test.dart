@@ -10153,6 +10153,95 @@ void main() {
       expect(src, contains('noteViewed(listing.id)'));
     });
 
+    test('reduced sort floats live price drops up and sinks the sold', () {
+      FeedPost item(String id,
+              {int price = 100, int prev = 0, bool sold = false, int day = 1}) =>
+          FeedPost(
+            id: id,
+            communityId: 'c1',
+            authorName: 'A',
+            authorUsername: 'a',
+            time: DateTime(2026, 1, day),
+            text: id,
+            priceCents: price,
+            prevPriceCents: prev,
+            listingSold: sold,
+          );
+      final dropped = item('dropped', price: 80, prev: 100, day: 1);
+      final plain = item('plain', day: 3);
+      final soldDrop = item('soldDrop', price: 50, prev: 100, sold: true, day: 5);
+      expect(listingReduced(dropped), isTrue);
+      expect(listingReduced(plain), isFalse,
+          reason: 'no "was" price means no drop');
+      final out = sortListings(
+              [plain, dropped, soldDrop], ListingSort.reduced)
+          .map((l) => l.id)
+          .toList();
+      expect(out.first, 'dropped', reason: 'a live drop leads the aisle');
+      expect(out.last, 'soldDrop',
+          reason: 'sold sinks to the back even when it is reduced');
+    });
+
+    test('savedListings is the wishlist: saved, visible, newest first', () {
+      final store = FeedStore.instance;
+      store.resetForTest();
+      addTearDown(store.resetForTest);
+      final a = store.addListing('c1',
+          title: 'A', priceCents: 100, category: 'Sports');
+      store.addListing('c1', title: 'B', priceCents: 200, category: 'Sports');
+      final c = store.addListing('c1',
+          title: 'C', priceCents: 300, category: 'Sports');
+      store.toggleSaved(a.id);
+      store.toggleSaved(c.id);
+      expect(store.savedListings().map((l) => l.id).toSet(), {a.id, c.id},
+          reason: 'only the two bookmarked, never the third');
+      expect(store.savedListings().first.id, c.id,
+          reason: 'newest saved first');
+      // A hidden save leaves the wishlist like it leaves the grid.
+      store.hidePost(c.id);
+      expect(store.savedListings().map((l) => l.id), [a.id]);
+    });
+
+    testWidgets('the Saved screen lists saves, badges the drop and condition',
+        (tester) async {
+      final store = FeedStore.instance;
+      store.resetForTest();
+      addTearDown(store.resetForTest);
+      final bike = store.addListing('c1',
+          title: 'Bike',
+          priceCents: 8000,
+          category: 'Sports',
+          condition: 'Like new',
+          prevPriceCents: 10000);
+      store.toggleSaved(bike.id);
+      await tester
+          .pumpWidget(const MaterialApp(home: SavedListingsScreen()));
+      await tester.pumpAndSettle();
+      expect(find.text('Bike'), findsOneWidget);
+      expect(find.textContaining('Price drop'), findsOneWidget,
+          reason: 'the drop is the reason to reopen the wishlist');
+      expect(find.text('Like new'), findsOneWidget,
+          reason: 'condition rides as a badge, not buried in a subtitle');
+    });
+
+    testWidgets('the Saved screen empty state invites a first save',
+        (tester) async {
+      final store = FeedStore.instance;
+      store.resetForTest();
+      addTearDown(store.resetForTest);
+      await tester
+          .pumpWidget(const MaterialApp(home: SavedListingsScreen()));
+      await tester.pumpAndSettle();
+      expect(find.text('Nothing saved yet'), findsOneWidget);
+      // And the surfaces that reach it / show the new proof are wired.
+      final src =
+          File('lib/screens/marketplace_screen.dart').readAsStringSync();
+      expect(src, contains("tooltip: 'Saved'"));
+      expect(src, contains('SavedListingsScreen()'));
+      expect(src, contains('listing.views > 0'),
+          reason: 'view count is buyer-facing on the detail now');
+    });
+
     test('the form is chapters now, and the new fields are on it', () {
       final src =
           File('lib/screens/marketplace_screen.dart').readAsStringSync();
