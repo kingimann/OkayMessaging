@@ -6360,6 +6360,20 @@ void main() {
       expect(src, contains('identity_required'));
     });
 
+    test('a server error code survives the functions-client throw', () {
+      // The functions client THROWS FunctionException on any non-2xx rather
+      // than returning the status, so a top-up refused with
+      // {error: "not_onboarded"} (a 409) used to escape _invoke as a bare
+      // exception — read on screen as "couldn't reach the service" instead of
+      // "finish setting up payouts". _invoke must catch it and re-throw the
+      // real code as a PaymentException so the wallet says what went wrong.
+      final src = File('lib/payments/payment_service.dart').readAsStringSync();
+      expect(src, contains('on FunctionException catch'),
+          reason: 'a thrown server error must be decoded, not left to escape');
+      expect(src, contains("details['error']"),
+          reason: 'the real code lives in the response body');
+    });
+
     test('the wallet wears the Cash App layout — big balance + Add/Cash Out',
         () {
       final src = File('lib/screens/wallet_screen.dart').readAsStringSync();

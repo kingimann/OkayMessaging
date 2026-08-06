@@ -427,7 +427,23 @@ class PaymentService {
 
   Future<Map<String, dynamic>> _invoke(String name,
       [Map<String, dynamic>? body]) async {
-    final res = await _client.functions.invoke(name, body: body ?? {});
+    final FunctionResponse res;
+    try {
+      res = await _client.functions.invoke(name, body: body ?? {});
+    } on FunctionException catch (e) {
+      // The functions client THROWS on any non-2xx instead of returning the
+      // status — so a function that answered `{error: "..."}` with a 4xx (an
+      // unverified identity, a not-yet-onboarded payout account, a refused
+      // limit) landed here, not below, and escaped as a bare exception that
+      // the screen read as "couldn't reach the service". Pull the real code
+      // out of the response body so the caller can say what actually went
+      // wrong.
+      final details = e.details;
+      final code = details is Map
+          ? (details['error']?.toString() ?? 'error')
+          : 'error';
+      throw PaymentException(code);
+    }
     final data = res.data;
     if (res.status >= 400) {
       final code = data is Map ? (data['error']?.toString() ?? 'error') : 'error';
