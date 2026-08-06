@@ -245,38 +245,55 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const model = Deno.env.get("OPENROUTER_AI_MODEL") ||
-      Deno.env.get("OPENROUTER_MODEL") || DEFAULT_MODEL;
     const system = learn
       ? SYSTEM + memoryPreamble(memories) + "\n\n" + FORMAT
       : SYSTEM + memoryPreamble(memories);
-    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "authorization": `Bearer ${key}`,
-      },
-      body: JSON.stringify({
-        model,
-        // Lower temperature than a chatbot's: fact-checking and code want
-        // accuracy and determinism over flourish. A large max_tokens lets it
-        // return a WHOLE file or app in one go rather than being cut off — the
-        // point of "strong at everything". Overridable with AI_MAX_TOKENS.
-        temperature: 0.4,
-        max_tokens: parseInt(Deno.env.get("AI_MAX_TOKENS") ?? "8000", 10),
-        ...(learn ? { response_format: { type: "json_object" } } : {}),
-        messages: [
-          { role: "system", content: system },
-          ...trimmed,
-        ],
-      }),
-    });
-    if (!res.ok) {
-      console.error("ai-chat: openrouter", res.status);
-      return json({ reply: "", configured: true, degraded: true });
+    // 4000 is a large answer (hundreds of lines) and stays under every common
+    // model's output cap, so it never 400s the way 8000 can on a 4096-cap
+    // model. Raise it with AI_MAX_TOKENS if your model allows more.
+    const maxTokens = parseInt(Deno.env.get("AI_MAX_TOKENS") ?? "4000", 10);
+
+    // Try the preferred model first, then fall back — so if the strong default
+    // (or a set OPENROUTER_AI_MODEL) isn't available on this account, the
+    // assistant STILL answers on a model that is, instead of dead-ending. The
+    // fallback (gpt-4o-mini) is broadly available and vision-capable, so
+    // attachments keep working on it too. Duplicates are dropped.
+    const preferred = Deno.env.get("OPENROUTER_AI_MODEL") ||
+      Deno.env.get("OPENROUTER_MODEL") || DEFAULT_MODEL;
+    const models = [...new Set([preferred, "openai/gpt-4o-mini"])];
+
+    let content = "";
+    for (const model of models) {
+      const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "authorization": `Bearer ${key}`,
+        },
+        body: JSON.stringify({
+          model,
+          // Lower temperature than a chatbot's: fact-checking and code want
+          // accuracy over flourish. A large max_tokens lets it return a WHOLE
+          // file or app in one go rather than being cut off.
+          temperature: 0.4,
+          max_tokens: maxTokens,
+          ...(learn ? { response_format: { type: "json_object" } } : {}),
+          messages: [
+            { role: "system", content: system },
+            ...trimmed,
+          ],
+        }),
+      });
+      if (!res.ok) {
+        const detail = await res.text().catch(() => "");
+        console.error("ai-chat: openrouter", model, res.status,
+          detail.slice(0, 300));
+        continue; // try the next model
+      }
+      const data = await res.json();
+      content = String(data.choices?.[0]?.message?.content ?? "").trim();
+      if (content) break;
     }
-    const data = await res.json();
-    const content = String(data.choices?.[0]?.message?.content ?? "").trim();
     if (!content) {
       return json({ reply: "", configured: true, degraded: true });
     }
