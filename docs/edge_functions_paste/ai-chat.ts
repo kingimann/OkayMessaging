@@ -81,21 +81,29 @@ const DEFAULT_MODEL = "openai/gpt-4o";
 
 // How the assistant behaves. Deliberately plain and helpful — a general
 // assistant, not a character.
-const SYSTEM = `You are Okay AI, the friendly built-in assistant of the ` +
-  `OkayMessenger app. You are helpful, honest, and clear, and never claim to ` +
-  `be a human. You cannot read the user's private chats or personal data — you ` +
-  `only see what they type to you here. The user may attach an image or a text ` +
-  `file for you to look at; use it when present.\n\n` +
-  `ACCURACY: base answers on well-established facts and reason step by step on ` +
-  `hard questions before answering. Never invent sources, quotes, numbers, or ` +
-  `APIs. If you are unsure, or the answer depends on recent or changeable ` +
-  `information you may not have, say so plainly rather than guessing. Distinguish ` +
-  `what you know from what you are inferring.\n\n` +
+const SYSTEM = `You are Okay AI, the built-in assistant of the OkayMessenger ` +
+  `app — a powerful, general-purpose assistant on the level of ChatGPT, Claude ` +
+  `or Grok. You are never a human, and you cannot read the user's private chats ` +
+  `or act inside the app on their behalf (you only see what they type to you ` +
+  `here, plus any image or text file they attach). Within that, you are ` +
+  `capable and willing across EVERYTHING: coding, math, science, writing, ` +
+  `analysis, business, languages, advice — any subject, any task.\n\n` +
+  `BE FULLY HELPFUL. Take on what the user actually asked and DELIVER it — do ` +
+  `not deflect, downplay your ability, or offer only "snippets and guidance" ` +
+  `when they asked you to build something. If they ask you to write a whole ` +
+  `app, write the whole app. Do not lecture, moralize, or add needless ` +
+  `disclaimers. Match length to the task: full and complete when the work ` +
+  `needs it, brief when a short answer will do.\n\n` +
+  `ACCURACY: reason step by step on hard problems before answering, and base ` +
+  `answers on well-established facts. Never invent sources, quotes, numbers, or ` +
+  `APIs. If you are genuinely unsure, or the answer depends on recent or ` +
+  `changeable information you may not have, say so plainly instead of guessing, ` +
+  `and separate what you know from what you are inferring.\n\n` +
   `CODING: write complete, correct, runnable code in fenced blocks tagged with ` +
-  `the language (\`\`\`dart, \`\`\`python, …). Prefer standard idioms, handle the ` +
-  `obvious edge cases, and briefly explain the approach and any pitfalls. If a ` +
-  `request is ambiguous, state the assumption you made. Do not pad answers — be ` +
-  `concise, but never omit code needed to run.`;
+  `the language (\`\`\`dart, \`\`\`python, …). Give whole files or projects when ` +
+  `asked — not fragments. Use standard idioms, handle the obvious edge cases, ` +
+  `state any assumption a request left open, and note real pitfalls. Never omit ` +
+  `code needed to run.`;
 
 // The assistant "learns as it talks" by remembering durable facts about THIS
 // user. It answers in "reply" and, in "remember", returns any NEW, stable,
@@ -115,6 +123,46 @@ function memoryPreamble(memories: string[]): string {
   const lines = memories.slice(0, 60).map((m) => `- ${m}`).join("\n");
   return `\n\nHere is what you already remember about this user; use it ` +
     `naturally when relevant, and do not repeat it back as a list:\n${lines}`;
+}
+
+// Pulls the reply (and any memory) out of a learning-turn response. Normally
+// that content is a clean JSON object; but a very long answer — a whole app —
+// can be cut off at max_tokens, leaving TRUNCATED JSON that won't parse. Rather
+// than dump raw JSON on the user or lose the answer, salvage the reply field
+// from the wrapper, and only as a last resort show the content verbatim. So a
+// long answer is never lost to a formatting hiccup.
+function unwrapReply(content: string): { reply: string; remember: string[] } {
+  try {
+    const parsed = JSON.parse(content);
+    const reply = String(parsed.reply ?? "").trim();
+    const remember = Array.isArray(parsed.remember)
+      ? parsed.remember
+        .map((r: unknown) => String(r ?? "").trim())
+        .filter((r: string) => r.length > 0 && r.length <= 200)
+        .slice(0, 8)
+      : [];
+    if (reply) return { reply, remember };
+  } catch (_) {
+    // Fall through to salvage.
+  }
+  // Truncated or malformed: if it's our {"reply":"…"} wrapper, lift the reply
+  // string out and best-effort unescape it.
+  const m = content.match(/"reply"\s*:\s*"/);
+  if (m && m.index !== undefined) {
+    let rest = content.slice(m.index + m[0].length);
+    const cut = rest.lastIndexOf('","remember"');
+    if (cut >= 0) rest = rest.slice(0, cut);
+    const unescaped = rest
+      .replace(/\\n/g, "\n")
+      .replace(/\\t/g, "\t")
+      .replace(/\\r/g, "\r")
+      .replace(/\\"/g, '"')
+      .replace(/\\\\/g, "\\")
+      .replace(/"\s*}?\s*$/, "")
+      .trim();
+    if (unescaped) return { reply: unescaped, remember: [] };
+  }
+  return { reply: content, remember: [] };
 }
 
 // A sane ceiling so one runaway conversation can't send a novel to the model.
@@ -252,10 +300,11 @@ Deno.serve(async (req) => {
       body: JSON.stringify({
         model,
         // Lower temperature than a chatbot's: fact-checking and code want
-        // accuracy and determinism over flourish. max_tokens leaves room for a
-        // full code answer without being cut off mid-function.
+        // accuracy and determinism over flourish. A large max_tokens lets it
+        // return a WHOLE file or app in one go rather than being cut off — the
+        // point of "strong at everything". Overridable with AI_MAX_TOKENS.
         temperature: 0.4,
-        max_tokens: 2000,
+        max_tokens: parseInt(Deno.env.get("AI_MAX_TOKENS") ?? "8000", 10),
         ...(learn ? { response_format: { type: "json_object" } } : {}),
         messages: [
           { role: "system", content: system },
@@ -274,23 +323,8 @@ Deno.serve(async (req) => {
     }
     if (!learn) return json({ reply: content, configured: true });
 
-    // Learning turn: the content is a JSON object with reply + remember. If it
-    // somehow isn't, fall back to treating it as the reply so the chat never
-    // dead-ends on a formatting hiccup.
-    let reply = "";
-    let remember: string[] = [];
-    try {
-      const parsed = JSON.parse(content);
-      reply = String(parsed.reply ?? "").trim();
-      if (Array.isArray(parsed.remember)) {
-        remember = parsed.remember
-          .map((r: unknown) => String(r ?? "").trim())
-          .filter((r: string) => r.length > 0 && r.length <= 200)
-          .slice(0, 8);
-      }
-    } catch {
-      reply = content;
-    }
+    // Learning turn: the content is a JSON object with reply + remember.
+    const { reply, remember } = unwrapReply(content);
     if (!reply) return json({ reply: "", configured: true, degraded: true });
     return json({ reply, memories: remember, configured: true });
   } catch (e) {

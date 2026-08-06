@@ -650,10 +650,16 @@ instruction and not the conversation.
 **Smarter answers + readable code (2026-08-06).** The default model is
 `openai/gpt-4o` (was `gpt-4o-mini` — weak at fact-checking and coding), kept
 vision-capable so attachments still work; `OPENROUTER_AI_MODEL` overrides. The
-system prompt now pushes accuracy (reason step by step, never fabricate
-sources/APIs, say when unsure) and quality coding (complete runnable code in
-tagged fences, state assumptions); `temperature` dropped to 0.4 and
-`max_tokens` 2000 so a code answer isn't cut off. Replies render as light
+system prompt frames it as a POWERFUL general assistant (ChatGPT/Claude/Grok
+level), capable and willing across EVERY subject, told to DELIVER what's asked
+(write the whole app, not "snippets and guidance"), no needless disclaimers —
+while keeping the true limits (not a human, can't read private chats or act in
+the app) and the accuracy discipline (reason first, never fabricate
+sources/APIs, admit uncertainty). `temperature` 0.4; `max_tokens` defaults to
+**8000** (env `AI_MAX_TOKENS`) so it can return a WHOLE file/app in one go.
+Because a huge answer can truncate the learning-turn JSON wrapper,
+`unwrapReply` salvages the reply field (or shows content verbatim) so a long
+answer is never lost to a format hiccup. Replies render as light
 Markdown (`lib/util/mini_markdown.dart`, pure/tested — `MiniMarkdown.blocks`
 splits fenced code, `.inline` does **bold**/`code`): assistant bubbles show
 code in a monospaced, horizontally-scrolling panel with a Copy button, an
