@@ -70,6 +70,19 @@ class StorePurchases {
     return AppleIap.buy(id, consumable: true);
   }
 
+  /// The IAP product for a month of unlimited Okay AI, past the free daily
+  /// allowance. A consumable (a 30-day pass you renew), like the others.
+  static String get aiPassProductId => '$_prefix.okayai.pro.monthly';
+
+  /// Buys one month of unlimited Okay AI. Test mode simulates it.
+  Future<PurchaseResult> buyAiPass() async {
+    if (_testMode) {
+      await Future<void>.delayed(const Duration(milliseconds: 900));
+      return const PurchaseResult.bought('test-mode');
+    }
+    return AppleIap.buy(aiPassProductId, consumable: true);
+  }
+
   /// Fixed consumable tip products. Apple doesn't allow arbitrary amounts, so
   /// support is a small set of set prices.
   static const List<({int cents, String emoji, String label, String id})>

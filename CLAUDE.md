@@ -647,10 +647,34 @@ compliant shape of "help me reply": the encrypted thread is never read, so no
 chat content reaches the model. A test pins that `draft()` sends the
 instruction and not the conversation.
 
+**It "learns as it talks" — per-user MEMORY, not weight training.** The
+`ai-chat` function, on a learning turn (`learn: true`), returns `{ reply,
+memories }`: the model puts durable, non-sensitive facts about the user in
+`remember`, and `AiMemory` (`lib/state/ai_memory.dart`) folds them into an
+ON-DEVICE, per-user list (deduped, capped at 60). Those memories ride back as
+context next turn, so it gets more personal. It is NOT weight training and must
+never be: you can't retrain a hosted model live, and training on live chats
+would learn nonsense and leak one user's words into another's — the reason
+memory is per-user, on-device, and built only from what the user typed TO THE
+ASSISTANT. A viewer (the chat's ⋮ → "What Okay AI remembers") shows and deletes
+each item. `draft()` sends `learn: false` and no memory. A test pins that
+`ai_memory.dart` has no network path. **The real "trained by users"** path is a
+later pipeline: collect the assistant conversations (with consent) → curate
+(the guardrail) → periodically fine-tune your own model → point
+`OPENROUTER_AI_MODEL` at it.
+
+**Rate limit + pay gate.** A free `AiAssistant.freePerDay` (15) messages a day;
+past it `needsUpgrade` is true and the chat shows an upgrade sheet.
+`AiPassStore` is a 30-day unlimited pass (a consumable IAP,
+`StorePurchases.buyAiPass` → `okayai.pro.monthly`; test mode simulates it). The
+gate is currently client-side — real cost control wants a server-side per-caller
+counter in `ai-chat` (a `ai_usage` table), the sensible next step. The price is
+the owner's to finalise.
+
 **Needs the user's own action to answer:** set `OPENROUTER_API_KEY` (already
 there if the feed moderator runs) and paste the `ai-chat` function; optionally
-`OPENROUTER_AI_MODEL` for a smarter model than the classifier's. Cost is
-per-token — a rate limit is a sensible follow-up.
+`OPENROUTER_AI_MODEL` for a smarter model; create the `okayai.pro.monthly` IAP
+product when going live on the pass.
 
 ## On-device translation (2026-08-06)
 

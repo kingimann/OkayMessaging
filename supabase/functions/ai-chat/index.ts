@@ -25,13 +25,32 @@ import { corsHeaders, json } from "../_shared/http.ts";
 const DEFAULT_MODEL = "openai/gpt-4o-mini";
 
 // How the assistant behaves. Deliberately plain and helpful — a general
-// assistant, not a character. Kept in step with AiAssistant.systemPrompt on the
-// client so the two describe the same thing.
+// assistant, not a character.
 const SYSTEM = `You are Okay AI, the friendly built-in assistant of the ` +
   `OkayMessenger app. You are helpful, honest, and concise. Answer clearly, ` +
   `admit when you are unsure, and never claim to be a human. You cannot read ` +
   `the user's private chats or personal data — you only see what they type to ` +
   `you here. If asked to do something you cannot, say so plainly.`;
+
+// The assistant "learns as it talks" by remembering durable facts about THIS
+// user. It answers in "reply" and, in "remember", returns any NEW, stable,
+// genuinely-useful fact worth recalling next time (a name, a preference, an
+// ongoing project) — [] almost always. It must NOT remember anything
+// sensitive (health, finances, credentials, precise location) or anything that
+// is just this-message chatter.
+const FORMAT = `Respond ONLY with a JSON object of this exact shape and ` +
+  `nothing else:\n{"reply": "<your answer to the user>", ` +
+  `"remember": ["<a durable fact about the user worth recalling>", ...]}\n` +
+  `Keep "remember" empty unless there is a genuinely new, stable, useful, ` +
+  `non-sensitive fact about the user. Never put sensitive data ` +
+  `(health, money, passwords, exact location) in "remember".`;
+
+function memoryPreamble(memories: string[]): string {
+  if (memories.length === 0) return "";
+  const lines = memories.slice(0, 60).map((m) => `- ${m}`).join("\n");
+  return `\n\nHere is what you already remember about this user; use it ` +
+    `naturally when relevant, and do not repeat it back as a list:\n${lines}`;
+}
 
 // A sane ceiling so one runaway conversation can't send a novel to the model.
 const MAX_MESSAGES = 24;
@@ -67,12 +86,26 @@ Deno.serve(async (req) => {
     return json({ error: "no user message" }, 400);
   }
 
+  // The user's on-device memory, sent as context so the assistant "knows"
+  // them. Learning is opt-out per request: draft() sends none.
+  const memories: string[] = [];
+  const rawMem = Array.isArray(body.memories) ? body.memories : [];
+  for (const m of rawMem) {
+    const s = String(m ?? "").trim();
+    if (s.length > 0 && s.length <= 200) memories.push(s);
+  }
+  // The one-shot draft path asks for a plain reply and no learning.
+  const learn = body.learn !== false;
+
   const key = Deno.env.get("OPENROUTER_API_KEY") ?? "";
   if (!key) return json({ reply: "", configured: false });
 
   try {
     const model = Deno.env.get("OPENROUTER_AI_MODEL") ||
       Deno.env.get("OPENROUTER_MODEL") || DEFAULT_MODEL;
+    const system = learn
+      ? SYSTEM + memoryPreamble(memories) + "\n\n" + FORMAT
+      : SYSTEM + memoryPreamble(memories);
     const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -82,8 +115,9 @@ Deno.serve(async (req) => {
       body: JSON.stringify({
         model,
         temperature: 0.7,
+        ...(learn ? { response_format: { type: "json_object" } } : {}),
         messages: [
-          { role: "system", content: SYSTEM },
+          { role: "system", content: system },
           ...trimmed,
         ],
       }),
@@ -93,11 +127,31 @@ Deno.serve(async (req) => {
       return json({ reply: "", configured: true, degraded: true });
     }
     const data = await res.json();
-    const reply = String(data.choices?.[0]?.message?.content ?? "").trim();
-    if (!reply) {
+    const content = String(data.choices?.[0]?.message?.content ?? "").trim();
+    if (!content) {
       return json({ reply: "", configured: true, degraded: true });
     }
-    return json({ reply, configured: true });
+    if (!learn) return json({ reply: content, configured: true });
+
+    // Learning turn: the content is a JSON object with reply + remember. If it
+    // somehow isn't, fall back to treating it as the reply so the chat never
+    // dead-ends on a formatting hiccup.
+    let reply = "";
+    let remember: string[] = [];
+    try {
+      const parsed = JSON.parse(content);
+      reply = String(parsed.reply ?? "").trim();
+      if (Array.isArray(parsed.remember)) {
+        remember = parsed.remember
+          .map((r: unknown) => String(r ?? "").trim())
+          .filter((r: string) => r.length > 0 && r.length <= 200)
+          .slice(0, 8);
+      }
+    } catch {
+      reply = content;
+    }
+    if (!reply) return json({ reply: "", configured: true, degraded: true });
+    return json({ reply, memories: remember, configured: true });
   } catch (e) {
     console.error("ai-chat: failed", String(e));
     return json({ reply: "", configured: true, degraded: true });

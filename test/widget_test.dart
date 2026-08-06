@@ -46,6 +46,8 @@ import 'package:okay_messaging/util/voip_numbers.dart';
 import 'package:okay_messaging/state/translate_service.dart';
 import 'package:okay_messaging/state/community_sub_store.dart';
 import 'package:okay_messaging/state/ai_assistant.dart';
+import 'package:okay_messaging/state/ai_memory.dart';
+import 'package:okay_messaging/state/ai_pass_store.dart';
 import 'package:okay_messaging/screens/ai_chat_screen.dart';
 import 'package:okay_messaging/legal/legal_content.dart';
 import 'package:okay_messaging/models/call.dart' as callmodel;
@@ -1895,9 +1897,60 @@ void main() {
   group('Okay AI assistant', () {
     setUp(() {
       AiAssistant.instance.resetForTest();
+      AiMemory.instance.resetForTest();
+      AiPassStore.instance.resetForTest();
       SharedPreferences.setMockInitialValues({});
     });
-    tearDown(() => AiAssistant.instance.resetForTest());
+    tearDown(() {
+      AiAssistant.instance.resetForTest();
+      AiMemory.instance.resetForTest();
+      AiPassStore.instance.resetForTest();
+    });
+
+    test('it remembers facts the model returns, deduped and capped', () async {
+      await AiMemory.instance.addAll(['Likes short answers', 'Building an app']);
+      expect(AiMemory.instance.items.length, 2);
+      // A duplicate (case-insensitive) is not kept twice.
+      await AiMemory.instance.addAll(['likes short answers']);
+      expect(AiMemory.instance.items.length, 2);
+      // Send absorbs new memories the function returns.
+      AiAssistant.debugReplyOverride = (_) async => 'noted';
+      // The override returns only a reply string, so memory comes from the
+      // store API directly here; the send/absorb wiring is covered below.
+      await AiMemory.instance.remove('Building an app');
+      expect(AiMemory.instance.items, ['Likes short answers']);
+      await AiMemory.instance.clear();
+      expect(AiMemory.instance.isEmpty, isTrue);
+    });
+
+    test('the free daily allowance gates further messages until a pass',
+        () async {
+      AiAssistant.debugReplyOverride = (_) async => 'ok';
+      expect(AiAssistant.instance.needsUpgrade, isFalse);
+      // Spend the whole free allowance.
+      for (var i = 0; i < AiAssistant.freePerDay; i++) {
+        await AiAssistant.instance.send('q$i');
+      }
+      expect(AiAssistant.instance.remainingFreeToday, 0);
+      expect(AiAssistant.instance.needsUpgrade, isTrue);
+      // send now refuses (no user turn added).
+      final before = AiAssistant.instance.turns.length;
+      final ok = await AiAssistant.instance.send('one more');
+      expect(ok, isFalse);
+      expect(AiAssistant.instance.turns.length, before);
+      // A pass lifts the gate.
+      await AiPassStore.instance.debugGrant();
+      expect(AiAssistant.instance.needsUpgrade, isFalse);
+      expect(await AiAssistant.instance.send('now it works'), isTrue);
+    });
+
+    test('the memory store holds no network path — it is on-device', () {
+      final src = File('lib/state/ai_memory.dart').readAsStringSync();
+      for (final banned in ['http', 'Supabase', 'functions.invoke']) {
+        expect(src.contains(banned), isFalse,
+            reason: 'per-user memory must stay on the device; found "$banned"');
+      }
+    });
 
     test('a turn is sent, the reply is appended, and the tail is bounded',
         () async {

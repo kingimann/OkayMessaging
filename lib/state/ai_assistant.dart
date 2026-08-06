@@ -5,6 +5,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../relay/relay_config.dart';
+import 'ai_memory.dart';
+import 'ai_pass_store.dart';
 
 /// One turn in the assistant conversation.
 class AiTurn {
@@ -45,12 +47,48 @@ class AiAssistant extends ChangeNotifier {
   /// can't send a novel each turn (the function bounds it again server-side).
   static const int _maxContext = 24;
 
+  /// Messages a free (non-subscribed) account may send Okay AI per day, before
+  /// the pay gate. Past this, an [AiPassStore] pass is needed. Generous enough
+  /// to be useful, small enough to keep the per-token cost bounded.
+  static const int freePerDay = 15;
+  static const _kUsed = 'ai_used_v1';
+  static const _kDay = 'ai_day_v1';
+
   final List<AiTurn> _turns = [];
   bool _sending = false;
+  int _usedToday = 0;
+  String _dayStamp = '';
 
   List<AiTurn> get turns => List.unmodifiable(_turns);
   bool get sending => _sending;
   bool get isEmpty => _turns.isEmpty;
+
+  /// Free messages left today (a big number when a pass makes it unlimited).
+  int get remainingFreeToday {
+    if (AiPassStore.instance.active) return 1 << 30;
+    _rollDay();
+    final left = freePerDay - _usedToday;
+    return left < 0 ? 0 : left;
+  }
+
+  /// Whether the free daily allowance is spent and no pass is active — the
+  /// point where the UI shows the upgrade gate instead of sending.
+  bool get needsUpgrade {
+    if (AiPassStore.instance.active) return false;
+    _rollDay();
+    return _usedToday >= freePerDay;
+  }
+
+  /// Resets the day counter when the calendar date changes. Uses the local
+  /// date only (no clock arithmetic), so a day boundary is unambiguous.
+  void _rollDay() {
+    final now = DateTime.now();
+    final today = '${now.year}-${now.month}-${now.day}';
+    if (_dayStamp != today) {
+      _dayStamp = today;
+      _usedToday = 0;
+    }
+  }
 
   SupabaseClient? get _client =>
       RelayConfig.isEnabled ? Supabase.instance.client : null;
@@ -66,7 +104,18 @@ class AiAssistant extends ChangeNotifier {
           ..addAll(list.map(
               (e) => AiTurn.fromJson(Map<String, dynamic>.from(e as Map))));
       }
+      _usedToday = prefs.getInt(_kUsed) ?? 0;
+      _dayStamp = prefs.getString(_kDay) ?? '';
+      _rollDay();
       notifyListeners();
+    } catch (_) {}
+  }
+
+  Future<void> _saveUsage() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt(_kUsed, _usedToday);
+      await prefs.setString(_kDay, _dayStamp);
     } catch (_) {}
   }
 
@@ -84,10 +133,17 @@ class AiAssistant extends ChangeNotifier {
   Future<bool> send(String text) async {
     final t = text.trim();
     if (t.isEmpty || _sending) return false;
+    // The pay gate: past the free daily allowance, a pass is required. The UI
+    // checks [needsUpgrade] first and shows the gate; this is the backstop.
+    if (needsUpgrade) return false;
+
     _turns.add(AiTurn(fromUser: true, text: t, time: DateTime.now()));
     _sending = true;
+    _rollDay();
+    _usedToday++;
     notifyListeners();
     await _save();
+    await _saveUsage();
 
     final payload = [
       for (final turn in _turns.length > _maxContext
@@ -97,6 +153,7 @@ class AiAssistant extends ChangeNotifier {
     ];
 
     String? reply;
+    List<String> newMemories = const [];
     bool configured = true;
     try {
       final override = debugReplyOverride;
@@ -107,13 +164,21 @@ class AiAssistant extends ChangeNotifier {
         if (client == null) {
           configured = false;
         } else {
-          final res = await client.functions
-              .invoke('ai-chat', body: {'messages': payload});
+          final res = await client.functions.invoke('ai-chat', body: {
+            'messages': payload,
+            // The user's on-device memory, so the assistant "knows" them.
+            'memories': AiMemory.instance.items,
+            'learn': true,
+          });
           final data = res.data;
           if (data is Map) {
             configured = data['configured'] != false;
             final r = data['reply'];
             if (r is String && r.trim().isNotEmpty) reply = r.trim();
+            final mem = data['memories'];
+            if (mem is List) {
+              newMemories = [for (final m in mem) m.toString()];
+            }
           }
         }
       }
@@ -122,6 +187,11 @@ class AiAssistant extends ChangeNotifier {
     }
 
     _sending = false;
+    // Fold anything worth remembering into the on-device memory — how it
+    // "learns" about this user, per user, never leaving the device.
+    if (newMemories.isNotEmpty) {
+      await AiMemory.instance.addAll(newMemories);
+    }
     if (reply != null) {
       _turns.add(AiTurn(fromUser: false, text: reply, time: DateTime.now()));
     } else {
@@ -158,8 +228,9 @@ class AiAssistant extends ChangeNotifier {
       if (override != null) return await override(payload);
       final client = _client;
       if (client == null) return null;
-      final res =
-          await client.functions.invoke('ai-chat', body: {'messages': payload});
+      // A pure utility: no memory in, no learning out.
+      final res = await client.functions
+          .invoke('ai-chat', body: {'messages': payload, 'learn': false});
       final data = res.data;
       if (data is Map) {
         final r = data['reply'];
@@ -187,6 +258,8 @@ class AiAssistant extends ChangeNotifier {
   void resetForTest() {
     _turns.clear();
     _sending = false;
+    _usedToday = 0;
+    _dayStamp = '';
     debugReplyOverride = null;
   }
 }

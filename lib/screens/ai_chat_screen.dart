@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../state/ai_assistant.dart';
+import '../state/ai_memory.dart';
+import '../state/ai_pass_store.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_dialogs.dart';
 
@@ -37,9 +39,140 @@ class _AiChatScreenState extends State<AiChatScreen> {
   Future<void> _send([String? preset]) async {
     final text = (preset ?? _input.text).trim();
     if (text.isEmpty) return;
+    if (AiAssistant.instance.needsUpgrade) {
+      _showUpgrade();
+      return;
+    }
     _input.clear();
     await AiAssistant.instance.send(text);
     _toBottom();
+  }
+
+  /// The pay gate: the free daily allowance is spent, so offer the pass. Test
+  /// mode simulates the purchase; the real price is the owner's to set later.
+  Future<void> _showUpgrade() async {
+    final messenger = ScaffoldMessenger.of(context);
+    final go = await showModalBottomSheet<bool>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Icon(Icons.auto_awesome,
+                  size: 36, color: Theme.of(sheetContext).colorScheme.primary),
+              const SizedBox(height: 8),
+              const Text('You\'ve used today\'s free messages',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+              const SizedBox(height: 8),
+              Text(
+                'Free includes ${AiAssistant.freePerDay} messages a day. '
+                'Subscribe for unlimited Okay AI.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                    color: Theme.of(sheetContext).colorScheme.onSurfaceVariant),
+              ),
+              const SizedBox(height: 16),
+              FilledButton(
+                onPressed: () => Navigator.of(sheetContext).pop(true),
+                child: const Text('Subscribe to Okay AI'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.of(sheetContext).pop(false),
+                child: const Text('Maybe later'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (go != true || !mounted) return;
+    final result = await AiPassStore.instance.subscribe();
+    if (!mounted) return;
+    messenger.showSnackBar(SnackBar(
+        content: Text(result.ok
+            ? 'You\'re subscribed — enjoy unlimited Okay AI.'
+            : 'That didn\'t go through — nothing was charged.')));
+  }
+
+  /// What Okay AI remembers about you — viewable and deletable, on this device
+  /// only.
+  void _showMemory() {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (sheetContext) => ListenableBuilder(
+        listenable: AiMemory.instance,
+        builder: (context, _) {
+          final items = AiMemory.instance.items;
+          return SafeArea(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 4),
+                  child: Row(
+                    children: [
+                      const Expanded(
+                        child: Text('What Okay AI remembers',
+                            style: TextStyle(
+                                fontSize: 16, fontWeight: FontWeight.w700)),
+                      ),
+                      if (items.isNotEmpty)
+                        TextButton(
+                          onPressed: () => AiMemory.instance.clear(),
+                          child: const Text('Forget all'),
+                        ),
+                    ],
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+                  child: Text(
+                    'Kept on this device to make answers more personal. Only '
+                    'from what you tell Okay AI — never your private chats.',
+                    style: TextStyle(
+                        fontSize: 12.5,
+                        color: Theme.of(sheetContext)
+                            .colorScheme
+                            .onSurfaceVariant),
+                  ),
+                ),
+                if (items.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.fromLTRB(20, 12, 20, 24),
+                    child: Text('Nothing yet — the more you chat, the more '
+                        'it learns about you.'),
+                  )
+                else
+                  Flexible(
+                    child: ListView(
+                      shrinkWrap: true,
+                      children: [
+                        for (final item in items)
+                          ListTile(
+                            leading: const Icon(Icons.circle, size: 8),
+                            title: Text(item),
+                            trailing: IconButton(
+                              icon: const Icon(Icons.close, size: 18),
+                              tooltip: 'Forget this',
+                              onPressed: () => AiMemory.instance.remove(item),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
   }
 
   void _toBottom() {
@@ -81,21 +214,29 @@ class _AiChatScreenState extends State<AiChatScreen> {
           ],
         ),
         actions: [
-          IconButton(
-            tooltip: 'Clear conversation',
-            icon: const Icon(Icons.delete_outline),
-            onPressed: () async {
-              final ok = await showAppConfirmDialog(
-                context,
-                icon: Icons.delete_outline,
-                title: 'Clear this conversation?',
-                message: 'The whole chat with Okay AI is removed from this '
-                    'device. This can\'t be undone.',
-                confirmLabel: 'Clear',
-                destructive: true,
-              );
-              if (ok) await AiAssistant.instance.clear();
+          PopupMenuButton<String>(
+            onSelected: (v) async {
+              if (v == 'memory') {
+                _showMemory();
+              } else if (v == 'clear') {
+                final ok = await showAppConfirmDialog(
+                  context,
+                  icon: Icons.delete_outline,
+                  title: 'Clear this conversation?',
+                  message: 'The whole chat with Okay AI is removed from this '
+                      'device. This can\'t be undone.',
+                  confirmLabel: 'Clear',
+                  destructive: true,
+                );
+                if (ok) await AiAssistant.instance.clear();
+              }
             },
+            itemBuilder: (_) => const [
+              PopupMenuItem(
+                  value: 'memory', child: Text('What Okay AI remembers')),
+              PopupMenuItem(
+                  value: 'clear', child: Text('Clear conversation')),
+            ],
           ),
         ],
       ),
