@@ -4,6 +4,7 @@ import '../state/parental_controls.dart';
 import '../widgets/parental_gate.dart';
 import '../widgets/phone_gate.dart';
 
+import '../payments/connect_webview.dart';
 import '../payments/payment_service.dart';
 import '../payments/stripe_sheet.dart';
 import '../payments/storage_economics.dart';
@@ -175,7 +176,29 @@ class _WalletScreenState extends State<WalletScreen> {
     );
     if (cents == null || cents <= 0 || !mounted) return;
     final messenger = ScaffoldMessenger.of(context);
+    // The real card entry runs on Stripe's HOSTED checkout page in a WebView,
+    // not the native Payment Sheet — the sheet couldn't present on some
+    // devices (it returned a silent cancel and never asked for a card). Test
+    // mode still simulates, and a device with no WebView keeps the old path.
+    final useHostedCheckout =
+        !PaymentService.instance.testMode.value && ConnectWebView.isSupported;
     try {
+      if (useHostedCheckout) {
+        final url =
+            await PaymentService.instance.topUpCheckoutUrl(amountCents: cents);
+        if (!mounted) return;
+        final done = await Navigator.of(context).push<bool>(MaterialPageRoute(
+          builder: (_) => _TopUpCheckoutScreen(url: url),
+        ));
+        if (!mounted) return;
+        _refresh();
+        if (done == true) {
+          messenger.showSnackBar(const SnackBar(
+              content: Text('Payment received — your balance updates in a '
+                  'moment.')));
+        }
+        return;
+      }
       final ok = await PaymentService.instance.addMoney(amountCents: cents);
       if (!mounted) return;
       if (ok) {
@@ -1025,6 +1048,44 @@ class _TestModeTile extends StatelessWidget {
           shape: const RoundedRectangleBorder(
               borderRadius: BorderRadius.all(Radius.circular(14))),
           onChanged: PaymentService.instance.setTestMode,
+        ),
+      ),
+    );
+  }
+}
+
+/// Stripe's hosted checkout page for a top-up, inside the app's own WebView —
+/// no browser, no popup, the same surface Connect onboarding uses. The native
+/// Payment Sheet couldn't present on some devices; this always shows a card
+/// form. Pops `true` the moment the page navigates to the return URL (the
+/// payment finished), which the WebView catches and reports as 'submitted'.
+class _TopUpCheckoutScreen extends StatelessWidget {
+  final String url;
+  const _TopUpCheckoutScreen({required this.url});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Scaffold(
+      appBar: AppBar(title: const Text('Add cash')),
+      body: SafeArea(
+        child: ConnectWebView.build(
+          url: url,
+          // A plain hosted page needs neither a client secret nor the embedded
+          // component's secret pump — it is ordinary navigation.
+          clientSecret: '',
+          publishableKey: PaymentService.publishableKey,
+          dark: isDark,
+          accent: AppColors.accentOn(context),
+          completionUrlPrefix: PaymentService.returnUrl,
+          onEvent: (event) {
+            // Checkout ends by navigating to the return URL (success or
+            // cancel); either way the person belongs back in the app, where
+            // the balance refresh tells the true story.
+            if (event == 'submitted' && context.mounted) {
+              Navigator.of(context).pop(true);
+            }
+          },
         ),
       ),
     );

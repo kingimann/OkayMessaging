@@ -802,6 +802,30 @@ class PaymentService {
     return ok;
   }
 
+  /// The URL of a Stripe HOSTED CHECKOUT page for a top-up, opened in the
+  /// app's WebView instead of the native Payment Sheet. The native sheet
+  /// proved unable to present on some devices (a silent cancel, no card ever
+  /// collected); the hosted page is plain navigation on Stripe's own domain,
+  /// the same surface Connect onboarding already uses, so it always shows a
+  /// card form. The charge is identical (a destination charge into the
+  /// caller's own connected balance); only where the card is entered differs.
+  Future<String> topUpCheckoutUrl({required int amountCents}) async {
+    if (ParentalControls.instance.blocks(ParentalRestriction.payments)) {
+      throw PaymentException('parental_locked');
+    }
+    final r = await _invoke('payments-topup', {
+      'amountCents': amountCents,
+      'currency': sendCurrency.value,
+      'hosted': true,
+      'returnUrl': returnUrl,
+      if (AccountEmail.instance.isSet)
+        'receiptEmail': AccountEmail.instance.email,
+    });
+    final url = r['checkoutUrl'] as String?;
+    if (url == null || url.isEmpty) throw PaymentException('no_checkout_url');
+    return url;
+  }
+
   // Cloud storage and developer tips are digital goods and bill through the
   // platform store (Apple / Google), not Stripe — see StorePurchases. Stripe
   // here is strictly for real-world peer-to-peer transfers (sendMoney) and
