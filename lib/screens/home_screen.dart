@@ -750,20 +750,16 @@ class _NavPill extends StatelessWidget {
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 240),
         curve: Curves.easeOut,
-        padding: EdgeInsets.symmetric(
-          // Narrower side padding on the selected pill than it looks: the
-          // label already sets it apart, and 16 a side across five pills is
-          // what pushed a 390-point phone over the edge.
-          horizontal: selected ? 12 : 11,
-          vertical: 11,
-        ),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
         decoration: BoxDecoration(
           color: selected
               ? ink.withValues(alpha: isDark ? 0.16 : 0.07)
               : Colors.transparent,
-          borderRadius: BorderRadius.circular(24),
+          borderRadius: BorderRadius.circular(18),
         ),
-        child: Row(
+        // Icon on top, label beneath — the classic bottom-bar stack rather
+        // than a label that only appears beside the selected icon.
+        child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             _IconWithBadge(
@@ -771,25 +767,18 @@ class _NavPill extends StatelessWidget {
               color: selected ? ink : idle,
               badgeCount: badgeCount,
             ),
-            AnimatedSize(
-              duration: const Duration(milliseconds: 240),
-              curve: Curves.easeOut,
-              child: selected
-                  ? Padding(
-                      padding: const EdgeInsets.only(left: 8),
-                      child: Text(
-                        label,
-                        maxLines: 1,
-                        overflow: TextOverflow.fade,
-                        softWrap: false,
-                        style: TextStyle(
-                          color: ink,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    )
-                  : const SizedBox.shrink(),
+            const SizedBox(height: 3),
+            Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.fade,
+              softWrap: false,
+              style: TextStyle(
+                color: selected ? ink : idle,
+                fontSize: 11,
+                height: 1.0,
+                fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+              ),
             ),
           ],
         ),

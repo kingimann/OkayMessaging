@@ -334,7 +334,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('OkayMessenger'), findsOneWidget);
-    // The modern pill bar labels only the active tab; Chats is active.
+    // Every pill wears its label under the icon now; Chats is the only pill
+    // named 'Chats', so still exactly one.
     expect(find.text('Chats'), findsOneWidget);
     expect(find.text('Status'), findsNothing);
 
@@ -2380,8 +2381,9 @@ void main() {
       await tester.enterText(find.byType(TextField), 'hello');
       await tester.pump();
       expect(tester.testTextInput.isVisible, isTrue);
-      // Tap the empty conversation area above the composer.
-      await tester.tapAt(const Offset(200, 300));
+      // Tap the empty conversation area above the composer — the heading is a
+      // reliable, non-interactive target inside the dismiss gesture.
+      await tester.tap(find.text('Ask Okay AI anything'));
       await tester.pumpAndSettle();
       expect(tester.testTextInput.isVisible, isFalse);
     });

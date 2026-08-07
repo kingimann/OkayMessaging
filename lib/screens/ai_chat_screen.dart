@@ -644,57 +644,85 @@ class _AiChatScreenState extends State<AiChatScreen> {
   }
 
   Widget _composer(BuildContext context, ColorScheme scheme) {
+    // The same rounded card the chat composer wears — text across the top, the
+    // controls (plus on the left, send on the right) along the bottom.
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final fieldColor = isDark ? AppColors.darkAppBar : const Color(0xFFEFF1F3);
+    final border = isDark ? const Color(0xFF33363B) : const Color(0xFFE2E5E9);
     return SafeArea(
       top: false,
+      minimum: const EdgeInsets.only(bottom: 6),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(6, 6, 8, 8),
+        padding: const EdgeInsets.fromLTRB(10, 4, 10, 6),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             if (_pending.isNotEmpty) _pendingStrip(scheme),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                ListenableBuilder(
-                  listenable: AiAssistant.instance,
-                  builder: (context, _) => IconButton(
-                    onPressed:
-                        AiAssistant.instance.sending ? null : _attach,
-                    icon: const Icon(Icons.add_circle_outline),
-                    tooltip: 'Attach a photo or file',
-                  ),
-                ),
-                Expanded(
-                  child: TextField(
+            Container(
+              decoration: BoxDecoration(
+                color: fieldColor,
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(color: border, width: 0.8),
+              ),
+              padding: const EdgeInsets.fromLTRB(16, 4, 6, 6),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  TextField(
                     controller: _input,
                     minLines: 1,
-                    maxLines: 5,
+                    maxLines: 6,
                     textCapitalization: TextCapitalization.sentences,
-                    decoration: InputDecoration(
+                    decoration: const InputDecoration(
                       hintText: 'Message Okay AI',
-                      filled: true,
-                      fillColor: scheme.surfaceContainerHighest,
-                      contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 16, vertical: 10),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(22),
-                        borderSide: BorderSide.none,
-                      ),
+                      border: InputBorder.none,
+                      isCollapsed: true,
+                      contentPadding: EdgeInsets.symmetric(vertical: 6),
                     ),
                     onSubmitted: (_) => _send(),
                   ),
-                ),
-                const SizedBox(width: 6),
-                ListenableBuilder(
-                  listenable: AiAssistant.instance,
-                  builder: (context, _) => IconButton.filled(
-                    onPressed:
-                        AiAssistant.instance.sending ? null : () => _send(),
-                    icon: const Icon(Icons.arrow_upward),
-                    tooltip: 'Send',
+                  const SizedBox(height: 2),
+                  Row(
+                    children: [
+                      ListenableBuilder(
+                        listenable: AiAssistant.instance,
+                        builder: (context, _) => IconButton(
+                          onPressed:
+                              AiAssistant.instance.sending ? null : _attach,
+                          icon: const Icon(Icons.add),
+                          tooltip: 'Attach a photo or file',
+                          visualDensity: VisualDensity.compact,
+                          color: isDark ? Colors.white70 : Colors.black54,
+                          style: IconButton.styleFrom(
+                            shape:
+                                CircleBorder(side: BorderSide(color: border)),
+                          ),
+                        ),
+                      ),
+                      const Spacer(),
+                      ListenableBuilder(
+                        listenable: AiAssistant.instance,
+                        builder: (context, _) => Tooltip(
+                          message: 'Send',
+                          child: GestureDetector(
+                            onTap: AiAssistant.instance.sending
+                                ? null
+                                : () => _send(),
+                            child: CircleAvatar(
+                              radius: 20,
+                              backgroundColor: AppColors.accentOn(context),
+                              child: Icon(Icons.arrow_upward,
+                                  size: 19,
+                                  color: AppColors.onAccent(context)),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ],
         ),
