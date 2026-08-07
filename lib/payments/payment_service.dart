@@ -418,6 +418,23 @@ class PaymentService {
   bool get canSendOnThisDevice =>
       testMode.value || (_realConfigured && StripeSheet.isSupported);
 
+  /// Initialize the Stripe SDK at app startup instead of only lazily, moments
+  /// before the first charge. flutter_stripe applies its publishable key
+  /// asynchronously, and a Payment Sheet presented before that has settled can
+  /// fail to render at all — which reads as "Add Cash just fails, no card ever
+  /// asked for". Doing it once at boot means the SDK is ready by the time any
+  /// sheet is opened. Idempotent (init no-ops after the first) and non-fatal:
+  /// the pre-charge init still runs as a backstop.
+  Future<void> warmUpStripe() async {
+    if (!_realConfigured || !StripeSheet.isSupported) return;
+    try {
+      await StripeSheet.init(_publishableKey);
+    } catch (_) {
+      // Non-fatal: the init right before a charge retries and surfaces any
+      // real fault through the sheet's own error path.
+    }
+  }
+
   /// The PaymentIntent from the most recent [sendMoney]. The charge is
   /// authorised before it is captured, so the caller needs this to find out
   /// how it ended.
