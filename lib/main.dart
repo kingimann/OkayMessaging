@@ -81,6 +81,7 @@ import 'widgets/voice_channel_banner.dart';
 import 'state/two_step.dart';
 import 'theme/app_theme.dart';
 import 'widgets/file_transfer_banner.dart';
+import 'widgets/poke_back_banner.dart';
 
 /// Runs one startup step so that nothing can keep the app from launching:
 /// a step that throws is skipped (the store keeps its defaults), and a step
@@ -572,6 +573,8 @@ class _OkayMessagingAppState extends State<OkayMessagingApp>
                     // what says so anywhere in the app, and the way back.
                     const VoiceChannelBanner(),
                     const FileTransferBanner(),
+                    // A poke that lands anywhere gets an app-wide "Poke back".
+                    const PokeBackBanner(),
                   ],
                 ),
               ),

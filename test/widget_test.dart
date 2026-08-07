@@ -235,6 +235,8 @@ import 'package:okay_messaging/state/follow_store.dart';
 import 'package:okay_messaging/state/recent_searches.dart';
 import 'package:okay_messaging/state/scheduler.dart';
 import 'package:okay_messaging/state/score_store.dart';
+import 'package:okay_messaging/state/poke_sender.dart';
+import 'package:okay_messaging/widgets/poke_back_banner.dart';
 import 'package:okay_messaging/state/session.dart';
 import 'package:okay_messaging/state/storage_store.dart';
 import 'package:okay_messaging/state/streak_store.dart';
@@ -36037,6 +36039,89 @@ void main() {
       expect(store.pokeCooldownLeft('c1'), Duration.zero);
     });
 
+    test('pokeChat is the one funnel: it mints a poke and the cooldown answers',
+        () {
+      final store = ChatStore.instance;
+      store.hydrate(const {'chats': []});
+      addTearDown(store.reset);
+      ScoreStore.instance.resetForTest();
+      addTearDown(ScoreStore.instance.resetForTest);
+      const contact = AppUser(
+          id: '+15550111',
+          name: 'Pat',
+          avatarColor: '#111111',
+          phone: '+15550111');
+      store.upsert(
+          const Chat(id: 'chat_+15550111', contact: contact, messages: []));
+
+      expect(pokeChat('chat_+15550111'), 0);
+      expect(
+          store
+              .chatById('chat_+15550111')!
+              .messages
+              .where((m) => m.isPoke && m.isMe)
+              .length,
+          1);
+      expect(ScoreStore.instance.flags, contains('poked'));
+
+      // Straight away again: the cooldown declines with seconds to wait.
+      expect(pokeChat('chat_+15550111'), greaterThan(0));
+      expect(
+          store
+              .chatById('chat_+15550111')!
+              .messages
+              .where((m) => m.isPoke && m.isMe)
+              .length,
+          1,
+          reason: 'a poke that can be spammed is a harassment button');
+    });
+
+    testWidgets('an app-wide banner offers a one-tap poke back', (tester) async {
+      final store = ChatStore.instance;
+      store.hydrate(const {'chats': []});
+      addTearDown(store.reset);
+      const contact = AppUser(
+          id: '+15550122',
+          name: 'Robin',
+          avatarColor: '#111111',
+          phone: '+15550122');
+      store.upsert(
+          const Chat(id: 'chat_+15550122', contact: contact, messages: []));
+
+      await tester
+          .pumpWidget(const MaterialApp(home: Scaffold(body: PokeBackBanner())));
+      await tester.pumpAndSettle();
+      // Nothing until a poke lands.
+      expect(find.textContaining('poked you'), findsNothing);
+
+      // A poke arrives in that chat, from anywhere in the app.
+      store.addMessage(
+          'chat_+15550122',
+          Message(
+              id: 'pk_in2',
+              text: '👉 Poke',
+              time: DateTime.now(),
+              isMe: false,
+              status: MessageStatus.delivered,
+              isPoke: true));
+      await tester.pumpAndSettle();
+      expect(find.text('👉 Robin poked you'), findsOneWidget);
+
+      // One tap sends the poke back, without opening the conversation.
+      await tester.tap(find.text('Poke back'));
+      await tester.pumpAndSettle();
+      expect(
+          store
+              .chatById('chat_+15550122')!
+              .messages
+              .where((m) => m.isPoke && m.isMe)
+              .length,
+          1,
+          reason: 'poke back sends a poke');
+      expect(find.text('Poke back'), findsNothing,
+          reason: 'the banner clears once you answer');
+    });
+
     testWidgets('an incoming poke buzzes, offers poke back, and the brake '
         'holds', (tester) async {
       final store = ChatStore.instance;
@@ -36890,7 +36975,9 @@ void main() {
       // And the wiring exists where the deeds happen.
       expect(File('lib/screens/create_group_screen.dart').readAsStringSync(),
           contains("recordFlag('made_group')"));
-      expect(File('lib/screens/chat_screen.dart').readAsStringSync(),
+      // The poke score flag lives in the shared poke funnel now, which both the
+      // chat's poke button and the app-wide "Poke back" banner go through.
+      expect(File('lib/state/poke_sender.dart').readAsStringSync(),
           contains("recordFlag('poked')"));
     });
   });

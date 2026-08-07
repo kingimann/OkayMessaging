@@ -35,6 +35,7 @@ import '../widgets/app_dialogs.dart';
 import '../widgets/poll_widgets.dart';
 import '../relay/relay_service.dart';
 import '../state/chat_store.dart';
+import '../state/poke_sender.dart';
 import '../state/push_service.dart';
 import '../state/file_transfer.dart';
 import '../state/scheduler.dart';
@@ -589,25 +590,17 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   /// and the chat list still counts it. The cooldown is the whole design:
   /// a poke that can be spammed is a harassment button.
   void _handlePoke() {
-    final left = _store.pokeCooldownLeft(_chatId);
-    if (left > Duration.zero) {
+    // One funnel (shared with the app-wide "Poke back" banner) mints the poke,
+    // checks the cooldown, and delivers it.
+    final wait = pokeChat(_chatId,
+        threadRootId: _inThread ? widget.threadRootId : null);
+    if (wait > 0) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(
-              'You just poked them — give it ${left.inSeconds + 1}s.')));
+          content: Text('You just poked them — give it ${wait}s.')));
       return;
     }
-    _store.notePoked(_chatId);
-    ScoreStore.instance.recordFlag('poked');
     Haptics.press();
-    final now = DateTime.now();
-    _deliver(Message(
-      id: 'local_${now.microsecondsSinceEpoch}',
-      text: '👉 Poke',
-      time: now,
-      isMe: true,
-      status: MessageStatus.sent,
-      isPoke: true,
-    ));
+    WidgetsBinding.instance.addPostFrameCallback((_) => _animateToBottom());
   }
 
   /// Buzzes when a poke lands while this conversation is on screen — the
