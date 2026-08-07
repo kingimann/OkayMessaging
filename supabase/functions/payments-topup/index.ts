@@ -115,10 +115,16 @@ Deno.serve(async (req) => {
     // own processing fee comes out of the platform's cut, which grossUp
     // already sized to stay positive.
     const feeCents = chargeCents - addedCents;
+    // Card-only, deliberately NOT automatic_payment_methods. A top-up only
+    // ever needs a card, and enabling Link (which automatic_payment_methods
+    // turns on) makes the mobile Payment Sheet demand a return URL it hasn't
+    // been given — so initPaymentSheet throws before it can render, and the
+    // person sees "add money" fail the instant they tap it with no card ever
+    // asked for. One payment method, no redirect surface, no failure.
     const intent = await stripe.paymentIntents.create({
       amount: chargeCents,
       currency,
-      automatic_payment_methods: { enabled: true },
+      payment_method_types: ["card"],
       application_fee_amount: feeCents,
       transfer_data: { destination: acct.stripe_account_id },
       statement_descriptor_suffix:
