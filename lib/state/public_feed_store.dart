@@ -1479,7 +1479,12 @@ class PublicFeedStore extends ChangeNotifier {
           'text': text.trim(),
           'handle': me.username,
           'hasImage': hasImage,
-        });
+        })
+            // The screen is a SPEED BUMP that already fails open — so a slow
+            // model must not make posting hang. Cap the wait; past it the post
+            // goes up and enforcement falls to reports/sanctions, exactly as it
+            // does when the function is offline.
+            .timeout(const Duration(seconds: 4));
         if (res.status >= 400) return null;
         final data = res.data;
         answer = data is Map ? data : null;

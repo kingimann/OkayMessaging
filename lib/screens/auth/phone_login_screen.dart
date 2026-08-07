@@ -1108,6 +1108,10 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen>
               : (picked) => setState(() {
                     _mode = picked.first;
                     _error = null;
+                    // Creating an account is a NEW identity — drop any name or
+                    // handle still prefilled from the remembered account so it
+                    // doesn't wear the previous person's name.
+                    if (_mode == _Mode.signUp) _dropStalePrefill();
                   }),
         ),
       );
@@ -1158,8 +1162,25 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen>
   ///
   /// A display name is not: it defaults to the username, so the whole of
   /// signing up is one field.
+  /// Drops the name/handle that were PREFILLED from the remembered account —
+  /// but only while they still equal that account's, never text the person
+  /// has typed for the account they're making now. Creating (or switching to)
+  /// a new account must not inherit the previous person's identity.
+  void _dropStalePrefill() {
+    final last = Session.instance.lastAccount;
+    if (last == null) return;
+    if (_name.text.trim() == last.name.trim() &&
+        last.name.trim() != last.phone.trim()) {
+      _name.clear();
+    }
+    if (_username.text.trim() == last.username.trim()) _username.clear();
+  }
+
   void _startNoNumber() => setState(() {
         _error = null;
+        // A numberless sign-up is always a NEW account with a MINTED handle;
+        // a prefilled name from the last account would carry over.
+        _dropStalePrefill();
         _step = _Step.noNumber;
       });
 
