@@ -85,11 +85,22 @@ class PushService {
   /// existed, and nothing else would ever re-attach it.
   Future<void> reupload() => _upload(_lastToken);
 
+  /// Test hook: stands in for the native local-notification channel, which is
+  /// a no-op off iOS. Lets a test see what a feed/community alert would raise.
+  @visibleForTesting
+  static void Function(String title, String body)? debugLocalNotify;
+
   /// Posts a notification from THIS device to itself — for things that
   /// happen over the radio with no server in the loop (an Okay Drop offer
-  /// arriving while the app is in the background). No-op off iOS and when
-  /// the native side is older than this method.
+  /// arriving while the app is in the background, or a feed/community alert
+  /// the Alerts tab also shows). No-op off iOS and when the native side is
+  /// older than this method.
   Future<void> localNotify({required String title, String? body}) async {
+    final hook = debugLocalNotify;
+    if (hook != null) {
+      hook(title, body ?? '');
+      return;
+    }
     if (kIsWeb || defaultTargetPlatform != TargetPlatform.iOS) return;
     try {
       await _channel.invokeMethod<void>(

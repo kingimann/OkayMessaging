@@ -10,6 +10,7 @@ import '../models/feed_notification.dart';
 import '../payments/payment_service.dart';
 import '../relay/relay_config.dart';
 import 'feed_prefs.dart';
+import 'push_service.dart';
 import '../relay/relay_service.dart';
 import 'score_store.dart';
 import 'session.dart';
@@ -530,6 +531,32 @@ class FeedStore extends ChangeNotifier {
   bool notificationsMuted(String username) =>
       username.isNotEmpty && _mutedNotifiers.contains(username.toLowerCase());
 
+  /// Raises an on-device notification for a feed/community interaction — the
+  /// same events the Alerts tab lists, so anything that shows there can also
+  /// buzz. On-device only ([PushService.localNotify]): the device already
+  /// learned of this over the relay, so there's no server round trip and no
+  /// cross-user push machinery. Gated on the master notifications toggle; the
+  /// preview is dropped when private notifications are on, matching the
+  /// server-side push policy. Callers have already applied the per-actor mute.
+  void _alertFor(FeedNotification note) {
+    if (!AppState.notificationsEnabled.value) return;
+    final actor = note.actorName.trim().isEmpty ? 'Someone' : note.actorName;
+    final verb = switch (note.type) {
+      FeedNotificationType.reply => 'replied to you',
+      FeedNotificationType.mention => 'mentioned you',
+      FeedNotificationType.repost => 'reposted you',
+      FeedNotificationType.like => 'liked your post',
+      FeedNotificationType.spark => 'sparked your post',
+      FeedNotificationType.channelMention => note.channelName.isEmpty
+          ? 'mentioned you'
+          : 'mentioned you in #${note.channelName}',
+    };
+    PushService.instance.localNotify(
+      title: '$actor $verb',
+      body: AppState.privateNotifications.value ? '' : note.preview,
+    );
+  }
+
   /// Silences or unsilences alerts from [username]; returns true when now
   /// muted. Existing alerts stay — muting is about what happens next, and
   /// sweeping the list would look like the app deleting your history.
@@ -653,22 +680,21 @@ class FeedStore extends ChangeNotifier {
     required DateTime time,
   }) {
     if (_notifications.any((n) => n.id == messageId)) return;
-    _notifications.insert(
-      0,
-      FeedNotification(
-        id: messageId,
-        type: FeedNotificationType.channelMention,
-        communityId: communityId,
-        actorName: actorName,
-        actorUsername: '',
-        time: time,
-        threadPostId: '',
-        preview: preview,
-        channelId: channelId,
-        channelName: channelName,
-      ),
+    final note = FeedNotification(
+      id: messageId,
+      type: FeedNotificationType.channelMention,
+      communityId: communityId,
+      actorName: actorName,
+      actorUsername: '',
+      time: time,
+      threadPostId: '',
+      preview: preview,
+      channelId: channelId,
+      channelName: channelName,
     );
+    _notifications.insert(0, note);
     if (_notifications.length > 50) _notifications.removeLast();
+    _alertFor(note);
     _save();
     notifyListeners();
   }
@@ -1824,18 +1850,18 @@ class FeedStore extends ChangeNotifier {
         final noteId = 'likenote_${postId}_$likerUsername';
         if (!notificationsMuted(likerUsername) &&
             !_notifications.any((n) => n.id == noteId)) {
-          _notifications.insert(
-              0,
-              FeedNotification(
-                id: noteId,
-                type: FeedNotificationType.like,
-                communityId: p.communityId,
-                actorName: likerName,
-                actorUsername: likerUsername,
-                time: DateTime.now(),
-                threadPostId: postId,
-              ));
+          final note = FeedNotification(
+            id: noteId,
+            type: FeedNotificationType.like,
+            communityId: p.communityId,
+            actorName: likerName,
+            actorUsername: likerUsername,
+            time: DateTime.now(),
+            threadPostId: postId,
+          );
+          _notifications.insert(0, note);
           if (_notifications.length > 50) _notifications.removeLast();
+          _alertFor(note);
         }
       }
     }
@@ -1893,19 +1919,19 @@ class FeedStore extends ChangeNotifier {
         !notificationsMuted(sparkerUsername)) {
       final noteId = 'sparknote_$sparkId';
       if (!_notifications.any((n) => n.id == noteId)) {
-        _notifications.insert(
-            0,
-            FeedNotification(
-              id: noteId,
-              type: FeedNotificationType.spark,
-              communityId: p.communityId,
-              actorName: sparkerName,
-              actorUsername: sparkerUsername,
-              time: DateTime.now(),
-              threadPostId: postId,
-              preview: '\$${(cents / 100).toStringAsFixed(2)}',
-            ));
+        final note = FeedNotification(
+          id: noteId,
+          type: FeedNotificationType.spark,
+          communityId: p.communityId,
+          actorName: sparkerName,
+          actorUsername: sparkerUsername,
+          time: DateTime.now(),
+          threadPostId: postId,
+          preview: '\$${(cents / 100).toStringAsFixed(2)}',
+        );
+        _notifications.insert(0, note);
         if (_notifications.length > 50) _notifications.removeLast();
+        _alertFor(note);
       }
     }
     _save();
@@ -1932,6 +1958,7 @@ class FeedStore extends ChangeNotifier {
     if (_notifications.any((n) => n.id == note.id)) return;
     _notifications.insert(0, note);
     if (_notifications.length > 50) _notifications.removeLast();
+    _alertFor(note);
   }
 
   /// The deterministic id of [username]'s repost of [postId] — the same on

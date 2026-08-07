@@ -14310,6 +14310,35 @@ void main() {
           isNull);
     });
 
+    test('a feed alert also raises a device notification', () {
+      FeedStore.instance.resetForTest();
+      final store = FeedStore.instance;
+      final prev = AppState.profile.value;
+      addTearDown(() => AppState.profile.value = prev);
+      AppState.profile.value = const AppUser(
+          id: 'me', name: 'Me', avatarColor: '#000000', username: 'you');
+      final raised = <String>[];
+      PushService.debugLocalNotify = (title, body) => raised.add(title);
+      addTearDown(() => PushService.debugLocalNotify = null);
+
+      // Someone likes my post: the in-app alert AND a device notification.
+      final mine = store.add('c1', 'notify me');
+      store.applyRemoteLike(mine.id,
+          liked: true, likerName: 'Grace', likerUsername: 'grace');
+      expect(store.notifications.first.type, FeedNotificationType.like);
+      expect(raised, contains('Grace liked your post'));
+
+      // The master toggle silences it — no notification, alert still logged.
+      raised.clear();
+      final prevEnabled = AppState.notificationsEnabled.value;
+      addTearDown(() => AppState.notificationsEnabled.value = prevEnabled);
+      AppState.notificationsEnabled.value = false;
+      store.applyRemoteLike(mine.id,
+          liked: true, likerName: 'Ada', likerUsername: 'ada2');
+      // (same post can't be re-liked by grace; a different liker fires)
+      expect(raised, isEmpty);
+    });
+
     test('like notifications carry the liker and dedupe', () {
       FeedStore.instance.resetForTest();
       final store = FeedStore.instance;
@@ -37444,10 +37473,14 @@ void main() {
       final src =
           File('lib/screens/marketplace_screen.dart').readAsStringSync();
       final post = src.substring(
-          src.indexOf('void _post()'), src.indexOf('Future<void> _finish'));
+          src.indexOf('Future<void> _post()'),
+          src.indexOf('Future<void> _finish'));
       expect(post, contains("'Add at least one photo.'"));
       expect(post, contains('Describe it'));
       expect(post.indexOf('_photos.isEmpty') < post.indexOf('parseListingPrice'),
+          isTrue);
+      // The AI spam screen runs before the listing is created.
+      expect(post.indexOf('.screen(') < post.indexOf('_finish(title, cents)'),
           isTrue);
     });
   });

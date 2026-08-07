@@ -25,6 +25,7 @@ import '../state/community_store.dart';
 import '../state/creator_sub_store.dart';
 import '../state/feed_store.dart';
 import '../state/follow_store.dart';
+import '../state/public_feed_store.dart';
 import '../state/market_media.dart';
 import '../util/geocoding.dart';
 import 'explore_map_screen.dart';
@@ -3892,6 +3893,9 @@ class _SellScreenState extends State<SellScreen> {
   bool _uploadingVideo = false;
   String? _error;
 
+  /// True while the AI spam screen is running, so the Post button waits.
+  bool _screening = false;
+
   @override
   void initState() {
     super.initState();
@@ -4130,7 +4134,7 @@ class _SellScreenState extends State<SellScreen> {
     ];
   }
 
-  void _post() {
+  Future<void> _post() async {
     final title = _title.text.trim();
     if (title.isEmpty) {
       setState(() => _error = 'Give it a title.');
@@ -4174,6 +4178,26 @@ class _SellScreenState extends State<SellScreen> {
     }
     if (_communityId.isEmpty) {
       setState(() => _error = 'Pick a server to list it in.');
+      return;
+    }
+    // AI speed bump: the SAME hosted screener the public feed uses, run on the
+    // listing's words before it goes up, so a spammy listing is caught at the
+    // one moment its text is legible — on this device, at post time (the sealed
+    // copy on the server can never be read). It FAILS OPEN (offline, not
+    // deployed, a slow model) and, like the feed, is a speed bump not a gate —
+    // real enforcement is still reports and takedowns.
+    setState(() {
+      _error = null;
+      _screening = true;
+    });
+    final blocked = await PublicFeedStore.instance
+        .screen('$title\n${_description.text}');
+    if (!mounted) return;
+    setState(() => _screening = false);
+    if (blocked != null) {
+      setState(() => _error = blocked.contains('public feed')
+          ? 'That listing looks like spam or breaks the marketplace rules.'
+          : blocked);
       return;
     }
     _finish(title, cents);
@@ -4428,9 +4452,15 @@ class _SellScreenState extends State<SellScreen> {
             child: ValueListenableBuilder<TextEditingValue>(
               valueListenable: _title,
               builder: (context, value, _) => FilledButton(
-                onPressed: value.text.trim().isEmpty ? null : _post,
+                onPressed:
+                    (value.text.trim().isEmpty || _screening) ? null : _post,
                 style: FilledButton.styleFrom(shape: const StadiumBorder()),
-                child: Text(widget.existing == null ? 'Post' : 'Save'),
+                child: _screening
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2))
+                    : Text(widget.existing == null ? 'Post' : 'Save'),
               ),
             ),
           ),

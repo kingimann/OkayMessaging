@@ -10,8 +10,8 @@ import '../utils/date_formatter.dart';
 import '../widgets/app_dialogs.dart';
 import '../widgets/chat_photo.dart';
 import '../widgets/emoji_gif_sheet.dart';
+import '../widgets/feed_post_parts.dart';
 import '../widgets/pull_to_refresh.dart';
-import '../widgets/rich_message_text.dart';
 
 /// How a forum channel's posts are ordered.
 enum ForumSort { hot, newest, top }
@@ -287,17 +287,17 @@ class _ForumChannelScreenState extends State<ForumChannelScreen> {
                   _searching = !_searching;
                 }),
               ),
+              // Compose lives top-right, exactly like the newsfeed — no FAB.
+              // Members lose it when posting is admin-only.
+              if (!_searching &&
+                  CommunityStore.instance.canPost(widget.communityId))
+                IconButton(
+                  icon: const Icon(Icons.edit_outlined),
+                  tooltip: 'New post',
+                  onPressed: _newPost,
+                ),
             ],
           ),
-          // Members lose the composer when posting is admin-only.
-          floatingActionButton:
-              CommunityStore.instance.canPost(widget.communityId)
-                  ? FloatingActionButton.extended(
-                      onPressed: _newPost,
-                      icon: const Icon(Icons.edit_outlined),
-                      label: const Text('New post'),
-                    )
-                  : null,
           body: Column(
             children: [
               if (channel.topic.isNotEmpty)
@@ -413,29 +413,23 @@ class _PostCard extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // The newsfeed's header: real avatar, name, age, pin — with the
+              // forum's lock and overflow menu kept to its right.
               Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _AuthorDot(name: post.authorName),
-                  const SizedBox(width: 7),
-                  Flexible(
-                    child: Text(post.authorName,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                            fontSize: 12.5, fontWeight: FontWeight.w600)),
-                  ),
-                  Text(
-                      '  ·  ${DateFormatter.callLabel(post.time)}'
-                      '${post.edited ? ' · edited' : ''}',
-                      style: TextStyle(
-                          fontSize: 12, color: AppColors.subtle(context))),
-                  const Spacer(),
-                  if (post.pinned)
-                    const Padding(
-                      padding: EdgeInsets.only(left: 6),
-                      child: Icon(Icons.push_pin,
-                          size: 14, color: Color(0xFF43B581)),
+                  FeedAvatar(
+                      username: post.authorId, name: post.authorName, radius: 20),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: FeedPostHeader(
+                      name: post.authorName,
+                      username: '',
+                      time: post.time,
+                      edited: post.edited,
+                      pinned: post.pinned,
                     ),
+                  ),
                   if (post.locked)
                     Padding(
                       padding: const EdgeInsets.only(left: 6),
@@ -449,38 +443,31 @@ class _PostCard extends StatelessWidget {
                         post: post),
                 ],
               ),
-              const SizedBox(height: 6),
+              const SizedBox(height: 8),
               Text(post.title,
                   style: const TextStyle(
                       fontSize: 16.5, fontWeight: FontWeight.w700, height: 1.2)),
               if (post.tag.isNotEmpty) ...[
-                const SizedBox(height: 5),
+                const SizedBox(height: 6),
                 _TagChip(tag: post.tag),
               ],
               if (post.body.isNotEmpty) ...[
-                const SizedBox(height: 4),
-                Text(post.body,
-                    maxLines: 3,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                        fontSize: 13.5,
-                        height: 1.35,
-                        color: AppColors.subtle(context))),
+                const SizedBox(height: 6),
+                FeedBodyText(text: post.body),
               ],
               if (post.gifUrl.isNotEmpty) ...[
-                const SizedBox(height: 8),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
+                const SizedBox(height: 10),
+                FeedPostImage(
                   child: ChatPhoto(
                     url: post.gifUrl,
                     width: double.infinity,
-                    height: 160,
+                    height: 180,
                     fit: BoxFit.cover,
                     errorBuilder: (_) => const SizedBox.shrink(),
                   ),
                 ),
               ],
-              const SizedBox(height: 10),
+              const SizedBox(height: 12),
               Row(
                 children: [
                   _VotePill(
@@ -634,31 +621,24 @@ class ForumPostScreen extends StatefulWidget {
 }
 
 class _ForumPostScreenState extends State<ForumPostScreen> {
-  final _comment = TextEditingController();
   ForumSort _commentSort = ForumSort.top;
 
   /// The top-level comment the composer is replying to, if any.
   ForumComment? _replyingTo;
 
-  /// A GIF (or an attached photo as a data: URI) waiting to ride out with
-  /// the next comment. '' when nothing is attached.
-  String _commentGif = '';
-
-  @override
-  void dispose() {
-    _comment.dispose();
-    super.dispose();
-  }
-
-  void _addComment() {
-    final body = _comment.text.trim();
+  /// Posts a comment (or a reply) — text and/or a GIF, the same shape the
+  /// newsfeed's reply bar hands back. Returns whether it was accepted, so the
+  /// bar keeps what was typed on a refusal (a locked thread, a word filter).
+  Future<bool> _submitComment(String text, String? gifUrl) async {
+    final body = text.trim();
+    final gif = gifUrl ?? '';
     // A GIF alone is a complete comment, the same as it is in chat.
-    if (body.isEmpty && _commentGif.isEmpty) return;
+    if (body.isEmpty && gif.isEmpty) return false;
     final hit = CommunityStore.instance.filterHit(widget.communityId, body);
     if (hit != null) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text('"$hit" is blocked by this server\'s word filter')));
-      return;
+      return false;
     }
     final me = AppState.profile.value;
     final added = CommunityStore.instance.addForumComment(
@@ -674,46 +654,16 @@ class _ForumPostScreenState extends State<ForumPostScreen> {
         score: 1,
         myVote: 1,
         parentId: _replyingTo?.id,
-        gifUrl: _commentGif,
+        gifUrl: gif,
       ),
     );
     if (!added) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content: Text('This thread is locked — no new comments.')));
-      return;
+      return false;
     }
-    _comment.clear();
-    setState(() {
-      _replyingTo = null;
-      _commentGif = '';
-    });
-    FocusScope.of(context).unfocus();
-  }
-
-  /// Opens the shared emoji/GIF sheet on the GIF tab; an emoji picked from
-  /// the other tab goes into the text instead.
-  Future<void> _pickCommentGif() async {
-    final picked = await showEmojiGifSheet(context, initialTab: 1);
-    if (picked == null || !mounted) return;
-    final gif = picked.gif;
-    if (gif != null) setState(() => _commentGif = gif.url);
-    final emoji = picked.emoji;
-    if (emoji != null) _comment.text += emoji;
-  }
-
-  Future<void> _attachCommentPhoto() async {
-    String? dataUri;
-    try {
-      dataUri = await PhotoPrep.pickPhoto();
-    } on FileRejected catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(e.reason)));
-      }
-      return;
-    }
-    if (dataUri == null || !mounted) return;
-    setState(() => _commentGif = dataUri!);
+    if (mounted) setState(() => _replyingTo = null);
+    return true;
   }
 
   Future<void> _editComment(ForumComment c) async {
@@ -776,52 +726,44 @@ class _ForumPostScreenState extends State<ForumPostScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            _AuthorDot(name: post.authorName, radius: 15),
-                            const SizedBox(width: 9),
+                            FeedAvatar(
+                                username: post.authorId,
+                                name: post.authorName,
+                                radius: 20),
+                            const SizedBox(width: 10),
                             Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(post.authorName,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(
-                                          fontSize: 13.5,
-                                          fontWeight: FontWeight.w700)),
-                                  Text(
-                                      '${DateFormatter.callLabel(post.time)}'
-                                      '${post.edited ? ' · edited' : ''}',
-                                      style: TextStyle(
-                                          fontSize: 12,
-                                          color: AppColors.subtle(context))),
-                                ],
+                              child: FeedPostHeader(
+                                name: post.authorName,
+                                username: '',
+                                time: post.time,
+                                edited: post.edited,
                               ),
                             ),
                             if (post.tag.isNotEmpty) _TagChip(tag: post.tag),
                           ],
                         ),
-                        const SizedBox(height: 10),
+                        const SizedBox(height: 12),
                         Text(post.title,
                             style: const TextStyle(
-                                fontSize: 19,
-                                fontWeight: FontWeight.w700,
+                                fontSize: 20,
+                                fontWeight: FontWeight.w800,
                                 height: 1.25)),
                         if (post.body.isNotEmpty) ...[
                           const SizedBox(height: 8),
-                          // Links in the body open like they do in chat.
-                          RichMessageText(
-                            text: post.body,
-                            textColor:
-                                Theme.of(context).colorScheme.onSurface,
-                            linkColor:
-                                Theme.of(context).colorScheme.primary,
-                          ),
+                          // The thread's own post reads a size up and never
+                          // folds — the same treatment the newsfeed gives the
+                          // post a thread is about. #tags, @mentions and links
+                          // are live.
+                          FeedBodyText(
+                              text: post.body,
+                              collapse: false,
+                              focused: true),
                         ],
                         if (post.gifUrl.isNotEmpty) ...[
                           const SizedBox(height: 10),
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(12),
+                          FeedPostImage(
                             child: ChatPhoto(
                               url: post.gifUrl,
                               width: double.infinity,
@@ -830,7 +772,7 @@ class _ForumPostScreenState extends State<ForumPostScreen> {
                             ),
                           ),
                         ],
-                        const SizedBox(height: 12),
+                        const SizedBox(height: 14),
                         _VotePill(
                           score: post.score,
                           myVote: post.myVote,
@@ -927,14 +869,14 @@ class _ForumPostScreenState extends State<ForumPostScreen> {
                   ),
                 )
               else
-                SafeArea(
-                top: false,
-                child: Column(
+                Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    // The "Replying to X" context, with the way out, above the
+                    // same reply bar the newsfeed thread uses.
                     if (_replyingTo != null)
                       Padding(
-                        padding: const EdgeInsets.fromLTRB(12, 2, 8, 0),
+                        padding: const EdgeInsets.fromLTRB(12, 6, 8, 0),
                         child: Row(
                           children: [
                             Icon(Icons.subdirectory_arrow_right,
@@ -961,73 +903,15 @@ class _ForumPostScreenState extends State<ForumPostScreen> {
                           ],
                         ),
                       ),
-                    if (_commentGif.isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(12, 4, 8, 0),
-                        child: Row(
-                          children: [
-                            ClipRRect(
-                              borderRadius: BorderRadius.circular(8),
-                              child: ChatPhoto(
-                                url: _commentGif,
-                                width: 72,
-                                height: 72,
-                                fit: BoxFit.cover,
-                                errorBuilder: (_) => const SizedBox.shrink(),
-                              ),
-                            ),
-                            IconButton(
-                              icon: const Icon(Icons.close, size: 18),
-                              tooltip: 'Remove attachment',
-                              onPressed: () =>
-                                  setState(() => _commentGif = ''),
-                            ),
-                          ],
-                        ),
-                      ),
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(4, 4, 8, 8),
-                      child: Row(
-                        children: [
-                          IconButton(
-                            icon: const Icon(Icons.gif_box_outlined),
-                            tooltip: 'GIFs & emoji',
-                            visualDensity: VisualDensity.compact,
-                            onPressed: _pickCommentGif,
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.image_outlined),
-                            tooltip: 'Attach photo',
-                            visualDensity: VisualDensity.compact,
-                            onPressed: _attachCommentPhoto,
-                          ),
-                          Expanded(
-                            child: TextField(
-                              controller: _comment,
-                              minLines: 1,
-                              maxLines: 4,
-                              textCapitalization:
-                                  TextCapitalization.sentences,
-                              decoration: InputDecoration(
-                                hintText: _replyingTo == null
-                                    ? 'Add a comment…'
-                                    : 'Reply to ${_replyingTo!.authorName}…',
-                                border: const OutlineInputBorder(),
-                                isDense: true,
-                              ),
-                            ),
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.send_rounded),
-                            color: Theme.of(context).colorScheme.primary,
-                            onPressed: _addComment,
-                          ),
-                        ],
-                      ),
+                    // The exact newsfeed reply bar: text + GIF + send.
+                    FeedReplyBar(
+                      key: ValueKey(_replyingTo?.id ?? 'root'),
+                      handle: '',
+                      gifEnabled: true,
+                      onSend: _submitComment,
                     ),
                   ],
                 ),
-              ),
             ],
           ),
         );
@@ -1092,9 +976,7 @@ class _CommentTile extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 4),
-        if (comment.body.isNotEmpty)
-          Text(comment.body,
-              style: const TextStyle(fontSize: 14.5, height: 1.35)),
+        if (comment.body.isNotEmpty) FeedBodyText(text: comment.body),
         if (comment.gifUrl.isNotEmpty)
           Padding(
             padding: const EdgeInsets.only(top: 5),
