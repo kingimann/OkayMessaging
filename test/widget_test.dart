@@ -163,6 +163,7 @@ import 'package:okay_messaging/util/haptics.dart';
 import 'package:okay_messaging/util/random_identity.dart';
 import 'package:okay_messaging/state/file_transfer.dart';
 import 'package:okay_messaging/models/status_update.dart';
+import 'package:okay_messaging/payments/nfc_pay.dart';
 import 'package:okay_messaging/payments/payment_service.dart';
 import 'package:okay_messaging/state/payment_security_store.dart';
 import 'package:okay_messaging/payments/earnings.dart';
@@ -6857,6 +6858,28 @@ void main() {
       expect(shared, isNotNull);
       expect(shared, contains('okaymsg://add?'));
     });
+
+    test('tap-to-pay reports unavailable off-device and stays a transport',
+        () async {
+      // Off iOS / until the native CoreNFC half is wired, NFC is unavailable so
+      // the wallet falls back to the QR code.
+      expect(await NfcPay.instance.available(), isFalse);
+      NfcPay.debugAvailable = true;
+      addTearDown(() => NfcPay.debugAvailable = null);
+      expect(await NfcPay.instance.available(), isTrue);
+
+      // A transport only — it imports no chat, relay or crypto code.
+      final src = File('lib/payments/nfc_pay.dart').readAsStringSync();
+      for (final banned in [
+        'ChatStore',
+        'RelayService',
+        'crypto',
+        'double_ratchet',
+      ]) {
+        expect(src.contains(banned), isFalse,
+            reason: 'nfc_pay must not reach for $banned');
+      }
+    });
   });
 
   group('Encrypted chat backup', () {
@@ -10656,8 +10679,10 @@ void main() {
       // something already sold.
       final src =
           File('lib/screens/marketplace_screen.dart').readAsStringSync();
-      expect(src,
-          contains('if (listing.listingOffers && !listing.listingSold)'));
+      // Gated on the seller inviting offers and the item not being sold —
+      // matched token-wise so a line wrap doesn't break the assertion.
+      expect(src, contains('listing.listingOffers &&'));
+      expect(src, contains('!listing.listingSold'));
       expect(src, contains('makeOffer(context, listing)'));
       // Seeded as a DRAFT through the same seller-chat path — the opener
       // rides setDraft, so nothing is sent until the person hits send.
@@ -12201,6 +12226,52 @@ void main() {
       expect(chat, isNotNull);
       expect(ChatStore.instance.draftFor(chat!.id),
           'Is this still available? — "Blue bike" (\$20)');
+    });
+
+    testWidgets('Buy pays the seller from the wallet (test mode)',
+        (tester) async {
+      FeedStore.instance.resetForTest();
+      ChatStore.instance.reset();
+      final svc = PaymentService.instance;
+      final prevTest = svc.testMode.value;
+      svc.testMode.value = true; // simulates the charge, no real money
+      addTearDown(() {
+        FeedStore.instance.resetForTest();
+        ChatStore.instance.reset();
+        debugResolveSellerOverride = null;
+        svc.testMode.value = prevTest;
+      });
+      FeedStore.instance.addRemote(FeedPost(
+        id: 'lst_buy',
+        communityId: 'c1',
+        authorName: 'Grace',
+        authorUsername: 'grace',
+        time: DateTime.now(),
+        text: 'Blue bike',
+        priceCents: 2000,
+        listingCategory: 'Sports',
+      ));
+      debugResolveSellerOverride = (username) async => AppUser(
+          id: 'u_grace',
+          name: 'Grace',
+          avatarColor: '#123456',
+          username: username,
+          phone: '15550001234');
+
+      await tester.pumpWidget(
+          const MaterialApp(home: ListingScreen(listingId: 'lst_buy')));
+      await tester.pump();
+
+      // Buy is the primary action on a priced item.
+      await tester.tap(find.textContaining('Buy · '));
+      await tester.pumpAndSettle();
+      // The checkout sheet offers both ways to pay.
+      expect(find.textContaining('from wallet'), findsOneWidget);
+      expect(find.text('Pay another way'), findsOneWidget);
+
+      await tester.tap(find.textContaining('from wallet'));
+      await tester.pumpAndSettle(const Duration(seconds: 2));
+      expect(find.textContaining('Paid'), findsOneWidget);
     });
 
     test('listing sort: price orders, ties stay stable, sold always sinks',

@@ -27,6 +27,7 @@ import '../state/feed_store.dart';
 import '../state/follow_store.dart';
 import '../state/public_feed_store.dart';
 import '../state/market_media.dart';
+import '../payments/payment_service.dart';
 import '../util/geocoding.dart';
 import 'explore_map_screen.dart';
 import '../util/file_moderation.dart';
@@ -1320,6 +1321,187 @@ Future<void> openSellerChat(
   await Navigator.of(context).push(
     MaterialPageRoute(builder: (_) => ChatScreen(chat: chat)),
   );
+}
+
+/// Resolves a listing's seller to an [AppUser] (with a phone to pay), the same
+/// way [openSellerChat] does: a contact first, then the directory. Null when
+/// the seller can't be reached — you can message but not pay them.
+Future<AppUser?> _resolveSeller(String username) async {
+  for (final c in ChatStore.instance.chats) {
+    if (!c.contact.isGroup &&
+        c.contact.username.toLowerCase() == username.toLowerCase()) {
+      return c.contact;
+    }
+  }
+  final resolve = debugResolveSellerOverride;
+  if (resolve != null) return resolve(username);
+  final matches = await AccountService.instance.searchByUsername(username);
+  for (final u in matches) {
+    if (u.username.toLowerCase() == username.toLowerCase()) return u;
+  }
+  return null;
+}
+
+/// Buy a listing: pay the seller its price, from the wallet balance or by card.
+/// Opens the pay sheet once the seller is resolved to someone payable.
+Future<void> buyListing(BuildContext context, FeedPost listing) async {
+  final price = listing.priceCents ?? 0;
+  if (price <= 0) {
+    // A free listing has nothing to charge — message the seller instead.
+    await messageSeller(context, listing);
+    return;
+  }
+  final seller = await _resolveSeller(listing.authorName);
+  if (!context.mounted) return;
+  if (seller == null || seller.phone.isEmpty) {
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Couldn\'t reach the seller to pay them — '
+            'message them to arrange it.')));
+    return;
+  }
+  await showModalBottomSheet<void>(
+    context: context,
+    showDragHandle: true,
+    isScrollControlled: true,
+    builder: (_) => _PayForListingSheet(listing: listing, seller: seller),
+  );
+}
+
+/// The marketplace checkout sheet: the price, the wallet balance, and the two
+/// ways to pay — straight from the balance, or by card.
+class _PayForListingSheet extends StatefulWidget {
+  final FeedPost listing;
+  final AppUser seller;
+  const _PayForListingSheet({required this.listing, required this.seller});
+
+  @override
+  State<_PayForListingSheet> createState() => _PayForListingSheetState();
+}
+
+class _PayForListingSheetState extends State<_PayForListingSheet> {
+  bool _busy = false;
+  WalletStatus? _wallet;
+
+  @override
+  void initState() {
+    super.initState();
+    PaymentService.instance.status().then((s) {
+      if (mounted) setState(() => _wallet = s);
+    }).catchError((_) {});
+  }
+
+  int get _price => widget.listing.priceCents ?? 0;
+  String get _title => widget.listing.text.split('\n').first;
+
+  Future<void> _pay({required bool fromWallet}) async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    final svc = PaymentService.instance;
+    final messenger = ScaffoldMessenger.of(context);
+    final nav = Navigator.of(context);
+    try {
+      final ok = fromWallet
+          ? await svc.payFromWallet(
+              toPhone: widget.seller.phone,
+              amountCents: _price,
+              note: _title)
+          : await svc.sendMoney(
+              toPhone: widget.seller.phone,
+              amountCents: _price,
+              note: _title);
+      if (!mounted) return;
+      setState(() => _busy = false);
+      if (ok) {
+        nav.pop();
+        messenger.showSnackBar(SnackBar(
+            content: Text('Paid ${formatListingPrice(_price)} to '
+                '${widget.seller.name}.')));
+      }
+    } on PaymentException catch (e) {
+      if (!mounted) return;
+      setState(() => _busy = false);
+      messenger.showSnackBar(SnackBar(content: Text(_payError(e.code))));
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _busy = false);
+      messenger.showSnackBar(const SnackBar(
+          content: Text('That payment didn\'t go through — try again.')));
+    }
+  }
+
+  String _payError(String code) => switch (code) {
+        'parental_locked' => 'Payments are turned off by parental controls.',
+        'step_up_required' =>
+          'This payment needs extra verification — send it from a chat '
+              'with the seller.',
+        'identity_required' =>
+          'Verify your identity in the wallet before paying.',
+        'not_enabled' =>
+          'Paying from your wallet balance isn\'t switched on yet — pay '
+              'another way.',
+        'insufficient_balance' =>
+          'Not enough in your wallet — top up, or pay another way.',
+        _ => 'That payment didn\'t go through ($code).',
+      };
+
+  @override
+  Widget build(BuildContext context) {
+    final balance = _wallet?.availableCents ?? 0;
+    final enough = balance >= _price;
+    return SafeArea(
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(
+            20, 4, 20, 20 + MediaQuery.of(context).viewInsets.bottom),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text('Buy ${_title.isEmpty ? 'this item' : _title}',
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                    fontSize: 18, fontWeight: FontWeight.w800)),
+            const SizedBox(height: 4),
+            Text('${formatListingPrice(_price)} · to ${widget.seller.name}',
+                style: TextStyle(color: AppColors.subtle(context))),
+            const SizedBox(height: 18),
+            FilledButton.icon(
+              onPressed: (_busy || !enough) ? null : () => _pay(fromWallet: true),
+              icon: const Icon(Icons.account_balance_wallet_outlined),
+              style: FilledButton.styleFrom(
+                  minimumSize: const Size.fromHeight(50)),
+              label: Text(_wallet == null
+                  ? 'Pay from wallet'
+                  : enough
+                      ? 'Pay ${formatListingPrice(_price)} from wallet '
+                          '(${_wallet!.money(balance)})'
+                      : 'Wallet balance too low (${_wallet!.money(balance)})'),
+            ),
+            const SizedBox(height: 10),
+            OutlinedButton.icon(
+              onPressed: _busy ? null : () => _pay(fromWallet: false),
+              icon: const Icon(Icons.credit_card),
+              style: OutlinedButton.styleFrom(
+                  minimumSize: const Size.fromHeight(50)),
+              label: const Text('Pay another way'),
+            ),
+            if (_busy)
+              const Padding(
+                padding: EdgeInsets.only(top: 16),
+                child: Center(child: CircularProgressIndicator()),
+              ),
+            const SizedBox(height: 8),
+            Text(
+              'You\'re paying the seller directly. Agree on handover in chat '
+              'before you pay for anything you can\'t collect.',
+              style:
+                  TextStyle(fontSize: 11.5, color: AppColors.subtle(context)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 /// A Facebook-style marketplace over the servers the user is in.
@@ -2837,31 +3019,53 @@ class ListingScreen extends StatelessWidget {
                       ),
                     ],
                   )
-                : Row(
+                : Column(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      Expanded(
-                        child: FilledButton.icon(
-                          onPressed: () => messageSeller(context, listing),
-                          icon: const Icon(Icons.chat_bubble_outline,
+                      // Buy is the primary action on a priced, unsold item —
+                      // pay the seller from your wallet or by card. Message and
+                      // Offer sit below it.
+                      if ((listing.priceCents ?? 0) > 0 &&
+                          !listing.listingSold) ...[
+                        FilledButton.icon(
+                          onPressed: () => buyListing(context, listing),
+                          icon: const Icon(Icons.shopping_bag_outlined,
                               size: 18),
-                          label: Text('Message ${listing.authorName}'),
+                          label: Text(
+                              'Buy · ${formatListingPrice(listing.priceCents!)}'),
                           style: FilledButton.styleFrom(
                               minimumSize: const Size.fromHeight(48)),
                         ),
-                      ),
-                      // Only when the seller said offers are welcome, and
-                      // never on something already sold.
-                      if (listing.listingOffers && !listing.listingSold) ...[
-                        const SizedBox(width: 8),
-                        OutlinedButton.icon(
-                          onPressed: () => makeOffer(context, listing),
-                          icon: const Icon(Icons.handshake_outlined,
-                              size: 18),
-                          label: const Text('Offer'),
-                          style: OutlinedButton.styleFrom(
-                              minimumSize: const Size(0, 48)),
-                        ),
+                        const SizedBox(height: 8),
                       ],
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: () => messageSeller(context, listing),
+                              icon: const Icon(Icons.chat_bubble_outline,
+                                  size: 18),
+                              label: Text('Message ${listing.authorName}'),
+                              style: OutlinedButton.styleFrom(
+                                  minimumSize: const Size.fromHeight(48)),
+                            ),
+                          ),
+                          // Only when the seller said offers are welcome, and
+                          // never on something already sold.
+                          if (listing.listingOffers &&
+                              !listing.listingSold) ...[
+                            const SizedBox(width: 8),
+                            OutlinedButton.icon(
+                              onPressed: () => makeOffer(context, listing),
+                              icon: const Icon(Icons.handshake_outlined,
+                                  size: 18),
+                              label: const Text('Offer'),
+                              style: OutlinedButton.styleFrom(
+                                  minimumSize: const Size(0, 48)),
+                            ),
+                          ],
+                        ],
+                      ),
                     ],
                   ),
           ),

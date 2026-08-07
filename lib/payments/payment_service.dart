@@ -779,6 +779,43 @@ class PaymentService {
     );
   }
 
+  /// Pays [toPhone] straight from the caller's WALLET BALANCE — no card sheet,
+  /// because the money is already there. The server moves it from the caller's
+  /// balance to the recipient's connected account (the payments-wallet-pay
+  /// Edge Function). Returns true on success. Test mode simulates it, like
+  /// [sendMoney]; the same parental and trusted-location gates apply.
+  Future<bool> payFromWallet({
+    required String toPhone,
+    required int amountCents,
+    String? note,
+    bool acknowledged = false,
+    bool stepUpVerified = false,
+  }) async {
+    if (ParentalControls.instance.blocks(ParentalRestriction.payments)) {
+      throw PaymentException('parental_locked');
+    }
+    if (amountCents <= 0 || toPhone.isEmpty) return false;
+    if (!stepUpVerified) {
+      final decision = await PaymentSecurityStore.instance.assess(toPhone);
+      if (decision.needsStepUp) {
+        throw PaymentException('step_up_required');
+      }
+    }
+    if (testMode.value) {
+      await Future<void>.delayed(const Duration(milliseconds: 1200));
+      return true;
+    }
+    final res = await _invoke('payments-wallet-pay', {
+      'toPhone': toPhone,
+      'amountCents': amountCents,
+      'currency': sendCurrency.value,
+      if (note != null && note.isNotEmpty) 'note': note,
+      'acknowledged': acknowledged,
+    });
+    lastPaymentIntentId = res['transferId'] as String? ?? '';
+    return res['ok'] == true;
+  }
+
   /// Adds money to the caller's OWN wallet balance from their card — the
   /// top-up. The typed [amountCents] is what lands; the fee rides on top,
   /// like every card top-up people already know. Returns true when the

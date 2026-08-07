@@ -34,7 +34,15 @@ Deno.serve(async (req) => {
   const phone = await callerPhone(req);
   if (!phone) return json({ error: "unauthorized" }, 401);
 
-  let body: { amountCents?: number; currency?: string; receiptEmail?: string };
+  let body: {
+    amountCents?: number;
+    currency?: string;
+    receiptEmail?: string;
+    // The hosted-checkout variant (topUpCheckoutUrl on the client): a URL to
+    // open instead of the native sheet, returning to returnUrl afterwards.
+    hosted?: boolean;
+    returnUrl?: string;
+  };
   try {
     body = await req.json();
   } catch {

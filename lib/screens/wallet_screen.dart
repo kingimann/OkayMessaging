@@ -4,7 +4,9 @@ import '../state/parental_controls.dart';
 import '../widgets/parental_gate.dart';
 import '../widgets/phone_gate.dart';
 
+import '../app_state.dart';
 import '../payments/connect_webview.dart';
+import '../payments/nfc_pay.dart';
 import '../payments/payment_service.dart';
 import '../payments/stripe_sheet.dart';
 import '../payments/storage_economics.dart';
@@ -160,6 +162,63 @@ class _WalletScreenState extends State<WalletScreen> {
   void _openReceive() => Navigator.of(context).push(
         MaterialPageRoute(builder: (_) => const ReceiveMoneyScreen()),
       );
+
+  /// Tap-to-pay: advertise your receive tag over NFC for a nearby phone to pay.
+  /// Until the native CoreNFC half is built (it needs an entitlement + a device
+  /// build), NFC reports unavailable and this falls back to the QR code — the
+  /// tap-free way to get paid in person that works today.
+  Future<void> _tapToPay() async {
+    final can = await NfcPay.instance.available();
+    if (!mounted) return;
+    if (can) {
+      await NfcPay.instance
+          .shareReceiveTag(AppState.profile.value.username);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Hold the other phone near yours to get paid.')));
+      return;
+    }
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheet) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Icon(Icons.contactless_outlined, size: 40),
+              const SizedBox(height: 12),
+              const Text('Tap to pay is coming',
+                  textAlign: TextAlign.center,
+                  style:
+                      TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
+              const SizedBox(height: 8),
+              Text(
+                'Tapping two phones to pay needs a newer build on a supported '
+                'iPhone. Until then, show your QR code — it\'s the tap-free '
+                'way to get paid in person.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: AppColors.subtle(context)),
+              ),
+              const SizedBox(height: 18),
+              FilledButton.icon(
+                onPressed: () {
+                  Navigator.of(sheet).pop();
+                  _openReceive();
+                },
+                icon: const Icon(Icons.qr_code_2),
+                style:
+                    FilledButton.styleFrom(minimumSize: const Size.fromHeight(48)),
+                label: const Text('Show my QR code'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 
   /// Top up the wallet from a card. The amount typed is what lands; the fee
   /// rides on top, and the sheet shows the total before charging.
@@ -485,11 +544,26 @@ class _WalletScreenState extends State<WalletScreen> {
                           ],
                         ),
                         const SizedBox(height: 12),
-                        _CashPill(
-                          label: 'Receive',
-                          icon: Icons.qr_code_2,
-                          tertiary: true,
-                          onTap: _openReceive,
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _CashPill(
+                                label: 'Receive',
+                                icon: Icons.qr_code_2,
+                                tertiary: true,
+                                onTap: _openReceive,
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: _CashPill(
+                                label: 'Tap to pay',
+                                icon: Icons.contactless_outlined,
+                                tertiary: true,
+                                onTap: _tapToPay,
+                              ),
+                            ),
+                          ],
                         ),
                         const SizedBox(height: 24),
                         _PayoutCard(
