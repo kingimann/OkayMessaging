@@ -2207,6 +2207,86 @@ void main() {
       expect(AiAssistant.instance.turns, isEmpty);
     });
 
+    test('multiple conversations: new, switch, rename, delete', () async {
+      final ai = AiAssistant.instance;
+      AiAssistant.debugReplyOverride = (_) async => 'ok';
+
+      await ai.send('first thread hello');
+      final firstId = ai.activeConversationId;
+      expect(firstId, isNotEmpty);
+
+      // New chat opens a fresh, empty thread — the old one is kept.
+      await ai.newConversation();
+      expect(ai.turns, isEmpty);
+      expect(ai.activeConversationId, isNot(firstId));
+      await ai.send('second thread hi');
+      final secondId = ai.activeConversationId;
+
+      // Both are in history, newest (the one just used) first.
+      expect(ai.conversations.length, 2);
+      expect(ai.conversations.first.id, secondId);
+      expect(ai.conversations.first.label, 'second thread hi',
+          reason: 'the title is drawn from the first thing said');
+
+      // New chat twice in a row reuses the empty thread — no blank pile-up.
+      await ai.newConversation();
+      await ai.newConversation();
+      expect(ai.conversations.where((c) => c.isEmpty).length, 1);
+
+      // Switching back shows the first thread's turns.
+      await ai.switchTo(firstId);
+      expect(ai.turns.map((t) => t.text), contains('first thread hello'));
+
+      // Rename sticks.
+      await ai.renameConversation(firstId, 'My first chat');
+      expect(ai.conversations.firstWhere((c) => c.id == firstId).label,
+          'My first chat');
+
+      // Delete removes it and falls back to another thread.
+      await ai.deleteConversation(firstId);
+      expect(ai.conversations.any((c) => c.id == firstId), isFalse);
+      expect(ai.activeConversationId, isNot(firstId));
+    });
+
+    test('conversations survive a reload, and legacy history migrates',
+        () async {
+      final ai = AiAssistant.instance;
+      AiAssistant.debugReplyOverride = (_) async => 'ok';
+      await ai.send('thread A');
+      await ai.newConversation();
+      await ai.send('thread B');
+      expect(ai.conversations.length, 2);
+
+      // A fresh load reads both threads back.
+      ai.resetForTest();
+      AiAssistant.debugReplyOverride = (_) async => 'ok';
+      await ai.load();
+      final labels = ai.conversations.map((c) => c.label).toList();
+      expect(labels, containsAll(['thread A', 'thread B']));
+
+      // A device upgrading from the old single-list format keeps its one thread.
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+          'ai_assistant_history_v1',
+          jsonEncode([
+            {
+              'u': true,
+              't': 'an old note to self',
+              'at': DateTime(2025).toIso8601String()
+            },
+            {
+              'u': false,
+              't': 'sure',
+              'at': DateTime(2025).toIso8601String()
+            },
+          ]));
+      ai.resetForTest();
+      AiAssistant.debugReplyOverride = (_) async => 'ok';
+      await ai.load();
+      expect(ai.conversations.length, 1);
+      expect(ai.turns.map((t) => t.text), contains('an old note to self'));
+    });
+
     test('draft() sends only the instruction, never the conversation', () async {
       // Seed a conversation so we can prove the draft ignores it.
       AiAssistant.debugReplyOverride = (_) async => 'earlier reply';
@@ -2259,6 +2339,41 @@ void main() {
 
       expect(find.text('What is the answer?'), findsOneWidget);
       expect(find.text('The answer is 42.'), findsOneWidget);
+    });
+
+    testWidgets('New chat starts fresh and history switches back',
+        (tester) async {
+      AiAssistant.debugReplyOverride = (_) async => 'sure';
+      await tester.pumpWidget(const MaterialApp(home: AiChatScreen()));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextField), 'first message');
+      await tester.tap(find.byTooltip('Send'));
+      await tester.pumpAndSettle();
+      expect(find.text('first message'), findsOneWidget);
+
+      // New chat clears the screen but keeps the old thread in history.
+      await tester.tap(find.byTooltip('New chat'));
+      await tester.pumpAndSettle();
+      expect(find.text('Ask Okay AI anything'), findsOneWidget);
+      expect(find.text('first message'), findsNothing);
+
+      await tester.enterText(find.byType(TextField), 'second message');
+      await tester.tap(find.byTooltip('Send'));
+      await tester.pumpAndSettle();
+
+      // The history sheet lists both threads (the active one also shows in its
+      // bubble behind the sheet, so both appear at least once).
+      await tester.tap(find.byTooltip('Your chats'));
+      await tester.pumpAndSettle();
+      expect(find.text('first message'), findsWidgets);
+      expect(find.text('second message'), findsWidgets);
+
+      // Tapping the older one opens it again.
+      await tester.tap(find.text('first message').last);
+      await tester.pumpAndSettle();
+      expect(find.text('first message'), findsOneWidget);
+      expect(find.text('sure'), findsWidgets);
     });
 
     testWidgets('a name-only account cannot use Okay AI', (tester) async {

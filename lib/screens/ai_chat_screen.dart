@@ -448,6 +448,170 @@ class _AiChatScreenState extends State<AiChatScreen> {
     });
   }
 
+  void _jumpBottom() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scroll.hasClients) {
+        _scroll.jumpTo(_scroll.position.maxScrollExtent);
+      }
+    });
+  }
+
+  /// Starts a fresh conversation, keeping the current one in history.
+  Future<void> _newChat() async {
+    _input.clear();
+    setState(_pending.clear);
+    await AiAssistant.instance.newConversation();
+    if (mounted) FocusScope.of(context).unfocus();
+    _jumpBottom();
+  }
+
+  /// The history list — every saved conversation, newest first, the way other
+  /// AIs keep a sidebar of past chats. Tap to open one; rename or delete from
+  /// each row.
+  void _showHistory() {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (sheetContext) => ListenableBuilder(
+        listenable: AiAssistant.instance,
+        builder: (context, _) {
+          final convos = AiAssistant.instance.conversations;
+          final activeId = AiAssistant.instance.activeConversationId;
+          final scheme = Theme.of(sheetContext).colorScheme;
+          return SafeArea(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 12, 4),
+                  child: Row(
+                    children: [
+                      const Expanded(
+                        child: Text('Your chats',
+                            style: TextStyle(
+                                fontSize: 16, fontWeight: FontWeight.w700)),
+                      ),
+                      TextButton.icon(
+                        onPressed: () {
+                          Navigator.of(sheetContext).pop();
+                          _newChat();
+                        },
+                        icon: const Icon(Icons.add, size: 18),
+                        label: const Text('New chat'),
+                      ),
+                    ],
+                  ),
+                ),
+                if (convos.isEmpty ||
+                    (convos.length == 1 && convos.first.isEmpty))
+                  const Padding(
+                    padding: EdgeInsets.fromLTRB(20, 12, 20, 28),
+                    child: Text('No past chats yet. Start typing to begin one.'),
+                  )
+                else
+                  Flexible(
+                    child: ListView(
+                      shrinkWrap: true,
+                      children: [
+                        for (final c in convos)
+                          if (!c.isEmpty)
+                            ListTile(
+                              leading: Icon(
+                                Icons.chat_bubble_outline,
+                                color: c.id == activeId ? scheme.primary : null,
+                              ),
+                              title: Text(c.label,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                      fontWeight: c.id == activeId
+                                          ? FontWeight.w700
+                                          : FontWeight.w500)),
+                              subtitle: c.preview.isEmpty
+                                  ? null
+                                  : Text(c.preview,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis),
+                              selected: c.id == activeId,
+                              onTap: () async {
+                                FocusScope.of(context).unfocus();
+                                Navigator.of(sheetContext).pop();
+                                await AiAssistant.instance.switchTo(c.id);
+                                _jumpBottom();
+                              },
+                              trailing: PopupMenuButton<String>(
+                                onSelected: (v) async {
+                                  if (v == 'rename') {
+                                    await _renameConversation(c.id, c.label);
+                                  } else if (v == 'delete') {
+                                    await _deleteConversation(
+                                        sheetContext, c.id, c.label);
+                                  }
+                                },
+                                itemBuilder: (_) => const [
+                                  PopupMenuItem(
+                                      value: 'rename', child: Text('Rename')),
+                                  PopupMenuItem(
+                                      value: 'delete', child: Text('Delete')),
+                                ],
+                              ),
+                            ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Future<void> _renameConversation(String id, String current) async {
+    final controller = TextEditingController(text: current);
+    final result = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Rename chat'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLength: 60,
+          decoration: const InputDecoration(hintText: 'Chat name'),
+          onSubmitted: (v) => Navigator.of(dialogContext).pop(v.trim()),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () =>
+                Navigator.of(dialogContext).pop(controller.text.trim()),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    if (result != null) {
+      await AiAssistant.instance.renameConversation(id, result);
+    }
+  }
+
+  Future<void> _deleteConversation(
+      BuildContext sheetContext, String id, String label) async {
+    final ok = await showAppConfirmDialog(
+      context,
+      icon: Icons.delete_outline,
+      title: 'Delete this chat?',
+      message: '"$label" is removed from this device. This can\'t be undone.',
+      confirmLabel: 'Delete',
+      destructive: true,
+    );
+    if (ok) await AiAssistant.instance.deleteConversation(id);
+  }
+
   @override
   Widget build(BuildContext context) {
     // A name-only (numberless) account can't use Okay AI: it has no server
@@ -507,6 +671,16 @@ class _AiChatScreenState extends State<AiChatScreen> {
           },
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.history),
+            tooltip: 'Your chats',
+            onPressed: _showHistory,
+          ),
+          IconButton(
+            icon: const Icon(Icons.add_comment_outlined),
+            tooltip: 'New chat',
+            onPressed: _newChat,
+          ),
           PopupMenuButton<String>(
             onSelected: (v) async {
               if (v == 'memory') {

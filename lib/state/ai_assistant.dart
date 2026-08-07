@@ -85,6 +85,84 @@ class AiTurn {
       );
 }
 
+/// One saved conversation with Okay AI — a thread in the history list, the way
+/// ChatGPT, Claude and Grok keep a sidebar of past chats. Holds its own turns
+/// and a title (auto-drawn from the first thing the user said, unless renamed).
+class AiConversation {
+  AiConversation({
+    required this.id,
+    required this.createdAt,
+    required this.updatedAt,
+    this.title = '',
+    List<AiTurn>? turns,
+  }) : turns = turns ?? [];
+
+  final String id;
+  String title;
+  DateTime createdAt;
+  DateTime updatedAt;
+  final List<AiTurn> turns;
+
+  /// The first line of the first thing the user typed — what a thread is called
+  /// when it hasn't been renamed, the same idea as a note's first-line title.
+  String get autoTitle {
+    for (final t in turns) {
+      if (t.fromUser && t.text.trim().isNotEmpty) {
+        final s = t.text.trim().split('\n').first.trim();
+        return s.length > 40 ? '${s.substring(0, 40)}…' : s;
+      }
+    }
+    return 'New chat';
+  }
+
+  /// What the history row shows: the given title, or the auto one.
+  String get label => title.isNotEmpty ? title : autoTitle;
+
+  /// A one-line preview for the history row — the last thing said.
+  String get preview {
+    for (final t in turns.reversed) {
+      final s = t.text.trim();
+      if (s.isNotEmpty) {
+        final flat = s.split('\n').first.trim();
+        return flat.length > 80 ? '${flat.substring(0, 80)}…' : flat;
+      }
+    }
+    return '';
+  }
+
+  bool get isEmpty => turns.isEmpty;
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        if (title.isNotEmpty) 'title': title,
+        'createdAt': createdAt.toIso8601String(),
+        'updatedAt': updatedAt.toIso8601String(),
+        'turns': [for (final t in turns) t.toJson()],
+      };
+
+  factory AiConversation.fromJson(Map<String, dynamic> j) => AiConversation(
+        id: j['id'] as String? ?? _mintId(),
+        title: j['title'] as String? ?? '',
+        createdAt:
+            DateTime.tryParse(j['createdAt'] as String? ?? '') ?? DateTime(2024),
+        updatedAt: DateTime.tryParse(j['updatedAt'] as String? ?? '') ??
+            DateTime(2024),
+        turns: [
+          for (final t in (j['turns'] as List<dynamic>? ?? const []))
+            AiTurn.fromJson(Map<String, dynamic>.from(t as Map))
+        ],
+      );
+}
+
+/// A short random id for a conversation. Not [DateTime]-based, so it works in
+/// the test harness where the clock helpers are stubbed out.
+String _mintId() {
+  final n = _idCounter++;
+  return 'c${n.toRadixString(36)}_${identityHashCode(Object())}';
+}
+
+int _idCounter = 0;
+
 /// The app's built-in AI assistant — "Okay AI", a general-purpose helper in the
 /// shape of Grok or Claude.
 ///
@@ -113,15 +191,126 @@ class AiAssistant extends ChangeNotifier {
   static const _kUsed = 'ai_used_v1';
   static const _kDay = 'ai_day_v1';
 
-  final List<AiTurn> _turns = [];
+  /// Every saved conversation, most-recent last (order isn't relied on; the
+  /// history list sorts by [AiConversation.updatedAt]). There is always at
+  /// least one once [_ensureActive] has run.
+  final List<AiConversation> _conversations = [];
+
+  /// The conversation the screen is showing, when not incognito.
+  AiConversation? _active;
+
+  /// The ephemeral incognito thread — held in memory only, never saved and
+  /// never in [_conversations].
+  final List<AiTurn> _incognitoTurns = [];
+
   bool _sending = false;
   int _usedToday = 0;
   String _dayStamp = '';
   bool _incognito = false;
 
-  List<AiTurn> get turns => List.unmodifiable(_turns);
+  /// The live turn list the screen reads and [send] appends to: the incognito
+  /// thread when incognito, otherwise the active conversation's own turns.
+  List<AiTurn> get _live {
+    if (_incognito) return _incognitoTurns;
+    _ensureActive();
+    return _active!.turns;
+  }
+
+  /// Guarantees an active saved conversation exists — created lazily so a bare
+  /// [send] (no [load]) still has somewhere to write, as the tests do.
+  void _ensureActive() {
+    if (_active != null) return;
+    if (_conversations.isNotEmpty) {
+      _active = _mostRecent();
+    } else {
+      final c = AiConversation(
+          id: _mintId(), createdAt: DateTime.now(), updatedAt: DateTime.now());
+      _conversations.add(c);
+      _active = c;
+    }
+  }
+
+  AiConversation _mostRecent() {
+    var best = _conversations.first;
+    for (final c in _conversations) {
+      if (c.updatedAt.isAfter(best.updatedAt)) best = c;
+    }
+    return best;
+  }
+
+  AiConversation? _byId(String id) {
+    for (final c in _conversations) {
+      if (c.id == id) return c;
+    }
+    return null;
+  }
+
+  List<AiTurn> get turns => List.unmodifiable(_live);
   bool get sending => _sending;
-  bool get isEmpty => _turns.isEmpty;
+  bool get isEmpty => _live.isEmpty;
+
+  /// The saved conversations, newest first — what the history list shows. The
+  /// ephemeral incognito thread is deliberately never among them.
+  List<AiConversation> get conversations {
+    final list = [..._conversations];
+    list.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+    return List.unmodifiable(list);
+  }
+
+  /// The id of the conversation on screen, so the history list can mark it.
+  /// Empty in incognito (that thread isn't in the list).
+  String get activeConversationId => _incognito ? '' : (_active?.id ?? '');
+
+  /// Starts a fresh conversation and makes it active. Reuses the current one if
+  /// it's already an empty "New chat", so tapping New chat twice doesn't stack
+  /// blank threads. Leaves incognito, since a saved chat is the opposite of it.
+  Future<void> newConversation() async {
+    if (_incognito) _incognito = false;
+    _incognitoTurns.clear();
+    _ensureActive();
+    if (_active!.turns.isEmpty) {
+      notifyListeners();
+      return;
+    }
+    final c = AiConversation(
+        id: _mintId(), createdAt: DateTime.now(), updatedAt: DateTime.now());
+    _conversations.add(c);
+    _active = c;
+    notifyListeners();
+    await _save();
+  }
+
+  /// Switches to a saved conversation by id (leaving incognito if it was on).
+  Future<void> switchTo(String id) async {
+    final c = _byId(id);
+    if (c == null) return;
+    _incognito = false;
+    _incognitoTurns.clear();
+    _active = c;
+    notifyListeners();
+    await _save();
+  }
+
+  /// Removes a saved conversation. If it was the active one, falls back to the
+  /// most recent remaining, or a fresh empty thread when none are left.
+  Future<void> deleteConversation(String id) async {
+    _conversations.removeWhere((c) => c.id == id);
+    if (_active?.id == id) {
+      _active = null;
+      _ensureActive();
+    }
+    notifyListeners();
+    await _save();
+  }
+
+  /// Renames a conversation; an empty title falls back to the auto one.
+  Future<void> renameConversation(String id, String title) async {
+    final c = _byId(id);
+    if (c == null) return;
+    c.title = title.trim();
+    notifyListeners();
+    await _save();
+  }
 
   /// Incognito: an ephemeral session that is never written to the device and
   /// never reaches the learning path. While it's on, the conversation lives in
@@ -139,13 +328,12 @@ class AiAssistant extends ChangeNotifier {
   Future<void> setIncognito(bool on) async {
     if (on == _incognito) return;
     _incognito = on;
-    _turns.clear();
-    if (!on) {
-      // Back to normal: reload the conversation that was saved before we left.
-      await load();
-    } else {
-      notifyListeners();
-    }
+    // Entering starts a fresh ephemeral thread; the saved conversations stay in
+    // memory untouched. Leaving discards the ephemeral thread and shows the
+    // active saved conversation again — no disk read needed, it never left.
+    _incognitoTurns.clear();
+    if (on) _ensureActive(); // so there's a saved chat to return to
+    notifyListeners();
   }
 
   /// Whether this account is never rate-limited: a pass makes it unlimited,
@@ -191,13 +379,35 @@ class AiAssistant extends ChangeNotifier {
     try {
       final prefs = await SharedPreferences.getInstance();
       final raw = prefs.getString(_kKey);
+      _conversations.clear();
+      _active = null;
       if (raw != null && raw.isNotEmpty) {
-        final list = jsonDecode(raw) as List<dynamic>;
-        _turns
-          ..clear()
-          ..addAll(list.map(
-              (e) => AiTurn.fromJson(Map<String, dynamic>.from(e as Map))));
+        final decoded = jsonDecode(raw);
+        if (decoded is Map) {
+          // The current shape: { active, items: [conversation, …] }.
+          for (final c in (decoded['items'] as List<dynamic>? ?? const [])) {
+            _conversations
+                .add(AiConversation.fromJson(Map<String, dynamic>.from(c)));
+          }
+          final activeId = decoded['active'] as String? ?? '';
+          _active = _byId(activeId);
+        } else if (decoded is List) {
+          // The legacy shape: a single flat list of turns. Fold it into one
+          // conversation so an upgrading device keeps its one thread.
+          final turns = [
+            for (final e in decoded)
+              AiTurn.fromJson(Map<String, dynamic>.from(e as Map))
+          ];
+          if (turns.isNotEmpty) {
+            _conversations.add(AiConversation(
+                id: _mintId(),
+                createdAt: turns.first.time,
+                updatedAt: turns.last.time,
+                turns: turns));
+          }
+        }
       }
+      _ensureActive();
       _usedToday = prefs.getInt(_kUsed) ?? 0;
       _dayStamp = prefs.getString(_kDay) ?? '';
       _rollDay();
@@ -221,7 +431,11 @@ class AiAssistant extends ChangeNotifier {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(
-          _kKey, jsonEncode(_turns.map((t) => t.toJson()).toList()));
+          _kKey,
+          jsonEncode({
+            'active': _active?.id ?? '',
+            'items': [for (final c in _conversations) c.toJson()],
+          }));
     } catch (_) {}
   }
 
@@ -242,7 +456,7 @@ class AiAssistant extends ChangeNotifier {
     // checks [needsUpgrade] first and shows the gate; this is the backstop.
     if (needsUpgrade) return false;
 
-    _turns.add(AiTurn(
+    _live.add(AiTurn(
       fromUser: true,
       text: t,
       time: DateTime.now(),
@@ -251,6 +465,7 @@ class AiAssistant extends ChangeNotifier {
           AiAttachmentRef(kind: a.kind, name: a.name, thumb: a.thumbDataUri)
       ],
     ));
+    _touchActive();
     _sending = true;
     _rollDay();
     _usedToday++;
@@ -259,9 +474,9 @@ class AiAssistant extends ChangeNotifier {
     await _saveUsage();
 
     final payload = <Map<String, dynamic>>[
-      for (final turn in _turns.length > _maxContext
-          ? _turns.sublist(_turns.length - _maxContext)
-          : _turns)
+      for (final turn in _live.length > _maxContext
+          ? _live.sublist(_live.length - _maxContext)
+          : _live)
         {'role': turn.fromUser ? 'user' : 'assistant', 'content': turn.text}
     ];
     // The just-sent turn carries the images/files as multimodal content; every
@@ -324,9 +539,9 @@ class AiAssistant extends ChangeNotifier {
       await AiMemory.instance.addAll(newMemories);
     }
     if (reply != null) {
-      _turns.add(AiTurn(fromUser: false, text: reply, time: DateTime.now()));
+      _live.add(AiTurn(fromUser: false, text: reply, time: DateTime.now()));
     } else {
-      _turns.add(AiTurn(
+      _live.add(AiTurn(
         fromUser: false,
         text: rateLimited
             ? 'You\'ve reached today\'s limit for Okay AI. Try again '
@@ -337,9 +552,17 @@ class AiAssistant extends ChangeNotifier {
         time: DateTime.now(),
       ));
     }
+    _touchActive();
     notifyListeners();
     await _save();
     return reply != null;
+  }
+
+  /// Marks the active saved conversation as just-used, so it sorts to the top
+  /// of the history list. A no-op in incognito (nothing is saved there).
+  void _touchActive() {
+    if (_incognito) return;
+    _active?.updatedAt = DateTime.now();
   }
 
   /// Builds the OpenRouter multimodal `content` array for a message that
@@ -411,19 +634,19 @@ class AiAssistant extends ChangeNotifier {
   /// function. Without consent nothing is uploaded. Returns whether it was
   /// submitted server-side.
   Future<bool> rate(int index, int rating) async {
-    if (index < 0 || index >= _turns.length || _turns[index].fromUser) {
+    if (index < 0 || index >= _live.length || _live[index].fromUser) {
       return false;
     }
     // Toggle off if the same rating is tapped again.
-    final applied = _turns[index].rating == rating ? 0 : rating;
-    _turns[index] = _turns[index].withRating(applied);
+    final applied = _live[index].rating == rating ? 0 : rating;
+    _live[index] = _live[index].withRating(applied);
     notifyListeners();
     await _save();
 
     // Incognito never contributes to the training corpus, consent or not.
     if (applied == 0 || _incognito || !AiConsent.instance.on) return false;
-    final prompt = index > 0 ? _turns[index - 1].text : '';
-    final reply = _turns[index].text;
+    final prompt = index > 0 ? _live[index - 1].text : '';
+    final reply = _live[index].text;
     if (prompt.trim().isEmpty || reply.trim().isEmpty) return false;
     try {
       final override = debugFeedbackOverride;
@@ -441,9 +664,12 @@ class AiAssistant extends ChangeNotifier {
     }
   }
 
-  /// Clears the conversation (local only — nothing is stored server-side).
+  /// Empties the conversation on screen (local only — nothing is stored
+  /// server-side). It stays in the history list as a fresh "New chat"; to
+  /// remove a thread entirely, use [deleteConversation].
   Future<void> clear() async {
-    _turns.clear();
+    _live.clear();
+    _touchActive();
     notifyListeners();
     await _save();
   }
@@ -462,7 +688,9 @@ class AiAssistant extends ChangeNotifier {
 
   @visibleForTesting
   void resetForTest() {
-    _turns.clear();
+    _conversations.clear();
+    _active = null;
+    _incognitoTurns.clear();
     _sending = false;
     _usedToday = 0;
     _dayStamp = '';
