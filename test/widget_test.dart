@@ -11697,6 +11697,20 @@ void main() {
           reason: 'compose sits on the right of the app bar');
     });
 
+    testWidgets('an inline compose box tops the server feed and opens the '
+        'composer', (tester) async {
+      await tester.pumpWidget(const MaterialApp(
+        home: FeedScreen(communityId: 'c1', communityName: 'Okay HQ'),
+      ));
+      await tester.pumpAndSettle();
+      final box = find.text('Share something with Okay HQ…');
+      expect(box, findsOneWidget);
+      await tester.tap(box);
+      await tester.pumpAndSettle();
+      // Same composer the top-right pencil opens.
+      expect(find.byType(FeedComposerScreen), findsOneWidget);
+    });
+
     testWidgets('the composer gets the whole screen, not one squeezed line',
         (tester) async {
       // In a bottom sheet the field shared one row with an avatar, three icon

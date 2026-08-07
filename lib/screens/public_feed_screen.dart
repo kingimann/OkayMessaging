@@ -318,6 +318,15 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
                       'The newsfeed needs a server connection.'),
                 )
               else ...[
+                // The inline "start a post" box, above the tabs — the same
+                // composer the top-right pencil opens.
+                if (!_searching) ...[
+                  FeedComposePrompt(
+                    hint: 'Share something…',
+                    onTap: () => _compose(),
+                  ),
+                  const Divider(height: 1),
+                ],
                 _FilterBar(store: _store),
                 Expanded(
                   child: RefreshIndicator(

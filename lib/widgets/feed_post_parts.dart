@@ -849,6 +849,53 @@ class FeedEndOfList extends StatelessWidget {
 }
 
 
+/// An inline "start a post" row at the top of a timeline: your avatar and a
+/// tappable pill reading [hint]. Tapping opens the composer — the same one the
+/// top-right pencil opens — so a feed has the compose box people expect at the
+/// top, on both the public newsfeed and a server feed.
+class FeedComposePrompt extends StatelessWidget {
+  const FeedComposePrompt({super.key, required this.hint, required this.onTap});
+
+  final String hint;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return ValueListenableBuilder<AppUser>(
+      valueListenable: AppState.profile,
+      builder: (context, me, _) => InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+          child: Row(
+            children: [
+              FeedAvatar(username: me.username, name: me.name),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 16, vertical: 11),
+                  decoration: BoxDecoration(
+                    color: scheme.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(24),
+                    border: Border.all(color: scheme.outlineVariant),
+                  ),
+                  child: Text(hint,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                          color: scheme.onSurfaceVariant, fontSize: 15)),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// One engagement figure and its word — compact enough for a phone row,
 /// still the full number ('1,234', never '1.2K'). A block with [onTap]
 /// has people behind its number and opens them; one without is a fact.
