@@ -52,7 +52,56 @@ class Persistence {
   static Future<void> init() async {
     final prefs = await SharedPreferences.getInstance();
     _prefs = prefs;
+    _readInto(prefs);
 
+    AppState.themeMode.addListener(_saveTheme);
+    AppState.profile.addListener(_saveProfile);
+    AppState.chatWallpaper.addListener(_saveWallpaper);
+    AppState.bubbleColor.addListener(_saveBubbleColor);
+    AppState.ghostMode.addListener(_saveGhostMode);
+    AppState.mapLayer.addListener(_saveMapLayer);
+    AppState.mapLowData.addListener(_saveMapLowData);
+    AppState.mapUnits.addListener(_saveMapUnits);
+    AppState.blockLinksFromStrangers.addListener(_saveBlockLinks);
+    AppState.spamKeywords.addListener(_saveSpamKeywords);
+    AppState.navVoice.addListener(_saveNavVoice);
+    AppState.defaultTravelMode.addListener(_saveTravelMode);
+    AppState.shareLiveLocation.addListener(_saveShareLiveLocation);
+    AppState.shareLastSeen.addListener(_saveShareLastSeen);
+    AppState.shareScore.addListener(_saveShareScore);
+    AppState.shareStreak.addListener(_saveShareStreak);
+    AppState.sendReadReceipts.addListener(_saveReadReceipts);
+    AppState.sendTypingIndicators.addListener(_saveTypingIndicators);
+    AppState.silenceUnknownCallers.addListener(_saveSilenceUnknown);
+    AppState.privateNotifications.addListener(_savePrivateNotifications);
+    AppState.messagesFromContactsOnly.addListener(_saveContactsOnly);
+    AppState.allowVoicemail.addListener(_saveAllowVoicemail);
+    AppState.notificationsEnabled.addListener(_saveNotifications);
+    AppState.enterToSend.addListener(_saveEnterToSend);
+    AppState.messageTextScale.addListener(_saveTextScale);
+    AppState.blockedContacts.addListener(_saveBlocked);
+    AppState.profilePhotoAudience.addListener(_savePhotoAudience);
+    AppState.aboutAudience.addListener(_saveAboutAudience);
+    AppState.groupAddAudience.addListener(_saveGroupAddAudience);
+    AppState.blockScreenshots.addListener(_saveBlockScreenshots);
+    AppState.defaultDisappearingSeconds.addListener(_saveDefaultDisappearing);
+    ChatStore.instance.onChanged = _saveChats;
+  }
+
+  /// Re-reads the on-device settings, profile and chats into the app WITHOUT
+  /// re-wiring the auto-save listeners — those live on the permanent [AppState]
+  /// singletons and outlast the read. This is what an account swap calls after
+  /// it has swapped the underlying storage, so the incoming account's settings
+  /// and conversations replace the departing one's in memory. Callers reset the
+  /// singletons to defaults first, so a key the incoming account never set
+  /// lands on the default rather than the previous account's value.
+  static Future<void> reload() async {
+    final prefs = await SharedPreferences.getInstance();
+    _prefs = prefs;
+    _readInto(prefs);
+  }
+
+  static void _readInto(SharedPreferences prefs) {
     final theme = prefs.getString(_kTheme);
     if (theme == 'dark') {
       AppState.themeMode.value = ThemeMode.dark;
@@ -180,39 +229,6 @@ class Persistence {
       AppState.defaultDisappearingSeconds.value =
           prefs.getInt(_kDefaultDisappearing) ?? 0;
     }
-
-    AppState.themeMode.addListener(_saveTheme);
-    AppState.profile.addListener(_saveProfile);
-    AppState.chatWallpaper.addListener(_saveWallpaper);
-    AppState.bubbleColor.addListener(_saveBubbleColor);
-    AppState.ghostMode.addListener(_saveGhostMode);
-    AppState.mapLayer.addListener(_saveMapLayer);
-    AppState.mapLowData.addListener(_saveMapLowData);
-    AppState.mapUnits.addListener(_saveMapUnits);
-    AppState.blockLinksFromStrangers.addListener(_saveBlockLinks);
-    AppState.spamKeywords.addListener(_saveSpamKeywords);
-    AppState.navVoice.addListener(_saveNavVoice);
-    AppState.defaultTravelMode.addListener(_saveTravelMode);
-    AppState.shareLiveLocation.addListener(_saveShareLiveLocation);
-    AppState.shareLastSeen.addListener(_saveShareLastSeen);
-    AppState.shareScore.addListener(_saveShareScore);
-    AppState.shareStreak.addListener(_saveShareStreak);
-    AppState.sendReadReceipts.addListener(_saveReadReceipts);
-    AppState.sendTypingIndicators.addListener(_saveTypingIndicators);
-    AppState.silenceUnknownCallers.addListener(_saveSilenceUnknown);
-    AppState.privateNotifications.addListener(_savePrivateNotifications);
-    AppState.messagesFromContactsOnly.addListener(_saveContactsOnly);
-    AppState.allowVoicemail.addListener(_saveAllowVoicemail);
-    AppState.notificationsEnabled.addListener(_saveNotifications);
-    AppState.enterToSend.addListener(_saveEnterToSend);
-    AppState.messageTextScale.addListener(_saveTextScale);
-    AppState.blockedContacts.addListener(_saveBlocked);
-    AppState.profilePhotoAudience.addListener(_savePhotoAudience);
-    AppState.aboutAudience.addListener(_saveAboutAudience);
-    AppState.groupAddAudience.addListener(_saveGroupAddAudience);
-    AppState.blockScreenshots.addListener(_saveBlockScreenshots);
-    AppState.defaultDisappearingSeconds.addListener(_saveDefaultDisappearing);
-    ChatStore.instance.onChanged = _saveChats;
   }
 
   static void _savePhotoAudience() {

@@ -627,6 +627,7 @@ class SettingsView extends StatelessWidget {
     final navigator = Navigator.of(context);
     final messenger = ScaffoldMessenger.of(context);
     final numberless = Session.instance.isNumberless;
+    final phone = Session.instance.user.value?.phone ?? '';
     final confirm = TextEditingController();
     final ok = await showDialog<bool>(
       context: context,
@@ -637,18 +638,20 @@ class SettingsView extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(numberless
-                ? 'This erases everything on this device — chats, keys, '
-                    'settings — and cannot be undone. Without a phone '
-                    'number there is no server session to prove the '
+                ? 'This erases THIS account from this device — its chats, '
+                    'keys and settings — and cannot be undone. Any other '
+                    'account signed in on this device is left alone. Without '
+                    'a phone number there is no server session to prove the '
                     'account is yours, so the directory entry for your '
                     'handle expires on its own rather than being removed '
                     'now.'
                 : 'This removes your account everywhere and cannot be '
                     'undone: your @handle, profile, push registration, '
                     'encryption recovery backup and public posts are '
-                    'deleted from the server, and everything on this '
-                    'device is erased. Records of payments that really '
-                    'happened are kept, as receipts have to be.'),
+                    'deleted from the server, and this account\'s data on '
+                    'this device is erased. Any other account signed in on '
+                    'this device is left alone. Records of payments that '
+                    'really happened are kept, as receipts have to be.'),
             const SizedBox(height: 14),
             TextField(
               controller: confirm,
@@ -695,13 +698,13 @@ class SettingsView extends StatelessWidget {
       }
     }
     await Session.instance.signOut();
-    await AccountWipe.eraseEverything();
-    await Session.instance.clearLastAccount();
-    // The sign-out above re-remembered the account and the erase only
-    // cleared the DISK copy — without this, the in-memory list would
-    // re-persist the deleted identity on the next sign-in and offer
-    // one-tap entry into an account that no longer exists.
-    await Session.instance.clearKnownAccounts();
+    await AccountWipe.eraseCurrentAccount();
+    // Forget ONLY this identity — the other accounts parked on this device
+    // stay one-tap signable. The sign-out above re-remembered the deleted
+    // account, and the erase cleared only its data; without this, the
+    // remembered list would offer one-tap entry into an account that no
+    // longer exists.
+    await Session.instance.forgetAccount(phone);
     navigator.popUntil((route) => route.isFirst);
   }
 

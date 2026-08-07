@@ -7873,21 +7873,33 @@ void main() {
   });
 
   group('Account lifecycle', () {
-    test('delete account erases the device completely — keep-list included',
+    test('delete account erases THIS account, not the others on the device',
         () async {
+      // Per-account deletion: the signed-in account's own slice goes, but the
+      // device's settings/PIN and — crucially — any OTHER account parked here
+      // must survive, so deleting one identity never wipes a person's other
+      // identities off a shared phone.
       SharedPreferences.setMockInitialValues({
-        'session_v1': '{}',
-        'theme': 'dark', // survives an account SWITCH…
-        'app_lock_hash_v1': 'h', // …and so does the device PIN…
-        'last_account_v1': '{}', // …and the welcome-back card…
-        AccountWipe.ownerKey: '15550001111', // …and the owner marker.
-        'anything_else': 'x',
+        'session_v1': '{}', // the current account's live data…
+        'communities_v1': '[{"id":"mine"}]', // …its servers…
+        'anything_else': 'x', // …and whatever else it wrote
+        'theme': 'dark', // device setting — stays
+        'app_lock_hash_v1': 'h', // device PIN — stays
+        'last_account_v1': '{}', // welcome-back card — stays
+        AccountWipe.ownerKey: '15550001111', // owner marker — stays
+        'acct_ns_15550002222': '{"prefs":{},"sec":{}}', // ANOTHER account
       });
-      await AccountWipe.eraseEverything();
+      await AccountWipe.eraseCurrentAccount();
       final prefs = await SharedPreferences.getInstance();
-      expect(prefs.getKeys(), isEmpty,
-          reason: 'deletion has no next sign-in to serve — a switch keeps '
-              'the device\'s own settings, a deletion keeps nothing');
+      // The current account's slice is gone.
+      expect(prefs.containsKey('session_v1'), isFalse);
+      expect(prefs.containsKey('communities_v1'), isFalse);
+      expect(prefs.containsKey('anything_else'), isFalse);
+      // The device and the OTHER account are untouched.
+      expect(prefs.getString('theme'), 'dark');
+      expect(prefs.getString('app_lock_hash_v1'), 'h');
+      expect(prefs.containsKey('acct_ns_15550002222'), isTrue,
+          reason: "another account's parked data must survive a delete");
     });
 
     test('the delete flow is server-first, and deactivation hides the row',
@@ -7899,10 +7911,10 @@ void main() {
       // Server before local: wiping the phone while the server rows live on
       // would only look like deletion.
       final invokeAt = settings.indexOf("invoke('delete-account'");
-      final eraseAt = settings.indexOf('eraseEverything');
+      final eraseAt = settings.indexOf('eraseCurrentAccount');
       expect(invokeAt, greaterThan(0));
       expect(eraseAt, greaterThan(invokeAt),
-          reason: 'the local wipe must come after the server said yes');
+          reason: 'the local erase must come after the server said yes');
       expect(settings, contains('setHidden(true)'),
           reason: 'deactivation must reach the directory, not just sign out');
 
@@ -9092,11 +9104,12 @@ void main() {
       expect(other.location, '');
     });
 
-    test('deleting the account forgets every remembered profile', () async {
+    test('deleting the account forgets THAT profile, keeps the others',
+        () async {
       // signOut re-remembers the leaving account and the erase clears only
-      // the DISK copy — the in-memory list re-persisted the deleted
-      // identity on the next sign-in, offering one-tap entry into an
-      // account that no longer exists.
+      // its data — the remembered list would still offer one-tap entry into
+      // the deleted account. So the flow forgets it. But ONLY it: the other
+      // accounts on a shared device must stay one-tap signable.
       SharedPreferences.setMockInitialValues({});
       Session.instance.knownAccounts = [];
       addTearDown(() {
@@ -9105,18 +9118,21 @@ void main() {
       });
       await Session.instance.rememberAccount(const AppUser(
           id: 'x', name: 'X', avatarColor: '#000000', phone: '+1 555 0100'));
-      expect(Session.instance.knownAccounts, isNotEmpty);
-      await Session.instance.clearKnownAccounts();
-      expect(Session.instance.knownAccounts, isEmpty);
-      final prefs = await SharedPreferences.getInstance();
-      expect(prefs.getString('known_accounts_v1'), isNull);
-      // And the delete flow actually calls it, after the erase.
+      await Session.instance.rememberAccount(const AppUser(
+          id: 'y', name: 'Y', avatarColor: '#000000', phone: '+1 555 0200'));
+      expect(Session.instance.knownAccounts.length, 2);
+      await Session.instance.forgetAccount('+1 555 0100');
+      expect(Session.instance.knownAccounts.map((a) => a.phone),
+          ['+1 555 0200'],
+          reason: 'only the deleted account is forgotten');
+      // And the delete flow actually forgets it, after the erase.
       final src =
           File('lib/screens/settings_screen.dart').readAsStringSync();
-      final erase = src.indexOf('eraseEverything()');
+      final erase = src.indexOf('eraseCurrentAccount()');
       expect(erase, greaterThan(-1));
-      expect(src.indexOf('clearKnownAccounts()', erase), greaterThan(erase),
-          reason: 'the erase clears disk; this clears the memory list');
+      expect(src.indexOf('forgetAccount(phone)', erase), greaterThan(erase),
+          reason: 'the erase clears this account; forgetAccount drops it from '
+              'the remembered list, leaving the others');
     });
 
     test('backing out of a one-tap profile clears the resolved phone', () {
@@ -28300,12 +28316,14 @@ void main() {
       expect(MeshPacket.fits({'to': me.phone}), isTrue);
     });
 
-    test('switching accounts wipes the last account; returning does not',
+    test('switching accounts hides the last account; returning keeps it',
         () async {
       // A fresh account inherited the previous one's chats, verification
-      // badge, score — everything on the device. The wipe keys off the
+      // badge, score — everything on the device. The switch keys off the
       // OWNER changing: same digits returning keep their data (that is the
-      // "chats stay on the device" promise), different digits start clean.
+      // "chats stay on the device" promise), a different account sees none of
+      // it. (The leaving account's bundle is PARKED, not destroyed, so it
+      // comes back on return — pinned by the restore test below.)
       SharedPreferences.setMockInitialValues({});
       await Session.instance.signIn(phone: '+1 555 0100', name: 'A');
       addTearDown(Session.instance.resetForTest);
@@ -28335,11 +28353,84 @@ void main() {
           reason: 'the new account must not inherit the verification badge');
     });
 
-    test('every store that persists is wiped on account switch, by default',
+    test('a switched-away account keeps its data and gets it back on return',
+        () async {
+      // The device holds two accounts. Switching to B must show none of A's
+      // data (the privacy guarantee), but switching BACK to A must restore
+      // everything A had — the old wipe destroyed it, so a return meant
+      // starting over. Now the leaving account is PARKED, not erased.
+      SharedPreferences.setMockInitialValues({});
+      await NotesStore.instance.load();
+      addTearDown(NotesStore.instance.resetForTest);
+
+      // A signs in and writes a note.
+      await Session.instance.signIn(phone: '+1 555 0100', name: 'A');
+      addTearDown(Session.instance.resetForTest);
+      await NotesStore.instance.save(body: 'A groceries');
+      expect(NotesStore.instance.count, 1);
+
+      // B arrives: A's note is gone from view.
+      await Session.instance.signIn(phone: '+1 555 0200', name: 'B');
+      expect(NotesStore.instance.count, 0,
+          reason: "B must not see A's notes");
+      await NotesStore.instance.save(body: 'B todo');
+      expect(NotesStore.instance.count, 1);
+
+      // A returns: its note is back, and B's is not leaked in.
+      await Session.instance.signIn(phone: '+1 555 0100', name: 'A');
+      expect(NotesStore.instance.count, 1,
+          reason: "A's parked note must come back on return");
+      expect(NotesStore.instance.notes.first.body, 'A groceries');
+
+      // And B still has its own when it comes back.
+      await Session.instance.signIn(phone: '+1 555 0200', name: 'B');
+      expect(NotesStore.instance.count, 1);
+      expect(NotesStore.instance.notes.first.body, 'B todo');
+    });
+
+    test('the in-memory reset on switch does not clobber the restored chats',
+        () async {
+      // Chats (and AppState settings) persist through an auto-save listener,
+      // so resetting them writes their defaults to disk. If the reset ran
+      // AFTER the restore, it would overwrite the returning account's data
+      // with blanks. This wires that exact listener and proves the order is
+      // reset → clear → restore → read, not restore → reset.
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await SharedPreferences.getInstance();
+      ChatStore.instance.onChanged = () =>
+          prefs.setString('chats_v1', jsonEncode(ChatStore.instance.toJson()));
+      addTearDown(() {
+        ChatStore.instance.onChanged = null;
+        ChatStore.instance.hydrate(const {'chats': []});
+        Session.instance.resetForTest();
+      });
+      const pia = Chat(
+        id: 'chat_pia',
+        contact: AppUser(
+            id: 'pia', name: 'Pia', avatarColor: '#111111', phone: 'pia'),
+        messages: [],
+      );
+
+      await Session.instance.signIn(phone: '+1 555 0100', name: 'A');
+      ChatStore.instance.upsert(pia); // fires onChanged → persists to disk
+      expect(ChatStore.instance.chatById('chat_pia'), isNotNull);
+
+      // Switch away: A's chat leaves the live view.
+      await Session.instance.signIn(phone: '+1 555 0200', name: 'B');
+      expect(ChatStore.instance.chatById('chat_pia'), isNull);
+
+      // Return: the chat is back — the reset did not overwrite the restore.
+      await Session.instance.signIn(phone: '+1 555 0100', name: 'A');
+      expect(ChatStore.instance.chatById('chat_pia'), isNotNull,
+          reason: 'the restored chat must survive the reset that precedes it');
+    });
+
+    test('every store that persists is cleared from the live slot on switch',
         () {
-      // The wipe is a keep-list, and this pins the other half: a store added
+      // The switch is a keep-list, and this pins the other half: a store added
       // later that touches SharedPreferences must either appear in
-      // account_wipe.dart or be named here as deliberately device-scoped —
+      // account_wipe.dart (so its in-memory copy is reset when a different
+      // account arrives) or be named here as deliberately device-scoped —
       // otherwise it leaks the previous account to the next one silently.
       final wipe = File('lib/state/account_wipe.dart').readAsStringSync();
       const deviceScoped = {

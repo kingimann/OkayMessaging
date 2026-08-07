@@ -95,15 +95,37 @@ class Session {
     // promised otherwise. The remembered identity for the same digits is
     // the base; what was typed on the form only overrides what it names.
     final d = phone.replaceAll(RegExp(r'\D'), '');
+    _prefs ??= await SharedPreferences.getInstance();
     AppUser? prior;
+    // The base profile, best source first, so a rebuild keeps everything the
+    // account had — about, pronouns, links, business and subscription fields —
+    // instead of resetting to defaults or a stale copy.
+    //
+    // 1. The live in-memory profile: [AccountWipe.onSignIn] has just reloaded
+    //    it from the returning account's restored disk (and on a same-account
+    //    sign-back-in it never left memory), so it is the most CURRENT — later
+    //    profile edits included, which the remembered list never saw.
+    // 2. The saved session blob, if still on disk.
+    // 3. The remembered-accounts list (identity as of the last sign-in).
+    bool matches(String p) => p.replaceAll(RegExp(r'\D'), '') == d;
+    final live = AppState.profile.value;
+    if (matches(live.phone)) prior = live;
+    if (prior == null) {
+      final restoredRaw = _prefs!.getString(_key);
+      if (restoredRaw != null) {
+        try {
+          final u =
+              AppUser.fromJson(jsonDecode(restoredRaw) as Map<String, dynamic>);
+          if (matches(u.phone)) prior = u;
+        } catch (_) {}
+      }
+    }
     for (final a in [
       if (lastAccount != null) lastAccount!,
       ...knownAccounts,
     ]) {
-      if (a.phone.replaceAll(RegExp(r'\D'), '') == d) {
-        prior = a;
-        break;
-      }
+      if (prior != null) break;
+      if (matches(a.phone)) prior = a;
     }
     final trimmedName = name.trim().isEmpty
         ? (prior?.name ?? phone)
