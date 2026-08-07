@@ -62,7 +62,7 @@ import 'image_view_screen.dart';
 import 'location_map_screen.dart';
 import 'media_gallery_screen.dart';
 import '../util/geocoding.dart';
-import 'explore_map_screen.dart';
+import 'share_location_screen.dart';
 import '../state/identity_verification.dart';
 import '../state/sticker_store.dart';
 import 'score_screen.dart';
@@ -842,11 +842,12 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _handleSendLocation() async {
-    // The SAME map as Maps, in picking mode — search as you type, nearby
-    // categories, saved places, recents, and a name for what you picked.
-    // This used to open a second, much poorer map that existed only here.
+    // A dedicated share-location picker, NOT the full Maps map: your current
+    // location up top, a search box, saved places, and a way onto the map to
+    // drop a pin only when the place has no address. Sharing where you are is
+    // a list, not an exploration.
     final picked = await Navigator.of(context).push<GeoResult>(
-      MaterialPageRoute(builder: (_) => const ExploreMapScreen(picking: true)),
+      MaterialPageRoute(builder: (_) => const ShareLocationScreen()),
     );
     if (picked == null || !mounted) return;
     if (!await _confirmRecipient()) return;

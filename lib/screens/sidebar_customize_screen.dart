@@ -11,6 +11,7 @@ class SidebarCustomizeScreen extends StatelessWidget {
 
   static (IconData, String) metaFor(String id) => switch (id) {
         'okayai' => (Icons.auto_awesome, 'Okay AI'),
+        'contacts' => (Icons.contacts_outlined, 'Contacts'),
         'newsfeed' => (Icons.public, 'Newsfeed'),
         'maps' => (Icons.map_outlined, 'Maps'),
         'marketplace' => (Icons.storefront_outlined, 'Marketplace'),

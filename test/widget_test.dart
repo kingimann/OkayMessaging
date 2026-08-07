@@ -14,6 +14,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../tool/paste_functions.dart';
 import 'package:okay_messaging/payments/iap_entitlement.dart';
 import 'package:okay_messaging/utils/date_formatter.dart';
+import 'package:okay_messaging/state/contacts_store.dart';
 import 'package:okay_messaging/state/notes_store.dart';
 import 'package:okay_messaging/state/bookmark_store.dart';
 import 'package:okay_messaging/state/feed_drafts.dart';
@@ -54,7 +55,9 @@ import 'package:okay_messaging/state/ai_consent.dart';
 import 'package:okay_messaging/screens/ai_chat_screen.dart';
 import 'package:okay_messaging/legal/legal_content.dart';
 import 'package:okay_messaging/models/call.dart' as callmodel;
+import 'package:okay_messaging/screens/contacts_screen.dart';
 import 'package:okay_messaging/screens/notes_screen.dart';
+import 'package:okay_messaging/screens/share_location_screen.dart';
 import 'package:okay_messaging/screens/auth/auth_gate.dart';
 import 'package:okay_messaging/screens/auth/phone_login_screen.dart'
     show PhoneLoginScreen, debugVerifiedModeOverride;
@@ -292,6 +295,15 @@ Future<void> openYouTabForTest(WidgetTester tester) async {
 /// bottom bar for the drawer, so this is the way in.
 Future<void> openServersTabForTest(WidgetTester tester) async {
   await tester.tap(find.byTooltip('Open navigation menu'));
+  await tester.pumpAndSettle();
+  // The drawer is a scrolling list; on a short viewport the Servers row can sit
+  // below the fold, so bring it into view before tapping — the same thing a
+  // person does.
+  await tester.dragUntilVisible(
+    find.text('Servers'),
+    find.byType(ListView).first,
+    const Offset(0, -120),
+  );
   await tester.pumpAndSettle();
   await tester.tap(find.text('Servers'));
   await tester.pumpAndSettle();
@@ -799,7 +811,7 @@ void main() {
     await tester.pumpAndSettle();
   });
 
-  testWidgets('Sharing a location opens the map picker and sends a point',
+  testWidgets('Sharing a location opens the dedicated picker and sends a point',
       (tester) async {
     await tester.pumpWidget(const OkayMessagingApp());
     await tester.pumpAndSettle();
@@ -810,14 +822,18 @@ void main() {
     await tester.tap(find.byTooltip('Attach'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Location'));
+    await tester.pumpAndSettle();
+
+    // A dedicated share screen, NOT the full Maps map: current location up
+    // top, and a way onto the map for a pin.
+    expect(find.text('Send your current location'), findsOneWidget);
+    await tester.tap(find.text('Choose on the map'));
     // The map hosts a FlutterMap whose tile timers never settle, so pump
     // fixed frames instead of pumpAndSettle.
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
 
-    // The chat now opens the SAME map as Maps, so there is no permanent
-    // centre pin to send: a place gets chosen first. Pressing and holding
-    // drops one, which is the arbitrary-point path the old picker had.
+    // Pressing and holding drops a pin, the arbitrary-point path.
     await tester.longPress(find.byType(FlutterMap));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
@@ -862,6 +878,52 @@ void main() {
 
     await tester.pumpWidget(const SizedBox());
     await tester.pump();
+  });
+
+  testWidgets('the share-location screen is a list, and sends a saved place',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    SavedPlacesStore.instance.resetForTest();
+    await SavedPlacesStore.instance.load();
+    SavedPlacesStore.instance.toggle(const SavedPlace('Home', 40.0, -73.0));
+    // No GPS in the test, so the current-location resolve returns nothing and
+    // no reverse-geocode network call is made — the picker still works.
+    debugGeolocationOverride = () async => null;
+    addTearDown(() => debugGeolocationOverride = null);
+    addTearDown(SavedPlacesStore.instance.resetForTest);
+
+    GeoResult? popped;
+    await tester.pumpWidget(MaterialApp(
+      home: Builder(
+        builder: (context) => Scaffold(
+          body: Center(
+            child: ElevatedButton(
+              onPressed: () async {
+                popped = await Navigator.of(context).push<GeoResult>(
+                    MaterialPageRoute(
+                        builder: (_) => const ShareLocationScreen()));
+              },
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      ),
+    ));
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+
+    // The dedicated picker — a list, not the full map: current location, saved
+    // places, and a way onto the map for a pin.
+    expect(find.text('Send your current location'), findsOneWidget);
+    expect(find.text('Choose on the map'), findsOneWidget);
+    expect(find.byType(FlutterMap), findsNothing);
+
+    // Picking a saved place returns it to the chat.
+    await tester.tap(find.text('Home'));
+    await tester.pumpAndSettle();
+    expect(popped, isNotNull);
+    expect(popped!.name, 'Home');
+    expect(popped!.lat, 40.0);
   });
 
   testWidgets('the chat header has no overflow menu, and strands nothing',
@@ -15686,15 +15748,23 @@ void main() {
         expect(f.readAsStringSync().contains('LocationPickerScreen'), isFalse,
             reason: '${f.path} still reaches for the old picker');
       }
-      // And the chat has to ask for PICKING mode. Opening the ordinary map
-      // from an attachment gives a screen with no way to answer with a
-      // place — the flag is the whole contract between them.
+      // The chat now opens a DEDICATED share-location picker, not the full
+      // map — sharing where you are is a list, not an exploration.
       expect(
           File('lib/screens/chat_screen.dart')
               .readAsStringSync()
+              .contains('ShareLocationScreen()'),
+          isTrue,
+          reason: 'the chat opens the dedicated share-location picker');
+      // That picker still reaches the ONE map in PICKING mode for the "drop a
+      // pin" fallback — the flag is the whole contract between them, and there
+      // is no second map class.
+      expect(
+          File('lib/screens/share_location_screen.dart')
+              .readAsStringSync()
               .contains('ExploreMapScreen(picking: true)'),
           isTrue,
-          reason: 'the chat opens a map that cannot hand a location back');
+          reason: 'the share picker opens the one map that can answer');
     });
   });
 
@@ -25647,6 +25717,7 @@ void main() {
       addTearDown(t.view.resetPhysicalSize);
 
       for (final tile in [
+        'Contacts',
         'Newsfeed',
         'Maps',
         'Marketplace',
@@ -25727,6 +25798,113 @@ void main() {
           reason: 'still under the conversation with the keyboard up');
       expect(bar.bottom, closeTo(844 - 336, 24),
           reason: 'it rides the top of the keyboard');
+    });
+  });
+
+  group('Saved contacts', () {
+    setUp(() async {
+      SharedPreferences.setMockInitialValues({});
+      ContactsStore.instance.resetForTest();
+      await ContactsStore.instance.load();
+    });
+    tearDown(ContactsStore.instance.resetForTest);
+
+    test('add, edit, search, delete a contact', () async {
+      final store = ContactsStore.instance;
+      expect(await store.save(name: '   '), isNull,
+          reason: 'a contact needs a name');
+      expect(store.count, 0);
+
+      final c = await store.save(
+          name: 'Ada Lovelace', phone: '+1 555 0100', note: 'maths');
+      expect(c, isNotNull);
+      expect(store.count, 1);
+      // A leading '@' on the username is dropped.
+      final b = await store.save(name: 'Bob', username: '@bobby');
+      expect(store.byId(b!.id)!.username, 'bobby');
+      expect(b.handle, '@bobby');
+      expect(b.addressKey, 'bobby', reason: 'username addresses when no phone');
+
+      // Alphabetical.
+      expect([for (final x in store.contacts) x.name], ['Ada Lovelace', 'Bob']);
+
+      // Search spans name, note, username and phone.
+      expect([for (final x in store.search('maths')) x.name], ['Ada Lovelace']);
+      expect([for (final x in store.search('bobby')) x.name], ['Bob']);
+      expect(store.search('   ').length, 2, reason: 'empty is everything');
+
+      // Edit in place.
+      await store.save(id: c!.id, name: 'Ada L.', phone: c.phone);
+      expect(store.byId(c.id)!.name, 'Ada L.');
+
+      await store.delete(c.id);
+      expect(store.count, 1);
+      expect(store.byId(c.id), isNull);
+    });
+
+    test('contacts survive a reload and the encrypted backup, never a table',
+        () async {
+      final store = ContactsStore.instance;
+      await store.save(name: 'Grace', phone: '+1 555 0111');
+      final exported = store.exportContacts();
+
+      store.resetForTest();
+      await store.load();
+      expect([for (final c in store.contacts) c.name], ['Grace']);
+
+      // Hydrate merges by id — a known contact isn't duplicated, a new one adds.
+      store.hydrateContacts([
+        ...exported,
+        {
+          'id': 'ct_other',
+          'name': 'Hopper',
+          'phone': '+1 555 0112',
+          'createdAt': DateTime(2026).toUtc().toIso8601String(),
+        },
+      ]);
+      expect(store.count, 2);
+
+      // Never a server table, like notes.
+      final sync = File('lib/state/cloud_sync.dart').readAsStringSync();
+      expect(
+          sync.contains("'contacts': ContactsStore.instance.exportContacts()"),
+          isTrue);
+      expect(sync.contains('hydrateContacts'), isTrue);
+      final src = File('lib/state/contacts_store.dart').readAsStringSync();
+      expect(src.contains('supabase'), isFalse);
+      expect(src.contains('Supabase'), isFalse);
+    });
+
+    testWidgets('the contacts screen adds one and messages it', (t) async {
+      t.view.physicalSize = const Size(390, 844);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.resetPhysicalSize);
+      ChatStore.instance.hydrate(const {'chats': []});
+      addTearDown(() => ChatStore.instance.hydrate(const {'chats': []}));
+
+      await t.pumpWidget(const MaterialApp(home: ContactsScreen()));
+      await t.pumpAndSettle();
+      expect(find.text('No saved contacts yet'), findsOneWidget);
+
+      // Add a contact through the form.
+      await t.tap(find.widgetWithText(FloatingActionButton, 'Add contact'));
+      await t.pumpAndSettle();
+      await t.enterText(find.widgetWithText(TextField, 'Name'), 'Carol');
+      await t.enterText(
+          find.widgetWithText(TextField, 'Phone number (optional)'),
+          '+1 555 0133');
+      // The empty-state action and the form's save both read 'Add contact';
+      // the form's is the one on top.
+      await t.tap(find.widgetWithText(FilledButton, 'Add contact').last);
+      await t.pumpAndSettle();
+
+      expect(find.text('Carol'), findsOneWidget);
+      expect(ContactsStore.instance.count, 1);
+
+      // The row's message button opens (creating) their chat.
+      await t.tap(find.byTooltip('Message').first);
+      await t.pumpAndSettle();
+      expect(ChatStore.instance.chatWithContact('+1 555 0133'), isNotNull);
     });
   });
 

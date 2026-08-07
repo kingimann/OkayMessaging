@@ -17,6 +17,7 @@ import 'feed_store.dart';
 import 'follow_store.dart';
 import 'saved_places_store.dart';
 import 'score_store.dart';
+import 'contacts_store.dart';
 import 'notes_store.dart';
 import 'storage_store.dart';
 
@@ -159,6 +160,7 @@ class CloudSync extends ChangeNotifier {
     FeedStore.instance.addListener(scheduleSync);
     FollowStore.instance.addListener(scheduleSync);
     SavedPlacesStore.instance.addListener(scheduleSync);
+    ContactsStore.instance.addListener(scheduleSync);
     CommunityStore.instance.addListener(scheduleSync);
     ScoreStore.instance.addListener(scheduleSync);
     AppState.profile.addListener(autoBootstrap);
@@ -224,6 +226,7 @@ class CloudSync extends ChangeNotifier {
         'score': ScoreStore.instance.toJson(),
         'accountEmail': AccountEmail.instance.toJson(),
         'notes': NotesStore.instance.exportNotes(),
+        'contacts': ContactsStore.instance.exportContacts(),
       };
 
   /// Applies a decrypted payload back onto the local stores.
@@ -250,6 +253,8 @@ class CloudSync extends ChangeNotifier {
     }
     final notes = payload['notes'];
     if (notes is List) NotesStore.instance.hydrateNotes(notes);
+    final contacts = payload['contacts'];
+    if (contacts is List) ContactsStore.instance.hydrateContacts(contacts);
   }
 
   /// Pulls the server's copy back down, but only when sync is actually set
@@ -582,6 +587,7 @@ class CloudSync extends ChangeNotifier {
       FeedStore.instance.removeListener(scheduleSync);
       FollowStore.instance.removeListener(scheduleSync);
       SavedPlacesStore.instance.removeListener(scheduleSync);
+      ContactsStore.instance.removeListener(scheduleSync);
       CommunityStore.instance.removeListener(scheduleSync);
       ScoreStore.instance.removeListener(scheduleSync);
       AppState.profile.removeListener(autoBootstrap);

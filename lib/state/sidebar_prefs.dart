@@ -18,6 +18,7 @@ class SidebarPrefs extends ChangeNotifier {
   /// chat list's private-by-default: nobody has to remember to opt in.
   static const List<String> defaultOrder = [
     'okayai',
+    'contacts',
     'newsfeed',
     'maps',
     'marketplace',

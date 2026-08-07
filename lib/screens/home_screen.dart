@@ -25,6 +25,7 @@ import 'new_chat_screen.dart';
 import '../widgets/nearby_offer_host.dart';
 import 'nearby_share_screen.dart';
 import 'ai_chat_screen.dart';
+import 'contacts_screen.dart';
 import 'notes_screen.dart';
 import 'marketplace_screen.dart';
 import 'public_feed_screen.dart';
@@ -522,6 +523,13 @@ class _AppSideBar extends StatelessWidget {
           title: const Text('Okay AI'),
           subtitle: const Text('Your built-in AI assistant'),
           onTap: () => _go(context, const AiChatScreen()),
+        );
+      case 'contacts':
+        return ListTile(
+          leading: const Icon(Icons.contacts_outlined),
+          title: const Text('Contacts'),
+          subtitle: const Text('Your saved address book'),
+          onTap: () => _go(context, const ContactsScreen()),
         );
       case 'newsfeed':
         return ListTile(
