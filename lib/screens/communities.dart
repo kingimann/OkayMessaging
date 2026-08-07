@@ -2387,74 +2387,124 @@ class _ChannelScreenState extends State<ChannelScreen> {
                           ],
                         ),
                       ),
-                    Padding(
-                  padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
-                  child: Row(
-                    children: [
-                      IconButton(
-                        icon: const Icon(Icons.emoji_emotions_outlined),
-                        color: Colors.grey,
-                        tooltip: 'Emoji & GIFs',
-                        onPressed: _pickEmojiOrGif,
-                      ),
-                      // The GIF tab one tap away, same as the 1:1 composer —
-                      // people know GIFs as a button, not as a tab inside
-                      // the emoji sheet.
-                      IconButton(
-                        icon: const Icon(Icons.gif_box_outlined),
-                        color: Colors.grey,
-                        tooltip: 'GIF',
-                        onPressed: () => _pickEmojiOrGif(initialTab: 1),
-                      ),
-                      // One attach button owns everything that isn't typing,
-                      // so the bar stays two icons and a field — the same
-                      // shape as the 1:1 composer.
-                      IconButton(
-                        icon: Icon(
-                            _attachOpen ? Icons.close : Icons.attach_file),
-                        color: Colors.grey,
-                        tooltip: 'Attach',
-                        onPressed: () {
-                          setState(() => _attachOpen = !_attachOpen);
-                          if (_attachOpen) {
-                            FocusManager.instance.primaryFocus?.unfocus();
-                          }
-                        },
-                      ),
-                      Expanded(
-                        child: TextField(
-                          controller: _controller,
-                          textCapitalization: TextCapitalization.sentences,
-                          decoration: InputDecoration(
-                            hintText: 'Message #${channel.name}',
-                            border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(24)),
-                            contentPadding: const EdgeInsets.symmetric(
-                                horizontal: 16, vertical: 10),
+                    Builder(builder: (context) {
+                      final isDark =
+                          Theme.of(context).brightness == Brightness.dark;
+                      // The exact pill-card the 1:1 chat composer wears: soft
+                      // grey fill, a faint edge and low shadow for lift, the
+                      // message across the top and the controls along the
+                      // bottom — no boxed field.
+                      final fieldColor = isDark
+                          ? AppColors.darkAppBar
+                          : const Color(0xFFEFF1F3);
+                      final cardBorder = isDark
+                          ? const Color(0xFF2C2F34)
+                          : const Color(0xFFEAECEF);
+                      final iconTint =
+                          isDark ? Colors.white70 : const Color(0xFF6B7280);
+                      return Padding(
+                        padding: const EdgeInsets.fromLTRB(10, 4, 10, 8),
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: fieldColor,
+                            borderRadius: BorderRadius.circular(26),
+                            border: Border.all(color: cardBorder, width: 1),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black
+                                    .withValues(alpha: isDark ? 0.22 : 0.05),
+                                blurRadius: 12,
+                                offset: const Offset(0, 3),
+                              ),
+                            ],
                           ),
-                          // Keeps the mention suggestions in step with typing.
-                          onChanged: (v) {
-                            if (v.isNotEmpty) {
-                              ChannelTypingStore.instance.noteLocalTyping(
-                                  widget.communityId, widget.channelId);
-                            }
-                            setState(() {});
-                          },
-                          onSubmitted: (_) => _send(),
+                          padding: const EdgeInsets.fromLTRB(18, 6, 8, 8),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              TextField(
+                                controller: _controller,
+                                minLines: 1,
+                                maxLines: 6,
+                                textCapitalization:
+                                    TextCapitalization.sentences,
+                                decoration: InputDecoration(
+                                  hintText: 'Message #${channel.name}',
+                                  filled: false,
+                                  border: InputBorder.none,
+                                  enabledBorder: InputBorder.none,
+                                  focusedBorder: InputBorder.none,
+                                  isCollapsed: true,
+                                  contentPadding:
+                                      const EdgeInsets.symmetric(vertical: 11),
+                                ),
+                                onChanged: (v) {
+                                  if (v.isNotEmpty) {
+                                    ChannelTypingStore.instance.noteLocalTyping(
+                                        widget.communityId, widget.channelId);
+                                  }
+                                  setState(() {});
+                                },
+                                onSubmitted: (_) => _send(),
+                              ),
+                              const SizedBox(height: 2),
+                              Row(
+                                children: [
+                                  IconButton(
+                                    icon: Icon(_attachOpen
+                                        ? Icons.close
+                                        : Icons.add_circle_outline),
+                                    color: iconTint,
+                                    tooltip: 'Attach',
+                                    visualDensity: VisualDensity.compact,
+                                    onPressed: () {
+                                      setState(
+                                          () => _attachOpen = !_attachOpen);
+                                      if (_attachOpen) {
+                                        FocusManager.instance.primaryFocus
+                                            ?.unfocus();
+                                      }
+                                    },
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(
+                                        Icons.emoji_emotions_outlined),
+                                    color: iconTint,
+                                    tooltip: 'Emoji',
+                                    visualDensity: VisualDensity.compact,
+                                    onPressed: _pickEmojiOrGif,
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.gif_box_outlined),
+                                    color: iconTint,
+                                    tooltip: 'GIF',
+                                    visualDensity: VisualDensity.compact,
+                                    onPressed: () =>
+                                        _pickEmojiOrGif(initialTab: 1),
+                                  ),
+                                  const Spacer(),
+                                  GestureDetector(
+                                    onTap: _send,
+                                    child: Container(
+                                      width: 40,
+                                      height: 40,
+                                      decoration: BoxDecoration(
+                                        shape: BoxShape.circle,
+                                        color: AppColors.accentOn(context),
+                                      ),
+                                      child: Icon(Icons.send,
+                                          size: 19,
+                                          color: AppColors.onAccent(context)),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
-                      const SizedBox(width: 6),
-                      IconButton.filled(
-                        icon: const Icon(Icons.send),
-                        style: IconButton.styleFrom(
-                          backgroundColor: AppColors.accentOn(context),
-                          foregroundColor: AppColors.onAccent(context),
-                        ),
-                        onPressed: _send,
-                      ),
-                    ],
-                  ),
-                ),
+                      );
+                    }),
                   ],
                 ),
               ),

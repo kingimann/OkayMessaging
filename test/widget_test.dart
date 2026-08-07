@@ -18777,6 +18777,34 @@ void main() {
   });
 
   group('Channel composer', () {
+    testWidgets('the input is the chat pill-card and still sends',
+        (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      CommunityStore.instance.resetForTest();
+      final community = CommunityStore.instance.createCommunity('Guild');
+      final channel = CommunityStore.instance.byId(community.id)!.channels
+          .firstWhere((c) => c.type == ChannelType.text);
+
+      await tester.pumpWidget(MaterialApp(
+        home: ChannelScreen(
+            communityId: community.id, channelId: channel.id),
+      ));
+      await tester.pump();
+
+      // The chat composer's shape: the '+' attach glyph in a rounded card, not
+      // the old flat paperclip row.
+      expect(find.byIcon(Icons.add_circle_outline), findsOneWidget);
+      expect(find.byIcon(Icons.attach_file), findsNothing);
+      expect(find.text('Message #${channel.name}'), findsOneWidget);
+
+      // And it still sends.
+      await tester.enterText(find.byType(TextField).first, 'hi channel');
+      await tester.pump();
+      await tester.tap(find.byIcon(Icons.send));
+      await tester.pump();
+      expect(find.text('hi channel'), findsWidgets);
+    });
+
     testWidgets('attachments open in place, and the bar stays uncluttered',
         (tester) async {
       SharedPreferences.setMockInitialValues({});
