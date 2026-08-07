@@ -587,11 +587,42 @@ class _AddMoneySheetState extends State<_AddMoneySheet> {
                     '${money(total)}',
             style: TextStyle(fontSize: 12.5, color: AppColors.subtle(context)),
           ),
+          const SizedBox(height: 12),
+          // The single most common confusion: people expect to top up without
+          // a card and stop at Stripe's sheet, thinking it wants their
+          // cash-out card. Say plainly that the next step is the card the
+          // money comes FROM, and that it isn't the payout card.
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: AppColors.subtle(context).withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.credit_card,
+                    size: 18, color: AppColors.subtle(context)),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Next you\'ll enter a debit or credit card to pay with — '
+                    'that\'s where the money comes from. It\'s not your '
+                    'cash-out card.',
+                    style: TextStyle(
+                        fontSize: 12.5,
+                        height: 1.35,
+                        color: AppColors.subtle(context)),
+                  ),
+                ),
+              ],
+            ),
+          ),
           const SizedBox(height: 14),
           FilledButton(
             onPressed:
                 cents <= 0 ? null : () => Navigator.of(context).pop(cents),
-            child: const Text('Continue'),
+            child: const Text('Continue to card'),
           ),
         ],
       ),
