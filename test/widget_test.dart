@@ -3484,6 +3484,59 @@ void main() {
       expect(slowModeLabel(300), '5m');
     });
 
+    test('a server gradient customises, round-trips, and rides the invite', () {
+      CommunityStore.instance.resetForTest();
+      final store = CommunityStore.instance;
+      final c = store.createCommunity('Design');
+      expect(store.byId(c.id)!.hasGradient, isFalse);
+
+      store.setCommunityColor(c.id, '#7A5CFF');
+      store.setCommunityColor2(c.id, '#12B76A');
+      final saved = store.byId(c.id)!;
+      expect(saved.color, '#7A5CFF');
+      expect(saved.color2, '#12B76A');
+      expect(saved.hasGradient, isTrue);
+      expect(saved.gradientEndHex, '#12B76A');
+
+      // Survives JSON and copyWith.
+      expect(Community.fromJson(saved.toJson()).color2, '#12B76A');
+      expect(saved.copyWith(name: 'D2').color2, '#12B76A');
+
+      // Rides the invite to a joiner, and the structure sync.
+      final invite =
+          store.exportInvite(c.id, myDigits: '15550109999', myName: 'Ada')!;
+      expect(invite['color2'], '#12B76A');
+      store.resetForTest();
+      final joined = CommunityStore.instance.joinFromInvite(
+          Map<String, dynamic>.from(invite),
+          myDigits: '15550108888',
+          myName: 'Bo')!;
+      expect(joined.color2, '#12B76A', reason: 'the joiner sees the gradient');
+
+      // Clearing it goes back to a solid look.
+      CommunityStore.instance.setCommunityColor2(joined.id, '');
+      expect(CommunityStore.instance.byId(joined.id)!.hasGradient, isFalse);
+    });
+
+    testWidgets('server settings shows the gradient picker and live preview',
+        (t) async {
+      t.view.physicalSize = const Size(420, 1800);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.resetPhysicalSize);
+      CommunityStore.instance.resetForTest();
+      final c = CommunityStore.instance.createCommunity('My Server');
+      await t.pumpWidget(
+          MaterialApp(home: CommunitySettingsScreen(communityId: c.id)));
+      await t.pumpAndSettle();
+
+      // The live preview shows the name being customised.
+      expect(find.text('My Server'), findsWidgets);
+      // The expanded appearance controls, including the new gradient picker.
+      expect(find.text('COLOR'), findsOneWidget);
+      expect(find.text('GRADIENT'), findsOneWidget);
+      expect(find.text('ICON'), findsOneWidget);
+    });
+
     test('ban removes and blocks rejoining; mute hides, both survive JSON',
         () {
       CommunityStore.instance.resetForTest();

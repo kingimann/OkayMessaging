@@ -296,7 +296,9 @@ class _CommunityCard extends StatelessWidget {
                       end: Alignment.bottomRight,
                       colors: [
                         base,
-                        Color.lerp(base, Colors.black, 0.28) ?? base,
+                        community.hasGradient
+                            ? _hex(community.color2)
+                            : Color.lerp(base, Colors.black, 0.28) ?? base,
                       ],
                     ),
                     borderRadius: BorderRadius.circular(18),
@@ -747,7 +749,9 @@ class _CommunityScreenState extends State<CommunityScreen> {
                     end: Alignment.bottomRight,
                     colors: [
                       _hex(community.color),
-                      _hex(community.color).withValues(alpha: 0.55),
+                      community.hasGradient
+                          ? _hex(community.color2)
+                          : _hex(community.color).withValues(alpha: 0.55),
                     ],
                   ),
                 ),

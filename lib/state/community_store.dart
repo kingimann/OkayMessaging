@@ -1122,6 +1122,14 @@ class CommunityStore extends ChangeNotifier {
     onStructureChanged?.call(communityId);
   }
 
+  /// Sets the server's optional SECOND accent colour ('' = a solid look).
+  void setCommunityColor2(String communityId, String color2) {
+    final community = byId(communityId);
+    if (community == null) return;
+    _replace(community.copyWith(color2: color2));
+    onStructureChanged?.call(communityId);
+  }
+
   void setCommunityDescription(String communityId, String description) {
     final community = byId(communityId);
     if (community == null) return;
@@ -1492,6 +1500,7 @@ class CommunityStore extends ChangeNotifier {
       'id': community.id,
       'name': community.name,
       'color': community.color,
+      if (community.color2.isNotEmpty) 'color2': community.color2,
       'icon': community.icon,
       'secret': community.secret,
       'description': community.description,
@@ -1590,6 +1599,7 @@ class CommunityStore extends ChangeNotifier {
     _replace(mine.copyWith(
       name: snapshot['name'] as String? ?? mine.name,
       color: snapshot['color'] as String? ?? mine.color,
+      color2: snapshot['color2'] as String? ?? mine.color2,
       icon: snapshot['icon'] as String? ?? mine.icon,
       description:
           snapshot['description'] as String? ?? mine.description,
@@ -1656,6 +1666,7 @@ class CommunityStore extends ChangeNotifier {
       id: id,
       name: name,
       color: snapshot['color'] as String? ?? '#7A5CFF',
+      color2: snapshot['color2'] as String? ?? '',
       icon: snapshot['icon'] as String? ?? '',
       secret: snapshot['secret'] as String? ?? '',
       description: snapshot['description'] as String? ?? '',

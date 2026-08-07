@@ -6,17 +6,20 @@ import '../models/community.dart';
 import '../models/user.dart';
 import '../state/community_store.dart';
 import '../widgets/app_dialogs.dart';
+import '../widgets/emoji_data.dart';
 import '../widgets/info_section.dart';
 import 'community_roles_screen.dart';
 
 Color _hex(String s) => Color(int.parse(s.replaceFirst('#', 'ff'), radix: 16));
 
 const serverPalette = [
-  '#7A5CFF', '#12B76A', '#F1C40F', '#EF5DA8', '#009DE2',
-  '#F97052', '#8B5CF6', '#0F1419',
+  '#7A5CFF', '#5865F2', '#009DE2', '#12B76A', '#2DD4BF',
+  '#F1C40F', '#F97052', '#EF4444', '#EF5DA8', '#EC4899',
+  '#8B5CF6', '#A855F7', '#64748B', '#0F1419',
 ];
 
-/// Emoji a server can wear instead of its first letter.
+/// Emoji a server can wear instead of its first letter — the quick picks;
+/// "More…" opens the full emoji catalog for anything else.
 const serverEmojis = [
   '🎮', '🎨', '🎵', '📚', '💼', '⚽', '🍕', '🚀',
   '🌟', '🔥', '💬', '🛠️', '🏠', '🎬', '📷', '🌈',
@@ -64,23 +67,9 @@ class CommunitySettingsScreen extends StatelessWidget {
           appBar: AppBar(title: const Text('Server settings')),
           body: ListView(
             children: [
-              const SizedBox(height: 8),
-              Center(
-                child: CircleAvatar(
-                  radius: 40,
-                  backgroundColor: _hex(community.color),
-                  child: Text(
-                      community.icon.isNotEmpty
-                          ? community.icon
-                          : community.name[0].toUpperCase(),
-                      style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 32,
-                          fontWeight: community.icon.isNotEmpty
-                              ? FontWeight.w400
-                              : FontWeight.w800)),
-                ),
-              ),
+              // A live preview of the look being edited — the header updates as
+              // the icon, colour and gradient are changed below.
+              _AppearancePreview(community: community),
               const SizedBox(height: 16),
               InfoSection(children: [
                 InfoTile(
@@ -121,6 +110,14 @@ class CommunitySettingsScreen extends StatelessWidget {
                         onTap: () => store.setCommunityIcon(communityId, e),
                         child: Text(e, style: const TextStyle(fontSize: 20)),
                       ),
+                    // Any emoji, not just the quick picks.
+                    _iconChoice(
+                      context,
+                      selected: community.icon.isNotEmpty &&
+                          !serverEmojis.contains(community.icon),
+                      onTap: () => _pickAnyEmoji(context, communityId),
+                      child: const Icon(Icons.add, size: 20),
+                    ),
                   ],
                 ),
               ),
@@ -148,6 +145,68 @@ class CommunitySettingsScreen extends StatelessWidget {
                                 : null,
                           ),
                           child: community.color == c
+                              ? const Icon(Icons.check, color: Colors.white)
+                              : null,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              _label(context, 'GRADIENT'),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
+                child: Text(
+                  'A second colour for the icon and header. Off for a solid look.',
+                  style: TextStyle(
+                      fontSize: 12.5, color: AppColors.subtle(context)),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Wrap(
+                  spacing: 14,
+                  runSpacing: 14,
+                  children: [
+                    // "None" clears the second colour.
+                    GestureDetector(
+                      onTap: () => store.setCommunityColor2(communityId, ''),
+                      child: Container(
+                        width: 44,
+                        height: 44,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                              color: community.color2.isEmpty
+                                  ? Theme.of(context).colorScheme.primary
+                                  : Theme.of(context).colorScheme.outlineVariant,
+                              width: community.color2.isEmpty ? 3 : 1),
+                        ),
+                        child: Icon(Icons.block,
+                            color: AppColors.subtle(context), size: 20),
+                      ),
+                    ),
+                    for (final c in serverPalette)
+                      GestureDetector(
+                        onTap: () => store.setCommunityColor2(communityId, c),
+                        child: Container(
+                          width: 44,
+                          height: 44,
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [_hex(community.color), _hex(c)],
+                            ),
+                            shape: BoxShape.circle,
+                            border: community.color2 == c
+                                ? Border.all(
+                                    color:
+                                        Theme.of(context).colorScheme.primary,
+                                    width: 3)
+                                : null,
+                          ),
+                          child: community.color2 == c
                               ? const Icon(Icons.check, color: Colors.white)
                               : null,
                         ),
@@ -705,6 +764,20 @@ class CommunitySettingsScreen extends StatelessWidget {
     }
   }
 
+  /// A searchable full-emoji picker for the server icon — any emoji, not just
+  /// the quick picks. Sets the icon on tap.
+  Future<void> _pickAnyEmoji(BuildContext context, String communityId) async {
+    final chosen = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (sheetContext) => const _EmojiIconPicker(),
+    );
+    if (chosen != null && chosen.isNotEmpty) {
+      CommunityStore.instance.setCommunityIcon(communityId, chosen);
+    }
+  }
+
   Future<void> _confirmDelete(BuildContext context, Community community) async {
     final ok = await showAppConfirmDialog(
       context,
@@ -719,6 +792,150 @@ class CommunitySettingsScreen extends StatelessWidget {
       CommunityStore.instance.deleteCommunity(communityId);
       Navigator.of(context).popUntil((r) => r.isFirst);
     }
+  }
+}
+
+/// A live preview of the server's look — a gradient banner with the icon and
+/// name, updating as the icon/colour/gradient are edited below it. This is the
+/// "improved UI": you see what you're building, not just swatches.
+class _AppearancePreview extends StatelessWidget {
+  const _AppearancePreview({required this.community});
+  final Community community;
+
+  @override
+  Widget build(BuildContext context) {
+    final base = _hex(community.color);
+    final end = community.hasGradient
+        ? _hex(community.color2)
+        : Color.lerp(base, Colors.black, 0.28) ?? base;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(18),
+        child: Container(
+          height: 116,
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [base, end],
+            ),
+          ),
+          child: Row(
+            children: [
+              const SizedBox(width: 18),
+              Container(
+                width: 64,
+                height: 64,
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.18),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                alignment: Alignment.center,
+                child: Text(
+                  community.icon.isNotEmpty
+                      ? community.icon
+                      : (community.name.isEmpty
+                          ? '?'
+                          : community.name[0].toUpperCase()),
+                  style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 30,
+                      fontWeight: community.icon.isNotEmpty
+                          ? FontWeight.w400
+                          : FontWeight.w800),
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Text(
+                  community.name,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 20,
+                      fontWeight: FontWeight.w800),
+                ),
+              ),
+              const SizedBox(width: 12),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A searchable emoji grid that pops the chosen emoji — for the server icon.
+class _EmojiIconPicker extends StatefulWidget {
+  const _EmojiIconPicker();
+
+  @override
+  State<_EmojiIconPicker> createState() => _EmojiIconPickerState();
+}
+
+class _EmojiIconPickerState extends State<_EmojiIconPicker> {
+  final _search = TextEditingController();
+  String _query = '';
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final searching = _query.trim().isNotEmpty;
+    final List<String> emoji =
+        searching ? EmojiData.search(_query) : EmojiData.all;
+    return SafeArea(
+      child: SizedBox(
+        height: MediaQuery.of(context).size.height * 0.6,
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+              child: TextField(
+                controller: _search,
+                onChanged: (v) => setState(() => _query = v),
+                decoration: InputDecoration(
+                  hintText: 'Search emoji',
+                  prefixIcon: const Icon(Icons.search, size: 20),
+                  isDense: true,
+                  filled: true,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(24),
+                    borderSide: BorderSide.none,
+                  ),
+                ),
+              ),
+            ),
+            Expanded(
+              child: emoji.isEmpty
+                  ? Center(
+                      child: Text('No emoji matches "${_query.trim()}".',
+                          style: TextStyle(color: AppColors.subtle(context))))
+                  : GridView.count(
+                      crossAxisCount: 7,
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      children: [
+                        for (final e in emoji)
+                          InkWell(
+                            borderRadius: BorderRadius.circular(10),
+                            onTap: () => Navigator.of(context).pop(e),
+                            child: Center(
+                                child: Text(e,
+                                    style: const TextStyle(fontSize: 26))),
+                          ),
+                      ],
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 

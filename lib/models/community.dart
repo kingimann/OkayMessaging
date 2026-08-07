@@ -486,6 +486,16 @@ class Community {
   /// Avatar color as a hex string (e.g. '#7A5CFF').
   final String color;
 
+  /// An optional SECOND accent colour (hex). When set, the server icon and its
+  /// header run as a gradient from [color] to this; '' (the default) keeps the
+  /// old look — [color] shaded darker.
+  final String color2;
+
+  /// The hex the icon/header gradient ends on: the chosen second colour, or the
+  /// primary again when there is none (the UI shades that itself).
+  String get gradientEndHex => color2.isEmpty ? color : color2;
+  bool get hasGradient => color2.isNotEmpty;
+
   /// An emoji shown as the server icon instead of the name's first letter
   /// ('' = use the letter).
   final String icon;
@@ -568,6 +578,7 @@ class Community {
     required this.id,
     required this.name,
     required this.color,
+    this.color2 = '',
     this.icon = '',
     this.secret = '',
     this.description = '',
@@ -634,6 +645,7 @@ class Community {
   Community copyWith({
     String? name,
     String? color,
+    String? color2,
     String? icon,
     String? description,
     List<Channel>? channels,
@@ -656,6 +668,7 @@ class Community {
         id: id,
         name: name ?? this.name,
         color: color ?? this.color,
+        color2: color2 ?? this.color2,
         icon: icon ?? this.icon,
         secret: secret,
         description: description ?? this.description,
@@ -681,6 +694,7 @@ class Community {
         'id': id,
         'name': name,
         'color': color,
+        if (color2.isNotEmpty) 'color2': color2,
         'icon': icon,
         'secret': secret,
         'description': description,
@@ -707,6 +721,7 @@ class Community {
         id: json['id'] as String,
         name: json['name'] as String,
         color: json['color'] as String? ?? '#7A5CFF',
+        color2: json['color2'] as String? ?? '',
         icon: json['icon'] as String? ?? '',
         secret: json['secret'] as String? ?? '',
         description: json['description'] as String? ?? '',
