@@ -2446,11 +2446,14 @@ class _PublicThreadScreenState extends State<PublicThreadScreen> {
                   post.repostCount > 0) ...[
                 const Divider(height: 1),
                 Builder(builder: (context) {
+                  final mine = post.authorUsername ==
+                      AppState.profile.value.username;
                   void openSheet() => showModalBottomSheet<void>(
                         context: context,
                         showDragHandle: true,
                         isScrollControlled: true,
-                        builder: (_) => _EngagementSheet(post: post),
+                        builder: (_) =>
+                            _EngagementSheet(post: post, isMine: mine),
                       );
                   return Padding(
                     padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
@@ -2460,6 +2463,14 @@ class _PublicThreadScreenState extends State<PublicThreadScreen> {
                           FeedStatBlock(
                             value: thousands(post.viewCount),
                             label: post.viewCount == 1 ? 'View' : 'Views',
+                            // Tappable on your OWN post: it opens the sheet to a
+                            // "Viewed by" list. On someone else's it just shows
+                            // the number — who viewed a post is the author's to
+                            // see, not the crowd's.
+                            onTap: post.authorUsername ==
+                                    AppState.profile.value.username
+                                ? openSheet
+                                : null,
                           ),
                         if (post.likeCount > 0)
                           FeedStatBlock(
@@ -2566,7 +2577,11 @@ class _PublicThreadScreenState extends State<PublicThreadScreen> {
 /// says so rather than showing an empty list that reads as "nobody".
 class _EngagementSheet extends StatefulWidget {
   final PublicPost post;
-  const _EngagementSheet({required this.post});
+
+  /// True when the viewer authored this post. Only then is the "Viewed by"
+  /// list loaded and shown — who looked at a post is the author's to see.
+  final bool isMine;
+  const _EngagementSheet({required this.post, this.isMine = false});
 
   @override
   State<_EngagementSheet> createState() => _EngagementSheetState();
@@ -2575,7 +2590,9 @@ class _EngagementSheet extends StatefulWidget {
 class _EngagementSheetState extends State<_EngagementSheet> {
   List<(String, String)>? _likers;
   List<PublicPost>? _reposters;
+  List<(String, String)>? _viewers;
   bool _likersUnavailable = false;
+  bool _viewersUnavailable = false;
   bool _loading = true;
 
   @override
@@ -2592,11 +2609,17 @@ class _EngagementSheetState extends State<_EngagementSheet> {
     final reposters = widget.post.repostCount > 0
         ? await store.repostersOf(widget.post.id)
         : const <PublicPost>[];
+    // Only the author sees who viewed, and only when there are views.
+    final viewers = widget.isMine && widget.post.viewCount > 0
+        ? await store.viewersOf(widget.post.id)
+        : const <(String, String)>[];
     if (!mounted) return;
     setState(() {
       _likers = likers;
       _likersUnavailable = likers == null;
       _reposters = reposters;
+      _viewers = viewers;
+      _viewersUnavailable = viewers == null;
       _loading = false;
     });
   }
@@ -2639,6 +2662,7 @@ class _EngagementSheetState extends State<_EngagementSheet> {
     }
     final likers = _likers ?? const <(String, String)>[];
     final reposters = _reposters ?? const <PublicPost>[];
+    final viewers = _viewers ?? const <(String, String)>[];
     return SafeArea(
       child: ConstrainedBox(
         constraints: BoxConstraints(
@@ -2646,6 +2670,36 @@ class _EngagementSheetState extends State<_EngagementSheet> {
         child: ListView(
           shrinkWrap: true,
           children: [
+            if (widget.isMine && widget.post.viewCount > 0) ...[
+              _header('VIEWED BY'),
+              if (_viewersUnavailable)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+                  child: Text(
+                    'Who viewed isn\'t available yet — the server needs the '
+                    'latest docs/public_feed.sql.',
+                    style: TextStyle(
+                        fontSize: 13, color: AppColors.subtle(context)),
+                  ),
+                )
+              else ...[
+                for (final (username, name) in viewers)
+                  _person(username, name),
+                // A signed-in viewer with no directory handle, or one who reads
+                // the feed anonymously (no account), leaves a count but no name
+                // — so fewer names than views is honest, not broken.
+                if (widget.post.viewCount > viewers.length)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 2, 20, 8),
+                    child: Text(
+                      'and ${widget.post.viewCount - viewers.length} more '
+                      'without a public handle',
+                      style: TextStyle(
+                          fontSize: 12.5, color: AppColors.subtle(context)),
+                    ),
+                  ),
+              ],
+            ],
             if (widget.post.likeCount > 0) ...[
               _header('LIKED BY'),
               if (_likersUnavailable)

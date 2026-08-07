@@ -947,6 +947,11 @@ class PublicFeedStore extends ChangeNotifier {
   static Future<List<PublicPost>> Function(String postId)?
       debugRepostersOverride;
 
+  /// Test hook: stands in for the who-viewed RPC.
+  @visibleForTesting
+  static Future<List<(String, String)>?> Function(String postId)?
+      debugViewersOverride;
+
   /// Who liked [postId] — (username, display name) pairs, newest first.
   ///
   /// Served by `public_post_likers` (docs/public_feed.sql): the likes table
@@ -964,6 +969,34 @@ class PublicFeedStore extends ChangeNotifier {
     try {
       final rows =
           await client.rpc('public_post_likers', params: {'p': postId});
+      return [
+        for (final r in (rows as List<dynamic>))
+          (
+            (r as Map)['username'] as String? ?? '',
+            r['name'] as String? ?? '',
+          )
+      ]..removeWhere((e) => e.$1.isEmpty);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Who viewed [postId] — (username, display name) pairs, newest first.
+  /// Served by `public_post_viewers`, the same directory-join window as
+  /// [likersOf]: the views table stores phones and grants clients nothing, so
+  /// this is the ONE way to the list and it answers handles only. Meant for the
+  /// author (the UI only offers it on your own posts); null means unavailable
+  /// (function not deployed, or offline), distinct from "nobody yet". Anonymous
+  /// viewers and hidden accounts are never listed, so the count can exceed the
+  /// names.
+  Future<List<(String, String)>?> viewersOf(String postId) async {
+    final override = debugViewersOverride;
+    if (override != null) return override(postId);
+    final client = _client;
+    if (client == null) return null;
+    try {
+      final rows =
+          await client.rpc('public_post_viewers', params: {'p': postId});
       return [
         for (final r in (rows as List<dynamic>))
           (

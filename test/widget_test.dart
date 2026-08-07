@@ -10906,9 +10906,9 @@ void main() {
       // The was-price is a CREATE-time field only: on an edit it would
       // fight the automatic price-drop history.
       expect(src, contains('if (widget.existing == null) ...['));
-      // An edit starts with the fold open: hiding fields that already
-      // hold values would read as having lost them.
-      expect(src, contains('late bool _showMore = widget.existing != null;'));
+      // The details are in the open now, not folded behind a button — the
+      // "More details" chapter renders unconditionally.
+      expect(src, isNot(contains('_showMore')));
       // And the card says the brand.
       expect(src, contains('listing.listingBrand'));
     });
@@ -12721,14 +12721,12 @@ void main() {
       FeedStore.instance.resetForTest();
       addTearDown(FeedStore.instance.resetForTest);
 
-      // The video slot lives behind the More-details fold.
+      // The video slot is in the open now, down among the details.
       await tester.pumpWidget(const MaterialApp(home: SellScreen()));
       await tester.pump();
-      await tester.scrollUntilVisible(find.textContaining('More details'), 200,
+      await tester.scrollUntilVisible(
+          find.text('Add a video (up to 30 seconds)'), 200,
           scrollable: find.byType(Scrollable).first);
-      await tester.tap(find.textContaining('More details'));
-      await tester.pumpAndSettle();
-      await tester.drag(find.byType(Scrollable).first, const Offset(0, -1200));
       await tester.pumpAndSettle();
       // No paywall tile, no subscription check — the picker is just there.
       expect(find.textContaining('cloud storage'), findsNothing);
@@ -13180,11 +13178,7 @@ void main() {
           find.widgetWithText(
               TextField, 'Describe it — condition, size, pickup…'),
           'Warm light, new bulb.');
-      // Condition lives behind the More-details fold now.
-      await tester.scrollUntilVisible(find.textContaining('More details'), 200,
-          scrollable: find.byType(Scrollable).first);
-      await tester.tap(find.textContaining('More details'));
-      await tester.pumpAndSettle();
+      // Condition is in the open now, down among the details.
       await tester.scrollUntilVisible(find.text('Like new'), 200,
           scrollable: find.byType(Scrollable).first);
       await tester.tap(find.text('Like new'));
@@ -34897,22 +34891,20 @@ void main() {
           reason: 'never somebody else\'s corner');
     });
 
-    testWidgets('a first listing is five answers; the rest is a fold away',
+    testWidgets('the details are in the open now, not folded away',
         (tester) async {
       FeedDrafts.instance.resetForTest();
       addTearDown(FeedDrafts.instance.resetForTest);
       await tester.pumpWidget(const MaterialApp(home: SellScreen()));
       await tester.pumpAndSettle();
-      // Essentials visible; the optional half is not.
+      // Essentials up top…
       expect(find.text('What are you selling?'), findsOneWidget);
       expect(find.text('Price'), findsOneWidget);
-      expect(find.text('Brand (optional)'), findsNothing);
-      expect(find.text('Quantity'), findsNothing);
-      await tester.scrollUntilVisible(
-          find.textContaining('More details'), 200,
+      // …and the rest is reachable by scrolling, not hidden behind a fold
+      // button you have to find and tap first.
+      expect(find.textContaining('More details — brand'), findsNothing);
+      await tester.scrollUntilVisible(find.text('Brand (optional)'), 200,
           scrollable: find.byType(Scrollable).first);
-      await tester.tap(find.textContaining('More details'));
-      await tester.pumpAndSettle();
       expect(find.text('Brand (optional)'), findsOneWidget);
       await tester.scrollUntilVisible(find.text('Quantity'), 200,
           scrollable: find.byType(Scrollable).first);
@@ -35139,6 +35131,56 @@ void main() {
       expect(find.byType(PublicProfileScreen), findsOneWidget);
     });
 
+    testWidgets('the author sees who viewed their own post; a stranger cannot',
+        (tester) async {
+      final store = PublicFeedStore.instance;
+      addTearDown(store.resetForTest);
+      final prevProfile = AppState.profile.value;
+      addTearDown(() => AppState.profile.value = prevProfile);
+
+      PublicPost viewed(String author) => PublicPost(
+            id: 'v1',
+            authorUsername: author,
+            authorName: author,
+            body: 'watched',
+            viewCount: 5,
+            createdAt: DateTime(2026, 1, 1),
+          );
+      PublicFeedStore.debugViewersOverride = (id) async =>
+          [('grace', 'Grace Lin'), ('frankm', '')];
+      PublicFeedStore.debugLikersOverride = (id) async => const [];
+      PublicFeedStore.debugRepostersOverride = (id) async => const [];
+
+      // As the AUTHOR: Views is tappable and the sheet names the viewers.
+      AppState.profile.value = const AppUser(
+          id: 'me', name: 'Me', avatarColor: '#000000', username: 'ada');
+      PublicFeedStore.debugLoadOverride = () async => [viewed('ada')];
+      await store.load();
+      await tester.pumpWidget(
+          const MaterialApp(home: PublicThreadScreen(postId: 'v1')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Views'));
+      await tester.pumpAndSettle();
+      expect(find.text('VIEWED BY'), findsOneWidget);
+      expect(find.text('Grace Lin'), findsOneWidget);
+      // Five views, two handles — the difference is said, not hidden.
+      expect(find.textContaining('3 more without a public handle'),
+          findsOneWidget);
+
+      // As a STRANGER (someone else's post): tapping Views opens nothing —
+      // who viewed a post is the author's to see.
+      AppState.profile.value = const AppUser(
+          id: 'me', name: 'Me', avatarColor: '#000000', username: 'someoneelse');
+      PublicFeedStore.debugLoadOverride = () async => [viewed('ada')];
+      await store.load();
+      await tester.pumpWidget(
+          const MaterialApp(home: PublicThreadScreen(postId: 'v1')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Views'));
+      await tester.pumpAndSettle();
+      expect(find.text('VIEWED BY'), findsNothing);
+    });
+
     testWidgets('an undeployed likers window says so, not "nobody"',
         (tester) async {
       final store = PublicFeedStore.instance;
@@ -35298,22 +35340,34 @@ void main() {
           reason: 'one reader is one view, not one per rebuild');
     });
 
-    test('the tally is a counter with no viewer in it, proven in Postgres',
+    test('views dedupe per viewer, and only the author can see who, in Postgres',
         () {
+      // 2026-08-07, the owner's call: a view is now deduped per viewer (so the
+      // same reader can't inflate a count by re-opening) and the author can see
+      // WHO looked. That means a per-viewer table exists now — but its phone
+      // column is never client-readable, and the ONLY window is the
+      // public_post_viewers directory join, exactly like who-liked.
       final sql = File('docs/public_feed.sql').readAsStringSync();
       expect(sql, contains('add column if not exists view_count'));
       expect(sql,
           contains('create or replace function public.public_post_viewed'));
-      // The grant list carries the column, or the security-invoker view
-      // dies with "permission denied" — the exact trap the file warns
-      // about, and the trap this change fell into first.
       expect(sql, contains('created_at, view_count)'));
-      // There is no views TABLE — a per-viewer row would be a phone number
-      // next to a reading habit.
-      expect(sql.contains('public_post_views ('), isFalse);
+      // The per-viewer table and the who-viewed window both exist.
+      expect(sql, contains('create table if not exists public.public_post_views ('));
+      expect(sql,
+          contains('create or replace function public.public_post_viewers'));
+      // And the table is locked to clients — no column of it is ever granted,
+      // so a viewer_phone can never be read next to a reading habit.
+      expect(
+          sql,
+          contains(
+              'revoke select on table public.public_post_views from anon, authenticated'));
       final check = File('tool/check_sql.sh').readAsStringSync();
       expect(check, contains('a view adds exactly one to the tally'));
       expect(check, contains('the view tally cannot be written directly'));
+      expect(check, contains('a second view from the same reader adds nothing'));
+      expect(check, contains('who-viewed answers usernames'));
+      expect(check, contains('the views table itself is unreadable'));
     });
   });
 

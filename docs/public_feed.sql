@@ -147,6 +147,22 @@ create table if not exists public.public_post_likes (
   primary key (post_id, liker_phone)
 );
 
+-- Who has viewed a post (2026-08-07). Unlike the old anonymous view_count,
+-- this holds one row per (post, viewer), so the same reader re-opening a post
+-- can never inflate its count, and the author can be shown WHO looked. The
+-- primary key IS the dedupe. viewer_phone is never granted to a client (below);
+-- the count comes off the denormalised public_posts.view_count, kept in step by
+-- public_post_viewed, and the author's "viewed by" list comes from the
+-- public_post_viewers window — a client can never read this table directly.
+create table if not exists public.public_post_views (
+  post_id      text not null references public.public_posts(id) on delete cascade,
+  viewer_phone text not null,
+  created_at   timestamptz not null default now(),
+  primary key (post_id, viewer_phone)
+);
+create index if not exists public_post_views_post_idx
+  on public.public_post_views (post_id, created_at desc);
+
 -- One vote per person per poll — that is the primary key, not a rule the app
 -- is trusted to keep. There is no UPDATE or DELETE granted below either: a
 -- vote you can take back is a vote somebody can be talked into taking back,
@@ -188,6 +204,7 @@ create index if not exists public_post_sparks_post_idx
 
 alter table public.public_posts enable row level security;
 alter table public.public_post_likes enable row level security;
+alter table public.public_post_views enable row level security;
 alter table public.public_post_votes enable row level security;
 alter table public.public_post_sparks enable row level security;
 
@@ -358,6 +375,13 @@ grant select (id, author_username, author_name, author_verified, body,
 revoke select on table public.public_post_likes from anon, authenticated;
 grant select (post_id, created_at)
   on public.public_post_likes to anon, authenticated;
+
+-- The views table is never client-readable in any column: who viewed a post is
+-- the author's to see, and only through the public_post_viewers window below.
+-- No insert/delete/update grant either — the only writer is the security-
+-- definer public_post_viewed, which runs as the table owner past this.
+revoke select on table public.public_post_views from anon, authenticated;
+revoke insert, update, delete on public.public_post_views from anon, authenticated;
 
 -- Your own vote comes back so the app can show which answer you picked.
 -- voter_phone is never granted, so the row is only ever yours to read — the
@@ -586,19 +610,58 @@ $$;
 
 grant execute on function public.public_post_likers(text) to anon, authenticated;
 
--- Counts one view. The table grants clients no UPDATE, so this definer
--- function is the only door, and all it can do is add one.
+-- Counts one view — ONCE per viewer, forever. The (post, viewer) primary key
+-- on public_post_views is the dedupe: a reader re-opening a post inserts
+-- nothing the second time, so view_count only moves on a genuinely new viewer.
+-- An anonymous reader (numberless account on the anon key, no jwt phone) is not
+-- counted and not listed — a view you can't attribute can't be deduped or shown
+-- either. The table grants clients nothing, so this definer function is the
+-- only writer.
 create or replace function public.public_post_viewed(p text)
 returns void
-language sql
+language plpgsql
 volatile
 security definer
 set search_path = public
 as $$
-  update public.public_posts set view_count = view_count + 1 where id = p;
+declare
+  ph text := nullif(auth.jwt() ->> 'phone', '');
+begin
+  if ph is null then
+    return;
+  end if;
+  insert into public.public_post_views (post_id, viewer_phone)
+    values (p, ph)
+    on conflict (post_id, viewer_phone) do nothing;
+  if found then
+    update public.public_posts set view_count = view_count + 1 where id = p;
+  end if;
+end;
 $$;
 
 grant execute on function public.public_post_viewed(text) to anon, authenticated;
+
+-- Who viewed a post — the SAME directory-join window as public_post_likers,
+-- newest first. Only ever reached by the post's author from the app (the UI
+-- shows the "viewed by" list on your own posts), but the window itself carries
+-- no phones and hides accounts that asked to be hidden, like every other.
+create or replace function public.public_post_viewers(p text)
+returns table(username text, name text)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select u.username, coalesce(u.name, '')
+    from public.public_post_views v
+    join public.usernames u on u.phone = v.viewer_phone
+   where v.post_id = p
+     and not coalesce(u.hidden, false)
+   order by v.created_at desc
+   limit 100;
+$$;
+
+grant execute on function public.public_post_viewers(text) to anon, authenticated;
 
 -- ---------------------------------------------------------------------------
 -- 6. Follows — the one social-graph table (2026-08-05, the owner's call:

@@ -546,6 +546,177 @@ const Map<String, List<CategoryField>> kCategoryFields = {
       'Other',
     ]),
   ],
+  // 2026-08-07: subcategories for the broad catch-all categories, so picking
+  // one drills down instead of dumping everything under a single label — the
+  // "expand each category" step. Each renders as a chip picker and rides on the
+  // listing's attributes like every other per-category field.
+  'Home & Garden': [
+    CategoryField('Type', choices: [
+      'Decor',
+      'Lighting',
+      'Rugs',
+      'Bedding',
+      'Storage',
+      'Garden',
+      'Outdoor',
+      'Other',
+    ]),
+  ],
+  'Tools & Home Improvement': [
+    CategoryField('Type', choices: [
+      'Power tools',
+      'Hand tools',
+      'Ladders',
+      'Plumbing',
+      'Electrical',
+      'Paint',
+      'Hardware',
+      'Other',
+    ]),
+  ],
+  'Beauty & Health': [
+    CategoryField('Type', choices: [
+      'Skincare',
+      'Makeup',
+      'Haircare',
+      'Fragrance',
+      'Grooming',
+      'Wellness',
+      'Other',
+    ]),
+  ],
+  'Games & Toys': [
+    CategoryField('Type', choices: [
+      'Board games',
+      'Puzzles',
+      'Building sets',
+      'Action figures',
+      'Dolls',
+      'Outdoor toys',
+      'Educational',
+      'Other',
+    ]),
+  ],
+  'Kitchen & Dining': [
+    CategoryField('Type', choices: [
+      'Cookware',
+      'Bakeware',
+      'Appliances',
+      'Dinnerware',
+      'Cutlery',
+      'Storage',
+      'Other',
+    ]),
+  ],
+  'Home Decor': [
+    CategoryField('Type', choices: [
+      'Wall art',
+      'Mirrors',
+      'Vases',
+      'Candles',
+      'Clocks',
+      'Plants',
+      'Cushions',
+      'Other',
+    ]),
+  ],
+  'Fitness & Gym': [
+    CategoryField('Type', choices: [
+      'Weights',
+      'Cardio machine',
+      'Yoga',
+      'Bench / rack',
+      'Accessories',
+      'Apparel',
+      'Other',
+    ]),
+  ],
+  'Camping & Outdoors': [
+    CategoryField('Type', choices: [
+      'Tents',
+      'Sleeping bags',
+      'Backpacks',
+      'Cooking',
+      'Hiking',
+      'Fishing',
+      'Climbing',
+      'Other',
+    ]),
+  ],
+  'Art & Collectibles': [
+    CategoryField('Type', choices: [
+      'Painting',
+      'Print',
+      'Sculpture',
+      'Coins',
+      'Stamps',
+      'Memorabilia',
+      'Other',
+    ]),
+  ],
+  'Bags & Luggage': [
+    CategoryField('Type', choices: [
+      'Handbag',
+      'Backpack',
+      'Suitcase',
+      'Duffel',
+      'Wallet',
+      'Briefcase',
+      'Other',
+    ]),
+  ],
+  'Office & Business': [
+    CategoryField('Type', choices: [
+      'Desks',
+      'Chairs',
+      'Printers',
+      'Supplies',
+      'Storage',
+      'Equipment',
+      'Other',
+    ]),
+  ],
+  'Auto Parts': [
+    CategoryField('Type', choices: [
+      'Wheels & tyres',
+      'Engine',
+      'Interior',
+      'Exterior',
+      'Electronics',
+      'Lighting',
+      'Other',
+    ]),
+  ],
+  'Garden & Plants': [
+    CategoryField('Type', choices: [
+      'Plants',
+      'Seeds',
+      'Pots',
+      'Tools',
+      'Soil & compost',
+      'Furniture',
+      'Other',
+    ]),
+  ],
+  'Trading Cards & Comics': [
+    CategoryField('Type', choices: [
+      'Trading cards',
+      'Comics',
+      'Graphic novels',
+      'Sealed / packs',
+      'Accessories',
+      'Other',
+    ]),
+  ],
+  'Health & Wellness': [
+    CategoryField('Type', choices: [
+      'Supplements',
+      'Equipment',
+      'Personal care',
+      'Mobility aids',
+      'Other',
+    ]),
+  ],
 };
 
 /// The extra fields for [category], or empty. Trims so a stray space never
@@ -3721,12 +3892,6 @@ class _SellScreenState extends State<SellScreen> {
   bool _uploadingVideo = false;
   String? _error;
 
-  /// The optional half of the form — brand, condition, was-price,
-  /// negotiable, handoff, quantity, place, video — folded away so a first
-  /// listing is five answers, not fifteen. An EDIT starts open: hiding
-  /// fields that already hold values would read as having lost them.
-  late bool _showMore = widget.existing != null;
-
   @override
   void initState() {
     super.initState();
@@ -3763,16 +3928,6 @@ class _SellScreenState extends State<SellScreen> {
     final community = draft['community'] as String? ?? '';
     if (CommunityStore.instance.communities.any((c) => c.id == community)) {
       _communityId = community;
-    }
-    // A draft that filled optional fields reopens them — restoring into a
-    // fold that hides the restored values would read as losing them.
-    if (_brand.text.isNotEmpty ||
-        _condition.isNotEmpty ||
-        _delivery.isNotEmpty ||
-        _wasPrice.text.isNotEmpty ||
-        _quantity.text.isNotEmpty ||
-        _offers) {
-      _showMore = true;
     }
   }
 
@@ -3901,14 +4056,16 @@ class _SellScreenState extends State<SellScreen> {
   /// The form reads as chapters now, not one long column: a label, air
   /// above it, and the fields that answer it underneath.
   Widget _section(String text) => Padding(
-        padding: const EdgeInsets.only(top: 22, bottom: 8),
+        // Roomier than it was: a clearer gap above each heading so the form
+        // reads as distinct, breathable sections rather than one dense column.
+        padding: const EdgeInsets.only(top: 30, bottom: 10),
         child: Text(
           text.toUpperCase(),
           style: TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.w700,
-            letterSpacing: 0.7,
-            color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.7),
+            fontSize: 12.5,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 0.8,
+            color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.75),
           ),
         ),
       );
@@ -4280,7 +4437,7 @@ class _SellScreenState extends State<SellScreen> {
         ],
       ),
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(18, 10, 18, 44),
         children: [
           // AT THE TOP, not the bottom. It used to sit under the last field,
           // which was survivable on a short form and stopped being so the
@@ -4515,17 +4672,11 @@ class _SellScreenState extends State<SellScreen> {
               ),
             ],
           ),
-          // The optional half, folded: a first listing is five answers.
-          // Everything here posts fine left blank.
-          const SizedBox(height: 18),
-          if (!_showMore)
-            OutlinedButton.icon(
-              onPressed: () => setState(() => _showMore = true),
-              icon: const Icon(Icons.expand_more, size: 18),
-              label: const Text(
-                  'More details — brand, condition, delivery, pickup…'),
-            )
-          else ...[
+          // The details, laid out in the open rather than folded behind a
+          // button — roomier and easier to fill. Everything here posts fine
+          // left blank.
+          const SizedBox(height: 6),
+          ...[
             _section('More details'),
             TextField(
               controller: _brand,

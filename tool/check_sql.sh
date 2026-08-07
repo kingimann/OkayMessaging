@@ -217,6 +217,44 @@ do $$ begin
   end if;
   raise notice '  ok   the view tally cannot be written directly';
 end $$;
+-- Deduped per viewer: the SAME reader opening the post again adds nothing.
+select pg_temp.expect_ok(
+  $$select public.public_post_viewed('t_p1')$$,
+  'a repeat view is accepted (and quietly ignored)');
+do $$ begin
+  if (select view_count from public.public_feed where id='t_p1') <> 1 then
+    raise exception 'SECURITY CHECK FAILED: a repeat view from one reader inflated the tally';
+  end if;
+  raise notice '  ok   a second view from the same reader adds nothing';
+end $$;
+-- A DIFFERENT reader does count: alice viewed above; now bob views.
+select pg_temp.as_user('15550002222');
+select pg_temp.expect_ok(
+  $$select public.public_post_viewed('t_p1')$$, 'a new viewer is counted');
+do $$ begin
+  if (select view_count from public.public_feed where id='t_p1') <> 2 then
+    raise exception 'CHECK FAILED: a distinct viewer did not add one';
+  end if;
+  raise notice '  ok   a distinct viewer adds exactly one';
+end $$;
+-- WHO viewed, as usernames — the author's window, same shape as who-liked:
+-- handles only, no phone column, and the raw table is unreadable to a client.
+select pg_temp.as_user('15550001111');
+do $$
+declare n int;
+begin
+  select count(*) into n from public.public_post_viewers('t_p1');
+  if n <> 1 then
+    raise exception 'CHECK FAILED: who-viewed answered % row(s), expected 1 (alice_dir has a handle)', n;
+  end if;
+  raise notice '  ok   who-viewed answers usernames';
+end $$;
+select pg_temp.expect_fail(
+  $$select viewer_phone from public.public_post_viewers('t_p1')$$,
+  'the who-viewed window has no phone column');
+select pg_temp.expect_fail(
+  $$select viewer_phone from public.public_post_views$$,
+  'the views table itself is unreadable to a client');
 
 -- Follows: the social graph keeps its phones to itself. The definer
 -- functions are the only doors; both ends of an edge are stored by phone
@@ -1122,6 +1160,44 @@ select pg_temp.expect_fail(
 select pg_temp.expect_fail(
   $$update public.legal_documents set version = 999 where id = 1$$,
   'a client cannot alter legal documents');
+
+-- Admin user roster (admin_users.sql): the owner/admin-only window onto the
+-- whole directory, name-only accounts included. A non-staff caller is refused;
+-- a staff caller sees the roster and the count, and name-only rows are marked.
+set role authenticated;
+select pg_temp.as_user('15550007777');            -- an ordinary account
+select pg_temp.expect_fail(
+  $$select public.admin_user_count()$$,
+  'a non-staff account cannot count the directory');
+select pg_temp.expect_fail(
+  $$select * from public.admin_list_users(50, 0)$$,
+  'a non-staff account cannot list the directory');
+-- Make this caller an owner, and seed a name-only account.
+reset role;
+insert into public.platform_roles (phone, role)
+  values ('15550007777', 'owner') on conflict (phone) do nothing;
+insert into public.usernames (phone, username, name)
+  values ('009000000001', 'codeonly', '') on conflict (phone) do update
+  set username = excluded.username;
+set role authenticated;
+select pg_temp.as_user('15550007777');
+do $$
+declare c bigint; nm int;
+begin
+  select public.admin_user_count() into c;
+  if c < 1 then
+    raise exception 'CHECK FAILED: admin_user_count returned %', c;
+  end if;
+  select count(*) into nm from public.admin_list_users(500, 0)
+    where numberless is true and username = 'codeonly';
+  if nm <> 1 then
+    raise exception 'CHECK FAILED: the name-only account is missing from the roster';
+  end if;
+  raise notice '  ok   an owner sees the whole roster, name-only accounts included';
+end $$;
+select pg_temp.expect_fail(
+  $$select phone from public.admin_list_users(50, 0)$$,
+  'the roster carries no phone column');
 reset role;
 SQL
 
@@ -1140,7 +1216,7 @@ apply() {
 }
 
 echo "postgres $(su pg -c "PATH=$PGBIN:\$PATH psql -h $RUN -p $PORT -d $DB -tAc 'show server_version'")"
-for f in "$WORK/harness.sql" supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql; do
+for f in "$WORK/harness.sql" supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql; do
   if apply "$f"; then
     echo "  applied $(basename "$f")"
   else
@@ -1203,7 +1279,7 @@ else
   echo "  FAILED  could not rebuild the previous shape"; exit 1
 fi
 
-for f in supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql; do
+for f in supabase/schema.sql docs/platform_moderation.sql docs/public_feed.sql docs/creator_subscriptions.sql docs/payment_controls.sql docs/directory_numberless.sql docs/identity_backup.sql docs/account_lifecycle.sql docs/admin_users.sql docs/community_posts.sql docs/ai_usage.sql docs/ai_training.sql docs/legal_documents.sql docs/public_feed_edit.sql; do
   if apply "$f"; then
     echo "  re-applied $(basename "$f")"
   else
