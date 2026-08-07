@@ -25667,6 +25667,68 @@ void main() {
       expect(store.search('nothinghere'), isEmpty);
     });
 
+    test('a deleted note can be restored exactly as it was', () async {
+      final store = NotesStore.instance;
+      final note = await store.save(body: 'Keep me');
+      await store.togglePin(note!.id);
+      final kept = store.byId(note.id)!;
+
+      await store.delete(note.id);
+      expect(store.count, 0);
+
+      await store.restore(kept);
+      expect(store.count, 1);
+      final back = store.byId(note.id)!;
+      expect(back.body, 'Keep me');
+      expect(back.pinned, isTrue, reason: 'restore is the note as it was');
+      expect(back.createdAt, kept.createdAt);
+
+      // Restoring one that is already there does nothing, not a duplicate.
+      await store.restore(back);
+      expect(store.count, 1);
+    });
+
+    test('checklist lines are counted, and read cleanly in the title', () {
+      Note n(String body) => Note(
+          id: 'x',
+          body: body,
+          createdAt: DateTime(2026),
+          updatedAt: DateTime(2026));
+
+      final shop = n('[ ] Milk\n[x] Eggs\n[X] Bread');
+      expect(shop.checklist.total, 3);
+      expect(shop.checklist.done, 2, reason: 'x and X are both done');
+      expect(shop.checklist.complete, isFalse);
+      // The box marker is dropped for display — "Milk", not "[ ] Milk".
+      expect(shop.title, 'Milk');
+      expect(shop.preview, 'Eggs Bread');
+
+      expect(n('[x] a\n[x] b').checklist.complete, isTrue);
+      // A note with no boxes is not a checklist.
+      expect(n('Just a thought').checklist.any, isFalse);
+    });
+
+    test('the checkbox button makes a to-do, then ticks it', () {
+      // Not a checkbox yet: the caret's line becomes one, caret slides right.
+      var (text, caret) = NotesStore.toggleCheckbox('Milk', 4);
+      expect(text, '[ ] Milk');
+      expect(caret, 8);
+
+      // Already a checkbox: it ticks, same length.
+      (text, caret) = NotesStore.toggleCheckbox(text, caret);
+      expect(text, '[x] Milk');
+
+      // And unticks.
+      (text, _) = NotesStore.toggleCheckbox(text, 2);
+      expect(text, '[ ] Milk');
+
+      // Only the caret's line is touched, and indentation is kept.
+      const multi = 'a\n  b\nc';
+      final caretOnB = multi.indexOf('b');
+      final (out, _) = NotesStore.toggleCheckbox(multi, caretOnB);
+      expect(out, 'a\n  [ ] b\nc', reason: 'indent kept, other lines untouched');
+    });
+
     test('a restored backup keeps the newer edit of each note', () async {
       final store = NotesStore.instance;
       final mine = await store.save(body: 'mine, edited on this device');
@@ -25776,6 +25838,46 @@ void main() {
       await t.pumpAndSettle();
       expect(NotesStore.instance.count, 0);
       expect(find.text('No notes yet'), findsOneWidget);
+    });
+
+    testWidgets('checkbox button, word count, and undo delete', (t) async {
+      t.view.physicalSize = const Size(390, 844);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.resetPhysicalSize);
+
+      await t.pumpWidget(const MaterialApp(home: NotesScreen()));
+      await t.pumpAndSettle();
+      await t.tap(find.widgetWithText(FilledButton, 'Write one'));
+      await t.pumpAndSettle();
+
+      await t.enterText(find.byType(TextField).first, 'Milk');
+      await t.pump();
+      // The live word count in the editor toolbar.
+      expect(find.text('1 word'), findsOneWidget);
+
+      // The checkbox button turns the caret's line into a to-do item.
+      await t.tap(find.byTooltip('Checklist item'));
+      await t.pump();
+      await t.pageBack();
+      await t.pumpAndSettle();
+
+      final note = NotesStore.instance.notes.first;
+      expect(note.body, '[ ] Milk');
+      // The row reads cleanly and shows checklist progress.
+      expect(find.text('Milk'), findsOneWidget);
+      expect(find.text('0/1'), findsOneWidget);
+
+      // Deleting is undoable — a note has no other copy.
+      await t.tap(find.text('Milk'));
+      await t.pumpAndSettle();
+      await t.tap(find.byTooltip('Delete note'));
+      await t.pumpAndSettle();
+      expect(NotesStore.instance.count, 0);
+      expect(find.text('Undo'), findsOneWidget);
+      await t.tap(find.text('Undo'));
+      await t.pumpAndSettle();
+      expect(NotesStore.instance.count, 1);
+      expect(NotesStore.instance.notes.first.body, '[ ] Milk');
     });
 
     testWidgets('Notes is in the sidebar, with the rest of the apps',

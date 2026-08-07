@@ -4,6 +4,26 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+/// A line that is a to-do item: `[ ]` open, `[x]` done, any case, one space or
+/// none after the bracket. Group 1 is the indentation, 2 the mark, 3 the text.
+/// Checklists are kept as plain text on purpose — a note stays searchable,
+/// syncable and free of any new schema, and a shopping list is just a note.
+final RegExp _checkboxLine = RegExp(r'^(\s*)\[( |x|X)\]\s?(.*)$');
+
+/// How much of a note's checklist is done, if it has one.
+@immutable
+class Checklist {
+  const Checklist(this.done, this.total);
+  final int done;
+  final int total;
+
+  /// Whether the note is a checklist at all.
+  bool get any => total > 0;
+
+  /// Every box ticked.
+  bool get complete => total > 0 && done == total;
+}
+
 /// One note. The first line is its title — there is no separate title field,
 /// because a notes app that makes you name a note before writing it is one
 /// people stop opening.
@@ -23,10 +43,17 @@ class Note {
   final DateTime updatedAt;
   final bool pinned;
 
+  /// A line as it should read in a title or preview: the checkbox marker is
+  /// dropped, so a to-do list shows "Milk", not "[ ] Milk".
+  static String _display(String line) {
+    final m = _checkboxLine.firstMatch(line);
+    return (m == null ? line : m.group(3)!).trim();
+  }
+
   /// The first line with anything in it, which is what a note is called.
   String get title {
     for (final line in body.split('\n')) {
-      final t = line.trim();
+      final t = _display(line);
       if (t.isNotEmpty) return t.length > 80 ? '${t.substring(0, 80)}…' : t;
     }
     return '';
@@ -38,7 +65,7 @@ class Note {
     var seenTitle = false;
     final rest = <String>[];
     for (final line in lines) {
-      final t = line.trim();
+      final t = _display(line);
       if (!seenTitle) {
         if (t.isEmpty) continue;
         seenTitle = true;
@@ -48,6 +75,19 @@ class Note {
     }
     final joined = rest.join(' ');
     return joined.length > 140 ? '${joined.substring(0, 140)}…' : joined;
+  }
+
+  /// How many of this note's to-do lines are ticked. `total` is 0 when the
+  /// note isn't a checklist, which is how a row decides whether to show one.
+  Checklist get checklist {
+    var done = 0, total = 0;
+    for (final line in body.split('\n')) {
+      final m = _checkboxLine.firstMatch(line);
+      if (m == null) continue;
+      total++;
+      if (m.group(2)!.toLowerCase() == 'x') done++;
+    }
+    return Checklist(done, total);
   }
 
   /// Whether there is nothing here worth keeping. An empty note is not saved,
@@ -177,6 +217,17 @@ class NotesStore extends ChangeNotifier {
     await _persist();
   }
 
+  /// Puts a just-deleted note back exactly as it was — same id, same dates,
+  /// same pin. This is what Undo hangs on: deletion here is immediate and a
+  /// note has no other copy, so the one safety net is being able to take it
+  /// back. A no-op if the id is already present.
+  Future<void> restore(Note note) async {
+    if (byId(note.id) != null) return;
+    _notes = [note, ..._notes];
+    notifyListeners();
+    await _persist();
+  }
+
   /// Pins or unpins [id]. Returns whether it is now pinned.
   Future<bool> togglePin(String id) async {
     final note = byId(id);
@@ -212,6 +263,35 @@ class NotesStore extends ChangeNotifier {
     _notes = byIdMap.values.toList();
     notifyListeners();
     _persist();
+  }
+
+  /// Turns the line under [caret] into a to-do item, or ticks/unticks it if it
+  /// already is one — the single gesture behind the editor's checkbox button.
+  /// Returns the new text and where the caret should sit afterwards. Pure, so
+  /// it can be tested without a widget.
+  static (String, int) toggleCheckbox(String text, int caret) {
+    caret = caret.clamp(0, text.length);
+    final lineStart = caret == 0 ? 0 : text.lastIndexOf('\n', caret - 1) + 1;
+    var lineEnd = text.indexOf('\n', caret);
+    if (lineEnd < 0) lineEnd = text.length;
+    final line = text.substring(lineStart, lineEnd);
+
+    final box = _checkboxLine.firstMatch(line);
+    late final String newLine;
+    late final int caretDelta;
+    if (box == null) {
+      // Not a to-do yet — make it one, keeping any indentation. '[ ] ' is four
+      // characters, so the caret slides right to stay by the same word.
+      final m = RegExp(r'^(\s*)(.*)$').firstMatch(line)!;
+      newLine = '${m.group(1)}[ ] ${m.group(2)}';
+      caretDelta = 4;
+    } else {
+      final done = box.group(2)!.toLowerCase() == 'x';
+      newLine = '${box.group(1)}[${done ? ' ' : 'x'}] ${box.group(3)}';
+      caretDelta = 0; // same length, only the mark flips
+    }
+    final next = text.replaceRange(lineStart, lineEnd, newLine);
+    return (next, (caret + caretDelta).clamp(0, next.length));
   }
 
   static String newId() {

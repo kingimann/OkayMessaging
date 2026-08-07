@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../state/notes_store.dart';
 import '../theme/app_theme.dart';
@@ -34,8 +35,21 @@ class _NotesScreenState extends State<NotesScreen> {
   }
 
   Future<void> _open([Note? note]) async {
-    await Navigator.of(context).push(MaterialPageRoute(
+    // The editor returns the note it deleted, if it deleted one — either by the
+    // trash button or by being emptied on the way out. Deletion is immediate
+    // and a note has no other copy, so an Undo is the safety net.
+    final removed = await Navigator.of(context).push<Note?>(MaterialPageRoute(
         builder: (_) => NoteEditorScreen(noteId: note?.id)));
+    if (!mounted || removed == null) return;
+    ScaffoldMessenger.of(context)
+      ..clearSnackBars()
+      ..showSnackBar(SnackBar(
+        content: const Text('Note deleted'),
+        action: SnackBarAction(
+          label: 'Undo',
+          onPressed: () => NotesStore.instance.restore(removed),
+        ),
+      ));
   }
 
   @override
@@ -145,6 +159,7 @@ class _NoteRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final preview = note.preview;
+    final check = note.checklist;
     return ListTile(
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       title: Row(
@@ -166,6 +181,21 @@ class _NoteRow extends StatelessWidget {
         padding: const EdgeInsets.only(top: 3),
         child: Row(
           children: [
+            if (check.any) ...[
+              Icon(
+                  check.complete
+                      ? Icons.check_box
+                      : Icons.check_box_outlined,
+                  size: 14,
+                  color: check.complete
+                      ? AppColors.accentOn(context)
+                      : AppColors.subtle(context)),
+              const SizedBox(width: 3),
+              Text('${check.done}/${check.total}',
+                  style: TextStyle(
+                      fontSize: 12.5, color: AppColors.subtle(context))),
+              const SizedBox(width: 8),
+            ],
             Text(feedAge(note.updatedAt),
                 style:
                     TextStyle(fontSize: 12.5, color: AppColors.subtle(context))),
@@ -227,8 +257,31 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
 
   Future<void> _delete() async {
     final id = _id;
+    // Hand the whole note back so the list can offer Undo, then delete.
+    final removed = id == null ? null : NotesStore.instance.byId(id);
     if (id != null) await NotesStore.instance.delete(id);
-    if (mounted) Navigator.of(context).pop();
+    if (mounted) Navigator.of(context).pop(removed);
+  }
+
+  /// Turns the caret's line into a checklist item, or ticks it off if it
+  /// already is one — one button that first makes a to-do, then checks it.
+  void _toggleCheckbox() {
+    final sel = _text.selection;
+    final caret = sel.isValid ? sel.baseOffset : _text.text.length;
+    final (next, pos) = NotesStore.toggleCheckbox(_text.text, caret);
+    _text.value = TextEditingValue(
+      text: next,
+      selection: TextSelection.collapsed(offset: pos),
+    );
+  }
+
+  Future<void> _copy() async {
+    if (_text.text.trim().isEmpty) return;
+    await Clipboard.setData(ClipboardData(text: _text.text));
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Copied to clipboard')));
+    }
   }
 
   @override
@@ -241,8 +294,12 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
         final navigator = Navigator.of(context);
         // Saved on the way out. A note you have to remember to save is a note
         // you lose, and the back gesture is how people leave a screen.
+        final id = _id;
+        // Emptying an existing note deletes it; hand it back for Undo.
+        final emptied = _text.text.trim().isEmpty && id != null;
+        final removed = emptied ? NotesStore.instance.byId(id) : null;
         await _save();
-        navigator.pop();
+        navigator.pop(removed);
       },
       child: Scaffold(
         appBar: AppBar(
@@ -266,31 +323,100 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
           ],
         ),
         body: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-            child: TextField(
-              controller: _text,
-              autofocus: _id == null,
-              maxLines: null,
-              expands: true,
-              textAlignVertical: TextAlignVertical.top,
-              textCapitalization: TextCapitalization.sentences,
-              style: const TextStyle(fontSize: 16.5, height: 1.45),
-              // No box, for the same reason the composer has none: a bordered
-              // rectangle filling a screen that is nothing else reads as a
-              // form rather than as a page to write on.
-              decoration: const InputDecoration(
-                hintText: 'Write something…',
-                filled: false,
-                border: InputBorder.none,
-                enabledBorder: InputBorder.none,
-                focusedBorder: InputBorder.none,
-                contentPadding: EdgeInsets.zero,
+          child: Column(
+            children: [
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                  child: TextField(
+                    controller: _text,
+                    autofocus: _id == null,
+                    maxLines: null,
+                    expands: true,
+                    textAlignVertical: TextAlignVertical.top,
+                    textCapitalization: TextCapitalization.sentences,
+                    style: const TextStyle(fontSize: 16.5, height: 1.45),
+                    // No box, for the same reason the composer has none: a
+                    // bordered rectangle filling a screen that is nothing else
+                    // reads as a form rather than as a page to write on.
+                    decoration: const InputDecoration(
+                      hintText: 'Write something…',
+                      filled: false,
+                      border: InputBorder.none,
+                      enabledBorder: InputBorder.none,
+                      focusedBorder: InputBorder.none,
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  ),
+                ),
               ),
-            ),
+              _EditorToolbar(
+                text: _text,
+                onCheckbox: _toggleCheckbox,
+                onCopy: _copy,
+              ),
+            ],
           ),
         ),
       ),
+    );
+  }
+}
+
+/// A thin strip under the writing area: turn a line into a checklist item (and
+/// tick it), copy the whole note, and a quiet live word count. It rides the
+/// bottom of the field rather than the app bar so the two writing actions sit
+/// where the thumb already is.
+class _EditorToolbar extends StatelessWidget {
+  const _EditorToolbar(
+      {required this.text, required this.onCheckbox, required this.onCopy});
+
+  final TextEditingController text;
+  final VoidCallback onCheckbox;
+  final VoidCallback onCopy;
+
+  static int _words(String s) {
+    final t = s.trim();
+    return t.isEmpty ? 0 : t.split(RegExp(r'\s+')).length;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final subtle = AppColors.subtle(context);
+    return AnimatedBuilder(
+      animation: text,
+      builder: (context, _) {
+        final words = _words(text.text);
+        return Container(
+          decoration: BoxDecoration(
+            border: Border(
+                top: BorderSide(color: Theme.of(context).dividerColor)),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 4),
+          child: Row(
+            children: [
+              IconButton(
+                icon: const Icon(Icons.check_box_outlined),
+                tooltip: 'Checklist item',
+                onPressed: onCheckbox,
+              ),
+              IconButton(
+                icon: const Icon(Icons.copy_outlined),
+                tooltip: 'Copy note',
+                onPressed: text.text.trim().isEmpty ? null : onCopy,
+              ),
+              const Spacer(),
+              Padding(
+                padding: const EdgeInsets.only(right: 12),
+                child: Text(
+                  words == 1 ? '1 word' : '$words words',
+                  style: TextStyle(fontSize: 12.5, color: subtle),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }
