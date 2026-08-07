@@ -989,6 +989,22 @@ class ChatStore extends ChangeNotifier {
     _replace(i, _chats[i].copyWith(messages: msgs));
   }
 
+  /// Marks [payerPhone]'s share of the split bill [messageId] as paid — used
+  /// both when this device pays a share and when a remote 'billpaid' update
+  /// arrives, so every participant's card converges on who's settled up.
+  void markBillSharePaid(String chatId, String messageId, String payerPhone) {
+    final i = _indexOf(chatId);
+    if (i == -1) return;
+    var changed = false;
+    final msgs = _chats[i].messages.map((m) {
+      if (m.id != messageId || m.billSplit == null) return m;
+      changed = true;
+      return m.copyWith(billSplit: m.billSplit!.markPaid(payerPhone));
+    }).toList();
+    if (!changed) return;
+    _replace(i, _chats[i].copyWith(messages: msgs));
+  }
+
   /// Marks a "view once" message as opened, so it can't be viewed again.
   ///
   /// A received ghost TEXT loses its words here too, not only its

@@ -19,6 +19,7 @@ import '../data/mock_data.dart';
 import '../models/chat.dart';
 import '../models/message.dart';
 import '../models/user.dart';
+import '../widgets/bill_split_sheet.dart';
 import '../payments/payment_amount_sheet.dart';
 import '../payments/payment_service.dart';
 import '../state/payment_security_store.dart';
@@ -1357,6 +1358,10 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             m.isContact && !_selectionMode ? () => _openSharedContact(m) : null,
         onPollVote:
             m.isPoll && !_selectionMode ? (i) => _handleVotePoll(m, i) : null,
+        // Pay your share, when the bill has one for you that isn't paid yet.
+        onPayBillShare: m.isBillSplit && !_selectionMode && !m.isMe
+            ? () => _payBillShare(m)
+            : null,
         // The sender reads what came back; everybody else fills it in.
         onOpenForm: m.isForm && !_selectionMode
             ? () => m.isMe ? _openFormResponses(m) : _handleFillForm(m)
@@ -2905,6 +2910,104 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     ));
   }
 
+  /// Composes and sends a split bill. Participants are the chat's people — the
+  /// members of a group, or you and the friend in a 1:1 — with you as the
+  /// creator who fronted it.
+  Future<void> _handleSplitBill() async {
+    final me = AppState.profile.value;
+    final myDigits = me.phone.replaceAll(RegExp(r'\D'), '');
+    final participants = <BillParticipant>[
+      BillParticipant(name: 'You', phone: me.phone, isMe: true),
+    ];
+    if (widget.chat.contact.isGroup) {
+      final seen = {myDigits};
+      for (final member in widget.chat.members) {
+        final d = member.phone.replaceAll(RegExp(r'\D'), '');
+        if (d.isEmpty || !seen.add(d)) continue;
+        participants
+            .add(BillParticipant(name: member.name, phone: member.phone));
+      }
+    } else {
+      final c = widget.chat.contact;
+      participants.add(BillParticipant(name: c.name, phone: c.phone));
+    }
+    if (participants.length < 2) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('No one to split a bill with here yet.')));
+      return;
+    }
+    final bill = await showBillSplitSheet(
+      context,
+      participants: participants,
+      myPhone: me.phone,
+      currency: PaymentService.instance.sendCurrency.value,
+    );
+    if (bill == null || !mounted) return;
+    final now = DateTime.now();
+    _deliver(Message(
+      id: 'bill_${now.microsecondsSinceEpoch}',
+      text: '',
+      time: now,
+      isMe: true,
+      status: MessageStatus.sent,
+      billSplit: bill,
+    ));
+  }
+
+  /// Pays this device's share of the split bill on [message] to whoever
+  /// created it — the ordinary P2P send (so the trusted-place check still
+  /// applies), then marks the share paid and tells everyone.
+  Future<void> _payBillShare(Message message) async {
+    final bill = message.billSplit;
+    if (bill == null) return;
+    final myPhone = AppState.profile.value.phone;
+    final mine = bill.shareFor(myPhone);
+    if (mine == null || mine.paid || mine.cents <= 0) return;
+
+    // The creator is who collects. Name them from the group roster if we can,
+    // else from the bill itself.
+    final creatorPhone = bill.createdByPhone;
+    final creatorDigits = creatorPhone.replaceAll(RegExp(r'\D'), '');
+    AppUser? found;
+    for (final u in [widget.chat.contact, ...widget.chat.members]) {
+      if (u.phone.replaceAll(RegExp(r'\D'), '') == creatorDigits) {
+        found = u;
+        break;
+      }
+    }
+    final creatorName = found?.name ??
+        (bill.shares
+                .where((s) =>
+                    s.phone.replaceAll(RegExp(r'\D'), '') == creatorDigits)
+                .isNotEmpty
+            ? bill.shares
+                .firstWhere((s) =>
+                    s.phone.replaceAll(RegExp(r'\D'), '') == creatorDigits)
+                .name
+            : creatorPhone);
+    final recipient = found ??
+        AppUser(
+          id: creatorPhone,
+          name: creatorName,
+          avatarColor: Session.colorForPhone(creatorPhone),
+          phone: creatorPhone,
+        );
+
+    await _payRecipient(
+      recipient,
+      cents: mine.cents,
+      note: 'Split: ${bill.title}',
+      acknowledged: true,
+      onSettled: (status) {
+        if (status != 'paid') return;
+        _store.markBillSharePaid(_chatId, message.id, myPhone);
+        for (final phone in _relayPhones()) {
+          RelayService.instance.sendBillPaid(phone, message.id, myPhone);
+        }
+      },
+    );
+  }
+
   /// Puts a saved reply in the box — not into the chat.
   ///
   /// Inserted rather than sent, so a word can be changed first: a canned
@@ -3149,6 +3252,14 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               label: 'Request',
               color: const Color(0xFF5B6BF0),
               onTap: _requestMoney),
+        // Split a bill — a group OR a 1:1, but never your own notes (nobody
+        // to split with).
+        if (!_isNoteToSelf)
+          AttachmentOption(
+              icon: Icons.receipt_long_outlined,
+              label: 'Split bill',
+              color: const Color(0xFF0E9F6E),
+              onTap: _handleSplitBill),
         // A wordless "hey" — 1:1 only: poking a whole group is a fire
         // alarm, and there is nobody to poke in your own notes.
         if (!_isNoteToSelf && !widget.chat.contact.isGroup)

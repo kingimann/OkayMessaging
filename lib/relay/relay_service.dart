@@ -1,4 +1,5 @@
 import 'dart:async';
+import '../models/bill_split.dart';
 import '../models/form_spec.dart';
 import 'dart:convert';
 
@@ -265,6 +266,7 @@ class RelayService {
       'pollQuestion': message.pollQuestion,
       'pollOptions': message.pollOptions,
       'pollVotes': message.pollVotes,
+      if (message.billSplit != null) 'billSplit': message.billSplit!.toJson(),
       if (message.serverInvite.isNotEmpty) 'serverInvite': message.serverInvite,
       'expiresAt': message.expiresAt?.toIso8601String(),
     });
@@ -696,6 +698,10 @@ class RelayService {
                 ?.map((e) => (e as num).toInt())
                 .toList() ??
             const [],
+        billSplit: content['billSplit'] == null
+            ? null
+            : BillSplit.fromJson(
+                Map<String, dynamic>.from(content['billSplit'] as Map)),
         serverInvite: content['serverInvite'] as String? ?? '',
         expiresAt: content['expiresAt'] == null
             ? null
@@ -777,6 +783,11 @@ class RelayService {
           (payload['add'] as num?)?.toInt() ?? -1,
           (payload['remove'] as num?)?.toInt() ?? -1,
         );
+        return true;
+      case 'billpaid':
+        final payer = payload['payer'] as String?;
+        if (payer == null) return false;
+        target.markBillSharePaid(chat.id, id, payer);
         return true;
       case 'vopen':
         target.markViewOnceOpened(chat.id, id);
@@ -961,6 +972,7 @@ class RelayService {
             'delete' ||
             'reaction' ||
             'poll' ||
+            'billpaid' ||
             'payst' ||
             'form' ||
             'vopen':
@@ -1079,6 +1091,7 @@ class RelayService {
                   'delete' ||
                   'reaction' ||
                   'poll' ||
+                  'billpaid' ||
                   'payst' ||
                   'form' ||
                   'vopen':
@@ -1387,6 +1400,14 @@ class RelayService {
           callback: (rawEnvelope) {
             final payload = unwrapBroadcast(rawEnvelope);
             applyMessageEvent('poll', Map<String, dynamic>.from(payload),
+                myPhone: me);
+          },
+        )
+        .onBroadcast(
+          event: 'billpaid',
+          callback: (rawEnvelope) {
+            final payload = unwrapBroadcast(rawEnvelope);
+            applyMessageEvent('billpaid', Map<String, dynamic>.from(payload),
                 myPhone: me);
           },
         )
@@ -2990,6 +3011,20 @@ class RelayService {
       'id': messageId,
       'add': addOption,
       'remove': removeOption,
+    });
+  }
+
+  /// Tells [contactPhone] that [payerPhone] has paid their share of the split
+  /// bill [messageId], so the bill card flips that person to paid everywhere.
+  Future<void> sendBillPaid(
+      String contactPhone, String messageId, String payerPhone) async {
+    if (!_initialized) return;
+    final me = Session.instance.user.value;
+    if (me == null) return;
+    await _sendInboxEvent(contactPhone, 'billpaid', {
+      'from': me.phone,
+      'id': messageId,
+      'payer': payerPhone,
     });
   }
 

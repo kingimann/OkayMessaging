@@ -130,6 +130,7 @@ import 'package:okay_messaging/widgets/parental_gate.dart';
 import 'package:okay_messaging/widgets/sticker_sheet.dart';
 import 'package:okay_messaging/widgets/osm_map.dart';
 import 'package:okay_messaging/screens/score_screen.dart';
+import 'package:okay_messaging/models/bill_split.dart';
 import 'package:okay_messaging/models/chat.dart';
 import 'package:okay_messaging/state/call_log.dart';
 import 'package:okay_messaging/crypto/double_ratchet.dart';
@@ -33465,6 +33466,123 @@ void main() {
       }
     });
   });
+  group('Split a bill', () {
+    test('an equal split hands out every cent, none lost or invented', () {
+      // $10.00 three ways is 3.34 / 3.33 / 3.33 — the extra cent goes to the
+      // first, and the parts sum to exactly the total.
+      final parts = BillSplit.equalCents(1000, 3);
+      expect(parts, [334, 333, 333]);
+      expect(parts.fold(0, (a, b) => a + b), 1000);
+      // A clean division stays clean.
+      expect(BillSplit.equalCents(1200, 4), [300, 300, 300, 300]);
+      expect(BillSplit.equalCents(0, 3), [0, 0, 0]);
+      expect(BillSplit.equalCents(500, 0), isEmpty);
+    });
+
+    test('the bill tracks who owes, who has paid, and when it is settled', () {
+      const bill = BillSplit(
+        title: 'Dinner',
+        totalCents: 3000,
+        createdByPhone: '+1 555 0100',
+        shares: [
+          BillShare(name: 'You', phone: '+1 555 0100', cents: 1000, paid: true),
+          BillShare(name: 'Bob', phone: '+1 555 0200', cents: 1000),
+          BillShare(name: 'Cara', phone: '+1 555 0300', cents: 1000),
+        ],
+      );
+      // The creator's own share never counts as owed or collected.
+      expect(bill.outstandingCents, 2000);
+      expect(bill.collectedCents, 0);
+      expect(bill.settled, isFalse);
+
+      final afterBob = bill.markPaid('+15550200');
+      expect(afterBob.collectedCents, 1000);
+      expect(afterBob.outstandingCents, 1000);
+      expect(afterBob.settled, isFalse);
+
+      final afterAll = afterBob.markPaid('+1 555 0300');
+      expect(afterAll.settled, isTrue);
+      expect(afterAll.outstandingCents, 0);
+
+      // Round-trips through JSON unchanged.
+      final again = BillSplit.fromJson(afterAll.toJson());
+      expect(again.collectedCents, 2000);
+      expect(again.shareFor('+15550300')!.paid, isTrue);
+    });
+
+    test('a bill rides on a message through toJson/fromJson', () {
+      final msg = Message(
+        id: 'bill_1',
+        text: '',
+        time: DateTime(2026, 1, 1),
+        isMe: true,
+        billSplit: const BillSplit(
+          title: 'Taxi',
+          totalCents: 1600,
+          createdByPhone: '+1 555 0100',
+          shares: [
+            BillShare(name: 'You', phone: '+1 555 0100', cents: 800, paid: true),
+            BillShare(name: 'Bob', phone: '+1 555 0200', cents: 800),
+          ],
+        ),
+      );
+      final back = Message.fromJson(msg.toJson());
+      expect(back.isBillSplit, isTrue);
+      expect(back.billSplit!.title, 'Taxi');
+      expect(back.billSplit!.shareFor('+15550200')!.cents, 800);
+    });
+
+    test('a paid update marks the right share, locally and over the relay', () {
+      final store = ChatStore.instance;
+      store.hydrate(const {'chats': []});
+      addTearDown(() => store.hydrate(const {'chats': []}));
+      store.upsert(Chat(
+        id: 'chat_bob',
+        contact: const AppUser(
+            id: '+15550200', name: 'Bob', avatarColor: '#111', phone: '+15550200'),
+        messages: [
+          Message(
+            id: 'bill_x',
+            text: '',
+            time: DateTime(2026, 1, 1),
+            isMe: true,
+            billSplit: const BillSplit(
+              title: 'Lunch',
+              totalCents: 2000,
+              createdByPhone: '+15550100',
+              shares: [
+                BillShare(
+                    name: 'You', phone: '+15550100', cents: 1000, paid: true),
+                BillShare(name: 'Bob', phone: '+15550200', cents: 1000),
+              ],
+            ),
+          ),
+        ],
+      ));
+
+      // A remote 'billpaid' event from Bob flips his share to paid.
+      RelayService.applyMessageEvent(
+        'billpaid',
+        {'from': '+15550200', 'id': 'bill_x', 'payer': '+15550200'},
+        myPhone: '+15550100',
+        store: store,
+      );
+      final bill =
+          store.chatById('chat_bob')!.messages.first.billSplit!;
+      expect(bill.shareFor('+15550200')!.paid, isTrue);
+      expect(bill.settled, isTrue);
+    });
+
+    test('nothing about a split bill reaches a server in the clear', () {
+      // Bill splits collect who owes whom — worth protecting — so like forms
+      // and polls the whole thing rides the E2E message, never a table.
+      final text = File('lib/models/bill_split.dart').readAsStringSync();
+      expect(text.contains('supabase'), isFalse);
+      expect(text.contains('http'), isFalse);
+      expect(text.contains('functions.invoke'), isFalse);
+    });
+  });
+
   group('quick replies', () {
     setUp(() {
       QuickReplies.instance.resetForTest();
@@ -35868,7 +35986,7 @@ void main() {
         'msg', 'receipt', 'edit', 'delete', 'reaction', 'poll', 'payst',
         'form', 'vopen', 'gupd', 'callmiss', 'call', 'skdm', 'skreq',
         'fbreq', 'key', 'typing', 'presence', 'shot', 'cap', 'gshot', //
-        'status',
+        'status', 'billpaid',
       ]) {
         expect(dispatcher.contains("'$event'"), isTrue,
             reason: 'sealed $event would be silently dropped');

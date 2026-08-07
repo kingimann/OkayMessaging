@@ -23,6 +23,7 @@ import 'app_dialogs.dart';
 import 'chat_photo.dart';
 import 'message_status_icon.dart';
 import 'osm_map.dart';
+import 'bill_split_card.dart';
 import 'poll_widgets.dart';
 import 'rich_message_text.dart';
 import 'sticker_sheet.dart';
@@ -65,6 +66,10 @@ class MessageBubble extends StatelessWidget {
   /// Tapping an incoming poke pokes back. Null on your own pokes.
   final VoidCallback? onPokeBack;
 
+  /// Pays this device's share of a split bill. Null when there's nothing to
+  /// pay (you're the creator, or already settled).
+  final VoidCallback? onPayBillShare;
+
   const MessageBubble({
     super.key,
     required this.message,
@@ -80,6 +85,7 @@ class MessageBubble extends StatelessWidget {
     this.onOpenForm,
     this.onCallBack,
     this.onPokeBack,
+    this.onPayBillShare,
   });
 
   @override
@@ -339,7 +345,13 @@ class MessageBubble extends StatelessWidget {
                           ],
                         ),
                       ),
-                    if (message.isForm)
+                    if (message.isBillSplit)
+                      BillSplitCard(
+                        message: message,
+                        myPhone: AppState.profile.value.phone,
+                        onPayShare: onPayBillShare,
+                      )
+                    else if (message.isForm)
                       _FormContent(
                         message: message,
                         textColor: textColor,

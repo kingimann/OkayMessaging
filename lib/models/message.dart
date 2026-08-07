@@ -1,3 +1,4 @@
+import 'bill_split.dart';
 import 'form_spec.dart';
 /// Delivery state of an outgoing message, mirroring WhatsApp's tick system.
 enum MessageStatus { sending, sent, delivered, read }
@@ -232,6 +233,12 @@ class Message {
   final List<int> pollVotes;
   final int pollMyVote;
 
+  /// A split bill: the whole thing (title, total, each person's share and
+  /// whether they've paid) rides on the message like a poll's votes, so it is
+  /// E2E encrypted and lives only on the devices in the chat — never a server
+  /// row. Null for every other message.
+  final BillSplit? billSplit;
+
   const Message({
     required this.id,
     required this.text,
@@ -287,6 +294,7 @@ class Message {
     this.pollOptions = const [],
     this.pollVotes = const [],
     this.pollMyVote = -1,
+    this.billSplit,
     this.isPoke = false,
     this.callEvent = '',
     this.callVideo = false,
@@ -301,6 +309,9 @@ class Message {
 
   /// Total votes cast across all poll options.
   int get pollTotalVotes => pollVotes.fold(0, (n, v) => n + v);
+
+  /// Whether this message carries a split bill.
+  bool get isBillSplit => billSplit != null;
 
   Map<String, dynamic> toJson() => {
         'id': id,
@@ -357,6 +368,7 @@ class Message {
         'pollOptions': pollOptions,
         'pollVotes': pollVotes,
         'pollMyVote': pollMyVote,
+        if (billSplit != null) 'billSplit': billSplit!.toJson(),
         if (isPoke) 'isPoke': true,
         'callEvent': callEvent,
         'callVideo': callVideo,
@@ -433,6 +445,10 @@ class Message {
                 .toList() ??
             const [],
         pollMyVote: json['pollMyVote'] as int? ?? -1,
+        billSplit: json['billSplit'] == null
+            ? null
+            : BillSplit.fromJson(
+                Map<String, dynamic>.from(json['billSplit'] as Map)),
         isPoke: json['isPoke'] as bool? ?? false,
         callEvent: json['callEvent'] as String? ?? '',
         callVideo: json['callVideo'] as bool? ?? false,
@@ -456,6 +472,7 @@ class Message {
     List<int>? pollVotes,
     int? pollMyVote,
     String? paymentStatus,
+    BillSplit? billSplit,
   }) {
     return Message(
       id: id,
@@ -512,6 +529,7 @@ class Message {
       pollOptions: pollOptions,
       pollVotes: pollVotes ?? this.pollVotes,
       pollMyVote: pollMyVote ?? this.pollMyVote,
+      billSplit: billSplit ?? this.billSplit,
       isPoke: isPoke,
       callEvent: callEvent,
       callVideo: callVideo,
