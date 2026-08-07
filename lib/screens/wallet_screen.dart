@@ -7,6 +7,7 @@ import '../widgets/phone_gate.dart';
 import '../payments/payment_service.dart';
 import '../payments/stripe_sheet.dart';
 import '../payments/storage_economics.dart';
+import '../state/crash_reporter.dart';
 import 'add_debit_card_screen.dart';
 import 'change_bank_screen.dart';
 import 'payment_controls_screen.dart';
@@ -211,6 +212,14 @@ class _WalletScreenState extends State<WalletScreen> {
   /// be read. When a top-up fails at the card step the exact reason is the
   /// whole game, so it stays on screen with a Copy button until dismissed.
   void _showTopUpError(String message) {
+    // Also ship the reason to crash_reports: the sheet failure is CAUGHT, so
+    // it never reaches the auto-reporter, and the exact flutter_stripe error
+    // is otherwise only readable off the device. Reporting it makes the cause
+    // diagnosable server-side. No message content or identity — just the
+    // payment error text.
+    CrashReporter.instance.report(
+        'topup failed: $message', StackTrace.current,
+        context: 'topup');
     showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
