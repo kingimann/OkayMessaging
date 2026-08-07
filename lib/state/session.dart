@@ -141,6 +141,7 @@ class Session {
       verified: prior?.verified ?? false,
       score: prior?.score ?? 0,
       emoji: prior?.emoji ?? '',
+      avatarSeed: prior?.avatarSeed ?? '',
       pronouns: prior?.pronouns ?? '',
       link: prior?.link ?? '',
       avatarColor2: prior?.avatarColor2 ?? '',
@@ -269,6 +270,7 @@ class Session {
     String? username,
     String? avatarColor,
     String? emoji,
+    String? avatarSeed,
     String? pronouns,
     String? link,
     String? avatarColor2,
@@ -310,6 +312,7 @@ class Session {
       verified: current.verified,
       score: current.score,
       emoji: emoji ?? current.emoji,
+      avatarSeed: avatarSeed ?? current.avatarSeed,
       pronouns: pronouns ?? current.pronouns,
       link: link ?? current.link,
       avatarColor2: avatarColor2 ?? current.avatarColor2,
@@ -349,6 +352,7 @@ class Session {
       // Everything else rides along untouched — this rebuild used to drop
       // emoji, pronouns and link on the floor whenever the badge changed.
       emoji: current.emoji,
+      avatarSeed: current.avatarSeed,
       pronouns: current.pronouns,
       link: current.link,
       avatarColor2: current.avatarColor2,

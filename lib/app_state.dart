@@ -259,6 +259,7 @@ class AppState {
     String? username,
     String? avatarColor,
     String? emoji,
+    String? avatarSeed,
     String? pronouns,
     String? link,
     String? avatarColor2,
@@ -284,6 +285,7 @@ class AppState {
       verified: p.verified,
       score: p.score,
       emoji: emoji ?? p.emoji,
+      avatarSeed: avatarSeed ?? p.avatarSeed,
       pronouns: pronouns ?? p.pronouns,
       link: link ?? p.link,
       avatarColor2: avatarColor2 ?? p.avatarColor2,
@@ -318,6 +320,7 @@ class AppState {
       // Everything else rides along untouched — the same rebuild in Session
       // dropped these once already (and this copy still did until now).
       emoji: p.emoji,
+      avatarSeed: p.avatarSeed,
       pronouns: p.pronouns,
       link: p.link,
       avatarColor2: p.avatarColor2,

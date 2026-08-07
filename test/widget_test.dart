@@ -142,6 +142,7 @@ import 'package:okay_messaging/screens/security_code_screen.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:okay_messaging/models/community.dart';
 import 'package:okay_messaging/models/message.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:okay_messaging/models/user.dart';
 import 'package:okay_messaging/relay/relay_service.dart';
 import 'package:okay_messaging/state/account_service.dart';
@@ -4339,11 +4340,11 @@ void main() {
     await tester.tap(find.byType(CircleAvatar).first);
     await tester.pumpAndSettle();
 
-    // Colour and emoji now live behind the avatar's "Change look" sheet.
+    // The avatar chooser and colours live behind the "Change look" sheet.
     await tester.tap(find.text('Change look'));
     await tester.pumpAndSettle();
-    expect(find.text('AVATAR COLOR'), findsOneWidget);
-    expect(find.text('AVATAR EMOJI'), findsOneWidget);
+    expect(find.text('CHOOSE AN AVATAR'), findsOneWidget);
+    expect(find.text('BACKGROUND COLOR'), findsOneWidget);
     await tester.tapAt(const Offset(400, 60)); // dismiss the sheet
     await tester.pumpAndSettle();
     expect(find.text('Username'), findsOneWidget);
@@ -9672,18 +9673,52 @@ void main() {
       expect(p.businessCategory, 'Retail');
     });
 
-    testWidgets('the avatar editor offers ready-made presets and a big emoji '
-        'set', (tester) async {
+    testWidgets('the avatar editor offers a gallery of illustrated avatars',
+        (tester) async {
       addTearDown(AppState.resetForTest);
       await tester.pumpWidget(const MaterialApp(home: EditProfileScreen()));
       await tester.pumpAndSettle();
       // Open the avatar look sheet by tapping the avatar.
       await tester.tap(find.byType(UserAvatar).first);
       await tester.pumpAndSettle();
-      expect(find.text('READY-MADE AVATARS'), findsOneWidget);
-      // The expanded emoji set includes characters the old 24 never had.
-      expect(find.text('🦖'), findsOneWidget);
-      expect(find.text('🦉'), findsOneWidget);
+      expect(find.text('CHOOSE AN AVATAR'), findsOneWidget);
+      expect(find.text('Shuffle'), findsOneWidget);
+      // The gallery renders generated (SVG) avatar characters to pick from.
+      expect(find.byType(SvgPicture), findsWidgets);
+    });
+
+    test('an avatar seed rides the profile through JSON', () {
+      const u = AppUser(
+          id: 'x',
+          name: 'Ada',
+          avatarColor: '#123456',
+          avatarSeed: 'okay-2-7');
+      final back = AppUser.fromJson(u.toJson());
+      expect(back.avatarSeed, 'okay-2-7');
+    });
+
+    testWidgets('UserAvatar draws the illustrated avatar only when a seed is set',
+        (tester) async {
+      await tester.pumpWidget(const MaterialApp(
+          home: Scaffold(
+              body: UserAvatar(
+                  user: AppUser(
+                      id: 'x',
+                      name: 'Ada',
+                      avatarColor: '#123456',
+                      avatarSeed: 'okay-1-3')))));
+      await tester.pumpAndSettle();
+      expect(find.byType(SvgPicture), findsOneWidget);
+
+      await tester.pumpWidget(const MaterialApp(
+          home: Scaffold(
+              body: UserAvatar(
+                  user: AppUser(
+                      id: 'x', name: 'Ada', avatarColor: '#123456')))));
+      await tester.pumpAndSettle();
+      // No seed → the old coloured-initials avatar, no SVG.
+      expect(find.byType(SvgPicture), findsNothing);
+      expect(find.text('A'), findsOneWidget);
     });
 
     testWidgets('the storefront glyph rides the name, beside the check',

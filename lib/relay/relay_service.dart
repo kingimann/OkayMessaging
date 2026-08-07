@@ -178,6 +178,7 @@ class RelayService {
     String fromSubscriptionTiers = '',
     String fromAbout = '',
     String fromEmoji = '',
+    String fromAvatarSeed = '',
     String fromPronouns = '',
     String fromLink = '',
     bool fromVerified = false,
@@ -218,6 +219,7 @@ class RelayService {
       'fromSubscriptionTiers': fromSubscriptionTiers,
       'fromAbout': fromAbout,
       'fromEmoji': fromEmoji,
+      'fromAvatarSeed': fromAvatarSeed,
       'fromPronouns': fromPronouns,
       'fromLink': fromLink,
       'fromVerified': fromVerified,
@@ -531,6 +533,8 @@ class RelayService {
         (content['fromLocation'] as String?)?.trim() ?? '';
     final sharedAbout = (content['fromAbout'] as String?)?.trim() ?? '';
     final sharedEmoji = (content['fromEmoji'] as String?)?.trim() ?? '';
+    final sharedAvatarSeed =
+        (content['fromAvatarSeed'] as String?)?.trim() ?? '';
     final sharedPronouns = (content['fromPronouns'] as String?)?.trim() ?? '';
     final sharedLink = (content['fromLink'] as String?)?.trim() ?? '';
     final sharedVerified = content['fromVerified'] == true;
@@ -574,6 +578,7 @@ class RelayService {
         verified: sharedVerified,
         score: sharedScore,
         emoji: sharedEmoji,
+        avatarSeed: sharedAvatarSeed,
         pronouns: sharedPronouns,
         link: sharedLink,
         avatarColor2: sharedColor2,
@@ -616,6 +621,7 @@ class RelayService {
         verified: sharedVerified,
         score: sharedScore,
         emoji: sharedEmoji.isNotEmpty ? sharedEmoji : null,
+        avatarSeed: sharedAvatarSeed.isNotEmpty ? sharedAvatarSeed : null,
         pronouns: sharedPronouns.isNotEmpty ? sharedPronouns : null,
         link: sharedLink.isNotEmpty ? sharedLink : null,
         avatarColor2: sharedColor2.isNotEmpty ? sharedColor2 : null,
@@ -3299,6 +3305,7 @@ class RelayService {
       fromSubscriptionTiers: me.subscribable ? me.subscriptionTiersJson : '',
       fromAbout: about,
       fromEmoji: avatarColor.isEmpty ? '' : me.emoji,
+      fromAvatarSeed: avatarColor.isEmpty ? '' : me.avatarSeed,
       fromPronouns: about.isEmpty ? '' : me.pronouns,
       fromLink: about.isEmpty ? '' : me.link,
       fromVerified: me.verified,

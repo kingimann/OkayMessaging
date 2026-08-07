@@ -54,6 +54,11 @@ class AppUser {
   /// An optional emoji shown on the avatar instead of the initials.
   final String emoji;
 
+  /// An illustrated avatar's seed. When set, the avatar draws a generated
+  /// Multiavatar character (offline, deterministic from this string) instead
+  /// of a colour + initials/emoji. This is the "pick an avatar" choice.
+  final String avatarSeed;
+
   /// Optional pronouns shown under the name (e.g. "she/her").
   final String pronouns;
 
@@ -120,6 +125,7 @@ class AppUser {
     this.verified = false,
     this.score = 0,
     this.emoji = '',
+    this.avatarSeed = '',
     this.pronouns = '',
     this.link = '',
     this.avatarColor2 = '',
@@ -201,6 +207,7 @@ class AppUser {
         'verified': verified,
         'score': score,
         'emoji': emoji,
+        'avatarSeed': avatarSeed,
         'pronouns': pronouns,
         'link': link,
         'avatarColor2': avatarColor2,
@@ -227,6 +234,7 @@ class AppUser {
         verified: json['verified'] as bool? ?? false,
         score: (json['score'] as num?)?.toInt() ?? 0,
         emoji: json['emoji'] as String? ?? '',
+        avatarSeed: json['avatarSeed'] as String? ?? '',
         pronouns: json['pronouns'] as String? ?? '',
         link: json['link'] as String? ?? '',
         avatarColor2: json['avatarColor2'] as String? ?? '',

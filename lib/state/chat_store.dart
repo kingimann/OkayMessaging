@@ -483,6 +483,7 @@ class ChatStore extends ChangeNotifier {
       bool? verified,
       int? score,
       String? emoji,
+      String? avatarSeed,
       String? pronouns,
       String? link,
       String? avatarColor2,
@@ -508,6 +509,8 @@ class ChatStore extends ChangeNotifier {
     // shouldn't roll it back).
     final nextScore = (score != null && score > c.score) ? score : c.score;
     final nextEmoji = (emoji != null && emoji.isNotEmpty) ? emoji : c.emoji;
+    final nextAvatarSeed =
+        (avatarSeed != null && avatarSeed.isNotEmpty) ? avatarSeed : c.avatarSeed;
     final nextPronouns =
         (pronouns != null && pronouns.isNotEmpty) ? pronouns : c.pronouns;
     final nextLink = (link != null && link.isNotEmpty) ? link : c.link;
@@ -544,6 +547,7 @@ class ChatStore extends ChangeNotifier {
         nextVerified == c.verified &&
         nextScore == c.score &&
         nextEmoji == c.emoji &&
+        nextAvatarSeed == c.avatarSeed &&
         nextPronouns == c.pronouns &&
         nextLink == c.link &&
         nextColor2 == c.avatarColor2 &&
@@ -573,6 +577,7 @@ class ChatStore extends ChangeNotifier {
           verified: nextVerified,
           score: nextScore,
           emoji: nextEmoji,
+          avatarSeed: nextAvatarSeed,
           pronouns: nextPronouns,
           link: nextLink,
           avatarColor2: nextColor2,
@@ -646,6 +651,7 @@ class ChatStore extends ChangeNotifier {
           username: g.username,
           isGroup: true,
           emoji: g.emoji,
+          avatarSeed: g.avatarSeed,
         ),
         members: nextMembers,
       ),

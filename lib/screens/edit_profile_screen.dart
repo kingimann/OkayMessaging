@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:random_avatar/random_avatar.dart';
 
 import '../app_state.dart';
 import '../models/user.dart';
@@ -28,66 +29,15 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   late String _avatarColor2;
   late String _bannerColor;
   late String _emoji;
+  late String _avatarSeed;
+
+  /// Bumped by "Shuffle" to swap the shelf of avatar characters for a fresh
+  /// set — the seeds are deterministic per batch, so no randomness is needed.
+  int _avatarBatch = 0;
   late bool _isBusiness;
   late String _businessCategory;
   late bool _subscribable;
   late List<_TierDraft> _tiers;
-
-  /// The emojis offered for the avatar — a broad set so there's a face for
-  /// most moods and a character for most people, across faces, animals,
-  /// fantasy, food, hobbies and symbols.
-  static const _emojiChoices = [
-    // Faces & people
-    '😀', '😎', '🥳', '😇', '🤠', '🥸', '🤓', '😻',
-    '👻', '🤡', '🧑‍🚀', '🧑‍🎤', '🧑‍🍳', '🧙', '🦸', '🥷',
-    // Robots & aliens
-    '🤖', '👾', '👽', '🛸',
-    // Animals
-    '🐶', '🐱', '🦊', '🐼', '🐨', '🦁', '🐯', '🐸',
-    '🐵', '🐧', '🦉', '🦅', '🐢', '🐙', '🦖', '🦄',
-    '🐝', '🦋', '🐬', '🦈', '🐺', '🐻', '🐰', '🐮',
-    // Fantasy & nature
-    '🐉', '🌸', '🌺', '🌻', '🌵', '🍄', '🌙', '☀️',
-    '🌈', '🔥', '⚡', '❄️', '🌊', '⭐', '💫', '🌟',
-    // Hobbies & things
-    '🎧', '🎮', '🎸', '🎨', '📷', '⚽', '🏀', '🎯',
-    '🏄', '🚀', '🛹', '🎲', '♟️', '📚', '✈️', '🚗',
-    // Food & drink
-    '🍕', '🍔', '🌮', '🍣', '🍩', '🍦', '☕', '🍺',
-    // Hearts & symbols
-    '❤️', '🧡', '💛', '💚', '💙', '💜', '🖤', '🤍',
-    '✨', '💎', '👑', '🏆', '🎵', '💯', '🔮', '🕹️',
-  ];
-
-  /// One-tap ready-made avatars: a character emoji on a matching gradient, so
-  /// picking a whole distinct look is a single tap rather than choosing an
-  /// emoji and two colours by hand. (emoji, colour, second colour.)
-  static const _avatarPresets = <(String, String, String)>[
-    ('🦊', '#FF8A65', '#F4511E'),
-    ('🐼', '#90A4AE', '#455A64'),
-    ('🐸', '#81C784', '#2E7D32'),
-    ('🦄', '#BA68C8', '#EC407A'),
-    ('🐱', '#FFB74D', '#FB8C00'),
-    ('🐶', '#A1887F', '#6D4C41'),
-    ('🦁', '#FFD54F', '#F9A825'),
-    ('🐧', '#4FC3F7', '#1565C0'),
-    ('🤖', '#4DD0E1', '#00838F'),
-    ('👾', '#7E57C2', '#4527A0'),
-    ('🐨', '#B0BEC5', '#546E7A'),
-    ('🦖', '#66BB6A', '#2E7D32'),
-    ('🚀', '#5C6BC0', '#283593'),
-    ('🌈', '#F06292', '#4FC3F7'),
-    ('🔥', '#FF7043', '#C62828'),
-    ('⚡', '#FFCA28', '#F57F17'),
-    ('🌸', '#F48FB1', '#EC407A'),
-    ('🎧', '#26A69A', '#00695C'),
-    ('🎮', '#9575CD', '#5E35B1'),
-    ('🐙', '#7986CB', '#3949AB'),
-    ('🍕', '#FFA726', '#E65100'),
-    ('☕', '#8D6E63', '#4E342E'),
-    ('🦋', '#4DD0E1', '#5C6BC0'),
-    ('👑', '#FFD54F', '#FF8F00'),
-  ];
 
   /// Common status presets offered as one-tap chips.
   static const _statusPresets = [
@@ -116,6 +66,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     _avatarColor2 = p.avatarColor2;
     _bannerColor = p.bannerColor;
     _emoji = p.emoji;
+    _avatarSeed = p.avatarSeed;
     _isBusiness = p.isBusiness;
     _businessCategory = p.businessCategory;
     _subscribable = p.subscribable;
@@ -147,6 +98,16 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     super.dispose();
   }
 
+  /// The avatars shown on the chooser shelf: the current pick first (so it
+  /// stays selected), then a batch of fresh generated characters.
+  List<String> get _avatarSeedChoices {
+    final batch = [for (var i = 0; i < 18; i++) 'okay-$_avatarBatch-$i'];
+    if (_avatarSeed.isNotEmpty && !batch.contains(_avatarSeed)) {
+      return [_avatarSeed, ...batch];
+    }
+    return batch;
+  }
+
   /// A throwaway user built from the live form values, so the avatar preview
   /// updates as the name and color change.
   AppUser get _preview => AppUser(
@@ -157,6 +118,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         phone: AppState.profile.value.phone,
         username: _username.text,
         emoji: _emoji,
+        avatarSeed: _avatarSeed,
         pronouns: _pronouns.text,
         link: _link.text,
         avatarColor2: _avatarColor2,
@@ -194,6 +156,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         username: _username.text,
         avatarColor: _avatarColor,
         emoji: _emoji,
+        avatarSeed: _avatarSeed,
         pronouns: _pronouns.text,
         link: _link.text,
         avatarColor2: _avatarColor2,
@@ -214,6 +177,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         username: _username.text,
         avatarColor: _avatarColor,
         emoji: _emoji,
+        avatarSeed: _avatarSeed,
         pronouns: _pronouns.text,
         link: _link.text,
         avatarColor2: _avatarColor2,
@@ -615,23 +579,29 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
               children: [
                 Center(child: UserAvatar(user: _preview, radius: 40)),
                 const SizedBox(height: 14),
-                _sectionLabel(sheetContext, 'READY-MADE AVATARS'),
-                _AvatarPresetPicker(
-                  emoji: _emoji,
-                  color1: _avatarColor,
-                  color2: _avatarColor2,
-                  presets: _avatarPresets,
-                  onSelected: (emoji, c1, c2) {
+                _sectionLabel(sheetContext, 'CHOOSE AN AVATAR'),
+                _AvatarSeedPicker(
+                  selected: _avatarSeed,
+                  seeds: _avatarSeedChoices,
+                  onSelected: (seed) {
+                    // A chosen avatar takes over from the emoji.
                     setState(() {
-                      _emoji = emoji;
-                      _avatarColor = c1;
-                      _avatarColor2 = c2;
+                      _avatarSeed = seed;
+                      _emoji = '';
                     });
+                    setSheetState(() {});
+                  },
+                  onNone: () {
+                    setState(() => _avatarSeed = '');
+                    setSheetState(() {});
+                  },
+                  onShuffle: () {
+                    setState(() => _avatarBatch++);
                     setSheetState(() {});
                   },
                 ),
                 const SizedBox(height: 14),
-                _sectionLabel(sheetContext, 'AVATAR COLOR'),
+                _sectionLabel(sheetContext, 'BACKGROUND COLOR'),
                 _ColorPicker(
                   selected: _avatarColor,
                   onSelected: (hex) {
@@ -659,16 +629,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                     setSheetState(() {});
                   },
                 ),
-                const SizedBox(height: 14),
-                _sectionLabel(sheetContext, 'AVATAR EMOJI'),
-                _EmojiPicker(
-                  selected: _emoji,
-                  choices: _emojiChoices,
-                  onSelected: (e) {
-                    setState(() => _emoji = e);
-                    setSheetState(() {});
-                  },
-                ),
               ],
             ),
           ),
@@ -692,28 +652,34 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       );
 }
 
-/// A wrapping grid of emoji choices for the avatar, with a "none" option that
-/// falls back to the initials.
-class _EmojiPicker extends StatelessWidget {
+/// The avatar chooser: a wrapping grid of generated illustrated characters
+/// (Multiavatar, offline), a "none" cell that falls back to the coloured
+/// initials, and a Shuffle button for a fresh batch. Tapping one picks it.
+class _AvatarSeedPicker extends StatelessWidget {
   final String selected;
-  final List<String> choices;
+  final List<String> seeds;
   final ValueChanged<String> onSelected;
-  const _EmojiPicker({
+  final VoidCallback onNone;
+  final VoidCallback onShuffle;
+  const _AvatarSeedPicker({
     required this.selected,
-    required this.choices,
+    required this.seeds,
     required this.onSelected,
+    required this.onNone,
+    required this.onShuffle,
   });
 
   @override
   Widget build(BuildContext context) {
     final primary = Theme.of(context).colorScheme.primary;
-    Widget cell({required Widget child, required bool active, required VoidCallback onTap}) =>
+    Widget ring({required Widget child, required bool active, required VoidCallback onTap}) =>
         GestureDetector(
           onTap: onTap,
           child: Container(
-            width: 44,
-            height: 44,
+            width: 56,
+            height: 56,
             alignment: Alignment.center,
+            padding: const EdgeInsets.all(2),
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               color: Theme.of(context).colorScheme.surfaceContainerHighest,
@@ -722,78 +688,40 @@ class _EmojiPicker extends StatelessWidget {
             child: child,
           ),
         );
-    return Wrap(
-      spacing: 12,
-      runSpacing: 12,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        cell(
-          active: selected.isEmpty,
-          onTap: () => onSelected(''),
-          child: Icon(Icons.block, color: AppColors.subtle(context), size: 20),
-        ),
-        for (final e in choices)
-          cell(
-            active: e == selected,
-            onTap: () => onSelected(e),
-            child: Text(e, style: const TextStyle(fontSize: 22)),
-          ),
-      ],
-    );
-  }
-}
-
-/// A horizontal shelf of ready-made avatars — each a character emoji on its
-/// own gradient. One tap sets the emoji and both colours together, so a whole
-/// look is a single choice.
-class _AvatarPresetPicker extends StatelessWidget {
-  final String emoji;
-  final String color1;
-  final String color2;
-  final List<(String, String, String)> presets;
-  final void Function(String emoji, String c1, String c2) onSelected;
-  const _AvatarPresetPicker({
-    required this.emoji,
-    required this.color1,
-    required this.color2,
-    required this.presets,
-    required this.onSelected,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final primary = Theme.of(context).colorScheme.primary;
-    return SizedBox(
-      height: 64,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        itemCount: presets.length,
-        separatorBuilder: (_, __) => const SizedBox(width: 12),
-        itemBuilder: (context, i) {
-          final p = presets[i];
-          final active = p.$1 == emoji && p.$2 == color1 && p.$3 == color2;
-          return GestureDetector(
-            onTap: () => onSelected(p.$1, p.$2, p.$3),
-            child: Container(
-              padding: const EdgeInsets.all(2),
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                border:
-                    active ? Border.all(color: primary, width: 3) : null,
-              ),
-              child: UserAvatar(
-                user: AppUser(
-                  id: '',
-                  name: '',
-                  avatarColor: p.$2,
-                  avatarColor2: p.$3,
-                  emoji: p.$1,
-                ),
-                radius: 26,
-              ),
+        Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          children: [
+            ring(
+              active: selected.isEmpty,
+              onTap: onNone,
+              child:
+                  Icon(Icons.block, color: AppColors.subtle(context), size: 20),
             ),
-          );
-        },
-      ),
+            for (final seed in seeds)
+              ring(
+                active: seed == selected,
+                onTap: () => onSelected(seed),
+                child: ClipOval(
+                  child: SizedBox(
+                    width: 50,
+                    height: 50,
+                    child: RandomAvatar(seed, height: 50, width: 50),
+                  ),
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        TextButton.icon(
+          onPressed: onShuffle,
+          icon: const Icon(Icons.shuffle, size: 18),
+          label: const Text('Shuffle'),
+        ),
+      ],
     );
   }
 }

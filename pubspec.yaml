@@ -75,6 +75,8 @@ dependencies:
   flutter_contacts: ^2.3.0
   webview_flutter: ^4.14.1
   webview_flutter_wkwebview: ^3.26.0
+  random_avatar: ^0.0.8
+  flutter_svg: ^2.3.0
 
 dev_dependencies:
   flutter_test:

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:random_avatar/random_avatar.dart';
 
 import '../models/user.dart';
 
@@ -61,6 +62,20 @@ class UserAvatar extends StatelessWidget {
             ),
             child: content,
           );
+
+    // A chosen illustrated avatar wins over colour/initials — a generated
+    // Multiavatar character (offline, deterministic from the seed), clipped
+    // to the same circle every avatar uses so it drops in everywhere.
+    if (user.avatarSeed.isNotEmpty) {
+      core = ClipOval(
+        child: SizedBox(
+          width: radius * 2,
+          height: radius * 2,
+          child: RandomAvatar(user.avatarSeed,
+              height: radius * 2, width: radius * 2),
+        ),
+      );
+    }
 
     if (showPresence && user.isOnline) {
       final dot = radius * 0.42;
