@@ -174,6 +174,15 @@ class Message {
   final double? locationLng;
   final String? locationLabel;
 
+  /// True for a LIVE-location message — one that keeps updating while the
+  /// sender is sharing. [liveUntil] is when the share is scheduled to end;
+  /// [locationLat]/[locationLng] hold the latest position known when this was
+  /// built (the live pin itself is read from the live-location stores, which
+  /// stay fresh as positions arrive). A live message is also [isLocation], so
+  /// every "is this a place?" check already covers it.
+  final bool isLiveLocation;
+  final DateTime? liveUntil;
+
   /// True for a shared-contact card; [contactName]/[contactPhone] hold the
   /// shared person's details.
   final bool isContact;
@@ -276,6 +285,8 @@ class Message {
     this.locationLat,
     this.locationLng,
     this.locationLabel,
+    this.isLiveLocation = false,
+    this.liveUntil,
     this.isContact = false,
     this.contactName,
     this.contactPhone,
@@ -350,6 +361,8 @@ class Message {
         'locationLat': locationLat,
         'locationLng': locationLng,
         'locationLabel': locationLabel,
+        if (isLiveLocation) 'isLiveLocation': true,
+        if (liveUntil != null) 'liveUntil': liveUntil!.toIso8601String(),
         'isContact': isContact,
         'contactName': contactName,
         'contactPhone': contactPhone,
@@ -417,6 +430,10 @@ class Message {
         locationLat: (json['locationLat'] as num?)?.toDouble(),
         locationLng: (json['locationLng'] as num?)?.toDouble(),
         locationLabel: json['locationLabel'] as String?,
+        isLiveLocation: json['isLiveLocation'] as bool? ?? false,
+        liveUntil: json['liveUntil'] == null
+            ? null
+            : DateTime.tryParse(json['liveUntil'] as String),
         isContact: json['isContact'] as bool? ?? false,
         contactName: json['contactName'] as String?,
         contactPhone: json['contactPhone'] as String?,
@@ -512,6 +529,8 @@ class Message {
       locationLat: locationLat,
       locationLng: locationLng,
       locationLabel: locationLabel,
+      isLiveLocation: isLiveLocation,
+      liveUntil: liveUntil,
       isContact: isContact,
       contactName: contactName,
       contactPhone: contactPhone,

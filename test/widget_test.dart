@@ -227,6 +227,8 @@ import 'package:okay_messaging/screens/edit_group_screen.dart';
 import 'package:okay_messaging/screens/edit_profile_screen.dart';
 import 'package:okay_messaging/screens/group_info_screen.dart';
 import 'package:okay_messaging/state/live_location_store.dart';
+import 'package:okay_messaging/state/live_share_store.dart';
+import 'package:okay_messaging/state/live_share_broadcaster.dart';
 import 'package:okay_messaging/state/saved_places_store.dart';
 import 'package:okay_messaging/state/feed_store.dart';
 import 'package:okay_messaging/state/market_media.dart';
@@ -36172,6 +36174,142 @@ void main() {
           1,
           reason: 'a poke that can be spammed is a harassment button');
       expect(find.textContaining('give it'), findsOneWidget);
+    });
+  });
+
+  group('Live location', () {
+    setUp(() async {
+      SharedPreferences.setMockInitialValues({});
+      LiveShareStore.instance.resetForTest();
+      await LiveShareStore.instance.load();
+      LiveLocationStore.instance.resetForTest();
+      LiveShareBroadcaster.instance.resetForTest();
+    });
+    tearDown(() {
+      LiveShareStore.instance.resetForTest();
+      LiveShareBroadcaster.instance.resetForTest();
+      debugGeolocationOverride = null;
+    });
+
+    test('a live-location message round-trips, and the relay carries it', () {
+      final until = DateTime(2026, 1, 1, 12);
+      final m = Message(
+        id: 'l1',
+        text: '📍 Live location',
+        time: DateTime(2026, 1, 1, 11),
+        isMe: true,
+        status: MessageStatus.sent,
+        isLocation: true,
+        isLiveLocation: true,
+        liveUntil: until,
+        locationLat: 1.0,
+        locationLng: 2.0,
+      );
+      final back = Message.fromJson(m.toJson());
+      expect(back.isLiveLocation, isTrue);
+      expect(back.liveUntil, until);
+      expect(back.copyWith(protected: true).isLiveLocation, isTrue);
+      // The chat list names it.
+      final chat = Chat(
+          id: 'c',
+          contact: const AppUser(
+              id: 'x', name: 'X', avatarColor: '#111111', phone: 'x'),
+          messages: [m]);
+      expect(chat.preview, '📍 Live location');
+      // And it rides the sealed wire both directions.
+      final relay = File('lib/relay/relay_service.dart').readAsStringSync();
+      expect(relay,
+          contains("if (message.isLiveLocation) 'isLiveLocation': true"));
+      expect(
+          relay,
+          contains(
+              "isLiveLocation: content['isLiveLocation'] as bool? ?? false"));
+    });
+
+    test('LiveShareStore starts, persists, expires and stops', () async {
+      final store = LiveShareStore.instance;
+      final until = DateTime.now().add(const Duration(minutes: 15));
+      await store.start('chat_+15550170', '+15550170', until, 1.0, 2.0);
+      final d = LiveShareStore.digitsOf('+15550170');
+      expect(store.isSharingTo(d), isTrue);
+      expect(store.remaining(d) > Duration.zero, isTrue);
+
+      // Persisted: a one-hour share survives closing the app.
+      store.resetForTest();
+      await store.load();
+      expect(store.isSharingTo(d), isTrue);
+
+      // Expired shares are pruned.
+      final gone =
+          await store.pruneExpired(now: until.add(const Duration(minutes: 1)));
+      expect(gone, contains(d));
+      expect(store.isSharingTo(d), isFalse);
+
+      // Stop ends it outright.
+      await store.start('c', '+15550170',
+          DateTime.now().add(const Duration(minutes: 5)), 1.0, 2.0);
+      await store.stop(d);
+      expect(store.isSharingTo(d), isFalse);
+    });
+
+    test('the broadcaster pushes to active shares and skips expired', () async {
+      debugGeolocationOverride = () async => (lat: 40.0, lng: -73.0);
+      final sent = <String>[];
+      LiveShareBroadcaster.debugSendOverride =
+          (phone, lat, lng) => sent.add(phone);
+      final store = LiveShareStore.instance;
+      await store.start('c1', '+15550171',
+          DateTime.now().add(const Duration(minutes: 15)), 0, 0);
+      // Already past its window — the broadcaster prunes and skips it.
+      await store.start('c2', '+15550172',
+          DateTime.now().subtract(const Duration(minutes: 1)), 0, 0);
+
+      final n = await LiveShareBroadcaster.instance.broadcastOnce();
+      expect(n, 1);
+      expect(sent, ['+15550171']);
+      // The sender's own last-sent position is kept for its bubble map.
+      expect(store.shareFor(LiveShareStore.digitsOf('+15550171'))!.lat, 40.0);
+    });
+
+    testWidgets('a live bubble shows the countdown and stops on tap',
+        (tester) async {
+      final store = LiveShareStore.instance;
+      final until = DateTime.now().add(const Duration(minutes: 15));
+      await store.start('c', '+15550180', until, 40.0, -73.0);
+      var stopped = false;
+      final msg = Message(
+        id: 'lb',
+        text: '📍 Live location',
+        time: DateTime.now(),
+        isMe: true,
+        status: MessageStatus.sent,
+        isLocation: true,
+        isLiveLocation: true,
+        liveUntil: until,
+        locationLat: 40.0,
+        locationLng: -73.0,
+      );
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: MessageBubble(
+            message: msg,
+            peerDigits: LiveShareStore.digitsOf('+15550180'),
+            onStopLive: () => stopped = true,
+          ),
+        ),
+      ));
+      // FlutterMap tiles never settle, so pump fixed frames.
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(find.text('Sharing your live location'), findsOneWidget);
+      expect(find.textContaining('left'), findsWidgets);
+      await tester.tap(find.text('Stop sharing'));
+      await tester.pump();
+      expect(stopped, isTrue);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
     });
   });
 

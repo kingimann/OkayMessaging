@@ -255,6 +255,9 @@ class RelayService {
       'locationLat': message.locationLat,
       'locationLng': message.locationLng,
       'locationLabel': message.locationLabel,
+      if (message.isLiveLocation) 'isLiveLocation': true,
+      if (message.liveUntil != null)
+        'liveUntil': message.liveUntil!.toIso8601String(),
       'isContact': message.isContact,
       'contactName': message.contactName,
       'contactPhone': message.contactPhone,
@@ -687,6 +690,10 @@ class RelayService {
         locationLat: (content['locationLat'] as num?)?.toDouble(),
         locationLng: (content['locationLng'] as num?)?.toDouble(),
         locationLabel: content['locationLabel'] as String?,
+        isLiveLocation: content['isLiveLocation'] as bool? ?? false,
+        liveUntil: content['liveUntil'] == null
+            ? null
+            : DateTime.tryParse(content['liveUntil'] as String),
         isContact: content['isContact'] as bool? ?? false,
         contactName: content['contactName'] as String?,
         contactPhone: content['contactPhone'] as String?,

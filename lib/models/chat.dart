@@ -115,6 +115,7 @@ class Chat {
     if (m.isPoke) return '👉 Poke';
     if (m.isImage) return 'Photo';
     if (m.isVoice) return 'Voice message';
+    if (m.isLiveLocation) return '📍 Live location';
     if (m.isLocation) return 'Location';
     if (m.isContact) return 'Contact: ${m.contactName ?? ''}';
     return m.text;

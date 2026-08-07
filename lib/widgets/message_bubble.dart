@@ -14,6 +14,8 @@ import '../relay/relay_config.dart';
 import '../relay/relay_service.dart';
 import '../state/community_store.dart';
 import '../state/community_sub_store.dart';
+import '../state/live_location_store.dart';
+import '../state/live_share_store.dart';
 import '../state/voice_media.dart';
 import 'subscribe_sheet.dart' show tierForCents;
 import '../payments/payment_amount_sheet.dart';
@@ -70,6 +72,13 @@ class MessageBubble extends StatelessWidget {
   /// pay (you're the creator, or already settled).
   final VoidCallback? onPayBillShare;
 
+  /// The chat peer's phone digits, so a live-location bubble can read the live
+  /// pin (theirs from [LiveLocationStore], yours from [LiveShareStore]).
+  final String peerDigits;
+
+  /// Stops your own live share (shown on your live-location bubble).
+  final VoidCallback? onStopLive;
+
   const MessageBubble({
     super.key,
     required this.message,
@@ -86,6 +95,8 @@ class MessageBubble extends StatelessWidget {
     this.onCallBack,
     this.onPokeBack,
     this.onPayBillShare,
+    this.peerDigits = '',
+    this.onStopLive,
   });
 
   @override
@@ -373,6 +384,15 @@ class MessageBubble extends StatelessWidget {
                         audioKey: message.audioKey,
                         textColor: textColor,
                         metaColor: metaColor,
+                      )
+                    else if (message.isLiveLocation)
+                      _LiveLocationContent(
+                        message: message,
+                        peerDigits: peerDigits,
+                        textColor: textColor,
+                        metaColor: metaColor,
+                        onTap: onOpenLocation,
+                        onStop: onStopLive,
                       )
                     else if (message.isLocation)
                       _LocationContent(
@@ -959,6 +979,131 @@ class _LocationContent extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// A LIVE-location card: a map that stays fresh while the share is running,
+/// with the time left and — on your own share — a Stop button. The pin comes
+/// from the live stores (theirs as positions arrive, yours as they go out),
+/// so it moves without rebuilding the message.
+class _LiveLocationContent extends StatelessWidget {
+  final Message message;
+  final String peerDigits;
+  final Color textColor;
+  final Color metaColor;
+  final VoidCallback? onTap;
+  final VoidCallback? onStop;
+
+  const _LiveLocationContent({
+    required this.message,
+    required this.peerDigits,
+    required this.textColor,
+    required this.metaColor,
+    this.onTap,
+    this.onStop,
+  });
+
+  static String _left(Duration d) {
+    if (d <= Duration.zero) return '';
+    if (d.inHours >= 1) return '${d.inHours}h ${d.inMinutes % 60}m left';
+    if (d.inMinutes >= 1) return '${d.inMinutes}m left';
+    return 'less than a minute left';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: Listenable.merge(
+          [LiveLocationStore.instance, LiveShareStore.instance]),
+      builder: (context, _) {
+        final mine = message.isMe;
+        final now = DateTime.now();
+        var lat = message.locationLat ?? 0;
+        var lng = message.locationLng ?? 0;
+        bool active;
+        Duration remaining = Duration.zero;
+
+        if (mine) {
+          final share = LiveShareStore.instance.shareFor(peerDigits, now: now);
+          active = share != null;
+          if (share != null) {
+            lat = share.lat;
+            lng = share.lng;
+            remaining = LiveShareStore.instance.remaining(peerDigits, now: now);
+          }
+        } else {
+          final until = message.liveUntil;
+          active = until != null && now.isBefore(until);
+          final live = LiveLocationStore.instance.locationFor(peerDigits, now: now);
+          if (live != null) {
+            lat = live.lat;
+            lng = live.lng;
+          }
+          if (until != null && until.isAfter(now)) {
+            remaining = until.difference(now);
+          }
+        }
+
+        final title = active
+            ? (mine ? 'Sharing your live location' : 'Live location')
+            : 'Live location ended';
+
+        return GestureDetector(
+          onTap: onTap,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: MiniMapPreview(lat: lat, lng: lng),
+              ),
+              const SizedBox(height: 6),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (active) ...[
+                    Container(
+                      width: 8,
+                      height: 8,
+                      decoration: const BoxDecoration(
+                          color: Color(0xFF12B76A), shape: BoxShape.circle),
+                    ),
+                    const SizedBox(width: 6),
+                  ],
+                  Text(title,
+                      style: TextStyle(
+                          color: textColor,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 15)),
+                ],
+              ),
+              Text(
+                active
+                    ? (remaining > Duration.zero
+                        ? '${_left(remaining)}  ·  Open in Maps'
+                        : 'Open in Maps')
+                    : 'Open in Maps',
+                style: TextStyle(color: metaColor, fontSize: 12),
+              ),
+              if (mine && active && onStop != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 2),
+                  child: TextButton.icon(
+                    onPressed: onStop,
+                    icon: const Icon(Icons.stop_circle_outlined, size: 16),
+                    label: const Text('Stop sharing'),
+                    style: TextButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        foregroundColor: const Color(0xFFE5484D)),
+                  ),
+                ),
+            ],
+          ),
+        );
+      },
     );
   }
 }

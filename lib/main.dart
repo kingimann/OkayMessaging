@@ -60,6 +60,8 @@ import 'state/follow_store.dart';
 import 'state/legal_consent.dart';
 import 'state/legal_store.dart';
 import 'state/live_location_broadcaster.dart';
+import 'state/live_share_broadcaster.dart';
+import 'state/live_share_store.dart';
 import 'state/onboarding_store.dart';
 import 'state/persistence.dart';
 import 'state/recent_searches.dart';
@@ -213,7 +215,9 @@ Future<void> main() async {
   await _boot('status', StatusStore.instance.load);
   await _boot('favourites', FavouritesStore.instance.load);
   await _boot('onboarding', OnboardingStore.instance.load);
+  await _boot('live shares', LiveShareStore.instance.load);
   LiveLocationBroadcaster.instance.start();
+  LiveShareBroadcaster.instance.start();
   // Demo streaks make the feature visible against the sample chats — but only
   // ever in a debug build. In release the chats are somebody's real
   // conversations, and a fabricated "12 day streak" on one of them is invented

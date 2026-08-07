@@ -35,8 +35,12 @@ import '../widgets/app_dialogs.dart';
 import '../widgets/poll_widgets.dart';
 import '../relay/relay_service.dart';
 import '../state/chat_store.dart';
+import '../state/live_location_store.dart';
+import '../state/live_share_broadcaster.dart';
+import '../state/live_share_store.dart';
 import '../state/poke_sender.dart';
 import '../state/push_service.dart';
+import '../util/geolocation.dart';
 import '../state/file_transfer.dart';
 import '../state/scheduler.dart';
 import '../theme/app_theme.dart';
@@ -862,6 +866,88 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     ));
   }
 
+  /// Starts sharing your LIVE location with this contact: pick how long, then a
+  /// pin drops into the chat and keeps updating (the broadcaster fans your
+  /// position out until the window closes or you stop). Nothing is stored on a
+  /// server — positions ride the same ephemeral relay the Snap Map uses.
+  Future<void> _handleShareLive() async {
+    final duration = await showModalBottomSheet<Duration>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(20, 4, 20, 4),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text('Share live location',
+                    style:
+                        TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+              ),
+            ),
+            for (final d in LiveShareStore.options)
+              ListTile(
+                leading: const Icon(Icons.share_location),
+                title: Text(_liveDurationLabel(d)),
+                onTap: () => Navigator.of(sheetContext).pop(d),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (duration == null || !mounted) return;
+    if (!await _confirmRecipient() || !mounted) return;
+
+    final messenger = ScaffoldMessenger.of(context);
+    final pos = await getCurrentLatLng();
+    if (!mounted) return;
+    if (pos == null) {
+      messenger.showSnackBar(const SnackBar(
+          content: Text('Turn on location access to share live.')));
+      return;
+    }
+    final until = DateTime.now().add(duration);
+    await LiveShareStore.instance.start(
+        _chatId, widget.chat.contact.phone, until, pos.lat, pos.lng);
+    // Kick a first position out immediately, then the broadcaster keeps it live.
+    await LiveShareBroadcaster.instance.broadcastOnce();
+    if (!mounted) return;
+    final now = DateTime.now();
+    _deliver(Message(
+      id: 'live_${now.microsecondsSinceEpoch}',
+      text: '📍 Live location',
+      time: now,
+      isMe: true,
+      status: MessageStatus.sent,
+      isLocation: true,
+      isLiveLocation: true,
+      liveUntil: until,
+      locationLat: pos.lat,
+      locationLng: pos.lng,
+      locationLabel: 'Live location',
+    ));
+  }
+
+  String _liveDurationLabel(Duration d) {
+    if (d.inHours >= 1) {
+      final h = d.inHours;
+      return 'For $h hour${h == 1 ? '' : 's'}';
+    }
+    return 'For ${d.inMinutes} minutes';
+  }
+
+  /// Stops an active live share with this contact (from the message bubble).
+  Future<void> _stopLiveShare() async {
+    await LiveShareStore.instance
+        .stop(RelayService.digits(widget.chat.contact.phone));
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Stopped sharing your live location.')));
+    }
+  }
+
   /// Opens a picker of the people you chat with, and shares the chosen one as
   /// a contact card.
   void _pickContactToShare() {
@@ -950,11 +1036,28 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   /// Opens a shared-location message on a full-screen, interactive
   /// OpenStreetMap; from there the user can hand off to their maps app.
   void _openLocation(Message m) {
+    var lat = m.locationLat ?? 0;
+    var lng = m.locationLng ?? 0;
+    // For a live share, open on the LATEST position, not where it started: the
+    // incoming pin for their share, or our own last-sent pin for ours.
+    if (m.isLiveLocation) {
+      final digits = RelayService.digits(widget.chat.contact.phone);
+      final live = m.isMe
+          ? LiveShareStore.instance.shareFor(digits)
+          : LiveLocationStore.instance.locationFor(digits);
+      if (live is LiveLocation) {
+        lat = live.lat;
+        lng = live.lng;
+      } else if (live is LiveShare) {
+        lat = live.lat;
+        lng = live.lng;
+      }
+    }
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => LocationMapScreen(
-          lat: m.locationLat ?? 0,
-          lng: m.locationLng ?? 0,
+          lat: lat,
+          lng: lng,
           label: m.locationLabel ?? '',
         ),
       ),
@@ -1348,6 +1451,14 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             : () => _jumpToMessage(m.replyTo!.messageId!),
         onOpenLocation:
             m.isLocation && !_selectionMode ? () => _openLocation(m) : null,
+        // Live-location plumbing: the peer's digits let the bubble read the
+        // live pin, and Stop ends your own share.
+        peerDigits: widget.chat.contact.isGroup
+            ? ''
+            : RelayService.digits(widget.chat.contact.phone),
+        onStopLive: m.isLiveLocation && m.isMe && !_selectionMode
+            ? _stopLiveShare
+            : null,
         onOpenContact:
             m.isContact && !_selectionMode ? () => _openSharedContact(m) : null,
         onPollVote:
@@ -3224,6 +3335,16 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             label: 'Location',
             color: const Color(0xFF1FA855),
             onTap: _handleSendLocation),
+        // Live location — a real peer only: it needs someone to keep updating,
+        // and a group or your own notes has nobody to answer for.
+        if (!_isNoteToSelf &&
+            !widget.chat.contact.isGroup &&
+            _isRealPeer(widget.chat.contact))
+          AttachmentOption(
+              icon: Icons.share_location,
+              label: 'Live location',
+              color: const Color(0xFF12B76A),
+              onTap: _handleShareLive),
         AttachmentOption(
             icon: Icons.person,
             label: 'Contact',
