@@ -117,13 +117,70 @@ Deno.serve(async (req) => {
   const refusal = refusalFor(limits, chargeCents, spent);
   if (refusal) return json(refusal, 403);
 
+  const feeCents = chargeCents - addedCents;
+
+  // HOSTED CHECKOUT: the native in-app Payment Sheet (flutter_stripe) proved
+  // unable to present on some devices — it returned a silent cancel and no
+  // card was ever collected. Stripe's own hosted Checkout page, loaded in the
+  // app's WebView (the same surface Connect onboarding uses), sidesteps the
+  // native sheet entirely. Same destination charge, just collected on Stripe's
+  // page instead of in a native modal. The client asks for this with
+  // { hosted: true, returnUrl } and gets a URL to open.
+  if (body.hosted === true) {
+    const returnUrl = typeof body.returnUrl === "string" && body.returnUrl
+      ? body.returnUrl
+      : "https://stripe.com";
+    try {
+      const session = await stripe.checkout.sessions.create({
+        mode: "payment",
+        payment_method_types: ["card"],
+        line_items: [
+          {
+            price_data: {
+              currency,
+              product_data: { name: "Add to wallet" },
+              unit_amount: chargeCents,
+            },
+            quantity: 1,
+          },
+        ],
+        payment_intent_data: {
+          application_fee_amount: feeCents,
+          transfer_data: { destination: acct.stripe_account_id },
+          statement_descriptor_suffix:
+            (Deno.env.get("STATEMENT_DESCRIPTOR") ?? "OKAYMSG").slice(0, 22),
+          metadata: {
+            kind: "topup",
+            from_phone: phone,
+            to_phone: phone,
+            verified_name: identity.verified_name ?? "",
+          },
+        },
+        ...(body.receiptEmail ? { customer_email: body.receiptEmail } : {}),
+        // Checkout navigates to these when it finishes; the WebView catches
+        // the navigation and returns the user to the app.
+        success_url: `${returnUrl}?topup=ok`,
+        cancel_url: `${returnUrl}?topup=cancel`,
+      });
+      return json({
+        checkoutUrl: session.url,
+        sessionId: session.id,
+        chargeCents,
+        addedCents,
+        feeCents,
+        currency,
+      });
+    } catch (e) {
+      return json({ error: String((e as Error).message ?? e) }, 400);
+    }
+  }
+
   try {
     // application_fee_amount is what the platform KEEPS; the rest of the
     // charge transfers into the caller's balance. Set it to exactly the
     // grossed-up surplus so the balance receives what was typed. Stripe's
     // own processing fee comes out of the platform's cut, which grossUp
     // already sized to stay positive.
-    const feeCents = chargeCents - addedCents;
     // Card-only, deliberately NOT automatic_payment_methods. A top-up only
     // ever needs a card, and enabling Link (which automatic_payment_methods
     // turns on) makes the mobile Payment Sheet demand a return URL it hasn't
