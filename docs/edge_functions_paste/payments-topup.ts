@@ -357,15 +357,19 @@ Deno.serve(async (req) => {
     .maybeSingle();
   if (ban) return json({ error: "sender_banned" }, 403);
 
-  // The identity check that gates sending gates funding too: the card must
-  // have a name to check against, and funding a wallet with a stranger's
-  // card is exactly the money-laundering shape the check exists to refuse.
+  // The identity check that gates sending gates funding too — funding a wallet
+  // with a stranger's card is the money-laundering shape the check refuses. But
+  // for a TOP-UP, VERIFICATION is the bar, not a captured legal name: no name
+  // rides this charge (the card is KYC'd by Stripe at charge time), so requiring
+  // one only turned genuinely-verified accounts away when Stripe returned no
+  // name to store. A person-to-person SEND still needs the name — it travels on
+  // that intent — so this relaxation is top-up only.
   const { data: identity } = await admin
     .from("identity_verifications")
     .select("status, verified_name")
     .eq("phone", phone)
     .maybeSingle();
-  if (identity?.status !== "verified" || !identity.verified_name) {
+  if (identity?.status !== "verified") {
     return json({ error: "identity_required" }, 403);
   }
 
