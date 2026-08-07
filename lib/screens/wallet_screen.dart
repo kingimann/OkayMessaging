@@ -187,9 +187,15 @@ class _WalletScreenState extends State<WalletScreen> {
         final url =
             await PaymentService.instance.topUpCheckoutUrl(amountCents: cents);
         if (!mounted) return;
-        final done = await Navigator.of(context).push<bool>(MaterialPageRoute(
-          builder: (_) => _TopUpCheckoutScreen(url: url),
-        ));
+        // Inline: the card form slides up over the wallet as a tall sheet
+        // rather than pushing a separate full screen — it stays in context.
+        final done = await showModalBottomSheet<bool>(
+          context: context,
+          isScrollControlled: true,
+          showDragHandle: true,
+          useSafeArea: true,
+          builder: (_) => _TopUpCheckoutSheet(url: url),
+        );
         if (!mounted) return;
         _refresh();
         if (done == true) {
@@ -1054,39 +1060,65 @@ class _TestModeTile extends StatelessWidget {
   }
 }
 
-/// Stripe's hosted checkout page for a top-up, inside the app's own WebView —
-/// no browser, no popup, the same surface Connect onboarding uses. The native
-/// Payment Sheet couldn't present on some devices; this always shows a card
-/// form. Pops `true` the moment the page navigates to the return URL (the
-/// payment finished), which the WebView catches and reports as 'submitted'.
-class _TopUpCheckoutScreen extends StatelessWidget {
+/// Stripe's hosted checkout page for a top-up, shown INLINE as a tall sheet
+/// over the wallet — inside the app's own WebView, no browser, no popup, the
+/// same surface Connect onboarding uses. The native Payment Sheet couldn't
+/// present on some devices; this always shows a card form. Pops `true` the
+/// moment the page navigates to the return URL (the payment finished), which
+/// the WebView catches and reports as 'submitted'.
+class _TopUpCheckoutSheet extends StatelessWidget {
   final String url;
-  const _TopUpCheckoutScreen({required this.url});
+  const _TopUpCheckoutSheet({required this.url});
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Scaffold(
-      appBar: AppBar(title: const Text('Add cash')),
-      body: SafeArea(
-        child: ConnectWebView.build(
-          url: url,
-          // A plain hosted page needs neither a client secret nor the embedded
-          // component's secret pump — it is ordinary navigation.
-          clientSecret: '',
-          publishableKey: PaymentService.publishableKey,
-          dark: isDark,
-          accent: AppColors.accentOn(context),
-          completionUrlPrefix: PaymentService.returnUrl,
-          onEvent: (event) {
-            // Checkout ends by navigating to the return URL (success or
-            // cancel); either way the person belongs back in the app, where
-            // the balance refresh tells the true story.
-            if (event == 'submitted' && context.mounted) {
-              Navigator.of(context).pop(true);
-            }
-          },
-        ),
+    // Nearly full height so the whole card form and its keyboard fit; the drag
+    // handle above (showDragHandle) is how it's dismissed.
+    return SizedBox(
+      height: MediaQuery.of(context).size.height * 0.92,
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+            child: Row(
+              children: [
+                const Text('Add cash',
+                    style:
+                        TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+                const Spacer(),
+                IconButton(
+                  icon: const Icon(Icons.close),
+                  tooltip: 'Close',
+                  onPressed: () => Navigator.of(context).pop(false),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: ClipRRect(
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(4)),
+              child: ConnectWebView.build(
+                url: url,
+                // A plain hosted page needs neither a client secret nor the
+                // embedded component's secret pump — it is ordinary navigation.
+                clientSecret: '',
+                publishableKey: PaymentService.publishableKey,
+                dark: isDark,
+                accent: AppColors.accentOn(context),
+                completionUrlPrefix: PaymentService.returnUrl,
+                onEvent: (event) {
+                  // Checkout ends by navigating to the return URL (success or
+                  // cancel); either way the person belongs back in the app,
+                  // where the balance refresh tells the true story.
+                  if (event == 'submitted' && context.mounted) {
+                    Navigator.of(context).pop(true);
+                  }
+                },
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
