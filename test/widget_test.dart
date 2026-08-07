@@ -11680,6 +11680,23 @@ void main() {
       expect(markOff('Latest'), greaterThan(width * 0.2));
     });
 
+    testWidgets('compose is top-right like the public newsfeed, no FAB',
+        (tester) async {
+      await tester.pumpWidget(const MaterialApp(
+        home: FeedScreen(communityId: 'c1', communityName: 'Okay HQ'),
+      ));
+      await tester.pumpAndSettle();
+      // Matches the public feed: the pencil moved out of a floating button and
+      // into the top-right of the app bar.
+      expect(find.byType(FloatingActionButton), findsNothing);
+      final compose = find.byTooltip('New post');
+      expect(compose, findsOneWidget);
+      expect(
+          tester.getCenter(compose).dx,
+          greaterThan(tester.getSize(find.byType(FeedScreen)).width / 2),
+          reason: 'compose sits on the right of the app bar');
+    });
+
     testWidgets('the composer gets the whole screen, not one squeezed line',
         (tester) async {
       // In a bottom sheet the field shared one row with an avatar, three icon

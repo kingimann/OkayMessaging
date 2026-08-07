@@ -525,14 +525,15 @@ class _FeedScreenState extends State<FeedScreen> {
                 },
               ),
             ),
+          // Compose lives top-right, exactly like the public newsfeed — which
+          // moved it out of a floating button so the bottom stays clear.
+          if (!_searching)
+            IconButton(
+              icon: const Icon(Icons.edit_outlined),
+              tooltip: 'New post',
+              onPressed: _openComposer,
+            ),
         ],
-      ),
-      // Writing a post is the same button in the same corner as the public
-      // timeline's, rather than a pencil hidden among the app bar's icons.
-      floatingActionButton: FloatingActionButton(
-        onPressed: _openComposer,
-        tooltip: 'New post',
-        child: const Icon(Icons.edit_outlined),
       ),
       body: ListenableBuilder(
         listenable: FeedStore.instance,
