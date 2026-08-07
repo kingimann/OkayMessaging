@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart' show Factory;
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
@@ -232,5 +234,15 @@ class _ConnectWebViewState extends State<_ConnectWebView> {
       "'";
 
   @override
-  Widget build(BuildContext context) => WebViewWidget(controller: _controller);
+  Widget build(BuildContext context) => WebViewWidget(
+        controller: _controller,
+        // Claim vertical drags for the page's own scrolling, so a tall Stripe
+        // form scrolls to its bottom (postal code, pay button) even when the
+        // WebView sits inside a sheet or other scrollable that would otherwise
+        // win the gesture.
+        gestureRecognizers: const {
+          Factory<VerticalDragGestureRecognizer>(
+              VerticalDragGestureRecognizer.new),
+        },
+      );
 }

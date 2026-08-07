@@ -192,7 +192,11 @@ class _WalletScreenState extends State<WalletScreen> {
         final done = await showModalBottomSheet<bool>(
           context: context,
           isScrollControlled: true,
-          showDragHandle: true,
+          // No drag-to-dismiss: at full height the sheet can only be dragged
+          // DOWN, so it swallowed the WebView's upward scroll and the card
+          // form couldn't reach its postal-code and pay button. The ✕ in the
+          // header closes it instead.
+          enableDrag: false,
           useSafeArea: true,
           builder: (_) => _TopUpCheckoutSheet(url: url),
         );
@@ -1073,8 +1077,9 @@ class _TopUpCheckoutSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    // Nearly full height so the whole card form and its keyboard fit; the drag
-    // handle above (showDragHandle) is how it's dismissed.
+    // Nearly full height so the whole card form and its keyboard fit; the ✕ in
+    // the header dismisses it (the sheet's own drag is off so the WebView can
+    // scroll to the bottom of the form).
     return SizedBox(
       height: MediaQuery.of(context).size.height * 0.92,
       child: Column(

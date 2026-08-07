@@ -28425,6 +28425,42 @@ void main() {
           reason: 'the restored chat must survive the reset that precedes it');
     });
 
+    test('Okay Score survives a sign-out and an account switch', () async {
+      // Reported reset-on-sign-out: the score screen reads ScoreStore, which
+      // is account-scoped. Signing out and back into the SAME account must
+      // keep it, and a different account must start clean and not carry it.
+      SharedPreferences.setMockInitialValues({});
+      // Reset first so load() re-acquires the freshly-mocked prefs instead of
+      // a snapshot an earlier test cached (a test-only quirk of
+      // setMockInitialValues; production has one stable prefs instance).
+      ScoreStore.instance.resetForTest();
+      await ScoreStore.instance.load();
+      addTearDown(() {
+        ScoreStore.instance.resetForTest();
+        Session.instance.resetForTest();
+      });
+
+      await Session.instance.signIn(phone: '+1 555 0100', name: 'A');
+      ScoreStore.instance.award(50);
+      expect(ScoreStore.instance.points, 50);
+
+      // Sign out and back into the SAME account — the score stays.
+      await Session.instance.signOut();
+      await Session.instance.signIn(phone: '+1 555 0100', name: 'A');
+      expect(ScoreStore.instance.points, 50,
+          reason: 'the same account keeps its Okay Score across a sign-out');
+
+      // A different account starts at zero…
+      await Session.instance.signIn(phone: '+1 555 0200', name: 'B');
+      expect(ScoreStore.instance.points, 0,
+          reason: "a different account must not inherit A's score");
+
+      // …and returning to A brings A's score back.
+      await Session.instance.signIn(phone: '+1 555 0100', name: 'A');
+      expect(ScoreStore.instance.points, 50,
+          reason: "A's score returns on sign-back-in");
+    });
+
     test('every store that persists is cleared from the live slot on switch',
         () {
       // The switch is a keep-list, and this pins the other half: a store added
