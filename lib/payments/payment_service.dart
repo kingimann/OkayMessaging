@@ -771,11 +771,18 @@ class PaymentService {
     });
     lastPaymentIntentId = intent['paymentIntentId'] as String? ?? '';
     await StripeSheet.init(_publishableKey);
-    return StripeSheet.presentPayment(
+    final ok = await StripeSheet.presentPayment(
       clientSecret: intent['clientSecret'] as String,
       merchantName: 'OkayMessenger',
       // No stripeAccountId: a destination charge lives on the platform.
     );
+    // A real Stripe failure (a decline, a connected account that can't yet
+    // receive) carries a reason — surface it instead of a blank "didn't go
+    // through". A plain user cancel leaves lastError null and returns false.
+    if (!ok && StripeSheet.lastError != null) {
+      throw PaymentException(StripeSheet.lastError!);
+    }
+    return ok;
   }
 
   // Cloud storage and developer tips are digital goods and bill through the

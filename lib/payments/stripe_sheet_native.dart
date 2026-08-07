@@ -8,6 +8,11 @@ class StripeSheet {
       defaultTargetPlatform == TargetPlatform.android ||
       defaultTargetPlatform == TargetPlatform.iOS;
 
+  /// The reason the last [presentPayment] failed, or null when it succeeded or
+  /// the user simply cancelled. Read right after a false return to tell the
+  /// person WHY a charge failed instead of a blank "it didn't go through".
+  static String? lastError;
+
   /// Apple Pay merchant id, e.g. `merchant.com.okaymessaging`. Created in the
   /// Apple developer portal (Identifiers → Merchant IDs) and enabled on the
   /// App ID's Apple Pay capability.
@@ -85,8 +90,14 @@ class StripeSheet {
     );
     try {
       await stripe.Stripe.instance.presentPaymentSheet();
+      lastError = null;
       return true;
-    } on stripe.StripeException {
+    } on stripe.StripeException catch (e) {
+      // A user cancel is a quiet "nothing happened"; anything else is a real
+      // failure whose reason the caller can show instead of a blank "failed".
+      lastError = e.error.code == stripe.FailureCode.Canceled
+          ? null
+          : (e.error.localizedMessage ?? e.error.message);
       return false;
     }
   }

@@ -3,6 +3,9 @@
 class StripeSheet {
   static bool get isSupported => false;
 
+  /// Mirrors the native field so callers compile against either backend.
+  static String? lastError;
+
   static const String appleMerchantId = '';
   static const String merchantCountry = 'CA';
 

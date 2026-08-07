@@ -18906,6 +18906,37 @@ void main() {
           ['e', 'f']);
     });
 
+    test('a tapped transaction explains where its money is', () {
+      PaymentRecord rec({required String status, String kind = 'transfer'}) =>
+          PaymentRecord(
+              id: 'x',
+              sent: true,
+              otherPhone: '1555',
+              amountCents: 100,
+              feeCents: 0,
+              currency: 'CAD',
+              status: status,
+              kind: kind);
+      // A failed top-up says WHY, not just "failed".
+      expect(paymentExplanation(rec(status: 'requires_payment_method')),
+          contains('didn\'t go through'));
+      expect(paymentExplanation(rec(status: 'canceled')),
+          contains('canceled'));
+      expect(paymentExplanation(rec(status: 'pending')),
+          contains('settle'));
+      expect(
+          paymentExplanation(
+              rec(status: 'paid', kind: 'payout')),
+          contains('Paid out'));
+      expect(paymentExplanation(rec(status: 'succeeded')),
+          contains('Sent'));
+      // The rows are tappable and the sheet lays out its fields.
+      final src =
+          File('lib/screens/payment_history_screen.dart').readAsStringSync();
+      expect(src, contains('onTap: () => _showDetail'));
+      expect(src, contains("_detailRow(context, 'Reference', t.id)"));
+    });
+
     test('a payout row reads as a cash out, not a person', () {
       final p = PaymentRecord.fromJson(const {
         'id': 'po_1',

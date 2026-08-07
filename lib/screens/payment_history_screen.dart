@@ -15,6 +15,28 @@ const List<(String, String)> paymentHistoryFilters = [
   ('canceled', 'Canceled'),
 ];
 
+/// One line of plain English about where a payment's money is — the thing a
+/// tapped "Failed" row most wants to explain. Pure, so a test can pin each
+/// state's wording without pumping the screen.
+String paymentExplanation(PaymentRecord t) {
+  if (t.isBlocked) return t.blockedReason;
+  if (t.status == 'canceled') {
+    return 'This payment was canceled — no money moved.';
+  }
+  if (t.isCanceled || (!t.isComplete && !t.isPending)) {
+    return 'This payment didn\'t go through — nothing was charged. If it was '
+        'a top-up, the card may have been declined or your payout account '
+        'isn\'t ready to receive yet.';
+  }
+  if (t.isPending) {
+    return t.status == 'in_transit'
+        ? 'On its way to the destination.'
+        : 'Waiting to settle — this can take a moment.';
+  }
+  if (t.isPayout) return 'Paid out to your bank or card.';
+  return t.sent ? 'Sent successfully.' : 'Received.';
+}
+
 /// Applies one filter key to the records. Pure, so a test can hold each
 /// lens to a known list without pumping the screen.
 List<PaymentRecord> filterPaymentRecords(
@@ -127,57 +149,62 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
         ],
       );
 
+  /// Colour, icon and short label for a record's state — shared by the row and
+  /// the detail sheet so they never drift.
+  ({Color colour, IconData icon, String label}) _statusMeta(PaymentRecord t) {
+    final sent = t.sent;
+    if (t.isBlocked) {
+      return (colour: Colors.orange.shade700, icon: Icons.block, label: t.blockedReason);
+    } else if (t.isCanceled) {
+      return (
+        colour: Colors.red.shade400,
+        icon: Icons.close,
+        label: t.status == 'canceled' ? 'Canceled' : 'Failed'
+      );
+    } else if (t.isPending) {
+      return (
+        colour: Colors.grey,
+        icon: Icons.schedule,
+        label: t.status == 'in_transit' ? 'On its way' : 'Pending'
+      );
+    } else if (!t.isComplete) {
+      return (colour: Colors.red.shade400, icon: Icons.close, label: 'Failed');
+    } else if (t.isPayout) {
+      return (colour: const Color(0xFF2E90FA), icon: Icons.account_balance, label: 'Paid out');
+    } else if (t.isSpark) {
+      return (
+        colour: const Color(0xFFF7931A),
+        icon: Icons.bolt,
+        label: sent ? 'Sparked' : 'Spark received'
+      );
+    }
+    return (
+      colour: sent ? Colors.red.shade400 : const Color(0xFF12B76A),
+      icon: sent ? Icons.arrow_upward : Icons.arrow_downward,
+      label: sent ? 'Sent' : 'Received'
+    );
+  }
+
+  String _title(PaymentRecord t) => t.isPayout
+      ? 'Cash out (${t.method == 'instant' ? 'instant' : 'standard'})'
+      : formatPhoneForDisplay(t.otherPhone);
+
   Widget _row(BuildContext context, PaymentRecord t) {
     final sent = t.sent;
     final amount = '\$${(t.amountCents / 100).toStringAsFixed(2)}';
-    final Color colour;
-    final IconData icon;
-    final String label;
-    if (t.isBlocked) {
-      colour = Colors.orange.shade700;
-      icon = Icons.block;
-      label = t.blockedReason;
-    } else if (t.isCanceled) {
-      colour = Colors.red.shade400;
-      icon = Icons.close;
-      label = t.status == 'canceled' ? 'Canceled' : 'Failed';
-    } else if (t.isPending) {
-      colour = Colors.grey;
-      icon = Icons.schedule;
-      label = t.status == 'in_transit' ? 'On its way' : 'Pending';
-    } else if (!t.isComplete) {
-      colour = Colors.red.shade400;
-      icon = Icons.close;
-      label = 'Failed';
-    } else if (t.isPayout) {
-      colour = const Color(0xFF2E90FA);
-      icon = Icons.account_balance;
-      label = 'Paid out';
-    } else if (t.isSpark) {
-      colour = const Color(0xFFF7931A);
-      icon = Icons.bolt;
-      label = sent ? 'Sparked' : 'Spark received';
-    } else {
-      colour = sent ? Colors.red.shade400 : const Color(0xFF12B76A);
-      icon = sent ? Icons.arrow_upward : Icons.arrow_downward;
-      label = sent ? 'Sent' : 'Received';
-    }
-    // A payout's counterparty is this account's own bank or card — there is
-    // no other phone to name.
-    final title = t.isPayout
-        ? 'Cash out (${t.method == 'instant' ? 'instant' : 'standard'})'
-        : formatPhoneForDisplay(t.otherPhone);
+    final meta = _statusMeta(t);
     final note = t.isSpark || t.isPayout ? '' : t.note.trim();
     return ListTile(
+      onTap: () => _showDetail(context, t),
       leading: CircleAvatar(
-        backgroundColor: colour.withValues(alpha: 0.15),
-        child: Icon(icon, color: colour, size: 20),
+        backgroundColor: meta.colour.withValues(alpha: 0.15),
+        child: Icon(meta.icon, color: meta.colour, size: 20),
       ),
-      title: Text(title),
+      title: Text(_title(t)),
       subtitle: Text(
         [
           if (note.isNotEmpty) note,
-          t.at == null ? label : '$label · ${_when(t.at!)}',
+          t.at == null ? meta.label : '${meta.label} · ${_when(t.at!)}',
         ].join('\n'),
         style: TextStyle(fontSize: 12.5, color: AppColors.subtle(context)),
       ),
@@ -187,10 +214,108 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
         '${t.isComplete && sent ? '−' : ''}$amount',
         style: TextStyle(
           fontWeight: FontWeight.w700,
-          color: t.isComplete ? colour : Colors.grey,
+          color: t.isComplete ? meta.colour : Colors.grey,
         ),
       ),
     );
+  }
+
+  void _showDetail(BuildContext context, PaymentRecord t) {
+    final meta = _statusMeta(t);
+    final amount = '\$${(t.amountCents / 100).toStringAsFixed(2)}';
+    final kind = t.isPayout
+        ? 'Cash out'
+        : t.isSpark
+            ? 'Spark'
+            : 'Transfer';
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  CircleAvatar(
+                    backgroundColor: meta.colour.withValues(alpha: 0.15),
+                    child: Icon(meta.icon, color: meta.colour),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '${t.isComplete && t.sent ? '−' : ''}$amount',
+                          style: const TextStyle(
+                              fontSize: 24, fontWeight: FontWeight.w800),
+                        ),
+                        Text(meta.label,
+                            style: TextStyle(
+                                color: meta.colour,
+                                fontWeight: FontWeight.w600)),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              Text(paymentExplanation(t),
+                  style: TextStyle(
+                      color: AppColors.subtle(context), height: 1.4)),
+              const SizedBox(height: 16),
+              const Divider(height: 1),
+              _detailRow(context, t.isPayout ? 'Destination' : 'With',
+                  _title(t)),
+              _detailRow(context, 'Type', kind),
+              if (t.isPayout && t.method.isNotEmpty)
+                _detailRow(context, 'Method',
+                    t.method == 'instant' ? 'Instant' : 'Standard'),
+              _detailRow(context, 'Direction', t.sent ? 'Outgoing' : 'Incoming'),
+              if (t.feeCents > 0)
+                _detailRow(context, 'Fee',
+                    '\$${(t.feeCents / 100).toStringAsFixed(2)}'),
+              if (t.at != null)
+                _detailRow(context, 'When', _fullWhen(t.at!)),
+              if (t.note.trim().isNotEmpty && !t.isSpark)
+                _detailRow(context, 'Note', t.note.trim()),
+              _detailRow(context, 'Reference', t.id),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _detailRow(BuildContext context, String label, String value) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: 96,
+              child: Text(label,
+                  style: TextStyle(color: AppColors.subtle(context))),
+            ),
+            Expanded(
+              child: Text(value,
+                  style: const TextStyle(fontWeight: FontWeight.w600)),
+            ),
+          ],
+        ),
+      );
+
+  String _fullWhen(DateTime at) {
+    final l = at.toLocal();
+    final h = l.hour % 12 == 0 ? 12 : l.hour % 12;
+    final ampm = l.hour < 12 ? 'AM' : 'PM';
+    return '${l.year}-${l.month.toString().padLeft(2, '0')}-'
+        '${l.day.toString().padLeft(2, '0')} '
+        '$h:${l.minute.toString().padLeft(2, '0')} $ampm';
   }
 
   String _when(DateTime at) {

@@ -280,7 +280,12 @@ class _WalletScreenState extends State<WalletScreen> {
       case 'sender_banned':
         return 'This account can\'t move money right now.';
       default:
-        return 'Couldn\'t add money right now ($code).';
+        // A Stripe failure comes through as a human sentence (a decline
+        // reason, an account that can't yet receive) — show it as-is rather
+        // than wrapping a whole sentence in "(...)". A short code stays parem.
+        return code.contains(' ')
+            ? code
+            : 'Couldn\'t add money right now ($code).';
     }
   }
 
