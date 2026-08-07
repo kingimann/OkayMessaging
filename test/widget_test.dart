@@ -18933,11 +18933,21 @@ void main() {
           contains('Paid out'));
       expect(paymentExplanation(rec(status: 'succeeded')),
           contains('Sent'));
-      // The rows are tappable and the sheet lays out its fields.
+      // The detail sheet's status line turns the raw code into plain words
+      // while still showing the code itself.
+      expect(paymentStatusDetail(rec(status: 'requires_payment_method')),
+          contains('Awaiting payment'));
+      expect(paymentStatusDetail(rec(status: 'requires_payment_method')),
+          contains('requires_payment_method'));
+      expect(paymentStatusDetail(rec(status: 'succeeded')),
+          contains('Completed'));
+      // The rows are tappable and the sheet lays out its fields, including the
+      // copyable reference.
       final src =
           File('lib/screens/payment_history_screen.dart').readAsStringSync();
       expect(src, contains('onTap: () => _showDetail'));
-      expect(src, contains("_detailRow(context, 'Reference', t.id)"));
+      expect(src, contains("_detailRow(context, 'Reference', t.id"));
+      expect(src, contains('Clipboard.setData'));
     });
 
     test('a payout row reads as a cash out, not a person', () {

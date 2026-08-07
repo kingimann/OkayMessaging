@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../theme/app_theme.dart';
 
 import '../payments/payment_service.dart';
@@ -35,6 +36,25 @@ String paymentExplanation(PaymentRecord t) {
   }
   if (t.isPayout) return 'Paid out to your bank or card.';
   return t.sent ? 'Sent successfully.' : 'Received.';
+}
+
+/// The raw processor status turned into a short, plain phrase — the "Status"
+/// line of the detail receipt. Pure, so a test can pin each one. Shows the
+/// raw code in parentheses so nothing is hidden from someone who needs it.
+String paymentStatusDetail(PaymentRecord t) {
+  final label = switch (t.status) {
+    'succeeded' || 'paid' => 'Completed',
+    'processing' => 'Processing',
+    'in_transit' => 'On its way',
+    'pending' => 'Pending',
+    'requires_payment_method' => 'Awaiting payment — no card completed',
+    'requires_confirmation' => 'Awaiting confirmation',
+    'requires_action' => 'Needs an extra step',
+    'requires_capture' => 'Authorized, not yet captured',
+    'canceled' => 'Canceled',
+    _ => t.isBlocked ? t.blockedReason : t.status,
+  };
+  return '$label  (${t.status})';
 }
 
 /// Applies one filter key to the records. Pure, so a test can hold each
@@ -268,7 +288,21 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
                   style: TextStyle(
                       color: AppColors.subtle(context), height: 1.4)),
               const SizedBox(height: 16),
+              // The money, broken down: when a fee rode on top, show what it
+              // was, and the total against the amount so the two aren't
+              // conflated. amountCents is the whole charge; the net is the
+              // rest after the fee.
+              if (t.feeCents > 0) ...[
+                const Divider(height: 1),
+                _detailRow(context, t.sent ? 'Amount' : 'Received',
+                    _money(t.amountCents - t.feeCents)),
+                _detailRow(context, 'Fee', _money(t.feeCents)),
+                _detailRow(context, t.sent ? 'Total charged' : 'Total',
+                    _money(t.amountCents),
+                    strong: true),
+              ],
               const Divider(height: 1),
+              _detailRow(context, 'Status', paymentStatusDetail(t)),
               _detailRow(context, t.isPayout ? 'Destination' : 'With',
                   _title(t)),
               _detailRow(context, 'Type', kind),
@@ -276,14 +310,22 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
                 _detailRow(context, 'Method',
                     t.method == 'instant' ? 'Instant' : 'Standard'),
               _detailRow(context, 'Direction', t.sent ? 'Outgoing' : 'Incoming'),
-              if (t.feeCents > 0)
-                _detailRow(context, 'Fee',
-                    '\$${(t.feeCents / 100).toStringAsFixed(2)}'),
+              _detailRow(context, 'Currency', t.currency.toUpperCase()),
               if (t.at != null)
-                _detailRow(context, 'When', _fullWhen(t.at!)),
+                _detailRow(context, 'When', '${_fullWhen(t.at!)}  ·  '
+                    '${_when(t.at!)}'),
               if (t.note.trim().isNotEmpty && !t.isSpark)
                 _detailRow(context, 'Note', t.note.trim()),
-              _detailRow(context, 'Reference', t.id),
+              // Tap the reference to copy it — the thing support asks for.
+              InkWell(
+                onTap: () {
+                  Clipboard.setData(ClipboardData(text: t.id));
+                  ScaffoldMessenger.of(sheetContext).showSnackBar(
+                      const SnackBar(content: Text('Reference copied')));
+                },
+                child: _detailRow(context, 'Reference', t.id,
+                    trailingIcon: Icons.copy, mono: true),
+              ),
             ],
           ),
         ),
@@ -291,7 +333,11 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
     );
   }
 
-  Widget _detailRow(BuildContext context, String label, String value) => Padding(
+  String _money(int cents) => '\$${(cents / 100).toStringAsFixed(2)}';
+
+  Widget _detailRow(BuildContext context, String label, String value,
+          {bool strong = false, IconData? trailingIcon, bool mono = false}) =>
+      Padding(
         padding: const EdgeInsets.symmetric(vertical: 10),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -303,8 +349,15 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
             ),
             Expanded(
               child: Text(value,
-                  style: const TextStyle(fontWeight: FontWeight.w600)),
+                  style: TextStyle(
+                    fontWeight: strong ? FontWeight.w800 : FontWeight.w600,
+                    fontFeatures:
+                        mono ? const [FontFeature.tabularFigures()] : null,
+                    fontSize: mono ? 12.5 : null,
+                  )),
             ),
+            if (trailingIcon != null)
+              Icon(trailingIcon, size: 16, color: AppColors.subtle(context)),
           ],
         ),
       );
