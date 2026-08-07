@@ -71,24 +71,32 @@ class StripeSheet {
     required String clientSecret,
     required String merchantName,
   }) async {
-    await stripe.Stripe.instance.initPaymentSheet(
-      paymentSheetParameters: stripe.SetupPaymentSheetParameters(
-        paymentIntentClientSecret: clientSecret,
-        merchantDisplayName: merchantName,
-        applePay: appleMerchantId.isEmpty
-            ? null
-            : const stripe.PaymentSheetApplePay(
-                merchantCountryCode: merchantCountry),
-        googlePay: const stripe.PaymentSheetGooglePay(
-          merchantCountryCode: merchantCountry,
-          // Release builds must reach Google Pay's real environment. Pinned
-          // to true, this would have shipped a live key aimed at the test
-          // wallet, where no real card can pay.
-          testEnv: kDebugMode,
-        ),
-      ),
-    );
+    // initPaymentSheet is INSIDE the try on purpose: it is where a setup or
+    // configuration fault throws (a payment method that needs a return URL,
+    // a key/account problem, an SDK-integration miss), and leaving it outside
+    // meant those errors escaped uncaptured — the sheet "just failed" with no
+    // reason to show. Both steps now feed the one lastError the caller reads.
     try {
+      await stripe.Stripe.instance.initPaymentSheet(
+        paymentSheetParameters: stripe.SetupPaymentSheetParameters(
+          paymentIntentClientSecret: clientSecret,
+          merchantDisplayName: merchantName,
+          // Only offer a wallet when its merchant id is actually configured;
+          // handing the sheet an empty/absent id makes init throw before it
+          // can render, which is the very failure this method reports.
+          applePay: appleMerchantId.isEmpty
+              ? null
+              : const stripe.PaymentSheetApplePay(
+                  merchantCountryCode: merchantCountry),
+          googlePay: const stripe.PaymentSheetGooglePay(
+            merchantCountryCode: merchantCountry,
+            // Release builds must reach Google Pay's real environment. Pinned
+            // to true, this would ship a live key aimed at the test wallet,
+            // where no real card can pay.
+            testEnv: kDebugMode,
+          ),
+        ),
+      );
       await stripe.Stripe.instance.presentPaymentSheet();
       lastError = null;
       return true;
@@ -98,6 +106,12 @@ class StripeSheet {
       lastError = e.error.code == stripe.FailureCode.Canceled
           ? null
           : (e.error.localizedMessage ?? e.error.message);
+      return false;
+    } catch (e) {
+      // A non-Stripe throw (a platform/setup exception) must not escape as an
+      // uncaught error the way it used to — capture it so the caller can say
+      // what happened rather than showing "couldn't reach the service".
+      lastError = e.toString();
       return false;
     }
   }
