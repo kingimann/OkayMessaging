@@ -373,9 +373,13 @@ class _CallLinkSheet extends StatelessWidget {
   }
 
   Future<void> _share(BuildContext context) async {
+    // iOS needs an anchor rect for the share sheet, or it can fail to present.
+    final box = context.findRenderObject() as RenderBox?;
     try {
       await Share.share('Join my call on OkayMessenger: $link',
-          subject: 'OkayMessenger call');
+          subject: 'OkayMessenger call',
+          sharePositionOrigin:
+              box != null ? box.localToGlobal(Offset.zero) & box.size : null);
     } catch (_) {
       // Web browsers without the Share API (and headless tests) fall back to
       // the clipboard so the button always does something useful.

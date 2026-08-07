@@ -43,13 +43,31 @@ class ReceiveMoneyScreen extends StatelessWidget {
   /// observable — same shape as the invite-share override.
   static void Function(String text)? debugShareOverride;
 
-  static void _share(String text) {
+  static Future<void> _share(BuildContext context, String text) async {
     final debug = debugShareOverride;
     if (debug != null) {
       debug(text);
       return;
     }
-    Share.share(text, subject: 'Pay me on OkayMessenger');
+    final messenger = ScaffoldMessenger.of(context);
+    // iOS needs an anchor rect for the share sheet's popover; without one the
+    // sheet can silently fail to present (the "Copy link" button, a plain
+    // clipboard write, never had that dependency). And if the sheet still
+    // won't open, fall back to copying so the button is never a dead end.
+    final box = context.findRenderObject() as RenderBox?;
+    try {
+      await Share.share(
+        text,
+        subject: 'Pay me on OkayMessenger',
+        sharePositionOrigin:
+            box != null ? box.localToGlobal(Offset.zero) & box.size : null,
+      );
+    } catch (_) {
+      await Clipboard.setData(ClipboardData(text: text));
+      messenger.showSnackBar(const SnackBar(
+          content:
+              Text('Couldn\'t open the share sheet — link copied instead.')));
+    }
   }
 
   @override
@@ -109,10 +127,12 @@ class ReceiveMoneyScreen extends StatelessWidget {
                       TextStyle(color: AppColors.subtle(context), height: 1.4),
                 ),
                 const SizedBox(height: 20),
-                FilledButton.icon(
-                  onPressed: () => _share(shareTextFor(me)),
-                  icon: const Icon(Icons.ios_share),
-                  label: const Text('Share pay link'),
+                Builder(
+                  builder: (context) => FilledButton.icon(
+                    onPressed: () => _share(context, shareTextFor(me)),
+                    icon: const Icon(Icons.ios_share),
+                    label: const Text('Share pay link'),
+                  ),
                 ),
                 const SizedBox(height: 10),
                 OutlinedButton.icon(

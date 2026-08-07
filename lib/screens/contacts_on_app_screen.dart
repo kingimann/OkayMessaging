@@ -294,7 +294,7 @@ class _ContactsOnAppScreenState extends State<ContactsOnAppScreen> {
     }
   }
 
-  void _invite() {
+  void _invite(BuildContext context) {
     // No link at all rather than a broken one: a build with no backend has no
     // page to point at, and "Join me: " trailing off is worse than a sentence
     // that simply ends.
@@ -307,7 +307,12 @@ class _ContactsOnAppScreenState extends State<ContactsOnAppScreen> {
       debug(text);
       return;
     }
-    Share.share(text, subject: 'Join me on OkayMessenger');
+    // iOS needs an anchor rect for the share sheet, or it can fail to present.
+    final box = context.findRenderObject() as RenderBox?;
+    Share.share(text,
+        subject: 'Join me on OkayMessenger',
+        sharePositionOrigin:
+            box != null ? box.localToGlobal(Offset.zero) & box.size : null);
   }
 
   Widget _message_(IconData icon, String title, String body,
@@ -334,7 +339,7 @@ class _ContactsOnAppScreenState extends State<ContactsOnAppScreen> {
             if (invite) ...[
               const SizedBox(height: 20),
               FilledButton.icon(
-                onPressed: _invite,
+                onPressed: () => _invite(context),
                 icon: const Icon(Icons.person_add_alt, size: 18),
                 label: const Text('Invite friends'),
               ),
