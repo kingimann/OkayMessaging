@@ -1391,19 +1391,22 @@ class _Header extends StatelessWidget {
                     onTap: followCounts == null
                         ? null
                         : () => _showFollowList(context, followers: true)),
+                // Your OWN following count comes from the local list, always —
+                // it is who you actually follow (and what the sidebar shows),
+                // where the server graph can lag a follow that hasn't synced.
+                // It used to prefer the server number once it answered, so the
+                // profile and the sidebar disagreed. Other people's profiles
+                // still use the server graph — the only thing that knows.
                 ProfileStat(
-                    value: followCounts != null
-                        ? '${followCounts!.$2}'
-                        : (isMe
-                            ? '${FollowStore.instance.followingCount}'
-                            : '—'),
+                    value: isMe
+                        ? '${FollowStore.instance.followingCount}'
+                        : (followCounts != null ? '${followCounts!.$2}' : '—'),
                     label: 'Following',
-                    onTap: followCounts != null
-                        ? () => _showFollowList(context, followers: false)
-                        : (isMe
-                            ? () => Navigator.of(context).push(
-                                MaterialPageRoute(
-                                    builder: (_) => const PeopleScreen()))
+                    onTap: isMe
+                        ? () => Navigator.of(context).push(MaterialPageRoute(
+                            builder: (_) => const PeopleScreen()))
+                        : (followCounts != null
+                            ? () => _showFollowList(context, followers: false)
                             : null)),
                 if (isMe)
                   ProfileStat(

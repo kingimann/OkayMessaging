@@ -16597,6 +16597,45 @@ void main() {
     });
   });
 
+  group('Profile follow counts', () {
+    testWidgets(
+        'your own Following count matches the local list, not a stale server '
+        'number', (tester) async {
+      // Reported: the sidebar showed 2 following, the profile showed 1. The
+      // profile preferred the server graph once it answered, which lagged a
+      // follow that hadn't synced. Your own following count must come from
+      // the local list — the same source the sidebar uses.
+      SharedPreferences.setMockInitialValues({});
+      FollowStore.instance.resetForTest();
+      PublicFeedStore.debugFollowOverride = (u, f) async {}; // no network
+      addTearDown(() {
+        FollowStore.instance.resetForTest();
+        PublicFeedStore.debugFollowOverride = null;
+        PublicFeedStore.debugFollowCountsOverride = null;
+        Session.instance.resetForTest();
+      });
+      Session.instance.signInForTest(username: 'me');
+      FollowStore.instance.toggle('alice');
+      FollowStore.instance.toggle('bob');
+      expect(FollowStore.instance.followingCount, 2);
+      // The server graph only knows one of them (and 5 followers).
+      PublicFeedStore.debugFollowCountsOverride = (u) async => (5, 1);
+
+      await tester.pumpWidget(const MaterialApp(
+          home: Scaffold(
+              body: PublicProfileScreen(username: 'me', embedded: true))));
+      await tester.pumpAndSettle();
+
+      ProfileStat stat(String label) => tester
+          .widgetList<ProfileStat>(find.byType(ProfileStat))
+          .firstWhere((s) => s.label == label);
+      expect(stat('Following').value, '2',
+          reason: 'own profile follows the local list, like the sidebar');
+      // Followers can only come from the server — that one is unchanged.
+      expect(stat('Followers').value, '5');
+    });
+  });
+
   group('Pull to refresh', () {
     testWidgets('the Calls tab can be pulled down to refresh', (tester) async {
       await tester
