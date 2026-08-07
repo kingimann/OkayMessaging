@@ -40,6 +40,7 @@ import 'my_qr_screen.dart';
 import 'okay_pro_screen.dart';
 import 'permissions_screen.dart';
 import 'privacy_settings_screen.dart';
+import 'trusted_places_screen.dart';
 import 'transparency_screen.dart';
 import 'public_feed_screen.dart' show BookmarksScreen, MutedAccountsScreen;
 import 'profile_screen.dart';
@@ -106,6 +107,15 @@ class SettingsView extends StatelessWidget {
               onTap: () => Navigator.of(context).push(
                 MaterialPageRoute(
                     builder: (_) => const PrivacySettingsScreen()),
+              ),
+            ),
+            InfoTile(
+              leading: const Icon(Icons.pin_drop_outlined),
+              title: 'Payment security',
+              subtitle: 'Verify sends outside trusted places · trusted contacts',
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                    builder: (_) => const TrustedPlacesScreen()),
               ),
             ),
             InfoTile(

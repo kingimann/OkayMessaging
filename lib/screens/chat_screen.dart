@@ -21,6 +21,8 @@ import '../models/message.dart';
 import '../models/user.dart';
 import '../payments/payment_amount_sheet.dart';
 import '../payments/payment_service.dart';
+import '../state/payment_security_store.dart';
+import '../widgets/payment_step_up.dart';
 import '../payments/storage_economics.dart';
 import '../relay/relay_config.dart';
 import '../state/score_store.dart';
@@ -2560,6 +2562,25 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     final svc = PaymentService.instance;
     final messenger = ScaffoldMessenger.of(context);
     final phone = recipient.phone;
+
+    // Trusted-location protection: a send from outside a trusted place (or
+    // with the location unreadable) needs the second-factor PIN first, unless
+    // the recipient is a trusted contact. Runs BEFORE the optimistic receipt
+    // so a cancel leaves no phantom pending payment in the chat.
+    final decision = await PaymentSecurityStore.instance.assess(phone);
+    if (decision.needsStepUp) {
+      if (!mounted) return;
+      final passed = await requestPaymentStepUp(context,
+          reason: decision, recipientName: recipient.name);
+      if (!passed) {
+        if (mounted) {
+          messenger.showSnackBar(const SnackBar(
+              content: Text('Send cancelled — it needs verification.')));
+        }
+        return;
+      }
+    }
+
     final now = DateTime.now();
     final payId = 'pay_${now.microsecondsSinceEpoch}';
 
@@ -2595,6 +2616,9 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         amountCents: cents,
         note: note,
         acknowledged: acknowledged,
+        // The trusted-place check + PIN ran above; tell the funnel so its
+        // backstop doesn't ask the location a second time.
+        stepUpVerified: true,
       );
       // The sheet returning true means the card authorised, not that it was
       // charged: capture waits on the cardholder check. Saying "paid" here

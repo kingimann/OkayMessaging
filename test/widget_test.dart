@@ -159,6 +159,7 @@ import 'package:okay_messaging/util/random_identity.dart';
 import 'package:okay_messaging/state/file_transfer.dart';
 import 'package:okay_messaging/models/status_update.dart';
 import 'package:okay_messaging/payments/payment_service.dart';
+import 'package:okay_messaging/state/payment_security_store.dart';
 import 'package:okay_messaging/payments/earnings.dart';
 import 'package:okay_messaging/screens/earnings_screen.dart';
 import 'package:okay_messaging/state/sidebar_prefs.dart';
@@ -618,8 +619,10 @@ void main() {
     await tester.pumpAndSettle();
 
     await openSettingsForTest(tester);
-    // Settings gained two tiles above this one, so it is below the fold now.
-    await tester.ensureVisible(find.text('Chats & appearance'));
+    // Settings keeps gaining tiles above this one, so it is below the fold and
+    // not yet built — scroll it in rather than assuming it exists.
+    await tester.scrollUntilVisible(find.text('Chats & appearance'), 250,
+        scrollable: find.byType(Scrollable).last);
     await tester.pumpAndSettle();
     await tester.tap(find.text('Chats & appearance'));
     await tester.pumpAndSettle();
@@ -4305,9 +4308,10 @@ void main() {
 
     await openSettingsForTest(tester);
 
-    // The hub shows grouped entry points into the sub-screens.
+    // The hub shows grouped entry points; Privacy & security is at the top.
+    // ('Chats & appearance' now sits below the fold — its reachability is
+    // covered by the wallpaper-picker test, which scrolls to it.)
     expect(find.text('Privacy & security'), findsOneWidget);
-    expect(find.text('Chats & appearance'), findsOneWidget);
 
     await tester.tap(find.text('Privacy & security'));
     await tester.pumpAndSettle();
@@ -6314,6 +6318,101 @@ void main() {
           avatarColor: '#25D366',
           now: now);
       expect(StatusStore.instance.myActive(now: now).length, 1);
+    });
+  });
+
+  group('Payment security (trusted places + contacts)', () {
+    setUp(() {
+      SharedPreferences.setMockInitialValues({});
+      PaymentSecurityStore.instance.resetForTest();
+    });
+    tearDown(() {
+      debugGeolocationOverride = null;
+      PaymentSecurityStore.instance.resetForTest();
+    });
+
+    test('haversine measures a degree of latitude at ~111 km', () {
+      expect(PaymentSecurityStore.distanceMeters(40, -73, 40, -73),
+          lessThan(1));
+      expect(PaymentSecurityStore.distanceMeters(40, -73, 41, -73),
+          closeTo(111195, 3000));
+    });
+
+    test('off by default — nothing is asked', () async {
+      final store = PaymentSecurityStore.instance;
+      final d = await store.assess('+1 555 0001');
+      expect(d, StepUpDecision.off);
+      expect(d.needsStepUp, isFalse);
+    });
+
+    test('a trusted contact skips the check without reading location',
+        () async {
+      final store = PaymentSecurityStore.instance;
+      await store.load();
+      await store.setEnabled(true);
+      store.setTrustedContact('+1 555 0001', true);
+      // Would throw if the location were read — proves the short-circuit.
+      debugGeolocationOverride =
+          () async => throw StateError('location must not be read');
+      expect(await store.assess('+15550001'), StepUpDecision.trustedContact);
+    });
+
+    test('inside a trusted place passes; outside needs the step-up', () async {
+      final store = PaymentSecurityStore.instance;
+      await store.load();
+      await store.setEnabled(true);
+      store.addPlace(
+          const TrustedPlace(name: 'Home', lat: 40, lng: -73, radiusMeters: 150));
+
+      debugGeolocationOverride = () async => (lat: 40.0005, lng: -73.0005);
+      expect(await store.assess('+15550002'), StepUpDecision.inTrustedPlace);
+
+      debugGeolocationOverride = () async => (lat: 41.0, lng: -74.0);
+      final out = await store.assess('+15550002');
+      expect(out, StepUpDecision.outsideTrustedPlace);
+      expect(out.needsStepUp, isTrue);
+    });
+
+    test('an unreadable location fails closed (asks for the PIN)', () async {
+      final store = PaymentSecurityStore.instance;
+      await store.load();
+      await store.setEnabled(true);
+      store.addPlace(const TrustedPlace(name: 'Home', lat: 40, lng: -73));
+      debugGeolocationOverride = () async => null;
+      final d = await store.assess('+15550003');
+      expect(d, StepUpDecision.locationUnknown);
+      expect(d.needsStepUp, isTrue);
+    });
+
+    test('sendMoney refuses a P2P send that skipped the trusted-place check',
+        () async {
+      final svc = PaymentService.instance;
+      final store = PaymentSecurityStore.instance;
+      await store.load();
+      await store.setEnabled(true);
+      store.addPlace(const TrustedPlace(name: 'Home', lat: 40, lng: -73));
+      debugGeolocationOverride = () async => (lat: 41.0, lng: -74.0); // away
+      final was = svc.testMode.value;
+      svc.testMode.value = true; // the backstop runs before the test-mode exit
+      addTearDown(() => svc.testMode.value = was);
+
+      // Unverified P2P send from outside a trusted place is refused.
+      await expectLater(
+        svc.sendMoney(toPhone: '+15550004', amountCents: 500),
+        throwsA(isA<PaymentException>()),
+      );
+      // The same send, with the check already passed, goes through.
+      expect(
+          await svc.sendMoney(
+              toPhone: '+15550004', amountCents: 500, stepUpVerified: true),
+          isTrue);
+      // A spark on a post (no phone recipient) is exempt.
+      expect(
+          await svc.sendMoney(sparkPostId: 'p1', amountCents: 500), isTrue);
+      // A trusted contact is exempt even unverified.
+      store.setTrustedContact('+15550004', true);
+      expect(
+          await svc.sendMoney(toPhone: '+15550004', amountCents: 500), isTrue);
     });
   });
 

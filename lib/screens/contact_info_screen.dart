@@ -11,6 +11,7 @@ import '../state/call_service.dart';
 import '../state/chat_store.dart';
 import '../state/favourites_store.dart';
 import '../state/follow_store.dart';
+import '../state/payment_security_store.dart';
 import '../state/platform_moderation.dart';
 import 'marketplace_screen.dart' show SellerShopButton;
 import 'public_feed_screen.dart' show openPublicProfile;
@@ -671,6 +672,31 @@ class _ConfirmBeforeSendSection extends StatelessWidget {
               onChanged: (v) =>
                   ChatStore.instance.setProtectContent(chatId, v),
             ),
+            if (chat != null &&
+                !chat.contact.isGroup &&
+                chat.contact.phone.isNotEmpty)
+              AnimatedBuilder(
+                animation: PaymentSecurityStore.instance,
+                builder: (context, _) {
+                  final trusted = PaymentSecurityStore.instance
+                      .isTrustedContact(chat.contact.phone);
+                  return SwitchListTile(
+                    secondary: Icon(
+                        trusted ? Icons.handshake : Icons.handshake_outlined),
+                    title: const Text('Trusted for payments'),
+                    // Only meaningful with the trusted-place check on, but the
+                    // mark is harmless off — it just says who you'd never be
+                    // asked to verify a send to.
+                    subtitle: Text(trusted
+                        ? 'Sends to this contact skip the texted-code check'
+                        : 'Skip the texted-code check when sending to this '
+                            'contact from outside a trusted place'),
+                    value: trusted,
+                    onChanged: (v) => PaymentSecurityStore.instance
+                        .setTrustedContact(chat.contact.phone, v),
+                  );
+                },
+              ),
           ],
         );
       },

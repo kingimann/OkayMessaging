@@ -8,6 +8,7 @@ import '../relay/app_pages.dart';
 import '../relay/relay_config.dart';
 import '../state/account_email.dart';
 import '../state/parental_controls.dart';
+import '../state/payment_security_store.dart';
 import '../state/reviewer_mode.dart';
 import 'connect_fields.dart';
 import 'storage_economics.dart';
@@ -728,6 +729,11 @@ class PaymentService {
     required int amountCents,
     String? note,
     bool acknowledged = false,
+    // Set by a caller that has already run the trusted-place check (and the
+    // PIN step-up if it was needed). Left false, the backstop below re-checks
+    // and refuses a P2P send that skipped it — so a payment surface added
+    // later can't quietly bypass the protection.
+    bool stepUpVerified = false,
   }) async {
     // The one funnel every send passes through — Send money, Sparks from
     // every surface, paying a request — which is exactly where a parental
@@ -735,6 +741,15 @@ class PaymentService {
     // Test mode is NOT exempt: a simulated send still teaches the gesture.
     if (ParentalControls.instance.blocks(ParentalRestriction.payments)) {
       throw PaymentException('parental_locked');
+    }
+    // Trusted-location protection: a real P2P send (to a phone, not a spark on
+    // a post) that hasn't passed the trusted-place check fails safe. The UI
+    // does the check and the PIN prompt; this only bites a caller that didn't.
+    if (toPhone.isNotEmpty && sparkPostId == null && !stepUpVerified) {
+      final decision = await PaymentSecurityStore.instance.assess(toPhone);
+      if (decision.needsStepUp) {
+        throw PaymentException('step_up_required');
+      }
     }
     if (testMode.value) {
       await Future<void>.delayed(const Duration(milliseconds: 1200));

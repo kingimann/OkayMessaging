@@ -43,6 +43,7 @@ import 'state/callkit_bridge.dart';
 import 'state/community_store.dart';
 import 'state/contacts_sync.dart';
 import 'state/parental_controls.dart';
+import 'state/payment_security_store.dart';
 import 'state/room_media.dart';
 import 'state/crash_reporter.dart';
 import 'state/chat_store.dart';
@@ -119,6 +120,7 @@ Future<void> main() async {
   await _boot('ai pass', AiPassStore.instance.load);
   await _boot('sidebar', SidebarPrefs.instance.load);
   await _boot('two-step', TwoStepVerification.instance.load);
+  await _boot('payment security', PaymentSecurityStore.instance.load);
   // Legal documents (cached copy) load BEFORE consent, so the acceptance gate
   // compares against the effective version, owner-published or built-in.
   await _boot('legal docs', LegalStore.instance.load);

@@ -36,6 +36,7 @@ import 'feed_store.dart';
 import 'follow_store.dart';
 import 'identity_verification.dart';
 import 'notes_store.dart';
+import 'payment_security_store.dart';
 import 'persistence.dart';
 import 'quick_replies.dart';
 import 'recent_searches.dart';
@@ -324,6 +325,7 @@ class AccountWipe {
     SidebarPrefs.instance.resetForTest();
     StickerStore.instance.resetForTest();
     NotesStore.instance.resetForTest();
+    PaymentSecurityStore.instance.resetForTest();
     BookmarkStore.instance.resetForTest();
     FavouritesStore.instance.resetForTest();
     SavedPlacesStore.instance.resetForTest();
@@ -390,6 +392,7 @@ class AccountWipe {
     await t(SidebarPrefs.instance.load);
     await t(StickerStore.instance.load);
     await t(NotesStore.instance.load);
+    await t(PaymentSecurityStore.instance.load);
     await t(BookmarkStore.instance.load);
     await t(FavouritesStore.instance.load);
     await t(SavedPlacesStore.instance.load);
