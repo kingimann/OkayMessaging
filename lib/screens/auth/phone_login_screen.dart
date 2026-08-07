@@ -173,6 +173,44 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen>
     );
   }
 
+  /// Removes a remembered profile from THIS DEVICE's quick sign-in list, after
+  /// confirming — because for a numberless account with no recovery backup,
+  /// taking it off the list is the only way back in, so it must not vanish on a
+  /// stray tap.
+  Future<void> _confirmForget(AppUser a) async {
+    final numberless = AccountCode.isCode(a.phone);
+    final who = a.handle.isNotEmpty
+        ? a.handle
+        : (a.name.isEmpty ? a.phone : a.name);
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Remove $who?'),
+        content: Text(numberless
+            ? 'This takes it off the sign-in list on this device. A numberless '
+                'account signs back in ONLY with the recovery PIN it created — '
+                'if you haven\'t saved that PIN, removing it here is the last '
+                'way in. The account itself is not deleted.'
+            : 'This takes it off the quick sign-in list on this device. You can '
+                'sign back in any time with the number. The account itself is '
+                'not deleted.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    await Session.instance.forgetAccount(a.phone);
+    if (mounted) setState(() {});
+  }
+
   /// (flag, name, dial code) — shown in the Telegram-style country sheet.
   static const _countries = [
     ('🇺🇸', 'United States', '+1'),
@@ -1055,14 +1093,24 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen>
                     ? null
                     : Text(a.handle,
                         maxLines: 1, overflow: TextOverflow.ellipsis),
-                trailing: const Icon(Icons.chevron_right, size: 20),
+                // A visible way to drop an account you don't want, not just a
+                // hidden long-press: an X that removes it (after confirming),
+                // beside the chevron that signs into it.
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.close, size: 20),
+                      tooltip: 'Remove from this device',
+                      color: AppColors.subtle(context),
+                      visualDensity: VisualDensity.compact,
+                      onPressed: _busy ? null : () => _confirmForget(a),
+                    ),
+                    const Icon(Icons.chevron_right, size: 20),
+                  ],
+                ),
                 onTap: _busy ? null : () => _continueAsKnown(a),
-                onLongPress: _busy
-                    ? null
-                    : () async {
-                        await Session.instance.forgetAccount(a.phone);
-                        if (mounted) setState(() {});
-                      },
+                onLongPress: _busy ? null : () => _confirmForget(a),
               ),
           ];
         }(),
