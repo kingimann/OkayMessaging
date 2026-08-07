@@ -324,6 +324,38 @@ class Message {
   /// Whether this message carries a split bill.
   bool get isBillSplit => billSplit != null;
 
+  /// A short, CONTENT-FREE description of what kind of message this is —
+  /// "Photo", "Voice message", … — or '' for a plain text message. Used to
+  /// label a notification by TYPE without leaking the message body: safe to
+  /// send to the push broker, which the encrypted content never is.
+  String get typeLabel {
+    if (isPoke) return 'Poke 👋';
+    if (isSticker) return 'Sticker';
+    if (isVoice) return '🎤 Voice message';
+    if (isFile) return '📎 File';
+    if (isLiveLocation) return '📍 Live location';
+    if (isLocation) return '📍 Location';
+    if (isContact) return '👤 Contact';
+    if (isPaymentRequest) return '💵 Payment request';
+    if (isPayment) return '💵 Payment';
+    if (isPoll) return '📊 Poll';
+    if (isForm) return '📋 Form';
+    if (isBillSplit) return '🧾 Bill split';
+    if (viewOnce) return '📷 Photo'; // never "view-once" — that leaks intent
+    if (isImage) return '📷 Photo';
+    return '';
+  }
+
+  /// The best one-line label for an in-app notification / chat-list preview,
+  /// where the device already holds the decrypted message so its own text is
+  /// fair to show. Falls back to the type label, then a generic.
+  String get previewLabel {
+    if (viewOnce) return '📷 Photo';
+    if (text.trim().isNotEmpty && !isPoke) return text;
+    final t = typeLabel;
+    return t.isEmpty ? 'New message' : t;
+  }
+
   Map<String, dynamic> toJson() => {
         'id': id,
         'text': text,

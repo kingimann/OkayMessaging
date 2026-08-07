@@ -255,6 +255,53 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
               }
             },
           ),
+          // For you / Following lives top-right now, not as a tab row under a
+          // "start a post" box — both of those were removed. The label reflects
+          // the current feed and tapping switches it; the store drives the feed
+          // so a ListenableBuilder keeps this in sync (the app bar is outside
+          // the body's builder).
+          if (!_searching)
+            ListenableBuilder(
+              listenable: _store,
+              builder: (context, _) => PopupMenuButton<FeedFilter>(
+                tooltip: 'Choose feed',
+                initialValue: _store.filter,
+                onSelected: (f) => _store.setFilter(f),
+                itemBuilder: (context) => [
+                  for (final f in FeedFilter.values)
+                    PopupMenuItem<FeedFilter>(
+                      value: f,
+                      child: Row(
+                        children: [
+                          Icon(
+                            _store.filter == f
+                                ? Icons.radio_button_checked
+                                : Icons.radio_button_unchecked,
+                            size: 18,
+                            color: _store.filter == f
+                                ? AppColors.accentOn(context)
+                                : AppColors.subtle(context),
+                          ),
+                          const SizedBox(width: 10),
+                          Text(f.label),
+                        ],
+                      ),
+                    ),
+                ],
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(_store.filter.label,
+                          style: const TextStyle(
+                              fontSize: 15, fontWeight: FontWeight.w700)),
+                      const Icon(Icons.arrow_drop_down, size: 20),
+                    ],
+                  ),
+                ),
+              ),
+            ),
           if (!_searching)
             IconButton(
               icon: const Icon(Icons.tune),
@@ -318,15 +365,6 @@ class _PublicFeedScreenState extends State<PublicFeedScreen> {
                       'The newsfeed needs a server connection.'),
                 )
               else ...[
-                // The inline "start a post" box, above the tabs — the same
-                // composer the top-right pencil opens.
-                if (!_searching) ...[
-                  FeedComposePrompt(
-                    hint: 'Share something…',
-                    onTap: () => _compose(),
-                  ),
-                  const Divider(height: 1),
-                ],
                 _FilterBar(store: _store),
                 Expanded(
                   child: RefreshIndicator(
@@ -3557,7 +3595,9 @@ class _CharacterRing extends StatelessWidget {
   }
 }
 
-/// Latest / Top / Following, plus whatever narrowing is currently on.
+/// The trending hashtags and any active narrowing under the app bar. The
+/// For you / Following switch itself now lives top-right in the app bar, so it
+/// is no longer a tab row here.
 class _FilterBar extends StatelessWidget {
   final PublicFeedStore store;
   const _FilterBar({required this.store});
@@ -3568,14 +3608,6 @@ class _FilterBar extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Tabs across the top, not chips. Chips read as removable filters;
-        // these are the timeline you are on, which is a different thing, and
-        // the underline is what says so.
-        FeedTabStrip(
-          labels: [for (final f in FeedFilter.values) f.label],
-          active: FeedFilter.values.indexOf(store.filter),
-          onPick: (i) => store.setFilter(FeedFilter.values[i]),
-        ),
         FeedTrendingBar(
           tags: tags,
           tag: store.tag,

@@ -11700,20 +11700,6 @@ void main() {
           reason: 'compose sits on the right of the app bar');
     });
 
-    testWidgets('an inline compose box tops the server feed and opens the '
-        'composer', (tester) async {
-      await tester.pumpWidget(const MaterialApp(
-        home: FeedScreen(communityId: 'c1', communityName: 'Okay HQ'),
-      ));
-      await tester.pumpAndSettle();
-      final box = find.text('Share something with Okay HQ…');
-      expect(box, findsOneWidget);
-      await tester.tap(box);
-      await tester.pumpAndSettle();
-      // Same composer the top-right pencil opens.
-      expect(find.byType(FeedComposerScreen), findsOneWidget);
-    });
-
     testWidgets('the composer gets the whole screen, not one squeezed line',
         (tester) async {
       // In a bottom sheet the field shared one row with an avatar, three icon
@@ -21437,20 +21423,26 @@ void main() {
       await t.pumpWidget(const MaterialApp(home: PublicFeedScreen()));
       await t.pumpAndSettle();
 
-      // Tabs, not chips. Chips read as removable filters; these are which
-      // timeline you are on, and the underline is what says so.
+      // The For you / Following switch lives top-right in the app bar now, not
+      // as a tab row over the timeline. At rest it shows the active feed…
       expect(find.byType(ChoiceChip), findsNothing);
-      for (final f in FeedFilter.values) {
-        expect(find.text(f.label), findsOneWidget);
-      }
-      // Evenly divided, which is what makes it a tab row rather than a row of
-      // buttons that happen to be next to each other.
-      final first = t.getRect(find.text(FeedFilter.values.first.label));
-      final last = t.getRect(find.text(FeedFilter.values.last.label));
-      expect(first.center.dx, lessThan(last.center.dx));
+      expect(find.text(FeedFilter.forYou.label), findsOneWidget);
+      expect(find.text(FeedFilter.following.label), findsNothing);
+      // …and it sits on the right of the app bar.
+      final switcher = t.getRect(find.text(FeedFilter.forYou.label));
+      expect(switcher.center.dx, greaterThan(250.0),
+          reason: 'the feed switch is top-right, not a full-width tab row');
+      // Tapping it reveals both choices; pick the current one to close without
+      // changing the feed the rest of this test relies on.
+      await t.tap(find.text(FeedFilter.forYou.label));
+      await t.pumpAndSettle();
+      expect(find.text(FeedFilter.following.label), findsOneWidget);
+      await t.tap(find.text(FeedFilter.forYou.label).last);
+      await t.pumpAndSettle();
+      expect(store.filter, FeedFilter.forYou);
 
       // Trending is plain tappable text, not a second row of chips competing
-      // with the tabs above it.
+      // with the timeline.
       expect(find.text('TRENDING'), findsOneWidget);
       expect(find.byType(ActionChip), findsNothing);
       await t.tap(find.text('#news'));

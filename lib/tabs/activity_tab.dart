@@ -133,11 +133,14 @@ class _ActivityTabState extends State<ActivityTab> {
                                       style: const TextStyle(
                                           fontWeight: FontWeight.w600)),
                                   subtitle: Text(
+                                    // The real last line — and for a photo,
+                                    // voice note, poll, etc. its type rather
+                                    // than a flat "New message". This list is
+                                    // on-device, so the decrypted text is fair
+                                    // to show here.
                                     chat.messages.isEmpty
                                         ? 'New messages'
-                                        : chat.messages.last.text.isEmpty
-                                            ? 'New message'
-                                            : chat.messages.last.text,
+                                        : chat.messages.last.previewLabel,
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                   ),

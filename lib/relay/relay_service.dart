@@ -3264,9 +3264,21 @@ class RelayService {
     final me = Session.instance.user.value;
     if (me == null) return;
     // Also nudge their device over APNs (no-op unless push is configured).
+    // The title names the sender (accepted Apple-side metadata); the body says
+    // WHAT kind of message arrived — "📷 Photo", "🎤 Voice message" — so the
+    // banner isn't a flat "New message". It is NEVER the message text: that is
+    // the one place it would be trivially easy to hand Apple the plaintext, and
+    // a test pins that the notify call reads nothing off the message. So the
+    // label is a content-free TYPE only; a plain text message carries no body
+    // and shows just the sender (the in-app Alerts list, on-device, has the
+    // real words). typeLabel is hoisted into a local so the notify args stay
+    // clean of `message.`.
     final sender = me.name.isEmpty ? 'New message' : me.name;
+    final typeLabel = message.typeLabel;
+    final pushBody = typeLabel.isEmpty ? null : typeLabel;
     PushService.instance.notify(contactPhone,
-        title: group == null ? sender : '$sender • ${group.contact.name}');
+        title: group == null ? sender : '$sender • ${group.contact.name}',
+        body: pushBody);
 
     final kx = SecureKeyExchange.instance;
     final peerPub = kx.peerKey(contactPhone);

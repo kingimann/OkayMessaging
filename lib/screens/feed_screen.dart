@@ -555,15 +555,6 @@ class _FeedScreenState extends State<FeedScreen> {
           return PullToRefresh(
             child: ListView(
               children: [
-                // The inline "start a post" box, matching the public newsfeed —
-                // the same composer the top-right pencil opens.
-                if (!_searching) ...[
-                  FeedComposePrompt(
-                    hint: 'Share something with ${widget.communityName}…',
-                    onTap: _openComposer,
-                  ),
-                  const Divider(height: 1),
-                ],
                 // Only while payments test mode is on: a way to summon the
                 // practice bot, so Sparks can be tried with no second person
                 // and no real charge. Gone — with the bot — when it's off.
