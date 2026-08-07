@@ -28,7 +28,17 @@ alter table public.public_posts
 -- phone stays unreadable), and the feed view runs security_invoker — so a NEW
 -- column is invisible through the view until it's granted too, exactly like
 -- paid/sub_cents were.
-grant select (edited_at) on public.public_posts to anon, authenticated;
+--
+-- paid/sub_cents are RE-GRANTED here, not merely assumed: this file recreates
+-- the view carrying them, and it runs LAST. If public_feed.sql was re-run
+-- after creator_subscriptions.sql, its table-wide `revoke select … from anon`
+-- wiped those column grants while leaving the view that reads them — and the
+-- whole feed then fails for anon with "permission denied for table
+-- public_posts" (a security_invoker view needs the caller to hold every column
+-- it selects). Granting them here makes this file self-sufficient: run it and
+-- the feed reads, whatever order came before.
+grant select (paid, sub_cents, edited_at)
+  on public.public_posts to anon, authenticated;
 
 -- 2. Give back UPDATE, but only on the two columns an edit may touch. A
 -- column-level grant means an UPDATE of anything else is refused before RLS is

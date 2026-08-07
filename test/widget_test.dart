@@ -12518,6 +12518,10 @@ void main() {
 
       await tester.pumpWidget(const MaterialApp(home: MarketplaceScreen()));
       await tester.pump();
+      // Scroll the listing clear of the bottom nav bar before long-pressing —
+      // on the small test surface it otherwise lands under the bar.
+      await tester.ensureVisible(find.text('Spam item'));
+      await tester.pump();
       await tester.longPress(find.text('Spam item'));
       await tester.pumpAndSettle();
 

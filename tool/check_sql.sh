@@ -139,8 +139,11 @@ select pg_temp.expect_fail(
   'select * is refused (it would include the phone)');
 
 select pg_temp.expect_ok(
-  $$select id, author_username, body, like_count from public.public_feed$$,
-  'the feed view reads fine');
+  $$select id, author_username, body, like_count, paid, sub_cents, edited_at
+      from public.public_feed$$,
+  'the feed view reads fine (incl. paid/sub_cents/edited_at — a '
+  'security_invoker view fails wholesale if the caller lacks any column it '
+  'selects)');
 
 select pg_temp.expect_fail(
   $$select liker_phone from public.public_post_likes$$,

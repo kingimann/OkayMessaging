@@ -16,6 +16,7 @@ import '../state/account_service.dart';
 import '../state/chat_store.dart';
 import '../ads/ad_service.dart';
 import '../relay/relay_service.dart';
+import 'home_screen.dart' show AppBottomNavBar, HomeScreen;
 import '../state/parental_controls.dart';
 import '../widgets/parental_gate.dart';
 import '../widgets/pull_to_refresh.dart';
@@ -1700,10 +1701,25 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
               icon: const Icon(Icons.sell_outlined),
               label: const Text('Sell'),
             ),
-      // A non-personalized banner, on this surface because it is already
-      // world-facing commerce. Zero height until an ad really loads, and
-      // absent entirely in builds with no ad ids.
-      bottomNavigationBar: const AdBannerSlot(),
+      // The app's bottom navigation, so the marketplace is a first-class tab
+      // like the newsfeed — tapping a destination jumps back into the home
+      // shell. The non-personalized ad banner rides above it (this surface is
+      // already world-facing commerce; zero height until an ad really loads).
+      bottomNavigationBar: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const AdBannerSlot(),
+          ListenableBuilder(
+            listenable: AppBottomNavBar.badgeListenable,
+            builder: (context, _) => AppBottomNavBar(
+              index: -1,
+              missedCalls: AppBottomNavBar.missedCallsNow,
+              activityCount: AppBottomNavBar.activityCountNow,
+              onSelect: (i) => HomeScreen.goToTab(context, i),
+            ),
+          ),
+        ],
+      ),
       body: ListenableBuilder(
         listenable: FeedStore.instance,
         builder: (context, _) {
