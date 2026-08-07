@@ -405,11 +405,20 @@ Deno.serve(async (req) => {
     .maybeSingle();
   const { data: spentRows } = await admin
     .from("payment_transactions")
-    .select("amount_cents, created_at")
+    .select("amount_cents, created_at, status")
     .eq("from_phone", phone)
     .gte("created_at", new Date(Date.now() - 24 * 3600 * 1000).toISOString());
-  const spent = (spentRows ?? []).reduce(
-    (n, r) => n + Number(r.amount_cents ?? 0), 0);
+  // Only money that ACTUALLY MOVED counts against the daily cap. A top-up
+  // whose card sheet was never completed sits at requires_payment_method
+  // (and requires_confirmation / requires_action / canceled are likewise
+  // uncharged) — counting those let a run of FAILED attempts lock the account
+  // out of the very retry that would succeed. Count succeeded + in-flight
+  // (processing / requires_capture) only.
+  const countsTowardSpend = (s: unknown) =>
+    s === "succeeded" || s === "processing" || s === "requires_capture";
+  const spent = (spentRows ?? [])
+    .filter((r) => countsTowardSpend(r.status))
+    .reduce((n, r) => n + Number(r.amount_cents ?? 0), 0);
 
   const chargeCents = grossUp(addedCents);
   const limits = effectiveLimits((settings ?? {}) as LimitRow, Date.now());
