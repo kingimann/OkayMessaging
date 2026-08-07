@@ -33,11 +33,60 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   late bool _subscribable;
   late List<_TierDraft> _tiers;
 
-  /// A small set of emojis offered for the avatar.
+  /// The emojis offered for the avatar — a broad set so there's a face for
+  /// most moods and a character for most people, across faces, animals,
+  /// fantasy, food, hobbies and symbols.
   static const _emojiChoices = [
-    '😀', '😎', '🥳', '🤖', '👾', '🐶', '🐱', '🦊',
-    '🐼', '🦁', '🐸', '🦄', '🌸', '🔥', '⚡', '🌈',
-    '⭐', '🎧', '🎮', '⚽', '🍕', '☕', '🚀', '💜',
+    // Faces & people
+    '😀', '😎', '🥳', '😇', '🤠', '🥸', '🤓', '😻',
+    '👻', '🤡', '🧑‍🚀', '🧑‍🎤', '🧑‍🍳', '🧙', '🦸', '🥷',
+    // Robots & aliens
+    '🤖', '👾', '👽', '🛸',
+    // Animals
+    '🐶', '🐱', '🦊', '🐼', '🐨', '🦁', '🐯', '🐸',
+    '🐵', '🐧', '🦉', '🦅', '🐢', '🐙', '🦖', '🦄',
+    '🐝', '🦋', '🐬', '🦈', '🐺', '🐻', '🐰', '🐮',
+    // Fantasy & nature
+    '🐉', '🌸', '🌺', '🌻', '🌵', '🍄', '🌙', '☀️',
+    '🌈', '🔥', '⚡', '❄️', '🌊', '⭐', '💫', '🌟',
+    // Hobbies & things
+    '🎧', '🎮', '🎸', '🎨', '📷', '⚽', '🏀', '🎯',
+    '🏄', '🚀', '🛹', '🎲', '♟️', '📚', '✈️', '🚗',
+    // Food & drink
+    '🍕', '🍔', '🌮', '🍣', '🍩', '🍦', '☕', '🍺',
+    // Hearts & symbols
+    '❤️', '🧡', '💛', '💚', '💙', '💜', '🖤', '🤍',
+    '✨', '💎', '👑', '🏆', '🎵', '💯', '🔮', '🕹️',
+  ];
+
+  /// One-tap ready-made avatars: a character emoji on a matching gradient, so
+  /// picking a whole distinct look is a single tap rather than choosing an
+  /// emoji and two colours by hand. (emoji, colour, second colour.)
+  static const _avatarPresets = <(String, String, String)>[
+    ('🦊', '#FF8A65', '#F4511E'),
+    ('🐼', '#90A4AE', '#455A64'),
+    ('🐸', '#81C784', '#2E7D32'),
+    ('🦄', '#BA68C8', '#EC407A'),
+    ('🐱', '#FFB74D', '#FB8C00'),
+    ('🐶', '#A1887F', '#6D4C41'),
+    ('🦁', '#FFD54F', '#F9A825'),
+    ('🐧', '#4FC3F7', '#1565C0'),
+    ('🤖', '#4DD0E1', '#00838F'),
+    ('👾', '#7E57C2', '#4527A0'),
+    ('🐨', '#B0BEC5', '#546E7A'),
+    ('🦖', '#66BB6A', '#2E7D32'),
+    ('🚀', '#5C6BC0', '#283593'),
+    ('🌈', '#F06292', '#4FC3F7'),
+    ('🔥', '#FF7043', '#C62828'),
+    ('⚡', '#FFCA28', '#F57F17'),
+    ('🌸', '#F48FB1', '#EC407A'),
+    ('🎧', '#26A69A', '#00695C'),
+    ('🎮', '#9575CD', '#5E35B1'),
+    ('🐙', '#7986CB', '#3949AB'),
+    ('🍕', '#FFA726', '#E65100'),
+    ('☕', '#8D6E63', '#4E342E'),
+    ('🦋', '#4DD0E1', '#5C6BC0'),
+    ('👑', '#FFD54F', '#FF8F00'),
   ];
 
   /// Common status presets offered as one-tap chips.
@@ -566,6 +615,22 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
               children: [
                 Center(child: UserAvatar(user: _preview, radius: 40)),
                 const SizedBox(height: 14),
+                _sectionLabel(sheetContext, 'READY-MADE AVATARS'),
+                _AvatarPresetPicker(
+                  emoji: _emoji,
+                  color1: _avatarColor,
+                  color2: _avatarColor2,
+                  presets: _avatarPresets,
+                  onSelected: (emoji, c1, c2) {
+                    setState(() {
+                      _emoji = emoji;
+                      _avatarColor = c1;
+                      _avatarColor2 = c2;
+                    });
+                    setSheetState(() {});
+                  },
+                ),
+                const SizedBox(height: 14),
                 _sectionLabel(sheetContext, 'AVATAR COLOR'),
                 _ColorPicker(
                   selected: _avatarColor,
@@ -673,6 +738,62 @@ class _EmojiPicker extends StatelessWidget {
             child: Text(e, style: const TextStyle(fontSize: 22)),
           ),
       ],
+    );
+  }
+}
+
+/// A horizontal shelf of ready-made avatars — each a character emoji on its
+/// own gradient. One tap sets the emoji and both colours together, so a whole
+/// look is a single choice.
+class _AvatarPresetPicker extends StatelessWidget {
+  final String emoji;
+  final String color1;
+  final String color2;
+  final List<(String, String, String)> presets;
+  final void Function(String emoji, String c1, String c2) onSelected;
+  const _AvatarPresetPicker({
+    required this.emoji,
+    required this.color1,
+    required this.color2,
+    required this.presets,
+    required this.onSelected,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final primary = Theme.of(context).colorScheme.primary;
+    return SizedBox(
+      height: 64,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: presets.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 12),
+        itemBuilder: (context, i) {
+          final p = presets[i];
+          final active = p.$1 == emoji && p.$2 == color1 && p.$3 == color2;
+          return GestureDetector(
+            onTap: () => onSelected(p.$1, p.$2, p.$3),
+            child: Container(
+              padding: const EdgeInsets.all(2),
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border:
+                    active ? Border.all(color: primary, width: 3) : null,
+              ),
+              child: UserAvatar(
+                user: AppUser(
+                  id: '',
+                  name: '',
+                  avatarColor: p.$2,
+                  avatarColor2: p.$3,
+                  emoji: p.$1,
+                ),
+                radius: 26,
+              ),
+            ),
+          );
+        },
+      ),
     );
   }
 }

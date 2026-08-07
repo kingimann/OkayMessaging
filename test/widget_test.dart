@@ -9672,6 +9672,20 @@ void main() {
       expect(p.businessCategory, 'Retail');
     });
 
+    testWidgets('the avatar editor offers ready-made presets and a big emoji '
+        'set', (tester) async {
+      addTearDown(AppState.resetForTest);
+      await tester.pumpWidget(const MaterialApp(home: EditProfileScreen()));
+      await tester.pumpAndSettle();
+      // Open the avatar look sheet by tapping the avatar.
+      await tester.tap(find.byType(UserAvatar).first);
+      await tester.pumpAndSettle();
+      expect(find.text('READY-MADE AVATARS'), findsOneWidget);
+      // The expanded emoji set includes characters the old 24 never had.
+      expect(find.text('🦖'), findsOneWidget);
+      expect(find.text('🦉'), findsOneWidget);
+    });
+
     testWidgets('the storefront glyph rides the name, beside the check',
         (tester) async {
       await tester.pumpWidget(const MaterialApp(
