@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../state/sticker_store.dart';
 import '../theme/app_theme.dart';
+import 'emoji_data.dart';
 
 /// What the sticker sheet hands back: exactly one of the three.
 class StickerChoice {
@@ -38,8 +39,22 @@ Future<StickerChoice?> showStickerSheet(BuildContext context) =>
       builder: (_) => const _StickerSheet(),
     );
 
-class _StickerSheet extends StatelessWidget {
+class _StickerSheet extends StatefulWidget {
   const _StickerSheet();
+
+  @override
+  State<_StickerSheet> createState() => _StickerSheetState();
+}
+
+class _StickerSheetState extends State<_StickerSheet> {
+  final _search = TextEditingController();
+  String _query = '';
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -50,43 +65,97 @@ class _StickerSheet extends StatelessWidget {
           listenable: StickerStore.instance,
           builder: (context, _) {
             final store = StickerStore.instance;
-            return ListView(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            final searching = _query.trim().isNotEmpty;
+            final List<String> matches =
+                searching ? EmojiData.search(_query) : const <String>[];
+            return Column(
               children: [
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.add_photo_alternate_outlined),
-                  title: const Text('New sticker from a photo'),
-                  subtitle: const Text('Sent small and clean, like a sticker'),
-                  onTap: () => Navigator.of(context)
-                      .pop(const StickerChoice.fromNewPhoto()),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                  child: TextField(
+                    controller: _search,
+                    onChanged: (v) => setState(() => _query = v),
+                    decoration: InputDecoration(
+                      hintText: 'Search emoji stickers',
+                      prefixIcon: const Icon(Icons.search, size: 20),
+                      suffixIcon: searching
+                          ? IconButton(
+                              icon: const Icon(Icons.close, size: 20),
+                              onPressed: () => setState(() {
+                                _search.clear();
+                                _query = '';
+                              }),
+                            )
+                          : null,
+                      isDense: true,
+                      filled: true,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(24),
+                        borderSide: BorderSide.none,
+                      ),
+                    ),
+                  ),
                 ),
-                if (store.photos.isNotEmpty) ...[
-                  _label(context, 'YOUR STICKERS'),
-                  Wrap(
-                    spacing: 10,
-                    runSpacing: 10,
+                Expanded(
+                  child: ListView(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
                     children: [
-                      for (final uri in store.photos)
-                        GestureDetector(
+                      if (searching) ...[
+                        if (matches.isEmpty)
+                          Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 24),
+                            child: Text('No emoji matches "${_query.trim()}".',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                    color: AppColors.subtle(context))),
+                          )
+                        else
+                          _emojiGrid(context, matches),
+                      ] else ...[
+                        ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: const Icon(
+                              Icons.add_photo_alternate_outlined),
+                          title: const Text('New sticker from a photo'),
+                          subtitle: const Text(
+                              'Sent small and clean, like a sticker'),
                           onTap: () => Navigator.of(context)
-                              .pop(StickerChoice.photo(uri)),
-                          onLongPress: () =>
-                              _confirmRemove(context, uri),
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(12),
-                            child: _photoThumb(uri),
-                          ),
+                              .pop(const StickerChoice.fromNewPhoto()),
                         ),
+                        if (store.photos.isNotEmpty) ...[
+                          _label(context, 'YOUR STICKERS'),
+                          Wrap(
+                            spacing: 10,
+                            runSpacing: 10,
+                            children: [
+                              for (final uri in store.photos)
+                                GestureDetector(
+                                  onTap: () => Navigator.of(context)
+                                      .pop(StickerChoice.photo(uri)),
+                                  onLongPress: () =>
+                                      _confirmRemove(context, uri),
+                                  child: ClipRRect(
+                                    borderRadius: BorderRadius.circular(12),
+                                    child: _photoThumb(uri),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ],
+                        if (store.recent.isNotEmpty) ...[
+                          _label(context, 'RECENT'),
+                          _emojiGrid(context, store.recent),
+                        ],
+                        _label(context, 'STICKERS'),
+                        _emojiGrid(context, StickerStore.curated),
+                        // Any emoji, not just the curated set — the "custom
+                        // emoji" the search box finds, laid out to browse too.
+                        _label(context, 'ALL EMOJI'),
+                        _emojiGrid(context, EmojiData.all),
+                      ],
                     ],
                   ),
-                ],
-                if (store.recent.isNotEmpty) ...[
-                  _label(context, 'RECENT'),
-                  _emojiGrid(context, store.recent),
-                ],
-                _label(context, 'STICKERS'),
-                _emojiGrid(context, StickerStore.curated),
+                ),
               ],
             );
           },

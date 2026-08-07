@@ -7930,10 +7930,45 @@ void main() {
       expect(find.text('RECENT'), findsNothing,
           reason: 'a fresh account has no recents to show');
       expect(find.text('YOUR STICKERS'), findsNothing);
-      await tester.tap(find.text('🔥'));
+      // 🔥 is in both the curated grid and the full catalog; tap the first.
+      await tester.tap(find.text('🔥').first);
       await tester.pumpAndSettle();
       expect(picked?.emoji, '🔥');
       expect(picked?.newPhoto, isFalse);
+    });
+
+    testWidgets('searching finds any emoji, custom to the curated set',
+        (tester) async {
+      StickerStore.instance.resetForTest();
+      StickerChoice? picked;
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => Center(
+              child: ElevatedButton(
+                onPressed: () async {
+                  picked = await showStickerSheet(context);
+                },
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+      ));
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+
+      // A birthday cake isn't in the curated grid — you find it by searching.
+      expect(StickerStore.curated.contains('🎂'), isFalse);
+      await tester.enterText(find.byType(TextField), 'birthday');
+      await tester.pumpAndSettle();
+      // The browse sections give way to the matches.
+      expect(find.text('New sticker from a photo'), findsNothing);
+      expect(find.text('🎂'), findsWidgets);
+
+      await tester.tap(find.text('🎂').first);
+      await tester.pumpAndSettle();
+      expect(picked?.emoji, '🎂');
     });
 
     testWidgets('an emoji sticker renders big and bare — no bubble',
@@ -26199,6 +26234,34 @@ void main() {
       await t.pumpAndSettle();
       expect(NotesStore.instance.count, 1);
       expect(NotesStore.instance.notes.first.body, '[ ] Milk');
+    });
+
+    testWidgets('the sidebar has a Sign out button, confirmed before it acts',
+        (t) async {
+      t.view.physicalSize = const Size(390, 900);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.resetPhysicalSize);
+      await t.pumpWidget(const OkayMessagingApp());
+      await t.pumpAndSettle();
+      await t.tap(find.byTooltip('Open navigation menu'));
+      await t.pumpAndSettle();
+
+      // The Sign out row sits at the bottom of the drawer; scroll to it.
+      await t.dragUntilVisible(
+        find.text('Sign out'),
+        find.byType(ListView).first,
+        const Offset(0, -150),
+      );
+      await t.pumpAndSettle();
+      await t.tap(find.text('Sign out'));
+      await t.pumpAndSettle();
+
+      // A confirm dialog stands in front — the drawer is easy to brush.
+      expect(find.text('Sign out?'), findsOneWidget);
+      // Cancelling acts on nothing.
+      await t.tap(find.text('Cancel'));
+      await t.pumpAndSettle();
+      expect(find.text('Sign out?'), findsNothing);
     });
 
     testWidgets('Notes is in the sidebar, with the rest of the apps',

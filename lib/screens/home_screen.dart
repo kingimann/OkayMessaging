@@ -27,6 +27,7 @@ import 'nearby_share_screen.dart';
 import 'ai_chat_screen.dart';
 import 'contacts_screen.dart';
 import 'notes_screen.dart';
+import '../widgets/app_dialogs.dart';
 import 'marketplace_screen.dart';
 import 'public_feed_screen.dart';
 import 'settings_screen.dart';
@@ -512,6 +513,27 @@ class _AppSideBar extends StatelessWidget {
     Navigator.of(context).push(MaterialPageRoute(builder: (_) => screen));
   }
 
+  /// Sign out from the drawer — the same action Settings offers, one tap closer.
+  /// Confirmed first, because the drawer is easy to brush. Signing out keeps
+  /// this account's data on the device (switching accounts, not wiping); the
+  /// dialog says so. Back to the root so the login gate isn't left under a
+  /// stack of pushed routes.
+  Future<void> _signOut(BuildContext context) async {
+    final navigator = Navigator.of(context);
+    final ok = await showAppConfirmDialog(
+      context,
+      icon: Icons.logout,
+      title: 'Sign out?',
+      message: 'You can sign back in anytime. This account\'s chats and data '
+          'stay on this device.',
+      confirmLabel: 'Sign out',
+      destructive: true,
+    );
+    if (!ok) return;
+    await Session.instance.signOut();
+    navigator.popUntil((route) => route.isFirst);
+  }
+
   /// One app row by its [SidebarPrefs] id. The drawer draws these in the
   /// user's order; the customize screen only needs names and icons, so this
   /// stays the single place a row's destination and gates live.
@@ -706,6 +728,12 @@ class _AppSideBar extends StatelessWidget {
                 leading: const Icon(Icons.settings_outlined),
                 title: const Text('Settings'),
                 onTap: () => _go(context, const SettingsScreen()),
+              ),
+              ListTile(
+                leading: const Icon(Icons.logout, color: Colors.red),
+                title: const Text('Sign out',
+                    style: TextStyle(color: Colors.red)),
+                onTap: () => _signOut(context),
               ),
               const SizedBox(height: 12),
               Padding(
