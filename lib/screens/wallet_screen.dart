@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../state/parental_controls.dart';
 import '../widgets/parental_gate.dart';
 import '../widgets/phone_gate.dart';
 
 import '../payments/payment_service.dart';
+import '../payments/stripe_sheet.dart';
 import '../payments/storage_economics.dart';
 import 'add_debit_card_screen.dart';
 import 'change_bank_screen.dart';
@@ -175,25 +177,60 @@ class _WalletScreenState extends State<WalletScreen> {
     try {
       final ok = await PaymentService.instance.addMoney(amountCents: cents);
       if (!mounted) return;
-      messenger.showSnackBar(SnackBar(
-          content: Text(ok
-              ? 'Added to your wallet. It lands in a moment.'
-              : 'That didn\'t go through — nothing was charged.')));
-      if (ok) _refresh();
+      if (ok) {
+        messenger.showSnackBar(const SnackBar(
+            content: Text('Added to your wallet. It lands in a moment.')));
+        _refresh();
+      } else {
+        // false with no captured error is a plain cancel; anything else is a
+        // real failure whose reason is now on lastError.
+        final why = StripeSheet.lastError;
+        if (why == null || why.trim().isEmpty) {
+          messenger.showSnackBar(const SnackBar(
+              content: Text('That didn\'t go through — nothing was charged.')));
+        } else {
+          _showTopUpError(why);
+        }
+      }
     } on PaymentException catch (e) {
       if (!mounted) return;
-      messenger.showSnackBar(
-          SnackBar(content: Text(_addMoneyError(e.code))));
+      _showTopUpError(_addMoneyError(e.code));
     } catch (e) {
       // A failure that ISN'T a PaymentException — the top-up function not
       // deployed, or the network — used to escape here and the button just
-      // did nothing. Say so instead of swallowing it.
+      // did nothing. Show the friendly line AND the raw reason so it can be
+      // read, not swallowed.
       if (!mounted) return;
-      messenger.showSnackBar(const SnackBar(
-          content: Text(
-              'Couldn\'t reach the top-up service. It may not be set up '
-              'yet — try again shortly.')));
+      _showTopUpError(
+          'Couldn\'t reach the top-up service. It may not be set up yet — '
+          'try again shortly.\n\nDetails: ${e.toString()}');
     }
+  }
+
+  /// A PERSISTENT, copyable error — not a snackbar that vanishes before it can
+  /// be read. When a top-up fails at the card step the exact reason is the
+  /// whole game, so it stays on screen with a Copy button until dismissed.
+  void _showTopUpError(String message) {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Couldn\'t add money'),
+        content: SelectableText(message),
+        actions: [
+          TextButton(
+            onPressed: () async {
+              await Clipboard.setData(ClipboardData(text: message));
+              if (dialogContext.mounted) Navigator.of(dialogContext).pop();
+            },
+            child: const Text('Copy'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
   }
 
   bool _cashingOut = false;

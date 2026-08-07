@@ -481,9 +481,16 @@ class _ChatInputBarState extends State<ChatInputBar> {
                 },
                 decoration: const InputDecoration(
                   hintText: 'Message',
+                  // filled:false is the point — the app-wide theme fills every
+                  // field, which drew a squared box inside this rounded card
+                  // that didn't match it. Off, the text sits straight on the
+                  // card. Roomier vertical padding so the field isn't cramped.
+                  filled: false,
                   border: InputBorder.none,
+                  enabledBorder: InputBorder.none,
+                  focusedBorder: InputBorder.none,
                   isCollapsed: true,
-                  contentPadding: EdgeInsets.symmetric(vertical: 6),
+                  contentPadding: EdgeInsets.symmetric(vertical: 11),
                 ),
                 onSubmitted: enterToSend ? (_) => _send() : null,
               ),

@@ -684,9 +684,14 @@ class _AiChatScreenState extends State<AiChatScreen> {
                     textCapitalization: TextCapitalization.sentences,
                     decoration: const InputDecoration(
                       hintText: 'Message Okay AI',
+                      // Off, so the theme's field fill doesn't draw a squared
+                      // box inside this rounded card. Roomier vertical padding.
+                      filled: false,
                       border: InputBorder.none,
+                      enabledBorder: InputBorder.none,
+                      focusedBorder: InputBorder.none,
                       isCollapsed: true,
-                      contentPadding: EdgeInsets.symmetric(vertical: 6),
+                      contentPadding: EdgeInsets.symmetric(vertical: 11),
                     ),
                     onSubmitted: (_) => _send(),
                   ),
