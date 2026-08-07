@@ -648,12 +648,13 @@ class _AiChatScreenState extends State<AiChatScreen> {
     // controls (plus on the left, send on the right) along the bottom.
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final fieldColor = isDark ? AppColors.darkAppBar : const Color(0xFFEFF1F3);
-    final border = isDark ? const Color(0xFF33363B) : const Color(0xFFE2E5E9);
+    final border = isDark ? const Color(0xFF2C2F34) : const Color(0xFFEAECEF);
+    final iconTint = isDark ? Colors.white70 : const Color(0xFF6B7280);
     return SafeArea(
       top: false,
-      minimum: const EdgeInsets.only(bottom: 6),
+      minimum: const EdgeInsets.only(bottom: 8),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(10, 4, 10, 6),
+        padding: const EdgeInsets.fromLTRB(10, 4, 10, 8),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -661,10 +662,17 @@ class _AiChatScreenState extends State<AiChatScreen> {
             Container(
               decoration: BoxDecoration(
                 color: fieldColor,
-                borderRadius: BorderRadius.circular(24),
-                border: Border.all(color: border, width: 0.8),
+                borderRadius: BorderRadius.circular(26),
+                border: Border.all(color: border, width: 1),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: isDark ? 0.22 : 0.05),
+                    blurRadius: 12,
+                    offset: const Offset(0, 3),
+                  ),
+                ],
               ),
-              padding: const EdgeInsets.fromLTRB(16, 4, 6, 6),
+              padding: const EdgeInsets.fromLTRB(18, 6, 8, 8),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -690,14 +698,10 @@ class _AiChatScreenState extends State<AiChatScreen> {
                         builder: (context, _) => IconButton(
                           onPressed:
                               AiAssistant.instance.sending ? null : _attach,
-                          icon: const Icon(Icons.add),
+                          icon: const Icon(Icons.add_circle_outline),
                           tooltip: 'Attach a photo or file',
                           visualDensity: VisualDensity.compact,
-                          color: isDark ? Colors.white70 : Colors.black54,
-                          style: IconButton.styleFrom(
-                            shape:
-                                CircleBorder(side: BorderSide(color: border)),
-                          ),
+                          color: iconTint,
                         ),
                       ),
                       const Spacer(),

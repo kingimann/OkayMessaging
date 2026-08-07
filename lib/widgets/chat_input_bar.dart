@@ -433,18 +433,27 @@ class _ChatInputBarState extends State<ChatInputBar> {
 
   Widget _buildComposer(bool isDark, Color fieldColor) {
     // One rounded card: the message across the top, the controls along the
-    // bottom — the plus on the left, the send/mic on the right. A softer,
-    // roomier shape than the old single-row pill.
-    final border = isDark ? const Color(0xFF33363B) : const Color(0xFFE2E5E9);
+    // bottom — the plus on the left, the send/mic on the right. A soft,
+    // floating pill-card: no hard border, just a faint edge and a low shadow
+    // for lift, with one accent (send) among evenly muted glyphs.
+    final border = isDark ? const Color(0xFF2C2F34) : const Color(0xFFEAECEF);
+    final iconTint = isDark ? Colors.white70 : const Color(0xFF6B7280);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(10, 4, 10, 6),
+      padding: const EdgeInsets.fromLTRB(10, 4, 10, 8),
       child: Container(
         decoration: BoxDecoration(
           color: fieldColor,
-          borderRadius: BorderRadius.circular(24),
-          border: Border.all(color: border, width: 0.8),
+          borderRadius: BorderRadius.circular(26),
+          border: Border.all(color: border, width: 1),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: isDark ? 0.22 : 0.05),
+              blurRadius: 12,
+              offset: const Offset(0, 3),
+            ),
+          ],
         ),
-        padding: const EdgeInsets.fromLTRB(16, 4, 6, 6),
+        padding: const EdgeInsets.fromLTRB(18, 6, 8, 8),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -488,13 +497,10 @@ class _ChatInputBarState extends State<ChatInputBar> {
                 // bar stays lean. Fires onAttach when the caller gave no
                 // inline options.
                 IconButton(
-                  icon: Icon(_attachOpen ? Icons.close : Icons.add),
-                  color: isDark ? Colors.white70 : Colors.black54,
+                  icon: Icon(_attachOpen ? Icons.close : Icons.add_circle_outline),
+                  color: iconTint,
                   tooltip: 'Attach',
                   visualDensity: VisualDensity.compact,
-                  style: IconButton.styleFrom(
-                    shape: CircleBorder(side: BorderSide(color: border)),
-                  ),
                   onPressed: widget.attachments.isEmpty
                       ? widget.onAttach
                       : () => setState(() {
@@ -510,7 +516,7 @@ class _ChatInputBarState extends State<ChatInputBar> {
                 IconButton(
                   icon: Icon(
                       _emojiOpen ? Icons.keyboard : Icons.emoji_emotions_outlined),
-                  color: Colors.grey,
+                  color: iconTint,
                   tooltip: 'Emoji',
                   visualDensity: VisualDensity.compact,
                   onPressed: () => setState(() {
@@ -526,7 +532,7 @@ class _ChatInputBarState extends State<ChatInputBar> {
                 if (widget.onSendGif != null)
                   IconButton(
                     icon: const Icon(Icons.gif_box_outlined),
-                    color: Colors.grey,
+                    color: iconTint,
                     tooltip: 'GIF',
                     visualDensity: VisualDensity.compact,
                     onPressed: () async {
@@ -549,15 +555,15 @@ class _ChatInputBarState extends State<ChatInputBar> {
                 if (_hasText && widget.onSchedule != null)
                   IconButton(
                     icon: const Icon(Icons.schedule),
-                    color: Colors.grey,
+                    color: iconTint,
                     tooltip: 'Send later',
                     visualDensity: VisualDensity.compact,
                     onPressed: _schedule,
                   ),
                 const SizedBox(width: 2),
-                // Send is a filled accent circle; an idle mic is a quiet
-                // outlined one (like the plus) rather than a heavy filled
-                // button that dominates an empty composer.
+                // The single accent: a filled circle for send when there's
+                // something to send, a quiet muted mic (matching the other
+                // glyphs) when the composer is empty.
                 GestureDetector(
                   onTap: _hasText ? _send : _startRecording,
                   onLongPress: _hasText ? _schedule : null,
@@ -566,26 +572,21 @@ class _ChatInputBarState extends State<ChatInputBar> {
                     transitionBuilder: (child, animation) =>
                         ScaleTransition(scale: animation, child: child),
                     child: _hasText
-                        ? CircleAvatar(
+                        ? Container(
                             key: const ValueKey(true),
-                            radius: 20,
-                            backgroundColor: AppColors.accentOn(context),
-                            child: Icon(Icons.send,
-                                size: 19, color: AppColors.onAccent(context)),
-                          )
-                        : Container(
-                            key: const ValueKey(false),
                             width: 40,
                             height: 40,
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
-                              border: Border.all(color: border),
+                              color: AppColors.accentOn(context),
                             ),
-                            child: Icon(Icons.mic,
-                                size: 20,
-                                color: isDark
-                                    ? Colors.white70
-                                    : Colors.black54),
+                            child: Icon(Icons.send,
+                                size: 19, color: AppColors.onAccent(context)),
+                          )
+                        : Padding(
+                            key: const ValueKey(false),
+                            padding: const EdgeInsets.all(8),
+                            child: Icon(Icons.mic, size: 22, color: iconTint),
                           ),
                   ),
                 ),
