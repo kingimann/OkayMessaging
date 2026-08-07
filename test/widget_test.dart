@@ -836,6 +836,34 @@ void main() {
     await tester.pump();
   });
 
+  testWidgets('picking a location offers the current location outright',
+      (tester) async {
+    // The full-bleed map lost its locate button, leaving only long-press —
+    // which can't be found before a GPS fix lands. Picking mode now offers the
+    // current location as its own primary action, so sharing where you are
+    // works without hunting for a hidden gesture.
+    await tester.pumpWidget(const MaterialApp(
+      home: ExploreMapScreen(picking: true, debugMyLocation: LatLng(43.6, -79.3)),
+    ));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(find.text('Send my current location'), findsOneWidget);
+    expect(find.byIcon(Icons.my_location), findsOneWidget);
+
+    // The same map opened for browsing (not picking) shows no such bar — it is
+    // the pick action, not a permanent fixture.
+    await tester.pumpWidget(const MaterialApp(
+      home: ExploreMapScreen(debugMyLocation: LatLng(43.6, -79.3)),
+    ));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text('Send my current location'), findsNothing);
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump();
+  });
+
   testWidgets('the chat header has no overflow menu, and strands nothing',
       (tester) async {
     // Asked for: the three dots are off this bar. The four things behind

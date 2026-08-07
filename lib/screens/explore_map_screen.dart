@@ -76,6 +76,7 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
   LatLng? _me;
   GeoResult? _selected;
   bool _resolvingPin = false;
+  bool _sendingCurrent = false;
 
   Timer? _locTimer;
   @override
@@ -172,6 +173,32 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
             lng: point.longitude,
           );
     });
+  }
+
+  /// Picking mode's primary action: send where you are right now. The full-bleed
+  /// map has no locate button, and before a GPS fix lands there is nothing on
+  /// screen to pick — so "share my location" needs its own button, or it can't
+  /// be done at all. Reverse-geocoded so it arrives as a street, not two numbers.
+  Future<void> _sendCurrentLocation() async {
+    if (_sendingCurrent) return;
+    setState(() => _sendingCurrent = true);
+    var me = _me;
+    if (me == null) {
+      await _locate(recenter: true);
+      me = _me;
+    }
+    if (!mounted) return;
+    if (me == null) {
+      setState(() => _sendingCurrent = false);
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content:
+              Text('Turn on location access to share where you are.')));
+      return;
+    }
+    final place = await reverseGeocode(me.latitude, me.longitude);
+    if (!mounted) return;
+    Navigator.of(context).pop(place ??
+        GeoResult(name: 'My location', lat: me.latitude, lng: me.longitude));
   }
 
   void _sendToChat() {
@@ -329,7 +356,58 @@ class _ExploreMapScreenState extends State<ExploreMapScreen> {
                 ),
               ),
             ),
+          // Picking for a chat, nothing chosen yet: offer the current location
+          // outright, since there is no other button to reach it.
+          if (widget.picking && selected == null)
+            Positioned(
+              left: 12,
+              right: 12,
+              bottom: 20,
+              child: SafeArea(
+                child: _MeasuredHeight(
+                  onHeight: (h) => _setBottomOverlay(h + 20),
+                  child: _pickingBar(context),
+                ),
+              ),
+            ),
         ],
+      ),
+    );
+  }
+
+  Widget _pickingBar(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Material(
+      elevation: 6,
+      borderRadius: BorderRadius.circular(16),
+      color: scheme.surface,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            FilledButton.icon(
+              onPressed: _sendingCurrent ? null : _sendCurrentLocation,
+              icon: _sendingCurrent
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Icon(Icons.my_location, size: 18),
+              label: Text(_sendingCurrent
+                  ? 'Finding you…'
+                  : 'Send my current location'),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Or long-press the map to drop a pin, or tap a saved place.',
+              textAlign: TextAlign.center,
+              style:
+                  TextStyle(fontSize: 12.5, color: scheme.onSurfaceVariant),
+            ),
+          ],
+        ),
       ),
     );
   }

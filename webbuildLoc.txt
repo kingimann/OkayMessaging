@@ -1,0 +1,75 @@
+   Woah! You appear to be trying to run flutter as root.
+   We strongly recommend running the flutter tool without superuser privileges.
+  /
+📎
+Resolving dependencies...
+Downloading packages...
+  cli_util 0.4.2 (0.5.2 available)
+  dio 5.10.0 (5.11.0 available)
+  dio_web_adapter 2.2.0 (2.2.1 available)
+  file_picker 11.0.2 (11.0.3 available)
+  flutter_contacts 2.3.0 (2.3.1 available)
+  flutter_lints 3.0.2 (6.0.0 available)
+  flutter_map_cancellable_tile_provider 3.1.1 (discontinued replaced by flutter_map)
+  flutter_secure_storage 9.2.4 (11.0.0 available)
+  flutter_secure_storage_linux 1.2.3 (3.0.2 available)
+  flutter_secure_storage_macos 3.1.3 (4.0.0 available)
+  flutter_secure_storage_platform_interface 1.1.2 (2.0.3 available)
+  flutter_secure_storage_web 1.2.1 (2.1.1 available)
+  flutter_secure_storage_windows 3.1.2 (4.2.2 available)
+  flutter_stripe 11.5.0 (13.1.0 available)
+  flutter_webrtc 1.5.2 (1.6.0 available)
+  freezed_annotation 2.4.4 (3.1.0 available)
+  functions_client 2.6.4 (2.7.1 available)
+  geolocator 14.0.2 (14.0.3 available)
+  geolocator_linux 0.2.4 (0.2.6 available)
+  google_mobile_ads 6.0.0 (9.0.0 available)
+  gotrue 2.26.0 (2.27.1 available)
+  hooks 2.0.2 (2.1.0 available)
+  image 4.8.0 (4.9.1 available)
+  intl 0.19.0 (0.20.3 available)
+  jni 1.0.0 (1.0.3 available)
+  jni_flutter 1.0.1 (1.0.2 available)
+  js 0.6.7 (0.7.2 available)
+  lints 3.0.0 (6.1.0 available)
+  matcher 0.12.19 (0.12.20 available)
+  meta 1.18.0 (1.19.0 available)
+  objective_c 9.4.1 (9.5.0 available)
+  package_config 2.2.0 (3.0.0 available)
+  package_info_plus 9.0.1 (10.2.1 available)
+  package_info_plus_platform_interface 3.2.1 (4.1.0 available)
+  posix 6.5.0 (6.5.2 available)
+  postgrest 2.8.0 (2.9.1 available)
+  qr 3.0.2 (4.0.0 available)
+  realtime_client 2.11.0 (2.13.0 available)
+  record 5.2.1 (7.1.1 available)
+  record_android 1.5.2 (2.1.2 available)
+! record_linux 1.3.1 (overridden) (2.1.1 available)
+  record_platform_interface 1.6.0 (2.1.0 available)
+  record_use 0.6.0 (1.0.0 available)
+  record_web 1.3.0 (2.1.2 available)
+  record_windows 1.0.7 (2.2.3 available)
+  share_plus 10.1.4 (13.3.0 available)
+  share_plus_platform_interface 5.0.2 (7.2.0 available)
+  storage_client 2.6.0 (2.8.0 available)
+  stripe_android 11.5.0 (13.1.0 available)
+  stripe_ios 11.5.0 (13.1.0 available)
+  stripe_platform_interface 11.5.0 (13.1.0 available)
+  supabase 2.14.0 (2.16.0 available)
+  supabase_flutter 2.16.0 (2.17.1 available)
+  test_api 0.7.11 (0.7.13 available)
+  vector_math 2.2.0 (2.4.2 available)
+  win32 5.15.0 (6.4.0 available)
+  xml 6.6.1 (7.0.1 available)
+Got dependencies!
+1 package is discontinued.
+56 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+Compiling lib/main.dart for the Web...                          
+Wasm dry run succeeded. Consider building and testing your application with the `--wasm` flag. See docs for more info: https://docs.flutter.dev/platform-integration/web/wasm
+Use --no-wasm-dry-run to disable these warnings.
+Font asset "CupertinoIcons.ttf" was tree-shaken, reducing it from 257628 to 1472 bytes (99.4% reduction). Tree-shaking can be disabled by providing the --no-tree-shake-icons flag when building your app.
+Font asset "MaterialIcons-Regular.otf" was tree-shaken, reducing it from 1645184 to 64876 bytes (96.1% reduction). Tree-shaking can be disabled by providing the --no-tree-shake-icons flag when building your app.
+Compiling lib/main.dart for the Web...                             86.2s
+✓ Built build/web
+WEBEXIT:0
