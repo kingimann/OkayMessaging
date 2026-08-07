@@ -62,6 +62,26 @@ class RoleEntry {
           : phone;
 }
 
+/// One account in the admin roster: a handle, a name, and flags. Never a phone
+/// — the roster window (admin_list_users) doesn't return one. [numberless] is a
+/// name-only signup (its key is an account code, not a phone number).
+class AdminUser {
+  final String username;
+  final String name;
+  final bool verified;
+  final bool hidden;
+  final bool numberless;
+  const AdminUser({
+    required this.username,
+    this.name = '',
+    this.verified = false,
+    this.hidden = false,
+    this.numberless = false,
+  });
+
+  String get label => name.isNotEmpty ? name : '@$username';
+}
+
 /// A sanction plus who it is on — the admin console's row.
 class SanctionEntry {
   final String phone;
@@ -291,6 +311,44 @@ class PlatformModeration extends ChangeNotifier {
     ];
   }
 
+  /// Test hook: stands in for the admin roster (count + rows).
+  @visibleForTesting
+  static Future<(int, List<AdminUser>)?> Function()? debugUsersOverride;
+
+  /// The whole account roster and its total size — owner/admin only, and that
+  /// is enforced server-side inside the RPCs. Unlike reports or sanctions this
+  /// lists EVERY account, including the name-only signups that show up nowhere
+  /// else. Null when the server refuses or docs/admin_users.sql isn't deployed.
+  Future<(int, List<AdminUser>)?> allUsers({int limit = 300}) async {
+    final override = debugUsersOverride;
+    if (override != null) return override();
+    final client = _client;
+    if (client == null) return null;
+    try {
+      final countRes = await client.rpc('admin_user_count');
+      final rows = await client
+          .rpc('admin_list_users', params: {'lim': limit, 'off': 0});
+      final list = <AdminUser>[];
+      if (rows is List) {
+        for (final r in rows) {
+          if (r is Map) {
+            list.add(AdminUser(
+              username: r['username'] as String? ?? '',
+              name: r['name'] as String? ?? '',
+              verified: r['verified'] == true,
+              hidden: r['hidden'] == true,
+              numberless: r['numberless'] == true,
+            ));
+          }
+        }
+      }
+      final total = countRes is num ? countRes.toInt() : list.length;
+      return (total, list);
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Grants (or, with [PlatformRole.member], revokes) a role. Owner only —
   /// enforced server-side; 'owner' itself can never be assigned from the
   /// app, and the server refuses changes to the owner's own row.
@@ -386,6 +444,8 @@ class PlatformModeration extends ChangeNotifier {
     debugActOverride = null;
     debugReportsOverride = null;
     debugFileOverride = null;
+    debugSanctionsOverride = null;
+    debugUsersOverride = null;
     notifyListeners();
   }
 }

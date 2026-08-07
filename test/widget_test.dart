@@ -37213,6 +37213,43 @@ void main() {
       }
     });
 
+    testWidgets('the Users tab shows the whole roster, name-only included',
+        (tester) async {
+      final store = PlatformModeration.instance;
+      store.debugSet(role: PlatformRole.admin, loaded: true);
+      addTearDown(store.resetForTest);
+      PlatformModeration.debugReportsOverride = () async => const [];
+      PlatformModeration.debugSanctionsOverride = () async => const [];
+      PlatformModeration.debugUsersOverride = () async => (
+            42,
+            const [
+              AdminUser(
+                  username: 'ada', name: 'Ada Lovelace', verified: true),
+              AdminUser(username: 'codeonly', numberless: true),
+            ]
+          );
+      addTearDown(() {
+        PlatformModeration.debugReportsOverride = null;
+        PlatformModeration.debugSanctionsOverride = null;
+        PlatformModeration.debugUsersOverride = null;
+      });
+      tester.view.physicalSize = const Size(500, 1800);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(const MaterialApp(home: AdminScreen()));
+      await tester.pumpAndSettle();
+
+      // The segment carries the total count, and opens the roster.
+      expect(find.textContaining('Users (42)'), findsOneWidget);
+      await tester.tap(find.textContaining('Users (42)'));
+      await tester.pumpAndSettle();
+      expect(find.text('Ada Lovelace'), findsOneWidget);
+      // A name-only signup appears and is marked as such — the whole point.
+      expect(find.textContaining('@codeonly'), findsWidgets);
+      expect(find.textContaining('name-only'), findsWidgets);
+    });
+
     testWidgets('the queue groups reports by account, standing sanction '
         'named first', (tester) async {
       final store = PlatformModeration.instance;

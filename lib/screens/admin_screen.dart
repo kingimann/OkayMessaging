@@ -20,13 +20,14 @@ class AdminScreen extends StatefulWidget {
   State<AdminScreen> createState() => _AdminScreenState();
 }
 
-enum _Tab { reports, sanctions, team }
+enum _Tab { reports, sanctions, team, users }
 
 class _AdminScreenState extends State<AdminScreen> {
   _Tab _tab = _Tab.reports;
   List<ModerationReport>? _reports;
   List<SanctionEntry>? _sanctions;
   List<RoleEntry>? _team;
+  (int, List<AdminUser>)? _users;
   bool _busy = false;
 
   @override
@@ -40,14 +41,17 @@ class _AdminScreenState extends State<AdminScreen> {
     final store = PlatformModeration.instance;
     final reports = await store.reports();
     final sanctions = await store.sanctions();
-    // The team list is the owner's alone — the server refuses everyone
-    // else, so nobody else pays for the round trip.
+    // The team list and the whole-directory roster are the owner/admin's
+    // alone — the server refuses everyone else, so nobody else pays for the
+    // round trip.
     final team = store.isOwner ? await store.teamRoles() : null;
+    final users = store.canAdminister ? await store.allUsers() : null;
     if (!mounted) return;
     setState(() {
       _reports = reports;
       _sanctions = sanctions;
       _team = team;
+      _users = users;
       _busy = false;
     });
   }
@@ -94,6 +98,12 @@ class _AdminScreenState extends State<AdminScreen> {
                     value: _Tab.team,
                     label: Text('Team'),
                   ),
+                if (store.canAdminister)
+                  ButtonSegment(
+                    value: _Tab.users,
+                    label: Text('Users'
+                        '${_users == null ? '' : ' (${_users!.$1})'}'),
+                  ),
               ],
               selected: {_tab},
               onSelectionChanged: (s) => setState(() => _tab = s.first),
@@ -108,8 +118,10 @@ class _AdminScreenState extends State<AdminScreen> {
             ..._reportList(context)
           else if (_tab == _Tab.sanctions)
             ..._sanctionList(context)
+          else if (_tab == _Tab.team)
+            ..._teamList(context)
           else
-            ..._teamList(context),
+            ..._userList(context),
         ],
       ),
     );
@@ -460,6 +472,76 @@ class _AdminScreenState extends State<AdminScreen> {
                 style: TextStyle(color: AppColors.subtle(context))),
           ),
       ],
+    ];
+  }
+
+  List<Widget> _userList(BuildContext context) {
+    final users = _users;
+    if (users == null) {
+      return [
+        Padding(
+          padding: const EdgeInsets.all(24),
+          child: Text(
+            'Couldn\'t load the roster. Run docs/admin_users.sql and refresh.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: AppColors.subtle(context)),
+          ),
+        ),
+      ];
+    }
+    final (total, list) = users;
+    final numberless = list.where((u) => u.numberless).length;
+    return [
+      Padding(
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+        child: Text(
+          '$total ${total == 1 ? 'account' : 'accounts'} · '
+          '$numberless name-only in this page',
+          style: TextStyle(
+              fontSize: 12.5,
+              fontWeight: FontWeight.w600,
+              color: AppColors.subtle(context)),
+        ),
+      ),
+      for (final u in list)
+        ListTile(
+          leading: CircleAvatar(
+            radius: 18,
+            child: Text(u.username.isEmpty
+                ? '?'
+                : u.username[0].toUpperCase()),
+          ),
+          title: Row(
+            children: [
+              Flexible(
+                child: Text(u.label,
+                    maxLines: 1, overflow: TextOverflow.ellipsis),
+              ),
+              if (u.verified) ...[
+                const SizedBox(width: 4),
+                const Icon(Icons.verified, size: 15, color: Color(0xFF3897F0)),
+              ],
+            ],
+          ),
+          subtitle: Text([
+            '@${u.username}',
+            if (u.numberless) 'name-only',
+            if (u.hidden) 'deactivated',
+          ].join(' · ')),
+          trailing: IconButton(
+            icon: const Icon(Icons.gavel, size: 20),
+            tooltip: 'Act on account',
+            onPressed: () =>
+                _actOn(context, phone: '', handle: u.username),
+          ),
+        ),
+      if (list.isEmpty)
+        Padding(
+          padding: const EdgeInsets.all(24),
+          child: Text('No accounts yet.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: AppColors.subtle(context))),
+        ),
     ];
   }
 
