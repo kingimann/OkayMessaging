@@ -2036,9 +2036,17 @@ class PublicFeedStore extends ChangeNotifier {
       return 'The public feed isn\'t set up on the server yet.\n\n'
           '(run docs/public_feed.sql)';
     }
-    if (text.contains('row-level security') || text.contains('42501')) {
+    if (text.contains('row-level security')) {
       return 'You can\'t post right now. If your account is timed out or '
           'suspended, posting comes back when that ends.';
+    }
+    // A bare permission error (42501) is a SERVER-SETUP gap, not a sanction —
+    // most often a feed column the anon/authenticated role was never granted.
+    // Saying "you're suspended" for it sent people chasing a lockout that
+    // wasn't theirs. Name the real thing.
+    if (text.contains('42501')) {
+      return 'The feed couldn\'t be loaded. Pull to refresh, or try again in a '
+          'moment.';
     }
     if (text.contains('public_posts_body_check')) {
       return 'That post is too long.';
