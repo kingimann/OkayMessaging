@@ -6,8 +6,13 @@ import '../widgets/parental_gate.dart';
 
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';
+import 'package:record/record.dart';
 
 import '../app_state.dart';
 import '../models/community.dart';
@@ -20,7 +25,9 @@ import '../mesh/nearby_servers.dart';
 import '../state/community_store.dart';
 import '../state/platform_moderation.dart';
 import '../state/channel_typing_store.dart';
+import '../state/voice_media.dart';
 import '../state/voice_presence_store.dart';
+import '../util/haptics.dart';
 import '../util/file_moderation.dart';
 import '../util/photo_prep.dart';
 import '../state/feed_store.dart';
@@ -37,6 +44,7 @@ import '../payments/payment_service.dart';
 import '../widgets/rich_message_text.dart';
 import '../widgets/spark_sheet.dart';
 import '../widgets/user_avatar.dart';
+import '../widgets/voice_note_bubble.dart';
 import 'community_settings_screen.dart';
 import 'create_server_screen.dart';
 import 'feed_screen.dart';
@@ -1649,6 +1657,12 @@ class _VoiceChannelScreenState extends State<VoiceChannelScreen> {
 /// A channel's message view: a simple list plus a composer. Announcement
 /// channels look the same but read as broadcast posts.
 class ChannelScreen extends StatefulWidget {
+  /// Test seam: when set, a voice-note recording skips the real microphone and
+  /// this supplies the captured clip's raw bytes. Mirrors
+  /// [ChatInputBar.debugCaptureOverride] — there is no mic in a test.
+  @visibleForTesting
+  static Future<Uint8List?> Function()? debugCaptureOverride;
+
   final String communityId;
   final String channelId;
   const ChannelScreen(
@@ -1669,6 +1683,26 @@ class _ChannelScreenState extends State<ChannelScreen> {
 
   /// When the local user last sent here — what slow mode counts from.
   DateTime? _lastSentAt;
+
+  // Voice notes — the same recorder the 1:1/group composer uses, so a channel
+  // clip records, rides the relay and plays back identically.
+  bool _recording = false;
+  int _recordSeconds = 0;
+  Timer? _recordTimer;
+  final AudioRecorder _recorder = AudioRecorder();
+
+  /// The composer auto-stops here, the same ceiling the chat composer uses so
+  /// a clip always fits the bucket (and a short one the relay envelope).
+  static const int _maxVoiceSeconds = 300;
+
+  Future<Uint8List?> Function()? get _debugCaptureOverride =>
+      ChannelScreen.debugCaptureOverride;
+
+  String get _recordLabel {
+    final m = _recordSeconds ~/ 60;
+    final s = _recordSeconds % 60;
+    return '$m:${s.toString().padLeft(2, '0')}';
+  }
 
   /// The first message that was unread when this screen opened. Captured once,
   /// so the "new messages" divider stays put instead of jumping as the screen
@@ -1746,6 +1780,8 @@ class _ChannelScreenState extends State<ChannelScreen> {
 
   @override
   void dispose() {
+    _recordTimer?.cancel();
+    _recorder.dispose();
     _controller.dispose();
     _search.dispose();
     _scroll
@@ -1838,6 +1874,197 @@ class _ChannelScreenState extends State<ChannelScreen> {
         senderName: AppState.profile.value.name,
       );
     }
+  }
+
+  Future<void> _startRecording() async {
+    if (!_sendAllowed()) return;
+    // No permission, no recording — and no fake bubble either. Skipped under
+    // the test seam, which has no mic to ask.
+    if (_debugCaptureOverride == null && !await _recorder.hasPermission()) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Microphone access is needed for voice notes.')));
+      }
+      return;
+    }
+    Haptics.press();
+    setState(() {
+      _recording = true;
+      _recordSeconds = 0;
+    });
+    if (_debugCaptureOverride == null) {
+      try {
+        final path = kIsWeb
+            ? ''
+            : '${(await getTemporaryDirectory()).path}/'
+                'vn_${DateTime.now().microsecondsSinceEpoch}.m4a';
+        await _recorder.start(
+          const RecordConfig(
+              encoder: AudioEncoder.aacLc,
+              bitRate: 20000,
+              sampleRate: 22050,
+              numChannels: 1),
+          path: path,
+        );
+      } catch (_) {
+        _recordTimer?.cancel();
+        if (mounted) setState(() => _recording = false);
+        return;
+      }
+    }
+    _recordTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      setState(() => _recordSeconds++);
+      if (_recordSeconds >= _maxVoiceSeconds) _finishRecording();
+    });
+  }
+
+  Future<void> _cancelRecording() async {
+    _recordTimer?.cancel();
+    if (_debugCaptureOverride == null) {
+      try {
+        await _recorder.stop();
+      } catch (_) {}
+    }
+    if (mounted) setState(() => _recording = false);
+  }
+
+  Future<void> _finishRecording() async {
+    _recordTimer?.cancel();
+    Haptics.tap();
+    final seconds = _recordSeconds < 1 ? 1 : _recordSeconds;
+    if (mounted) setState(() => _recording = false);
+
+    Uint8List? bytes;
+    if (_debugCaptureOverride != null) {
+      bytes = await _debugCaptureOverride!();
+    } else {
+      String? path;
+      try {
+        path = await _recorder.stop();
+      } catch (_) {}
+      bytes = path == null ? null : await _readAudio(path);
+    }
+    if (bytes == null || bytes.isEmpty) {
+      _voiceError('Couldn\'t save that voice note — try again.');
+      return;
+    }
+    _handleSendVoice(seconds, bytes);
+  }
+
+  /// Posts a captured clip into the channel. Short enough to ride the relay
+  /// inline → a `data:` URI; longer → sealed into the voice-notes bucket, only
+  /// the path + key on the wire — the exact split the 1:1 composer makes.
+  Future<void> _handleSendVoice(int seconds, Uint8List bytes) async {
+    _lastSentAt = DateTime.now();
+    final b64 = base64Encode(bytes);
+    if (b64.length <= PhotoPrep.maxBase64Length) {
+      _postVoice(seconds, audioUrl: 'data:audio/mp4;base64,$b64');
+      return;
+    }
+    try {
+      final up = await VoiceMedia.instance.upload(bytes);
+      _postVoice(seconds, audioPath: up.path, audioKey: up.key);
+    } on VoiceMediaError catch (e) {
+      _voiceError(e.reason);
+    } catch (_) {
+      _voiceError('Couldn\'t upload that voice note — check your connection.');
+    }
+  }
+
+  void _postVoice(int seconds,
+      {String? audioUrl, String? audioPath, String? audioKey}) {
+    final reply = _replyTo;
+    final now = DateTime.now();
+    _post(Message(
+      id: 'ch_vn_${now.microsecondsSinceEpoch}',
+      text: '',
+      time: now,
+      isMe: true,
+      status: MessageStatus.sent,
+      isVoice: true,
+      voiceSeconds: seconds,
+      audioUrl: audioUrl,
+      audioPath: audioPath,
+      audioKey: audioKey,
+      replyTo: reply == null
+          ? null
+          : ReplyInfo(
+              senderName: reply.isMe
+                  ? 'You'
+                  : (reply.senderName.isEmpty ? 'Member' : reply.senderName),
+              text: reply.isImage ? 'Photo' : reply.text,
+              isMe: reply.isMe,
+              messageId: reply.id,
+            ),
+    ));
+    if (mounted) setState(() => _replyTo = null);
+  }
+
+  void _voiceError(String message) {
+    if (mounted) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(message)));
+    }
+  }
+
+  /// The recorded clip's raw bytes. On the web `stop()` hands back a `blob:`
+  /// URL whose bytes are fetched; elsewhere it is a file path.
+  Future<Uint8List?> _readAudio(String path) async {
+    try {
+      return kIsWeb
+          ? (await http.get(Uri.parse(path))).bodyBytes
+          : await File(path).readAsBytes();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// The red "Recording…" bar shown in place of the composer while a channel
+  /// voice note is being captured — the same shape as the chat composer's.
+  Widget _buildChannelRecordingBar(Color fieldColor) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(10, 4, 10, 8),
+      child: Row(
+        children: [
+          Expanded(
+            child: Container(
+              height: 48,
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              decoration: BoxDecoration(
+                color: fieldColor,
+                borderRadius: BorderRadius.circular(24),
+              ),
+              child: Row(
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.delete, color: Colors.red),
+                    onPressed: _cancelRecording,
+                    tooltip: 'Cancel',
+                  ),
+                  const Icon(Icons.fiber_manual_record,
+                      color: Colors.red, size: 14),
+                  const SizedBox(width: 8),
+                  Text(_recordLabel,
+                      style: const TextStyle(fontWeight: FontWeight.w600)),
+                  const Spacer(),
+                  const Text('Recording…', style: TextStyle(color: Colors.grey)),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(width: 6),
+          GestureDetector(
+            onTap: _finishRecording,
+            child: CircleAvatar(
+              radius: 24,
+              backgroundColor: AppColors.accentOn(context),
+              child: Icon(Icons.send, color: AppColors.onAccent(context)),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   /// Whether the inline attach panel is showing.
@@ -2402,6 +2629,12 @@ class _ChannelScreenState extends State<ChannelScreen> {
                           : const Color(0xFFEAECEF);
                       final iconTint =
                           isDark ? Colors.white70 : const Color(0xFF6B7280);
+                      // Recording swaps the whole card for the same red
+                      // "Recording…" bar the chat composer shows.
+                      if (_recording) {
+                        return _buildChannelRecordingBar(fieldColor);
+                      }
+                      final hasText = _controller.text.trim().isNotEmpty;
                       return Padding(
                         padding: const EdgeInsets.fromLTRB(10, 4, 10, 8),
                         child: Container(
@@ -2484,19 +2717,30 @@ class _ChannelScreenState extends State<ChannelScreen> {
                                         _pickEmojiOrGif(initialTab: 1),
                                   ),
                                   const Spacer(),
+                                  // Text → filled send circle; empty → a mic
+                                  // that starts recording, exactly like chat.
                                   GestureDetector(
-                                    onTap: _send,
-                                    child: Container(
-                                      width: 40,
-                                      height: 40,
-                                      decoration: BoxDecoration(
-                                        shape: BoxShape.circle,
-                                        color: AppColors.accentOn(context),
-                                      ),
-                                      child: Icon(Icons.send,
-                                          size: 19,
-                                          color: AppColors.onAccent(context)),
-                                    ),
+                                    onTap:
+                                        hasText ? _send : _startRecording,
+                                    child: hasText
+                                        ? Container(
+                                            width: 40,
+                                            height: 40,
+                                            decoration: BoxDecoration(
+                                              shape: BoxShape.circle,
+                                              color:
+                                                  AppColors.accentOn(context),
+                                            ),
+                                            child: Icon(Icons.send,
+                                                size: 19,
+                                                color: AppColors.onAccent(
+                                                    context)),
+                                          )
+                                        : Padding(
+                                            padding: const EdgeInsets.all(8),
+                                            child: Icon(Icons.mic,
+                                                size: 22, color: iconTint),
+                                          ),
                                   ),
                                 ],
                               ),
@@ -3339,7 +3583,10 @@ class _ChannelBubble extends StatelessWidget {
                     Navigator.pop(sheetContext);
                   },
                 ),
-              if (message.isMe && !message.isPoll && !message.isImage)
+              if (message.isMe &&
+                  !message.isPoll &&
+                  !message.isImage &&
+                  !message.isVoice)
                 ListTile(
                   leading: const Icon(Icons.edit_outlined),
                   title: const Text('Edit'),
@@ -3534,7 +3781,16 @@ class _ChannelBubble extends StatelessWidget {
                         ],
                       ),
                     ),
-                  if (message.isPoll)
+                  if (message.isVoice)
+                    VoiceNoteBubble(
+                      seconds: message.voiceSeconds,
+                      audioUrl: message.audioUrl,
+                      audioPath: message.audioPath,
+                      audioKey: message.audioKey,
+                      textColor: onBubble,
+                      metaColor: metaColor,
+                    )
+                  else if (message.isPoll)
                     PollBubble(
                       message: message,
                       textColor: onBubble,

@@ -3981,6 +3981,9 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.enterText(find.byType(TextField).first, 'gm everyone');
+    // A frame for the composer to swap the mic for the send circle now that
+    // there's text — the same beat the standalone composer test takes.
+    await tester.pump();
     await tester.tap(find.byIcon(Icons.send));
     await tester.pumpAndSettle();
     expect(find.text('gm everyone'), findsOneWidget);
@@ -18864,6 +18867,48 @@ void main() {
           .expireNow(DateTime.now().add(ChannelTypingStore.linger * 2));
       await tester.pump();
       expect(find.textContaining('is typing'), findsNothing);
+    });
+
+    testWidgets('an empty composer shows a mic; recording posts a voice note',
+        (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      CommunityStore.instance.resetForTest();
+      // No mic in a test: the capture seam hands back a real (tiny) clip, so
+      // the posted message carries audio to play, not just a duration. Small,
+      // so it rides inline as a data: URI rather than the bucket.
+      ChannelScreen.debugCaptureOverride =
+          () async => Uint8List.fromList(const [1, 2, 3]);
+      addTearDown(() => ChannelScreen.debugCaptureOverride = null);
+
+      final community = CommunityStore.instance.createCommunity('Guild');
+      final channel = CommunityStore.instance.byId(community.id)!.channels
+          .firstWhere((c) => c.type == ChannelType.text);
+
+      await tester.pumpWidget(MaterialApp(
+        home: ChannelScreen(
+            communityId: community.id, channelId: channel.id),
+      ));
+      await tester.pump();
+
+      // Empty composer → a mic where the send circle would be, like chat.
+      expect(find.byIcon(Icons.mic), findsOneWidget);
+
+      await tester.tap(find.byIcon(Icons.mic));
+      await tester.pump();
+      expect(find.text('Recording…'), findsOneWidget);
+
+      // Send to finish; the voice note lands in the channel.
+      await tester.tap(find.byIcon(Icons.send));
+      await tester.pump();
+
+      final messages = CommunityStore.instance
+          .byId(community.id)!
+          .channels
+          .firstWhere((c) => c.id == channel.id)
+          .messages;
+      final voice = messages.where((m) => m.isVoice).toList();
+      expect(voice, isNotEmpty);
+      expect(voice.first.audioUrl, startsWith('data:audio/mp4;base64,'));
     });
   });
 
