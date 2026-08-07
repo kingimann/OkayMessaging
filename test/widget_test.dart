@@ -28461,6 +28461,34 @@ void main() {
           reason: "A's score returns on sign-back-in");
     });
 
+    test('a server you created survives sign-out; the demo does not replace it',
+        () async {
+      // Reported: created servers vanish on sign-out and the bundled demo
+      // server comes back. Both were the wipe — a created community is
+      // account-scoped, restored on return; a different account sees its own.
+      SharedPreferences.setMockInitialValues({});
+      CommunityStore.instance.resetForTest();
+      await CommunityStore.instance.load();
+      addTearDown(() {
+        CommunityStore.instance.resetForTest();
+        Session.instance.resetForTest();
+      });
+
+      await Session.instance.signIn(phone: '+1 555 0100', name: 'A');
+      final mine = CommunityStore.instance.createCommunity('My Guild');
+      expect(CommunityStore.instance.byId(mine.id), isNotNull);
+
+      // Switch to B: A's server is not in view.
+      await Session.instance.signIn(phone: '+1 555 0200', name: 'B');
+      expect(CommunityStore.instance.byId(mine.id), isNull,
+          reason: "a different account must not see A's server");
+
+      // Return to A: the created server is back.
+      await Session.instance.signIn(phone: '+1 555 0100', name: 'A');
+      expect(CommunityStore.instance.byId(mine.id), isNotNull,
+          reason: "A's created server returns on sign-back-in");
+    });
+
     test('every store that persists is cleared from the live slot on switch',
         () {
       // The switch is a keep-list, and this pins the other half: a store added
